@@ -61,6 +61,11 @@ Base `/api`. Auth bằng cookie phiên `office_session` sau khi đăng nhập t�
 | GET | `/api/org-models/:id/revisions` | đăng nhập | Lịch sử chỉnh sửa |
 | GET | `/api/revisions/:id` | đăng nhập | Snapshot |
 | POST | `/api/revisions/:id/restore` | admin | Khôi phục (tạo snapshot hiện tại trước) |
+| GET | `/api/cli-tools[/:id]` | admin | Claude Code / Codex: đã cài, version, đăng nhập, cách cài |
+| POST | `/api/cli-tools/:id/install` | admin | `{method}`: native \| brew \| npm |
+| POST | `/api/cli-tools/:id/login` | admin | Bắt đầu đăng nhập |
+| GET | `/api/cli-jobs/:id` | admin | Output, link, mã thiết bị, trạng thái |
+| POST | `/api/cli-jobs/:id/input` \| `/cancel` | admin | Gửi mã / hủy |
 | GET | `/api/usage/summary?days=` | đăng nhập | Chi phí hôm nay, theo ngày, theo project, theo model |
 | GET | `/api/usage/runs?project=&days=&limit=` | đăng nhập | Lượt gọi gần đây |
 | PUT | `/api/usage/settings` | admin | Trần ngày, trần theo project, giá model |

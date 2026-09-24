@@ -14,6 +14,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/api"
 	"bitbucket.org/senprints/agent-office/internal/auth"
+	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
@@ -31,6 +32,9 @@ type env struct {
 }
 
 func setup(t *testing.T) *env { return setupWith(t, nil) }
+
+// cliPath, when set before setupWith, enables CLI tools with that PATH.
+var cliPath string
 
 func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	t.Helper()
@@ -55,7 +59,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	u := usage.New(st, time.UTC)
 	provs.SetUsage(u)
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
-		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u})
+		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager()})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	ctx := context.Background()
@@ -273,4 +277,11 @@ func TestForwardedHostFromTrustedProxy(t *testing.T) {
 func toJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+func cliManager() *clitools.Manager {
+	if cliPath == "" {
+		return nil
+	}
+	return clitools.NewManagerWithPath(cliPath)
 }

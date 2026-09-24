@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"bitbucket.org/senprints/agent-office/internal/auth"
+	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/config"
 	"bitbucket.org/senprints/agent-office/internal/home"
 	"bitbucket.org/senprints/agent-office/internal/llm"
@@ -78,6 +79,7 @@ type app struct {
 	providers *provider.Service
 	org       *orgmodel.Service
 	usage     *usage.Service
+	cli       *clitools.Manager
 }
 
 func (a *app) Close() { a.store.Close() }
@@ -105,7 +107,13 @@ func openApp(ctx context.Context, h home.Home) (*app, error) {
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.Local)
 	provs.SetUsage(u)
-	return &app{home: h, store: st, auth: auth.NewService(st, auth.Options{}), providers: provs, org: org, usage: u}, nil
+	// OFFICE_CLI_PATH pins where Claude Code / Codex are looked up.
+	cli := clitools.NewManager()
+	if p := os.Getenv("OFFICE_CLI_PATH"); p != "" {
+		cli = clitools.NewManagerWithPath(p)
+	}
+	provs.SetBinResolver(cli.LookPath)
+	return &app{home: h, store: st, auth: auth.NewService(st, auth.Options{}), providers: provs, org: org, usage: u, cli: cli}, nil
 }
 
 // withApp resolves the home and runs fn with an open app.

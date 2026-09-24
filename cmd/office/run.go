@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"bitbucket.org/senprints/agent-office/internal/api"
+	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
@@ -27,6 +28,7 @@ func runCmd() *cobra.Command {
 		origins        []string
 		secureCookies  bool
 		trustedProxies []string
+		cliSetup       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -59,6 +61,10 @@ func runCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var cliTools *clitools.Manager
+			if cliSetup {
+				cliTools = a.cli
+			}
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 			handler := api.New(api.Config{
 				Store: st, Auth: a.auth, AllowedOrigins: origins,
@@ -66,6 +72,7 @@ func runCmd() *cobra.Command {
 				Providers: a.providers, Org: a.org, Setup: setup.New(a.store, a.providers, a.org),
 				Transfer: transfer.New(a.store, a.providers, a.org),
 				Usage:    a.usage,
+				CLITools: cliTools,
 				Backup: func(ctx context.Context) (string, error) {
 					return backupTo(ctx, a, filepath.Join(h.Dir, "backups", time.Now().Format("20060102-150405")))
 				},
@@ -99,6 +106,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&addr, "api", "", "địa chỉ API (mặc định server.api_addr trong config, 127.0.0.1:8787)")
 	cmd.Flags().StringSliceVar(&origins, "allowed-origin", []string{"http://localhost:3000", "http://127.0.0.1:3000"}, "origin của dashboard được phép gọi API")
 	cmd.Flags().BoolVar(&secureCookies, "secure-cookies", false, "bật cờ Secure cho cookie (bắt buộc khi chạy sau HTTPS)")
+	cmd.Flags().BoolVar(&cliSetup, "cli-setup", true, "cho phép cài và đăng nhập Claude Code/Codex từ dashboard (tắt khi chạy trong container)")
 	cmd.Flags().StringSliceVar(&trustedProxies, "trusted-proxy", []string{"127.0.0.1/32", "::1/128"}, "dải IP của proxy (dashboard Nuxt) được tin header X-Forwarded-*")
 	return cmd
 }

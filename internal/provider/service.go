@@ -27,12 +27,17 @@ var (
 
 // Service is the provider use-case layer.
 type Service struct {
-	store storage.Store
-	box   *secrets.Box
-	opts  llm.Options
-	now   func() time.Time
-	usage *usage.Service // nil: calls are not recorded or budgeted
+	store      storage.Store
+	box        *secrets.Box
+	opts       llm.Options
+	now        func() time.Time
+	usage      *usage.Service // nil: calls are not recorded or budgeted
+	resolveBin func(string) string
 }
+
+// SetBinResolver sets how CLI providers without an explicit path find their
+// binary (the CLI manager's lookup). Without it, PATH is used.
+func (s *Service) SetBinResolver(fn func(bin string) string) { s.resolveBin = fn }
 
 // SetUsage turns on recording and budget checks for Call.
 func (s *Service) SetUsage(u *usage.Service) { s.usage = u }
@@ -175,6 +180,12 @@ func (s *Service) APIKey(p storage.Provider) (string, error) {
 
 // Client builds an llm client for p.
 func (s *Service) Client(p storage.Provider) (llm.Client, error) {
+	if p.Kind.IsCLI() && p.BaseURL == "" && s.resolveBin != nil {
+		bin := map[storage.ProviderKind]string{storage.ProviderClaudeCLI: "claude", storage.ProviderCodexCLI: "codex"}[p.Kind]
+		if path := s.resolveBin(bin); path != "" {
+			p.BaseURL = path
+		}
+	}
 	key, err := s.APIKey(p)
 	if err != nil {
 		return nil, err

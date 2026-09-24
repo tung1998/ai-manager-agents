@@ -304,3 +304,23 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 
 **Phương án đã loại.** Chặn theo tháng (khó kiểm soát khi một ngày chạy lỗi vòng lặp). Gọi Admin API của Anthropic để lấy chi phí thật (chỉ áp dụng cho API key của tổ chức, không dùng được cho Claude Code hay nhà cung cấp khác).
 
+---
+
+## ADR-021: Cài và đăng nhập Claude Code / Codex từ dashboard
+
+**Bối cảnh.** Người dùng muốn thêm kết nối "Claude Code trên máy" hay "Codex trên máy" ngay cả khi máy chưa cài, và đăng nhập luôn mà không mở terminal.
+
+**Quyết định.**
+- Server office chạy trên chính máy đó nên chạy được lệnh cài và lệnh đăng nhập (`internal/clitools`). Mỗi tác vụ chạy trong pseudo-terminal (creack/pty), output (đã bỏ mã ANSI) được dashboard lấy định kỳ. Link đăng nhập và mã thiết bị (dạng `ABCD-1234`) được tách ra thành nút; có ô gửi mã khi CLI hỏi.
+- **Chỉ các lệnh định nghĩa sẵn** chạy được, API không nhận chuỗi lệnh:
+  - Claude Code: trình cài chính thức `curl -fsSL https://claude.ai/install.sh | bash` (khuyên dùng), `brew install --cask claude-code`, `npm install -g @anthropic-ai/claude-code` (Node 22+). Đăng nhập `claude auth login`; trạng thái `claude auth status --json` (kiểm chứng trên bản 2.1.281).
+  - Codex: `brew install --cask codex`, `npm install -g @openai/codex`. Đăng nhập `codex login --device-auth` (URL + mã một lần); trạng thái `codex login status`, chỉ dùng `~/.codex/auth.json` làm dự phòng khi CLI không trả lời.
+- Hiện rõ lệnh trước khi chạy; cách cài thiếu công cụ cần thiết (curl/brew/npm) bị vô hiệu. Một tác vụ mỗi công cụ tại một thời điểm, giới hạn 15 phút, hủy được. Chỉ admin; mọi tác vụ ghi audit log.
+- Tìm lệnh theo PATH mở rộng (`~/.local/bin`, `~/.claude/local`, thư mục global của npm, Homebrew). Kết nối CLI không ghi đường dẫn cũng dùng cách tìm này, nên công cụ vừa cài dùng được ngay không cần khởi động lại office. `OFFICE_CLI_PATH` cố định nơi tìm (test, máy đặc biệt).
+- Cờ `office run --cli-setup` (mặc định bật); docker-compose tắt vì cài vào container không có ý nghĩa.
+- Nút "Thêm và kiểm tra" chỉ bật khi công cụ đã cài và đã đăng nhập.
+
+**Phương án đã loại.** Cho nhập lệnh tùy ý (rủi ro thực thi lệnh từ web). Mở terminal web đầy đủ (quá rộng quyền). Chỉ hướng dẫn bằng chữ (không đáp ứng "cài và login luôn").
+
+**Chưa kiểm chứng với tài khoản thật:** luồng `claude auth login` và `codex login --device-auth` được test bằng CLI giả để không đăng xuất hoặc thay tài khoản đang dùng trên máy phát triển.
+

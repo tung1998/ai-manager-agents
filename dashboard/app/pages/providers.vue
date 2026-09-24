@@ -27,6 +27,9 @@ const selectedKind = computed(() => kindOf(form.kind))
 const commonKinds = computed(() => kinds.value.filter(k => k.common))
 const otherKinds = computed(() => kinds.value.filter(k => !k.common))
 const advancedOpen = ref(false)
+const cliTool = computed(() => ({ claude_cli: 'claude', codex_cli: 'codex' } as Record<string, 'claude' | 'codex'>)[form.kind])
+const cliReady = ref(true)
+watch(cliTool, (v) => { if (!v) cliReady.value = true })
 const norm = (u: string) => u.trim().replace(/\/+$/, '')
 const urlChangedWithStoredKey = computed(() => !!editing.value?.has_api_key && form.keyMode === 'paste' && !form.api_key
   && norm(form.base_url) !== norm(editing.value.base_url))
@@ -260,10 +263,7 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
             <span class="font-medium">{{ selectedKind?.label }}</span>
           </div>
 
-          <UAlert
-            v-if="selectedKind?.is_cli && !selectedKind.detected?.installed" color="warning" variant="subtle" icon="i-lucide-triangle-alert"
-            :description="`Chưa thấy lệnh ${selectedKind.base_url_hint} trên máy.`"
-          />
+          <CliSetup v-if="cliTool" :key="cliTool" :tool="cliTool" @ready="(v: boolean) => cliReady = v" />
 
           <UFormField label="Tên hiển thị" required>
             <UInput v-model="form.name" class="w-full" />
@@ -344,7 +344,7 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton color="neutral" variant="ghost" label="Hủy" @click="formOpen = false" />
-          <UButton type="submit" form="provider-form" :loading="saving" :label="editing ? 'Lưu và kiểm tra' : 'Thêm và kiểm tra'" />
+          <UButton type="submit" form="provider-form" :loading="saving" :disabled="!cliReady" :label="editing ? 'Lưu và kiểm tra' : 'Thêm và kiểm tra'" />
         </div>
       </template>
     </UModal>

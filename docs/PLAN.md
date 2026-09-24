@@ -92,6 +92,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Project không thư mục (helper toàn máy), chọn thư mục bằng cây (ADR-017) | Xong |
 | Lịch sử chỉnh sửa + khôi phục, export/import config (thư mục cho git, file cho dashboard), backup, chặn key theo URL mới (ADR-019) | Xong |
 | Lịch sử lượt gọi AI, chi phí (thật hoặc ước tính), trần ngân sách theo ngày cho office và project, trang Chi phí (ADR-020) | Xong |
+| Cài và đăng nhập Claude Code / Codex ngay trên dashboard (ADR-021) | Xong |
 | Runtime chạy agent (tool, session), worker, `doctor` | Chưa làm |
 
 ### M0: Nền móng

@@ -54,6 +54,15 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/fs/dirs", admin(s.listDirs))
 
+	mux.Handle("GET /api/cli-tools", admin(s.cliTools))
+	if s.cfg.CLITools != nil {
+		mux.Handle("GET /api/cli-tools/{id}", admin(s.cliTool))
+		mux.Handle("POST /api/cli-tools/{id}/install", admin(s.cliInstall))
+		mux.Handle("POST /api/cli-tools/{id}/login", admin(s.cliLogin))
+		mux.Handle("GET /api/cli-jobs/{id}", admin(s.cliJob))
+		mux.Handle("POST /api/cli-jobs/{id}/input", admin(s.cliJobInput))
+		mux.Handle("POST /api/cli-jobs/{id}/cancel", admin(s.cliJobCancel))
+	}
 	if s.cfg.Usage != nil {
 		mux.Handle("GET /api/usage/summary", auth(s.usageSummary))
 		mux.Handle("GET /api/usage/runs", auth(s.usageRuns))
@@ -164,6 +173,16 @@ func detectCLI(bin string) *detected {
 	return &detected{Installed: true, Version: strings.TrimSpace(string(out))}
 }
 
+// detectTool asks the CLI manager (same lookup as install/login) when enabled.
+func (s *server) detectTool(r *http.Request, id string) *detected {
+	if s.cfg.CLITools != nil {
+		if st, err := s.cfg.CLITools.Status(r.Context(), id); err == nil {
+			return &detected{Installed: st.Installed, Version: st.Version}
+		}
+	}
+	return detectCLI(id)
+}
+
 func detectEnv(name string) *detected {
 	if os.Getenv(name) != "" {
 		return &detected{EnvKey: name}
@@ -179,7 +198,7 @@ func (s *server) providerKinds(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"kinds": []kindInfo{
 		k(storage.ProviderClaudeCLI, "Claude Code trên máy",
 			"Dùng tài khoản Claude đã đăng nhập trong Claude Code trên máy này (gói Pro/Max). Không cần API key.",
-			"claude", false, true, detectCLI("claude")),
+			"claude", false, true, s.detectTool(r, "claude")),
 		k(storage.ProviderAnthropic, "Claude API",
 			"Trả tiền theo lượng dùng qua API key lấy tại console.anthropic.com.",
 			"https://api.anthropic.com", true, true, detectEnv("ANTHROPIC_API_KEY")),
@@ -188,7 +207,7 @@ func (s *server) providerKinds(w http.ResponseWriter, r *http.Request) {
 			"https://api.openai.com/v1", true, true, detectEnv("OPENAI_API_KEY")),
 		k(storage.ProviderCodexCLI, "Codex trên máy",
 			"Dùng tài khoản ChatGPT đã đăng nhập trong Codex CLI trên máy này.",
-			"codex", false, false, detectCLI("codex")),
+			"codex", false, false, s.detectTool(r, "codex")),
 		k(storage.ProviderOpenAICompatible, "API tương thích OpenAI",
 			"Model chạy local hoặc cổng trung gian: Ollama, LM Studio, vLLM, OpenRouter, LiteLLM…",
 			"http://localhost:11434/v1", false, false, nil),

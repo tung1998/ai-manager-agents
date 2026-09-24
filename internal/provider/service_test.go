@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -164,5 +165,23 @@ func TestBaseURLChangeDropsStoredKey(t *testing.T) {
 	c, _ := svc.Create(ctx, provider.Input{Name: "Local", Kind: storage.ProviderOpenAICompatible, BaseURL: "http://a/v1"})
 	if _, err := svc.Update(ctx, c.ID, provider.Input{Name: "Local", Kind: storage.ProviderOpenAICompatible, BaseURL: "http://b/v1"}); err != nil {
 		t.Fatalf("keyless move = %v", err)
+	}
+}
+
+func TestCLIProviderUsesBinResolver(t *testing.T) {
+	svc, _, _ := setup(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	os.WriteFile(bin, []byte("#!/bin/sh\necho '9.9.9 (Claude Code)'\n"), 0o755)
+	p, _ := svc.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI})
+	svc.SetBinResolver(func(name string) string {
+		if name == "claude" {
+			return bin
+		}
+		return ""
+	})
+	if res, _ := svc.Test(ctx, p.ID, "", ""); !res.OK || res.Version != "9.9.9 (Claude Code)" {
+		t.Fatalf("test via resolver = %+v", res)
 	}
 }

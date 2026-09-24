@@ -16,6 +16,8 @@ services:
       - --allowed-origin=${OFFICE_PUBLIC_URL:-http://localhost:3000}
       # the dashboard container reaches the API from the compose network
       - --trusted-proxy=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      # installing CLIs inside the container is pointless; mount credentials instead
+      - --cli-setup=false
     volumes:
       - office-data:/data
     environment:
