@@ -1,0 +1,117 @@
+// Command office is the agent-office CLI and server.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+
+	"bitbucket.org/senprints/agent-office/internal/auth"
+	"bitbucket.org/senprints/agent-office/internal/config"
+	"bitbucket.org/senprints/agent-office/internal/home"
+	"bitbucket.org/senprints/agent-office/internal/llm"
+	"bitbucket.org/senprints/agent-office/internal/orgmodel"
+	"bitbucket.org/senprints/agent-office/internal/provider"
+	"bitbucket.org/senprints/agent-office/internal/secrets"
+	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+)
+
+// version is set at build time with -ldflags "-X main.version=...".
+var version = "dev"
+
+var (
+	configPath string
+	homeFlag   string
+)
+
+func main() {
+	root := &cobra.Command{
+		Use:           "office",
+		Short:         "agent-office: phòng ban AI agent giám sát hệ thống",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Version:       version,
+	}
+	root.PersistentFlags().StringVarP(&configPath, "config", "c", "office.config.json", "đường dẫn office.config.json")
+	root.PersistentFlags().StringVar(&homeFlag, "home", "", "thư mục dữ liệu (mặc định: .office của project gần nhất, hoặc ~/.agent-office)")
+	root.AddCommand(runCmd(), initCmd(), userCmd(), repoCmd(), providerCmd(), templateCmd(), exportCmd(), importCmd(), backupCmd(), configCmd())
+
+	if err := root.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "lỗi:", err)
+		var ve *config.ValidationError
+		if errors.As(err, &ve) {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
+}
+
+// loadConfig returns the config file, or defaults when it does not exist yet.
+func loadConfig() (config.Config, error) {
+	cfg, err := config.Load(configPath)
+	if errors.Is(err, config.ErrNotFound) {
+		return config.Defaults(), nil
+	}
+	return cfg, err
+}
+
+// resolveHome picks the data directory for this invocation.
+func resolveHome() (home.Home, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return home.Home{}, err
+	}
+	return home.Resolve(homeFlag, cwd)
+}
+
+// app bundles what most commands need.
+type app struct {
+	home      home.Home
+	store     storage.Store
+	auth      *auth.Service
+	providers *provider.Service
+	org       *orgmodel.Service
+}
+
+func (a *app) Close() { a.store.Close() }
+
+// openApp opens the store in h (migrated, built-in templates seeded).
+func openApp(ctx context.Context, h home.Home) (*app, error) {
+	st, err := sqlite.Open(h.DB())
+	if err != nil {
+		return nil, err
+	}
+	if err := st.Migrate(ctx); err != nil {
+		st.Close()
+		return nil, err
+	}
+	box, err := secrets.Load(h.SecretKey())
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	org := orgmodel.NewService(st)
+	if _, err := org.SeedBuiltins(ctx); err != nil {
+		st.Close()
+		return nil, err
+	}
+	return &app{home: h, store: st, auth: auth.NewService(st, auth.Options{}), providers: provider.NewService(st, box, llm.Options{}), org: org}, nil
+}
+
+// withApp resolves the home and runs fn with an open app.
+func withApp(ctx context.Context, fn func(*app) error) error {
+	h, err := resolveHome()
+	if err != nil {
+		return err
+	}
+	a, err := openApp(ctx, h)
+	if err != nil {
+		return err
+	}
+	defer a.Close()
+	return fn(a)
+}

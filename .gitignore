@@ -1,0 +1,9 @@
+.office/
+dashboard/.nuxt/
+dashboard/.output/
+dashboard/node_modules/
+*.db
+.env
+
+# local build
+bin/

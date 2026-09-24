@@ -1,0 +1,199 @@
+package storage
+
+import (
+	"context"
+	"time"
+)
+
+// ProviderKind is how agent-office reaches a model.
+type ProviderKind string
+
+const (
+	ProviderAnthropic        ProviderKind = "anthropic"         // Anthropic Messages API
+	ProviderOpenAI           ProviderKind = "openai"            // OpenAI API
+	ProviderOpenAICompatible ProviderKind = "openai_compatible" // any /v1/chat/completions endpoint
+	ProviderClaudeCLI        ProviderKind = "claude_cli"        // local `claude -p`
+	ProviderCodexCLI         ProviderKind = "codex_cli"         // local `codex exec`
+)
+
+// Valid reports whether k is known.
+func (k ProviderKind) Valid() bool {
+	switch k {
+	case ProviderAnthropic, ProviderOpenAI, ProviderOpenAICompatible, ProviderClaudeCLI, ProviderCodexCLI:
+		return true
+	}
+	return false
+}
+
+// IsCLI reports whether the provider runs a local binary instead of an HTTP API.
+func (k ProviderKind) IsCLI() bool { return k == ProviderClaudeCLI || k == ProviderCodexCLI }
+
+// Model tiers let templates say "strong model" without naming a vendor model.
+const (
+	TierStrong   = "strong"
+	TierBalanced = "balanced"
+	TierFast     = "fast"
+)
+
+// ValidTier reports whether t is a model tier.
+func ValidTier(t string) bool { return t == TierStrong || t == TierBalanced || t == TierFast }
+
+// Provider is an AI connection.
+type Provider struct {
+	ID           string
+	Name         string
+	Kind         ProviderKind
+	BaseURL      string
+	APIKeyEnc    string // encrypted; only internal/secrets decrypts it
+	APIKeyEnv    string
+	APIKeyHint   string
+	TierModels   map[string]string
+	Models       []string
+	IsDefault    bool
+	Enabled      bool
+	Status       string // unknown | ok | error
+	StatusDetail string
+	CheckedAt    *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// Org model kinds.
+const (
+	KindSolo    = "solo"
+	KindTeam    = "team"
+	KindCouncil = "council"
+	KindCustom  = "custom"
+)
+
+// Governance says how the agents of an org model reach a decision.
+type Governance struct {
+	Mode   string   `json:"mode"`             // single | hierarchy | council
+	Quorum int      `json:"quorum,omitempty"` // council: votes needed
+	Veto   []string `json:"veto,omitempty"`   // agent keys that can block side effects
+	Notes  string   `json:"notes,omitempty"`
+}
+
+// OrgModel is a template (RepoID empty) or a repo's instance.
+type OrgModel struct {
+	ID               string
+	RepoID           string
+	SourceTemplateID string
+	Key              string
+	Name             string
+	Description      string
+	Kind             string
+	Governance       Governance
+	Builtin          bool
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// IsTemplate reports whether m lives in the library.
+func (m OrgModel) IsTemplate() bool { return m.RepoID == "" }
+
+// Agent tiers.
+const (
+	TierLead    = "lead"
+	TierManager = "manager"
+	TierWorker  = "worker"
+)
+
+// Permissions bound what an agent may do.
+type Permissions struct {
+	ReadOnly         bool     `json:"read_only"`
+	Tools            []string `json:"tools,omitempty"`
+	RequiresApproval bool     `json:"requires_approval,omitempty"` // side effects need a human
+}
+
+// Agent belongs to one org model.
+type Agent struct {
+	ID           string
+	OrgModelID   string
+	Key          string
+	Name         string
+	Tier         string // lead | manager | worker
+	Role         string
+	Description  string
+	ReportsTo    []string // agent keys in the same org model
+	ProviderID   string
+	ModelTier    string
+	LLMModel     string
+	Instructions string
+	Permissions  Permissions
+	Sort         int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// Repo is a codebase agent-office manages.
+type Repo struct {
+	ID          string
+	Name        string
+	Path        string
+	GitRemote   string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// ProviderRepo manages AI connections.
+type ProviderRepo interface {
+	Create(ctx context.Context, p Provider) (Provider, error)
+	Update(ctx context.Context, p Provider) error
+	Get(ctx context.Context, id string) (Provider, error)
+	List(ctx context.Context) ([]Provider, error)
+	Delete(ctx context.Context, id string) error
+	SetDefault(ctx context.Context, id string) error
+	SetStatus(ctx context.Context, id, status, detail string, models []string, at time.Time) error
+}
+
+// OrgModelRepo manages templates and repo instances.
+type OrgModelRepo interface {
+	Create(ctx context.Context, m OrgModel) (OrgModel, error)
+	Update(ctx context.Context, m OrgModel) error
+	Get(ctx context.Context, id string) (OrgModel, error)
+	GetTemplateByKey(ctx context.Context, key string) (OrgModel, error)
+	GetForRepo(ctx context.Context, repoID string) (OrgModel, error)
+	ListTemplates(ctx context.Context) ([]OrgModel, error)
+	Delete(ctx context.Context, id string) error
+}
+
+// AgentRepo manages agents of an org model.
+type AgentRepo interface {
+	Create(ctx context.Context, a Agent) (Agent, error)
+	Update(ctx context.Context, a Agent) error
+	Get(ctx context.Context, id string) (Agent, error)
+	List(ctx context.Context, orgModelID string) ([]Agent, error)
+	Delete(ctx context.Context, id string) error
+}
+
+// Revision is a snapshot of an org model taken before a change.
+type Revision struct {
+	ID         string
+	OrgModelID string
+	Action     string // what was about to happen: agent.update, model.update, restore…
+	Actor      string
+	AgentCount int
+	Snapshot   []byte // JSON of orgmodel.Template
+	CreatedAt  time.Time
+}
+
+// RevisionRepo stores org model snapshots.
+type RevisionRepo interface {
+	Create(ctx context.Context, r Revision) (Revision, error)
+	Get(ctx context.Context, id string) (Revision, error)
+	List(ctx context.Context, orgModelID string, limit int) ([]Revision, error)
+	// Prune keeps the newest keep revisions of a model.
+	Prune(ctx context.Context, orgModelID string, keep int) error
+}
+
+// RepoRepo manages registered repositories.
+type RepoRepo interface {
+	Create(ctx context.Context, r Repo) (Repo, error)
+	Update(ctx context.Context, r Repo) error
+	Get(ctx context.Context, id string) (Repo, error)
+	GetByPath(ctx context.Context, path string) (Repo, error)
+	List(ctx context.Context) ([]Repo, error)
+	Delete(ctx context.Context, id string) error
+}
