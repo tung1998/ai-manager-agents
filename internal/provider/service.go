@@ -13,6 +13,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
 var (
@@ -30,6 +31,33 @@ type Service struct {
 	box   *secrets.Box
 	opts  llm.Options
 	now   func() time.Time
+	usage *usage.Service // nil: calls are not recorded or budgeted
+}
+
+// SetUsage turns on recording and budget checks for Call.
+func (s *Service) SetUsage(u *usage.Service) { s.usage = u }
+
+// Call sends one prompt through p: it checks the daily budget, calls the
+// model, and records tokens, cost and duration. Every model call in the
+// office goes through here.
+func (s *Service) Call(ctx context.Context, p storage.Provider, req llm.Request, m usage.Meta) (llm.Result, error) {
+	if s.usage != nil {
+		if err := s.usage.Check(ctx, m.ProjectID); err != nil {
+			_, _ = s.usage.Record(ctx, m, p, req.Model, llm.Result{}, err)
+			return llm.Result{}, err
+		}
+	}
+	client, err := s.Client(p)
+	if err != nil {
+		return llm.Result{}, err
+	}
+	res, err := client.Complete(ctx, req)
+	if s.usage != nil {
+		if _, recErr := s.usage.Record(ctx, m, p, req.Model, res, err); recErr != nil && err == nil {
+			err = recErr
+		}
+	}
+	return res, err
 }
 
 // NewService builds a Service. opts lets tests inject an HTTP client.
@@ -200,7 +228,11 @@ func (s *Service) Test(ctx context.Context, id, prompt, model string) (TestResul
 		if model == "" && len(chk.Models) > 0 {
 			model = chk.Models[0]
 		}
-		out, err := client.Complete(ctx, llm.Request{Model: model, Prompt: prompt, MaxTokens: 256})
+		out, err := s.Call(ctx, p, llm.Request{Model: model, Prompt: prompt, MaxTokens: 256}, usage.Meta{Kind: "provider_test"})
+		var be *usage.BudgetError
+		if errors.As(err, &be) {
+			return TestResult{OK: false, Detail: err.Error()}, nil
+		}
 		if err != nil {
 			return fail(fmt.Errorf("kết nối được nhưng gửi prompt lỗi: %w", err))
 		}

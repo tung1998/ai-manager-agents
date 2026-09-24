@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/api"
 	"bitbucket.org/senprints/agent-office/internal/auth"
@@ -21,6 +22,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
+	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
 type env struct {
@@ -50,8 +52,10 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 		t.Fatal(err)
 	}
 	provs := provider.NewService(st, box, llm.Options{})
+	u := usage.New(st, time.UTC)
+	provs.SetUsage(u)
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
-		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org)})
+		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	ctx := context.Background()

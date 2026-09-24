@@ -292,3 +292,15 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 
 **Phương án đã loại.** Tự push git từ server (rủi ro đẩy nhầm, cần credential); để người dùng tự `--commit` rồi push. Export kèm key mã hóa (vô dụng ở máy khác vì khác `secret.key`, và dễ bị đưa lên git).
 
+---
+
+## ADR-020: Ghi nhận mọi lượt gọi AI, chi phí và trần ngân sách theo ngày
+
+**Quyết định.**
+- Mọi lượt gọi model đi qua một điểm duy nhất `provider.Service.Call`: kiểm tra ngân sách → gọi model → ghi bảng `runs` (loại, project, agent, kết nối, model, token vào/ra, chi phí, nguồn chi phí, thời gian, trạng thái, người thực hiện). Chat và agent sau này dùng cùng điểm này.
+- **Nguồn chi phí:** `provider` khi runtime tự báo (Claude Code trả `total_cost_usd`); `estimate` khi tính theo bảng giá (giá Anthropic lấy từ tài liệu claude-api, bản cache 2026-06-24; admin sửa hoặc thêm giá model khác như GPT); `unknown` khi model chưa có giá. Ước tính không tách token cache nên là cận trên.
+- **Trần theo ngày** (theo múi giờ máy chạy office): toàn office và từng project. Chạm trần thì lượt gọi bị chặn trước khi tới model, vẫn được ghi với trạng thái `blocked`, API trả `429 {code: "budget"}`. Mức cảnh báo mặc định 80%.
+- **Trang Chi phí:** hôm nay so với trần (màu trạng thái luôn kèm icon và chữ), tổng kỳ, số lượt, số lượt chưa rõ giá; biểu đồ theo ngày một màu (có tooltip và chế độ bảng); phân tích theo project và theo model; danh sách lượt gọi gần đây; hộp thoại chỉnh ngân sách và giá.
+
+**Phương án đã loại.** Chặn theo tháng (khó kiểm soát khi một ngày chạy lỗi vòng lặp). Gọi Admin API của Anthropic để lấy chi phí thật (chỉ áp dụng cho API key của tổ chức, không dùng được cho Claude Code hay nhà cung cấp khác).
+

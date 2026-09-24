@@ -111,8 +111,12 @@ async function propose() {
     accepted.value = res.result.proposal.agent_changes.map(() => true)
     preview.value = { template: res.result.template, problems: res.result.problems }
   } catch (e) {
-    const d = (e as { data?: { code?: string } }).data
+    const d = (e as { data?: { code?: string, error?: string } }).data
     if (d?.code === 'no_provider') return goConnect()
+    if (d?.code === 'budget') {
+      toast.add({ title: 'Đã chạm trần chi phí', description: d.error, color: 'warning', actions: [{ label: 'Xem Chi phí', onClick: () => { navigateTo('/costs') } }] })
+      return
+    }
     toast.add({ title: 'AI chưa phân tích được', description: apiError(e), color: 'error' })
   } finally {
     proposing.value = false

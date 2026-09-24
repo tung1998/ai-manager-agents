@@ -21,6 +21,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
+	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
 // SessionCookie is the name of the login cookie.
@@ -42,6 +43,7 @@ type Config struct {
 	Org       *orgmodel.Service
 	Setup     *setup.Assistant
 	Transfer  *transfer.Service
+	Usage     *usage.Service
 	// Backup writes a copy of the data to a new folder and returns its path.
 	Backup func(ctx context.Context) (string, error)
 	System SystemInfo

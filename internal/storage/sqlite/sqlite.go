@@ -81,6 +81,8 @@ func (s *Store) OrgModels() storage.OrgModelRepo { return orgModelRepo{s.q} }
 func (s *Store) Agents() storage.AgentRepo       { return agentRepo{s.q} }
 func (s *Store) Repos() storage.RepoRepo         { return repoRepo{s.q} }
 func (s *Store) Revisions() storage.RevisionRepo { return revisionRepo{s.q} }
+func (s *Store) Runs() storage.RunRepo           { return runRepo{s.q} }
+func (s *Store) Settings() storage.SettingRepo   { return settingRepo{s.q} }
 
 // InTx runs fn inside one transaction. Nested calls reuse the outer one.
 func (s *Store) InTx(ctx context.Context, fn func(storage.Store) error) error {

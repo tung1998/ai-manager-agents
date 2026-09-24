@@ -65,6 +65,7 @@ func runCmd() *cobra.Command {
 				SecureCookies: secureCookies, TrustedProxies: proxies, Logger: log, Version: version,
 				Providers: a.providers, Org: a.org, Setup: setup.New(a.store, a.providers, a.org),
 				Transfer: transfer.New(a.store, a.providers, a.org),
+				Usage:    a.usage,
 				Backup: func(ctx context.Context) (string, error) {
 					return backupTo(ctx, a, filepath.Join(h.Dir, "backups", time.Now().Format("20060102-150405")))
 				},

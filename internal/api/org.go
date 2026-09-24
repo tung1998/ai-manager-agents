@@ -54,6 +54,11 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/fs/dirs", admin(s.listDirs))
 
+	if s.cfg.Usage != nil {
+		mux.Handle("GET /api/usage/summary", auth(s.usageSummary))
+		mux.Handle("GET /api/usage/runs", auth(s.usageRuns))
+		mux.Handle("PUT /api/usage/settings", admin(s.usageSettings))
+	}
 	if s.cfg.Transfer != nil {
 		mux.Handle("GET /api/transfer/export", admin(s.transferExport))
 		mux.Handle("POST /api/transfer/import", admin(s.transferImport))

@@ -188,6 +188,60 @@ type RevisionRepo interface {
 	Prune(ctx context.Context, orgModelID string, keep int) error
 }
 
+// Run is one model call.
+type Run struct {
+	ID           string
+	Kind         string
+	ProjectID    string
+	AgentID      string
+	ProviderID   string
+	ProviderName string
+	Model        string
+	Status       string // ok | error | blocked
+	InputTokens  int
+	OutputTokens int
+	CostUSD      *float64
+	CostSource   string // provider | estimate | unknown
+	DurationMS   int64
+	Error        string
+	Actor        string
+	CreatedAt    time.Time
+}
+
+// RunFilter narrows a run listing.
+type RunFilter struct {
+	ProjectID string
+	Since     time.Time
+	Limit     int
+}
+
+// UsageRow is spend aggregated by one dimension.
+type UsageRow struct {
+	Key          string  `json:"key"` // day (YYYY-MM-DD), project id, or model
+	Label        string  `json:"label"`
+	Runs         int     `json:"runs"`
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+	UnknownCost  int     `json:"unknown_cost"` // runs whose cost is unknown
+}
+
+// RunRepo stores model calls.
+type RunRepo interface {
+	Create(ctx context.Context, r Run) (Run, error)
+	List(ctx context.Context, f RunFilter) ([]Run, error)
+	// Spent sums known cost since t (optionally for one project).
+	Spent(ctx context.Context, since time.Time, projectID string) (float64, error)
+	// Aggregate groups runs since t by "day" (in loc), "project" or "model".
+	Aggregate(ctx context.Context, since time.Time, by string, loc *time.Location) ([]UsageRow, error)
+}
+
+// SettingRepo stores JSON settings.
+type SettingRepo interface {
+	Get(ctx context.Context, key string, dst any) (bool, error)
+	Set(ctx context.Context, key string, v any) error
+}
+
 // RepoRepo manages registered repositories.
 type RepoRepo interface {
 	Create(ctx context.Context, r Repo) (Repo, error)

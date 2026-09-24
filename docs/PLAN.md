@@ -91,7 +91,8 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Thiết lập project bằng AI: quét, đọc file agent sẵn có, đề xuất mô hình + tinh chỉnh agent, duyệt rồi áp (ADR-018) | Xong |
 | Project không thư mục (helper toàn máy), chọn thư mục bằng cây (ADR-017) | Xong |
 | Lịch sử chỉnh sửa + khôi phục, export/import config (thư mục cho git, file cho dashboard), backup, chặn key theo URL mới (ADR-019) | Xong |
-| Runtime chạy agent (tool, session), worker, budget, `doctor` | Chưa làm |
+| Lịch sử lượt gọi AI, chi phí (thật hoặc ước tính), trần ngân sách theo ngày cho office và project, trang Chi phí (ADR-020) | Xong |
+| Runtime chạy agent (tool, session), worker, `doctor` | Chưa làm |
 
 ### M0: Nền móng
 

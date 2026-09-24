@@ -61,6 +61,9 @@ Base `/api`. Auth bằng cookie phiên `office_session` sau khi đăng nhập t�
 | GET | `/api/org-models/:id/revisions` | đăng nhập | Lịch sử chỉnh sửa |
 | GET | `/api/revisions/:id` | đăng nhập | Snapshot |
 | POST | `/api/revisions/:id/restore` | admin | Khôi phục (tạo snapshot hiện tại trước) |
+| GET | `/api/usage/summary?days=` | đăng nhập | Chi phí hôm nay, theo ngày, theo project, theo model |
+| GET | `/api/usage/runs?project=&days=&limit=` | đăng nhập | Lượt gọi gần đây |
+| PUT | `/api/usage/settings` | admin | Trần ngày, trần theo project, giá model |
 | GET | `/api/transfer/export` | admin | Tải bundle config |
 | POST | `/api/transfer/import` | admin | `{bundle, dry_run}` → danh sách thay đổi |
 | POST | `/api/transfer/backup` | admin | Tạo backup trên máy chạy office |

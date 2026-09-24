@@ -15,6 +15,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
 // ErrNoProvider means no AI connection is available: the UI sends the user to set one up.
@@ -72,7 +73,7 @@ func New(store storage.Store, providers *provider.Service, org *orgmodel.Service
 // Propose asks the default AI connection (strong tier) for a setup.
 // projectText is the scan summary (empty for a machine-wide helper); goal is
 // optional free text from the user.
-func (a *Assistant) Propose(ctx context.Context, projectName, projectText, goal string) (Result, error) {
+func (a *Assistant) Propose(ctx context.Context, projectID, projectName, projectText, goal string) (Result, error) {
 	p, model, err := a.providers.ResolveModel(ctx, storage.Agent{ModelTier: storage.TierStrong})
 	if errors.Is(err, storage.ErrNotFound) || (err == nil && (!p.Enabled || p.Status == "error")) {
 		return Result{}, ErrNoProvider
@@ -80,18 +81,17 @@ func (a *Assistant) Propose(ctx context.Context, projectName, projectText, goal 
 	if err != nil {
 		return Result{}, err
 	}
-	client, err := a.providers.Client(p)
-	if err != nil {
+	if _, err := a.providers.Client(p); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrNoProvider, err)
 	}
 	templates, err := a.library(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-	out, err := client.Complete(ctx, llm.Request{
+	out, err := a.providers.Call(ctx, p, llm.Request{
 		Model: model, System: systemPrompt, MaxTokens: 6000,
 		Prompt: userPrompt(projectName, projectText, goal, templates),
-	})
+	}, usage.Meta{Kind: "setup_propose", ProjectID: projectID})
 	if err != nil {
 		return Result{}, fmt.Errorf("gọi AI lỗi: %w", err)
 	}

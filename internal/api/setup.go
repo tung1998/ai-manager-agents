@@ -8,6 +8,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/scan"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
 // scanProject reads the project folder; machine-wide projects have nothing to scan.
@@ -58,7 +59,12 @@ func (s *server) setupPropose(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Project toàn máy không có thư mục để quét: hãy mô tả bạn muốn helper làm gì")
 		return
 	}
-	res, err := s.cfg.Setup.Propose(r.Context(), x.Name, text, in.Goal)
+	res, err := s.cfg.Setup.Propose(r.Context(), x.ID, x.Name, text, in.Goal)
+	var be *usage.BudgetError
+	if errors.As(err, &be) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": be.Error(), "code": "budget"})
+		return
+	}
 	if errors.Is(err, setup.ErrNoProvider) {
 		writeJSON(w, http.StatusPreconditionFailed, map[string]any{"error": "Cần kết nối AI trước khi thiết lập bằng AI", "code": "no_provider"})
 		return

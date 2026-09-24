@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 
+	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -24,19 +25,10 @@ var (
 // KeepRevisions is how many snapshots are kept per model.
 const KeepRevisions = 50
 
-type actorKey struct{}
-
 // WithActor records who is making changes, for the revision history.
-func WithActor(ctx context.Context, actor string) context.Context {
-	return context.WithValue(ctx, actorKey{}, actor)
-}
+func WithActor(ctx context.Context, who string) context.Context { return actor.With(ctx, who) }
 
-func actorFrom(ctx context.Context) string {
-	if a, ok := ctx.Value(actorKey{}).(string); ok {
-		return a
-	}
-	return "system"
-}
+func actorFrom(ctx context.Context) string { return actor.From(ctx) }
 
 // Service is the use-case layer for org models.
 type Service struct{ store storage.Store }

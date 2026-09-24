@@ -78,6 +78,8 @@ type Store interface {
 	Agents() AgentRepo
 	Repos() RepoRepo
 	Revisions() RevisionRepo
+	Runs() RunRepo
+	Settings() SettingRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error

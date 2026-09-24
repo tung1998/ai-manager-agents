@@ -62,7 +62,7 @@ func env(t *testing.T, answer string) (*setup.Assistant, storage.Store, *provide
 func TestProposeAndAccept(t *testing.T) {
 	a, st, _, _ := env(t, aiAnswer)
 	ctx := context.Background()
-	res, err := a.Propose(ctx, "shop", "Project: shop\nFramework: Nuxt", "")
+	res, err := a.Propose(ctx, "", "shop", "Project: shop\nFramework: Nuxt", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,14 +126,14 @@ func TestNoProvider(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(dir, "k"))
 	org := orgmodel.NewService(st)
 	a := setup.New(st, provider.NewService(st, box, llm.Options{}), org)
-	if _, err := a.Propose(context.Background(), "x", "", "goal"); !errors.Is(err, setup.ErrNoProvider) {
+	if _, err := a.Propose(context.Background(), "", "x", "", "goal"); !errors.Is(err, setup.ErrNoProvider) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestBadJSON(t *testing.T) {
 	a, _, _, _ := env(t, "Xin lỗi, tôi không chắc.")
-	if _, err := a.Propose(context.Background(), "x", "p", ""); err == nil || !strings.Contains(err.Error(), "JSON") {
+	if _, err := a.Propose(context.Background(), "", "x", "p", ""); err == nil || !strings.Contains(err.Error(), "JSON") {
 		t.Fatalf("err = %v", err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -18,6 +19,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -75,6 +77,7 @@ type app struct {
 	auth      *auth.Service
 	providers *provider.Service
 	org       *orgmodel.Service
+	usage     *usage.Service
 }
 
 func (a *app) Close() { a.store.Close() }
@@ -99,7 +102,10 @@ func openApp(ctx context.Context, h home.Home) (*app, error) {
 		st.Close()
 		return nil, err
 	}
-	return &app{home: h, store: st, auth: auth.NewService(st, auth.Options{}), providers: provider.NewService(st, box, llm.Options{}), org: org}, nil
+	provs := provider.NewService(st, box, llm.Options{})
+	u := usage.New(st, time.Local)
+	provs.SetUsage(u)
+	return &app{home: h, store: st, auth: auth.NewService(st, auth.Options{}), providers: provs, org: org, usage: u}, nil
 }
 
 // withApp resolves the home and runs fn with an open app.

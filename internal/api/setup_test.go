@@ -88,3 +88,40 @@ func TestSetupFlowAPI(t *testing.T) {
 		t.Fatalf("helper without goal = %d", resp.StatusCode)
 	}
 }
+
+func TestUsageAPIAndBudget(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	srv := fakeClaude(t, "```json\n"+`{"description":"x","template_key":"solo","reason":"r","confidence":0.5,"agent_changes":[],"notes":[]}`+"\n```")
+	do(t, admin, "POST", e.srv.URL+"/api/providers", map[string]any{"name": "Claude", "kind": "anthropic", "base_url": srv.URL, "api_key": "sk-ant-test-0000-key"}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"name": "Trợ lý"}, nil)
+	id := body["project"].(map[string]any)["id"].(string)
+
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/"+id+"/setup/propose", map[string]any{"goal": "x"}, nil); resp.StatusCode != 200 {
+		t.Fatalf("propose = %d", resp.StatusCode)
+	}
+	resp, sum := do(t, admin, "GET", e.srv.URL+"/api/usage/summary?days=7", nil, nil)
+	day := sum["by_day"].([]any)[6].(map[string]any)
+	if resp.StatusCode != 200 || len(sum["by_day"].([]any)) != 7 || sum["today"].(float64) <= 0 || day["cost_usd"].(float64) <= 0 || day["runs"].(float64) != 1 {
+		t.Fatalf("summary = %d %v", resp.StatusCode, sum)
+	}
+	resp, runs := do(t, admin, "GET", e.srv.URL+"/api/usage/runs", nil, nil)
+	r0 := runs["runs"].([]any)[0].(map[string]any)
+	if resp.StatusCode != 200 || r0["kind"] != "setup_propose" || r0["project_name"] != "Trợ lý" || r0["cost_source"] != "estimate" {
+		t.Fatalf("runs = %v", runs)
+	}
+
+	member := e.client(t)
+	login(t, e, member, "member@x.io", "member-password")
+	if resp, _ := do(t, member, "PUT", e.srv.URL+"/api/usage/settings", map[string]any{"daily_limit_usd": 1}, nil); resp.StatusCode != 403 {
+		t.Fatalf("member settings = %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, admin, "PUT", e.srv.URL+"/api/usage/settings", map[string]any{"daily_limit_usd": 0.0001}, nil); resp.StatusCode != 200 {
+		t.Fatalf("settings = %d", resp.StatusCode)
+	}
+	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+id+"/setup/propose", map[string]any{"goal": "x"}, nil)
+	if resp.StatusCode != 429 || body["code"] != "budget" {
+		t.Fatalf("over budget = %d %v", resp.StatusCode, body)
+	}
+}

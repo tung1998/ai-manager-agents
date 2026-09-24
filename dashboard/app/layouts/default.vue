@@ -14,7 +14,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
     { label: 'Kết nối AI', icon: 'i-lucide-plug', to: '/providers' },
     { label: 'Blackboard', icon: 'i-lucide-messages-square', to: '/blackboard', badge: 'M4' },
     { label: 'Incidents', icon: 'i-lucide-siren', to: '/incidents', badge: 'M4' },
-    { label: 'Chi phí', icon: 'i-lucide-wallet', to: '/costs', badge: 'M4' }
+    { label: 'Chi phí', icon: 'i-lucide-wallet', to: '/costs' }
   ]
   const admin: NavigationMenuItem[] = isAdmin.value
     ? [
