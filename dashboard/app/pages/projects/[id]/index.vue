@@ -49,15 +49,19 @@ async function removeRepo() {
   await navigateTo('/projects')
 }
 
+function exportModel() {
+  if (project.value?.model) window.open(`/api/org-models/${project.value.model.id}/export`, '_blank')
+}
+
 // Save the project's customised model as a reusable template.
 async function saveAsTemplate() {
   const m = project.value?.model
   if (!m) return
-  const key = prompt('Key cho mẫu mới (chữ thường, gạch ngang):', `${project.value!.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${m.key}`)
+  const key = prompt('Key cho mô hình (chữ thường, gạch ngang):', `${project.value!.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${m.key}`)
   if (!key) return
   try {
     const res = await $fetch<{ model: OrgModel }>('/api/templates', { method: 'POST', body: { source_id: m.id, key, name: `${m.name} (${project.value!.name})` } })
-    toast.add({ title: 'Đã lưu thành mẫu', color: 'success', actions: [{ label: 'Mở', onClick: () => { navigateTo(`/templates/${res.model.id}`) } }] })
+    toast.add({ title: 'Đã lưu vào Mô hình', color: 'success', actions: [{ label: 'Mở', onClick: () => { navigateTo(`/templates/${res.model.id}`) } }] })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
@@ -85,7 +89,8 @@ async function saveAsTemplate() {
             <UButton :to="`/projects/${id}/setup`" icon="i-lucide-sparkles" label="Thiết lập bằng AI" />
             <UButton icon="i-lucide-network" :label="project.model ? 'Đổi mô hình' : 'Chọn mô hình'" color="neutral" variant="outline" @click="openApply" />
             <UDropdownMenu :items="[[
-              { label: 'Lưu mô hình thành mẫu', icon: 'i-lucide-bookmark-plus', disabled: !project.model, onSelect: saveAsTemplate },
+              { label: 'Tải JSON mô hình', icon: 'i-lucide-download', disabled: !project.model, onSelect: exportModel },
+              { label: 'Lưu mô hình để dùng lại', icon: 'i-lucide-bookmark-plus', disabled: !project.model, onSelect: saveAsTemplate },
               { label: 'Bỏ quản lý project', icon: 'i-lucide-folder-minus', color: 'error', onSelect: removeRepo }
             ]]">
               <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" />
@@ -110,7 +115,7 @@ async function saveAsTemplate() {
         <div class="space-y-4">
           <UAlert
             v-if="project?.model" color="warning" variant="subtle" icon="i-lucide-triangle-alert"
-            description="Mô hình hiện tại của project và mọi chỉnh sửa trên nó sẽ bị thay thế. Lưu thành mẫu trước nếu muốn giữ."
+            description="Mô hình hiện tại của project và mọi chỉnh sửa trên nó sẽ bị thay thế. Tải JSON hoặc lưu để dùng lại trước nếu muốn giữ. Bản cũ cũng vẫn nằm trong Lịch sử."
           />
           <TemplatePicker v-model="templateId" :templates="templates" />
         </div>

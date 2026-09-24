@@ -86,7 +86,7 @@ const steps = computed(() => [
           <p class="text-2xl font-semibold">{{ providers.length }}</p>
         </UCard>
         <UCard>
-          <p class="text-sm text-(--ui-text-muted)">Mô hình mẫu</p>
+          <p class="text-sm text-(--ui-text-muted)">Mô hình</p>
           <p class="text-2xl font-semibold">{{ tpl?.templates.length ?? 0 }}</p>
         </UCard>
       </div>

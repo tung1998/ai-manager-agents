@@ -55,11 +55,11 @@ function menu(t: OrgModel) {
 </script>
 
 <template>
-  <PageShell title="Mô hình mẫu">
+  <PageShell title="Mô hình">
     <div class="space-y-4">
       <p class="max-w-3xl text-sm text-(--ui-text-muted)">
-        Mô hình mẫu là khuôn tổ chức agent. Khi <b>init</b> hoặc thêm project, bạn chọn một mẫu; mẫu được sao chép vào project
-        để chỉnh riêng mà không ảnh hưởng mẫu gốc. Tất cả mô hình chạy trên cùng một lõi.
+        Các mô hình để chọn khi thêm project hoặc chạy <b>init</b>. Mô hình của từng project được sửa ngay trong trang project;
+        ở đây chỉ cần khi muốn chỉnh mô hình gốc hoặc lưu một mô hình để dùng lại.
       </p>
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <UCard v-for="t in templates" :key="t.id" class="flex flex-col">

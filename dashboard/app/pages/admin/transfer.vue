@@ -64,7 +64,7 @@ const opMeta: Record<string, { label: string, color: 'success' | 'info' | 'neutr
   unchanged: { label: 'Giữ nguyên', color: 'neutral' },
   skip: { label: 'Bỏ qua', color: 'warning' }
 }
-const kindLabelOf: Record<string, string> = { provider: 'Kết nối AI', template: 'Mô hình mẫu', project: 'Project' }
+const kindLabelOf: Record<string, string> = { provider: 'Kết nối AI', template: 'Mô hình', project: 'Project' }
 </script>
 
 <template>
