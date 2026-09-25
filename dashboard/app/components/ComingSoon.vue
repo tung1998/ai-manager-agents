@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { t } = useLang()
 defineProps<{ title: string, icon: string, milestone: string, description: string }>()
 </script>
 
@@ -8,7 +9,7 @@ defineProps<{ title: string, icon: string, milestone: string, description: strin
       <UIcon :name="icon" class="size-10 text-(--ui-text-dimmed)" />
       <h2 class="text-lg font-semibold">{{ title }}</h2>
       <p class="max-w-md text-sm text-(--ui-text-muted)">{{ description }}</p>
-      <UBadge :label="`Sẽ có ở ${milestone}`" variant="subtle" color="neutral" />
+      <UBadge :label="t('soon.badge', { milestone })" variant="subtle" color="neutral" />
     </div>
   </PageShell>
 </template>

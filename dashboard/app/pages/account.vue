@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const toast = useToast()
+const { t } = useLang()
 const state = reactive({ old_password: '', new_password: '', confirm: '' })
 const loading = ref(false)
 const error = ref('')
@@ -7,7 +8,7 @@ const error = ref('')
 async function onSubmit() {
   error.value = ''
   if (state.new_password !== state.confirm) {
-    error.value = 'Hai lần nhập mật khẩu mới không khớp'
+    error.value = t('account.mismatch')
     return
   }
   loading.value = true
@@ -17,7 +18,7 @@ async function onSubmit() {
       body: { old_password: state.old_password, new_password: state.new_password }
     })
     Object.assign(state, { old_password: '', new_password: '', confirm: '' })
-    toast.add({ title: 'Đã đổi mật khẩu', description: 'Các phiên đăng nhập khác đã bị đăng xuất.', color: 'success' })
+    toast.add({ title: t('account.saved'), description: t('account.savedDesc'), color: 'success' })
   } catch (e) {
     error.value = apiError(e)
   } finally {
@@ -27,20 +28,20 @@ async function onSubmit() {
 </script>
 
 <template>
-  <PageShell title="Đổi mật khẩu">
+  <PageShell :title="t('account.title')">
     <UCard class="max-w-md">
       <form class="space-y-4" @submit.prevent="onSubmit">
-        <UFormField label="Mật khẩu hiện tại" required>
+        <UFormField :label="t('account.current')" required>
           <UInput v-model="state.old_password" type="password" autocomplete="current-password" class="w-full" />
         </UFormField>
-        <UFormField label="Mật khẩu mới" hint="Tối thiểu 10 ký tự" required>
+        <UFormField :label="t('account.new')" :hint="t('account.newHint')" required>
           <UInput v-model="state.new_password" type="password" autocomplete="new-password" class="w-full" />
         </UFormField>
-        <UFormField label="Nhập lại mật khẩu mới" required>
+        <UFormField :label="t('account.confirm')" required>
           <UInput v-model="state.confirm" type="password" autocomplete="new-password" class="w-full" />
         </UFormField>
         <UAlert v-if="error" color="error" variant="subtle" :description="error" />
-        <UButton type="submit" :loading="loading" label="Lưu" />
+        <UButton type="submit" :loading="loading" :label="t('common.save')" />
       </form>
     </UCard>
   </PageShell>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const route = useRoute()
 const { login } = useAuth()
+const { t } = useLang()
 
 const state = reactive({ email: '', password: '' })
 const loading = ref(false)
@@ -16,7 +17,7 @@ async function onSubmit() {
     const r = route.query.redirect
     await navigateTo(typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : '/')
   } catch (e) {
-    error.value = apiError(e, 'Không đăng nhập được')
+    error.value = apiError(e, t('login.failed'))
   } finally {
     loading.value = false
   }
@@ -31,8 +32,9 @@ async function onSubmit() {
           <UIcon name="i-lucide-building-2" class="size-6 text-primary" />
           <div>
             <h1 class="text-lg font-semibold">agent-office</h1>
-            <p class="text-sm text-(--ui-text-muted)">Đăng nhập trang quản trị</p>
+            <p class="text-sm text-(--ui-text-muted)">{{ t('login.subtitle') }}</p>
           </div>
+          <PrefSwitcher class="ms-auto" />
         </div>
       </template>
 
@@ -42,21 +44,21 @@ async function onSubmit() {
         color="warning"
         variant="subtle"
         icon="i-lucide-info"
-        title="Chưa có tài khoản"
-        description="Chạy lệnh sau trên máy chủ để tạo admin đầu tiên: office user create --email you@company.com --role admin"
+        :title="t('login.noUsersTitle')"
+        :description="t('login.noUsersDesc', { cmd: 'office user create --email you@company.com --role admin' })"
       />
 
       <form class="space-y-4" @submit.prevent="onSubmit">
-        <UFormField label="Email" name="email" required>
+        <UFormField :label="t('login.email')" name="email" required>
           <UInput v-model="state.email" type="email" autocomplete="username" placeholder="you@company.com" class="w-full" autofocus />
         </UFormField>
-        <UFormField label="Mật khẩu" name="password" required>
+        <UFormField :label="t('login.password')" name="password" required>
           <UInput v-model="state.password" type="password" autocomplete="current-password" class="w-full" />
         </UFormField>
 
         <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-circle-alert" :description="error" />
 
-        <UButton type="submit" block :loading="loading" label="Đăng nhập" />
+        <UButton type="submit" block :loading="loading" :label="t('login.submit')" />
       </form>
     </UCard>
   </div>
