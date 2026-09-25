@@ -10,20 +10,55 @@ interface ActionState { status: string, exit_code?: number, started_at?: string 
 interface View { docker: { available: boolean, version?: string, error?: string }, files: string[], file: string, services: Service[], action?: ActionState }
 
 const props = defineProps<{ projectId: string }>()
-const emit = defineEmits<{ askAgent: [text: string, files: Attachment[]] }>()
+const emit = defineEmits<{ askAgent: [text: string, files: Attachment[], send?: boolean] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
 
 const file = ref('')
-const { data, refresh, status } = await useFetch<View>(() => `/api/projects/${props.projectId}/compose`, { query: { file } })
-watch(() => data.value?.file, (f) => { if (f && !file.value) file.value = f })
+// Render right away: first a fast load without stats, then keep polling with
+// CPU/RAM (docker stats samples for a moment, so it never blocks the view).
+const data = ref<View | null>(null)
+const loadError = ref('')
+let loading = false
+async function load(withStats = true) {
+  if (loading) return
+  loading = true
+  try {
+    const v = await $fetch<View>(`/api/projects/${props.projectId}/compose`, { query: { file: file.value, stats: withStats ? '1' : '0' } })
+    if (!withStats && data.value) { // keep the last numbers until fresh ones arrive
+      const old = new Map(data.value.services.map(s => [s.name, s.container?.stats]))
+      for (const sv of v.services) if (sv.container && !sv.container.stats) sv.container.stats = old.get(sv.name)
+    }
+    data.value = v
+    loadError.value = ''
+    if (!file.value && v.file) file.value = v.file
+  } catch (e) {
+    loadError.value = apiError(e)
+  } finally {
+    loading = false
+  }
+}
+const refresh = () => load(true)
 const services = computed(() => data.value?.services ?? [])
 const running = computed(() => services.value.filter(s => s.container?.state === 'running').length)
 const actionRunning = computed(() => data.value?.action?.status === 'running')
 
-let poll: ReturnType<typeof setInterval> | undefined
-onMounted(() => { poll = setInterval(() => { if (status.value !== 'pending') refresh() }, actionRunning.value ? 2000 : 5000) })
-onBeforeUnmount(() => clearInterval(poll))
+// poll only while visible (the panel is kept alive when switching sections)
+let poll: ReturnType<typeof setTimeout> | undefined
+function schedule() {
+  clearTimeout(poll)
+  poll = setTimeout(async () => { await load(true); schedule() }, actionRunning.value ? 2000 : 5000)
+}
+async function start() {
+  if (!data.value) await load(false)
+  load(true)
+  schedule()
+}
+onMounted(start)
+onActivated(start)
+onDeactivated(() => clearTimeout(poll))
+onBeforeUnmount(() => clearTimeout(poll))
+watch(file, (f, old) => { if (old) load(false) })
 
 // what the log pane shows: a service's logs, or the last docker action's output
 const view = ref<{ kind: 'service', name: string } | { kind: 'action' } | null>(null)
@@ -51,11 +86,14 @@ async function act(action: string, service = '') {
     busy.value = ''
   }
 }
-async function askAgent(s: Service) {
+async function askAgent(s: Service, fix = false) {
   try {
     const att = await $fetch<Attachment>(`/api/projects/${props.projectId}/compose/log-attachment`, { method: 'POST', body: { file: file.value, service: s.name } })
     const why = s.container ? `đang ở trạng thái "${s.container.status}"` : 'chưa chạy được'
-    emit('askAgent', `Container "${s.name}" (docker compose, ${file.value}) ${why}. Xem log đính kèm, tìm nguyên nhân và đề xuất cách sửa.`, [att])
+    const text = fix
+      ? `Container "${s.name}" (docker compose, ${file.value}) ${why}. Dùng công cụ office (container_logs, ops_overview) để đọc log, đối chiếu với ${file.value}, Dockerfile và code, rồi đề xuất diff sửa hoặc lệnh cần chạy.`
+      : `Container "${s.name}" (docker compose, ${file.value}) ${why}. Xem log đính kèm, tìm nguyên nhân và đề xuất cách sửa.`
+    emit('askAgent', text, [att], fix)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
@@ -84,18 +122,32 @@ const stackMenu = computed(() => [[
 
 <template>
   <div class="space-y-4">
-    <div v-if="!data?.files.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
+    <template v-if="!data">
+      <div class="flex items-center gap-2">
+        <slot name="nav" />
+        <span v-if="!loadError" class="flex items-center gap-1.5 text-sm text-(--ui-text-muted)"><UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Đang đọc Docker…</span>
+      </div>
+      <UAlert v-if="loadError" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="loadError" />
+      <div v-else class="grid gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
+        <div class="space-y-2">
+          <div v-for="i in 3" :key="i" class="h-24 animate-pulse rounded-lg border border-(--ui-border) bg-(--ui-bg-elevated)/50" />
+        </div>
+        <div class="h-[26rem] max-h-[60vh] animate-pulse rounded-lg border border-(--ui-border) bg-neutral-950" />
+      </div>
+    </template>
+
+    <slot v-else-if="!data.files.length" name="nav" />
+    <div v-if="data && !data.files.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
       <UIcon name="i-lucide-container" class="mx-auto size-8 text-(--ui-text-dimmed)" />
       <p class="mt-2 font-medium">Project không có file docker compose</p>
       <p class="text-sm text-(--ui-text-muted)">Office tìm docker-compose.yml, docker-compose.yaml, compose.yml, compose.yaml ở thư mục gốc.</p>
     </div>
 
-    <template v-else>
+    <template v-else-if="data">
       <div class="flex flex-wrap items-center gap-2">
-        <USelect v-if="data.files.length > 1" v-model="file" :items="data.files" size="sm" class="w-56" />
-        <UBadge v-else color="neutral" variant="subtle" icon="i-lucide-file-code" :label="data.file" />
-        <UBadge v-if="data.docker.available" color="success" variant="subtle" icon="i-lucide-container" :label="`Docker ${data.docker.version}`" />
-        <span v-if="services.length" class="text-sm text-(--ui-text-muted)">{{ running }}/{{ services.length }} đang chạy</span>
+        <slot name="nav" />
+        <USelect v-if="data.files.length > 1" v-model="file" :items="data.files" size="sm" class="w-48" />
+        <span v-if="services.length" class="text-sm text-(--ui-text-muted)" :title="`${data.file} · Docker ${data.docker.version ?? '?'}`">{{ running }}/{{ services.length }} đang chạy</span>
         <UBadge v-if="actionRunning" color="info" variant="subtle" icon="i-lucide-loader-circle" label="Đang chạy thao tác…" :ui="{ leadingIcon: 'animate-spin' }" />
         <div v-if="isAdmin && data.docker.available" class="ms-auto flex gap-2">
           <UButton size="sm" icon="i-lucide-play" label="Bật stack" :loading="busy === 'up'" :disabled="actionRunning" @click="act('up')" />
@@ -145,7 +197,11 @@ const stackMenu = computed(() => [[
                 </template>
               </template>
               <UButton
-                v-if="s.container" size="xs" :color="stateOf(s).color === 'error' ? 'error' : 'neutral'" :variant="stateOf(s).color === 'error' ? 'soft' : 'ghost'"
+                v-if="stateOf(s).color === 'error'" size="xs" color="error" variant="soft"
+                icon="i-lucide-wrench" label="Sửa lỗi" class="ms-auto" @click="askAgent(s, true)"
+              />
+              <UButton
+                v-else-if="s.container" size="xs" color="neutral" variant="ghost"
                 icon="i-lucide-bot" label="Hỏi agent" class="ms-auto" @click="askAgent(s)"
               />
             </div>

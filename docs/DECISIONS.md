@@ -464,3 +464,97 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Dùng pm2: thêm phụ thuộc Node toàn cục, khó lấy log và trạng thái về dashboard.
 - Gọi Docker Engine API qua socket: phải thêm client và xử lý compose labels thủ công, trong khi CLI đã làm đúng cách compose làm.
 - Tiến trình sống tiếp sau khi office tắt: phải tự dò lại PID khi mở office, dễ sót tiến trình mồ côi.
+
+---
+
+## ADR-027: Giám sát theo quy tắc, AI chỉ phân tích khi có sự cố
+
+**Bối cảnh.** Cần theo dõi project giống một uptime monitor (tham khảo Vantage), nhưng không muốn gọi AI liên tục.
+
+**Quyết định.**
+- **Loại giám sát** (bảng `monitors`, migration 00010):
+  - `http`: GET, mã trạng thái hợp lệ (mặc định 200-399), tùy chọn phải chứa một đoạn chữ, tối đa 5 redirect.
+  - `tcp`: kiểm tra mở được cổng.
+  - `heartbeat`: service gọi `GET|POST /api/heartbeat/:token` (công khai, token là bí mật). Quá 1,5 lần chu kỳ không có tín hiệu thì Down.
+  - `process`: tiến trình của office (ADR-026) còn chạy.
+  - `container`: service compose còn chạy và không unhealthy.
+- **Lịch chạy.** Kiểm tra mỗi 5 giây xem mục nào đến hạn (chu kỳ từ 10 giây đến 1 ngày), chạy song song tối đa 8 mục. Kết quả lưu vào `monitor_checks`, giữ 7 ngày.
+- **Trạng thái.**
+  - Down sau 2 lần lỗi liên tiếp để chống báo nhầm; heartbeat và tiến trình thì Down ngay.
+  - Mỗi lần đổi trạng thái tạo một sự kiện `up`/`down` trong `monitor_events`. Lần kiểm tra đầu tiên của giám sát mới chỉ tạo sự kiện nếu kết quả là Down.
+- **AI (bật riêng từng giám sát, mặc định tắt).**
+  - Chỉ khi chuyển sang Down: agent lead của project nhận kết quả kiểm tra gần đây và log (tiến trình/container), rồi phân tích nguyên nhân, việc cần kiểm tra tiếp và cách sửa.
+  - Giới hạn: trần USD mỗi 24 giờ cho từng giám sát (mặc định $0.5) và chờ 30 phút giữa hai lần phân tích. Không phân tích khi tiến trình được dừng chủ động.
+  - Chi phí ghi vào `runs` loại `monitor` và vào sự kiện.
+- **Giao diện.**
+  - Mục **Giám sát** trong tab Vận hành: thẻ tổng hợp (Up / Down / Chờ / uptime TB 24h); bảng giám sát với uptime 24h, độ trễ TB, 30 thanh xu hướng, công tắc AI; cột sự kiện có phần phân tích AI.
+  - **Gợi ý giám sát** tạo sẵn từ tiến trình, cổng đọc được từ log, service compose và cổng đã publish.
+  - Trang Tổng quan có tổng hợp và danh sách các mục đang Down.
+
+**Chưa làm.** Gửi thông báo (Discord/Telegram), trang trạng thái công khai, giám sát từ máy khác.
+
+**Phương án đã loại.**
+- Để AI định kỳ tự xem hệ thống: tốn token và kết quả không ổn định.
+- Báo Down ngay từ lần lỗi đầu: dễ báo nhầm vì mạng chập chờn.
+
+---
+
+## ADR-028: Nhà cung cấp API bên thứ 3 và thống kê trên trang Kết nối AI
+
+**Bối cảnh.** Tham khảo 9router (bộ định tuyến AI gom nhiều nhà cung cấp, có dashboard token và chi phí): người dùng muốn kết nối nhanh các nhà cung cấp khác, và xem thống kê ngay trên trang Kết nối AI.
+
+**Quyết định.**
+- **Danh sách preset** trong `internal/provider/presets.go`, gồm 18 nhà cung cấp nói giao thức chat-completions của OpenAI, chia 4 nhóm:
+  - Cổng trung gian: OpenRouter, Together, Fireworks, NVIDIA NIM.
+  - Quốc tế: Gemini, DeepSeek, Groq, xAI, Mistral, Cerebras, Perplexity.
+  - Trung Quốc: Z.ai (GLM), Moonshot (Kimi), MiniMax, Qwen, SiliconFlow.
+  - Chạy trên máy: Ollama, LM Studio.
+- **Mỗi preset chỉ giữ:**
+  - địa chỉ API;
+  - link lấy key và tên biến môi trường quen dùng;
+  - có cần key hay không;
+  - một dòng ghi chú.
+
+  Preset **không ghi tên model**: model được đọc từ `/models` sau lần kiểm tra đầu, nên không bị lỗi thời.
+- **Lưu kết nối.** Kết nối vẫn là loại `openai_compatible`; cột mới `providers.preset` (migration 00011) chỉ dùng để hiện tên, logo và link lấy key. Preset không hợp lệ, hoặc gắn cho loại kết nối khác, sẽ bị bỏ qua. Export/import mang theo `preset`.
+- **Thống kê** (`GET /api/providers/stats?days=7`), tính từ bảng `runs`, không tính các lượt kiểm tra kết nối:
+  - Tổng hôm nay: lượt gọi, token, chi phí, lỗi.
+  - Mỗi kết nối: lượt gọi, lỗi, token, chi phí, độ trễ trung bình, lần dùng gần nhất, model dùng nhiều nhất, và số lượt theo từng ngày (đủ mọi ngày trong khoảng, theo giờ của office).
+- **Giao diện.**
+  - Đầu trang là dải tổng hợp; ô "7 ngày" mở trang Chi phí.
+  - Mỗi thẻ kết nối có logo chữ cái, trạng thái, 4 chỉ số, biểu đồ cột 7 ngày, và lần dùng gần nhất.
+  - Form thêm kết nối: hàng trên là các tài khoản chính; bên dưới là mục mở ra "Nhà cung cấp API khác" chia nhóm, cùng lựa chọn tự nhập địa chỉ.
+
+**Để sau (giai đoạn 2).** Tự chuyển sang kết nối dự phòng khi gặp lỗi 429/5xx hoặc chạm trần (giống "combo" của 9router). Đăng nhập OAuth của các gói thuê bao khác.
+
+---
+
+## ADR-029: MCP nội bộ "office" và nút "Sửa lỗi"
+
+**Bối cảnh.** Agent chỉ đọc được code. Muốn hỏi từ Chat về build, deploy, giám sát, và tự tìm cách xử lý khi có lỗi, agent cần đọc được dữ liệu vận hành thật.
+
+**Quyết định.**
+- **Công cụ** (`internal/officetools`, chỉ đọc, luôn giới hạn trong một project):
+  - `ops_overview`: tiến trình (trạng thái, mã thoát, cổng), service docker compose, giám sát và sự cố gần đây.
+  - `process_logs {name, lines}`.
+  - `container_logs {service, lines}`.
+  - `monitor_detail {name}`: các lần kiểm tra, sự kiện và phân tích AI trước đó.
+- **Claude Code** dùng qua **MCP** (`internal/mcpserver`), endpoint `/mcp` trên chính API của office, chỉ nghe ở máy (127.0.0.1):
+  - Giao thức streamable HTTP, trả JSON, không giữ phiên. Hỗ trợ `initialize`, `ping`, `tools/list`, `tools/call`.
+  - Mỗi lượt chạy có một bearer token riêng, gắn với project, thu hồi khi lượt chạy xong (tối đa 30 phút).
+  - Runner truyền `--mcp-config <file tạm 0600>` (token không nằm trong argv), giữ nguyên `--strict-mcp-config`, và thêm `mcp__office` vào `--allowedTools`.
+- **Agent qua API (Anthropic/OpenAI)** nhận cùng bộ công cụ gắn trực tiếp vào vòng gọi tool. Codex chưa có.
+- **Prompt hệ thống** hướng dẫn agent dùng các công cụ này khi được hỏi về lỗi build, lỗi chạy, deploy hay giám sát.
+- **Nút "Sửa lỗi"** (ở tiến trình lỗi, container lỗi, và sự kiện Down mới nhất của giám sát đang Down):
+  - Mở một cuộc trò chuyện mới rồi gửi ngay, kèm log đính kèm (cho runtime không có công cụ) và chỉ dẫn dùng công cụ office.
+  - Agent đề xuất diff; người dùng duyệt rồi bấm Chạy lại.
+  - Nút "Hỏi agent" vẫn giữ để chỉ điền sẵn câu hỏi, không gửi.
+
+**Đã kiểm tra thật** với Claude Code (Haiku):
+- Agent gọi `mcp__office__ops_overview` và trả lời đúng trạng thái.
+- Luồng "Sửa lỗi" tìm đúng lỗi cố ý trong `app.js` và tạo diff chờ duyệt.
+
+**Để sau.**
+- Công cụ có tác động (chạy lại build/test, restart service), cần người duyệt.
+- Công cụ cho Codex.
+- Tự chạy lại sau khi diff được duyệt.

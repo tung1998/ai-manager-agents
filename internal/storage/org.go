@@ -43,6 +43,7 @@ type Provider struct {
 	ID           string
 	Name         string
 	Kind         ProviderKind
+	Preset       string // catalog entry it was made from ("" = by hand)
 	BaseURL      string
 	APIKeyEnc    string // encrypted; only internal/secrets decrypts it
 	APIKeyEnv    string
@@ -232,6 +233,8 @@ type RunRepo interface {
 	List(ctx context.Context, f RunFilter) ([]Run, error)
 	// Spent sums known cost since t (optionally for one project).
 	Spent(ctx context.Context, since time.Time, projectID string) (float64, error)
+	// Since returns every run since t, newest first (for in-Go statistics).
+	Since(ctx context.Context, t time.Time) ([]Run, error)
 	// Aggregate groups runs since t by "day" (in loc), "project" or "model".
 	Aggregate(ctx context.Context, since time.Time, by string, loc *time.Location) ([]UsageRow, error)
 }
@@ -402,4 +405,78 @@ type ProcessRepo interface {
 	Get(ctx context.Context, id string) (Process, error)
 	List(ctx context.Context, projectID string) ([]Process, error) // "" = all projects
 	Delete(ctx context.Context, id string) error
+}
+
+// Monitor is a health check of a project.
+type Monitor struct {
+	ID            string
+	ProjectID     string
+	Name          string
+	Type          string // http | tcp | heartbeat | process | container
+	Target        string
+	Config        MonitorConfig
+	IntervalS     int
+	Enabled       bool
+	AIEnabled     bool
+	AIBudgetUSD   float64
+	Token         string
+	Status        string // pending | up | down
+	Fails         int
+	LastCheckedAt *time.Time
+	LastChangeAt  *time.Time
+	LastLatencyMS int
+	LastMessage   string
+	LastPingAt    *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// MonitorConfig holds type-specific options.
+type MonitorConfig struct {
+	ExpectStatus string `json:"expect_status,omitempty"` // "200-399" (http)
+	Keyword      string `json:"keyword,omitempty"`       // must appear in the body (http)
+	TimeoutMS    int    `json:"timeout_ms,omitempty"`
+	File         string `json:"file,omitempty"` // compose file (container)
+}
+
+// MonitorCheck is one check result.
+type MonitorCheck struct {
+	MonitorID string
+	At        time.Time
+	OK        bool
+	LatencyMS int
+	Message   string
+}
+
+// MonitorEvent is a status change.
+type MonitorEvent struct {
+	ID             string
+	MonitorID      string
+	ProjectID      string
+	Kind           string // up | down
+	Message        string
+	Analysis       string
+	AnalysisStatus string
+	CostUSD        float64
+	At             time.Time
+}
+
+// MonitorRepo stores monitors, their checks and events.
+type MonitorRepo interface {
+	Create(ctx context.Context, m Monitor) (Monitor, error)
+	Update(ctx context.Context, m Monitor) error     // definition fields
+	SaveStatus(ctx context.Context, m Monitor) error // status fields
+	Get(ctx context.Context, id string) (Monitor, error)
+	GetByToken(ctx context.Context, token string) (Monitor, error)
+	List(ctx context.Context, projectID string) ([]Monitor, error) // "" = all
+	Delete(ctx context.Context, id string) error
+
+	AddCheck(ctx context.Context, c MonitorCheck) error
+	Checks(ctx context.Context, monitorID string, since time.Time) ([]MonitorCheck, error)
+	PruneChecks(ctx context.Context, before time.Time) error
+
+	AddEvent(ctx context.Context, e MonitorEvent) (MonitorEvent, error)
+	UpdateEvent(ctx context.Context, e MonitorEvent) error
+	Events(ctx context.Context, projectID string, limit int) ([]MonitorEvent, error) // "" = all
+	AICostSince(ctx context.Context, monitorID string, since time.Time) (float64, error)
 }

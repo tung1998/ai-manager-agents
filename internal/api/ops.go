@@ -314,7 +314,7 @@ func (s *server) composeError(w http.ResponseWriter, r *http.Request, err error)
 }
 
 func (s *server) getCompose(w http.ResponseWriter, r *http.Request) {
-	v, err := s.cfg.Ops.Compose(r.Context(), r.PathValue("id"), r.URL.Query().Get("file"))
+	v, err := s.cfg.Ops.Compose(r.Context(), r.PathValue("id"), r.URL.Query().Get("file"), r.URL.Query().Get("stats") == "1")
 	if err != nil && !errors.Is(err, ops.ErrNoCompose) {
 		s.composeError(w, r, err)
 		return

@@ -11,10 +11,10 @@ Nuxt 4 + @nuxt/ui, app riêng trong `dashboard/` (ADR-010). Gọi REST + SSE c�
 | `/blackboard` | Blackboard | Feed thread dạng kênh chat nội bộ. Finding có màu theo loại, badge confidence, chip evidence mở được worker output | Lọc theo agent/loại/severity, trả lời thread (người đặt câu hỏi) |
 | `/incidents` | Incidents | Danh sách + chi tiết: timeline debate theo round, kết luận, confidence, phương án, rủi ro, evidence | **Duyệt / Từ chối** từng option có side effect, ghi chú |
 | `/costs` | Chi phí | Token và USD theo agent/ngày, theo incident, so với budget, dự báo cuối ngày | Chỉnh budget (ghi config) |
-| `/projects/:id?tab=chat\|tasks\|model\|tools` | Project | Tab Chat, Việc, Mô hình, **Skills & MCP** (đang dùng: của project, riêng máy, kế thừa từ toàn máy; thêm từ thư viện, MCP phổ biến, MCP Registry, chỉ cài vào project này) | |
+| `/projects/:id?tab=chat\|tasks\|ops\|config` | Project | Thanh tiêu đề gọn (menu `⋯` cho sửa, thiết lập AI, đổi mô hình), một dòng thông tin (đường dẫn · git · mô tả rút gọn). 4 tab: Chat, Việc, **Vận hành** (Tiến trình · Container · Giám sát, có số lượng và chấm đỏ khi lỗi), **Cấu hình** (Mô hình · Skills · MCP; link cũ `tab=model|tools` vẫn chạy). Skills/MCP (đang dùng: của project, riêng máy, kế thừa từ toàn máy; thêm từ thư viện, MCP phổ biến, MCP Registry, chỉ cài vào project này) | |
 | `/library` | Thư viện | Skills / MCP servers: **Đã cài** (mọi nơi trên máy, nhóm theo nơi cài), **Thư viện**, MCP **Phổ biến**, **Tìm MCP** | Xem, cài vào nơi khác, lưu vào thư viện, gỡ, tạo và sửa |
 
-Sidebar: mục **Project** có 5 project người xem mở nhiều nhất (đếm trong localStorage), mỗi project có mục con Chat, Việc, Mô hình, Skills & MCP; "Xem tất cả" mở `/projects`. Việc gần đây của mọi project nằm ở Tổng quan.
+Sidebar: mục **Project** có 5 project người xem mở nhiều nhất (đếm trong localStorage), mỗi project có mục con Chat, Việc, Vận hành, Cấu hình; "Xem tất cả" mở `/projects`. Việc gần đây của mọi project nằm ở Tổng quan.
 | `/setup` | Setup wizard | Giao diện cho `init`: kết quả quét, runtime, đề xuất cơ cấu, diff | Tạo / Chỉnh / Hủy |
 
 Thêm: `/ask` (ô hỏi Director, stream kết quả) và badge "chờ duyệt" trên header.
@@ -92,6 +92,15 @@ Base `/api`. Auth bằng cookie phiên `office_session` sau khi đăng nhập t�
 | POST | `/api/projects/:id/setup/build` | admin | `{template_key, changes}` → template + problems (xem trước) |
 | POST | `/api/projects/:id/setup/apply` | admin | `{template_key, changes, description}` → cài mô hình cho project |
 
+### Kết nối AI: preset và thống kê (đã làm, ADR-028)
+
+| Method | Path | Mô tả |
+|---|---|---|
+| GET | `/api/provider-kinds` | thêm `presets`: nhà cung cấp bên thứ 3 (id, nhóm, base_url, key_url, key_env, need_key) |
+| GET | `/api/providers/stats?days=7` | `today` + mỗi kết nối: calls, errors, token, cost, avg_ms, last_used_at, top_model, days[] |
+
+Tạo/sửa kết nối nhận thêm `preset`.
+
 ### Tự động hóa (đã làm, admin)
 
 | Method | Path | Mô tả |
@@ -132,6 +141,17 @@ Gửi tin nhắn `{text, attachments:[id]}`; tạo Việc `{goal, budget_usd, at
 | GET | `/api/projects/:id/compose/action/stream` | auth | SSE output thao tác gần nhất |
 | GET | `/api/projects/:id/compose/logs?file=&service=` | auth | SSE log container (`--follow --tail 300`) |
 | POST | `/api/projects/:id/compose/log-attachment` | auth | `{file, service}` → log container thành file đính kèm |
+
+### Giám sát (đã làm, ADR-027)
+
+| Method | Path | Quyền | Mô tả |
+|---|---|---|---|
+| GET | `/api/monitors?project=` | auth | giám sát + uptime 24h, độ trễ TB, 30 lần kiểm tra gần nhất; `summary` |
+| POST | `/api/projects/:id/monitors` | admin | `{name, type, target, config, interval_s, ai_enabled, ai_budget_usd}` |
+| PATCH/DELETE | `/api/monitors/:id` | admin | sửa (tạm dừng = `enabled:false`) / xóa |
+| POST | `/api/monitors/:id/check` | admin | kiểm tra ngay |
+| GET | `/api/monitor-events?project=&limit=` | auth | sự kiện Up/Down kèm phân tích AI |
+| GET/POST | `/api/heartbeat/:token` | công khai | service báo còn sống |
 
 Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-start`), API ở 8787.
 

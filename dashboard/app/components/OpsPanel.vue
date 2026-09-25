@@ -19,10 +19,18 @@ interface Suggestion { name: string, command: string, cwd: string, kind: 'servic
 interface Detection { package_manager?: string, suggestions: Suggestion[], compose: { file: string }[] }
 
 const props = defineProps<{ projectId: string, hasFolder: boolean }>()
-const emit = defineEmits<{ askAgent: [text: string, files: Attachment[]] }>()
+const emit = defineEmits<{ askAgent: [text: string, files: Attachment[], send?: boolean] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
-const section = ref<'processes' | 'containers'>('processes')
+type Section = 'processes' | 'containers' | 'monitors'
+// counts for the switch; monitors are cheap to list (no checks run)
+const { data: monData, refresh: refreshMon } = await useFetch<{ summary: Record<string, number>, monitors: unknown[] }>('/api/monitors', { query: { project: props.projectId } })
+const navItems = computed(() => [
+  { value: 'processes', label: 'Tiến trình', icon: 'i-lucide-square-terminal', count: procs.value.length, alert: procs.value.some(p => p.state.status === 'crashed') },
+  { value: 'containers', label: 'Container', icon: 'i-lucide-container' },
+  { value: 'monitors', label: 'Giám sát', icon: 'i-lucide-heart-pulse', count: monData.value?.monitors.length ?? 0, alert: !!monData.value?.summary.down }
+])
+const section = ref<Section>((['processes', 'containers', 'monitors'] as const).find(v => v === useRoute().query.section) ?? 'processes')
 
 const { data, refresh } = await useFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`)
 const procs = computed(() => data.value?.processes ?? [])
@@ -34,7 +42,7 @@ watch(procs, (list) => {
 
 // states refresh while the tab is open (logs of the selected one stream via SSE)
 let poll: ReturnType<typeof setInterval> | undefined
-onMounted(() => { poll = setInterval(() => refresh(), 3000) })
+onMounted(() => { poll = setInterval(() => { refresh(); refreshMon() }, 3000) })
 onBeforeUnmount(() => clearInterval(poll))
 
 // ---- actions ----
@@ -56,11 +64,15 @@ async function remove(p: Proc) {
   await $fetch(`/api/processes/${p.id}`, { method: 'DELETE' })
   await refresh()
 }
-async function askAgent(p: Proc) {
+// fix=true: "Sửa lỗi" sends at once; the agent reads logs itself with the office tools
+async function askAgent(p: Proc, fix = false) {
   try {
     const att = await $fetch<Attachment>(`/api/processes/${p.id}/log-attachment`, { method: 'POST' })
     const why = p.state.status === 'crashed' ? `bị lỗi (mã thoát ${p.state.exit_code})` : `đang ${statusMeta[p.state.status].label.toLowerCase()}`
-    emit('askAgent', `Tiến trình "${p.name}" (${p.command}) ${why}. Xem log đính kèm, tìm nguyên nhân và đề xuất cách sửa.`, [att])
+    const text = fix
+      ? `Tiến trình "${p.name}" (\`${p.command}\`) ${why}. Dùng công cụ office (process_logs, ops_overview) để đọc log, tìm nguyên nhân gốc trong code và đề xuất diff sửa. Nếu không phải lỗi code (thiếu biến môi trường, cổng bị chiếm, thiếu dependency…) thì nói rõ lệnh cần chạy.`
+      : `Tiến trình "${p.name}" (${p.command}) ${why}. Xem log đính kèm, tìm nguyên nhân và đề xuất cách sửa.`
+    emit('askAgent', text, [att], fix)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
@@ -151,14 +163,18 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
     <UAlert v-if="!hasFolder" color="neutral" variant="subtle" icon="i-lucide-monitor" title="Project không gắn thư mục" description="Helper toàn máy không có lệnh để chạy. Chọn một project có thư mục." />
 
     <template v-else>
-      <UTabs
-        v-model="section" :content="false" size="sm" variant="link" class="w-fit"
-        :items="[{ label: 'Tiến trình', value: 'processes', icon: 'i-lucide-square-terminal' }, { label: 'Container', value: 'containers', icon: 'i-lucide-container' }]"
-      />
-      <ComposePanel v-if="section === 'containers'" :project-id="projectId" @ask-agent="(t, f) => emit('askAgent', t, f)" />
-      <template v-else>
+      <!-- kept alive: switching back shows the last state instantly -->
+      <KeepAlive>
+        <MonitorPanel v-if="section === 'monitors'" :project-id="projectId" @ask-agent="(t, f, send) => emit('askAgent', t, f, send)">
+          <template #nav><SegmentedNav v-model="section" :items="navItems" /></template>
+        </MonitorPanel>
+        <ComposePanel v-else-if="section === 'containers'" :project-id="projectId" @ask-agent="(t, f, send) => emit('askAgent', t, f, send)">
+          <template #nav><SegmentedNav v-model="section" :items="navItems" /></template>
+        </ComposePanel>
+      </KeepAlive>
+      <template v-if="section === 'processes'">
       <div class="flex flex-wrap items-center gap-2">
-        <p class="text-sm text-(--ui-text-muted)">Chạy và theo dõi lệnh của project (dev, build, test…). Tiến trình dừng khi tắt office.</p>
+        <SegmentedNav v-model="section" :items="navItems" />
         <div v-if="isAdmin" class="ms-auto flex gap-2">
           <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-scan-search" label="Quét project" :loading="detecting" @click="detect" />
           <UButton size="sm" icon="i-lucide-plus" label="Thêm lệnh" @click="openForm()" />
@@ -168,7 +184,7 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
       <div v-if="!procs.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
         <UIcon name="i-lucide-activity" class="mx-auto size-8 text-(--ui-text-dimmed)" />
         <p class="mt-2 font-medium">Chưa quản lý lệnh nào</p>
-        <p class="text-sm text-(--ui-text-muted)">Quét project để tìm script trong package.json, Makefile, Procfile.</p>
+        <p class="text-sm text-(--ui-text-muted)">Quét project để tìm script trong package.json, Makefile, Procfile. Tiến trình dừng khi tắt office.</p>
         <UButton v-if="isAdmin" class="mt-4" icon="i-lucide-scan-search" label="Quét project" :loading="detecting" @click="detect" />
       </div>
 
@@ -208,8 +224,8 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
               <UBadge v-if="p.autorestart" color="neutral" variant="outline" size="sm" label="tự chạy lại" class="ms-1" />
               <UBadge v-if="p.autostart" color="neutral" variant="outline" size="sm" label="bật cùng office" />
               <UButton
-                v-if="p.state.status === 'crashed'" size="xs" color="error" variant="soft" icon="i-lucide-bot" label="Hỏi agent" class="ms-auto"
-                @click="askAgent(p)"
+                v-if="p.state.status === 'crashed'" size="xs" color="error" variant="soft" icon="i-lucide-wrench" label="Sửa lỗi" class="ms-auto"
+                @click="askAgent(p, true)"
               />
               <UDropdownMenu
                 v-if="isAdmin"

@@ -4,11 +4,15 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/home"
+	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/monitor"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -77,6 +81,12 @@ func runCmd() *cobra.Command {
 			defer procs.Shutdown() // project processes stop with the office
 			go procs.RunSampler(ctx, 3*time.Second)
 			procs.Autostart(ctx)
+			// agents read build/run/monitoring data through the office tools (MCP for Claude Code)
+			office := officetools.New(a.store, procs)
+			mcp := mcpserver.New(office, version)
+			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")
+			monitors := monitor.New(a.store, procs, chatEngine)
+			go monitors.Run(ctx)
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 			handler := api.New(api.Config{
 				Store: st, Auth: a.auth, AllowedOrigins: origins,
@@ -89,6 +99,8 @@ func runCmd() *cobra.Command {
 				Tasks:      tasks.New(a.store, chatEngine),
 				Automation: newAutomation(a, h),
 				Ops:        procs,
+				Monitors:   monitors,
+				MCP:        mcp,
 				Backup: func(ctx context.Context) (string, error) {
 					return backupTo(ctx, a, filepath.Join(h.Dir, "backups", time.Now().Format("20060102-150405")))
 				},
@@ -183,4 +195,17 @@ func newAutomation(a *app, h home.Home) *automation.Service {
 			return out
 		},
 	}
+}
+
+// loopback turns a listen address into one reachable from this machine
+// (":8787" or "0.0.0.0:8787" → "127.0.0.1:8787").
+func loopback(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }

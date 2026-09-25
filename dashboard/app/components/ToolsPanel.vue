@@ -45,7 +45,10 @@ const groups = computed(() => {
     if (where.value !== '__all' && locKey(i.location) !== where.value) continue
     if (needle && !`${i.name} ${i.description}`.toLowerCase().includes(needle)) continue
     const k = locKey(i.location)
-    if (!map.has(k)) map.set(k, { location: scoped.value && i.location.type === 'user' ? { ...i.location, label: 'Kế thừa từ toàn máy' } : i.location, items: [] })
+    if (!map.has(k)) {
+      const scopedLabel = { user: 'Kế thừa từ toàn máy', project: 'Của project này', local: 'Riêng máy này' }[i.location.type as 'user' | 'project' | 'local']
+      map.set(k, { location: scoped.value && scopedLabel ? { ...i.location, label: scopedLabel } : i.location, items: [] })
+    }
     map.get(k)!.items.push(i)
   }
   const order: AutoLocation['type'][] = ['user', 'project', 'local', 'plugin', 'cursor', 'claude_desktop', 'codex']
@@ -281,7 +284,7 @@ const summary = (t: MCPTemplate) => {
             {{ g.location.label }}
             <span class="font-normal text-(--ui-text-muted)">· {{ g.items.length }}</span>
             <UBadge v-if="!g.location.editable" color="neutral" variant="subtle" size="sm" label="chỉ xem" />
-            <NuxtLink v-if="g.location.project_id" :to="`/projects/${g.location.project_id}`" class="text-xs font-normal text-(--ui-primary)">mở project</NuxtLink>
+            <NuxtLink v-if="g.location.project_id && !scoped" :to="`/projects/${g.location.project_id}`" class="text-xs font-normal text-(--ui-primary)">mở project</NuxtLink>
           </h3>
           <div class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
             <div v-for="i in g.items" :key="i.location.path + i.name" class="flex items-center gap-3 px-4 py-2.5">

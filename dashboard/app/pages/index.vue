@@ -18,6 +18,10 @@ const jobStatus: Record<Job['status'], { label: string, color: 'info' | 'success
 }
 const when = (d: string) => new Date(d).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
+// health checks across projects
+const { data: monData } = await useFetch<{ monitors: { id: string, name: string, project_id: string, status: string, last_message: string }[], summary: Record<string, number> }>('/api/monitors')
+const downMonitors = computed(() => (monData.value?.monitors ?? []).filter(m => m.status === 'down'))
+
 const providers = computed(() => prov.value?.providers ?? [])
 const projects = computed(() => proj.value?.projects ?? [])
 const okProviders = computed(() => providers.value.filter(p => p.status === 'ok').length)
@@ -102,6 +106,28 @@ const steps = computed(() => [
           <p class="text-2xl font-semibold">{{ tpl?.templates.length ?? 0 }}</p>
         </UCard>
       </div>
+
+      <UCard v-if="monData?.monitors.length">
+        <div class="flex flex-wrap items-center gap-4">
+          <div class="flex items-center gap-2">
+            <UIcon name="i-lucide-heart-pulse" class="size-5 text-primary" />
+            <p class="font-semibold">Giám sát</p>
+          </div>
+          <p class="font-mono text-lg"><span class="text-(--ui-success)">{{ monData.summary.up }}</span> / {{ monData.monitors.length }} Up</p>
+          <UBadge v-if="monData.summary.down" color="error" variant="subtle" :label="`${monData.summary.down} Down`" />
+          <UBadge v-if="monData.summary.pending" color="neutral" variant="subtle" :label="`${monData.summary.pending} đang chờ`" />
+        </div>
+        <div v-if="downMonitors.length" class="mt-3 divide-y divide-(--ui-border) rounded-md border border-(--ui-border)">
+          <NuxtLink
+            v-for="m in downMonitors" :key="m.id" :to="`/projects/${m.project_id}?tab=ops&section=monitors`"
+            class="flex items-center gap-2 px-3 py-2 text-sm hover:bg-(--ui-bg-elevated)"
+          >
+            <UBadge color="error" variant="subtle" size="sm" label="Down" />
+            <span class="font-medium">{{ m.name }}</span>
+            <span class="truncate text-(--ui-text-muted)">{{ m.last_message }}</span>
+          </NuxtLink>
+        </div>
+      </UCard>
 
       <UCard v-if="recentJobs.length" :ui="{ body: 'p-0 sm:p-0' }">
         <template #header>

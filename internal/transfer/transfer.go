@@ -34,6 +34,7 @@ type Bundle struct {
 type ProviderSpec struct {
 	Name       string            `json:"name"`
 	Kind       string            `json:"kind"`
+	Preset     string            `json:"preset,omitempty"`
 	BaseURL    string            `json:"base_url,omitempty"`
 	APIKeyEnv  string            `json:"api_key_env,omitempty"`
 	TierModels map[string]string `json:"tier_models,omitempty"`
@@ -82,7 +83,7 @@ func (s *Service) Export(ctx context.Context) (Bundle, error) {
 	for _, p := range provs {
 		names[p.ID] = p.Name
 		b.Providers = append(b.Providers, ProviderSpec{
-			Name: p.Name, Kind: string(p.Kind), BaseURL: p.BaseURL, APIKeyEnv: p.APIKeyEnv, TierModels: p.TierModels,
+			Name: p.Name, Kind: string(p.Kind), Preset: p.Preset, BaseURL: p.BaseURL, APIKeyEnv: p.APIKeyEnv, TierModels: p.TierModels,
 			IsDefault: p.IsDefault, Enabled: p.Enabled, HadStoredKey: p.APIKeyEnc != "",
 		})
 	}
@@ -176,7 +177,7 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 		byName[p.Name] = p
 	}
 	for _, ps := range b.Providers {
-		in := provider.Input{Name: ps.Name, Kind: storage.ProviderKind(ps.Kind), BaseURL: ps.BaseURL, APIKeyEnv: ps.APIKeyEnv,
+		in := provider.Input{Name: ps.Name, Kind: storage.ProviderKind(ps.Kind), Preset: &ps.Preset, BaseURL: ps.BaseURL, APIKeyEnv: ps.APIKeyEnv,
 			TierModels: ps.TierModels, Enabled: &ps.Enabled}
 		existing, ok := byName[ps.Name]
 		if !ok {

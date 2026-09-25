@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -27,6 +28,21 @@ var workspaceTools = []struct {
 	{"search_text", "Tìm các dòng khớp biểu thức chính quy (không phân biệt hoa thường) trong project. glob tùy chọn, ví dụ *.vue.",
 		map[string]any{"type": "object", "properties": map[string]any{"pattern": map[string]any{"type": "string"}, "glob": map[string]any{"type": "string"}},
 			"required": []string{"pattern"}}},
+}
+
+func officeTools(req RunRequest) []officetools.Tool {
+	if req.Office == nil || req.Office.Tools == nil {
+		return nil
+	}
+	return req.Office.Tools.Tools()
+}
+
+// dispatchTool runs an office tool or a workspace tool.
+func dispatchTool(ctx context.Context, req RunRequest, w Workspace, name string, raw json.RawMessage) (string, bool) {
+	if req.Office != nil && req.Office.Tools != nil && req.Office.Tools.Has(name) {
+		return req.Office.Tools.Call(ctx, req.Office.ProjectID, name, raw)
+	}
+	return callTool(w, name, raw)
 }
 
 // callTool runs one workspace tool and returns its text result.
@@ -111,6 +127,9 @@ func (anthropicRunner) Run(ctx context.Context, req RunRequest, emit func(Event)
 	for _, t := range workspaceTools {
 		tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.Schema})
 	}
+	for _, t := range officeTools(req) {
+		tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.Schema})
+	}
 	messages := []any{}
 	for _, h := range req.History {
 		messages = append(messages, map[string]any{"role": h.Role, "content": h.Content})
@@ -165,7 +184,7 @@ func (anthropicRunner) Run(ctx context.Context, req RunRequest, emit func(Event)
 				}
 			case "tool_use":
 				tc := storage.ToolCall{Name: block.Name, Summary: toolSummary(block.Name, block.Input)}
-				result, isErr := callTool(ws, block.Name, block.Input)
+				result, isErr := dispatchTool(ctx, req, ws, block.Name, block.Input)
 				tc.Error = isErr
 				res.Tools = append(res.Tools, tc)
 				emit(Event{Type: "tool", Tool: &tc})
@@ -201,6 +220,9 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 	}
 	tools := make([]map[string]any, 0, len(workspaceTools))
 	for _, t := range workspaceTools {
+		tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Schema}})
+	}
+	for _, t := range officeTools(req) {
 		tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Schema}})
 	}
 	messages := []any{map[string]any{"role": "system", "content": req.System}}
@@ -259,7 +281,7 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 		for _, call := range msg.ToolCalls {
 			args := json.RawMessage(call.Function.Arguments)
 			tc := storage.ToolCall{Name: call.Function.Name, Summary: toolSummary(call.Function.Name, args)}
-			result, isErr := callTool(ws, call.Function.Name, args)
+			result, isErr := dispatchTool(ctx, req, ws, call.Function.Name, args)
 			tc.Error = isErr
 			res.Tools = append(res.Tools, tc)
 			emit(Event{Type: "tool", Tool: &tc})

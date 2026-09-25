@@ -197,8 +197,9 @@ func parsePS(out []byte) []psRow {
 	return rows
 }
 
-// Compose returns the compose view of a project.
-func (m *Manager) Compose(ctx context.Context, projectID, file string) (ComposeView, error) {
+// Compose returns the compose view of a project. withStats adds CPU/RAM/net
+// from `docker stats`, which is the slow part (it samples for a moment).
+func (m *Manager) Compose(ctx context.Context, projectID, file string, withStats bool) (ComposeView, error) {
 	v := ComposeView{Files: []string{}, Services: []Service{}}
 	dir, files, file, err := m.composeTarget(ctx, projectID, file)
 	v.Files, v.File = append(v.Files, files...), file
@@ -245,7 +246,7 @@ func (m *Manager) Compose(ctx context.Context, projectID, file string) (ComposeV
 			running = append(running, r.ID)
 		}
 	}
-	if len(running) > 0 {
+	if withStats && len(running) > 0 {
 		for id, s := range m.dockerStats(ctx, dir, running) {
 			for _, c := range byService {
 				if strings.HasPrefix(c.ID, id) || strings.HasPrefix(id, c.ID) {
@@ -406,4 +407,22 @@ func (m *Manager) ComposeTail(ctx context.Context, projectID, file, service stri
 		return "", err
 	}
 	return ansiRe.ReplaceAllString(string(out), ""), nil
+}
+
+// ServiceContainer returns the container of one compose service (nil if none).
+func (m *Manager) ServiceContainer(ctx context.Context, projectID, file, service string) (*Container, error) {
+	dir, _, file, err := m.composeTarget(ctx, projectID, file)
+	if err != nil {
+		return nil, err
+	}
+	out, err := m.docker(ctx, dir, "compose", "-f", file, "--profile", "*", "ps", "--all", "--format", "json", service)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range parsePS(out) {
+		if r.Service == service {
+			return &Container{ID: r.ID, Name: r.Name, Image: r.Image, State: r.State, Status: r.Status, Health: r.Health}, nil
+		}
+	}
+	return nil, nil
 }

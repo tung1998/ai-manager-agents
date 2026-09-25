@@ -9,23 +9,32 @@ const next = computed(() => {
 })
 
 const { data, refresh } = await useFetch<{ providers: Provider[] }>('/api/providers')
-const { data: kindsData } = await useFetch<{ kinds: ProviderKind[] }>('/api/provider-kinds')
+const { data: kindsData } = await useFetch<{ kinds: ProviderKind[], presets: ProviderPreset[] }>('/api/provider-kinds')
+const { data: statsData, refresh: refreshStats } = useFetch<{ days: number, providers: ProviderStat[], today: { calls: number, errors: number, tokens: number, cost_usd: number } }>('/api/providers/stats', { query: { days: 7 }, lazy: true })
 const providers = computed(() => data.value?.providers ?? [])
 const kinds = computed(() => kindsData.value?.kinds ?? [])
+const presets = computed(() => kindsData.value?.presets ?? [])
 const kindOf = (k: string) => kinds.value.find(x => x.kind === k)
+const presetOf = (id: string) => presets.value.find(p => p.id === id)
+const statOf = (id: string) => statsData.value?.providers.find(s => s.provider_id === id)
+const week = computed(() => (statsData.value?.providers ?? []).reduce((a, s) => ({ calls: a.calls + s.calls, cost: a.cost + s.cost_usd }), { calls: 0, cost: 0 }))
+const groupLabel: Record<ProviderPreset['group'], string> = { gateway: 'Cổng trung gian', global: 'Quốc tế', china: 'Trung Quốc', local: 'Chạy trên máy' }
+const presetGroups = computed(() => (['gateway', 'global', 'china', 'local'] as const)
+  .map(g => ({ group: g, items: presets.value.filter(p => p.group === g) })).filter(g => g.items.length))
 
 // ---- form ----
 const formOpen = ref(false)
 const editing = ref<Provider | null>(null)
 const form = reactive({
-  name: '', kind: 'anthropic', base_url: '', api_key: '', api_key_env: '', keyMode: 'paste' as 'paste' | 'env',
+  name: '', kind: 'anthropic', preset: '', base_url: '', api_key: '', api_key_env: '', keyMode: 'paste' as 'paste' | 'env',
   tier_models: { strong: '', balanced: '', fast: '' } as Record<ModelTier, string>
 })
 const formError = ref('')
 const saving = ref(false)
 const selectedKind = computed(() => kindOf(form.kind))
+const selectedPreset = computed(() => presetOf(form.preset))
+const needsKey = computed(() => selectedPreset.value ? selectedPreset.value.need_key : !!selectedKind.value?.needs_key)
 const commonKinds = computed(() => kinds.value.filter(k => k.common))
-const otherKinds = computed(() => kinds.value.filter(k => !k.common))
 const advancedOpen = ref(false)
 const cliTool = computed(() => ({ claude_cli: 'claude', codex_cli: 'codex' } as Record<string, 'claude' | 'codex'>)[form.kind])
 const cliReady = ref(true)
@@ -33,7 +42,7 @@ watch(cliTool, (v) => { if (!v) cliReady.value = true })
 const norm = (u: string) => u.trim().replace(/\/+$/, '')
 const urlChangedWithStoredKey = computed(() => !!editing.value?.has_api_key && form.keyMode === 'paste' && !form.api_key
   && norm(form.base_url) !== norm(editing.value.base_url))
-const keyUrl = computed(() => ({ anthropic: 'https://console.anthropic.com', openai: 'https://platform.openai.com/api-keys' } as Record<string, string>)[form.kind] ?? '')
+const keyUrl = computed(() => selectedPreset.value?.key_url ?? ({ anthropic: 'https://console.anthropic.com', openai: 'https://platform.openai.com/api-keys' } as Record<string, string>)[form.kind] ?? '')
 const kindIconOf = (k: string) => ({
   claude_cli: 'i-lucide-terminal', codex_cli: 'i-lucide-terminal', anthropic: 'i-lucide-key-round',
   openai: 'i-lucide-key-round', openai_compatible: 'i-lucide-server'
@@ -50,13 +59,24 @@ function applyKindDefaults(k: string) {
   form.tier_models = { strong: '', balanced: '', fast: '', ...info?.tier_models }
 }
 
+// choose a connection type: a kind, or a third-party preset (an OpenAI-compatible API)
+function choose(kind: string, preset = '') {
+  form.kind = kind
+  applyKindDefaults(kind)
+  form.preset = preset
+  const pr = presetOf(preset)
+  if (pr) {
+    form.name = pr.name
+    form.base_url = pr.base_url
+  }
+}
+
 function openCreate() {
   editing.value = null
   advancedOpen.value = false
   // Prefer what already works on this machine: an installed Claude Code, then a key in the environment.
   const preferred = commonKinds.value.find(k => k.detected?.installed) ?? commonKinds.value.find(k => k.detected?.env_key) ?? commonKinds.value[0]
-  form.kind = preferred?.kind ?? 'claude_cli'
-  applyKindDefaults(form.kind)
+  choose(preferred?.kind ?? 'claude_cli')
   formError.value = ''
   formOpen.value = true
 }
@@ -64,7 +84,7 @@ function openCreate() {
 function openEdit(p: Provider) {
   editing.value = p
   Object.assign(form, {
-    name: p.name, kind: p.kind, base_url: p.base_url, api_key: '', api_key_env: p.api_key_env,
+    name: p.name, kind: p.kind, preset: p.preset, base_url: p.base_url, api_key: '', api_key_env: p.api_key_env,
     keyMode: p.api_key_env ? 'env' : 'paste'
   })
   form.tier_models = { strong: '', balanced: '', fast: '', ...p.tier_models }
@@ -73,16 +93,13 @@ function openEdit(p: Provider) {
   formOpen.value = true
 }
 
-watch(() => form.kind, (k) => {
-  if (!editing.value) applyKindDefaults(k)
-})
-
 async function save() {
   formError.value = ''
   saving.value = true
   const body: Record<string, unknown> = {
     name: form.name,
     kind: form.kind,
+    preset: form.kind === 'openai_compatible' ? form.preset : '',
     base_url: form.base_url,
     api_key_env: form.keyMode === 'env' ? form.api_key_env : '',
     tier_models: Object.fromEntries(Object.entries(form.tier_models).filter(([, v]) => v))
@@ -130,6 +147,7 @@ async function runTest(p: Provider, prompt = '') {
       toast.add({ title: res!.ok ? `${p.name}: kết nối tốt` : `${p.name}: lỗi kết nối`, description: res!.detail, color: res!.ok ? 'success' : 'error' })
     }
     await refresh()
+    refreshStats()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
@@ -170,6 +188,19 @@ function menu(p: Provider) {
   ]
 }
 
+// ---- display ----
+const avatarOf = (p: Provider) => presetOf(p.preset)?.name ?? kindOf(p.kind)?.label ?? p.name
+const palette = ['bg-violet-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500', 'bg-orange-500']
+const avatarColor = (key: string) => palette[[...key].reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length]
+const num = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n)
+const usd = (v: number) => v >= 100 ? `$${v.toFixed(0)}` : v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(3)}`
+function ago(t: string | null) {
+  if (!t) return 'chưa dùng'
+  const s = (Date.now() - new Date(t).getTime()) / 1000
+  return s < 60 ? 'vừa xong' : s < 3600 ? `${Math.floor(s / 60)} phút trước` : s < 86400 ? `${Math.floor(s / 3600)} giờ trước` : `${Math.floor(s / 86400)} ngày trước`
+}
+const maxDay = (st?: ProviderStat) => Math.max(1, ...(st?.days.map(d => d.calls) ?? [0]))
+
 const statusColor = (s: string) => (s === 'ok' ? 'success' : s === 'error' ? 'error' : 'neutral')
 const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error' ? 'Lỗi' : 'Chưa kiểm tra')
 </script>
@@ -196,42 +227,95 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
         <UButton v-if="isAdmin" class="mt-4" icon="i-lucide-plus" label="Thêm kết nối" @click="openCreate" />
       </div>
 
-      <div class="grid gap-4 lg:grid-cols-2">
-        <UCard v-for="p in providers" :key="p.id">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
+      <!-- today / 7 days -->
+      <div v-if="providers.length" class="grid grid-cols-2 overflow-hidden rounded-lg border border-(--ui-border) md:grid-cols-4">
+        <div class="p-4">
+          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">Lượt gọi hôm nay</p>
+          <p class="mt-1 font-mono text-2xl font-semibold">{{ num(statsData?.today.calls ?? 0) }}</p>
+        </div>
+        <div class="border-s border-(--ui-border) p-4">
+          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">Token hôm nay</p>
+          <p class="mt-1 font-mono text-2xl font-semibold">{{ num(statsData?.today.tokens ?? 0) }}</p>
+        </div>
+        <div class="border-t border-(--ui-border) p-4 md:border-s md:border-t-0">
+          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">Chi phí hôm nay</p>
+          <p class="mt-1 font-mono text-2xl font-semibold">{{ usd(statsData?.today.cost_usd ?? 0) }}</p>
+        </div>
+        <NuxtLink to="/costs" class="border-s border-t border-(--ui-border) p-4 transition hover:bg-(--ui-bg-elevated) md:border-t-0">
+          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">7 ngày</p>
+          <p class="mt-1 font-mono text-2xl font-semibold">{{ usd(week.cost) }} <span class="text-sm font-normal text-(--ui-text-muted)">· {{ num(week.calls) }} lượt</span></p>
+        </NuxtLink>
+      </div>
+
+      <div class="grid gap-3 lg:grid-cols-2">
+        <div v-for="p in providers" :key="p.id" class="rounded-lg border border-(--ui-border) p-4" :class="{ 'opacity-60': !p.enabled }">
+          <div class="flex items-start gap-3">
+            <span class="grid size-9 shrink-0 place-items-center rounded-lg text-sm font-semibold text-white" :class="avatarColor(avatarOf(p))">
+              <UIcon v-if="kindOf(p.kind)?.is_cli" name="i-lucide-terminal" class="size-4" />
+              <template v-else>{{ avatarOf(p).slice(0, 1).toUpperCase() }}</template>
+            </span>
+            <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
                 <p class="truncate font-semibold">{{ p.name }}</p>
                 <UBadge v-if="p.is_default" label="Mặc định" icon="i-lucide-star" size="sm" variant="subtle" />
               </div>
-              <p class="text-sm text-(--ui-text-muted)">{{ kindOf(p.kind)?.label ?? p.kind }}</p>
+              <p class="truncate text-xs text-(--ui-text-muted)">
+                {{ presetOf(p.preset)?.name ?? kindOf(p.kind)?.label ?? p.kind }}
+                <template v-if="p.api_key_env"> · key từ <code>{{ p.api_key_env }}</code></template>
+                <template v-else-if="p.has_api_key"> · key <code>{{ p.api_key_hint }}</code></template>
+              </p>
             </div>
             <div class="flex items-center gap-1">
-              <UBadge :label="statusText(p.status)" :color="statusColor(p.status)" variant="subtle" />
+              <UBadge :label="statusText(p.status)" :color="statusColor(p.status)" variant="subtle" size="sm" />
               <UButton
-                v-if="isAdmin" icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="sm"
-                :loading="testing === p.id" title="Kiểm tra kết nối" @click="runTest(p)"
+                v-if="isAdmin" icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="xs"
+                :loading="testing === p.id" aria-label="Kiểm tra kết nối" @click="runTest(p)"
               />
               <UDropdownMenu v-if="isAdmin" :items="menu(p)">
-                <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" size="sm" />
+                <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" size="xs" aria-label="Thao tác" />
               </UDropdownMenu>
             </div>
           </div>
 
-          <dl class="mt-4 grid grid-cols-3 gap-2 text-sm">
-            <div v-for="t in (['strong', 'balanced', 'fast'] as const)" :key="t" class="rounded-md bg-(--ui-bg-muted) px-2 py-1.5">
-              <dt class="text-xs text-(--ui-text-muted)">{{ modelTierLabel[t] }}</dt>
-              <dd class="truncate font-mono text-xs">{{ p.tier_models[t] || '—' }}</dd>
+          <!-- 7-day stats -->
+          <div class="mt-3 flex items-end gap-4">
+            <div class="grid flex-1 grid-cols-4 gap-2 text-xs">
+              <div>
+                <p class="text-(--ui-text-muted)">Lượt gọi</p>
+                <p class="font-mono text-sm font-medium tabular-nums">{{ num(statOf(p.id)?.calls ?? 0) }}</p>
+              </div>
+              <div>
+                <p class="text-(--ui-text-muted)">Token</p>
+                <p class="font-mono text-sm font-medium tabular-nums">{{ num((statOf(p.id)?.input_tokens ?? 0) + (statOf(p.id)?.output_tokens ?? 0)) }}</p>
+              </div>
+              <div>
+                <p class="text-(--ui-text-muted)">Chi phí</p>
+                <p class="font-mono text-sm font-medium tabular-nums">{{ usd(statOf(p.id)?.cost_usd ?? 0) }}</p>
+              </div>
+              <div>
+                <p class="text-(--ui-text-muted)">Lỗi · trễ</p>
+                <p class="font-mono text-sm font-medium tabular-nums">
+                  <span :class="statOf(p.id)?.errors ? 'text-(--ui-error)' : ''">{{ statOf(p.id)?.calls ? Math.round(((statOf(p.id)?.errors ?? 0) / statOf(p.id)!.calls) * 100) : 0 }}%</span>
+                  <span class="text-(--ui-text-muted)"> · {{ statOf(p.id)?.avg_ms ? `${(statOf(p.id)!.avg_ms / 1000).toFixed(1)}s` : '—' }}</span>
+                </p>
+              </div>
             </div>
-          </dl>
-
-          <div class="mt-3 space-y-1 text-xs text-(--ui-text-muted)">
-            <p v-if="p.api_key_env">Key từ biến môi trường <code>{{ p.api_key_env }}</code></p>
-            <p v-else-if="p.has_api_key">API key đã lưu (mã hóa) <code>{{ p.api_key_hint }}</code></p>
-            <p v-if="p.base_url">{{ kindOf(p.kind)?.is_cli ? 'Binary' : 'URL' }}: <code>{{ p.base_url }}</code></p>
-            <p v-if="p.status_detail" :class="p.status === 'error' ? 'text-(--ui-error)' : ''">{{ p.status_detail }}</p>
+            <div class="flex h-8 items-end gap-0.5" :title="'Lượt gọi 7 ngày'">
+              <span
+                v-for="d in statOf(p.id)?.days ?? []" :key="d.day" class="w-2 rounded-sm bg-(--ui-primary)/70"
+                :style="{ height: `${Math.max(8, (d.calls / maxDay(statOf(p.id))) * 100)}%` }" :class="{ 'bg-(--ui-bg-elevated)!': !d.calls }"
+                :title="`${d.day}: ${d.calls} lượt · ${usd(d.cost_usd)}`"
+              />
+            </div>
           </div>
-        </UCard>
+
+          <p class="mt-2 flex flex-wrap gap-x-3 text-xs text-(--ui-text-muted)">
+            <span>{{ ago(statOf(p.id)?.last_used_at ?? null) }}</span>
+            <span v-if="statOf(p.id)?.top_model" class="truncate">dùng nhiều: <code>{{ statOf(p.id)?.top_model }}</code></span>
+            <span v-else-if="p.tier_models.balanced" class="truncate">model: <code>{{ p.tier_models.balanced }}</code></span>
+          </p>
+          <p v-if="p.status === 'error' && p.status_detail" class="mt-1 truncate text-xs text-(--ui-error)" :title="p.status_detail">{{ p.status_detail }}</p>
+        </div>
       </div>
     </div>
 
@@ -239,28 +323,51 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
     <UModal v-model:open="formOpen" :title="editing ? `Sửa ${editing.name}` : 'Thêm kết nối AI'" :ui="{ content: 'max-w-2xl' }">
       <template #body>
         <form id="provider-form" class="space-y-5" @submit.prevent="save">
-          <!-- kind -->
-          <div v-if="!editing" class="flex flex-wrap items-center gap-2">
-            <button
-              v-for="k in commonKinds" :key="k.kind" type="button"
-              class="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition"
-              :class="form.kind === k.kind ? 'border-(--ui-primary) bg-(--ui-primary)/10 text-(--ui-primary)' : 'border-(--ui-border) hover:border-(--ui-border-accented)'"
-              @click="form.kind = k.kind"
-            >
-              <UIcon :name="kindIconOf(k.kind)" class="size-4" />
-              {{ k.label }}
-              <span v-if="k.detected?.installed || k.detected?.env_key" class="size-1.5 rounded-full bg-(--ui-success)" title="Có sẵn trên máy" />
-            </button>
-            <USelect
-              :model-value="otherKinds.some(k => k.kind === form.kind) ? form.kind : undefined"
-              :items="otherKinds.map(k => ({ label: k.label, value: k.kind }))"
-              placeholder="Khác…" size="sm" class="w-40"
-              @update:model-value="(v: string) => form.kind = v"
-            />
+          <!-- kind: main accounts, then third-party APIs -->
+          <div v-if="!editing" class="space-y-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                v-for="k in kinds.filter(k => k.kind !== 'openai_compatible')" :key="k.kind" type="button"
+                class="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition"
+                :class="form.kind === k.kind && !form.preset ? 'border-(--ui-primary) bg-(--ui-primary)/10 text-(--ui-primary)' : 'border-(--ui-border) hover:border-(--ui-border-accented)'"
+                @click="choose(k.kind)"
+              >
+                <UIcon :name="kindIconOf(k.kind)" class="size-4" />
+                {{ k.label }}
+                <span v-if="k.detected?.installed || k.detected?.env_key" class="size-1.5 rounded-full bg-(--ui-success)" title="Có sẵn trên máy" />
+              </button>
+            </div>
+            <details class="rounded-lg border border-(--ui-border)" :open="form.kind === 'openai_compatible'">
+              <summary class="cursor-pointer px-3 py-2 text-sm font-medium">Nhà cung cấp API khác <span class="font-normal text-(--ui-text-muted)">· OpenRouter, Gemini, DeepSeek, GLM, Kimi, Ollama…</span></summary>
+              <div class="space-y-3 border-t border-(--ui-border) p-3">
+                <div v-for="g in presetGroups" :key="g.group">
+                  <p class="mb-1.5 text-xs text-(--ui-text-muted)">{{ groupLabel[g.group] }}</p>
+                  <div class="flex flex-wrap gap-1.5">
+                    <button
+                      v-for="pr in g.items" :key="pr.id" type="button" :title="pr.note"
+                      class="flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm transition"
+                      :class="form.preset === pr.id ? 'border-(--ui-primary) bg-(--ui-primary)/10 text-(--ui-primary)' : 'border-(--ui-border) hover:border-(--ui-border-accented)'"
+                      @click="choose('openai_compatible', pr.id)"
+                    >
+                      <span class="grid size-4 place-items-center rounded text-[10px] font-bold text-white" :class="avatarColor(pr.name)">{{ pr.name.slice(0, 1) }}</span>
+                      {{ pr.name }}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button" class="flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm transition"
+                  :class="form.kind === 'openai_compatible' && !form.preset ? 'border-(--ui-primary) bg-(--ui-primary)/10 text-(--ui-primary)' : 'border-dashed border-(--ui-border) hover:border-(--ui-border-accented)'"
+                  @click="choose('openai_compatible')"
+                >
+                  <UIcon name="i-lucide-server" class="size-4" /> Tự nhập địa chỉ (API tương thích OpenAI)
+                </button>
+              </div>
+            </details>
+            <p v-if="selectedPreset?.note" class="text-xs text-(--ui-text-muted)">{{ selectedPreset.name }}: {{ selectedPreset.note }}</p>
           </div>
           <div v-else class="flex items-center gap-2 text-sm">
             <UIcon :name="kindIconOf(form.kind)" class="size-5 text-primary" />
-            <span class="font-medium">{{ selectedKind?.label }}</span>
+            <span class="font-medium">{{ selectedPreset?.name ?? selectedKind?.label }}</span>
           </div>
 
           <CliSetup v-if="cliTool" :key="cliTool" :tool="cliTool" @ready="(v: boolean) => cliReady = v" />
@@ -270,13 +377,13 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
           </UFormField>
 
           <!-- endpoint for compatible APIs is not optional, so it is not hidden -->
-          <UFormField v-if="form.kind === 'openai_compatible'" label="Địa chỉ API" required help="Ví dụ Ollama: http://localhost:11434/v1 · OpenRouter: https://openrouter.ai/api/v1">
+          <UFormField v-if="form.kind === 'openai_compatible' && !form.preset" label="Địa chỉ API" required help="Địa chỉ gốc có /v1, ví dụ https://api.example.com/v1">
             <UInput v-model="form.base_url" :placeholder="selectedKind?.base_url_hint" class="w-full font-mono" />
           </UFormField>
 
           <!-- API key -->
-          <template v-if="!selectedKind?.is_cli">
-            <UFormField label="API key" :required="selectedKind?.needs_key">
+          <template v-if="!selectedKind?.is_cli && (needsKey || !form.preset)">
+            <UFormField label="API key" :required="needsKey">
               <UTabs
                 v-model="form.keyMode"
                 :items="[{ label: 'Dán key', value: 'paste' }, { label: 'Đọc từ biến môi trường', value: 'env' }]"
@@ -286,7 +393,7 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
                 v-if="form.keyMode === 'paste'" v-model="form.api_key" type="password" autocomplete="off" class="w-full"
                 :placeholder="editing?.has_api_key ? `Đã lưu ${editing.api_key_hint} — để trống để giữ nguyên` : 'Dán API key vào đây'"
               />
-              <UInput v-else v-model="form.api_key_env" placeholder="ANTHROPIC_API_KEY" class="w-full font-mono" />
+              <UInput v-else v-model="form.api_key_env" :placeholder="selectedPreset?.key_env ?? 'ANTHROPIC_API_KEY'" class="w-full font-mono" />
               <p v-if="urlChangedWithStoredKey" class="mt-1 text-xs text-(--ui-warning)">
                 Bạn đã đổi địa chỉ API: nhập lại key. Key đã lưu không bao giờ được gửi tới địa chỉ mới.
               </p>
@@ -313,7 +420,7 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
                   <UInput v-model="form.base_url" :placeholder="selectedKind?.base_url_hint" class="w-full font-mono" />
                 </UFormField>
                 <UFormField
-                  v-else-if="form.kind !== 'openai_compatible'" label="Địa chỉ API"
+                  v-else-if="form.kind !== 'openai_compatible' || form.preset" label="Địa chỉ API"
                   help="Để trống là dùng địa chỉ chính thức. Chỉ đổi khi đi qua proxy hoặc cổng riêng của công ty."
                 >
                   <UInput v-model="form.base_url" :placeholder="selectedKind?.base_url_hint" class="w-full font-mono" />

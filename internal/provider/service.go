@@ -74,6 +74,7 @@ func NewService(store storage.Store, box *secrets.Box, opts llm.Options) *Servic
 type Input struct {
 	Name       string
 	Kind       storage.ProviderKind
+	Preset     *string // catalog entry; nil keeps the current one
 	BaseURL    string
 	APIKey     *string
 	APIKeyEnv  string
@@ -95,6 +96,12 @@ func (s *Service) apply(p *storage.Provider, in Input) error {
 		return ErrInvalidKind
 	}
 	p.Kind = in.Kind
+	if in.Preset != nil {
+		p.Preset = *in.Preset
+		if _, ok := PresetByID(p.Preset); !ok || p.Kind != storage.ProviderOpenAICompatible {
+			p.Preset = ""
+		}
+	}
 	p.BaseURL = strings.TrimSpace(in.BaseURL)
 	p.APIKeyEnv = strings.TrimSpace(in.APIKeyEnv)
 	if in.APIKey != nil {

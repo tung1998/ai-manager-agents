@@ -25,6 +25,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/provider-kinds", auth(s.providerKinds))
 	mux.Handle("GET /api/providers", auth(s.listProviders))
+	mux.Handle("GET /api/providers/stats", auth(s.providerStats))
 	mux.Handle("POST /api/providers", admin(s.createProvider))
 	mux.Handle("PATCH /api/providers/{id}", admin(s.updateProvider))
 	mux.Handle("DELETE /api/providers/{id}", admin(s.deleteProvider))
@@ -83,6 +84,12 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	}
 	if s.cfg.Ops != nil {
 		s.opsRoutes(mux, auth, admin)
+	}
+	if s.cfg.Monitors != nil {
+		s.monitorRoutes(mux, auth, admin)
+	}
+	if s.cfg.MCP != nil {
+		mux.Handle("/mcp", s.cfg.MCP) // authenticated by its own per-run token
 	}
 	mux.Handle("GET /api/cli-tools", admin(s.cliTools))
 	if s.cfg.CLITools != nil {
@@ -154,6 +161,7 @@ type providerDTO struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name"`
 	Kind         string            `json:"kind"`
+	Preset       string            `json:"preset"`
 	BaseURL      string            `json:"base_url"`
 	HasAPIKey    bool              `json:"has_api_key"`
 	APIKeyHint   string            `json:"api_key_hint"`
@@ -168,7 +176,7 @@ type providerDTO struct {
 }
 
 func toProviderDTO(p storage.Provider) providerDTO {
-	return providerDTO{ID: p.ID, Name: p.Name, Kind: string(p.Kind), BaseURL: p.BaseURL, HasAPIKey: p.APIKeyEnc != "",
+	return providerDTO{ID: p.ID, Name: p.Name, Kind: string(p.Kind), Preset: p.Preset, BaseURL: p.BaseURL, HasAPIKey: p.APIKeyEnc != "",
 		APIKeyHint: p.APIKeyHint, APIKeyEnv: p.APIKeyEnv, TierModels: p.TierModels, Models: p.Models, IsDefault: p.IsDefault,
 		Enabled: p.Enabled, Status: p.Status, StatusDetail: p.StatusDetail, CheckedAt: p.CheckedAt}
 }
@@ -225,7 +233,7 @@ func (s *server) providerKinds(w http.ResponseWriter, r *http.Request) {
 		return kindInfo{Kind: string(kind), Label: label, Description: desc, Common: common, NeedsKey: needsKey, IsCLI: kind.IsCLI(),
 			BaseURLHint: hint, TierModels: llm.DefaultTierModels(kind), Detected: d}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"kinds": []kindInfo{
+	writeJSON(w, http.StatusOK, map[string]any{"presets": provider.Presets(), "kinds": []kindInfo{
 		k(storage.ProviderClaudeCLI, "Claude Code trên máy",
 			"Dùng tài khoản Claude đã đăng nhập trong Claude Code trên máy này (gói Pro/Max). Không cần API key.",
 			"claude", false, true, s.detectTool(r, "claude")),
@@ -247,6 +255,7 @@ func (s *server) providerKinds(w http.ResponseWriter, r *http.Request) {
 type providerInput struct {
 	Name       string            `json:"name"`
 	Kind       string            `json:"kind"`
+	Preset     *string           `json:"preset"`
 	BaseURL    string            `json:"base_url"`
 	APIKey     *string           `json:"api_key"`
 	APIKeyEnv  string            `json:"api_key_env"`
@@ -255,7 +264,7 @@ type providerInput struct {
 }
 
 func (in providerInput) toInput() provider.Input {
-	return provider.Input{Name: in.Name, Kind: storage.ProviderKind(in.Kind), BaseURL: in.BaseURL, APIKey: in.APIKey,
+	return provider.Input{Name: in.Name, Kind: storage.ProviderKind(in.Kind), Preset: in.Preset, BaseURL: in.BaseURL, APIKey: in.APIKey,
 		APIKeyEnv: in.APIKeyEnv, TierModels: in.TierModels, Enabled: in.Enabled}
 }
 

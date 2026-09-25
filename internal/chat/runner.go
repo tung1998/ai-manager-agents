@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"context"
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
@@ -37,6 +38,17 @@ type RunRequest struct {
 	SessionID string
 	// Files attached to this turn's prompt (see attachments.go).
 	Attachments []attach.File
+	// Office tools (build/run/monitoring info) for this run; nil = none.
+	Office *OfficeAccess
+}
+
+// OfficeAccess lets one run read the project's operations data: Claude Code
+// through the office MCP server, API agents through the same tools directly.
+type OfficeAccess struct {
+	MCPURL    string
+	Token     string
+	ProjectID string
+	Tools     *officetools.Toolbox
 }
 
 // RunResult is what the runtime produced.

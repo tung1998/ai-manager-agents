@@ -5,6 +5,7 @@ export interface Provider {
   id: string
   name: string
   kind: string
+  preset: string
   base_url: string
   has_api_key: boolean
   api_key_hint: string
@@ -30,6 +31,28 @@ export interface ProviderKind {
   tier_models: Partial<Record<ModelTier, string>>
 }
 
+export interface ProviderPreset {
+  id: string
+  name: string
+  group: 'gateway' | 'global' | 'china' | 'local'
+  base_url: string
+  key_url?: string
+  key_env?: string
+  need_key: boolean
+  note?: string
+}
+export interface ProviderStat {
+  provider_id: string
+  calls: number
+  errors: number
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
+  avg_ms: number
+  last_used_at: string | null
+  top_model: string
+  days: { day: string, calls: number, cost_usd: number }[]
+}
 export interface Permissions {
   read_only: boolean
   tools?: string[]

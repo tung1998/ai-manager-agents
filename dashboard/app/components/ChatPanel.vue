@@ -32,12 +32,20 @@ const draftFiles = ref<Attachment[]>([])
 const prompt = ref<{ busy: boolean } | null>(null)
 
 // filled by other tabs (e.g. "Hỏi agent" in Vận hành)
-const prefill = useState<{ text: string, files: Attachment[] } | null>('chat-prefill', () => null)
-function takePrefill() {
+const prefill = useState<{ text: string, files: Attachment[], send?: boolean } | null>('chat-prefill', () => null)
+async function takePrefill() {
   if (!prefill.value) return
-  draft.value = prefill.value.text
-  draftFiles.value = prefill.value.files
+  const p = prefill.value
   prefill.value = null
+  draft.value = p.text
+  draftFiles.value = p.files
+  if (p.send) {
+    stopStream()
+    current.value = null
+    messages.value = []
+    await newConversation()
+    await send()
+  }
 }
 onMounted(takePrefill)
 watch(prefill, takePrefill)
@@ -85,7 +93,9 @@ async function send() {
     const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id) } })
     draft.value = ''
     draftFiles.value = []
+    const first = !messages.value.length
     messages.value.push(res.message)
+    if (first) refreshConvs() // the server titles a conversation from its first message
     follow(res.turn_id)
     scrollDown()
   } catch (e) {

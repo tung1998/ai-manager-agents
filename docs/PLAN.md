@@ -99,7 +99,12 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Gọi skill bằng "/" và đính kèm ảnh, PDF, file chữ trong Chat và Việc (ADR-025) | Xong |
 | Vận hành: quét lệnh của project, chạy/dừng/tự chạy lại như pm2, log trực tiếp, CPU/RAM/cổng, hỏi agent từ log (ADR-026) | Xong |
 | Vận hành: container (docker compose): trạng thái, cổng, CPU/RAM/mạng, bật/dừng/chạy lại/gỡ theo stack hoặc service, log trực tiếp, hỏi agent (ADR-026) | Xong |
-| Giám sát: theo quy tắc (HTTP, cổng, heartbeat) và có AI (bật/tắt, trần chi phí) | Chưa làm |
+| Giám sát: HTTP, TCP, heartbeat, tiến trình, container; uptime/độ trễ/xu hướng/sự kiện; AI phân tích khi Down (bật/tắt, trần 24h, cooldown) (ADR-027) | Xong |
+| Thông báo sự cố (Discord/Telegram) | Chưa làm |
+| Kết nối AI: 18 nhà cung cấp bên thứ 3 có sẵn (OpenRouter, Gemini, DeepSeek, GLM, Kimi, Ollama…), thống kê 7 ngày theo kết nối (ADR-028) | Xong |
+| Kết nối AI: tự chuyển kết nối dự phòng khi lỗi/chạm trần | Chưa làm |
+| MCP nội bộ office (ops_overview, process_logs, container_logs, monitor_detail) cho Claude Code và agent API; nút "Sửa lỗi" (ADR-029) | Xong |
+| Công cụ office có tác động (chạy lại build/test, restart) qua duyệt | Chưa làm |
 | Việc định kỳ, cảnh báo, `doctor` | Chưa làm |
 
 ### M0: Nền móng

@@ -10,18 +10,25 @@ const { data: tplData } = await useFetch<{ templates: OrgModel[] }>('/api/templa
 const project = computed(() => data.value?.project)
 const templates = computed(() => tplData.value?.templates ?? [])
 
-// the tab lives in the URL so the sidebar can link to each section
-type Tab = 'chat' | 'tasks' | 'ops' | 'model' | 'tools'
-const tabs: Tab[] = ['chat', 'tasks', 'ops', 'model', 'tools']
+// the tab lives in the URL so the sidebar can link to each section;
+// "Cấu hình" holds the org model and Skills & MCP (older links used tab=model|tools)
+type Tab = 'chat' | 'tasks' | 'ops' | 'config'
+const tabs: Tab[] = ['chat', 'tasks', 'ops', 'config']
+const configSection = computed<'model' | 'skill' | 'mcp'>({
+  get: () => route.query.tab === 'tools' ? 'skill' : (['skill', 'mcp'] as const).find(v => v === route.query.section) ?? 'model',
+  set: v => navigateTo({ query: { tab: 'config', section: v } }, { replace: true })
+})
+const descOpen = ref(false)
 
 // "Hỏi agent" from Vận hành: open Chat with the log attached
-const chatPrefill = useState<{ text: string, files: Attachment[] } | null>('chat-prefill', () => null)
-function askAgent(text: string, files: Attachment[]) {
-  chatPrefill.value = { text, files }
+// send=true ("Sửa lỗi") starts a new conversation and sends right away
+const chatPrefill = useState<{ text: string, files: Attachment[], send?: boolean } | null>('chat-prefill', () => null)
+function askAgent(text: string, files: Attachment[], send = false) {
+  chatPrefill.value = { text, files, send }
   tab.value = 'chat'
 }
 const tab = computed<Tab>({
-  get: () => tabs.find(t => t === route.query.tab) ?? 'chat',
+  get: () => route.query.tab === 'model' || route.query.tab === 'tools' ? 'config' : tabs.find(t => t === route.query.tab) ?? 'chat',
   set: t => navigateTo({ query: { tab: t } }, { replace: true })
 })
 const { touch } = useProjectUsage()
@@ -89,59 +96,73 @@ async function saveAsTemplate() {
 <template>
   <PageShell :title="project?.name ?? 'Project'">
     <template #actions>
-      <UButton to="/projects" icon="i-lucide-arrow-left" label="Tất cả project" color="neutral" variant="ghost" />
+      <template v-if="project && isAdmin">
+        <UButton v-if="!project.model" :to="`/projects/${id}/setup`" size="sm" icon="i-lucide-sparkles" label="Thiết lập bằng AI" />
+        <UDropdownMenu
+          :content="{ align: 'end' }"
+          :items="[[
+            { label: 'Sửa tên, mô tả', icon: 'i-lucide-pencil', onSelect: openEdit },
+            { label: 'Thiết lập bằng AI', icon: 'i-lucide-sparkles', to: `/projects/${id}/setup` },
+            { label: project.model ? 'Đổi mô hình' : 'Chọn mô hình', icon: 'i-lucide-network', onSelect: openApply }
+          ], [
+            { label: 'Tải JSON mô hình', icon: 'i-lucide-download', disabled: !project.model, onSelect: exportModel },
+            { label: 'Lưu mô hình để dùng lại', icon: 'i-lucide-bookmark-plus', disabled: !project.model, onSelect: saveAsTemplate }
+          ], [
+            { label: 'Bỏ quản lý project', icon: 'i-lucide-folder-minus', color: 'error', onSelect: removeRepo }
+          ]]"
+        >
+          <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" aria-label="Thao tác project" />
+        </UDropdownMenu>
+      </template>
     </template>
 
-    <div v-if="project" class="space-y-6">
-      <UCard>
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <div class="min-w-0 space-y-1">
-            <p v-if="project.scope === 'folder'" class="font-mono text-sm">{{ project.path }}</p>
-            <p v-else class="flex items-center gap-1.5 text-sm"><UIcon name="i-lucide-monitor" class="size-4" /> Helper toàn máy, không gắn thư mục</p>
-            <p v-if="project.git_remote" class="font-mono text-xs text-(--ui-text-muted)">{{ project.git_remote }}</p>
-            <p v-if="project.description" class="text-sm text-(--ui-text-muted)">{{ project.description }}</p>
-            <UBadge v-if="!project.exists" label="Không tìm thấy thư mục trên máy" color="error" variant="subtle" />
-          </div>
-          <div v-if="isAdmin" class="flex flex-wrap gap-2">
-            <UButton icon="i-lucide-pencil" label="Sửa" color="neutral" variant="outline" @click="openEdit" />
-            <UButton :to="`/projects/${id}/setup`" icon="i-lucide-sparkles" label="Thiết lập bằng AI" />
-            <UButton icon="i-lucide-network" :label="project.model ? 'Đổi mô hình' : 'Chọn mô hình'" color="neutral" variant="outline" @click="openApply" />
-            <UDropdownMenu :items="[[
-              { label: 'Tải JSON mô hình', icon: 'i-lucide-download', disabled: !project.model, onSelect: exportModel },
-              { label: 'Lưu mô hình để dùng lại', icon: 'i-lucide-bookmark-plus', disabled: !project.model, onSelect: saveAsTemplate },
-              { label: 'Bỏ quản lý project', icon: 'i-lucide-folder-minus', color: 'error', onSelect: removeRepo }
-            ]]">
-              <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" />
-            </UDropdownMenu>
-          </div>
-        </div>
-      </UCard>
+    <div v-if="project" class="space-y-4">
+      <!-- one quiet line of context -->
+      <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-(--ui-text-muted)">
+        <span v-if="project.scope === 'folder'" class="flex min-w-0 items-center gap-1.5">
+          <UIcon name="i-lucide-folder" class="size-3.5 shrink-0" /><span class="truncate font-mono">{{ project.path }}</span>
+        </span>
+        <span v-else class="flex items-center gap-1.5"><UIcon name="i-lucide-monitor" class="size-3.5" /> Helper toàn máy</span>
+        <span v-if="project.git_remote" class="flex min-w-0 items-center gap-1.5">
+          <UIcon name="i-lucide-git-branch" class="size-3.5 shrink-0" /><span class="truncate font-mono">{{ project.git_remote }}</span>
+        </span>
+        <UBadge v-if="!project.exists" label="Không tìm thấy thư mục" color="error" variant="subtle" size="sm" />
+        <button
+          v-if="project.description" type="button" class="min-w-0 basis-full text-left hover:text-(--ui-text)"
+          :class="descOpen ? '' : 'truncate'" :title="descOpen ? '' : project.description" @click="descOpen = !descOpen"
+        >
+          {{ project.description }}
+        </button>
+      </div>
 
       <UTabs
-        v-model="tab" :content="false" class="w-fit"
+        v-model="tab" :content="false" variant="link" class="w-full"
         :items="[
           { label: 'Chat', value: 'chat', icon: 'i-lucide-messages-square' },
           { label: 'Việc', value: 'tasks', icon: 'i-lucide-list-todo' },
           { label: 'Vận hành', value: 'ops', icon: 'i-lucide-activity' },
-          { label: 'Mô hình', value: 'model', icon: 'i-lucide-network' },
-          ...(isAdmin ? [{ label: 'Skills & MCP', value: 'tools', icon: 'i-lucide-plug-zap' }] : [])
+          { label: 'Cấu hình', value: 'config', icon: 'i-lucide-settings-2' }
         ]"
       />
-      <ProjectTools v-if="tab === 'tools'" :project-path="project.path" />
-      <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
+
+      <OpsPanel v-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
+      <template v-else-if="tab === 'config'">
+        <SegmentedNav
+          v-model="configSection"
+          :items="[
+            { value: 'model', label: 'Mô hình', icon: 'i-lucide-network' },
+            ...(isAdmin ? [{ value: 'skill', label: 'Skills', icon: 'i-lucide-sparkles' }, { value: 'mcp', label: 'MCP', icon: 'i-lucide-plug-zap' }] : [])
+          ]"
+        />
+        <ToolsPanel v-if="configSection !== 'model'" :key="configSection" :kind="configSection" :project-path="project.path" />
+        <OrgModelEditor v-else-if="project.model" :key="project.model.id" :model-id="project.model.id" @changed="refresh()" />
+        <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
+      </template>
       <template v-else-if="project.model">
         <ChatPanel v-if="tab === 'chat'" :project-id="project.id" />
-        <TaskPanel v-else-if="tab === 'tasks'" :project-id="project.id" :model-kind="project.model.kind" :governance="project.model.governance.mode" />
-        <OrgModelEditor v-else :key="project.model.id" :model-id="project.model.id" @changed="refresh()" />
+        <TaskPanel v-else :project-id="project.id" :model-kind="project.model.kind" :governance="project.model.governance.mode" />
       </template>
-      <div v-else class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
-        <p class="font-medium">Project chưa có mô hình tổ chức</p>
-        <p class="text-sm text-(--ui-text-muted)">Để AI quét project và đề xuất, hoặc tự chọn Solo, Team, Tam quyền phân lập.</p>
-        <div v-if="isAdmin" class="mt-4 flex justify-center gap-2">
-          <UButton :to="`/projects/${id}/setup`" icon="i-lucide-sparkles" label="Thiết lập bằng AI" />
-          <UButton icon="i-lucide-network" label="Tự chọn mô hình" color="neutral" variant="outline" @click="openApply" />
-        </div>
-      </div>
+      <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
     </div>
 
     <UModal v-model:open="applyOpen" :title="project?.model ? 'Đổi mô hình' : 'Chọn mô hình'" :ui="{ content: 'max-w-xl' }">

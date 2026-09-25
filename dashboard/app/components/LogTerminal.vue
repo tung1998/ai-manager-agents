@@ -34,7 +34,7 @@ const time = (t: string) => new Date(t).toLocaleTimeString('vi-VN', { hour12: fa
 </script>
 
 <template>
-  <div class="flex min-h-[28rem] flex-col overflow-hidden rounded-lg border border-(--ui-border) bg-neutral-950">
+  <div class="flex h-[26rem] max-h-[60vh] flex-col self-start overflow-hidden rounded-lg border border-(--ui-border) bg-neutral-950">
     <div class="flex items-center gap-2 border-b border-white/10 px-3 py-2 text-xs text-neutral-400">
       <UIcon name="i-lucide-terminal" class="size-4 shrink-0" />
       <span class="truncate font-medium text-neutral-200">{{ title }}</span>
@@ -43,7 +43,7 @@ const time = (t: string) => new Date(t).toLocaleTimeString('vi-VN', { hour12: fa
       <span class="ms-auto shrink-0">{{ lines.length }} dòng</span>
       <button type="button" class="shrink-0 hover:text-neutral-200" @click="lines = []">Xóa màn hình</button>
     </div>
-    <div ref="el" class="h-[32rem] flex-1 overflow-auto p-3 font-mono text-xs leading-relaxed" @scroll="onScroll">
+    <div ref="el" class="min-h-0 flex-1 overflow-auto p-3 font-mono text-xs leading-relaxed" @scroll="onScroll">
       <p v-if="!lines.length" class="text-neutral-500">{{ empty ?? 'Chưa có log.' }}</p>
       <div v-for="l in lines" :key="l.seq" class="flex gap-3 whitespace-pre-wrap break-all">
         <span class="shrink-0 select-none text-neutral-600">{{ time(l.time) }}</span>

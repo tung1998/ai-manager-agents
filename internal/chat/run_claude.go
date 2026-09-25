@@ -1,12 +1,14 @@
 package chat
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -64,6 +66,20 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 	args := r.args(req, resume)
 	for _, d := range dirs {
 		args = append(args, "--add-dir", d)
+	}
+	if req.Office != nil {
+		// the office MCP server; the token goes in a private temp file, not argv
+		cfg, err := writeMCPConfig(req.Office)
+		if err != nil {
+			return RunResult{}, err
+		}
+		defer os.Remove(cfg)
+		args = append(args, "--mcp-config", cfg)
+		for i := range args {
+			if args[i] == "--allowedTools" && i+1 < len(args) {
+				args[i+1] += " mcp__" + mcpserver.ServerName
+			}
+		}
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = req.WorkDir
@@ -189,7 +205,15 @@ func toolSummary(name string, input json.RawMessage) string {
 		}
 		return ""
 	}
-	switch strings.ToLower(name) {
+	switch strings.ToLower(strings.TrimPrefix(name, "mcp__"+mcpserver.ServerName+"__")) {
+	case "ops_overview":
+		return "Xem tổng quan vận hành"
+	case "process_logs":
+		return "Đọc log tiến trình " + str("name")
+	case "container_logs":
+		return "Đọc log container " + str("service")
+	case "monitor_detail":
+		return "Xem giám sát " + str("name")
 	case "read", "read_file":
 		return "Đọc " + str("file_path", "path")
 	case "glob":
@@ -239,4 +263,23 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+func writeMCPConfig(o *OfficeAccess) (string, error) {
+	raw, err := json.Marshal(map[string]any{"mcpServers": map[string]any{
+		mcpserver.ServerName: map[string]any{"type": "http", "url": o.MCPURL, "headers": map[string]string{"Authorization": "Bearer " + o.Token}},
+	}})
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp("", "office-mcp-*.json") // created 0600
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if _, err := f.Write(raw); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }

@@ -150,6 +150,10 @@ func (r runRepo) group(ctx context.Context, since time.Time, key, label, join st
 	return out, rows.Err()
 }
 
+func (r runRepo) Since(ctx context.Context, t time.Time) ([]storage.Run, error) {
+	return r.all(ctx, t)
+}
+
 func (r runRepo) all(ctx context.Context, since time.Time) ([]storage.Run, error) {
 	return r.query(ctx, storage.RunFilter{Since: since}, 0)
 }
