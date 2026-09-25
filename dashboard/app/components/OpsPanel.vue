@@ -22,13 +22,14 @@ const props = defineProps<{ projectId: string, hasFolder: boolean }>()
 const emit = defineEmits<{ askAgent: [text: string, files: Attachment[], send?: boolean] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
+const { t } = useLang()
 type Section = 'processes' | 'containers' | 'monitors'
 // counts for the switch; monitors are cheap to list (no checks run)
 const { data: monData, refresh: refreshMon } = await useFetch<{ summary: Record<string, number>, monitors: unknown[] }>('/api/monitors', { query: { project: props.projectId } })
 const navItems = computed(() => [
-  { value: 'processes', label: 'Tiến trình', icon: 'i-lucide-square-terminal', count: procs.value.length, alert: procs.value.some(p => p.state.status === 'crashed') },
-  { value: 'containers', label: 'Container', icon: 'i-lucide-container' },
-  { value: 'monitors', label: 'Giám sát', icon: 'i-lucide-heart-pulse', count: monData.value?.monitors.length ?? 0, alert: !!monData.value?.summary.down }
+  { value: 'processes', label: t('ops.nav.processes'), icon: 'i-lucide-square-terminal', count: procs.value.length, alert: procs.value.some(p => p.state.status === 'crashed') },
+  { value: 'containers', label: t('ops.nav.containers'), icon: 'i-lucide-container' },
+  { value: 'monitors', label: t('ops.nav.monitors'), icon: 'i-lucide-heart-pulse', count: monData.value?.monitors.length ?? 0, alert: !!monData.value?.summary.down }
 ])
 const section = ref<Section>((['processes', 'containers', 'monitors'] as const).find(v => v === useRoute().query.section) ?? 'processes')
 
@@ -60,7 +61,7 @@ async function act(p: Proc, action: 'start' | 'stop' | 'restart') {
   }
 }
 async function remove(p: Proc) {
-  if (!confirm(`Xóa "${p.name}"? Tiến trình đang chạy sẽ bị dừng.`)) return
+  if (!confirm(t('ops.confirmDelete', { name: p.name }))) return
   await $fetch(`/api/processes/${p.id}`, { method: 'DELETE' })
   await refresh()
 }
@@ -68,10 +69,10 @@ async function remove(p: Proc) {
 async function askAgent(p: Proc, fix = false) {
   try {
     const att = await $fetch<Attachment>(`/api/processes/${p.id}/log-attachment`, { method: 'POST' })
-    const why = p.state.status === 'crashed' ? `bị lỗi (mã thoát ${p.state.exit_code})` : `đang ${statusMeta[p.state.status].label.toLowerCase()}`
+    const why = p.state.status === 'crashed' ? t('ops.reasonCrashed', { code: p.state.exit_code ?? '' }) : t('ops.reasonRunning', { status: statusMeta.value[p.state.status].label.toLowerCase() })
     const text = fix
-      ? `Tiến trình "${p.name}" (\`${p.command}\`) ${why}. Dùng công cụ office (process_logs, ops_overview) để đọc log, tìm nguyên nhân gốc trong code và đề xuất diff sửa. Nếu không phải lỗi code (thiếu biến môi trường, cổng bị chiếm, thiếu dependency…) thì nói rõ lệnh cần chạy.`
-      : `Tiến trình "${p.name}" (${p.command}) ${why}. Xem log đính kèm, tìm nguyên nhân và đề xuất cách sửa.`
+      ? t('ops.askFixPrompt', { name: p.name, command: p.command, why })
+      : t('ops.askPrompt', { name: p.name, command: p.command, why })
     emit('askAgent', text, [att], fix)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -138,14 +139,14 @@ async function saveForm() {
 }
 
 // ---- display ----
-const statusMeta: Record<ProcState['status'], { label: string, color: 'success' | 'error' | 'neutral' | 'warning' | 'info', dot: string }> = {
-  running: { label: 'Đang chạy', color: 'success', dot: 'bg-(--ui-success)' },
-  stopped: { label: 'Đã dừng', color: 'neutral', dot: 'bg-(--ui-text-dimmed)' },
-  stopping: { label: 'Đang dừng', color: 'warning', dot: 'bg-(--ui-warning)' },
-  exited: { label: 'Xong', color: 'info', dot: 'bg-(--ui-info)' },
-  crashed: { label: 'Lỗi', color: 'error', dot: 'bg-(--ui-error)' },
-  restarting: { label: 'Đang chạy lại', color: 'warning', dot: 'bg-(--ui-warning)' }
-}
+const statusMeta = computed<Record<ProcState['status'], { label: string, color: 'success' | 'error' | 'neutral' | 'warning' | 'info', dot: string }>>(() => ({
+  running: { label: t('ops.status.running'), color: 'success', dot: 'bg-(--ui-success)' },
+  stopped: { label: t('ops.status.stopped'), color: 'neutral', dot: 'bg-(--ui-text-dimmed)' },
+  stopping: { label: t('ops.status.stopping'), color: 'warning', dot: 'bg-(--ui-warning)' },
+  exited: { label: t('ops.status.exited'), color: 'info', dot: 'bg-(--ui-info)' },
+  crashed: { label: t('ops.status.crashed'), color: 'error', dot: 'bg-(--ui-error)' },
+  restarting: { label: t('ops.status.restarting'), color: 'warning', dot: 'bg-(--ui-warning)' }
+}))
 const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | undefined
 onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 1000) })
@@ -160,7 +161,7 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
 
 <template>
   <div class="space-y-4">
-    <UAlert v-if="!hasFolder" color="neutral" variant="subtle" icon="i-lucide-monitor" title="Project không gắn thư mục" description="Helper toàn máy không có lệnh để chạy. Chọn một project có thư mục." />
+    <UAlert v-if="!hasFolder" color="neutral" variant="subtle" icon="i-lucide-monitor" :title="t('ops.noFolder.title')" :description="t('ops.noFolder.desc')" />
 
     <template v-else>
       <!-- kept alive: switching back shows the last state instantly -->
@@ -176,16 +177,16 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
       <div class="flex flex-wrap items-center gap-2">
         <SegmentedNav v-model="section" :items="navItems" />
         <div v-if="isAdmin" class="ms-auto flex gap-2">
-          <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-scan-search" label="Quét project" :loading="detecting" @click="detect" />
-          <UButton size="sm" icon="i-lucide-plus" label="Thêm lệnh" @click="openForm()" />
+          <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-scan-search" :label="t('ops.scanProject')" :loading="detecting" @click="detect" />
+          <UButton size="sm" icon="i-lucide-plus" :label="t('ops.addCommand')" @click="openForm()" />
         </div>
       </div>
 
       <div v-if="!procs.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
         <UIcon name="i-lucide-activity" class="mx-auto size-8 text-(--ui-text-dimmed)" />
-        <p class="mt-2 font-medium">Chưa quản lý lệnh nào</p>
-        <p class="text-sm text-(--ui-text-muted)">Quét project để tìm script trong package.json, Makefile, Procfile. Tiến trình dừng khi tắt office.</p>
-        <UButton v-if="isAdmin" class="mt-4" icon="i-lucide-scan-search" label="Quét project" :loading="detecting" @click="detect" />
+        <p class="mt-2 font-medium">{{ t('ops.empty.title') }}</p>
+        <p class="text-sm text-(--ui-text-muted)">{{ t('ops.empty.desc') }}</p>
+        <UButton v-if="isAdmin" class="mt-4" icon="i-lucide-scan-search" :label="t('ops.scanProject')" :loading="detecting" @click="detect" />
       </div>
 
       <div v-else class="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
@@ -213,26 +214,26 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
             <div class="mt-2 flex items-center gap-1" @click.stop>
               <template v-if="isAdmin">
                 <UButton
-                  v-if="p.state.status !== 'running' && p.state.status !== 'stopping'" size="xs" icon="i-lucide-play" label="Chạy"
+                  v-if="p.state.status !== 'running' && p.state.status !== 'stopping'" size="xs" icon="i-lucide-play" :label="t('ops.start')"
                   :loading="busy === p.id + 'start'" @click="act(p, 'start')"
                 />
                 <template v-else>
-                  <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-square" label="Dừng" :loading="busy === p.id + 'stop' || p.state.status === 'stopping'" @click="act(p, 'stop')" />
-                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-rotate-cw" aria-label="Chạy lại" :loading="busy === p.id + 'restart'" @click="act(p, 'restart')" />
+                  <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-square" :label="t('ops.stop')" :loading="busy === p.id + 'stop' || p.state.status === 'stopping'" @click="act(p, 'stop')" />
+                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-rotate-cw" :aria-label="t('ops.restart')" :loading="busy === p.id + 'restart'" @click="act(p, 'restart')" />
                 </template>
               </template>
-              <UBadge v-if="p.autorestart" color="neutral" variant="outline" size="sm" label="tự chạy lại" class="ms-1" />
-              <UBadge v-if="p.autostart" color="neutral" variant="outline" size="sm" label="bật cùng office" />
+              <UBadge v-if="p.autorestart" color="neutral" variant="outline" size="sm" :label="t('ops.autorestartBadge')" class="ms-1" />
+              <UBadge v-if="p.autostart" color="neutral" variant="outline" size="sm" :label="t('ops.autostartBadge')" />
               <UButton
-                v-if="p.state.status === 'crashed'" size="xs" color="error" variant="soft" icon="i-lucide-wrench" label="Sửa lỗi" class="ms-auto"
+                v-if="p.state.status === 'crashed'" size="xs" color="error" variant="soft" icon="i-lucide-wrench" :label="t('ops.fix')" class="ms-auto"
                 @click="askAgent(p, true)"
               />
               <UDropdownMenu
                 v-if="isAdmin"
-                :items="[[{ label: 'Hỏi agent về log', icon: 'i-lucide-bot', onSelect: () => askAgent(p) }, { label: 'Sửa', icon: 'i-lucide-pencil', onSelect: () => openForm(p) }], [{ label: 'Xóa', icon: 'i-lucide-trash-2', color: 'error', onSelect: () => remove(p) }]]"
+                :items="[[{ label: t('ops.menu.askAgent'), icon: 'i-lucide-bot', onSelect: () => askAgent(p) }, { label: t('ops.menu.edit'), icon: 'i-lucide-pencil', onSelect: () => openForm(p) }], [{ label: t('ops.menu.delete'), icon: 'i-lucide-trash-2', color: 'error', onSelect: () => remove(p) }]]"
                 :content="{ align: 'end' }"
               >
-                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-ellipsis" aria-label="Thao tác" :class="p.state.status === 'crashed' ? '' : 'ms-auto'" />
+                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-ellipsis" :aria-label="t('ops.actionsLabel')" :class="p.state.status === 'crashed' ? '' : 'ms-auto'" />
               </UDropdownMenu>
             </div>
           </div>
@@ -241,28 +242,28 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
         <!-- logs -->
         <LogTerminal
           v-if="selected" :url="`/api/processes/${selected.id}/stream`" :title="selected.name" :subtitle="selected.command"
-          empty="Chưa có log. Bấm Chạy để bắt đầu."
+          :empty="t('ops.emptyLog')"
         />
       </div>
       </template>
     </template>
 
     <!-- detection -->
-    <UModal v-model:open="detectOpen" title="Lệnh tìm thấy trong project" :ui="{ content: 'max-w-2xl' }">
+    <UModal v-model:open="detectOpen" :title="t('ops.detect.title')" :ui="{ content: 'max-w-2xl' }">
       <template #body>
         <div v-if="detection" class="space-y-3">
           <p class="text-sm text-(--ui-text-muted)">
-            <template v-if="detection.package_manager">Dùng <b>{{ detection.package_manager }}</b>. </template>Chọn lệnh muốn quản lý.
+            <template v-if="detection.package_manager">{{ t('ops.detect.usingPm', { pm: detection.package_manager }) }}</template>{{ t('ops.detect.choose') }}
           </p>
-          <p v-if="!detection.suggestions.length" class="py-6 text-center text-(--ui-text-muted)">Không tìm thấy script nào. Dùng "Thêm lệnh" để tự nhập.</p>
+          <p v-if="!detection.suggestions.length" class="py-6 text-center text-(--ui-text-muted)">{{ t('ops.detect.none') }}</p>
           <div class="max-h-96 divide-y divide-(--ui-border) overflow-auto rounded-lg border border-(--ui-border)">
             <label v-for="s in detection.suggestions" :key="s.name" class="flex cursor-pointer items-start gap-3 px-3 py-2" :class="{ 'opacity-50': existing.has(s.name) }">
               <UCheckbox :model-value="picked.has(s.name)" :disabled="existing.has(s.name)" class="mt-0.5" @update:model-value="toggle(s.name)" />
               <div class="min-w-0 flex-1">
                 <p class="text-sm font-medium">
                   {{ s.name }}
-                  <UBadge color="neutral" variant="subtle" size="sm" :label="s.kind === 'service' ? 'chạy liên tục' : 'chạy xong thì dừng'" class="ms-1" />
-                  <span v-if="existing.has(s.name)" class="text-xs font-normal text-(--ui-text-muted)"> · đã có</span>
+                  <UBadge color="neutral" variant="subtle" size="sm" :label="s.kind === 'service' ? t('ops.detect.kindService') : t('ops.detect.kindJob')" class="ms-1" />
+                  <span v-if="existing.has(s.name)" class="text-xs font-normal text-(--ui-text-muted)">{{ t('ops.detect.alreadyHave') }}</span>
                 </p>
                 <code class="block truncate text-xs text-(--ui-text-muted)">{{ s.command }}<template v-if="s.description"> → {{ s.description }}</template></code>
               </div>
@@ -271,45 +272,45 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
           </div>
           <UAlert
             v-if="detection.compose.length" color="info" variant="subtle" icon="i-lucide-container"
-            :title="`Có ${detection.compose.map(c => c.file).join(', ')}`" description="Quản lý các service này ở mục Container."
+            :title="t('ops.detect.composeAlert', { files: detection.compose.map(c => c.file).join(', ') })" :description="t('ops.detect.composeDesc')"
           />
         </div>
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Hủy" @click="detectOpen = false" />
-          <UButton :label="`Thêm ${picked.size} lệnh`" :disabled="!picked.size" @click="addPicked" />
+          <UButton color="neutral" variant="ghost" :label="t('ops.detect.cancel')" @click="detectOpen = false" />
+          <UButton :label="t('ops.detect.add', { n: picked.size })" :disabled="!picked.size" @click="addPicked" />
         </div>
       </template>
     </UModal>
 
     <!-- add / edit -->
-    <UModal v-model:open="formOpen" :title="editing ? `Sửa ${editing.name}` : 'Thêm lệnh'" :ui="{ content: 'max-w-xl' }">
+    <UModal v-model:open="formOpen" :title="editing ? t('ops.form.editTitle', { name: editing.name }) : t('ops.form.addTitle')" :ui="{ content: 'max-w-xl' }">
       <template #body>
         <form id="proc-form" class="space-y-4" @submit.prevent="saveForm">
-          <UFormField label="Tên" required>
-            <UInput v-model="form.name" class="w-full" placeholder="dev" />
+          <UFormField :label="t('ops.form.name')" required>
+            <UInput v-model="form.name" class="w-full" :placeholder="t('ops.form.namePlaceholder')" />
           </UFormField>
-          <UFormField label="Lệnh" required help="Chạy bằng sh trong thư mục bên dưới">
-            <UInput v-model="form.command" class="w-full font-mono" placeholder="pnpm dev" />
+          <UFormField :label="t('ops.form.command')" required :help="t('ops.form.commandHelp')">
+            <UInput v-model="form.command" class="w-full font-mono" :placeholder="t('ops.form.commandPlaceholder')" />
           </UFormField>
-          <UFormField label="Thư mục (trong project)">
+          <UFormField :label="t('ops.form.cwd')">
             <UInput v-model="form.cwd" class="w-full font-mono" placeholder="." />
           </UFormField>
           <URadioGroup
             v-model="form.kind" orientation="horizontal"
-            :items="[{ label: 'Chạy liên tục (dev server, API)', value: 'service' }, { label: 'Chạy xong thì dừng (build, test)', value: 'job' }]"
+            :items="[{ label: t('ops.form.kindService'), value: 'service' }, { label: t('ops.form.kindJob'), value: 'job' }]"
           />
           <div class="flex flex-wrap gap-4">
-            <UCheckbox v-model="form.autorestart" :disabled="form.kind === 'job'" label="Tự chạy lại khi lỗi" />
-            <UCheckbox v-model="form.autostart" label="Bật cùng office" />
+            <UCheckbox v-model="form.autorestart" :disabled="form.kind === 'job'" :label="t('ops.form.autorestart')" />
+            <UCheckbox v-model="form.autostart" :label="t('ops.form.autostart')" />
           </div>
         </form>
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Hủy" @click="formOpen = false" />
-          <UButton type="submit" form="proc-form" label="Lưu" />
+          <UButton color="neutral" variant="ghost" :label="t('ops.form.cancel')" @click="formOpen = false" />
+          <UButton type="submit" form="proc-form" :label="t('ops.form.save')" />
         </div>
       </template>
     </UModal>

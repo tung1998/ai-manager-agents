@@ -7,6 +7,7 @@ interface Proc { id: string, name: string, command: string, kind: 'service' | 'j
 const props = defineProps<{ projectId: string }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
+const { t } = useLang()
 
 const { data, refresh } = await useFetch<{ policy: Policy, packs: CommandPack[] }>(() => `/api/projects/${props.projectId}/policy`)
 const { data: procData } = useFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`, { lazy: true })
@@ -38,7 +39,7 @@ async function save() {
       method: 'PUT',
       body: { max_level: form.max_level, allowed_commands: form.allowed_commands, commands: form.commands, packs: form.packs.filter(p => p.label.trim()), allowed_containers: form.allowed_containers, deny_paths: form.deny.split('\n').map(s => s.trim()).filter(Boolean) }
     })
-    toast.add({ title: 'Đã lưu quyền của project', color: 'success' })
+    toast.add({ title: t('policy.saved'), color: 'success' })
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -68,7 +69,7 @@ function addCmd(p: CommandPack) {
   const c = (newCmd[p.id] ?? '').trim().replace(/\s+/g, ' ')
   if (!pack || !c) return
   if (/[;&|<>$`\\]/.test(c)) {
-    toast.add({ title: 'Lệnh chạy không qua shell: không dùng | ; & > $', color: 'warning' })
+    toast.add({ title: t('policy.shellWarning'), color: 'warning' })
     return
   }
   if (!pack.commands.includes(c)) pack.commands.push(c)
@@ -81,24 +82,24 @@ function removeCmd(p: CommandPack, c: string) {
   form.commands = form.commands.filter(x => x !== c)
 }
 function addPack() {
-  form.packs.push({ id: `custom-new-${Date.now()}`, label: `Gói lệnh ${form.packs.length + 1}`, commands: [] })
+  form.packs.push({ id: `custom-new-${Date.now()}`, label: t('policy.newPackLabel', { n: form.packs.length + 1 }), commands: [] })
 }
 function removePack(p: CommandPack) {
   form.packs = form.packs.filter(x => x.id !== p.id)
   form.commands = form.commands.filter(c => !p.commands.includes(c) || packs.value.some(o => o.id !== p.id && o.commands.includes(c)))
 }
 
-const needs = (p: Proc) => p.kind === 'job' ? 'Tự chạy lệnh' : 'Tự chạy lại tiến trình'
+const needs = (p: Proc) => p.kind === 'job' ? t('policy.needsJob') : t('policy.needsService')
 </script>
 
 <template>
   <div class="max-w-4xl space-y-6">
     <p class="text-sm text-(--ui-text-muted)">
-      Agent được tự làm gì = quyền của agent (Mô hình → agent) ∩ chế độ chọn khi chat/giao việc ∩ giới hạn của project dưới đây.
+      {{ t('policy.intro') }}
     </p>
 
     <section class="space-y-2">
-      <p class="text-sm font-medium">Gói tối đa trong project này</p>
+      <p class="text-sm font-medium">{{ t('policy.maxLevel') }}</p>
       <div class="flex flex-wrap gap-1 rounded-lg bg-(--ui-bg-elevated) p-1">
         <button
           v-for="p in permLevels" :key="p.level" type="button" :disabled="!isAdmin"
@@ -110,20 +111,20 @@ const needs = (p: Proc) => p.kind === 'job' ? 'Tự chạy lệnh' : 'Tự chạ
         </button>
       </div>
       <p class="text-xs text-(--ui-text-muted)">
-        Được tự làm tối đa:
+        {{ t('policy.maxCan') }}
         <template v-for="(c, i) in permCaps.filter(x => permRank(x.min) <= permRank(form.max_level))" :key="c.id">{{ i ? ', ' : '' }}{{ c.label.toLowerCase() }}</template>
-        <template v-if="form.max_level === 'read'">không gì, chỉ đọc</template>.
+        <template v-if="form.max_level === 'read'">{{ t('policy.maxCanNone') }}</template>.
       </p>
     </section>
 
     <section class="space-y-2">
       <div class="flex items-center gap-2">
-        <p class="text-sm font-medium">Lệnh agent được tự chạy</p>
-        <UBadge color="neutral" variant="subtle" size="sm" :label="`${form.commands.length} lệnh`" />
-        <UButton v-if="isAdmin" size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" label="Gói lệnh" class="ms-auto" @click="addPack" />
+        <p class="text-sm font-medium">{{ t('policy.commandsTitle') }}</p>
+        <UBadge color="neutral" variant="subtle" size="sm" :label="t('policy.commandsCount', { n: form.commands.length })" />
+        <UButton v-if="isAdmin" size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" :label="t('policy.addPack')" class="ms-auto" @click="addPack" />
       </div>
       <p class="text-xs text-(--ui-text-muted)">
-        Cần quyền "Tự chạy lệnh" (gói Tự kiểm tra trở lên). Chạy trong thư mục project, không qua shell, tối đa 5 phút. <code>*</code> ở cuối = kèm tham số tùy ý. Lệnh ngoài danh sách vẫn đề xuất được, chờ bạn duyệt.
+        {{ t('policy.commandsHelp', { star: '*' }) }}
       </p>
       <div class="grid gap-2 sm:grid-cols-2">
         <details v-for="p in packs" :key="p.id" class="group rounded-lg border border-(--ui-border)" :open="p.custom || enabledIn(p) > 0">
@@ -139,14 +140,14 @@ const needs = (p: Proc) => p.kind === 'job' ? 'Tự chạy lệnh' : 'Tự chạ
             <div v-for="c in p.commands" :key="c" class="group/cmd flex items-center gap-2 py-0.5 text-xs">
               <UCheckbox :model-value="form.commands.includes(c)" :disabled="!isAdmin" @update:model-value="(v: boolean | 'indeterminate') => toggleCmd(c, v === true)" />
               <code class="min-w-0 flex-1 truncate">{{ c }}</code>
-              <button v-if="p.custom && isAdmin" type="button" class="invisible text-(--ui-text-dimmed) group-hover/cmd:visible" title="Bỏ lệnh" @click="removeCmd(p, c)">
+              <button v-if="p.custom && isAdmin" type="button" class="invisible text-(--ui-text-dimmed) group-hover/cmd:visible" :title="t('policy.removeCmd')" @click="removeCmd(p, c)">
                 <UIcon name="i-lucide-x" class="size-3.5" />
               </button>
             </div>
             <form v-if="p.custom && isAdmin" class="flex items-center gap-1 pt-1" @submit.prevent="addCmd(p)">
-              <UInput v-model="newCmd[p.id]" size="xs" placeholder="vd: make test hoặc pnpm run e2e *" class="flex-1 font-mono" />
+              <UInput v-model="newCmd[p.id]" size="xs" :placeholder="t('policy.newCmdPlaceholder')" class="flex-1 font-mono" />
               <UButton type="submit" size="xs" color="neutral" variant="outline" icon="i-lucide-plus" />
-              <UButton size="xs" color="error" variant="ghost" icon="i-lucide-trash-2" title="Xóa gói" @click="removePack(p)" />
+              <UButton size="xs" color="error" variant="ghost" icon="i-lucide-trash-2" :title="t('policy.removePack')" @click="removePack(p)" />
             </form>
           </div>
         </details>
@@ -154,18 +155,18 @@ const needs = (p: Proc) => p.kind === 'job' ? 'Tự chạy lệnh' : 'Tự chạ
     </section>
 
     <section class="space-y-2">
-      <p class="text-sm font-medium">Tiến trình agent được tự chạy <span class="font-normal text-(--ui-text-muted)">(từ Vận hành → Tiến trình)</span></p>
-      <p v-if="!procs.length" class="text-sm text-(--ui-text-muted)">Chưa có tiến trình nào. Thêm ở Vận hành → Tiến trình.</p>
+      <p class="text-sm font-medium">{{ t('policy.processesTitle') }} <span class="font-normal text-(--ui-text-muted)">{{ t('policy.processesSource') }}</span></p>
+      <p v-if="!procs.length" class="text-sm text-(--ui-text-muted)">{{ t('policy.processesEmpty') }}</p>
       <label v-for="p in procs" :key="p.id" class="flex cursor-pointer items-center gap-2 text-sm">
         <UCheckbox :model-value="form.allowed_commands.includes(p.id)" :disabled="!isAdmin" @update:model-value="toggle(form.allowed_commands, p.id)" />
         <span class="font-medium">{{ p.name }}</span>
         <code class="truncate text-xs text-(--ui-text-muted)">{{ p.command }}</code>
-        <UBadge color="neutral" variant="subtle" size="sm" :label="`cần ${needs(p)}`" class="ms-auto shrink-0" />
+        <UBadge color="neutral" variant="subtle" size="sm" :label="t('policy.needs', { cap: needs(p) })" class="ms-auto shrink-0" />
       </label>
     </section>
 
     <section v-if="services.length" class="space-y-2">
-      <p class="text-sm font-medium">Container agent được tự bật/chạy lại <span class="font-normal text-(--ui-text-muted)">(cần quyền Tự điều khiển container)</span></p>
+      <p class="text-sm font-medium">{{ t('policy.containersTitle') }} <span class="font-normal text-(--ui-text-muted)">{{ t('policy.containersHelp') }}</span></p>
       <div class="flex flex-wrap gap-3">
         <label v-for="s in services" :key="s.name" class="flex cursor-pointer items-center gap-2 text-sm">
           <UCheckbox :model-value="form.allowed_containers.includes(s.name)" :disabled="!isAdmin" @update:model-value="toggle(form.allowed_containers, s.name)" />
@@ -175,11 +176,11 @@ const needs = (p: Proc) => p.kind === 'job' ? 'Tự chạy lệnh' : 'Tự chạ
     </section>
 
     <section class="space-y-2">
-      <p class="text-sm font-medium">File cấm đụng <span class="font-normal text-(--ui-text-muted)">(ở mọi gói; mỗi dòng một mẫu)</span></p>
+      <p class="text-sm font-medium">{{ t('policy.denyTitle') }} <span class="font-normal text-(--ui-text-muted)">{{ t('policy.denyHelp') }}</span></p>
       <UTextarea v-model="form.deny" :rows="5" :disabled="!isAdmin" class="w-full font-mono text-xs" placeholder=".env&#10;**/*.pem&#10;migrations/&#10;nuxt.config.ts" />
-      <p class="text-xs text-(--ui-text-muted)">Hỗ trợ <code>*</code>, <code>**/</code> (mọi thư mục), và thư mục kết thúc bằng <code>/</code>.</p>
+      <p class="text-xs text-(--ui-text-muted)">{{ t('policy.denySupports', { star: '*', starstar: '**/', slash: '/' }) }}</p>
     </section>
 
-    <UButton v-if="isAdmin" icon="i-lucide-save" label="Lưu quyền" :loading="saving" @click="save" />
+    <UButton v-if="isAdmin" icon="i-lucide-save" :label="t('policy.save')" :loading="saving" @click="save" />
   </div>
 </template>

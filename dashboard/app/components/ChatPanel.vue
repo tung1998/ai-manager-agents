@@ -23,6 +23,7 @@ interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 
 const props = defineProps<{ projectId: string, taskId?: string }>()
 const emit = defineEmits<{ 'turn-done': [] }>()
 const toast = useToast()
+const { t, dateLocale } = useLang()
 
 const { data: agentsData } = await useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`)
 const { data: convData, refresh: refreshConvs } = await useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations`, { immediate: !props.taskId })
@@ -117,7 +118,7 @@ async function send() {
   } catch (e) {
     const d = (e as { data?: { code?: string, error?: string } }).data
     if (d?.code === 'budget') {
-      toast.add({ title: 'Đã chạm trần chi phí', description: d.error, color: 'warning', actions: [{ label: 'Xem Chi phí', onClick: () => { navigateTo('/costs') } }] })
+      toast.add({ title: t('chat.budgetHit'), description: d.error, color: 'warning', actions: [{ label: t('chat.seeCosts'), onClick: () => { navigateTo('/costs') } }] })
     } else {
       toast.add({ title: apiError(e), color: 'error' })
     }
@@ -174,7 +175,7 @@ async function cancel() {
 }
 
 async function remove(c: Conversation) {
-  if (!confirm('Xóa cuộc trò chuyện này?')) return
+  if (!confirm(t('chat.deleteConfirm'))) return
   await $fetch(`/api/conversations/${c.id}`, { method: 'DELETE' })
   if (current.value?.id === c.id) {
     current.value = null
@@ -189,7 +190,7 @@ function onPatchUpdated(msg: Message, p: Patch) {
 }
 
 const agentMenu = computed(() => [agents.value.map(a => ({ label: a.name, description: a.role, onSelect: () => newConversation(a.id) }))])
-const when = (d: string) => new Date(d).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 onMounted(() => {
   if (props.taskId) openTask()
@@ -203,13 +204,13 @@ onBeforeUnmount(stopStream)
     <!-- threads -->
     <aside v-if="!taskId" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
       <div class="flex items-center gap-1 border-b border-(--ui-border) p-2">
-        <UButton icon="i-lucide-square-pen" label="Trò chuyện mới" size="sm" color="neutral" variant="ghost" class="flex-1 justify-start" @click="newConversation()" />
+        <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" class="flex-1 justify-start" @click="newConversation()" />
         <UDropdownMenu v-if="agents.length > 1" :items="agentMenu">
-          <UButton icon="i-lucide-chevron-down" size="sm" color="neutral" variant="ghost" title="Chọn agent" />
+          <UButton icon="i-lucide-chevron-down" size="sm" color="neutral" variant="ghost" :title="t('chat.pickAgent')" />
         </UDropdownMenu>
       </div>
       <div class="flex-1 overflow-y-auto p-1">
-        <p v-if="!conversations.length" class="p-3 text-xs text-(--ui-text-muted)">Chưa có cuộc trò chuyện.</p>
+        <p v-if="!conversations.length" class="p-3 text-xs text-(--ui-text-muted)">{{ t('chat.none') }}</p>
         <div
           v-for="c in conversations" :key="c.id"
           class="group flex cursor-pointer items-start gap-1 rounded-md px-2 py-1.5 text-sm"
@@ -217,11 +218,11 @@ onBeforeUnmount(stopStream)
           @click="open(c)"
         >
           <div class="min-w-0 flex-1">
-            <p class="truncate">{{ c.title || 'Cuộc trò chuyện mới' }}</p>
+            <p class="truncate">{{ c.title || t('chat.newThreadTitle') }}</p>
             <p class="truncate text-xs text-(--ui-text-muted)">{{ c.agent_name }} · {{ when(c.updated_at) }}</p>
           </div>
           <UIcon v-if="c.active_turn" name="i-lucide-loader-circle" class="mt-1 size-3.5 animate-spin text-(--ui-text-muted)" />
-          <button type="button" class="invisible mt-0.5 text-(--ui-text-dimmed) group-hover:visible" title="Xóa" @click.stop="remove(c)">
+          <button type="button" class="invisible mt-0.5 text-(--ui-text-dimmed) group-hover:visible" :title="t('chat.delete')" @click.stop="remove(c)">
             <UIcon name="i-lucide-trash-2" class="size-3.5" />
           </button>
         </div>
@@ -234,12 +235,12 @@ onBeforeUnmount(stopStream)
         <div v-if="!messages.length && !streaming" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
           <UIcon name="i-lucide-messages-square" class="size-8" />
           <template v-if="taskId">
-            <p class="text-sm">Hỏi {{ current?.agent_name || 'quản lý' }} về Việc này: giải thích kết quả, sửa thêm, commit…</p>
-            <p class="text-xs">Diff và thao tác trong cuộc trao đổi được gắn vào Việc, theo chế độ quyền bên dưới.</p>
+            <p class="text-sm">{{ t('chat.askAboutTask', { agent: current?.agent_name || t('chat.sendManager') }) }}</p>
+            <p class="text-xs">{{ t('chat.taskPatchHint') }}</p>
           </template>
           <template v-else>
-            <p class="text-sm">Hỏi agent về project: giải thích code, tìm lỗi, đề xuất sửa…</p>
-            <p class="text-xs">Agent chỉ đọc; mọi thay đổi code đều cần bạn duyệt.</p>
+            <p class="text-sm">{{ t('chat.askAboutProject') }}</p>
+            <p class="text-xs">{{ t('chat.readOnlyHint') }}</p>
           </template>
         </div>
 
@@ -260,7 +261,7 @@ onBeforeUnmount(stopStream)
               <span v-if="m.cost_usd">· ${{ m.cost_usd.toFixed(3) }}</span>
             </div>
             <details v-if="m.tools.length" class="text-xs text-(--ui-text-muted)">
-              <summary class="cursor-pointer">Đã dùng {{ m.tools.length }} công cụ</summary>
+              <summary class="cursor-pointer">{{ t('chat.toolsUsed', { n: m.tools.length }) }}</summary>
               <ul class="mt-1 space-y-0.5 ps-4">
                 <li v-for="(t, i) in m.tools" :key="i" :class="t.error ? 'text-(--ui-error)' : ''">{{ t.summary }}</li>
               </ul>
@@ -278,7 +279,7 @@ onBeforeUnmount(stopStream)
         <div v-if="streaming" class="space-y-2">
           <div class="flex items-center gap-2 text-xs text-(--ui-text-muted)">
             <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-primary" />
-            <span>{{ liveStatus || 'Đang trả lời…' }}</span>
+            <span>{{ liveStatus || t('chat.replying') }}</span>
           </div>
           <ul v-if="liveTools.length" class="space-y-0.5 ps-6 text-xs text-(--ui-text-muted)">
             <li v-for="(t, i) in liveTools" :key="i">{{ t.summary }}</li>
@@ -291,12 +292,12 @@ onBeforeUnmount(stopStream)
       <form class="border-t border-(--ui-border) p-3" @submit.prevent="send">
         <PromptInput
           ref="prompt" v-model="draft" v-model:attachments="draftFiles" :project-id="projectId"
-          :placeholder="current ? `Nhắn ${current.agent_name}… (Enter gửi, Shift+Enter xuống dòng)` : 'Nhắn agent… (Enter gửi)'"
+          :placeholder="current ? t('chat.placeholderWithAgent', { agent: current.agent_name }) : t('chat.placeholderNoAgent')"
           @submit="send"
         >
           <template #actions>
             <ModePicker v-model="mode" :project-id="projectId" />
-            <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" label="Dừng" @click="cancel" />
+            <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
             <UButton v-else size="sm" type="submit" icon="i-lucide-send" :disabled="!draft.trim() && !draftFiles.length" />
           </template>
         </PromptInput>

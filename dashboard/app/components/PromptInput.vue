@@ -15,6 +15,7 @@ const text = defineModel<string>({ default: '' })
 const files = defineModel<Attachment[]>('attachments', { default: () => [] })
 const emit = defineEmits<{ submit: [] }>()
 const toast = useToast()
+const { t } = useLang()
 
 // ---- skills ----
 const { data: skillData } = await useFetch<{ skills: Skill[] }>(() => `/api/projects/${props.projectId}/skills`)
@@ -40,7 +41,7 @@ const activeSkill = computed(() => {
   const m = /^\/(\S+)\s/.exec(text.value)
   return m ? skills.value.find(s => s.name === m[1]) : undefined
 })
-const sourceLabel = { project: 'project', user: 'máy', plugin: 'plugin' }
+const sourceLabel = computed(() => ({ project: t('prompt.sourceProject'), user: t('prompt.sourceUser'), plugin: t('prompt.sourcePlugin') }))
 
 // The menu is teleported to <body> with fixed position so no scrolling or
 // overflow-hidden parent can clip it; it opens upward unless there is no room.
@@ -120,11 +121,11 @@ function toBase64(f: File): Promise<string> {
 async function upload(list: FileList | File[]) {
   for (const f of Array.from(list)) {
     if (files.value.length >= 10) {
-      toast.add({ title: 'Tối đa 10 file mỗi lần gửi', color: 'warning' })
+      toast.add({ title: t('prompt.maxFiles'), color: 'warning' })
       break
     }
     if (f.size > MAX) {
-      toast.add({ title: `${f.name}: quá 10 MB`, color: 'error' })
+      toast.add({ title: t('prompt.tooLarge', { name: f.name }), color: 'error' })
       continue
     }
     uploading.value++
@@ -178,7 +179,7 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
         v-if="menuOpen" role="listbox" :style="menuStyle"
         class="fixed z-50 overflow-auto rounded-lg border border-(--ui-border) bg-(--ui-bg) p-1 shadow-lg"
       >
-      <p class="px-2 py-1 text-xs text-(--ui-text-muted)">Skill · ↑↓ chọn, Enter dùng, Esc đóng</p>
+      <p class="px-2 py-1 text-xs text-(--ui-text-muted)">{{ t('prompt.skillHint') }}</p>
       <button
         v-for="(s, i) in matches" :key="s.name" type="button" role="option" :aria-selected="i === menuIndex"
         class="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left"
@@ -202,12 +203,12 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
         <UIcon v-else :name="icon[a.kind]" class="size-5 text-(--ui-text-muted)" />
         <span class="max-w-40 truncate">{{ a.name }}</span>
         <span class="text-(--ui-text-dimmed)">{{ size(a.size) }}</span>
-        <button type="button" class="text-(--ui-text-muted) hover:text-(--ui-error)" :aria-label="`Bỏ ${a.name}`" @click="remove(a)">
+        <button type="button" class="text-(--ui-text-muted) hover:text-(--ui-error)" :aria-label="t('chat.removeAttachment', { name: a.name })" @click="remove(a)">
           <UIcon name="i-lucide-x" class="size-3.5" />
         </button>
       </div>
       <div v-if="uploading" class="flex items-center gap-1 text-xs text-(--ui-text-muted)">
-        <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Đang tải lên…
+        <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> {{ t('prompt.uploading') }}
       </div>
     </div>
 
@@ -217,10 +218,10 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
     />
 
     <div class="flex items-center gap-2 px-2 pb-2">
-      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-paperclip" aria-label="Đính kèm file" @click="input?.click()" />
-      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-slash" aria-label="Chọn skill" :disabled="!skills.length" @click="text = '/'; box?.textareaRef?.focus()" />
+      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-paperclip" :aria-label="t('prompt.attach')" @click="input?.click()" />
+      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-slash" :aria-label="t('prompt.pickSkill')" :disabled="!skills.length" @click="text = '/'; box?.textareaRef?.focus()" />
       <UBadge v-if="activeSkill" color="primary" variant="subtle" size="sm" icon="i-lucide-sparkles" :label="activeSkill.name" />
-      <span class="hidden text-xs text-(--ui-text-dimmed) sm:inline">Kéo thả hoặc dán ảnh, PDF, file chữ · gõ / để dùng skill</span>
+      <span class="hidden text-xs text-(--ui-text-dimmed) sm:inline">{{ t('prompt.dragHint') }}</span>
       <div class="ms-auto flex items-center gap-2">
         <slot name="actions" />
       </div>

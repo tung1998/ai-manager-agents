@@ -3,6 +3,7 @@
 export interface SegmentItem { value: string, label: string, icon?: string, count?: number, alert?: boolean }
 defineProps<{ items: SegmentItem[] }>()
 const model = defineModel<string>({ required: true })
+const { t } = useLang()
 </script>
 
 <template>
@@ -16,7 +17,7 @@ const model = defineModel<string>({ required: true })
       <UIcon v-if="it.icon" :name="it.icon" class="size-4" />
       {{ it.label }}
       <span v-if="it.count !== undefined" class="text-xs tabular-nums text-(--ui-text-dimmed)">{{ it.count }}</span>
-      <span v-if="it.alert" class="size-1.5 rounded-full bg-(--ui-error)" aria-label="có mục lỗi" />
+      <span v-if="it.alert" class="size-1.5 rounded-full bg-(--ui-error)" :aria-label="t('nav.alertLabel')" />
     </button>
   </div>
 </template>

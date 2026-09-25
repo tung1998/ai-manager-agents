@@ -4,6 +4,7 @@ import type { Permissions } from '~/composables/useOffice'
 // capabilities on or off and narrow the commands it may run by itself.
 const perms = defineModel<Permissions>({ required: true })
 const props = defineProps<{ projectId?: string, disabled?: boolean }>()
+const { t } = useLang()
 
 const level = computed(() => agentLevel(perms.value))
 const caps = computed(() => agentCaps(perms.value))
@@ -47,7 +48,7 @@ const tree = computed(() => {
     if (cmds.length) groups.push({ ...p, commands: cmds })
   }
   const rest = projectCmds.value.filter(c => !seen.has(c))
-  if (rest.length) groups.push({ id: 'other', label: 'Khác', icon: 'i-lucide-terminal', commands: rest })
+  if (rest.length) groups.push({ id: 'other', label: t('perm.editor.otherPack'), icon: 'i-lucide-terminal', commands: rest })
   return groups
 })
 const allCmds = computed(() => perms.value.commands == null)
@@ -82,15 +83,15 @@ function togglePack(cmds: string[]) {
         <UIcon :name="p.icon" class="size-3.5" :class="!custom && level === p.level ? 'text-primary' : ''" />{{ p.label }}
       </button>
       <span v-if="custom" class="flex items-center gap-1.5 rounded-md bg-(--ui-bg) px-2.5 py-1.5 text-xs font-medium text-(--ui-text-highlighted) shadow-sm">
-        <UIcon name="i-lucide-sliders-horizontal" class="size-3.5 text-primary" />Tùy chỉnh
+        <UIcon name="i-lucide-sliders-horizontal" class="size-3.5 text-primary" />{{ t('perm.editor.custom') }}
       </span>
     </div>
     <p class="text-xs text-(--ui-text-muted)">
       <template v-if="custom">
-        Tùy chỉnh từ gói {{ permOf(base).label }}.
-        <button v-if="!disabled" type="button" class="text-primary underline-offset-2 hover:underline" @click="pickPreset(base)">Về gói {{ permOf(base).label }}</button>
+        {{ t('perm.editor.customFrom', { label: permOf(base).label }) }}
+        <button v-if="!disabled" type="button" class="text-primary underline-offset-2 hover:underline" @click="pickPreset(base)">{{ t('perm.editor.backToPreset', { label: permOf(base).label }) }}</button>
       </template>
-      <template v-else>{{ permOf(level).description }}. Gói cao gồm cả gói thấp; bật/tắt từng quyền bên dưới nếu cần.</template>
+      <template v-else>{{ t('perm.editor.presetHint', { description: permOf(level).description }) }}</template>
     </p>
 
     <!-- single capabilities, by group -->
@@ -109,20 +110,20 @@ function togglePack(cmds: string[]) {
               <span class="text-sm">{{ c.label }}</span>
               <span class="block text-xs text-(--ui-text-muted)">{{ c.description }}</span>
             </span>
-            <UBadge size="sm" color="neutral" variant="outline" :label="permOf(c.min).label" class="shrink-0" :title="`Có trong gói ${permOf(c.min).label} trở lên`" />
+            <UBadge size="sm" color="neutral" variant="outline" :label="permOf(c.min).label" class="shrink-0" :title="t('perm.editor.inPackage', { label: permOf(c.min).label })" />
           </label>
           <div v-if="g.id === 'git'" class="flex items-start gap-2.5 px-3 py-2 text-(--ui-text-muted)">
             <UIcon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" />
-            <span class="text-xs">Push lên remote luôn cần bạn duyệt, không bao giờ force.</span>
+            <span class="text-xs">{{ t('perm.editor.gitPushNote') }}</span>
           </div>
           <!-- commands it may run by itself -->
           <div v-if="g.id === 'commands' && caps.includes('commands.run')" class="space-y-2 px-3 py-2">
-            <p v-if="!projectId" class="text-xs text-(--ui-text-muted)">Lệnh cụ thể chọn khi mô hình gắn với project.</p>
-            <p v-else-if="!projectCmds.length" class="text-xs text-(--ui-text-muted)">Project chưa bật lệnh nào (Cấu hình → Quyền → Lệnh).</p>
+            <p v-if="!projectId" class="text-xs text-(--ui-text-muted)">{{ t('perm.editor.commandsNoModel') }}</p>
+            <p v-else-if="!projectCmds.length" class="text-xs text-(--ui-text-muted)">{{ t('perm.editor.commandsNoneEnabled') }}</p>
             <template v-else>
               <label class="flex cursor-pointer items-center gap-2 text-xs">
                 <UCheckbox :model-value="allCmds" :disabled="disabled" @update:model-value="(v: boolean | 'indeterminate') => setAll(v === true)" />
-                Mọi lệnh project cho phép <span class="text-(--ui-text-muted)">({{ projectCmds.length }})</span>
+                {{ t('perm.editor.allCommands', { n: projectCmds.length }) }}
               </label>
               <div v-if="!allCmds" class="space-y-1.5">
                 <details v-for="p in tree" :key="p.id" class="rounded-md bg-(--ui-bg-elevated)/60 px-2 py-1" open>

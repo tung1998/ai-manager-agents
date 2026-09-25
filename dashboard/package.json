@@ -7,7 +7,8 @@
     "build": "nuxt build",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "typecheck": "nuxt typecheck"
+    "typecheck": "nuxt typecheck",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.0",

@@ -12,6 +12,7 @@ const props = defineProps<{ patch: Patch }>()
 const emit = defineEmits<{ updated: [Patch] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
+const { t } = useLang()
 const busy = ref<'' | 'approve' | 'reject'>('')
 const open = ref(props.patch.status === 'pending' || props.patch.status === 'failed')
 
@@ -27,20 +28,20 @@ const stats = computed(() => ({
   del: lines.value.filter(l => l.kind === 'del').length
 }))
 
-const statusMeta: Record<Patch['status'], { label: string, color: 'warning' | 'success' | 'neutral' | 'error', icon: string }> = {
-  pending: { label: 'Chờ duyệt', color: 'warning', icon: 'i-lucide-clock' },
-  applied: { label: 'Đã áp dụng', color: 'success', icon: 'i-lucide-circle-check' },
-  rejected: { label: 'Đã từ chối', color: 'neutral', icon: 'i-lucide-circle-x' },
-  failed: { label: 'Không áp được', color: 'error', icon: 'i-lucide-triangle-alert' }
-}
+const statusMeta = computed<Record<Patch['status'], { label: string, color: 'warning' | 'success' | 'neutral' | 'error', icon: string }>>(() => ({
+  pending: { label: t('patch.pending'), color: 'warning', icon: 'i-lucide-clock' },
+  applied: { label: t('patch.applied'), color: 'success', icon: 'i-lucide-circle-check' },
+  rejected: { label: t('patch.rejected'), color: 'neutral', icon: 'i-lucide-circle-x' },
+  failed: { label: t('patch.failed'), color: 'error', icon: 'i-lucide-triangle-alert' }
+}))
 
 async function decide(approve: boolean) {
   busy.value = approve ? 'approve' : 'reject'
   try {
     const res = await $fetch<{ patch: Patch }>(`/api/patches/${props.patch.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: {} })
     emit('updated', res.patch)
-    if (res.patch.status === 'applied') toast.add({ title: 'Đã áp dụng thay đổi', description: res.patch.files.join(', '), color: 'success' })
-    if (res.patch.status === 'failed') toast.add({ title: 'Không áp được thay đổi', description: res.patch.detail, color: 'error' })
+    if (res.patch.status === 'applied') toast.add({ title: t('patch.appliedToast'), description: res.patch.files.join(', '), color: 'success' })
+    if (res.patch.status === 'failed') toast.add({ title: t('patch.failedToast'), description: res.patch.detail, color: 'error' })
     open.value = res.patch.status === 'failed'
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -60,10 +61,10 @@ async function decide(approve: boolean) {
         <span class="shrink-0 text-xs"><span class="text-(--ui-success)">+{{ stats.add }}</span> <span class="text-(--ui-error)">−{{ stats.del }}</span></span>
       </button>
       <UBadge :label="statusMeta[patch.status].label" :color="statusMeta[patch.status].color" :icon="statusMeta[patch.status].icon" variant="subtle" size="sm" />
-      <UBadge v-if="patch.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" label="tự động" :title="patch.decided_by.slice(5)" />
+      <UBadge v-if="patch.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('patch.auto')" :title="patch.decided_by.slice(5)" />
       <template v-if="patch.status === 'pending' && isAdmin">
-        <UButton size="xs" color="neutral" variant="ghost" label="Từ chối" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
-        <UButton size="xs" icon="i-lucide-check" label="Duyệt và áp dụng" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
+        <UButton size="xs" color="neutral" variant="ghost" :label="t('patch.reject')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
+        <UButton size="xs" icon="i-lucide-check" :label="t('patch.approveApply')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
       </template>
     </div>
     <p v-if="patch.detail && patch.status !== 'applied'" class="border-t border-(--ui-border) px-3 py-1.5 text-xs text-(--ui-error)">{{ patch.detail }}</p>

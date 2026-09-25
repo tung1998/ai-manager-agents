@@ -24,6 +24,7 @@ interface Node extends Entry {
 }
 
 const selected = defineModel<string>({ default: '' })
+const { t } = useLang()
 
 const root = ref<Listing | null>(null)
 const nodes = ref<Node[]>([])
@@ -46,7 +47,7 @@ async function openRoot(path = '') {
     root.value = await fetchDir(path)
     nodes.value = toNodes(root.value.entries, 0)
   } catch (e) {
-    error.value = apiError(e, 'Không đọc được thư mục')
+    error.value = apiError(e, t('folder.fetchError'))
   } finally {
     loading.value = false
   }
@@ -63,7 +64,7 @@ async function toggle(n: Node) {
       const l = await fetchDir(n.path)
       n.children = toNodes(l.entries, n.depth + 1)
     } catch (e) {
-      error.value = apiError(e, 'Không đọc được thư mục')
+      error.value = apiError(e, t('folder.fetchError'))
       n.loading = false
       return
     }
@@ -102,12 +103,12 @@ onMounted(() => openRoot(selected.value || ''))
         v-for="s in root?.shortcuts ?? []" :key="s.path" :label="s.label" size="xs" color="neutral"
         :variant="root?.path === s.path ? 'soft' : 'ghost'" @click="openRoot(s.path)"
       />
-      <USwitch v-model="showHidden" size="xs" label="Thư mục ẩn" class="ms-auto" />
+      <USwitch v-model="showHidden" size="xs" :label="t('folder.hidden')" class="ms-auto" />
     </div>
 
     <div class="flex items-center gap-0.5 overflow-x-auto border-b border-(--ui-border) px-2 py-1 text-xs whitespace-nowrap">
       <UButton
-        v-if="root?.parent" icon="i-lucide-arrow-up" size="xs" color="neutral" variant="ghost" title="Lên một cấp"
+        v-if="root?.parent" icon="i-lucide-arrow-up" size="xs" color="neutral" variant="ghost" :title="t('folder.upOneLevel')"
         @click="openRoot(root.parent)"
       />
       <template v-for="(c, i) in crumbs" :key="c.path">
@@ -117,9 +118,9 @@ onMounted(() => openRoot(selected.value || ''))
     </div>
 
     <div class="h-72 overflow-y-auto py-1 text-sm">
-      <div v-if="loading" class="p-4 text-center text-(--ui-text-muted)">Đang tải…</div>
+      <div v-if="loading" class="p-4 text-center text-(--ui-text-muted)">{{ t('folder.loading') }}</div>
       <UAlert v-else-if="error" class="m-2" color="error" variant="subtle" :description="error" />
-      <p v-else-if="!visible.length" class="p-4 text-center text-(--ui-text-muted)">Không có thư mục con</p>
+      <p v-else-if="!visible.length" class="p-4 text-center text-(--ui-text-muted)">{{ t('folder.empty') }}</p>
       <div
         v-for="n in visible" :key="n.path"
         class="group flex cursor-pointer items-center gap-1 py-1 pe-2"
@@ -137,20 +138,20 @@ onMounted(() => openRoot(selected.value || ''))
         </button>
         <UIcon :name="n.is_project ? 'i-lucide-folder-git-2' : (n.open ? 'i-lucide-folder-open' : 'i-lucide-folder')" class="size-4 shrink-0" :class="n.is_project ? 'text-primary' : 'text-(--ui-text-muted)'" />
         <span class="truncate">{{ n.name }}</span>
-        <UBadge v-if="n.registered" label="đã thêm" size="sm" color="success" variant="subtle" class="ms-1" />
+        <UBadge v-if="n.registered" :label="t('folder.registered')" size="sm" color="success" variant="subtle" class="ms-1" />
         <span v-if="n.is_project" class="ms-auto hidden truncate ps-2 text-xs text-(--ui-text-muted) group-hover:inline">{{ n.markers.join(' · ') }}</span>
       </div>
-      <p v-if="root?.truncated" class="p-2 text-xs text-(--ui-text-muted)">Chỉ hiển thị 500 thư mục đầu tiên.</p>
+      <p v-if="root?.truncated" class="p-2 text-xs text-(--ui-text-muted)">{{ t('folder.truncated') }}</p>
     </div>
 
     <div class="flex items-center gap-2 border-t border-(--ui-border) bg-(--ui-bg-muted) px-2 py-1.5">
       <UIcon name="i-lucide-folder-check" class="size-4 shrink-0 text-(--ui-text-muted)" />
       <input
         v-model="selected" class="min-w-0 flex-1 bg-transparent font-mono text-xs outline-none"
-        placeholder="Chọn thư mục trên cây hoặc gõ đường dẫn"
+        :placeholder="t('folder.placeholder')"
       >
       <UButton
-        v-if="root" size="xs" color="neutral" variant="ghost" label="Chọn thư mục đang mở"
+        v-if="root" size="xs" color="neutral" variant="ghost" :label="t('folder.useOpen')"
         @click="selected = root.path"
       />
     </div>

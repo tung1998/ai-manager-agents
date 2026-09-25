@@ -51,6 +51,7 @@ interface ProposeResult {
 
 const route = useRoute()
 const toast = useToast()
+const { t } = useLang()
 const id = computed(() => route.params.id as string)
 const here = computed(() => `/projects/${id.value}/setup`)
 
@@ -63,7 +64,7 @@ const readyProvider = computed(() => provData.value?.providers.find(p => p.is_de
   ?? provData.value?.providers.find(p => p.status === 'ok'))
 
 function goConnect() {
-  toast.add({ title: 'Cần kết nối AI trước', description: 'Thêm và kiểm tra một kết nối, sau đó bạn sẽ quay lại bước thiết lập.', color: 'warning' })
+  toast.add({ title: t('setup.needProvider'), description: t('setup.needProviderDesc'), color: 'warning' })
   return navigateTo({ path: '/providers', query: { next: here.value } })
 }
 
@@ -91,7 +92,7 @@ async function runScan() {
 onMounted(runScan)
 
 const topLanguages = computed(() => Object.entries(summary.value?.languages ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 6))
-const docKind: Record<string, string> = { instructions: 'Hướng dẫn', subagent: 'Subagent', skill: 'Skill', rules: 'Rules' }
+const docKind = computed<Record<string, string>>(() => ({ instructions: t('setup.docInstructions'), subagent: t('setup.docSubagent'), skill: t('setup.docSkill'), rules: t('setup.docRules') }))
 
 // ---- step 2: propose ----
 const proposing = ref(false)
@@ -114,10 +115,10 @@ async function propose() {
     const d = (e as { data?: { code?: string, error?: string } }).data
     if (d?.code === 'no_provider') return goConnect()
     if (d?.code === 'budget') {
-      toast.add({ title: 'Đã chạm trần chi phí', description: d.error, color: 'warning', actions: [{ label: 'Xem Chi phí', onClick: () => { navigateTo('/costs') } }] })
+      toast.add({ title: t('setup.needProviderBudget'), description: d.error, color: 'warning', actions: [{ label: t('setup.viewCosts'), onClick: () => { navigateTo('/costs') } }] })
       return
     }
-    toast.add({ title: 'AI chưa phân tích được', description: apiError(e), color: 'error' })
+    toast.add({ title: t('setup.proposeFailed'), description: apiError(e), color: 'error' })
   } finally {
     proposing.value = false
   }
@@ -149,36 +150,36 @@ async function apply() {
     await $fetch(`/api/projects/${id.value}/setup/apply`, {
       method: 'POST', body: { template_key: templateKey.value, changes: chosenChanges.value, description: description.value }
     })
-    toast.add({ title: 'Đã thiết lập project', color: 'success' })
+    toast.add({ title: t('setup.applyDone'), color: 'success' })
     await navigateTo(`/projects/${id.value}`)
   } catch (e) {
     const d = (e as { data?: { problems?: string[] } }).data
-    toast.add({ title: 'Chưa áp dụng được', description: d?.problems?.join('; ') ?? apiError(e), color: 'error' })
+    toast.add({ title: t('setup.applyFailed'), description: d?.problems?.join('; ') ?? apiError(e), color: 'error' })
   } finally {
     applying.value = false
   }
 }
 
-const actionMeta: Record<string, { label: string, color: 'info' | 'success' | 'error' }> = {
-  update: { label: 'Sửa', color: 'info' },
-  add: { label: 'Thêm', color: 'success' },
-  remove: { label: 'Bỏ', color: 'error' }
-}
+const actionMeta = computed<Record<string, { label: string, color: 'info' | 'success' | 'error' }>>(() => ({
+  update: { label: t('setup.actionUpdate'), color: 'info' },
+  add: { label: t('setup.actionAdd'), color: 'success' },
+  remove: { label: t('setup.actionRemove'), color: 'error' }
+}))
 const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
   .map(t => ({ tier: t, agents: preview.value?.template.agents.filter(a => a.tier === t) ?? [] }))
   .filter(r => r.agents.length))
 </script>
 
 <template>
-  <PageShell :title="`Thiết lập bằng AI · ${project?.name ?? ''}`">
+  <PageShell :title="t('setup.title', { name: project?.name ?? '' })">
     <template #actions>
-      <UButton :to="`/projects/${id}`" icon="i-lucide-arrow-left" label="Về project" color="neutral" variant="ghost" />
+      <UButton :to="`/projects/${id}`" icon="i-lucide-arrow-left" :label="t('setup.back')" color="neutral" variant="ghost" />
     </template>
 
     <div v-if="project" class="mx-auto max-w-5xl space-y-6">
       <UAlert
         v-if="project.model" color="warning" variant="subtle" icon="i-lucide-triangle-alert"
-        :description="`Project đang dùng mô hình ${project.model.name}. Áp dụng thiết lập mới sẽ thay thế mô hình này.`"
+        :description="t('setup.currentModelWarn', { model: project.model.name })"
       />
 
       <!-- step 1 -->
@@ -187,46 +188,46 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
           <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">
               <span class="flex size-6 items-center justify-center rounded-full bg-(--ui-primary) text-xs font-semibold text-white">1</span>
-              <p class="font-medium">Quét project</p>
+              <p class="font-medium">{{ t('setup.step1') }}</p>
             </div>
-            <UButton v-if="project.scope === 'folder'" icon="i-lucide-refresh-cw" size="xs" color="neutral" variant="ghost" :loading="scanning" label="Quét lại" @click="runScan" />
+            <UButton v-if="project.scope === 'folder'" icon="i-lucide-refresh-cw" size="xs" color="neutral" variant="ghost" :loading="scanning" :label="t('setup.rescan')" @click="runScan" />
           </div>
         </template>
 
         <div v-if="project.scope === 'machine'" class="text-sm text-(--ui-text-muted)">
-          Project này là helper toàn máy nên không có thư mục để quét. Hãy mô tả bạn muốn helper làm gì ở bước dưới.
+          {{ t('setup.machineNoScan') }}
         </div>
-        <div v-else-if="scanning && !summary" class="text-sm text-(--ui-text-muted)">Đang đọc manifest, README và các file agent…</div>
+        <div v-else-if="scanning && !summary" class="text-sm text-(--ui-text-muted)">{{ t('setup.scanning') }}</div>
         <div v-else-if="summary" class="grid gap-4 md:grid-cols-2">
           <div class="space-y-3 text-sm">
             <div>
-              <p class="text-xs text-(--ui-text-muted)">Stack</p>
+              <p class="text-xs text-(--ui-text-muted)">{{ t('setup.stack') }}</p>
               <div class="mt-1 flex flex-wrap gap-1">
                 <UBadge v-for="f in summary.frameworks" :key="f" :label="f" variant="subtle" />
                 <UBadge v-for="[l, n] in topLanguages" :key="l" :label="`${l} ${n}`" color="neutral" variant="outline" />
               </div>
             </div>
             <div v-if="summary.services.length">
-              <p class="text-xs text-(--ui-text-muted)">Dịch vụ / SDK</p>
+              <p class="text-xs text-(--ui-text-muted)">{{ t('setup.services') }}</p>
               <div class="mt-1 flex flex-wrap gap-1">
                 <UBadge v-for="s in summary.services" :key="s" :label="s" color="info" variant="subtle" />
               </div>
             </div>
             <div v-if="summary.infra.length">
-              <p class="text-xs text-(--ui-text-muted)">Hạ tầng</p>
+              <p class="text-xs text-(--ui-text-muted)">{{ t('setup.infra') }}</p>
               <p>{{ summary.infra.join(' · ') }}</p>
             </div>
-            <p class="text-xs text-(--ui-text-muted)">{{ summary.file_count }} file · {{ summary.manifests.join(', ') || 'không có manifest' }}</p>
+            <p class="text-xs text-(--ui-text-muted)">{{ t('setup.fileCount', { n: summary.file_count, manifests: summary.manifests.join(', ') || t('setup.noManifest') }) }}</p>
           </div>
           <div class="text-sm">
-            <p class="text-xs text-(--ui-text-muted)">File agent có sẵn ({{ summary.agent_docs.length }})</p>
+            <p class="text-xs text-(--ui-text-muted)">{{ t('setup.agentDocs', { n: summary.agent_docs.length }) }}</p>
             <ul v-if="summary.agent_docs.length" class="mt-1 space-y-1">
               <li v-for="d in summary.agent_docs" :key="d.path" class="flex items-center gap-2">
                 <UBadge :label="docKind[d.kind] ?? d.kind" size="sm" color="neutral" variant="soft" />
                 <code class="truncate text-xs">{{ d.path }}</code>
               </li>
             </ul>
-            <p v-else class="mt-1 text-(--ui-text-muted)">Không có CLAUDE.md, AGENTS.md, .claude/agents…</p>
+            <p v-else class="mt-1 text-(--ui-text-muted)">{{ t('setup.noAgentDocs') }}</p>
           </div>
         </div>
       </UCard>
@@ -236,26 +237,26 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
         <template #header>
           <div class="flex items-center gap-2">
             <span class="flex size-6 items-center justify-center rounded-full bg-(--ui-primary) text-xs font-semibold text-white">2</span>
-            <p class="font-medium">Mục tiêu và phân tích bằng AI</p>
+            <p class="font-medium">{{ t('setup.step2') }}</p>
           </div>
         </template>
         <div class="space-y-3">
-          <UFormField :label="project.scope === 'machine' ? 'Bạn muốn helper làm gì?' : 'Bạn muốn office làm gì cho project này? (tùy chọn)'" :required="project.scope === 'machine'">
+          <UFormField :label="project.scope === 'machine' ? t('setup.goalLabelMachine') : t('setup.goalLabelFolder')" :required="project.scope === 'machine'">
             <UTextarea
               v-model="goal" :rows="3" class="w-full"
-              placeholder="VD: theo dõi lỗi production mỗi sáng, sửa bug từ Jira, review PR trước khi merge…"
+              :placeholder="t('setup.goalPlaceholder')"
             />
           </UFormField>
           <div class="flex flex-wrap items-center gap-3">
             <UButton
-              icon="i-lucide-sparkles" :label="result ? 'Phân tích lại' : 'Phân tích bằng AI'" :loading="proposing"
+              icon="i-lucide-sparkles" :label="result ? t('setup.analyzeAgain') : t('setup.analyze')" :loading="proposing"
               :disabled="project.scope === 'machine' && !goal.trim()" @click="propose"
             />
             <span v-if="readyProvider" class="text-xs text-(--ui-text-muted)">
-              Dùng kết nối {{ readyProvider.name }}, model mạnh {{ readyProvider.tier_models.strong || '' }}
+              {{ t('setup.usingProvider', { name: readyProvider.name, model: readyProvider.tier_models.strong || '' }) }}
             </span>
           </div>
-          <p v-if="proposing" class="text-sm text-(--ui-text-muted)">AI đang đọc bản tóm tắt project và chọn mô hình, thường mất 20–60 giây…</p>
+          <p v-if="proposing" class="text-sm text-(--ui-text-muted)">{{ t('setup.analyzing') }}</p>
         </div>
       </UCard>
 
@@ -265,7 +266,7 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2">
               <span class="flex size-6 items-center justify-center rounded-full bg-(--ui-primary) text-xs font-semibold text-white">3</span>
-              <p class="font-medium">Đề xuất</p>
+              <p class="font-medium">{{ t('setup.step3') }}</p>
             </div>
             <span class="text-xs text-(--ui-text-muted)">
               {{ result.provider }} · {{ result.model }} · {{ result.usage.input_tokens }} in / {{ result.usage.output_tokens }} out
@@ -276,22 +277,22 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
         </template>
 
         <div class="space-y-6">
-          <UFormField label="Mô tả project" help="Agent dùng mô tả này làm bối cảnh. Sửa nếu chưa đúng.">
+          <UFormField :label="t('setup.projectDesc')" :help="t('setup.projectDescHelp')">
             <UTextarea v-model="description" :rows="3" class="w-full" />
           </UFormField>
 
           <div class="grid gap-6 lg:grid-cols-2">
             <div class="space-y-2">
               <div class="flex items-center justify-between">
-                <p class="text-sm font-medium">Mô hình</p>
-                <UBadge :label="`Tự tin ${Math.round(result.proposal.confidence * 100)}%`" color="neutral" variant="soft" size="sm" />
+                <p class="text-sm font-medium">{{ t('setup.model') }}</p>
+                <UBadge :label="t('setup.confidence', { n: Math.round(result.proposal.confidence * 100) })" color="neutral" variant="soft" size="sm" />
               </div>
               <p class="text-sm text-(--ui-text-muted)">{{ result.proposal.reason }}</p>
               <TemplatePicker v-model="templateId" :templates="templates" />
             </div>
 
             <div class="space-y-2">
-              <p class="text-sm font-medium">Xem trước</p>
+              <p class="text-sm font-medium">{{ t('setup.preview') }}</p>
               <div class="space-y-2 rounded-lg border border-(--ui-border) p-3">
                 <div v-for="row in previewRows" :key="row.tier">
                   <p class="text-xs uppercase text-(--ui-text-muted)">{{ tierLabel[row.tier] }}</p>
@@ -300,7 +301,7 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
                   </div>
                 </div>
               </div>
-              <UAlert v-if="preview?.problems.length" color="error" variant="subtle" title="Chưa hợp lệ, bỏ chọn thay đổi gây lỗi">
+              <UAlert v-if="preview?.problems.length" color="error" variant="subtle" :title="t('setup.invalidTitle')">
                 <template #description>
                   <ul class="list-disc ps-4">
                     <li v-for="p in preview.problems" :key="p">{{ p }}</li>
@@ -311,7 +312,7 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
           </div>
 
           <div v-if="result.proposal.agent_changes.length" class="space-y-2">
-            <p class="text-sm font-medium">Tinh chỉnh agent cho project ({{ chosenChanges.length }}/{{ result.proposal.agent_changes.length }})</p>
+            <p class="text-sm font-medium">{{ t('setup.refineAgents', { n: chosenChanges.length, total: result.proposal.agent_changes.length }) }}</p>
             <div
               v-for="(c, i) in result.proposal.agent_changes" :key="i"
               class="flex gap-3 rounded-lg border p-3"
@@ -326,10 +327,10 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
                   <UBadge v-if="c.tier" :label="tierLabel[c.tier]" size="sm" color="neutral" variant="outline" />
                 </div>
                 <p class="text-sm text-(--ui-text-muted)">{{ c.reason }}</p>
-                <p v-if="c.source" class="text-xs">Từ file <code>{{ c.source }}</code></p>
+                <p v-if="c.source" class="text-xs">{{ t('setup.fromFilePrefix') }} <code>{{ c.source }}</code></p>
                 <details v-if="c.instructions" class="text-sm">
                   <summary class="cursor-pointer text-xs text-(--ui-text-muted)">
-                    {{ c.action === 'update' ? 'Bối cảnh thêm vào hướng dẫn' : 'Hướng dẫn' }}
+                    {{ c.action === 'update' ? t('setup.instructionsAdded') : t('setup.instructions') }}
                   </summary>
                   <p class="mt-1 whitespace-pre-wrap rounded bg-(--ui-bg-muted) p-2 text-xs">{{ c.instructions }}</p>
                 </details>
@@ -337,7 +338,7 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
             </div>
           </div>
 
-          <UAlert v-if="result.proposal.notes.length" color="info" variant="subtle" icon="i-lucide-lightbulb" title="Gợi ý thêm">
+          <UAlert v-if="result.proposal.notes.length" color="info" variant="subtle" icon="i-lucide-lightbulb" :title="t('setup.moreSuggestions')">
             <template #description>
               <ul class="list-disc ps-4">
                 <li v-for="n in result.proposal.notes" :key="n">{{ n }}</li>
@@ -346,8 +347,8 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
           </UAlert>
 
           <div class="flex justify-end gap-2">
-            <UButton :to="`/projects/${id}`" color="neutral" variant="ghost" label="Hủy" />
-            <UButton icon="i-lucide-check" label="Áp dụng thiết lập" :loading="applying" :disabled="!!preview?.problems.length" @click="apply" />
+            <UButton :to="`/projects/${id}`" color="neutral" variant="ghost" :label="t('common.cancel')" />
+            <UButton icon="i-lucide-check" :label="t('setup.applySetup')" :loading="applying" :disabled="!!preview?.problems.length" @click="apply" />
           </div>
         </div>
       </UCard>

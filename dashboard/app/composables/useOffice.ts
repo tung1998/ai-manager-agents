@@ -55,12 +55,14 @@ export interface ProviderStat {
 }
 export type PermLevel = 'read' | 'propose' | 'check' | 'edit' | 'operate'
 // nested packages: each includes the ones before it
-export const permLevels: { level: PermLevel, label: string, description: string, icon: string }[] = [
-  { level: 'read', label: 'Chỉ đọc', description: 'Đọc code, log, trạng thái vận hành', icon: 'i-lucide-eye' },
-  { level: 'propose', label: 'Đề xuất', description: 'Đề xuất sửa code và thao tác, người duyệt mới làm', icon: 'i-lucide-message-square-diff' },
-  { level: 'check', label: 'Tự kiểm tra', description: 'Tự chạy lệnh kiểm tra được phép (test, typecheck, lint, build)', icon: 'i-lucide-flask-conical' },
-  { level: 'edit', label: 'Tự sửa code', description: 'Tự áp diff áp được sạch, trừ file cấm', icon: 'i-lucide-pencil' },
-  { level: 'operate', label: 'Vận hành', description: 'Tự chạy lại tiến trình và container được phép', icon: 'i-lucide-server-cog' }
+// label/description are getters (evaluated at render time) so existing call
+// sites (`permLevels[i].label`) keep working while text follows the language.
+export const permLevels: { level: PermLevel, readonly label: string, readonly description: string, icon: string }[] = [
+  { level: 'read', get label() { return useLang().t('perm.level.read.label') }, get description() { return useLang().t('perm.level.read.description') }, icon: 'i-lucide-eye' },
+  { level: 'propose', get label() { return useLang().t('perm.level.propose.label') }, get description() { return useLang().t('perm.level.propose.description') }, icon: 'i-lucide-message-square-diff' },
+  { level: 'check', get label() { return useLang().t('perm.level.check.label') }, get description() { return useLang().t('perm.level.check.description') }, icon: 'i-lucide-flask-conical' },
+  { level: 'edit', get label() { return useLang().t('perm.level.edit.label') }, get description() { return useLang().t('perm.level.edit.description') }, icon: 'i-lucide-pencil' },
+  { level: 'operate', get label() { return useLang().t('perm.level.operate.label') }, get description() { return useLang().t('perm.level.operate.description') }, icon: 'i-lucide-server-cog' }
 ]
 export const permRank = (l?: string) => Math.max(0, permLevels.findIndex(x => x.level === l))
 export const permOf = (l?: string) => permLevels[permRank(l)]!
@@ -72,21 +74,21 @@ export function agentLevel(p: Permissions): PermLevel {
 
 // single capabilities; a package is a preset of them (same list as internal/perm)
 export type PermGroup = 'code' | 'commands' | 'git' | 'ops'
-export interface PermCap { id: string, group: PermGroup, label: string, description: string, min: PermLevel, icon: string }
+export interface PermCap { id: string, group: PermGroup, readonly label: string, readonly description: string, min: PermLevel, icon: string }
 export const permCaps: PermCap[] = [
-  { id: 'propose', group: 'code', label: 'Đề xuất', description: 'Đưa diff và đề xuất thao tác, người duyệt mới làm', min: 'propose', icon: 'i-lucide-message-square-diff' },
-  { id: 'code.apply', group: 'code', label: 'Tự áp diff', description: 'Diff áp được sạch được áp ngay, trừ file cấm', min: 'edit', icon: 'i-lucide-pencil' },
-  { id: 'commands.run', group: 'commands', label: 'Tự chạy lệnh', description: 'Chạy ngay các lệnh được chọn; lệnh khác phải đề xuất', min: 'check', icon: 'i-lucide-square-terminal' },
-  { id: 'git.commit', group: 'git', label: 'Tự commit', description: 'Commit các file đã sửa với message rõ ràng', min: 'edit', icon: 'i-lucide-git-commit-horizontal' },
-  { id: 'git.branch', group: 'git', label: 'Tự tạo nhánh', description: 'Tạo và chuyển sang nhánh mới', min: 'operate', icon: 'i-lucide-git-branch' },
-  { id: 'ops.process', group: 'ops', label: 'Tự chạy lại tiến trình', description: 'Chạy, chạy lại, dừng tiến trình được phép', min: 'operate', icon: 'i-lucide-rotate-cw' },
-  { id: 'ops.container', group: 'ops', label: 'Tự điều khiển container', description: 'Bật, chạy lại, dừng container được phép', min: 'operate', icon: 'i-lucide-container' }
+  { id: 'propose', group: 'code', get label() { return useLang().t('perm.cap.propose.label') }, get description() { return useLang().t('perm.cap.propose.description') }, min: 'propose', icon: 'i-lucide-message-square-diff' },
+  { id: 'code.apply', group: 'code', get label() { return useLang().t('perm.cap.codeApply.label') }, get description() { return useLang().t('perm.cap.codeApply.description') }, min: 'edit', icon: 'i-lucide-pencil' },
+  { id: 'commands.run', group: 'commands', get label() { return useLang().t('perm.cap.commandsRun.label') }, get description() { return useLang().t('perm.cap.commandsRun.description') }, min: 'check', icon: 'i-lucide-square-terminal' },
+  { id: 'git.commit', group: 'git', get label() { return useLang().t('perm.cap.gitCommit.label') }, get description() { return useLang().t('perm.cap.gitCommit.description') }, min: 'edit', icon: 'i-lucide-git-commit-horizontal' },
+  { id: 'git.branch', group: 'git', get label() { return useLang().t('perm.cap.gitBranch.label') }, get description() { return useLang().t('perm.cap.gitBranch.description') }, min: 'operate', icon: 'i-lucide-git-branch' },
+  { id: 'ops.process', group: 'ops', get label() { return useLang().t('perm.cap.opsProcess.label') }, get description() { return useLang().t('perm.cap.opsProcess.description') }, min: 'operate', icon: 'i-lucide-rotate-cw' },
+  { id: 'ops.container', group: 'ops', get label() { return useLang().t('perm.cap.opsContainer.label') }, get description() { return useLang().t('perm.cap.opsContainer.description') }, min: 'operate', icon: 'i-lucide-container' }
 ]
-export const permGroups: { id: PermGroup, label: string, icon: string }[] = [
-  { id: 'code', label: 'Code', icon: 'i-lucide-code' },
-  { id: 'commands', label: 'Lệnh', icon: 'i-lucide-square-terminal' },
-  { id: 'git', label: 'Git', icon: 'i-lucide-git-fork' },
-  { id: 'ops', label: 'Vận hành', icon: 'i-lucide-server-cog' }
+export const permGroups: { id: PermGroup, readonly label: string, icon: string }[] = [
+  { id: 'code', get label() { return useLang().t('perm.group.code') }, icon: 'i-lucide-code' },
+  { id: 'commands', get label() { return useLang().t('perm.group.commands') }, icon: 'i-lucide-square-terminal' },
+  { id: 'git', get label() { return useLang().t('perm.group.git') }, icon: 'i-lucide-git-fork' },
+  { id: 'ops', get label() { return useLang().t('perm.group.ops') }, icon: 'i-lucide-server-cog' }
 ]
 export const presetCaps = (l: PermLevel) => permCaps.filter(c => permRank(c.min) <= permRank(l)).map(c => c.id)
 export const agentCaps = (p: Permissions) => p.caps ?? presetCaps(agentLevel(p))
@@ -155,9 +157,24 @@ export interface Project {
   created_at: string
 }
 
-export const tierLabel: Record<AgentTier, string> = { lead: 'Lead', manager: 'Manager', worker: 'Worker' }
-export const modelTierLabel: Record<ModelTier, string> = { strong: 'Mạnh', balanced: 'Cân bằng', fast: 'Nhanh' }
-export const kindLabel: Record<string, string> = { solo: 'Solo', team: 'Team', council: 'Hội đồng', custom: 'Tùy chỉnh' }
+// Getter-backed records: `tierLabel.lead` etc. keep working at every call
+// site while re-evaluating the translation at render/access time.
+export const tierLabel: Record<AgentTier, string> = {
+  get lead() { return useLang().t('tier.lead') },
+  get manager() { return useLang().t('tier.manager') },
+  get worker() { return useLang().t('tier.worker') }
+}
+export const modelTierLabel: Record<ModelTier, string> = {
+  get strong() { return useLang().t('tier.model.strong') },
+  get balanced() { return useLang().t('tier.model.balanced') },
+  get fast() { return useLang().t('tier.model.fast') }
+}
+export const kindLabel: Record<string, string> = {
+  get solo() { return useLang().t('org.kind.solo') },
+  get team() { return useLang().t('org.kind.team') },
+  get council() { return useLang().t('org.kind.council') },
+  get custom() { return useLang().t('org.kind.custom') }
+}
 export const kindIcon: Record<string, string> = {
   solo: 'i-lucide-user',
   team: 'i-lucide-users',
@@ -165,7 +182,7 @@ export const kindIcon: Record<string, string> = {
   custom: 'i-lucide-shapes'
 }
 export const governanceLabel: Record<string, string> = {
-  single: 'Một agent tự quyết',
-  hierarchy: 'Phân cấp: lead chốt',
-  council: 'Hội đồng: biểu quyết theo quorum'
+  get single() { return useLang().t('org.governance.single') },
+  get hierarchy() { return useLang().t('org.governance.hierarchy') },
+  get council() { return useLang().t('org.governance.council') }
 }

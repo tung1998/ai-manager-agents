@@ -3,6 +3,7 @@ import type { Attachment } from '~/components/PromptInput.vue'
 const route = useRoute()
 const toast = useToast()
 const { isAdmin } = useAuth()
+const { t } = useLang()
 const id = computed(() => route.params.id as string)
 
 const { data, refresh } = await useFetch<{ project: Project }>(() => `/api/projects/${id.value}`)
@@ -51,7 +52,7 @@ async function apply() {
     await $fetch(`/api/projects/${id.value}/model`, { method: 'POST', body: { template_id: templateId.value, replace: !!project.value?.model } })
     applyOpen.value = false
     await refresh()
-    toast.add({ title: 'Đã áp mô hình', color: 'success' })
+    toast.add({ title: t('project.applyDone'), color: 'success' })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
@@ -72,7 +73,7 @@ async function saveRepo() {
   await refresh()
 }
 async function removeRepo() {
-  if (!confirm(`Bỏ quản lý project "${project.value?.name}"? File trong thư mục không bị ảnh hưởng.`)) return
+  if (!confirm(t('project.confirmUnmanage', { name: project.value?.name ?? '' }))) return
   await $fetch(`/api/projects/${id.value}`, { method: 'DELETE' })
   await navigateTo('/projects')
 }
@@ -85,11 +86,11 @@ function exportModel() {
 async function saveAsTemplate() {
   const m = project.value?.model
   if (!m) return
-  const key = prompt('Key cho mô hình (chữ thường, gạch ngang):', `${project.value!.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${m.key}`)
+  const key = prompt(t('project.templateKeyPrompt'), `${project.value!.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${m.key}`)
   if (!key) return
   try {
     const res = await $fetch<{ model: OrgModel }>('/api/templates', { method: 'POST', body: { source_id: m.id, key, name: `${m.name} (${project.value!.name})` } })
-    toast.add({ title: 'Đã lưu vào Mô hình', color: 'success', actions: [{ label: 'Mở', onClick: () => { navigateTo(`/templates/${res.model.id}`) } }] })
+    toast.add({ title: t('project.templateSaved'), color: 'success', actions: [{ label: t('project.templateSavedOpen'), onClick: () => { navigateTo(`/templates/${res.model.id}`) } }] })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
@@ -97,24 +98,24 @@ async function saveAsTemplate() {
 </script>
 
 <template>
-  <PageShell :title="project?.name ?? 'Project'">
+  <PageShell :title="project?.name ?? t('project.defaultTitle')">
     <template #actions>
       <template v-if="project && isAdmin">
-        <UButton v-if="!project.model" :to="`/projects/${id}/setup`" size="sm" icon="i-lucide-sparkles" label="Thiết lập bằng AI" />
+        <UButton v-if="!project.model" :to="`/projects/${id}/setup`" size="sm" icon="i-lucide-sparkles" :label="t('project.setupAi')" />
         <UDropdownMenu
           :content="{ align: 'end' }"
           :items="[[
-            { label: 'Sửa tên, mô tả', icon: 'i-lucide-pencil', onSelect: openEdit },
-            { label: 'Thiết lập bằng AI', icon: 'i-lucide-sparkles', to: `/projects/${id}/setup` },
-            { label: project.model ? 'Đổi mô hình' : 'Chọn mô hình', icon: 'i-lucide-network', onSelect: openApply }
+            { label: t('project.rename'), icon: 'i-lucide-pencil', onSelect: openEdit },
+            { label: t('project.setupAi'), icon: 'i-lucide-sparkles', to: `/projects/${id}/setup` },
+            { label: project.model ? t('project.changeModel') : t('project.chooseModel'), icon: 'i-lucide-network', onSelect: openApply }
           ], [
-            { label: 'Tải JSON mô hình', icon: 'i-lucide-download', disabled: !project.model, onSelect: exportModel },
-            { label: 'Lưu mô hình để dùng lại', icon: 'i-lucide-bookmark-plus', disabled: !project.model, onSelect: saveAsTemplate }
+            { label: t('project.downloadModel'), icon: 'i-lucide-download', disabled: !project.model, onSelect: exportModel },
+            { label: t('project.saveModel'), icon: 'i-lucide-bookmark-plus', disabled: !project.model, onSelect: saveAsTemplate }
           ], [
-            { label: 'Bỏ quản lý project', icon: 'i-lucide-folder-minus', color: 'error', onSelect: removeRepo }
+            { label: t('project.unmanage'), icon: 'i-lucide-folder-minus', color: 'error', onSelect: removeRepo }
           ]]"
         >
-          <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" aria-label="Thao tác project" />
+          <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" :aria-label="t('project.actionsAria')" />
         </UDropdownMenu>
       </template>
     </template>
@@ -125,11 +126,11 @@ async function saveAsTemplate() {
         <span v-if="project.scope === 'folder'" class="flex min-w-0 items-center gap-1.5">
           <UIcon name="i-lucide-folder" class="size-3.5 shrink-0" /><span class="truncate font-mono">{{ project.path }}</span>
         </span>
-        <span v-else class="flex items-center gap-1.5"><UIcon name="i-lucide-monitor" class="size-3.5" /> Helper toàn máy</span>
+        <span v-else class="flex items-center gap-1.5"><UIcon name="i-lucide-monitor" class="size-3.5" /> {{ t('project.machineHelper') }}</span>
         <span v-if="project.git_remote" class="flex min-w-0 items-center gap-1.5">
           <UIcon name="i-lucide-git-branch" class="size-3.5 shrink-0" /><span class="truncate font-mono">{{ project.git_remote }}</span>
         </span>
-        <UBadge v-if="!project.exists" label="Không tìm thấy thư mục" color="error" variant="subtle" size="sm" />
+        <UBadge v-if="!project.exists" :label="t('project.notFound')" color="error" variant="subtle" size="sm" />
         <button
           v-if="project.description" type="button" class="min-w-0 basis-full text-left hover:text-(--ui-text)"
           :class="descOpen ? '' : 'truncate'" :title="descOpen ? '' : project.description" @click="descOpen = !descOpen"
@@ -139,18 +140,18 @@ async function saveAsTemplate() {
       </div>
 
       <UAlert
-        v-if="isOfficeSource" color="info" variant="subtle" icon="i-lucide-package" title="Đây là mã nguồn của chính office"
-        description="Thay đổi được duyệt chỉ có hiệu lực sau khi build lại. Vào Cập nhật office để build, khởi động lại và tự quay về bản cũ nếu lỗi."
-        :actions="[{ label: 'Cập nhật office', to: '/admin/update', icon: 'i-lucide-refresh-cw', color: 'info', variant: 'outline' }]"
+        v-if="isOfficeSource" color="info" variant="subtle" icon="i-lucide-package" :title="t('project.officeSourceTitle')"
+        :description="t('project.officeSourceDesc')"
+        :actions="[{ label: t('project.goToUpdate'), to: '/admin/update', icon: 'i-lucide-refresh-cw', color: 'info', variant: 'outline' }]"
       />
 
       <UTabs
         v-model="tab" :content="false" variant="link" class="w-full"
         :items="[
-          { label: 'Chat', value: 'chat', icon: 'i-lucide-messages-square' },
-          { label: 'Việc', value: 'tasks', icon: 'i-lucide-list-todo' },
-          { label: 'Vận hành', value: 'ops', icon: 'i-lucide-activity' },
-          { label: 'Cấu hình', value: 'config', icon: 'i-lucide-settings-2' }
+          { label: t('project.tabChat'), value: 'chat', icon: 'i-lucide-messages-square' },
+          { label: t('project.tabTasks'), value: 'tasks', icon: 'i-lucide-list-todo' },
+          { label: t('project.tabOps'), value: 'ops', icon: 'i-lucide-activity' },
+          { label: t('project.tabConfig'), value: 'config', icon: 'i-lucide-settings-2' }
         ]"
       />
 
@@ -159,9 +160,9 @@ async function saveAsTemplate() {
         <SegmentedNav
           v-model="configSection"
           :items="[
-            { value: 'model', label: 'Mô hình', icon: 'i-lucide-network' },
-            { value: 'perm', label: 'Quyền', icon: 'i-lucide-shield' },
-            ...(isAdmin ? [{ value: 'skill', label: 'Skills', icon: 'i-lucide-sparkles' }, { value: 'mcp', label: 'MCP', icon: 'i-lucide-plug-zap' }] : [])
+            { value: 'model', label: t('project.sectionModel'), icon: 'i-lucide-network' },
+            { value: 'perm', label: t('project.sectionPerm'), icon: 'i-lucide-shield' },
+            ...(isAdmin ? [{ value: 'skill', label: t('project.sectionSkill'), icon: 'i-lucide-sparkles' }, { value: 'mcp', label: t('project.sectionMcp'), icon: 'i-lucide-plug-zap' }] : [])
           ]"
         />
         <PolicyPanel v-if="configSection === 'perm'" :project-id="project.id" />
@@ -176,35 +177,35 @@ async function saveAsTemplate() {
       <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
     </div>
 
-    <UModal v-model:open="applyOpen" :title="project?.model ? 'Đổi mô hình' : 'Chọn mô hình'" :ui="{ content: 'max-w-xl' }">
+    <UModal v-model:open="applyOpen" :title="project?.model ? t('project.changeModel') : t('project.chooseModel')" :ui="{ content: 'max-w-xl' }">
       <template #body>
         <div class="space-y-4">
           <UAlert
             v-if="project?.model" color="warning" variant="subtle" icon="i-lucide-triangle-alert"
-            description="Mô hình hiện tại của project và mọi chỉnh sửa trên nó sẽ bị thay thế. Tải JSON hoặc lưu để dùng lại trước nếu muốn giữ. Bản cũ cũng vẫn nằm trong Lịch sử."
+            :description="t('project.changeModelWarn')"
           />
           <TemplatePicker v-model="templateId" :templates="templates" />
         </div>
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Hủy" @click="applyOpen = false" />
-          <UButton :loading="applying" :disabled="!templateId" label="Áp dụng" @click="apply" />
+          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="applyOpen = false" />
+          <UButton :loading="applying" :disabled="!templateId" :label="t('project.applyBtn')" @click="apply" />
         </div>
       </template>
     </UModal>
 
-    <UModal v-model:open="editOpen" title="Sửa project">
+    <UModal v-model:open="editOpen" :title="t('project.editTitle')">
       <template #body>
         <form id="project-edit" class="space-y-4" @submit.prevent="saveRepo">
-          <UFormField label="Tên"><UInput v-model="form.name" class="w-full" /></UFormField>
-          <UFormField label="Mô tả"><UTextarea v-model="form.description" :rows="3" class="w-full" /></UFormField>
+          <UFormField :label="t('projects.name')"><UInput v-model="form.name" class="w-full" /></UFormField>
+          <UFormField :label="t('project.description')"><UTextarea v-model="form.description" :rows="3" class="w-full" /></UFormField>
         </form>
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Hủy" @click="editOpen = false" />
-          <UButton type="submit" form="project-edit" label="Lưu" />
+          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="editOpen = false" />
+          <UButton type="submit" form="project-edit" :label="t('common.save')" />
         </div>
       </template>
     </UModal>

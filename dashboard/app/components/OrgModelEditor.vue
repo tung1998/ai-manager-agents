@@ -4,6 +4,7 @@ const emit = defineEmits<{ changed: [] }>()
 
 const toast = useToast()
 const { isAdmin } = useAuth()
+const { t } = useLang()
 
 const { data, refresh } = await useFetch<{ model: OrgModel }>(() => `/api/org-models/${props.modelId}`)
 const { data: provData } = await useFetch<{ providers: Provider[] }>('/api/providers')
@@ -31,7 +32,7 @@ const problems = ref<string[]>([])
 function showError(e: unknown) {
   const d = (e as { data?: { error?: string, problems?: string[] } })?.data
   problems.value = d?.problems ?? []
-  if (!d?.problems) toast.add({ title: d?.error ?? 'Có lỗi xảy ra', color: 'error' })
+  if (!d?.problems) toast.add({ title: d?.error ?? t('org.editor.genericError'), color: 'error' })
 }
 
 // ---- model settings ----
@@ -61,7 +62,7 @@ async function saveSettings() {
     settingsOpen.value = false
     await refresh()
     emit('changed')
-    toast.add({ title: 'Đã lưu mô hình', color: 'success' })
+    toast.add({ title: t('org.editor.savedModel'), color: 'success' })
   } catch (e) {
     showError(e)
   }
@@ -105,7 +106,7 @@ const providerChoice = computed({
   set: (v: string) => { form.provider_id = v === DEFAULT_PROVIDER ? '' : v }
 })
 const providerOptions = computed(() => [
-  { label: `Mặc định${defaultProvider.value ? ` (${defaultProvider.value.name})` : ''}`, value: DEFAULT_PROVIDER },
+  { label: t('org.form.providerDefault', { suffix: defaultProvider.value ? ` (${defaultProvider.value.name})` : '' }), value: DEFAULT_PROVIDER },
   ...providers.value.map(p => ({ label: p.name, value: p.id }))
 ])
 const formProvider = computed(() => providers.value.find(p => p.id === form.provider_id) ?? defaultProvider.value)
@@ -128,7 +129,7 @@ async function saveAgent() {
     editorOpen.value = false
     await refresh()
     emit('changed')
-    toast.add({ title: `Đã lưu agent ${form.name}`, color: 'success' })
+    toast.add({ title: t('org.editor.savedAgent', { name: form.name }), color: 'success' })
   } catch (e) {
     showError(e)
   } finally {
@@ -137,7 +138,7 @@ async function saveAgent() {
 }
 
 async function deleteAgent() {
-  if (!editing.value || !confirm(`Xóa agent "${editing.value.name}"?`)) return
+  if (!editing.value || !confirm(t('org.editor.deleteAgentConfirm', { name: editing.value.name }))) return
   try {
     await $fetch(`/api/agents/${editing.value.id}`, { method: 'DELETE' })
     editorOpen.value = false
@@ -161,35 +162,35 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
             <UIcon :name="kindIcon[model.kind]" class="size-5 text-primary" />
             <h2 class="text-lg font-semibold">{{ model.name }}</h2>
             <UBadge :label="kindLabel[model.kind]" variant="subtle" />
-            <UBadge v-if="model.builtin" label="Có sẵn" color="neutral" variant="outline" size="sm" />
+            <UBadge v-if="model.builtin" :label="t('org.editor.builtin')" color="neutral" variant="outline" size="sm" />
           </div>
           <p class="max-w-3xl text-sm text-(--ui-text-muted)">{{ model.description }}</p>
           <p class="text-sm">
-            <span class="text-(--ui-text-muted)">Ra quyết định:</span>
+            <span class="text-(--ui-text-muted)">{{ t('org.editor.decision') }}</span>
             {{ governanceLabel[model.governance.mode] ?? model.governance.mode }}
-            <template v-if="model.governance.mode === 'council'"> · cần {{ model.governance.quorum }}/{{ leads.length }} phiếu</template>
-            <template v-if="model.governance.veto?.length"> · phủ quyết: {{ model.governance.veto.map(nameOf).join(', ') }}</template>
+            <template v-if="model.governance.mode === 'council'"> {{ t('org.editor.quorum', { n: model.governance.quorum ?? 0, total: leads.length }) }}</template>
+            <template v-if="model.governance.veto?.length"> {{ t('org.editor.veto', { names: model.governance.veto.map(nameOf).join(', ') }) }}</template>
           </p>
           <p v-if="model.governance.notes" class="text-xs text-(--ui-text-muted)">{{ model.governance.notes }}</p>
         </div>
         <div class="flex gap-2">
-          <UButton icon="i-lucide-history" label="Lịch sử" color="neutral" variant="ghost" @click="historyOpen = true" />
+          <UButton icon="i-lucide-history" :label="t('org.editor.history')" color="neutral" variant="ghost" @click="historyOpen = true" />
         </div>
         <div v-if="isAdmin" class="flex gap-2">
-          <UButton icon="i-lucide-settings-2" label="Cài đặt mô hình" color="neutral" variant="outline" @click="openSettings" />
+          <UButton icon="i-lucide-settings-2" :label="t('org.editor.settings')" color="neutral" variant="outline" @click="openSettings" />
           <UDropdownMenu :items="[[
-            { label: 'Thêm lead', icon: 'i-lucide-crown', onSelect: () => newAgent('lead') },
-            { label: 'Thêm manager', icon: 'i-lucide-briefcase', onSelect: () => newAgent('manager') },
-            { label: 'Thêm worker', icon: 'i-lucide-wrench', onSelect: () => newAgent('worker') }
+            { label: t('org.editor.addLead'), icon: 'i-lucide-crown', onSelect: () => newAgent('lead') },
+            { label: t('org.editor.addManager'), icon: 'i-lucide-briefcase', onSelect: () => newAgent('manager') },
+            { label: t('org.editor.addWorker'), icon: 'i-lucide-wrench', onSelect: () => newAgent('worker') }
           ]]">
-            <UButton icon="i-lucide-user-plus" label="Thêm agent" />
+            <UButton icon="i-lucide-user-plus" :label="t('org.editor.addAgent')" />
           </UDropdownMenu>
         </div>
       </div>
     </UCard>
 
     <UAlert
-      v-if="problems.length && !editorOpen && !settingsOpen" color="error" variant="subtle" title="Mô hình không hợp lệ"
+      v-if="problems.length && !editorOpen && !settingsOpen" color="error" variant="subtle" :title="t('org.editor.invalidModel')"
       :description="problems.join(' · ')"
     />
 
@@ -217,12 +218,12 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
             <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-(--ui-text-muted)">
               <span class="font-mono">{{ resolvedModel(a) }}</span>
               <span class="inline-flex items-center gap-1" :class="permRank(agentLevel(a.permissions)) >= 2 ? 'text-(--ui-warning)' : ''" :title="permOf(agentLevel(a.permissions)).description">
-                <UIcon :name="a.permissions.caps ? 'i-lucide-sliders-horizontal' : permOf(agentLevel(a.permissions)).icon" class="size-3.5" />{{ a.permissions.caps ? `Tùy chỉnh (${a.permissions.caps.length} quyền)` : permOf(agentLevel(a.permissions)).label }}
+                <UIcon :name="a.permissions.caps ? 'i-lucide-sliders-horizontal' : permOf(agentLevel(a.permissions)).icon" class="size-3.5" />{{ a.permissions.caps ? t('org.editor.customCaps', { n: a.permissions.caps.length }) : permOf(agentLevel(a.permissions)).label }}
               </span>
-              <UIcon v-if="a.permissions.requires_approval" name="i-lucide-shield-check" class="size-3.5" title="Cần người duyệt" />
+              <UIcon v-if="a.permissions.requires_approval" name="i-lucide-shield-check" class="size-3.5" :title="t('org.editor.requiresApproval')" />
             </div>
             <div v-if="a.reports_to.length" class="mt-2 flex flex-wrap gap-1">
-              <UBadge v-for="r in a.reports_to" :key="r" :label="`↑ ${nameOf(r)}`" color="neutral" variant="outline" size="sm" />
+              <UBadge v-for="r in a.reports_to" :key="r" :label="t('org.editor.reportsTo', { name: nameOf(r) })" color="neutral" variant="outline" size="sm" />
             </div>
           </button>
         </div>
@@ -235,31 +236,31 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
     <RevisionHistory v-model:open="historyOpen" :model-id="modelId" @restored="refresh(); emit('changed')" />
 
     <!-- model settings -->
-    <UModal v-model:open="settingsOpen" title="Cài đặt mô hình" :ui="{ content: 'max-w-lg' }">
+    <UModal v-model:open="settingsOpen" :title="t('org.editor.settings')" :ui="{ content: 'max-w-lg' }">
       <template #body>
         <form id="model-settings" class="space-y-4" @submit.prevent="saveSettings">
-          <UFormField label="Tên" required>
+          <UFormField :label="t('org.settings.name')" required>
             <UInput v-model="settings.name" class="w-full" />
           </UFormField>
-          <UFormField label="Mô tả">
+          <UFormField :label="t('org.settings.description')">
             <UTextarea v-model="settings.description" :rows="3" class="w-full" />
           </UFormField>
-          <UFormField label="Loại">
+          <UFormField :label="t('org.settings.kind')">
             <USelect v-model="settings.kind" :items="Object.entries(kindLabel).map(([value, label]) => ({ label, value }))" class="w-full" />
           </UFormField>
-          <UFormField label="Cách ra quyết định">
+          <UFormField :label="t('org.settings.decisionMode')">
             <USelect v-model="settings.mode" :items="Object.entries(governanceLabel).map(([value, label]) => ({ label, value }))" class="w-full" />
           </UFormField>
-          <UFormField v-if="settings.mode === 'council'" :label="`Số phiếu cần (tối đa ${leads.length})`">
+          <UFormField v-if="settings.mode === 'council'" :label="t('org.settings.quorumNeeded', { n: leads.length })">
             <UInputNumber v-model="settings.quorum" :min="1" :max="leads.length" />
           </UFormField>
-          <UFormField label="Quyền phủ quyết" help="Lead có thể chặn hành động có side effect.">
+          <UFormField :label="t('org.settings.veto')" :help="t('org.settings.vetoHelp')">
             <USelectMenu v-model="settings.veto" multiple value-key="value" :items="leads.map(a => ({ label: a.name, value: a.key }))" class="w-full" />
           </UFormField>
-          <UFormField label="Ghi chú quy trình">
+          <UFormField :label="t('org.settings.notes')">
             <UTextarea v-model="settings.notes" :rows="2" class="w-full" />
           </UFormField>
-          <UAlert v-if="problems.length" color="error" variant="subtle" title="Chưa hợp lệ">
+          <UAlert v-if="problems.length" color="error" variant="subtle" :title="t('org.form.invalid')">
             <template #description>
               <ul class="list-disc ps-4">
                 <li v-for="p in problems" :key="p">{{ p }}</li>
@@ -270,17 +271,17 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Hủy" @click="settingsOpen = false" />
-          <UButton type="submit" form="model-settings" label="Lưu" />
+          <UButton color="neutral" variant="ghost" :label="t('org.form.cancel')" @click="settingsOpen = false" />
+          <UButton type="submit" form="model-settings" :label="t('org.form.save')" />
         </div>
       </template>
     </UModal>
 
     <!-- agent editor -->
-    <USlideover v-model:open="editorOpen" :title="editing ? editing.name : 'Agent mới'" :ui="{ content: 'max-w-xl' }">
+    <USlideover v-model:open="editorOpen" :title="editing ? editing.name : t('org.editor.newAgent')" :ui="{ content: 'max-w-xl' }">
       <template #body>
         <form id="agent-form" class="space-y-4" @submit.prevent="saveAgent">
-          <UAlert v-if="problems.length" color="error" variant="subtle" title="Chưa hợp lệ">
+          <UAlert v-if="problems.length" color="error" variant="subtle" :title="t('org.form.invalid')">
             <template #description>
               <ul class="list-disc ps-4">
                 <li v-for="p in problems" :key="p">{{ p }}</li>
@@ -289,40 +290,40 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
           </UAlert>
           <fieldset :disabled="!isAdmin" class="space-y-4">
             <div class="grid gap-3 sm:grid-cols-2">
-              <UFormField label="Tên" required>
+              <UFormField :label="t('org.form.name')" required>
                 <UInput v-model="form.name" class="w-full" />
               </UFormField>
-              <UFormField label="Key" required help="chữ thường, số, gạch ngang">
+              <UFormField :label="t('org.form.key')" required :help="t('org.form.keyHelp')">
                 <UInput v-model="form.key" class="w-full font-mono" />
               </UFormField>
             </div>
             <div class="grid gap-3 sm:grid-cols-2">
-              <UFormField label="Cấp">
+              <UFormField :label="t('org.form.tier')">
                 <USelect v-model="form.tier" :items="Object.entries(tierLabel).map(([value, label]) => ({ label, value }))" class="w-full" />
               </UFormField>
-              <UFormField v-if="form.tier !== 'lead'" label="Báo cáo cho">
+              <UFormField v-if="form.tier !== 'lead'" :label="t('org.form.reportsTo')">
                 <USelectMenu v-model="form.reports_to" multiple value-key="value" :items="bossOptions" class="w-full" />
               </UFormField>
             </div>
-            <UFormField label="Vai trò">
-              <UInput v-model="form.role" class="w-full" placeholder="VD: Thiết kế kỹ thuật" />
+            <UFormField :label="t('org.form.role')">
+              <UInput v-model="form.role" class="w-full" :placeholder="t('org.form.rolePlaceholder')" />
             </UFormField>
-            <UFormField label="Mô tả">
+            <UFormField :label="t('org.settings.description')">
               <UTextarea v-model="form.description" :rows="2" class="w-full" />
             </UFormField>
 
-            <USeparator label="Model" />
+            <USeparator :label="t('org.form.modelSection')" />
             <div class="grid gap-3 sm:grid-cols-2">
-              <UFormField label="Kết nối AI">
+              <UFormField :label="t('org.form.provider')">
                 <USelect v-model="providerChoice" :items="providerOptions" class="w-full" />
               </UFormField>
-              <UFormField label="Hạng model">
+              <UFormField :label="t('org.form.modelTier')">
                 <USelect v-model="form.model_tier" :items="Object.entries(modelTierLabel).map(([value, label]) => ({ label, value }))" class="w-full" />
               </UFormField>
             </div>
             <UFormField
-              label="Model cụ thể (tùy chọn)"
-              :help="`Để trống sẽ dùng ${formProvider?.tier_models[form.model_tier] || 'model theo hạng của kết nối'}`"
+              :label="t('org.form.specificModel')"
+              :help="t('org.form.specificModelHelp', { model: formProvider?.tier_models[form.model_tier] || t('org.form.specificModelFallback') })"
             >
               <UInput v-model="form.llm_model" list="agent-models" class="w-full font-mono" />
               <datalist id="agent-models">
@@ -330,14 +331,14 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
               </datalist>
             </UFormField>
 
-            <USeparator label="Hướng dẫn và quyền" />
-            <UFormField label="Hướng dẫn (system prompt riêng)">
+            <USeparator :label="t('org.form.instructionsSection')" />
+            <UFormField :label="t('org.form.instructions')">
               <UTextarea v-model="form.instructions" :rows="6" class="w-full" autoresize />
             </UFormField>
-            <UFormField label="Quyền" help="Chế độ chọn khi chat/giao việc và giới hạn của project có thể hạ thấp hơn nữa.">
+            <UFormField :label="t('org.form.permissions')" :help="t('org.form.permissionsHelp')">
               <AgentPermEditor v-model="form.permissions" :project-id="model?.repo_id || undefined" />
             </UFormField>
-            <UFormField label="Công cụ được phép" help="VD: read, search, edit, shell:test, mcp:logs">
+            <UFormField :label="t('org.form.tools')" :help="t('org.form.toolsHelp')">
               <UInputTags v-model="form.permissions.tools" class="w-full" />
             </UFormField>
           </fieldset>
@@ -346,11 +347,11 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
       </template>
       <template #footer>
         <div class="flex w-full items-center justify-between gap-2">
-          <UButton v-if="isAdmin && editing" color="error" variant="ghost" icon="i-lucide-trash" label="Xóa" @click="deleteAgent" />
+          <UButton v-if="isAdmin && editing" color="error" variant="ghost" icon="i-lucide-trash" :label="t('org.form.delete')" @click="deleteAgent" />
           <span v-else />
           <div class="flex gap-2">
-            <UButton color="neutral" variant="ghost" label="Đóng" @click="editorOpen = false" />
-            <UButton v-if="isAdmin" type="submit" form="agent-form" :loading="saving" label="Lưu" />
+            <UButton color="neutral" variant="ghost" :label="t('org.form.close')" @click="editorOpen = false" />
+            <UButton v-if="isAdmin" type="submit" form="agent-form" :loading="saving" :label="t('org.form.save')" />
           </div>
         </div>
       </template>

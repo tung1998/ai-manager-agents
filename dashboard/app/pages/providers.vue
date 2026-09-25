@@ -2,6 +2,7 @@
 const toast = useToast()
 const route = useRoute()
 const { isAdmin } = useAuth()
+const { t } = useLang()
 // Set when another page (project setup) sent the user here to connect AI first.
 const next = computed(() => {
   const n = route.query.next
@@ -18,7 +19,7 @@ const kindOf = (k: string) => kinds.value.find(x => x.kind === k)
 const presetOf = (id: string) => presets.value.find(p => p.id === id)
 const statOf = (id: string) => statsData.value?.providers.find(s => s.provider_id === id)
 const week = computed(() => (statsData.value?.providers ?? []).reduce((a, s) => ({ calls: a.calls + s.calls, cost: a.cost + s.cost_usd }), { calls: 0, cost: 0 }))
-const groupLabel: Record<ProviderPreset['group'], string> = { gateway: 'Cổng trung gian', global: 'Quốc tế', china: 'Trung Quốc', local: 'Chạy trên máy' }
+const groupLabel = computed<Record<ProviderPreset['group'], string>>(() => ({ gateway: t('prov.groupGateway'), global: t('prov.groupGlobal'), china: t('prov.groupChina'), local: t('prov.groupLocal') }))
 const presetGroups = computed(() => (['gateway', 'global', 'china', 'local'] as const)
   .map(g => ({ group: g, items: presets.value.filter(p => p.group === g) })).filter(g => g.items.length))
 
@@ -113,7 +114,7 @@ async function save() {
       : await $fetch<{ provider: Provider }>('/api/providers', { method: 'POST', body })
     formOpen.value = false
     await refresh()
-    toast.add({ title: editing.value ? 'Đã lưu kết nối' : 'Đã thêm kết nối', description: 'Đang kiểm tra kết nối…', color: 'success' })
+    toast.add({ title: editing.value ? t('prov.savedConnection') : t('prov.addedConnection'), description: t('prov.checkingConnection'), color: 'success' })
     await runTest(res.provider)
   } catch (e) {
     formError.value = apiError(e)
@@ -126,7 +127,7 @@ async function save() {
 const testing = ref<string | null>(null)
 const testOpen = ref(false)
 const testTarget = ref<Provider | null>(null)
-const testPrompt = ref('Chào bạn, hãy giới thiệu ngắn gọn bạn là model nào.')
+const testPrompt = ref(t('prov.defaultTestPrompt'))
 const testModel = ref('')
 const testResult = ref<{ ok: boolean, detail: string, models: string[], response?: { text: string, model: string, input_tokens: number, output_tokens: number, cost_usd?: number, duration_ms: number } } | null>(null)
 
@@ -137,14 +138,14 @@ async function runTest(p: Provider, prompt = '') {
       method: 'POST', body: { prompt, model: prompt ? testModel.value : '' }
     })
     if (!prompt && res!.ok && next.value) {
-      toast.add({ title: `${p.name}: kết nối tốt`, description: 'Quay lại thiết lập project…', color: 'success' })
+      toast.add({ title: t('prov.savedGood', { name: p.name }), description: t('prov.savedGoodDesc'), color: 'success' })
       await navigateTo(next.value)
       return
     }
     if (prompt) {
       testResult.value = res
     } else {
-      toast.add({ title: res!.ok ? `${p.name}: kết nối tốt` : `${p.name}: lỗi kết nối`, description: res!.detail, color: res!.ok ? 'success' : 'error' })
+      toast.add({ title: res!.ok ? t('prov.savedGood', { name: p.name }) : t('prov.testError', { name: p.name }), description: res!.detail, color: res!.ok ? 'success' : 'error' })
     }
     await refresh()
     refreshStats()
@@ -168,7 +169,7 @@ async function setDefault(p: Provider) {
 }
 
 async function remove(p: Provider) {
-  if (!confirm(`Xóa kết nối "${p.name}"? Agent đang dùng sẽ chuyển sang kết nối mặc định.`)) return
+  if (!confirm(t('prov.confirmDelete', { name: p.name }))) return
   try {
     await $fetch(`/api/providers/${p.id}`, { method: 'DELETE' })
     await refresh()
@@ -180,11 +181,11 @@ async function remove(p: Provider) {
 function menu(p: Provider) {
   return [
     [
-      { label: 'Gửi thử prompt', icon: 'i-lucide-message-square', onSelect: () => openPromptTest(p) },
-      { label: 'Sửa', icon: 'i-lucide-pencil', onSelect: () => openEdit(p) },
-      { label: 'Đặt làm mặc định', icon: 'i-lucide-star', disabled: p.is_default, onSelect: () => setDefault(p) }
+      { label: t('prov.sendTestPrompt'), icon: 'i-lucide-message-square', onSelect: () => openPromptTest(p) },
+      { label: t('prov.edit'), icon: 'i-lucide-pencil', onSelect: () => openEdit(p) },
+      { label: t('prov.setDefault'), icon: 'i-lucide-star', disabled: p.is_default, onSelect: () => setDefault(p) }
     ],
-    [{ label: 'Xóa', icon: 'i-lucide-trash', color: 'error' as const, onSelect: () => remove(p) }]
+    [{ label: t('prov.delete'), icon: 'i-lucide-trash', color: 'error' as const, onSelect: () => remove(p) }]
   ]
 }
 
@@ -194,56 +195,56 @@ const palette = ['bg-violet-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500'
 const avatarColor = (key: string) => palette[[...key].reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length]
 const num = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n)
 const usd = (v: number) => v >= 100 ? `$${v.toFixed(0)}` : v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(3)}`
-function ago(t: string | null) {
-  if (!t) return 'chưa dùng'
-  const s = (Date.now() - new Date(t).getTime()) / 1000
-  return s < 60 ? 'vừa xong' : s < 3600 ? `${Math.floor(s / 60)} phút trước` : s < 86400 ? `${Math.floor(s / 3600)} giờ trước` : `${Math.floor(s / 86400)} ngày trước`
+function ago(last: string | null) {
+  if (!last) return t('prov.neverUsed')
+  const s = (Date.now() - new Date(last).getTime()) / 1000
+  return s < 60 ? t('prov.justNow') : s < 3600 ? t('prov.minutesAgo', { n: Math.floor(s / 60) }) : s < 86400 ? t('prov.hoursAgo', { n: Math.floor(s / 3600) }) : t('prov.daysAgo', { n: Math.floor(s / 86400) })
 }
 const maxDay = (st?: ProviderStat) => Math.max(1, ...(st?.days.map(d => d.calls) ?? [0]))
 
 const statusColor = (s: string) => (s === 'ok' ? 'success' : s === 'error' ? 'error' : 'neutral')
-const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error' ? 'Lỗi' : 'Chưa kiểm tra')
+const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'error' ? t('prov.statusError') : t('prov.statusUnknown'))
 </script>
 
 <template>
-  <PageShell title="Kết nối AI">
+  <PageShell :title="t('prov.title')">
     <template #actions>
-      <UButton v-if="isAdmin" icon="i-lucide-plus" label="Thêm kết nối" @click="openCreate" />
+      <UButton v-if="isAdmin" icon="i-lucide-plus" :label="t('prov.add')" @click="openCreate" />
     </template>
 
     <div class="space-y-4">
       <UAlert
         v-if="next" color="primary" variant="subtle" icon="i-lucide-sparkles"
-        title="Kết nối AI để thiết lập project"
-        description="Thiết lập bằng AI cần ít nhất một kết nối hoạt động. Thêm hoặc kiểm tra kết nối, bạn sẽ được đưa quay lại."
-        :actions="providers.some(p => p.status === 'ok') ? [{ label: 'Tiếp tục thiết lập', to: next, icon: 'i-lucide-arrow-right' }] : []"
+        :title="t('prov.connectBannerTitle')"
+        :description="t('prov.connectBannerDesc')"
+        :actions="providers.some(p => p.status === 'ok') ? [{ label: t('prov.continueSetup'), to: next, icon: 'i-lucide-arrow-right' }] : []"
       />
 
 
       <div v-if="!providers.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
         <UIcon name="i-lucide-plug" class="mx-auto size-8 text-(--ui-text-dimmed)" />
-        <p class="mt-2 font-medium">Chưa có kết nối nào</p>
-        <p class="text-sm text-(--ui-text-muted)">Thêm Claude API, OpenAI API, hoặc dùng Claude Code CLI đã đăng nhập trên máy.</p>
-        <UButton v-if="isAdmin" class="mt-4" icon="i-lucide-plus" label="Thêm kết nối" @click="openCreate" />
+        <p class="mt-2 font-medium">{{ t('prov.emptyTitle') }}</p>
+        <p class="text-sm text-(--ui-text-muted)">{{ t('prov.emptyDesc') }}</p>
+        <UButton v-if="isAdmin" class="mt-4" icon="i-lucide-plus" :label="t('prov.add')" @click="openCreate" />
       </div>
 
       <!-- today / 7 days -->
       <div v-if="providers.length" class="grid grid-cols-2 overflow-hidden rounded-lg border border-(--ui-border) md:grid-cols-4">
         <div class="p-4">
-          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">Lượt gọi hôm nay</p>
+          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">{{ t('prov.callsToday') }}</p>
           <p class="mt-1 font-mono text-2xl font-semibold">{{ num(statsData?.today.calls ?? 0) }}</p>
         </div>
         <div class="border-s border-(--ui-border) p-4">
-          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">Token hôm nay</p>
+          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">{{ t('prov.tokensToday') }}</p>
           <p class="mt-1 font-mono text-2xl font-semibold">{{ num(statsData?.today.tokens ?? 0) }}</p>
         </div>
         <div class="border-t border-(--ui-border) p-4 md:border-s md:border-t-0">
-          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">Chi phí hôm nay</p>
+          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">{{ t('prov.costToday') }}</p>
           <p class="mt-1 font-mono text-2xl font-semibold">{{ usd(statsData?.today.cost_usd ?? 0) }}</p>
         </div>
         <NuxtLink to="/costs" class="border-s border-t border-(--ui-border) p-4 transition hover:bg-(--ui-bg-elevated) md:border-t-0">
-          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">7 ngày</p>
-          <p class="mt-1 font-mono text-2xl font-semibold">{{ usd(week.cost) }} <span class="text-sm font-normal text-(--ui-text-muted)">· {{ num(week.calls) }} lượt</span></p>
+          <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">{{ t('prov.sevenDays') }}</p>
+          <p class="mt-1 font-mono text-2xl font-semibold">{{ usd(week.cost) }} <span class="text-sm font-normal text-(--ui-text-muted)">· {{ num(week.calls) }} {{ t('prov.callsUnit') }}</span></p>
         </NuxtLink>
       </div>
 
@@ -257,22 +258,22 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
                 <p class="truncate font-semibold">{{ p.name }}</p>
-                <UBadge v-if="p.is_default" label="Mặc định" icon="i-lucide-star" size="sm" variant="subtle" />
+                <UBadge v-if="p.is_default" :label="t('prov.default')" icon="i-lucide-star" size="sm" variant="subtle" />
               </div>
               <p class="truncate text-xs text-(--ui-text-muted)">
                 {{ presetOf(p.preset)?.name ?? kindOf(p.kind)?.label ?? p.kind }}
-                <template v-if="p.api_key_env"> · key từ <code>{{ p.api_key_env }}</code></template>
-                <template v-else-if="p.has_api_key"> · key <code>{{ p.api_key_hint }}</code></template>
+                <template v-if="p.api_key_env"> · {{ t('prov.keyFromEnvPrefix') }} <code>{{ p.api_key_env }}</code></template>
+                <template v-else-if="p.has_api_key"> · {{ t('prov.keyHintPrefix') }} <code>{{ p.api_key_hint }}</code></template>
               </p>
             </div>
             <div class="flex items-center gap-1">
               <UBadge :label="statusText(p.status)" :color="statusColor(p.status)" variant="subtle" size="sm" />
               <UButton
                 v-if="isAdmin" icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="xs"
-                :loading="testing === p.id" aria-label="Kiểm tra kết nối" @click="runTest(p)"
+                :loading="testing === p.id" :aria-label="t('prov.testConnection')" @click="runTest(p)"
               />
               <UDropdownMenu v-if="isAdmin" :items="menu(p)">
-                <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" size="xs" aria-label="Thao tác" />
+                <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" size="xs" :aria-label="t('prov.actions')" />
               </UDropdownMenu>
             </div>
           </div>
@@ -281,46 +282,48 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
           <div class="mt-3 flex items-end gap-4">
             <div class="grid flex-1 grid-cols-4 gap-2 text-xs">
               <div>
-                <p class="text-(--ui-text-muted)">Lượt gọi</p>
+                <p class="text-(--ui-text-muted)">{{ t('prov.calls') }}</p>
                 <p class="font-mono text-sm font-medium tabular-nums">{{ num(statOf(p.id)?.calls ?? 0) }}</p>
               </div>
               <div>
-                <p class="text-(--ui-text-muted)">Token</p>
+                <p class="text-(--ui-text-muted)">{{ t('prov.tokens') }}</p>
                 <p class="font-mono text-sm font-medium tabular-nums">{{ num((statOf(p.id)?.input_tokens ?? 0) + (statOf(p.id)?.output_tokens ?? 0)) }}</p>
               </div>
               <div>
-                <p class="text-(--ui-text-muted)">Chi phí</p>
+                <p class="text-(--ui-text-muted)">{{ t('prov.cost') }}</p>
                 <p class="font-mono text-sm font-medium tabular-nums">{{ usd(statOf(p.id)?.cost_usd ?? 0) }}</p>
               </div>
               <div>
-                <p class="text-(--ui-text-muted)">Lỗi · trễ</p>
+                <p class="text-(--ui-text-muted)">{{ t('prov.errorLatency') }}</p>
                 <p class="font-mono text-sm font-medium tabular-nums">
                   <span :class="statOf(p.id)?.errors ? 'text-(--ui-error)' : ''">{{ statOf(p.id)?.calls ? Math.round(((statOf(p.id)?.errors ?? 0) / statOf(p.id)!.calls) * 100) : 0 }}%</span>
                   <span class="text-(--ui-text-muted)"> · {{ statOf(p.id)?.avg_ms ? `${(statOf(p.id)!.avg_ms / 1000).toFixed(1)}s` : '—' }}</span>
                 </p>
               </div>
             </div>
-            <div class="flex h-8 items-end gap-0.5" :title="'Lượt gọi 7 ngày'">
+            <div class="flex h-8 items-end gap-0.5" :title="t('prov.callsSevenDaysTitle')">
               <span
                 v-for="d in statOf(p.id)?.days ?? []" :key="d.day" class="w-2 rounded-sm bg-(--ui-primary)/70"
                 :style="{ height: `${Math.max(8, (d.calls / maxDay(statOf(p.id))) * 100)}%` }" :class="{ 'bg-(--ui-bg-elevated)!': !d.calls }"
-                :title="`${d.day}: ${d.calls} lượt · ${usd(d.cost_usd)}`"
+                :title="t('prov.dayTooltip', { day: d.day, calls: d.calls, cost: usd(d.cost_usd) })"
               />
             </div>
           </div>
 
           <p class="mt-2 flex flex-wrap gap-x-3 text-xs text-(--ui-text-muted)">
             <span>{{ ago(statOf(p.id)?.last_used_at ?? null) }}</span>
-            <span v-if="statOf(p.id)?.top_model" class="truncate">dùng nhiều: <code>{{ statOf(p.id)?.top_model }}</code></span>
-            <span v-else-if="p.tier_models.balanced" class="truncate">model: <code>{{ p.tier_models.balanced }}</code></span>
+            <span v-if="statOf(p.id)?.top_model" class="truncate">{{ t('prov.topModelPrefix') }} <code>{{ statOf(p.id)?.top_model }}</code></span>
+            <span v-else-if="p.tier_models.balanced" class="truncate">{{ t('prov.modelPrefix') }} <code>{{ p.tier_models.balanced }}</code></span>
           </p>
           <p v-if="p.status === 'error' && p.status_detail" class="mt-1 truncate text-xs text-(--ui-error)" :title="p.status_detail">{{ p.status_detail }}</p>
+          <!-- p.status_detail is a backend-supplied message, kept as-is -->
+
         </div>
       </div>
     </div>
 
     <!-- create / edit -->
-    <UModal v-model:open="formOpen" :title="editing ? `Sửa ${editing.name}` : 'Thêm kết nối AI'" :ui="{ content: 'max-w-2xl' }">
+    <UModal v-model:open="formOpen" :title="editing ? t('prov.editTitle', { name: editing.name }) : t('prov.addTitle')" :ui="{ content: 'max-w-2xl' }">
       <template #body>
         <form id="provider-form" class="space-y-5" @submit.prevent="save">
           <!-- kind: main accounts, then third-party APIs -->
@@ -334,11 +337,11 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
               >
                 <UIcon :name="kindIconOf(k.kind)" class="size-4" />
                 {{ k.label }}
-                <span v-if="k.detected?.installed || k.detected?.env_key" class="size-1.5 rounded-full bg-(--ui-success)" title="Có sẵn trên máy" />
+                <span v-if="k.detected?.installed || k.detected?.env_key" class="size-1.5 rounded-full bg-(--ui-success)" :title="t('prov.detectedOnMachine')" />
               </button>
             </div>
             <details class="rounded-lg border border-(--ui-border)" :open="form.kind === 'openai_compatible'">
-              <summary class="cursor-pointer px-3 py-2 text-sm font-medium">Nhà cung cấp API khác <span class="font-normal text-(--ui-text-muted)">· OpenRouter, Gemini, DeepSeek, GLM, Kimi, Ollama…</span></summary>
+              <summary class="cursor-pointer px-3 py-2 text-sm font-medium">{{ t('prov.otherProviders') }} <span class="font-normal text-(--ui-text-muted)">· {{ t('prov.otherProvidersHint') }}</span></summary>
               <div class="space-y-3 border-t border-(--ui-border) p-3">
                 <div v-for="g in presetGroups" :key="g.group">
                   <p class="mb-1.5 text-xs text-(--ui-text-muted)">{{ groupLabel[g.group] }}</p>
@@ -359,11 +362,11 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
                   :class="form.kind === 'openai_compatible' && !form.preset ? 'border-(--ui-primary) bg-(--ui-primary)/10 text-(--ui-primary)' : 'border-dashed border-(--ui-border) hover:border-(--ui-border-accented)'"
                   @click="choose('openai_compatible')"
                 >
-                  <UIcon name="i-lucide-server" class="size-4" /> Tự nhập địa chỉ (API tương thích OpenAI)
+                  <UIcon name="i-lucide-server" class="size-4" /> {{ t('prov.customEndpoint') }}
                 </button>
               </div>
             </details>
-            <p v-if="selectedPreset?.note" class="text-xs text-(--ui-text-muted)">{{ selectedPreset.name }}: {{ selectedPreset.note }}</p>
+            <p v-if="selectedPreset?.note" class="text-xs text-(--ui-text-muted)">{{ t('prov.presetNote', { name: selectedPreset.name, note: selectedPreset.note }) }}</p>
           </div>
           <div v-else class="flex items-center gap-2 text-sm">
             <UIcon :name="kindIconOf(form.kind)" class="size-5 text-primary" />
@@ -372,35 +375,35 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
 
           <CliSetup v-if="cliTool" :key="cliTool" :tool="cliTool" @ready="(v: boolean) => cliReady = v" />
 
-          <UFormField label="Tên hiển thị" required>
+          <UFormField :label="t('prov.displayName')" required>
             <UInput v-model="form.name" class="w-full" />
           </UFormField>
 
           <!-- endpoint for compatible APIs is not optional, so it is not hidden -->
-          <UFormField v-if="form.kind === 'openai_compatible' && !form.preset" label="Địa chỉ API" required help="Địa chỉ gốc có /v1, ví dụ https://api.example.com/v1">
+          <UFormField v-if="form.kind === 'openai_compatible' && !form.preset" :label="t('prov.apiUrl')" required :help="t('prov.apiUrlHelp')">
             <UInput v-model="form.base_url" :placeholder="selectedKind?.base_url_hint" class="w-full font-mono" />
           </UFormField>
 
           <!-- API key -->
           <template v-if="!selectedKind?.is_cli && (needsKey || !form.preset)">
-            <UFormField label="API key" :required="needsKey">
+            <UFormField :label="t('prov.apiKey')" :required="needsKey">
               <UTabs
                 v-model="form.keyMode"
-                :items="[{ label: 'Dán key', value: 'paste' }, { label: 'Đọc từ biến môi trường', value: 'env' }]"
+                :items="[{ label: t('prov.keyModePaste'), value: 'paste' }, { label: t('prov.keyModeEnv'), value: 'env' }]"
                 :content="false" size="xs" class="mb-2"
               />
               <UInput
                 v-if="form.keyMode === 'paste'" v-model="form.api_key" type="password" autocomplete="off" class="w-full"
-                :placeholder="editing?.has_api_key ? `Đã lưu ${editing.api_key_hint} — để trống để giữ nguyên` : 'Dán API key vào đây'"
+                :placeholder="editing?.has_api_key ? t('prov.keyPlaceholderSaved', { hint: editing.api_key_hint }) : t('prov.keyPlaceholder')"
               />
               <UInput v-else v-model="form.api_key_env" :placeholder="selectedPreset?.key_env ?? 'ANTHROPIC_API_KEY'" class="w-full font-mono" />
               <p v-if="urlChangedWithStoredKey" class="mt-1 text-xs text-(--ui-warning)">
-                Bạn đã đổi địa chỉ API: nhập lại key. Key đã lưu không bao giờ được gửi tới địa chỉ mới.
+                {{ t('prov.urlChangedWarning') }}
               </p>
               <template #help>
-                <span v-if="form.keyMode === 'paste'">Key được mã hóa trước khi lưu và không bao giờ hiển thị lại.</span>
-                <span v-else>Office đọc key từ biến môi trường của máy chạy server, không lưu key.</span>
-                <template v-if="keyUrl"> Lấy key tại <a :href="keyUrl" target="_blank" class="underline">{{ keyUrl.replace('https://', '') }}</a>.</template>
+                <span v-if="form.keyMode === 'paste'">{{ t('prov.keyHelpPaste') }}</span>
+                <span v-else>{{ t('prov.keyHelpEnv') }}</span>
+                <template v-if="keyUrl"> {{ t('prov.getKeyAtPrefix') }} <a :href="keyUrl" target="_blank" class="underline">{{ keyUrl.replace('https://', '') }}</a>.</template>
               </template>
             </UFormField>
           </template>
@@ -409,33 +412,32 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
           <UCollapsible v-model:open="advancedOpen">
             <UButton
               color="neutral" variant="link" size="sm" class="px-0"
-              :icon="advancedOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" label="Nâng cao (không bắt buộc)"
+              :icon="advancedOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" :label="t('prov.advanced')"
             />
             <template #content>
               <div class="mt-3 space-y-4 rounded-lg border border-(--ui-border) p-4">
                 <UFormField
-                  v-if="selectedKind?.is_cli" label="Đường dẫn tới lệnh"
-                  :help="`Chỉ cần điền khi lệnh ${selectedKind.base_url_hint} không chạy được từ terminal, VD /opt/homebrew/bin/${selectedKind.base_url_hint}. Để trống là dùng mặc định.`"
+                  v-if="selectedKind?.is_cli" :label="t('prov.cliPathLabel')"
+                  :help="t('prov.cliPathHelp', { cmd: selectedKind.base_url_hint })"
                 >
                   <UInput v-model="form.base_url" :placeholder="selectedKind?.base_url_hint" class="w-full font-mono" />
                 </UFormField>
                 <UFormField
-                  v-else-if="form.kind !== 'openai_compatible' || form.preset" label="Địa chỉ API"
-                  help="Để trống là dùng địa chỉ chính thức. Chỉ đổi khi đi qua proxy hoặc cổng riêng của công ty."
+                  v-else-if="form.kind !== 'openai_compatible' || form.preset" :label="t('prov.apiUrl')"
+                  :help="t('prov.apiUrlAdvancedHelp')"
                 >
                   <UInput v-model="form.base_url" :placeholder="selectedKind?.base_url_hint" class="w-full font-mono" />
                 </UFormField>
 
                 <div>
-                  <p class="text-sm font-medium">Model theo mức</p>
+                  <p class="text-sm font-medium">{{ t('prov.tierModels') }}</p>
                   <p class="mt-0.5 text-xs text-(--ui-text-muted)">
-                    Agent chỉ chọn mức <b>Mạnh</b> (việc khó, tổng hợp), <b>Cân bằng</b> (phân tích thường ngày) hoặc <b>Nhanh</b> (lấy dữ liệu, việc lặp lại).
-                    Ở đây quy định mỗi mức dùng model nào. Đã điền sẵn giá trị khuyên dùng; để trống thì office tự chọn sau khi kiểm tra kết nối.
+                    {{ t('prov.tierModelsHelp', { strong: modelTierLabel.strong, balanced: modelTierLabel.balanced, fast: modelTierLabel.fast }) }}
                   </p>
                   <div class="mt-2 grid gap-3 sm:grid-cols-3">
-                    <UFormField v-for="t in (['strong', 'balanced', 'fast'] as const)" :key="t" :label="modelTierLabel[t]">
-                      <UInput v-model="form.tier_models[t]" :list="`models-${t}`" class="w-full font-mono" size="sm" />
-                      <datalist :id="`models-${t}`">
+                    <UFormField v-for="tier in (['strong', 'balanced', 'fast'] as const)" :key="tier" :label="modelTierLabel[tier]">
+                      <UInput v-model="form.tier_models[tier]" :list="`models-${tier}`" class="w-full font-mono" size="sm" />
+                      <datalist :id="`models-${tier}`">
                         <option v-for="m in editing?.models ?? []" :key="m" :value="m" />
                       </datalist>
                     </UFormField>
@@ -450,23 +452,23 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Hủy" @click="formOpen = false" />
-          <UButton type="submit" form="provider-form" :loading="saving" :disabled="!cliReady" :label="editing ? 'Lưu và kiểm tra' : 'Thêm và kiểm tra'" />
+          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="formOpen = false" />
+          <UButton type="submit" form="provider-form" :loading="saving" :disabled="!cliReady" :label="editing ? t('prov.saveAndTest') : t('prov.addAndTest')" />
         </div>
       </template>
     </UModal>
 
     <!-- prompt test -->
-    <UModal v-model:open="testOpen" :title="`Gửi thử: ${testTarget?.name ?? ''}`" :ui="{ content: 'max-w-xl' }">
+    <UModal v-model:open="testOpen" :title="t('prov.testTitle', { name: testTarget?.name ?? '' })" :ui="{ content: 'max-w-xl' }">
       <template #body>
         <div class="space-y-4">
-          <UFormField label="Model">
+          <UFormField :label="t('prov.model2')">
             <UInput v-model="testModel" list="test-models" class="w-full font-mono" />
             <datalist id="test-models">
               <option v-for="m in testTarget?.models ?? []" :key="m" :value="m" />
             </datalist>
           </UFormField>
-          <UFormField label="Prompt">
+          <UFormField :label="t('prov.prompt')">
             <UTextarea v-model="testPrompt" :rows="3" class="w-full" />
           </UFormField>
           <UAlert v-if="testResult && !testResult.ok" color="error" variant="subtle" :description="testResult.detail" />
@@ -482,8 +484,8 @@ const statusText = (s: string) => (s === 'ok' ? 'Hoạt động' : s === 'error'
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Đóng" @click="testOpen = false" />
-          <UButton icon="i-lucide-send" label="Gửi" :loading="testing === testTarget?.id" @click="testTarget && runTest(testTarget, testPrompt)" />
+          <UButton color="neutral" variant="ghost" :label="t('common.close')" @click="testOpen = false" />
+          <UButton icon="i-lucide-send" :label="t('prov.send')" :loading="testing === testTarget?.id" @click="testTarget && runTest(testTarget, testPrompt)" />
         </div>
       </template>
     </UModal>

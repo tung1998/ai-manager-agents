@@ -33,6 +33,7 @@ interface Run {
 }
 
 const { isAdmin } = useAuth()
+const { t, dateLocale } = useLang()
 const toast = useToast()
 const days = ref(30)
 const { data: sum, refresh } = await useFetch<Summary>('/api/usage/summary', { query: { days } })
@@ -49,12 +50,12 @@ const budget = computed(() => {
   const ratio = s.today / s.daily_limit
   return { ratio, state: ratio >= 1 ? 'over' as const : ratio >= s.warn_ratio ? 'warn' as const : 'ok' as const }
 })
-const budgetMeta = {
-  none: { label: 'Chưa đặt trần', icon: 'i-lucide-infinity', color: 'neutral' as const, iconClass: 'text-(--ui-text-muted)' },
-  ok: { label: 'Trong ngân sách', icon: 'i-lucide-circle-check', color: 'success' as const, iconClass: 'text-(--ui-success)' },
-  warn: { label: 'Sắp chạm trần', icon: 'i-lucide-triangle-alert', color: 'warning' as const, iconClass: 'text-(--ui-warning)' },
-  over: { label: 'Đã chạm trần: tạm dừng gọi AI', icon: 'i-lucide-octagon-x', color: 'error' as const, iconClass: 'text-(--ui-error)' }
-}
+const budgetMeta = computed(() => ({
+  none: { label: t('costs.budgetNone'), icon: 'i-lucide-infinity', color: 'neutral' as const, iconClass: 'text-(--ui-text-muted)' },
+  ok: { label: t('costs.budgetOk'), icon: 'i-lucide-circle-check', color: 'success' as const, iconClass: 'text-(--ui-success)' },
+  warn: { label: t('costs.budgetWarn'), icon: 'i-lucide-triangle-alert', color: 'warning' as const, iconClass: 'text-(--ui-warning)' },
+  over: { label: t('costs.budgetOver'), icon: 'i-lucide-octagon-x', color: 'error' as const, iconClass: 'text-(--ui-error)' }
+}))
 
 const totalRuns = computed(() => sum.value?.by_day.reduce((a, d) => a + d.runs, 0) ?? 0)
 const unknownRuns = computed(() => sum.value?.by_day.reduce((a, d) => a + d.unknown_cost, 0) ?? 0)
@@ -63,7 +64,7 @@ const unknownRuns = computed(() => sum.value?.by_day.reduce((a, d) => a + d.unkn
 const maxDay = computed(() => Math.max(0.0001, ...(sum.value?.by_day.map(d => d.cost_usd) ?? [0])))
 const hovered = ref<UsageRow | null>(null)
 const showTable = ref(false)
-const dayLabel = (key: string) => new Date(key + 'T00:00:00').toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })
+const dayLabel = (key: string) => new Date(key + 'T00:00:00').toLocaleDateString(dateLocale.value, { day: '2-digit', month: '2-digit' })
 const tickEvery = computed(() => Math.max(1, Math.ceil((sum.value?.by_day.length ?? 30) / 8)))
 
 const maxProject = computed(() => Math.max(0.0001, ...(sum.value?.by_project.map(r => r.cost_usd) ?? [0])))
@@ -94,30 +95,30 @@ async function saveSettings() {
     await $fetch('/api/usage/settings', { method: 'PUT', body: { daily_limit_usd: Number(form.daily) || 0, project_limits, prices } })
     settingsOpen.value = false
     await refresh()
-    toast.add({ title: 'Đã lưu ngân sách', color: 'success' })
+    toast.add({ title: t('costs.saved'), color: 'success' })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
 }
 
-const kindLabel: Record<string, string> = { provider_test: 'Gửi thử', setup_propose: 'Thiết lập bằng AI', chat: 'Chat' }
-const statusMeta: Record<string, { label: string, color: 'success' | 'error' | 'warning' }> = {
-  ok: { label: 'OK', color: 'success' }, error: { label: 'Lỗi', color: 'error' }, blocked: { label: 'Bị chặn', color: 'warning' }
-}
+const kindLabel = computed<Record<string, string>>(() => ({ provider_test: t('costs.kindProviderTest'), setup_propose: t('costs.kindSetupPropose'), chat: t('costs.kindChat') }))
+const statusMeta = computed<Record<string, { label: string, color: 'success' | 'error' | 'warning' }>>(() => ({
+  ok: { label: t('costs.statusOk'), color: 'success' }, error: { label: t('costs.statusError'), color: 'error' }, blocked: { label: t('costs.statusBlocked'), color: 'warning' }
+}))
 </script>
 
 <template>
-  <PageShell title="Chi phí">
+  <PageShell :title="t('costs.title')">
     <template #actions>
-      <USelect v-model="days" :items="[{ label: '7 ngày', value: 7 }, { label: '30 ngày', value: 30 }, { label: '90 ngày', value: 90 }]" size="sm" class="w-28" />
-      <UButton v-if="isAdmin" icon="i-lucide-settings-2" label="Ngân sách" color="neutral" variant="outline" @click="openSettings" />
+      <USelect v-model="days" :items="[{ label: t('costs.range7d'), value: 7 }, { label: t('costs.range30d'), value: 30 }, { label: t('costs.range90d'), value: 90 }]" size="sm" class="w-28" />
+      <UButton v-if="isAdmin" icon="i-lucide-settings-2" :label="t('costs.budget')" color="neutral" variant="outline" @click="openSettings" />
     </template>
 
     <div v-if="sum" class="space-y-6">
       <!-- tiles -->
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <UCard>
-          <p class="text-sm text-(--ui-text-muted)">Hôm nay</p>
+          <p class="text-sm text-(--ui-text-muted)">{{ t('costs.today') }}</p>
           <p class="mt-1 text-2xl font-semibold tabular-nums">
             {{ usd(sum.today) }}<span v-if="sum.daily_limit" class="text-base font-normal text-(--ui-text-muted)"> / {{ usd(sum.daily_limit) }}</span>
           </p>
@@ -128,19 +129,19 @@ const statusMeta: Record<string, { label: string, color: 'success' | 'error' | '
           </div>
         </UCard>
         <UCard>
-          <p class="text-sm text-(--ui-text-muted)">{{ sum.days }} ngày qua</p>
+          <p class="text-sm text-(--ui-text-muted)">{{ t('costs.periodDays', { n: sum.days }) }}</p>
           <p class="mt-1 text-2xl font-semibold tabular-nums">{{ usd(sum.period) }}</p>
-          <p class="mt-2 text-xs text-(--ui-text-muted)">TB {{ usd(sum.period / sum.days) }}/ngày</p>
+          <p class="mt-2 text-xs text-(--ui-text-muted)">{{ t('costs.avgPerDay', { v: usd(sum.period / sum.days) }) }}</p>
         </UCard>
         <UCard>
-          <p class="text-sm text-(--ui-text-muted)">Lượt gọi AI</p>
+          <p class="text-sm text-(--ui-text-muted)">{{ t('costs.calls') }}</p>
           <p class="mt-1 text-2xl font-semibold tabular-nums">{{ totalRuns }}</p>
-          <p class="mt-2 text-xs text-(--ui-text-muted)">trong {{ sum.days }} ngày</p>
+          <p class="mt-2 text-xs text-(--ui-text-muted)">{{ t('costs.inDays', { n: sum.days }) }}</p>
         </UCard>
         <UCard>
-          <p class="text-sm text-(--ui-text-muted)">Chưa rõ chi phí</p>
+          <p class="text-sm text-(--ui-text-muted)">{{ t('costs.unknownCost') }}</p>
           <p class="mt-1 text-2xl font-semibold tabular-nums">{{ unknownRuns }}</p>
-          <p class="mt-2 text-xs text-(--ui-text-muted)">model chưa có giá, thêm trong Ngân sách</p>
+          <p class="mt-2 text-xs text-(--ui-text-muted)">{{ t('costs.unknownCostDesc') }}</p>
         </UCard>
       </div>
 
@@ -148,8 +149,8 @@ const statusMeta: Record<string, { label: string, color: 'success' | 'error' | '
       <UCard>
         <template #header>
           <div class="flex items-center justify-between">
-            <p class="font-medium">Chi phí theo ngày</p>
-            <UButton size="xs" color="neutral" variant="ghost" :label="showTable ? 'Xem biểu đồ' : 'Xem dạng bảng'" @click="showTable = !showTable" />
+            <p class="font-medium">{{ t('costs.dailyChart') }}</p>
+            <UButton size="xs" color="neutral" variant="ghost" :label="showTable ? t('costs.viewChart') : t('costs.viewTable')" @click="showTable = !showTable" />
           </div>
         </template>
         <div v-if="!showTable" class="relative">
@@ -173,14 +174,14 @@ const statusMeta: Record<string, { label: string, color: 'success' | 'error' | '
           <div
             v-if="hovered" class="pointer-events-none absolute right-0 top-0 rounded-md border border-(--ui-border) bg-(--ui-bg) px-3 py-2 text-xs shadow-sm"
           >
-            <p class="font-medium">{{ new Date(hovered.key + 'T00:00:00').toLocaleDateString('vi-VN') }}</p>
-            <p class="tabular-nums">{{ usd(hovered.cost_usd) }} · {{ hovered.runs }} lượt</p>
+            <p class="font-medium">{{ new Date(hovered.key + 'T00:00:00').toLocaleDateString(dateLocale) }}</p>
+            <p class="tabular-nums">{{ usd(hovered.cost_usd) }} · {{ t('costs.runsUnit', { n: hovered.runs }) }}</p>
             <p class="text-(--ui-text-muted) tabular-nums">{{ tokens(hovered.input_tokens) }} in / {{ tokens(hovered.output_tokens) }} out</p>
           </div>
         </div>
         <table v-else class="w-full text-sm">
           <thead class="text-left text-xs text-(--ui-text-muted)">
-            <tr><th class="py-1">Ngày</th><th>Chi phí</th><th>Lượt</th><th>Token in / out</th></tr>
+            <tr><th class="py-1">{{ t('costs.colDate') }}</th><th>{{ t('costs.colCost') }}</th><th>{{ t('costs.colRuns') }}</th><th>{{ t('costs.colTokens') }}</th></tr>
           </thead>
           <tbody>
             <tr v-for="d in [...sum.by_day].reverse()" :key="d.key" class="border-t border-(--ui-border)">
@@ -196,24 +197,24 @@ const statusMeta: Record<string, { label: string, color: 'success' | 'error' | '
       <!-- breakdowns -->
       <div class="grid gap-4 lg:grid-cols-2">
         <UCard v-for="block in [
-          { title: 'Theo project', rows: sum.by_project, max: maxProject, empty: 'Không gắn project' },
-          { title: 'Theo model', rows: sum.by_model, max: maxModel, empty: '—' }
+          { title: t('costs.byProject'), rows: sum.by_project, max: maxProject, empty: t('costs.noProject'), isModel: false },
+          { title: t('costs.byModel'), rows: sum.by_model, max: maxModel, empty: '—', isModel: true }
         ]" :key="block.title">
           <template #header><p class="font-medium">{{ block.title }}</p></template>
-          <p v-if="!block.rows?.length" class="text-sm text-(--ui-text-muted)">Chưa có lượt gọi nào.</p>
+          <p v-if="!block.rows?.length" class="text-sm text-(--ui-text-muted)">{{ t('costs.noRuns') }}</p>
           <div class="space-y-2.5">
             <div v-for="r in block.rows" :key="r.key" class="text-sm">
               <div class="flex items-baseline justify-between gap-2">
-                <span class="truncate">{{ block.title === 'Theo model' ? (r.key || '—') : (r.label || block.empty) }}</span>
+                <span class="truncate">{{ block.isModel ? (r.key || '—') : (r.label || block.empty) }}</span>
                 <span class="shrink-0 tabular-nums">{{ usd(r.cost_usd) }}</span>
               </div>
               <div class="mt-1 h-1.5 rounded-full bg-(--ui-bg-accented)">
                 <div class="h-full rounded-full bg-(--ui-primary)" :style="{ width: `${Math.max(1, (r.cost_usd / block.max) * 100)}%` }" />
               </div>
               <p class="mt-0.5 text-xs text-(--ui-text-muted)">
-                {{ r.runs }} lượt · {{ tokens(r.input_tokens) }} in / {{ tokens(r.output_tokens) }} out
-                <template v-if="block.title === 'Theo model' && r.label"> · {{ r.label }}</template>
-                <template v-if="r.unknown_cost"> · {{ r.unknown_cost }} chưa rõ giá</template>
+                {{ t('costs.runsAndTokens', { runs: r.runs, in: tokens(r.input_tokens), out: tokens(r.output_tokens) }) }}
+                <template v-if="block.isModel && r.label"> · {{ r.label }}</template>
+                <template v-if="r.unknown_cost"> {{ t('costs.unknownPrice', { n: r.unknown_cost }) }}</template>
               </p>
             </div>
           </div>
@@ -222,25 +223,25 @@ const statusMeta: Record<string, { label: string, color: 'success' | 'error' | '
 
       <!-- recent runs -->
       <UCard>
-        <template #header><p class="font-medium">Lượt gọi gần đây</p></template>
-        <p v-if="!runsData?.runs.length" class="text-sm text-(--ui-text-muted)">Chưa có lượt gọi nào.</p>
+        <template #header><p class="font-medium">{{ t('costs.recentRuns') }}</p></template>
+        <p v-if="!runsData?.runs.length" class="text-sm text-(--ui-text-muted)">{{ t('costs.noRuns') }}</p>
         <div v-else class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead class="text-left text-xs text-(--ui-text-muted)">
               <tr>
-                <th class="py-1.5 pe-3">Thời gian</th><th class="pe-3">Loại</th><th class="pe-3">Project</th><th class="pe-3">Model</th>
-                <th class="pe-3 text-right">Token</th><th class="pe-3 text-right">Chi phí</th><th class="pe-3 text-right">Thời gian chạy</th><th>Trạng thái</th>
+                <th class="py-1.5 pe-3">{{ t('costs.colTime') }}</th><th class="pe-3">{{ t('costs.colKind') }}</th><th class="pe-3">{{ t('costs.colProject') }}</th><th class="pe-3">{{ t('costs.colModel') }}</th>
+                <th class="pe-3 text-right">{{ t('costs.colTokens') }}</th><th class="pe-3 text-right">{{ t('costs.colCost') }}</th><th class="pe-3 text-right">{{ t('costs.colDuration') }}</th><th>{{ t('costs.colStatus') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="r in runsData.runs" :key="r.id" class="border-t border-(--ui-border) align-top">
-                <td class="whitespace-nowrap py-1.5 pe-3 text-(--ui-text-muted)">{{ new Date(r.created_at).toLocaleString('vi-VN') }}</td>
+                <td class="whitespace-nowrap py-1.5 pe-3 text-(--ui-text-muted)">{{ new Date(r.created_at).toLocaleString(dateLocale) }}</td>
                 <td class="pe-3">{{ kindLabel[r.kind] ?? r.kind }}</td>
                 <td class="pe-3">{{ r.project_name || '—' }}</td>
                 <td class="pe-3"><code class="text-xs">{{ r.model }}</code><p class="text-xs text-(--ui-text-muted)">{{ r.provider_name }}</p></td>
                 <td class="whitespace-nowrap pe-3 text-right tabular-nums">{{ tokens(r.input_tokens) }} / {{ tokens(r.output_tokens) }}</td>
                 <td class="whitespace-nowrap pe-3 text-right tabular-nums">
-                  <template v-if="r.cost_usd !== null">{{ usd(r.cost_usd) }}<span v-if="r.cost_source === 'estimate'" class="text-(--ui-text-muted)" title="Ước tính theo bảng giá"> ~</span></template>
+                  <template v-if="r.cost_usd !== null">{{ usd(r.cost_usd) }}<span v-if="r.cost_source === 'estimate'" class="text-(--ui-text-muted)" :title="t('costs.estimateTooltip')"> ~</span></template>
                   <span v-else class="text-(--ui-text-muted)">—</span>
                 </td>
                 <td class="whitespace-nowrap pe-3 text-right tabular-nums">{{ (r.duration_ms / 1000).toFixed(1) }}s</td>
@@ -251,31 +252,31 @@ const statusMeta: Record<string, { label: string, color: 'success' | 'error' | '
               </tr>
             </tbody>
           </table>
-          <p class="mt-2 text-xs text-(--ui-text-muted)">~ là ước tính theo bảng giá; Claude Code tự báo chi phí thật.</p>
+          <p class="mt-2 text-xs text-(--ui-text-muted)">{{ t('costs.estimateHint') }}</p>
         </div>
       </UCard>
     </div>
 
-    <UModal v-model:open="settingsOpen" title="Ngân sách" :ui="{ content: 'max-w-xl' }">
+    <UModal v-model:open="settingsOpen" :title="t('costs.settingsModal')" :ui="{ content: 'max-w-xl' }">
       <template #body>
         <form id="budget-form" class="space-y-5" @submit.prevent="saveSettings">
-          <UFormField label="Trần chi phí mỗi ngày (USD)" help="0 là không giới hạn. Chạm trần thì mọi lượt gọi AI bị chặn đến hết ngày.">
+          <UFormField :label="t('costs.dailyLimit')" :help="t('costs.dailyLimitHelp')">
             <UInputNumber v-model="form.daily" :min="0" :step="0.5" :format-options="{ minimumFractionDigits: 0, maximumFractionDigits: 2 }" />
           </UFormField>
 
           <div v-if="projData?.projects.length">
-            <p class="text-sm font-medium">Trần theo project (USD/ngày)</p>
+            <p class="text-sm font-medium">{{ t('costs.projectLimits') }}</p>
             <div class="mt-2 space-y-2">
               <div v-for="p in projData.projects" :key="p.id" class="flex items-center justify-between gap-3 text-sm">
                 <span class="truncate">{{ p.name }}</span>
-                <UInputNumber v-model="form.projects[p.id]" :min="0" :step="0.5" placeholder="không giới hạn" size="sm" class="w-36" />
+                <UInputNumber v-model="form.projects[p.id]" :min="0" :step="0.5" :placeholder="t('costs.noLimitPlaceholder')" size="sm" class="w-36" />
               </div>
             </div>
           </div>
 
           <div>
-            <p class="text-sm font-medium">Giá model (USD / 1 triệu token)</p>
-            <p class="text-xs text-(--ui-text-muted)">Dùng để ước tính khi gọi qua API. Claude đã có giá sẵn; thêm model khác như GPT ở đây.</p>
+            <p class="text-sm font-medium">{{ t('costs.modelPrices') }}</p>
+            <p class="text-xs text-(--ui-text-muted)">{{ t('costs.modelPricesDesc') }}</p>
             <div class="mt-2 space-y-2">
               <div v-for="(p, i) in form.prices" :key="i" class="flex items-center gap-2">
                 <UInput v-model="p.model" placeholder="gpt-5" size="sm" class="flex-1 font-mono" />
@@ -283,10 +284,10 @@ const statusMeta: Record<string, { label: string, color: 'success' | 'error' | '
                 <UInputNumber v-model="p.output" :min="0" :step="0.1" size="sm" class="w-28" placeholder="output" />
                 <UButton icon="i-lucide-x" size="xs" color="neutral" variant="ghost" @click="form.prices.splice(i, 1)" />
               </div>
-              <UButton icon="i-lucide-plus" label="Thêm giá model" size="xs" color="neutral" variant="outline" @click="form.prices.push({ model: '', input: 0, output: 0 })" />
+              <UButton icon="i-lucide-plus" :label="t('costs.addPrice')" size="xs" color="neutral" variant="outline" @click="form.prices.push({ model: '', input: 0, output: 0 })" />
             </div>
             <details class="mt-2 text-xs text-(--ui-text-muted)">
-              <summary class="cursor-pointer">Giá có sẵn</summary>
+              <summary class="cursor-pointer">{{ t('costs.defaultPrices') }}</summary>
               <ul class="mt-1 space-y-0.5 font-mono">
                 <li v-for="(p, m) in sum?.default_prices" :key="m">{{ m }}: ${{ p.input }} / ${{ p.output }}</li>
               </ul>
@@ -296,8 +297,8 @@ const statusMeta: Record<string, { label: string, color: 'success' | 'error' | '
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" label="Hủy" @click="settingsOpen = false" />
-          <UButton type="submit" form="budget-form" label="Lưu" />
+          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="settingsOpen = false" />
+          <UButton type="submit" form="budget-form" :label="t('common.save')" />
         </div>
       </template>
     </UModal>

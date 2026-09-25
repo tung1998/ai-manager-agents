@@ -1,3 +1,7 @@
+<script setup lang="ts">
+const { t } = useLang()
+</script>
+
 <template>
-  <ComingSoon title="Blackboard" icon="i-lucide-messages-square" milestone="M4" description="Feed finding và tranh luận giữa các agent, dạng kênh chat nội bộ." />
+  <ComingSoon :title="t('blackboard.title')" icon="i-lucide-messages-square" milestone="M4" :description="t('blackboard.desc')" />
 </template>

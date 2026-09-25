@@ -1,4 +1,15 @@
+import tasks from './parts/tasks.vi'
+import ops from './parts/ops.vi'
+import org from './parts/org.vi'
+import tools from './parts/tools.vi'
+import pages from './parts/pages.vi'
+
 const vi = {
+  ...tasks,
+  ...ops,
+  ...org,
+  ...tools,
+  ...pages,
   'pref.dark': 'Giao diện tối',
   'pref.light': 'Giao diện sáng',
   'pref.lang': 'Ngôn ngữ',
@@ -38,6 +49,31 @@ const vi = {
   'account.saved': 'Đã đổi mật khẩu',
   'account.savedDesc': 'Các phiên đăng nhập khác đã bị đăng xuất.',
   'common.save': 'Lưu',
+  'common.cancel': 'Hủy',
+  'common.delete': 'Xóa',
+  'common.edit': 'Sửa',
+  'common.close': 'Đóng',
+  'common.add': 'Thêm',
+  'common.create': 'Tạo',
+  'common.search': 'Tìm kiếm',
+  'common.loading': 'Đang tải…',
+  'common.approve': 'Duyệt',
+  'common.reject': 'Từ chối',
+  'common.back': 'Quay lại',
+  'common.refresh': 'Làm mới',
+  'common.copy': 'Sao chép',
+  'common.copied': 'Đã sao chép',
+  'common.saved': 'Đã lưu',
+  'common.error': 'Lỗi',
+  'common.none': 'Không có',
+  'common.default': 'Mặc định',
+  'common.enabled': 'Bật',
+  'common.disabled': 'Tắt',
+  'common.name': 'Tên',
+  'common.description': 'Mô tả',
+  'common.status': 'Trạng thái',
+  'common.actions': 'Thao tác',
+  'common.more': 'Thêm…',
   'log.lines': '{n} dòng',
   'log.clear': 'Xóa màn hình',
   'log.empty': 'Chưa có log.',

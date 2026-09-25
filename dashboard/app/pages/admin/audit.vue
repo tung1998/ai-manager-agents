@@ -13,27 +13,28 @@ interface AuditEntry {
 }
 
 const { data, refresh, status } = await useFetch<{ entries: AuditEntry[] }>('/api/audit', { query: { limit: 200 } })
+const { t, dateLocale } = useLang()
 
-const columns: TableColumn<AuditEntry>[] = [
-  { accessorKey: 'at', header: 'Thời gian' },
-  { accessorKey: 'actor', header: 'Người thực hiện' },
-  { accessorKey: 'action', header: 'Hành động' },
-  { accessorKey: 'target', header: 'Đối tượng' },
-  { accessorKey: 'detail', header: 'Chi tiết' }
-]
+const columns = computed<TableColumn<AuditEntry>[]>(() => [
+  { accessorKey: 'at', header: t('admin.auditTime') },
+  { accessorKey: 'actor', header: t('admin.auditActor') },
+  { accessorKey: 'action', header: t('admin.auditAction') },
+  { accessorKey: 'target', header: t('admin.auditTarget') },
+  { accessorKey: 'detail', header: t('admin.auditDetail') }
+])
 
 const failed = (a: string) => a.includes('failed') || a.includes('throttled')
 </script>
 
 <template>
-  <PageShell title="Audit log">
+  <PageShell :title="t('admin.auditTitle')">
     <template #actions>
       <UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" :loading="status === 'pending'" @click="refresh()" />
     </template>
 
     <UTable :data="data?.entries ?? []" :columns="columns" :loading="status === 'pending'">
       <template #at-cell="{ row }">
-        {{ new Date(row.original.at).toLocaleString('vi-VN') }}
+        {{ new Date(row.original.at).toLocaleString(dateLocale) }}
       </template>
       <template #action-cell="{ row }">
         <UBadge :label="row.original.action" :color="failed(row.original.action) ? 'error' : 'neutral'" variant="subtle" />

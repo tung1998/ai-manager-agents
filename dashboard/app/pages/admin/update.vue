@@ -12,6 +12,7 @@ interface Status {
 }
 
 const toast = useToast()
+const { t, dateLocale } = useLang()
 const { data, refresh } = await useFetch<Status>('/api/system/update')
 const runTests = ref(true)
 const starting = ref(false)
@@ -45,7 +46,7 @@ async function start(force = false) {
     watchUpdate()
   } catch (e) {
     const d = (e as { data?: { code?: string, error?: string } }).data
-    if (d?.code === 'busy' && confirm(`${d.error}. Vẫn cập nhật?`)) {
+    if (d?.code === 'busy' && confirm(t('admin.updateBusyConfirm', { msg: d.error ?? '' }))) {
       starting.value = false
       return start(true)
     }
@@ -72,16 +73,16 @@ function waitForRestart() {
   }, 1500)
 }
 
-const lastMeta = {
-  ok: { color: 'success' as const, icon: 'i-lucide-circle-check', title: 'Lần cập nhật gần nhất thành công' },
-  rolled_back: { color: 'warning' as const, icon: 'i-lucide-undo-2', title: 'Bản mới lỗi, đã quay về bản trước' },
-  failed: { color: 'error' as const, icon: 'i-lucide-circle-x', title: 'Lần cập nhật gần nhất không thành công' }
-}
-const when = (d: string) => new Date(d).toLocaleString('vi-VN')
+const lastMeta = computed(() => ({
+  ok: { color: 'success' as const, icon: 'i-lucide-circle-check', title: t('admin.updateLastOk') },
+  rolled_back: { color: 'warning' as const, icon: 'i-lucide-undo-2', title: t('admin.updateLastRolledBack') },
+  failed: { color: 'error' as const, icon: 'i-lucide-circle-x', title: t('admin.updateLastFailed') }
+}))
+const when = (d: string) => new Date(d).toLocaleString(dateLocale.value)
 </script>
 
 <template>
-  <PageShell title="Cập nhật office">
+  <PageShell :title="t('admin.updateTitle')">
     <div v-if="data" class="mx-auto max-w-3xl space-y-4">
       <UCard>
         <div class="flex flex-wrap items-start gap-4">
@@ -90,12 +91,12 @@ const when = (d: string) => new Date(d).toLocaleString('vi-VN')
             <p class="font-semibold">
               agent-office {{ data.build.version }}
               <code v-if="data.build.revision" class="ms-1 text-xs text-(--ui-text-muted)">{{ data.build.revision.slice(0, 7) }}</code>
-              <UBadge v-if="data.build.dirty" color="warning" variant="subtle" size="sm" label="có thay đổi chưa commit" class="ms-1" />
+              <UBadge v-if="data.build.dirty" color="warning" variant="subtle" size="sm" :label="t('admin.updateDirty')" class="ms-1" />
             </p>
-            <p v-if="data.build.time" class="text-xs text-(--ui-text-muted)">Commit lúc {{ when(data.build.time) }}</p>
-            <p v-if="data.source" class="truncate font-mono text-xs text-(--ui-text-muted)">Mã nguồn: {{ data.source.root }}</p>
+            <p v-if="data.build.time" class="text-xs text-(--ui-text-muted)">{{ t('admin.updateCommitAt', { t: when(data.build.time) }) }}</p>
+            <p v-if="data.source" class="truncate font-mono text-xs text-(--ui-text-muted)">{{ t('admin.updateSource', { path: data.source.root }) }}</p>
           </div>
-          <UBadge :color="data.supervised ? 'success' : 'neutral'" variant="subtle" :icon="data.supervised ? 'i-lucide-shield-check' : 'i-lucide-shield-off'" :label="data.supervised ? 'Có supervisor' : 'Không có supervisor'" />
+          <UBadge :color="data.supervised ? 'success' : 'neutral'" variant="subtle" :icon="data.supervised ? 'i-lucide-shield-check' : 'i-lucide-shield-off'" :label="data.supervised ? t('admin.updateHasSupervisor') : t('admin.updateNoSupervisor')" />
         </div>
       </UCard>
 
@@ -105,31 +106,30 @@ const when = (d: string) => new Date(d).toLocaleString('vi-VN')
       />
 
       <UAlert
-        v-if="!data.supervised" color="neutral" variant="subtle" icon="i-lucide-info" title="Office đang chạy không có supervisor"
-        description="Tự cập nhật cần supervisor để khởi động lại và quay về bản cũ khi lỗi. Tắt office rồi chạy `office run` (hoặc `make start`), không dùng `office serve`."
+        v-if="!data.supervised" color="neutral" variant="subtle" icon="i-lucide-info" :title="t('admin.updateNoSupervisorTitle')"
+        :description="t('admin.updateNoSupervisorDesc')"
       />
       <UAlert
-        v-else-if="!data.source" color="neutral" variant="subtle" icon="i-lucide-info" title="Bản cài sẵn, không có mã nguồn"
-        description="Máy này chạy file office đã build sẵn. Cập nhật từ bản phát hành (release) sẽ có sau."
+        v-else-if="!data.source" color="neutral" variant="subtle" icon="i-lucide-info" :title="t('admin.updateNoSourceTitle')"
+        :description="t('admin.updateNoSourceDesc')"
       />
 
       <UCard v-else>
         <div class="space-y-4">
           <div>
-            <p class="font-semibold">Cập nhật từ mã nguồn</p>
+            <p class="font-semibold">{{ t('admin.updateFromSource') }}</p>
             <p class="text-sm text-(--ui-text-muted)">
-              Build server và dashboard từ mã nguồn hiện tại ra bản mới, rồi khởi động lại. Build hoặc test lỗi thì bản đang chạy giữ nguyên;
-              bản mới không lên được thì supervisor tự quay về bản trước.
+              {{ t('admin.updateFromSourceDesc') }}
             </p>
           </div>
-          <UCheckbox v-model="runTests" label="Chạy test trước (chậm hơn, an toàn hơn)" :disabled="running" />
+          <UCheckbox v-model="runTests" :label="t('admin.updateRunTests')" :disabled="running" />
           <p v-if="data.busy.chats || data.busy.tasks" class="text-sm text-(--ui-warning)">
             <UIcon name="i-lucide-triangle-alert" class="align-middle" />
-            Đang có {{ data.busy.chats }} lượt chat và {{ data.busy.tasks }} Việc chạy. Khởi động lại sẽ cắt ngang chúng.
+            {{ t('admin.updateBusy', { chats: data.busy.chats, tasks: data.busy.tasks }) }}
           </p>
-          <p class="text-xs text-(--ui-text-muted)">Tiến trình office chạy cho project (vd pnpm dev) sẽ dừng; mục có "bật cùng office" tự chạy lại. Container không bị ảnh hưởng.</p>
+          <p class="text-xs text-(--ui-text-muted)">{{ t('admin.updateProcessNote') }}</p>
           <div class="flex items-center gap-3">
-            <UButton icon="i-lucide-refresh-cw" label="Cập nhật và khởi động lại" :loading="starting || running" :disabled="restarting" @click="start()" />
+            <UButton icon="i-lucide-refresh-cw" :label="t('admin.updateStart')" :loading="starting || running" :disabled="restarting" @click="start()" />
             <span v-if="running" class="text-sm text-(--ui-text-muted)">{{ state?.step }}…</span>
             <span v-else-if="state?.status === 'failed'" class="text-sm text-(--ui-error)">{{ state.error }}</span>
           </div>
@@ -138,10 +138,10 @@ const when = (d: string) => new Date(d).toLocaleString('vi-VN')
 
       <div v-if="restarting" class="flex items-center gap-2 rounded-lg border border-(--ui-border) p-4 text-sm">
         <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-primary" />
-        Đang khởi động lại bằng bản mới… trang sẽ tự tải lại.
+        {{ t('admin.updateRestarting') }}
       </div>
 
-      <LogTerminal v-if="showLog && data.source" :key="streamKey" url="/api/system/update/stream" title="Cập nhật office" :subtitle="state?.step" empty="Đang bắt đầu…" />
+      <LogTerminal v-if="showLog && data.source" :key="streamKey" url="/api/system/update/stream" :title="t('admin.updateStreamTitle')" :subtitle="state?.step" :empty="t('admin.updateStreamEmpty')" />
     </div>
   </PageShell>
 </template>

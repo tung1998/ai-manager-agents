@@ -18,6 +18,7 @@ const open = defineModel<boolean>('open', { default: false })
 
 const toast = useToast()
 const { isAdmin } = useAuth()
+const { t, dateLocale } = useLang()
 const revisions = ref<Revision[]>([])
 const loading = ref(false)
 const expanded = ref<Record<string, Snapshot | null>>({})
@@ -44,10 +45,10 @@ async function toggle(r: Revision) {
 }
 
 async function restore(r: Revision) {
-  if (!confirm('Đưa mô hình về trạng thái này? Trạng thái hiện tại vẫn được lưu lại trong lịch sử.')) return
+  if (!confirm(t('rev.restoreConfirm'))) return
   try {
     await $fetch(`/api/revisions/${r.id}/restore`, { method: 'POST', body: {} })
-    toast.add({ title: 'Đã khôi phục', color: 'success' })
+    toast.add({ title: t('rev.restored'), color: 'success' })
     emit('restored')
     await load()
   } catch (e) {
@@ -59,44 +60,44 @@ async function restore(r: Revision) {
 function describe(action: string) {
   const [kind, arg] = action.split(':')
   const map: Record<string, string> = {
-    'model.update': 'sửa cài đặt mô hình',
-    'agent.update': `sửa agent ${arg}`,
-    'agent.create': `thêm agent ${arg}`,
-    'agent.delete': `xóa agent ${arg}`,
-    'model.replace': 'đổi sang mô hình khác',
-    'template.reset': 'khôi phục mặc định',
-    'restore': 'khôi phục một phiên bản cũ',
-    'import': 'nhập config'
+    'model.update': t('rev.action.modelUpdate'),
+    'agent.update': t('rev.action.agentUpdate', { arg: arg ?? '' }),
+    'agent.create': t('rev.action.agentCreate', { arg: arg ?? '' }),
+    'agent.delete': t('rev.action.agentDelete', { arg: arg ?? '' }),
+    'model.replace': t('rev.action.modelReplace'),
+    'template.reset': t('rev.action.templateReset'),
+    'restore': t('rev.action.restore'),
+    'import': t('rev.action.import')
   }
-  return `Trước khi ${map[kind!] ?? action}`
+  return t('rev.beforeAction', { action: map[kind!] ?? action })
 }
 const who = (a: string) => a.replace(/^human:/, '')
 </script>
 
 <template>
-  <USlideover v-model:open="open" title="Lịch sử chỉnh sửa" :ui="{ content: 'max-w-lg' }">
+  <USlideover v-model:open="open" :title="t('rev.title')" :ui="{ content: 'max-w-lg' }">
     <template #body>
       <p class="mb-4 text-sm text-(--ui-text-muted)">
-        Mỗi lần sửa, office lưu lại trạng thái ngay trước đó (tối đa 50 bản). Khôi phục một bản cũng được lưu, nên luôn hoàn tác được.
+        {{ t('rev.intro') }}
       </p>
-      <p v-if="loading" class="text-sm text-(--ui-text-muted)">Đang tải…</p>
-      <p v-else-if="!revisions.length" class="text-sm text-(--ui-text-muted)">Chưa có chỉnh sửa nào.</p>
+      <p v-if="loading" class="text-sm text-(--ui-text-muted)">{{ t('rev.loading') }}</p>
+      <p v-else-if="!revisions.length" class="text-sm text-(--ui-text-muted)">{{ t('rev.empty') }}</p>
       <ol class="space-y-2">
         <li v-for="r in revisions" :key="r.id" class="rounded-lg border border-(--ui-border) p-3">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <p class="text-sm font-medium">{{ describe(r.action) }}</p>
               <p class="text-xs text-(--ui-text-muted)">
-                {{ new Date(r.created_at).toLocaleString('vi-VN') }} · {{ who(r.actor) }} · {{ r.agent_count }} agent
+                {{ new Date(r.created_at).toLocaleString(dateLocale) }} · {{ who(r.actor) }} · {{ t('rev.agentCount', { n: r.agent_count }) }}
               </p>
             </div>
             <div class="flex shrink-0 gap-1">
-              <UButton size="xs" color="neutral" variant="ghost" :label="expanded[r.id] !== undefined ? 'Ẩn' : 'Xem'" @click="toggle(r)" />
-              <UButton v-if="isAdmin" size="xs" variant="soft" icon="i-lucide-rotate-ccw" label="Khôi phục" @click="restore(r)" />
+              <UButton size="xs" color="neutral" variant="ghost" :label="expanded[r.id] !== undefined ? t('rev.hide') : t('rev.view')" @click="toggle(r)" />
+              <UButton v-if="isAdmin" size="xs" variant="soft" icon="i-lucide-rotate-ccw" :label="t('rev.restore')" @click="restore(r)" />
             </div>
           </div>
           <div v-if="expanded[r.id] !== undefined" class="mt-2 rounded bg-(--ui-bg-muted) p-2 text-xs">
-            <p v-if="!expanded[r.id]">Đang tải…</p>
+            <p v-if="!expanded[r.id]">{{ t('rev.loading') }}</p>
             <template v-else>
               <p class="font-medium">{{ expanded[r.id]!.name }}</p>
               <ul class="mt-1 space-y-0.5">

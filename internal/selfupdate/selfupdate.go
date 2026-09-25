@@ -211,6 +211,9 @@ func (u *Updater) run(o Options) {
 		if _, err := os.Stat(filepath.Join(u.src.UIDir, "node_modules")); err != nil {
 			steps = append(steps, step{name: "Cài package dashboard", dir: u.src.UIDir, argv: []string{"pnpm", "install", "--frozen-lockfile"}})
 		}
+		if _, err := os.Stat(filepath.Join(u.src.UIDir, "scripts", "check-i18n.mjs")); err == nil {
+			steps = append(steps, step{name: "Kiểm tra i18n", dir: u.src.UIDir, argv: []string{"node", "scripts/check-i18n.mjs"}, skip: !o.Test})
+		}
 		_ = os.RemoveAll(filepath.Join(u.src.UIDir, ".output.new"))
 		steps = append(steps, step{name: "Build dashboard", dir: u.src.UIDir, env: []string{"OFFICE_UI_OUT_DIR=.output.new"}, argv: []string{"npx", "nuxi", "build"}})
 	}

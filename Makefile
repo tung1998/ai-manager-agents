@@ -5,6 +5,7 @@ build:
 
 test:
 	go vet ./... && go test ./...
+	cd dashboard && node scripts/check-i18n.mjs
 
 # office run: supervisor with API + dashboard, restarts and self-updates
 start: build ui-build
@@ -20,7 +21,7 @@ dev-ui:
 	cd dashboard && pnpm dev
 
 ui-build:
-	cd dashboard && pnpm typecheck && pnpm build
+	cd dashboard && node scripts/check-i18n.mjs && pnpm typecheck && pnpm build
 
 # dashboard port: 2704 (dev and built)
 ui-start:

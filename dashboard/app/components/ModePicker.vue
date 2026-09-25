@@ -4,6 +4,7 @@
 const props = defineProps<{ projectId: string }>()
 const mode = defineModel<PermLevel>({ default: 'propose' })
 const { isAdmin } = useAuth()
+const { t } = useLang()
 const { data } = useFetch<{ policy: { max_level: PermLevel } }>(() => `/api/projects/${props.projectId}/policy`, { lazy: true })
 const cap = computed(() => data.value?.policy.max_level ?? 'propose')
 
@@ -12,7 +13,7 @@ const items = computed(() => [permLevels.map((p) => {
   const adminOnly = !isAdmin.value && permRank(p.level) > permRank('propose')
   return {
     label: p.label,
-    description: overCap ? `Project giới hạn ở "${permOf(cap.value).label}"` : adminOnly ? 'Chỉ admin' : p.description,
+    description: overCap ? t('mode.overCap', { label: permOf(cap.value).label }) : adminOnly ? t('mode.adminOnly') : p.description,
     icon: p.icon,
     disabled: overCap || adminOnly,
     active: mode.value === p.level,
@@ -26,7 +27,7 @@ const items = computed(() => [permLevels.map((p) => {
     <UButton
       size="xs" :color="permRank(mode) >= 2 ? 'warning' : 'neutral'" variant="soft"
       :icon="permOf(mode).icon" :label="permOf(mode).label" trailing-icon="i-lucide-chevron-up"
-      :title="`Chế độ: ${permOf(mode).description}`"
+      :title="t('mode.title', { description: permOf(mode).description })"
     />
   </UDropdownMenu>
 </template>

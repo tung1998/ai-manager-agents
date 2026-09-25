@@ -1,6 +1,16 @@
 import type { MessageKey } from './vi'
+import tasks from './parts/tasks.en'
+import ops from './parts/ops.en'
+import org from './parts/org.en'
+import tools from './parts/tools.en'
+import pages from './parts/pages.en'
 
 const en: Record<MessageKey, string> = {
+  ...tasks,
+  ...ops,
+  ...org,
+  ...tools,
+  ...pages,
   'pref.dark': 'Dark theme',
   'pref.light': 'Light theme',
   'pref.lang': 'Language',
@@ -40,6 +50,31 @@ const en: Record<MessageKey, string> = {
   'account.saved': 'Password changed',
   'account.savedDesc': 'Other sessions have been signed out.',
   'common.save': 'Save',
+  'common.cancel': 'Cancel',
+  'common.delete': 'Delete',
+  'common.edit': 'Edit',
+  'common.close': 'Close',
+  'common.add': 'Add',
+  'common.create': 'Create',
+  'common.search': 'Search',
+  'common.loading': 'Loading…',
+  'common.approve': 'Approve',
+  'common.reject': 'Reject',
+  'common.back': 'Back',
+  'common.refresh': 'Refresh',
+  'common.copy': 'Copy',
+  'common.copied': 'Copied',
+  'common.saved': 'Saved',
+  'common.error': 'Error',
+  'common.none': 'None',
+  'common.default': 'Default',
+  'common.enabled': 'On',
+  'common.disabled': 'Off',
+  'common.name': 'Name',
+  'common.description': 'Description',
+  'common.status': 'Status',
+  'common.actions': 'Actions',
+  'common.more': 'More…',
   'log.lines': '{n} lines',
   'log.clear': 'Clear',
   'log.empty': 'No logs yet.',

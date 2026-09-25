@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const { user, isAdmin } = useAuth()
+const { t, dateLocale } = useLang()
 
 const { data: health } = await useFetch<{ status: string, version: string }>('/api/health')
 const { data: prov } = await useFetch<{ providers: Provider[] }>('/api/providers')
@@ -9,15 +10,15 @@ const { data: tpl } = await useFetch<{ templates: OrgModel[] }>('/api/templates'
 interface Job { id: string, project_id: string, title: string, goal: string, pending_patches?: number, status: 'running' | 'done' | 'failed' | 'cancelled' | 'rejected' | 'needs_input', cost_usd: number, created_at: string }
 const { data: jobData } = await useFetch<{ tasks: Job[], projects: Record<string, string> }>('/api/jobs')
 const recentJobs = computed(() => (jobData.value?.tasks ?? []).slice(0, 6))
-const jobStatus: Record<Job['status'], { label: string, color: 'info' | 'success' | 'error' | 'neutral' | 'warning', icon: string }> = {
-  running: { label: 'Đang chạy', color: 'info', icon: 'i-lucide-loader' },
-  done: { label: 'Xong', color: 'success', icon: 'i-lucide-circle-check' },
-  failed: { label: 'Không thành công', color: 'error', icon: 'i-lucide-circle-x' },
-  cancelled: { label: 'Đã dừng', color: 'neutral', icon: 'i-lucide-circle-slash' },
-  rejected: { label: 'Không thông qua', color: 'warning', icon: 'i-lucide-thumbs-down' },
-  needs_input: { label: 'Chờ bạn trả lời', color: 'warning', icon: 'i-lucide-message-circle-question' }
-}
-const when = (d: string) => new Date(d).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+const jobStatus = computed<Record<Job['status'], { label: string, color: 'info' | 'success' | 'error' | 'neutral' | 'warning', icon: string }>>(() => ({
+  running: { label: t('home.jobRunning'), color: 'info', icon: 'i-lucide-loader' },
+  done: { label: t('home.jobDone'), color: 'success', icon: 'i-lucide-circle-check' },
+  failed: { label: t('home.jobFailed'), color: 'error', icon: 'i-lucide-circle-x' },
+  cancelled: { label: t('home.jobCancelled'), color: 'neutral', icon: 'i-lucide-circle-slash' },
+  rejected: { label: t('home.jobRejected'), color: 'warning', icon: 'i-lucide-thumbs-down' },
+  needs_input: { label: t('home.jobNeedsInput'), color: 'warning', icon: 'i-lucide-message-circle-question' }
+}))
+const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // health checks across projects
 const { data: monData } = await useFetch<{ monitors: { id: string, name: string, project_id: string, status: string, last_message: string }[], summary: Record<string, number> }>('/api/monitors')
@@ -31,46 +32,46 @@ const withModel = computed(() => projects.value.filter(p => p.model).length)
 const steps = computed(() => [
   {
     done: okProviders.value > 0,
-    title: 'Kết nối AI',
-    text: okProviders.value ? `${okProviders.value}/${providers.value.length} kết nối hoạt động` : 'Thêm Claude, GPT hoặc CLI trên máy',
+    title: t('home.step1Title'),
+    text: okProviders.value ? t('home.step1TextDone', { n: okProviders.value, total: providers.value.length }) : t('home.step1TextTodo'),
     to: '/providers', icon: 'i-lucide-plug'
   },
   {
     done: projects.value.length > 0,
-    title: 'Thêm project',
-    text: projects.value.length ? `${projects.value.length} project đang quản lý` : 'Chọn thư mục trên máy, hoặc tạo helper toàn máy',
+    title: t('home.step2Title'),
+    text: projects.value.length ? t('home.step2TextDone', { n: projects.value.length }) : t('home.step2TextTodo'),
     to: '/projects', icon: 'i-lucide-folder-git-2'
   },
   {
     done: projects.value.length > 0 && withModel.value === projects.value.length,
-    title: 'Chọn mô hình cho project',
-    text: projects.value.length ? `${withModel.value}/${projects.value.length} project đã có mô hình` : 'Solo, Team hoặc Tam quyền phân lập',
+    title: t('home.step3Title'),
+    text: projects.value.length ? t('home.step3TextDone', { n: withModel.value, total: projects.value.length }) : t('home.step3TextTodo'),
     to: projects.value.length ? '/projects' : '/templates', icon: 'i-lucide-network'
   }
 ])
 </script>
 
 <template>
-  <PageShell title="Tổng quan">
+  <PageShell :title="t('nav.overview')">
     <div class="space-y-6">
       <UCard>
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p class="text-sm text-(--ui-text-muted)">Xin chào</p>
+            <p class="text-sm text-(--ui-text-muted)">{{ t('home.welcome') }}</p>
             <p class="text-lg font-semibold">{{ user?.name || user?.email }}</p>
           </div>
           <div class="flex items-center gap-2">
             <UBadge :label="user?.role" :color="isAdmin ? 'primary' : 'neutral'" variant="subtle" />
-            <UBadge v-if="health?.status === 'ok'" :label="`API ${health.version}`" color="success" variant="subtle" icon="i-lucide-plug" />
-            <UBadge v-else label="Mất kết nối API" color="error" variant="subtle" icon="i-lucide-plug-zap" />
+            <UBadge v-if="health?.status === 'ok'" :label="t('home.apiConnected', { version: health.version })" color="success" variant="subtle" icon="i-lucide-plug" />
+            <UBadge v-else :label="t('home.apiDisconnected')" color="error" variant="subtle" icon="i-lucide-plug-zap" />
           </div>
         </div>
       </UCard>
 
       <UCard>
         <template #header>
-          <p class="font-medium">Thiết lập</p>
-          <p class="text-sm text-(--ui-text-muted)">Thứ tự quản lý: project → mô hình → agent. Mỗi agent chạy trên một kết nối AI.</p>
+          <p class="font-medium">{{ t('home.setupTitle') }}</p>
+          <p class="text-sm text-(--ui-text-muted)">{{ t('home.setupDesc') }}</p>
         </template>
         <ol class="space-y-3">
           <li v-for="(s, i) in steps" :key="s.title">
@@ -95,15 +96,15 @@ const steps = computed(() => [
 
       <div class="grid gap-4 sm:grid-cols-3">
         <UCard>
-          <p class="text-sm text-(--ui-text-muted)">Project</p>
+          <p class="text-sm text-(--ui-text-muted)">{{ t('home.project') }}</p>
           <p class="text-2xl font-semibold">{{ projects.length }}</p>
         </UCard>
         <UCard>
-          <p class="text-sm text-(--ui-text-muted)">Kết nối AI</p>
+          <p class="text-sm text-(--ui-text-muted)">{{ t('home.connections') }}</p>
           <p class="text-2xl font-semibold">{{ providers.length }}</p>
         </UCard>
         <UCard>
-          <p class="text-sm text-(--ui-text-muted)">Mô hình</p>
+          <p class="text-sm text-(--ui-text-muted)">{{ t('home.models') }}</p>
           <p class="text-2xl font-semibold">{{ tpl?.templates.length ?? 0 }}</p>
         </UCard>
       </div>
@@ -112,11 +113,11 @@ const steps = computed(() => [
         <div class="flex flex-wrap items-center gap-4">
           <div class="flex items-center gap-2">
             <UIcon name="i-lucide-heart-pulse" class="size-5 text-primary" />
-            <p class="font-semibold">Giám sát</p>
+            <p class="font-semibold">{{ t('home.monitoring') }}</p>
           </div>
-          <p class="font-mono text-lg"><span class="text-(--ui-success)">{{ monData.summary.up }}</span> / {{ monData.monitors.length }} Up</p>
-          <UBadge v-if="monData.summary.down" color="error" variant="subtle" :label="`${monData.summary.down} Down`" />
-          <UBadge v-if="monData.summary.pending" color="neutral" variant="subtle" :label="`${monData.summary.pending} đang chờ`" />
+          <p class="font-mono text-lg"><span class="text-(--ui-success)">{{ monData.summary.up }}</span> / {{ monData.monitors.length }} {{ t('home.monitorUp') }}</p>
+          <UBadge v-if="monData.summary.down" color="error" variant="subtle" :label="t('home.monitorDown', { n: monData.summary.down })" />
+          <UBadge v-if="monData.summary.pending" color="neutral" variant="subtle" :label="t('home.monitorPending', { n: monData.summary.pending })" />
         </div>
         <div v-if="downMonitors.length" class="mt-3 divide-y divide-(--ui-border) rounded-md border border-(--ui-border)">
           <NuxtLink
@@ -132,7 +133,7 @@ const steps = computed(() => [
 
       <UCard v-if="recentJobs.length" :ui="{ body: 'p-0 sm:p-0' }">
         <template #header>
-          <p class="font-semibold">Việc gần đây</p>
+          <p class="font-semibold">{{ t('home.recentJobs') }}</p>
         </template>
         <div class="divide-y divide-(--ui-border)">
           <NuxtLink
@@ -147,7 +148,7 @@ const steps = computed(() => [
             <span class="text-xs tabular-nums text-(--ui-text-muted)">${{ j.cost_usd.toFixed(3) }}</span>
             <UBadge
               :color="j.status === 'done' && j.pending_patches ? 'warning' : jobStatus[j.status].color" variant="subtle" size="sm"
-              :label="j.status === 'done' && j.pending_patches ? `Chờ duyệt (${j.pending_patches})` : jobStatus[j.status].label"
+              :label="j.status === 'done' && j.pending_patches ? t('home.pendingApproval', { n: j.pending_patches }) : jobStatus[j.status].label"
             />
           </NuxtLink>
         </div>

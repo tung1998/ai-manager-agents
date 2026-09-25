@@ -9,9 +9,9 @@ export interface OfficeUser {
 }
 
 /** Error message from the Go API ({ error: "..." }) or a generic fallback. */
-export function apiError(e: unknown, fallback = 'Có lỗi xảy ra, thử lại sau'): string {
+export function apiError(e: unknown, fallback?: string): string {
   const data = (e as { data?: { error?: string } })?.data
-  return data?.error ?? fallback
+  return data?.error ?? fallback ?? useLang().t('pages.genericError')
 }
 
 export function useAuth() {
