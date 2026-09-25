@@ -23,6 +23,7 @@ function projectSections(id: string): NavigationMenuItem[] {
   return [
     { label: 'Chat', icon: 'i-lucide-messages-square', to: to('chat'), exactQuery: 'partial' },
     { label: 'Việc', icon: 'i-lucide-list-todo', to: to('tasks'), exactQuery: 'partial' },
+    { label: 'Vận hành', icon: 'i-lucide-activity', to: to('ops'), exactQuery: 'partial' },
     { label: 'Mô hình', icon: 'i-lucide-network', to: to('model'), exactQuery: 'partial' },
     ...(isAdmin.value ? [{ label: 'Skills & MCP', icon: 'i-lucide-plug-zap', to: to('tools'), exactQuery: 'partial' as const }] : [])
   ]

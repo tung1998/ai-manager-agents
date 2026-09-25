@@ -155,6 +155,14 @@ func toolEnv() []string {
 	return append(env, "PATH="+strings.Join(extra, string(os.PathListSeparator)), "TERM=xterm-256color", "NO_COLOR=1")
 }
 
+// Env is the environment tools run with (PATH includes the usual install
+// locations); other runners (project processes) reuse it.
+func (m *Manager) Env() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.env...)
+}
+
 // LookPath finds bin the way install/login do (including ~/.local/bin, npm's
 // global bin and Homebrew), so a tool installed from the dashboard is usable
 // without restarting the office.

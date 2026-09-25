@@ -22,5 +22,5 @@ export default defineNuxtConfig({
     localApiEndpoint: '/_nuxt_icon',
     clientBundle: { scan: true }
   },
-  devServer: { port: 3000 }
+  devServer: { port: 2704 }
 })

@@ -81,6 +81,9 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	if s.cfg.Automation != nil {
 		s.automationRoutes(mux, admin)
 	}
+	if s.cfg.Ops != nil {
+		s.opsRoutes(mux, auth, admin)
+	}
 	mux.Handle("GET /api/cli-tools", admin(s.cliTools))
 	if s.cfg.CLITools != nil {
 		mux.Handle("GET /api/cli-tools/{id}", admin(s.cliTool))

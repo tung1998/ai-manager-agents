@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { Attachment } from '~/components/PromptInput.vue'
 const route = useRoute()
 const toast = useToast()
 const { isAdmin } = useAuth()
@@ -10,8 +11,15 @@ const project = computed(() => data.value?.project)
 const templates = computed(() => tplData.value?.templates ?? [])
 
 // the tab lives in the URL so the sidebar can link to each section
-type Tab = 'chat' | 'tasks' | 'model' | 'tools'
-const tabs: Tab[] = ['chat', 'tasks', 'model', 'tools']
+type Tab = 'chat' | 'tasks' | 'ops' | 'model' | 'tools'
+const tabs: Tab[] = ['chat', 'tasks', 'ops', 'model', 'tools']
+
+// "Hỏi agent" from Vận hành: open Chat with the log attached
+const chatPrefill = useState<{ text: string, files: Attachment[] } | null>('chat-prefill', () => null)
+function askAgent(text: string, files: Attachment[]) {
+  chatPrefill.value = { text, files }
+  tab.value = 'chat'
+}
 const tab = computed<Tab>({
   get: () => tabs.find(t => t === route.query.tab) ?? 'chat',
   set: t => navigateTo({ query: { tab: t } }, { replace: true })
@@ -114,11 +122,13 @@ async function saveAsTemplate() {
         :items="[
           { label: 'Chat', value: 'chat', icon: 'i-lucide-messages-square' },
           { label: 'Việc', value: 'tasks', icon: 'i-lucide-list-todo' },
+          { label: 'Vận hành', value: 'ops', icon: 'i-lucide-activity' },
           { label: 'Mô hình', value: 'model', icon: 'i-lucide-network' },
           ...(isAdmin ? [{ label: 'Skills & MCP', value: 'tools', icon: 'i-lucide-plug-zap' }] : [])
         ]"
       />
       <ProjectTools v-if="tab === 'tools'" :project-path="project.path" />
+      <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
       <template v-else-if="project.model">
         <ChatPanel v-if="tab === 'chat'" :project-id="project.id" />
         <TaskPanel v-else-if="tab === 'tasks'" :project-id="project.id" :model-kind="project.model.kind" :governance="project.model.governance.mode" />

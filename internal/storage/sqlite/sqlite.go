@@ -20,7 +20,13 @@ import (
 	"bitbucket.org/senprints/agent-office/migrations"
 )
 
-const timeLayout = time.RFC3339Nano
+// Times are stored as text in a fixed-width UTC layout (always 9 fraction
+// digits) so ORDER BY on the column sorts chronologically; RFC3339Nano drops
+// trailing zeros and ".874Z" would sort after ".874208Z". Parsing accepts both.
+const (
+	timeLayout      = time.RFC3339Nano
+	timeWriteLayout = "2006-01-02T15:04:05.000000000Z07:00"
+)
 
 // Store implements storage.Store on a single SQLite file.
 type Store struct {
@@ -85,6 +91,7 @@ func (s *Store) Runs() storage.RunRepo           { return runRepo{s.q} }
 func (s *Store) Settings() storage.SettingRepo   { return settingRepo{s.q} }
 func (s *Store) Chat() storage.ChatRepo          { return chatRepo{s.q} }
 func (s *Store) Tasks() storage.TaskRepo         { return taskRepo{s.q} }
+func (s *Store) Processes() storage.ProcessRepo  { return processRepo{s.q} }
 
 // InTx runs fn inside one transaction. Nested calls reuse the outer one.
 func (s *Store) InTx(ctx context.Context, fn func(storage.Store) error) error {
@@ -104,7 +111,7 @@ func (s *Store) InTx(ctx context.Context, fn func(storage.Store) error) error {
 
 // ---- helpers ----
 
-func fmtTime(t time.Time) string { return t.UTC().Format(timeLayout) }
+func fmtTime(t time.Time) string { return t.UTC().Format(timeWriteLayout) }
 
 func parseTime(s string) (time.Time, error) { return time.Parse(timeLayout, s) }
 

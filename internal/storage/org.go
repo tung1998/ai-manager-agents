@@ -379,3 +379,27 @@ type RepoRepo interface {
 	List(ctx context.Context) ([]Repo, error)
 	Delete(ctx context.Context, id string) error
 }
+
+// Process is a command office runs for a project (dev server, build, test).
+type Process struct {
+	ID          string
+	ProjectID   string
+	Name        string
+	Command     string
+	Cwd         string // relative to the project folder
+	Kind        string // service | job
+	Source      string
+	Autostart   bool
+	Autorestart bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// ProcessRepo stores process definitions.
+type ProcessRepo interface {
+	Create(ctx context.Context, p Process) (Process, error)
+	Update(ctx context.Context, p Process) error
+	Get(ctx context.Context, id string) (Process, error)
+	List(ctx context.Context, projectID string) ([]Process, error) // "" = all projects
+	Delete(ctx context.Context, id string) error
+}

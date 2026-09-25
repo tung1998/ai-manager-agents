@@ -117,6 +117,24 @@ Base `/api`. Auth bằng cookie phiên `office_session` sau khi đăng nhập t�
 
 Gửi tin nhắn `{text, attachments:[id]}`; tạo Việc `{goal, budget_usd, attachments:[id]}`.
 
+### Vận hành (đã làm, ADR-026)
+
+| Method | Path | Quyền | Mô tả |
+|---|---|---|---|
+| GET | `/api/projects/:id/ops/detect` | admin | lệnh tìm thấy trong project + file compose |
+| GET/POST | `/api/projects/:id/processes` | auth/admin | danh sách kèm trạng thái / thêm lệnh |
+| PATCH/DELETE | `/api/processes/:id` | admin | sửa / xóa (dừng nếu đang chạy) |
+| POST | `/api/processes/:id/start\|stop\|restart` | admin | điều khiển |
+| GET | `/api/processes/:id/stream` | auth | SSE: `lines` (phát lại từ `Last-Event-ID`), `state` |
+| POST | `/api/processes/:id/log-attachment` | auth | 300 dòng log cuối thành file đính kèm |
+| GET | `/api/projects/:id/compose?file=` | auth | docker, file compose, service + container, cổng, stats |
+| POST | `/api/projects/:id/compose/action` | admin | `{file, action: up\|stop\|restart\|down\|pull\|build, service?}` chạy nền |
+| GET | `/api/projects/:id/compose/action/stream` | auth | SSE output thao tác gần nhất |
+| GET | `/api/projects/:id/compose/logs?file=&service=` | auth | SSE log container (`--follow --tail 300`) |
+| POST | `/api/projects/:id/compose/log-attachment` | auth | `{file, service}` → log container thành file đính kèm |
+
+Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-start`), API ở 8787.
+
 ### Auth + tài khoản (đã làm)
 | Method | Path | Quyền | Mô tả |
 |---|---|---|---|

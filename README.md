@@ -16,10 +16,10 @@ make build                                   # bin/office
 ./bin/office user create --email you@company.com --name "Bạn" --role admin
 ./bin/office run                             # API http://127.0.0.1:8787
 
-make ui-install && make dev-ui               # dashboard http://localhost:3000
+make ui-install && make dev-ui               # dashboard http://localhost:2704
 ```
 
-Mở http://localhost:3000, đăng nhập bằng tài khoản vừa tạo. Trang Tổng quan có checklist: Kết nối AI → Repo → Mô hình.
+Mở http://localhost:2704, đăng nhập bằng tài khoản vừa tạo. Trang Tổng quan có checklist: Kết nối AI → Repo → Mô hình.
 
 Cài trên máy để quản lý nhiều repo: bỏ `--local`, dữ liệu nằm ở `~/.agent-office`, rồi `office init` trong từng repo hoặc `office repo add <path>`.
 

@@ -428,3 +428,39 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 **Phương án đã loại.**
 - Upload dạng multipart: phải nới quy tắc CSRF chỉ nhận JSON.
 - Bật skill gốc của Claude Code: phá chế độ cô lập và không dùng được cho runtime khác.
+
+---
+
+## ADR-026: Vận hành, chạy và theo dõi lệnh của project (giống pm2)
+
+**Bối cảnh.** Project như storefront-v5 cần chạy `dev`, `build`, `test` và xem log. Về sau cần thêm container và giám sát kiểu Vantage.
+
+**Quyết định.**
+- **Quét không dùng AI.**
+  - Nguồn đọc: script trong `package.json` (kể cả `apps/*`, `packages/*` của monorepo), `Makefile`, `Procfile`, `go.mod`. Công cụ chạy script (pnpm/yarn/bun/npm) chọn theo lockfile.
+  - Script `dev|start|serve|preview|watch` là **service** (chạy liên tục), còn lại là **job** (chạy xong thì dừng). Bỏ qua các hook `pre*`, `post*`, `prepare`.
+  - `docker-compose.yml` chỉ được ghi nhận, sẽ quản lý ở bước sau.
+- **Định nghĩa** lưu trong bảng `processes` (migration 00009). Chỉ admin tạo, sửa, chạy; lệnh chạy qua `sh -c` trong thư mục nằm trong project.
+- **Chạy.**
+  - Mỗi tiến trình có process group riêng; dừng = SIGTERM cả nhóm, sau 8 giây thì SIGKILL. PATH giống lúc office cài CLI.
+  - Log gồm 3000 dòng gần nhất trong bộ nhớ, bỏ mã màu ANSI, và ghi vào file `<office>/logs/<id>.log` (xoay vòng ở 5 MB). Dashboard xem trực tiếp qua SSE.
+  - Cổng được đọc từ log (`localhost:3000`, `listening … port 8080`). CPU và RAM của cả nhóm lấy bằng một lệnh `ps` mỗi 3 giây.
+  - Tùy chọn **tự chạy lại** khi service lỗi: chờ 1, 2, 4… tối đa 32 giây; về lại 1 giây nếu lần chạy trước sống quá 1 phút. Tùy chọn **bật cùng office**.
+  - Tiến trình dừng khi office tắt. Office không chạy nền thay pm2.
+- **Hỏi agent.** Lấy 300 dòng log cuối lưu thành file đính kèm (ADR-025), rồi mở Chat với câu hỏi điền sẵn.
+- **Giám sát về sau có hai loại.**
+  - Theo quy tắc: HTTP, cổng, heartbeat, tiến trình còn sống. Không tốn token.
+  - Có AI: bật/tắt riêng từng mục, có trần chi phí, chỉ gọi khi loại theo quy tắc báo bất thường.
+
+- **Container (docker compose).**
+  - Office điều khiển chính file compose của project bằng docker CLI. Tên compose project giữ mặc định (tên thư mục) nên office thấy đúng các container giống như khi bạn chạy `docker compose` bằng tay.
+  - Danh sách service lấy bằng `config --services --profile '*'`, gồm cả service nằm trong profile. Trạng thái và cổng lấy từ `ps --all --format json` (đọc được cả dạng mảng lẫn từng dòng). CPU, RAM, mạng lấy từ `docker stats --no-stream`.
+  - Thao tác gồm `up -d`, `stop`, `restart`, `down`, `pull`, `build` cho cả stack hoặc từng service (với một service, `down` là `rm -s -f`). Dừng/gỡ cả stack áp dụng cho mọi profile; `up` cả stack giữ mặc định là không bật service trong profile. Gọi `up` với tên service cụ thể thì compose tự bật profile của nó.
+  - Thao tác chạy nền, mỗi project chỉ một thao tác tại một thời điểm, output xem trực tiếp như tiến trình. Log container theo dõi bằng `logs --follow --tail 300`.
+  - File compose phải là file tìm thấy trong project, tên service phải có trong file đó. Lỗi docker trả về dòng thông báo đầu tiên. Thiếu `docker compose` v2 thì báo rõ.
+  - Nút "Hỏi agent" lấy 300 dòng log của container.
+
+**Phương án đã loại.**
+- Dùng pm2: thêm phụ thuộc Node toàn cục, khó lấy log và trạng thái về dashboard.
+- Gọi Docker Engine API qua socket: phải thêm client và xử lý compose labels thủ công, trong khi CLI đã làm đúng cách compose làm.
+- Tiến trình sống tiếp sau khi office tắt: phải tự dò lại PID khi mở office, dễ sót tiến trình mồ côi.

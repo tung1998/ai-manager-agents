@@ -4,6 +4,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/home"
+	"bitbucket.org/senprints/agent-office/internal/ops"
 	"context"
 	"errors"
 	"fmt"
@@ -72,6 +73,10 @@ func runCmd() *cobra.Command {
 			}
 			chatEngine := chat.NewEngine(a.store, a.providers, a.usage)
 			chatEngine.SetAttachments(attach.Store{Dir: filepath.Join(h.Dir, "attachments")})
+			procs := ops.NewManager(a.store, filepath.Join(h.Dir, "logs"), a.cli.Env())
+			defer procs.Shutdown() // project processes stop with the office
+			go procs.RunSampler(ctx, 3*time.Second)
+			procs.Autostart(ctx)
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 			handler := api.New(api.Config{
 				Store: st, Auth: a.auth, AllowedOrigins: origins,
@@ -83,6 +88,7 @@ func runCmd() *cobra.Command {
 				Chat:       chatEngine,
 				Tasks:      tasks.New(a.store, chatEngine),
 				Automation: newAutomation(a, h),
+				Ops:        procs,
 				Backup: func(ctx context.Context) (string, error) {
 					return backupTo(ctx, a, filepath.Join(h.Dir, "backups", time.Now().Format("20060102-150405")))
 				},
@@ -114,7 +120,7 @@ func runCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&addr, "api", "", "địa chỉ API (mặc định server.api_addr trong config, 127.0.0.1:8787)")
-	cmd.Flags().StringSliceVar(&origins, "allowed-origin", []string{"http://localhost:3000", "http://127.0.0.1:3000"}, "origin của dashboard được phép gọi API")
+	cmd.Flags().StringSliceVar(&origins, "allowed-origin", []string{"http://localhost:2704", "http://127.0.0.1:2704"}, "origin của dashboard được phép gọi API")
 	cmd.Flags().BoolVar(&secureCookies, "secure-cookies", false, "bật cờ Secure cho cookie (bắt buộc khi chạy sau HTTPS)")
 	cmd.Flags().BoolVar(&cliSetup, "cli-setup", true, "cho phép cài và đăng nhập Claude Code/Codex từ dashboard (tắt khi chạy trong container)")
 	cmd.Flags().StringSliceVar(&trustedProxies, "trusted-proxy", []string{"127.0.0.1/32", "::1/128"}, "dải IP của proxy (dashboard Nuxt) được tin header X-Forwarded-*")

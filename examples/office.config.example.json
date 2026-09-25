@@ -478,7 +478,7 @@
       }
     ],
     "quiet_hours": "23:30-07:00",
-    "dashboard_base_url": "http://127.0.0.1:3000"
+    "dashboard_base_url": "http://127.0.0.1:2704"
   },
   "storage": {
     "driver": "sqlite",

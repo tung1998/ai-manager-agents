@@ -13,7 +13,7 @@ services:
     command:
       - run
       - --api=0.0.0.0:8787
-      - --allowed-origin=${OFFICE_PUBLIC_URL:-http://localhost:3000}
+      - --allowed-origin=${OFFICE_PUBLIC_URL:-http://localhost:2704}
       # the dashboard container reaches the API from the compose network
       - --trusted-proxy=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       # installing CLIs inside the container is pointless; mount credentials instead
@@ -36,7 +36,7 @@ services:
     environment:
       NUXT_OFFICE_API_BASE: http://office:8787
     ports:
-      - "${DASHBOARD_PORT:-3000}:3000"
+      - "${DASHBOARD_PORT:-2704}:2704"
 
 volumes:
   office-data:

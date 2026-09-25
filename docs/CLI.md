@@ -297,7 +297,7 @@ In hướng dẫn mở dashboard. Nếu `dashboard/.output` đã build, chạy n
 ```text
 $ office ui
 API    http://127.0.0.1:8787 (token trong .office/ui-token)
-UI     http://127.0.0.1:3000
+UI     http://127.0.0.1:2704
 ```
 
 ## Lệnh debug

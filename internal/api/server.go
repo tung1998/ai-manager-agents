@@ -3,6 +3,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/ops"
 	"context"
 	"encoding/json"
 	"errors"
@@ -52,6 +53,7 @@ type Config struct {
 	Chat       *chat.Engine
 	Tasks      *tasks.Service
 	Automation *automation.Service // nil: skills/agents/MCP management is off
+	Ops        *ops.Manager        // nil: running project processes is off
 	// Backup writes a copy of the data to a new folder and returns its path.
 	Backup func(ctx context.Context) (string, error)
 	System SystemInfo

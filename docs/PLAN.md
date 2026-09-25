@@ -97,6 +97,9 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Việc cho cả mô hình: Solo, Team (lập kế hoạch → làm song song → tổng hợp), Tam quyền (biểu quyết, phủ quyết, kiểm tra) (ADR-023) | Xong |
 | Tự động hóa: quét và quản lý skill, agent, MCP (máy, project, riêng máy), thư viện, kiểm tra an toàn, MCP phổ biến và tìm trong MCP Registry; tab Skills & MCP trong project, trang Thư viện, sidebar project lồng nhau (ADR-024) | Xong |
 | Gọi skill bằng "/" và đính kèm ảnh, PDF, file chữ trong Chat và Việc (ADR-025) | Xong |
+| Vận hành: quét lệnh của project, chạy/dừng/tự chạy lại như pm2, log trực tiếp, CPU/RAM/cổng, hỏi agent từ log (ADR-026) | Xong |
+| Vận hành: container (docker compose): trạng thái, cổng, CPU/RAM/mạng, bật/dừng/chạy lại/gỡ theo stack hoặc service, log trực tiếp, hỏi agent (ADR-026) | Xong |
+| Giám sát: theo quy tắc (HTTP, cổng, heartbeat) và có AI (bật/tắt, trần chi phí) | Chưa làm |
 | Việc định kỳ, cảnh báo, `doctor` | Chưa làm |
 
 ### M0: Nền móng

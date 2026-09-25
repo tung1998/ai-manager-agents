@@ -82,6 +82,7 @@ type Store interface {
 	Settings() SettingRepo
 	Chat() ChatRepo
 	Tasks() TaskRepo
+	Processes() ProcessRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error

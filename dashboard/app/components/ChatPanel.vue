@@ -30,6 +30,17 @@ const messages = ref<Message[]>([])
 const draft = ref('')
 const draftFiles = ref<Attachment[]>([])
 const prompt = ref<{ busy: boolean } | null>(null)
+
+// filled by other tabs (e.g. "Hỏi agent" in Vận hành)
+const prefill = useState<{ text: string, files: Attachment[] } | null>('chat-prefill', () => null)
+function takePrefill() {
+  if (!prefill.value) return
+  draft.value = prefill.value.text
+  draftFiles.value = prefill.value.files
+  prefill.value = null
+}
+onMounted(takePrefill)
+watch(prefill, takePrefill)
 const listEl = ref<HTMLElement | null>(null)
 
 // live answer being streamed
