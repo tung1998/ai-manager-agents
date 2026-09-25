@@ -117,11 +117,11 @@ func TestAnthropicToolLoopAndPatch(t *testing.T) {
 	if err != nil || conv.AgentName != "Trợ lý" {
 		t.Fatalf("conversation = %+v, %v", conv, err)
 	}
-	turn, _, err := f.engine.Send(ctx, conv.ID, "Sửa lời chào trong hello.txt")
+	turn, _, err := f.engine.Send(ctx, conv.ID, "Sửa lời chào trong hello.txt", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := f.engine.Send(ctx, conv.ID, "again"); err != chat.ErrBusy {
+	if _, _, err := f.engine.Send(ctx, conv.ID, "again", nil); err != chat.ErrBusy {
 		t.Fatalf("concurrent send err = %v", err)
 	}
 	events := collect(t, turn)
@@ -186,7 +186,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"Xin chào"
 	})
 	ctx := context.Background()
 	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
-	turn, _, err := f.engine.Send(ctx, conv.ID, "chào")
+	turn, _, err := f.engine.Send(ctx, conv.ID, "chào", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

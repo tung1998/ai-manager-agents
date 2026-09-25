@@ -58,6 +58,9 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("GET /api/projects/{id}/chat/agents", auth(s.chatAgents))
 		mux.Handle("GET /api/projects/{id}/conversations", auth(s.listConversations))
 		mux.Handle("POST /api/projects/{id}/conversations", auth(s.createConversation))
+		mux.Handle("GET /api/projects/{id}/skills", auth(s.chatSkills))
+		mux.Handle("POST /api/projects/{id}/attachments", auth(s.uploadAttachment))
+		mux.Handle("GET /api/attachments/{id}", auth(s.getAttachment))
 		mux.Handle("GET /api/conversations/{id}", auth(s.getConversation))
 		mux.Handle("DELETE /api/conversations/{id}", auth(s.deleteConversation))
 		mux.Handle("POST /api/conversations/{id}/messages", auth(s.sendMessage))
@@ -65,6 +68,18 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/chat/turns/{id}/cancel", auth(s.cancelTurn))
 		mux.Handle("POST /api/patches/{id}/approve", admin(s.approvePatch))
 		mux.Handle("POST /api/patches/{id}/reject", admin(s.rejectPatch))
+	}
+	if s.cfg.Tasks != nil {
+		mux.Handle("GET /api/jobs", auth(s.jobs))
+		mux.Handle("GET /api/projects/{id}/tasks", auth(s.listTasks))
+		mux.Handle("POST /api/projects/{id}/tasks", auth(s.createTask))
+		mux.Handle("GET /api/tasks/{id}", auth(s.getTask))
+		mux.Handle("DELETE /api/tasks/{id}", admin(s.deleteTask))
+		mux.Handle("GET /api/tasks/{id}/stream", auth(s.streamTask))
+		mux.Handle("POST /api/tasks/{id}/cancel", auth(s.cancelTask))
+	}
+	if s.cfg.Automation != nil {
+		s.automationRoutes(mux, admin)
 	}
 	mux.Handle("GET /api/cli-tools", admin(s.cliTools))
 	if s.cfg.CLITools != nil {

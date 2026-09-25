@@ -23,11 +23,15 @@ func (codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	if req.Model != "" {
 		args = append(args, "-m", req.Model)
 	}
+	prompt, images := codexPrompt(req.Prompt, req.Attachments)
 	args = append(args, "-")
+	if len(images) > 0 {
+		args = append(args, "--image", strings.Join(images, ","))
+	}
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = req.WorkDir
-	cmd.Stdin = strings.NewReader(req.System + "\n\n" + transcript(req.History, req.Prompt))
+	cmd.Stdin = strings.NewReader(req.System + "\n\n" + transcript(req.History, prompt))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()

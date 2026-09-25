@@ -103,3 +103,51 @@ func TestChatAPIWithSSE(t *testing.T) {
 		t.Fatalf("patch in history = %v", p)
 	}
 }
+
+func TestTasksAPI(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte("#!/bin/sh\ncat >/dev/null\ncat <<'JSON'\n"+`{"type":"result","subtype":"success","is_error":false,"result":"Trả lời xong.","session_id":"s","total_cost_usd":0.01,"usage":{"input_tokens":1,"output_tokens":1}}`+"\nJSON\n"), 0o755)
+	do(t, admin, "POST", e.srv.URL+"/api/providers", map[string]any{"name": "CC", "kind": "claude_cli", "base_url": bin}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"name": "Trợ lý"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/tasks", map[string]any{"goal": "x"}, nil); resp.StatusCode != 400 {
+		t.Fatalf("no model = %d", resp.StatusCode)
+	}
+	_, tpls := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
+	var soloID string
+	for _, x := range tpls["templates"].([]any) {
+		if x.(map[string]any)["key"] == "solo" {
+			soloID = x.(map[string]any)["id"].(string)
+		}
+	}
+	do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/model", map[string]any{"template_id": soloID}, nil)
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/tasks", map[string]any{"goal": "Tóm tắt máy", "budget_usd": 1}, nil)
+	if resp.StatusCode != 202 {
+		t.Fatalf("start = %d %v", resp.StatusCode, body)
+	}
+	id := body["task"].(map[string]any)["id"].(string)
+
+	req, _ := http.NewRequest("GET", e.srv.URL+"/api/tasks/"+id+"/stream", nil)
+	sresp, err := admin.Do(req)
+	if err == nil {
+		sc := bufio.NewScanner(sresp.Body)
+		for sc.Scan() {
+			if strings.Contains(sc.Text(), `"type":"done"`) {
+				break
+			}
+		}
+		sresp.Body.Close()
+	}
+	_, body = do(t, admin, "GET", e.srv.URL+"/api/tasks/"+id, nil, nil)
+	task := body["task"].(map[string]any)
+	if task["status"] != "done" || task["result"] != "Trả lời xong." || task["mode"] != "single" || len(body["steps"].([]any)) != 1 {
+		t.Fatalf("task = %v", body)
+	}
+	_, body = do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/tasks", nil, nil)
+	if len(body["tasks"].([]any)) != 1 {
+		t.Fatalf("list = %v", body)
+	}
+}

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/attach"
 	"context"
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
@@ -34,6 +35,8 @@ type RunRequest struct {
 	Prompt    string
 	WorkDir   string
 	SessionID string
+	// Files attached to this turn's prompt (see attachments.go).
+	Attachments []attach.File
 }
 
 // RunResult is what the runtime produced.

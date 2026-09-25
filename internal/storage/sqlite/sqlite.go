@@ -84,6 +84,7 @@ func (s *Store) Revisions() storage.RevisionRepo { return revisionRepo{s.q} }
 func (s *Store) Runs() storage.RunRepo           { return runRepo{s.q} }
 func (s *Store) Settings() storage.SettingRepo   { return settingRepo{s.q} }
 func (s *Store) Chat() storage.ChatRepo          { return chatRepo{s.q} }
+func (s *Store) Tasks() storage.TaskRepo         { return taskRepo{s.q} }
 
 // InTx runs fn inside one transaction. Nested calls reuse the outer one.
 func (s *Store) InTx(ctx context.Context, fn func(storage.Store) error) error {

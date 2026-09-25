@@ -339,3 +339,92 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 
 **Phương án đã loại.** Cho agent ghi file trực tiếp (không kiểm soát được). Dùng `--permission-prompt-tool` của Claude Code để hỏi duyệt từng lần ghi (chỉ dùng được cho Claude Code, không thống nhất với runtime khác). Chạy Claude Code với cấu hình cá nhân (tốn gấp ~3 lần và chạy hook/plugin không liên quan).
 
+---
+
+## ADR-023: Việc (task) chạy theo cách ra quyết định của mô hình
+
+**Bối cảnh.** Chat mới là một agent. Mô hình Team và Tam quyền cần các agent phối hợp thật.
+
+**Quyết định.**
+- Một **Việc** là mục tiêu giao cho cả mô hình của project (`tasks`, `task_steps`). Mỗi bước là một lượt của một agent qua `chat.Engine.Invoke` (cùng công cụ chỉ đọc, system prompt, ghi chi phí loại `task`). Tối đa một Việc chạy mỗi project, 45 phút.
+- **single (Solo):** lead làm trực tiếp.
+- **hierarchy (Team):** lead lập kế hoạch dạng JSON (`analysis`, `assignments` tối đa 6, hoặc `answer` nếu tự trả lời được) → các agent không phải lead làm song song (tối đa 3 cùng lúc) → lead tổng hợp câu trả lời cuối. Việc giao cho key không tồn tại bị bỏ qua và ghi lại.
+- **council (Tam quyền):** người lập kế hoạch (key `planner`, hoặc lead đầu) đề xuất → các lead còn lại bỏ phiếu JSON; người lập kế hoạch tính là đồng ý; thông qua khi đủ `quorum` và không lead có quyền phủ quyết nào phản đối. Không qua thì sửa kế hoạch một lần kèm lý do; vẫn không qua thì Việc kết thúc `rejected`. Qua thì worker làm, Giám sát (key `auditor` hoặc người có quyền phủ quyết) kiểm tra và trả `verdict`; `block_changes` của người có quyền phủ quyết → mọi diff đang chờ bị từ chối với lý do. Thực thi tổng hợp.
+- Diff chỉ tách từ bước `work` của agent được phép đề xuất; vẫn cần admin duyệt (bảng `patches` nay nhận cả `task_id`/`step_id`).
+- **Chi phí:** mỗi Việc có trần riêng (`budget_usd`, 0 = không trần) cộng trần ngày của office/project; chạm trần thì bước tiếp theo không chạy và Việc `failed` với lý do.
+- Dashboard: tab **Việc** trong project, dòng thời gian từng bước (kế hoạch và danh sách giao việc, phiếu bầu, đánh giá, đầu ra, công cụ, chi phí), kết quả cuối, thẻ diff; cập nhật qua SSE `/api/tasks/:id/stream`.
+
+**Giới hạn hiện tại.** Manager chưa giao tiếp xuống worker (một cấp giao việc từ lead). Chưa có lượt hỏi lại người dùng giữa chừng. Kiểm chứng thật với Claude Code cho Team; Tam quyền kiểm chứng bằng model giả.
+
+**Phương án đã loại.** Cho agent tự gọi nhau bằng tool (khó kiểm soát chi phí và vòng lặp). Chạy tất cả agent mỗi lần (tốn và nhiễu).
+
+
+---
+
+## ADR-024: Tự động hóa, quản lý skill, agent và MCP server trên máy
+
+**Bối cảnh.** Team dùng Claude Code với nhiều skill (`.claude/skills/<tên>/SKILL.md`), subagent (`.claude/agents/*.md`) và MCP server rải rác ở máy và từng project. Cần một chỗ để xem đã cài gì ở đâu, cài lại cho project khác, và cài nhanh các MCP quan trọng.
+
+**Quyết định.**
+- **Quét** (chỉ đọc) những nguồn sau:
+  - `~/.claude/{skills,agents}` và skill/agent của plugin (chỉ xem).
+  - `~/.claude.json`: `mcpServers` của toàn máy, `projects[path].mcpServers` là loại riêng máy.
+  - Trong mỗi project Claude Code đã mở và mỗi project office: `.claude/{skills,agents}`, `.mcp.json`, CLAUDE.md, AGENTS.md.
+  - Cursor, Claude Desktop, Codex (chỉ xem).
+
+  Giá trị env/header và tham số trông như bí mật được che trước khi trả về dashboard.
+- **Nơi cài.**
+  - Toàn máy: `~/.claude/...`, hoặc `claude mcp add-json -s user`.
+  - Project: `<project>/.claude/...`, hoặc `.mcp.json` để chia sẻ qua git.
+  - Riêng máy cho một project: `claude mcp add-json -s local`, chạy trong thư mục project.
+
+  MCP của máy và riêng máy đi qua CLI chính thức để không tự sửa `~/.claude.json`. `.mcp.json` được sửa trực tiếp, bản cũ sao lưu vào thùng rác.
+- **Gỡ.** Skill và agent được chuyển vào `<office>/trash` để khôi phục được. MCP gỡ qua `claude mcp remove` hoặc sửa `.mcp.json`. Mọi thao tác nhận tham chiếu `{kind, name, type, path, project_path}` rồi đối chiếu với một lần quét mới, nên client không thể trỏ tới đường dẫn tùy ý. Mục của plugin và công cụ khác không gỡ được.
+- **Thư viện** của office nằm trong `<office>/library/{skills,agents,mcp}`, dạng file thường để dễ git, copy hay export, không dùng database. Khi lưu MCP vào thư viện, giá trị env/header được đổi thành ô `{{KEY}}` để thư viện không chứa token.
+- **Kiểm tra an toàn** skill và agent trước khi cài hoặc lưu:
+  - Từ chối: `curl | sh`, giải mã base64 rồi chạy, `rm -rf /` hoặc `~`, gửi khóa SSH hay biến môi trường ra ngoài.
+  - Cảnh báo, cần xác nhận: công cụ Bash, sudo, `git push --force`, gọi mạng, câu "bỏ qua hướng dẫn trước".
+- **MCP có sẵn.**
+  - Danh mục chọn lọc: Context7, Playwright, Chrome DevTools, GitHub, Sentry, Atlassian, Linear, Notion, Supabase, Filesystem, Fetch.
+  - Tìm trong MCP Registry chính thức (`registry.modelcontextprotocol.io/v0/servers`). Remote được ưu tiên vì không cần runtime; không có remote thì dùng gói npm (`npx`), pypi (`uvx`) hoặc oci (`docker`). Env và header cần điền trở thành ô nhập, ô bí mật nhập dạng password.
+- **Nhật ký.** Audit ghi hành động, tên và nơi cài, không bao giờ ghi giá trị người dùng nhập.
+- **Giao diện theo project.** Skill và MCP được xem và cài trong tab **Skills & MCP** của từng project. Trang **Thư viện** (ở cuối menu, cạnh Mô hình) là kho mẫu và nơi quản lý cài đặt toàn máy. Việc của mọi project hiện trên Tổng quan, không có trang Jobs riêng. Chỉ admin dùng được phần này.
+- **Không có trang Agents riêng.** Subagent của Claude Code chỉ là nguồn để thiết lập mô hình: bước quét của thiết lập bằng AI (ADR-018) đã đọc `.claude/agents/*.md` và chuyển thành agent của mô hình. Một trang riêng sẽ gây nhầm với agent của mô hình. API vẫn hỗ trợ `kind=agent` để dùng sau.
+
+**Phương án đã loại.**
+- Lưu thư viện trong SQLite: khó xem, sửa và đưa vào git.
+- Tự ghi `~/.claude.json`: dễ đụng ghi đồng thời với Claude Code đang chạy.
+- Symlink skill từ thư viện vào project: hỏng khi project được clone sang máy khác.
+
+---
+
+## ADR-025: Gọi skill bằng "/" và đính kèm file trong Chat và Việc
+
+**Bối cảnh.** Một đoạn prompt không đủ để giao việc: cần ảnh chụp lỗi, log, tài liệu. Người dùng cũng muốn gọi skill bằng `/tên` như trong Claude Code.
+
+**Quyết định.**
+- **Skill.**
+  - Ô nhập của Chat và Việc: gõ `/` sẽ hiện skill dùng được trong project (`GET /api/projects/:id/skills`). Thứ tự ưu tiên: skill của project, rồi của máy, rồi của plugin (tên dạng `plugin:skill`).
+  - Khi gửi `/tên yêu cầu`, server thay bằng prompt chứa nội dung SKILL.md và danh sách file khác của skill. Cách này chạy được trên mọi runtime vì không phụ thuộc cơ chế skill của Claude Code, vốn vẫn tắt vì chạy ở chế độ cô lập.
+  - Tin nhắn và Việc lưu đúng chữ người dùng gõ. Skill không tồn tại thì báo lỗi 400.
+- **Đính kèm.**
+  - Hỗ trợ ảnh (png, jpg, gif, webp), PDF và file chữ, tối đa 10 MB mỗi file (file chữ 200 KB) và 10 file mỗi lần gửi.
+  - Upload bằng JSON base64 để giữ quy tắc CSRF chỉ nhận JSON. File lưu ở `<office>/attachments/<id>/`, gắn với một project; gửi kèm file của project khác sẽ bị từ chối.
+  - Dòng tin nhắn và Việc chỉ lưu tham chiếu, trong cột `attachments` (migration 00008).
+- **Mỗi runtime nhận file theo cách riêng.** File chữ luôn được chèn thẳng vào prompt. Ảnh và PDF thì:
+  - Claude Code: nhận đường dẫn và đọc bằng Read, thư mục được thêm qua `--add-dir`.
+  - API Anthropic: block `image` hoặc `document`.
+  - API OpenAI: part `image_url` hoặc `file`.
+  - Codex: ảnh qua `--image`. PDF chưa đọc được nên chỉ báo cho agent biết là có file.
+- **Việc.** Mọi bước của Việc (lập kế hoạch, biểu quyết, làm, kiểm tra, tổng hợp) đều nhận file đính kèm.
+- **Xem lại file.** `GET /api/attachments/:id` phục vụ file để xem trước, với `nosniff` và CSP `sandbox`. Chỉ ảnh và PDF giữ đúng loại; mọi file chữ, kể cả HTML/SVG, trả về dạng text/plain.
+
+**Giới hạn.**
+- File chỉ được gửi ở lượt có đính kèm. Các lượt sau:
+  - API runtime chỉ nhận lại phần chữ của lịch sử.
+  - Claude Code vẫn giữ file nhờ session.
+- Chưa dọn file đính kèm cũ.
+
+**Phương án đã loại.**
+- Upload dạng multipart: phải nới quy tắc CSRF chỉ nhận JSON.
+- Bật skill gốc của Claude Code: phá chế độ cô lập và không dùng được cho runtime khác.

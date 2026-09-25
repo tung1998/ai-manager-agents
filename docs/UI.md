@@ -11,6 +11,10 @@ Nuxt 4 + @nuxt/ui, app riêng trong `dashboard/` (ADR-010). Gọi REST + SSE c�
 | `/blackboard` | Blackboard | Feed thread dạng kênh chat nội bộ. Finding có màu theo loại, badge confidence, chip evidence mở được worker output | Lọc theo agent/loại/severity, trả lời thread (người đặt câu hỏi) |
 | `/incidents` | Incidents | Danh sách + chi tiết: timeline debate theo round, kết luận, confidence, phương án, rủi ro, evidence | **Duyệt / Từ chối** từng option có side effect, ghi chú |
 | `/costs` | Chi phí | Token và USD theo agent/ngày, theo incident, so với budget, dự báo cuối ngày | Chỉnh budget (ghi config) |
+| `/projects/:id?tab=chat\|tasks\|model\|tools` | Project | Tab Chat, Việc, Mô hình, **Skills & MCP** (đang dùng: của project, riêng máy, kế thừa từ toàn máy; thêm từ thư viện, MCP phổ biến, MCP Registry, chỉ cài vào project này) | |
+| `/library` | Thư viện | Skills / MCP servers: **Đã cài** (mọi nơi trên máy, nhóm theo nơi cài), **Thư viện**, MCP **Phổ biến**, **Tìm MCP** | Xem, cài vào nơi khác, lưu vào thư viện, gỡ, tạo và sửa |
+
+Sidebar: mục **Project** có 5 project người xem mở nhiều nhất (đếm trong localStorage), mỗi project có mục con Chat, Việc, Mô hình, Skills & MCP; "Xem tất cả" mở `/projects`. Việc gần đây của mọi project nằm ở Tổng quan.
 | `/setup` | Setup wizard | Giao diện cho `init`: kết quả quét, runtime, đề xuất cơ cấu, diff | Tạo / Chỉnh / Hủy |
 
 Thêm: `/ask` (ô hỏi Director, stream kết quả) và badge "chờ duyệt" trên header.
@@ -67,6 +71,10 @@ Base `/api`. Auth bằng cookie phiên `office_session` sau khi đăng nhập t�
 | POST | `/api/conversations/:id/messages` | đăng nhập | `{text}` → `turn_id`; 429 hết ngân sách, 409 đang bận |
 | GET | `/api/chat/turns/:id/stream` | đăng nhập | SSE: text, tool, status, patch, done, error |
 | POST | `/api/chat/turns/:id/cancel` | đăng nhập | Dừng |
+| GET/POST | `/api/projects/:id/tasks` | đăng nhập | Danh sách / giao việc `{goal, budget_usd}` |
+| GET/DELETE | `/api/tasks/:id` | đăng nhập/admin | Việc kèm bước và diff |
+| GET | `/api/tasks/:id/stream` | đăng nhập | SSE: step, text, tool, step_done, patch, status, done |
+| POST | `/api/tasks/:id/cancel` | đăng nhập | Dừng |
 | POST | `/api/patches/:id/approve` \| `/reject` | admin | Áp diff bằng git apply / từ chối |
 | GET | `/api/cli-tools[/:id]` | admin | Claude Code / Codex: đã cài, version, đăng nhập, cách cài |
 | POST | `/api/cli-tools/:id/install` | admin | `{method}`: native \| brew \| npm |
@@ -83,6 +91,31 @@ Base `/api`. Auth bằng cookie phiên `office_session` sau khi đăng nhập t�
 | POST | `/api/projects/:id/setup/propose` | admin | `{goal?}` → đề xuất AI; `412 no_provider` khi chưa có kết nối |
 | POST | `/api/projects/:id/setup/build` | admin | `{template_key, changes}` → template + problems (xem trước) |
 | POST | `/api/projects/:id/setup/apply` | admin | `{template_key, changes, description}` → cài mô hình cho project |
+
+### Tự động hóa (đã làm, admin)
+
+| Method | Path | Mô tả |
+|---|---|---|
+| GET | `/api/automation/scan` | `{items, projects}`: skill/agent/MCP đã cài và project Claude Code đã mở |
+| POST | `/api/automation/content` | ref → nội dung (MCP đã che bí mật) |
+| POST | `/api/automation/install` | `{kind, name, target{scope,project_path}, library\|from\|template, values, overwrite, accept}`; 409 `exists`/`consent`, 422 `unsafe` kèm `findings` |
+| POST | `/api/automation/remove` | ref → gỡ (skill/agent vào thùng rác) |
+| POST | `/api/automation/save-to-library` | `{ref, name}` |
+| POST | `/api/automation/check` | `{files}` → findings |
+| GET/PUT/DELETE | `/api/automation/library/:kind[/:name]` | thư viện |
+| GET | `/api/automation/mcp/catalog` | MCP phổ biến |
+| GET | `/api/automation/mcp/registry?q=` | tìm trong MCP Registry |
+| GET | `/api/jobs` | Việc của mọi project (mọi user) |
+
+### Skill và đính kèm trong Chat/Việc (đã làm, ADR-025)
+
+| Method | Path | Mô tả |
+|---|---|---|
+| GET | `/api/projects/:id/skills` | skill gọi được bằng `/tên` (project, máy, plugin) |
+| POST | `/api/projects/:id/attachments` | `{name, data(base64)}` → `{id, name, kind, mime, size}` |
+| GET | `/api/attachments/:id` | xem file (ảnh/PDF giữ loại, còn lại text/plain, sandbox) |
+
+Gửi tin nhắn `{text, attachments:[id]}`; tạo Việc `{goal, budget_usd, attachments:[id]}`.
 
 ### Auth + tài khoản (đã làm)
 | Method | Path | Quyền | Mô tả |

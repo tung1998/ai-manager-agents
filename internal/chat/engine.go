@@ -5,6 +5,8 @@
 package chat
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/attach"
+	"bitbucket.org/senprints/agent-office/internal/automation"
 	"context"
 	"errors"
 	"fmt"
@@ -29,14 +31,15 @@ var (
 
 // MessageDTO is a message as the dashboard shows it.
 type MessageDTO struct {
-	ID        string             `json:"id"`
-	Role      string             `json:"role"`
-	Content   string             `json:"content"`
-	Tools     []storage.ToolCall `json:"tools"`
-	Author    string             `json:"author"`
-	CreatedAt time.Time          `json:"created_at"`
-	Patches   []PatchDTO         `json:"patches"`
-	CostUSD   *float64           `json:"cost_usd,omitempty"`
+	ID          string               `json:"id"`
+	Role        string               `json:"role"`
+	Content     string               `json:"content"`
+	Tools       []storage.ToolCall   `json:"tools"`
+	Attachments []storage.Attachment `json:"attachments"`
+	Author      string               `json:"author"`
+	CreatedAt   time.Time            `json:"created_at"`
+	Patches     []PatchDTO           `json:"patches"`
+	CostUSD     *float64             `json:"cost_usd,omitempty"`
 }
 
 // PatchDTO is a proposed change.
@@ -102,6 +105,7 @@ type Engine struct {
 	store     storage.Store
 	providers *provider.Service
 	usage     *usage.Service
+	files     attach.Store
 
 	mu     sync.Mutex
 	active map[string]*Turn // conversation id → running turn
@@ -111,6 +115,33 @@ type Engine struct {
 // NewEngine builds an Engine.
 func NewEngine(store storage.Store, providers *provider.Service, u *usage.Service) *Engine {
 	return &Engine{store: store, providers: providers, usage: u, active: map[string]*Turn{}, turns: map[string]*Turn{}}
+}
+
+// SetAttachments sets where attached files are stored.
+func (e *Engine) SetAttachments(s attach.Store) { e.files = s }
+
+// Attachments returns the attachment store.
+func (e *Engine) Attachments() attach.Store { return e.files }
+
+// Skills lists the skills a project's chat can call with "/name".
+func (e *Engine) Skills(ctx context.Context, projectID string) ([]automation.SkillRef, error) {
+	project, err := e.store.Repos().Get(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return automation.ProjectSkills(userHome(), project.Path), nil
+}
+
+func nonNilAtt(a []storage.Attachment) []storage.Attachment {
+	if a == nil {
+		return []storage.Attachment{}
+	}
+	return a
+}
+
+func userHome() string {
+	h, _ := os.UserHomeDir()
+	return h
 }
 
 // Turn returns a turn by id.
@@ -162,10 +193,11 @@ func (e *Engine) StartConversation(ctx context.Context, projectID, agentID strin
 	})
 }
 
-// Send stores the person's message and starts the agent's answer in the background.
-func (e *Engine) Send(ctx context.Context, conversationID, text string) (*Turn, storage.Message, error) {
+// Send stores the person's message (with attached files) and starts the
+// agent's answer in the background.
+func (e *Engine) Send(ctx context.Context, conversationID, text string, attachmentIDs []string) (*Turn, storage.Message, error) {
 	text = strings.TrimSpace(text)
-	if text == "" {
+	if text == "" && len(attachmentIDs) == 0 {
 		return nil, storage.Message{}, errors.New("tin nhắn trống")
 	}
 	conv, err := e.store.Chat().GetConversation(ctx, conversationID)
@@ -177,6 +209,19 @@ func (e *Engine) Send(ctx context.Context, conversationID, text string) (*Turn, 
 		return nil, storage.Message{}, err
 	}
 	agent, err := e.agentFor(ctx, conv)
+	if err != nil {
+		return nil, storage.Message{}, err
+	}
+	// "/skill request": the agent gets the skill's instructions; the
+	// conversation keeps what the person typed
+	prompt, _, err := automation.ExpandSkillCall(userHome(), project.Path, text)
+	if err != nil {
+		return nil, storage.Message{}, err
+	}
+	if prompt == "" {
+		prompt = "Xem các file đính kèm."
+	}
+	files, err := e.files.Resolve(project.ID, attachmentIDs)
 	if err != nil {
 		return nil, storage.Message{}, err
 	}
@@ -201,17 +246,21 @@ func (e *Engine) Send(ctx context.Context, conversationID, text string) (*Turn, 
 		e.finish(turn)
 		return nil, storage.Message{}, err
 	}
-	msg, err := e.store.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "user", Content: text, Author: actor.From(ctx)})
+	msg, err := e.store.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "user", Content: text, Attachments: attach.Refs(files), Author: actor.From(ctx)})
 	if err != nil {
 		cancel()
 		e.finish(turn)
 		return nil, storage.Message{}, err
 	}
 	if conv.Title == "" {
-		conv.Title = truncate(strings.Join(strings.Fields(text), " "), 80)
+		title := text
+		if title == "" && len(files) > 0 {
+			title = files[0].Name
+		}
+		conv.Title = truncate(strings.Join(strings.Fields(title), " "), 80)
 		_ = e.store.Chat().UpdateConversation(ctx, conv)
 	}
-	go e.run(runCtx, turn, conv, project, agent, history, text)
+	go e.run(runCtx, turn, conv, project, agent, history, prompt, files)
 	return turn, msg, nil
 }
 
@@ -245,12 +294,12 @@ func (e *Engine) finish(t *Turn) {
 	})
 }
 
-func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation, project storage.Repo, agent storage.Agent, history []storage.Message, text string) {
+func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation, project storage.Repo, agent storage.Agent, history []storage.Message, text string, files []attach.File) {
 	defer turn.cancel()
 	defer e.finish(turn)
 	fail := func(err error) {
 		m, _ := e.store.Chat().AddMessage(context.Background(), storage.Message{ConversationID: conv.ID, Role: "error", Content: err.Error()})
-		dto := MessageDTO{ID: m.ID, Role: "error", Content: m.Content, CreatedAt: m.CreatedAt, Tools: []storage.ToolCall{}, Patches: []PatchDTO{}}
+		dto := MessageDTO{ID: m.ID, Role: "error", Content: m.Content, CreatedAt: m.CreatedAt, Tools: []storage.ToolCall{}, Attachments: []storage.Attachment{}, Patches: []PatchDTO{}}
 		turn.emit(Event{Type: "error", Text: err.Error(), Message: &dto})
 	}
 
@@ -274,7 +323,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	req := RunRequest{
 		Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: workDir, Prompt: text,
-		System: systemPrompt(project, agent), History: toHistory(history),
+		System: systemPrompt(project, agent), History: toHistory(history), Attachments: files,
 	}
 	if conv.Runtime == string(p.Kind) {
 		req.SessionID = conv.SessionID
@@ -307,7 +356,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		fail(err)
 		return
 	}
-	dto := MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Tools: msg.Tools, Author: msg.Author, CreatedAt: msg.CreatedAt, CostUSD: cost, Patches: []PatchDTO{}}
+	dto := MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Tools: msg.Tools, Attachments: []storage.Attachment{}, Author: msg.Author, CreatedAt: msg.CreatedAt, CostUSD: cost, Patches: []PatchDTO{}}
 	if canPropose(agent) && project.Path != "" {
 		for _, diff := range ExtractPatches(res.Text) {
 			pt := storage.Patch{ConversationID: conv.ID, MessageID: msg.ID, Diff: diff}
@@ -381,6 +430,61 @@ Quy tắc:
 	return b.String()
 }
 
+// InvokeResult is one agent turn outside a conversation (used by tasks).
+type InvokeResult struct {
+	Text     string
+	Tools    []storage.ToolCall
+	RunID    string
+	CostUSD  *float64
+	Provider string
+	Model    string
+}
+
+// Invoke runs one turn of agent on project with prompt (no history). It uses
+// the same model resolution, read-only tools, system prompt and usage
+// recording as chat. kind labels the usage record (e.g. "task").
+func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage.Agent, prompt string, files []attach.File, kind string, emit func(Event)) (InvokeResult, error) {
+	if emit == nil {
+		emit = func(Event) {}
+	}
+	p, model, err := e.providers.ResolveModel(ctx, agent)
+	if errors.Is(err, storage.ErrNotFound) {
+		return InvokeResult{}, errors.New("chưa có kết nối AI mặc định")
+	}
+	if err != nil {
+		return InvokeResult{}, err
+	}
+	if e.usage != nil {
+		if err := e.usage.Check(ctx, project.ID); err != nil {
+			return InvokeResult{}, err
+		}
+	}
+	key, err := e.providers.APIKey(p)
+	if err != nil {
+		return InvokeResult{}, err
+	}
+	workDir := project.Path
+	if workDir == "" {
+		workDir, _ = os.UserHomeDir()
+	}
+	req := RunRequest{Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: workDir, Prompt: prompt,
+		System: systemPrompt(project, agent), Attachments: files}
+	res, runErr := runnerFor(p.Kind).Run(ctx, req, emit)
+	out := InvokeResult{Text: res.Text, Tools: res.Tools, Provider: p.Name, Model: firstNonEmpty(res.Usage.Model, model)}
+	if e.usage != nil {
+		if r, err := e.usage.Record(ctx, usage.Meta{Kind: kind, ProjectID: project.ID, AgentID: agent.ID}, p, model, res.Usage, runErr); err == nil {
+			out.RunID, out.CostUSD = r.ID, r.CostUSD
+		}
+	}
+	if runErr != nil && strings.TrimSpace(res.Text) == "" {
+		return out, runErr
+	}
+	return out, nil
+}
+
+// CanPropose reports whether an agent may propose code changes.
+func CanPropose(a storage.Agent) bool { return canPropose(a) }
+
 // History returns messages with their patches.
 func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageDTO, error) {
 	msgs, err := e.store.Chat().ListMessages(ctx, conversationID)
@@ -397,7 +501,7 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 	}
 	out := make([]MessageDTO, 0, len(msgs))
 	for _, m := range msgs {
-		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Author: m.Author, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID]}
+		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID]}
 		if d.Patches == nil {
 			d.Patches = []PatchDTO{}
 		}
@@ -418,11 +522,21 @@ func (e *Engine) DecidePatch(ctx context.Context, patchID string, approve bool) 
 	if p.Status != "pending" {
 		return toPatchDTO(p), ErrDecided
 	}
-	conv, err := e.store.Chat().GetConversation(ctx, p.ConversationID)
-	if err != nil {
-		return PatchDTO{}, err
+	projectID := ""
+	if p.TaskID != "" {
+		t, err := e.store.Tasks().Get(ctx, p.TaskID)
+		if err != nil {
+			return PatchDTO{}, err
+		}
+		projectID = t.ProjectID
+	} else {
+		conv, err := e.store.Chat().GetConversation(ctx, p.ConversationID)
+		if err != nil {
+			return PatchDTO{}, err
+		}
+		projectID = conv.ProjectID
 	}
-	project, err := e.store.Repos().Get(ctx, conv.ProjectID)
+	project, err := e.store.Repos().Get(ctx, projectID)
 	if err != nil {
 		return PatchDTO{}, err
 	}

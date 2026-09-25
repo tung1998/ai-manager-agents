@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/attach"
+	"bitbucket.org/senprints/agent-office/internal/automation"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,11 +41,21 @@ func (s *server) chatError(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": be.Error(), "code": "budget"})
 	case errors.Is(err, chat.ErrBusy):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, chat.ErrNoModel), errors.Is(err, chat.ErrNoAgent), errors.Is(err, chat.ErrNoFolder), errors.Is(err, chat.ErrDecided):
+	case errors.Is(err, chat.ErrNoModel), errors.Is(err, chat.ErrNoAgent), errors.Is(err, chat.ErrNoFolder), errors.Is(err, chat.ErrDecided), errors.Is(err, automation.ErrUnknownSkill),
+		errors.Is(err, attach.ErrNotFound), errors.Is(err, attach.ErrTooMany):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
 		s.writeDomainError(w, r, err)
 	}
+}
+
+func (s *server) chatSkills(w http.ResponseWriter, r *http.Request) {
+	list, err := s.cfg.Chat.Skills(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.chatError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"skills": list})
 }
 
 func (s *server) chatAgents(w http.ResponseWriter, r *http.Request) {
@@ -111,19 +123,20 @@ func (s *server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Text string `json:"text"`
+		Text        string   `json:"text"`
+		Attachments []string `json:"attachments"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	turn, msg, err := s.cfg.Chat.Send(r.Context(), r.PathValue("id"), in.Text)
+	turn, msg, err := s.cfg.Chat.Send(r.Context(), r.PathValue("id"), in.Text, in.Attachments)
 	if err != nil {
 		s.chatError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"turn_id": turn.ID,
-		"message": chat.MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Author: msg.Author, CreatedAt: msg.CreatedAt,
+		"message": chat.MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Attachments: msg.Attachments, Author: msg.Author, CreatedAt: msg.CreatedAt,
 			Tools: []storage.ToolCall{}, Patches: []chat.PatchDTO{}},
 	})
 }

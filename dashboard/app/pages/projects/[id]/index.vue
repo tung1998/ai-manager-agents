@@ -9,7 +9,15 @@ const { data: tplData } = await useFetch<{ templates: OrgModel[] }>('/api/templa
 const project = computed(() => data.value?.project)
 const templates = computed(() => tplData.value?.templates ?? [])
 
-const tab = ref<'chat' | 'model'>('chat')
+// the tab lives in the URL so the sidebar can link to each section
+type Tab = 'chat' | 'tasks' | 'model' | 'tools'
+const tabs: Tab[] = ['chat', 'tasks', 'model', 'tools']
+const tab = computed<Tab>({
+  get: () => tabs.find(t => t === route.query.tab) ?? 'chat',
+  set: t => navigateTo({ query: { tab: t } }, { replace: true })
+})
+const { touch } = useProjectUsage()
+watch(id, v => touch(v), { immediate: true })
 
 // ---- apply / change model ----
 const applyOpen = ref(false)
@@ -101,9 +109,19 @@ async function saveAsTemplate() {
         </div>
       </UCard>
 
-      <template v-if="project.model">
-        <UTabs v-model="tab" :items="[{ label: 'Chat', value: 'chat', icon: 'i-lucide-messages-square' }, { label: 'Mô hình', value: 'model', icon: 'i-lucide-network' }]" :content="false" class="w-fit" />
+      <UTabs
+        v-model="tab" :content="false" class="w-fit"
+        :items="[
+          { label: 'Chat', value: 'chat', icon: 'i-lucide-messages-square' },
+          { label: 'Việc', value: 'tasks', icon: 'i-lucide-list-todo' },
+          { label: 'Mô hình', value: 'model', icon: 'i-lucide-network' },
+          ...(isAdmin ? [{ label: 'Skills & MCP', value: 'tools', icon: 'i-lucide-plug-zap' }] : [])
+        ]"
+      />
+      <ProjectTools v-if="tab === 'tools'" :project-path="project.path" />
+      <template v-else-if="project.model">
         <ChatPanel v-if="tab === 'chat'" :project-id="project.id" />
+        <TaskPanel v-else-if="tab === 'tasks'" :project-id="project.id" :model-kind="project.model.kind" :governance="project.model.governance.mode" />
         <OrgModelEditor v-else :key="project.model.id" :model-id="project.model.id" @changed="refresh()" />
       </template>
       <div v-else class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">

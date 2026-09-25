@@ -270,9 +270,19 @@ type Message struct {
 	Role           string // user | assistant | error
 	Content        string
 	Tools          []ToolCall
+	Attachments    []Attachment
 	RunID          string
 	Author         string
 	CreatedAt      time.Time
+}
+
+// Attachment references a file a person attached (see internal/attach).
+type Attachment struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"` // image | pdf | text
+	Mime string `json:"mime"`
+	Size int64  `json:"size"`
 }
 
 // Patch is a proposed code change awaiting approval.
@@ -280,6 +290,8 @@ type Patch struct {
 	ID             string
 	ConversationID string
 	MessageID      string
+	TaskID         string
+	StepID         string
 	Diff           string
 	Files          []string
 	Status         string // pending | applied | rejected | failed
@@ -304,6 +316,58 @@ type ChatRepo interface {
 	GetPatch(ctx context.Context, id string) (Patch, error)
 	ListPatches(ctx context.Context, conversationID string) ([]Patch, error)
 	DecidePatch(ctx context.Context, id, status, detail, by string, at time.Time) error
+}
+
+// Task is a goal given to a project's whole org model.
+type Task struct {
+	ID          string
+	ProjectID   string
+	Title       string
+	Goal        string
+	Mode        string // single | hierarchy | council
+	Status      string // running | done | failed | cancelled | rejected
+	Result      string
+	Detail      string
+	BudgetUSD   float64
+	CostUSD     float64
+	Attachments []Attachment
+	CreatedBy   string
+	CreatedAt   time.Time
+	FinishedAt  *time.Time
+}
+
+// TaskStep is one agent's turn inside a task.
+type TaskStep struct {
+	ID          string
+	TaskID      string
+	Seq         int
+	Phase       string // plan | vote | revise | work | review | synthesize
+	AgentID     string
+	AgentKey    string
+	AgentName   string
+	Instruction string
+	Output      string
+	Data        map[string]any
+	Tools       []ToolCall
+	Status      string // running | done | failed | skipped
+	Error       string
+	CostUSD     *float64
+	RunID       string
+	StartedAt   time.Time
+	FinishedAt  *time.Time
+}
+
+// TaskRepo stores tasks and their steps.
+type TaskRepo interface {
+	Create(ctx context.Context, t Task) (Task, error)
+	Update(ctx context.Context, t Task) error
+	Get(ctx context.Context, id string) (Task, error)
+	List(ctx context.Context, projectID string, limit int) ([]Task, error) // "" = all projects
+	Delete(ctx context.Context, id string) error
+	AddStep(ctx context.Context, s TaskStep) (TaskStep, error)
+	UpdateStep(ctx context.Context, s TaskStep) error
+	ListSteps(ctx context.Context, taskID string) ([]TaskStep, error)
+	ListPatches(ctx context.Context, taskID string) ([]Patch, error)
 }
 
 // RepoRepo manages registered repositories.

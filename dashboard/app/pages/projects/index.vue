@@ -11,11 +11,28 @@ const form = reactive({ scope: 'folder' as 'folder' | 'machine', path: '', name:
 const error = ref('')
 const adding = ref(false)
 
-function openAdd() {
-  Object.assign(form, { scope: 'folder', path: '', name: '', template_id: '__ai' })
+function openAdd(path = '', name = '') {
+  Object.assign(form, { scope: 'folder', path, name, template_id: '__ai' })
   error.value = ''
   addOpen.value = true
 }
+
+// folders Claude Code has opened on this machine that office does not manage yet
+const found = ref<MachineProject[]>([])
+const scanning = ref(false)
+async function scanMachine() {
+  scanning.value = true
+  try {
+    const inv = await $fetch<Inventory>('/api/automation/scan')
+    const known = new Set(projects.value.map(p => p.path))
+    found.value = inv.projects.filter(p => p.exists && !p.project_id && !known.has(p.path))
+  } catch {
+    found.value = []
+  } finally {
+    scanning.value = false
+  }
+}
+onMounted(() => { if (isAdmin.value) scanMachine() })
 
 async function add() {
   adding.value = true
@@ -39,7 +56,7 @@ async function add() {
 <template>
   <PageShell title="Project">
     <template #actions>
-      <UButton v-if="isAdmin" icon="i-lucide-folder-plus" label="Thêm project" @click="openAdd" />
+      <UButton v-if="isAdmin" icon="i-lucide-folder-plus" label="Thêm project" @click="openAdd()" />
     </template>
 
     <div class="space-y-4">
@@ -57,7 +74,7 @@ async function add() {
         <p class="text-sm text-(--ui-text-muted)">
           Chọn một thư mục trên máy, hoặc tạo helper cho toàn bộ máy. Cũng có thể chạy <code>office init</code> trong thư mục.
         </p>
-        <UButton v-if="isAdmin" class="mt-4" icon="i-lucide-folder-plus" label="Thêm project" @click="openAdd" />
+        <UButton v-if="isAdmin" class="mt-4" icon="i-lucide-folder-plus" label="Thêm project" @click="openAdd()" />
       </div>
 
       <div class="grid gap-3">
@@ -80,6 +97,31 @@ async function add() {
           <UIcon name="i-lucide-chevron-right" class="size-4 text-(--ui-text-dimmed)" />
         </NuxtLink>
       </div>
+
+      <section v-if="isAdmin && (found.length || scanning)" class="space-y-2">
+        <div class="flex items-center gap-2">
+          <h3 class="text-sm font-semibold">Tìm thấy trên máy</h3>
+          <span class="text-xs text-(--ui-text-muted)">Thư mục Claude Code đã mở, chưa quản lý trong office</span>
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :loading="scanning" aria-label="Quét lại" class="ms-auto" @click="scanMachine" />
+        </div>
+        <div class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
+          <div v-for="f in found" :key="f.path" class="flex flex-wrap items-center gap-3 px-4 py-2.5">
+            <UIcon name="i-lucide-folder" class="size-4 text-(--ui-text-muted)" />
+            <div class="min-w-0 flex-1">
+              <p class="font-medium">{{ f.name }}</p>
+              <p class="truncate font-mono text-xs text-(--ui-text-muted)">{{ f.path }}</p>
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <UBadge v-if="f.skills" color="neutral" variant="subtle" size="sm" icon="i-lucide-sparkles" :label="`${f.skills} skill`" />
+              <UBadge v-if="f.agents" color="neutral" variant="subtle" size="sm" icon="i-lucide-bot" :label="`${f.agents} agent`" />
+              <UBadge v-if="f.mcp" color="neutral" variant="subtle" size="sm" icon="i-lucide-plug-zap" :label="`${f.mcp} MCP`" />
+              <UBadge v-if="f.claude_md" color="neutral" variant="subtle" size="sm" label="CLAUDE.md" />
+              <UBadge v-if="f.agents_md" color="neutral" variant="subtle" size="sm" label="AGENTS.md" />
+            </div>
+            <UButton size="sm" variant="outline" icon="i-lucide-plus" label="Thêm" @click="openAdd(f.path, f.name)" />
+          </div>
+        </div>
+      </section>
     </div>
 
     <UModal v-model:open="addOpen" title="Thêm project" :ui="{ content: 'max-w-2xl' }">

@@ -6,15 +6,57 @@ const { user, isAdmin, logout } = useAuth()
 
 const bareLayout = computed(() => route.path === '/login')
 
+// sidebar: the 5 projects this viewer opens most, each with its sections
+// (refetched on navigation so added/renamed projects show up)
+const projectList = ref<Project[]>([])
+const { top } = useProjectUsage()
+const recentProjects = computed(() => top(projectList.value, 5, route.params.id as string | undefined))
+watch(() => route.path, async () => {
+  if (bareLayout.value) return
+  try {
+    projectList.value = (await $fetch<{ projects: Project[] }>('/api/projects')).projects
+  } catch { /* signed out: the auth middleware redirects */ }
+}, { immediate: true })
+
+function projectSections(id: string): NavigationMenuItem[] {
+  const to = (tab: string) => ({ path: `/projects/${id}`, query: { tab } })
+  return [
+    { label: 'Chat', icon: 'i-lucide-messages-square', to: to('chat'), exactQuery: 'partial' },
+    { label: 'Việc', icon: 'i-lucide-list-todo', to: to('tasks'), exactQuery: 'partial' },
+    { label: 'Mô hình', icon: 'i-lucide-network', to: to('model'), exactQuery: 'partial' },
+    ...(isAdmin.value ? [{ label: 'Skills & MCP', icon: 'i-lucide-plug-zap', to: to('tools'), exactQuery: 'partial' as const }] : [])
+  ]
+}
+
 const items = computed<NavigationMenuItem[][]>(() => {
   const main: NavigationMenuItem[] = [
     { label: 'Tổng quan', icon: 'i-lucide-layout-dashboard', to: '/' },
-    { label: 'Project', icon: 'i-lucide-folder-git-2', to: '/projects' },
+    {
+      // an item with both a link and children navigates on click; only the chevron toggles
+      label: 'Project',
+      icon: 'i-lucide-folder-git-2',
+      to: '/projects',
+      exact: true,
+      defaultOpen: true,
+      children: [
+        ...recentProjects.value.map(p => ({
+          value: `project-${p.id}`, // open state follows the project, not its position
+          label: p.name,
+          icon: p.scope === 'machine' ? 'i-lucide-monitor' : 'i-lucide-folder',
+          to: `/projects/${p.id}`,
+          defaultOpen: route.params.id === p.id,
+          children: projectSections(p.id)
+        })),
+        // "…" only when some projects are hidden
+        ...(projectList.value.length > 5 ? [{ icon: 'i-lucide-ellipsis', to: '/projects', exact: true, 'aria-label': 'Xem tất cả project' }] : [])
+      ]
+    },
     { label: 'Kết nối AI', icon: 'i-lucide-plug', to: '/providers' },
     { label: 'Blackboard', icon: 'i-lucide-messages-square', to: '/blackboard', badge: 'M4' },
     { label: 'Incidents', icon: 'i-lucide-siren', to: '/incidents', badge: 'M4' },
     { label: 'Chi phí', icon: 'i-lucide-wallet', to: '/costs' },
-    { label: 'Mô hình', icon: 'i-lucide-network', to: '/templates' }
+    { label: 'Mô hình', icon: 'i-lucide-network', to: '/templates' },
+    ...(isAdmin.value ? [{ label: 'Thư viện', icon: 'i-lucide-library', to: '/library' }] : [])
   ]
   const admin: NavigationMenuItem[] = isAdmin.value
     ? [
@@ -49,7 +91,8 @@ const userMenu = computed<DropdownMenuItem[][]>(() => [
       </template>
 
       <template #default="{ collapsed }">
-        <UNavigationMenu :collapsed="collapsed" :items="items" orientation="vertical" />
+        <!-- remount when the open project or the list changes so its sections expand -->
+        <UNavigationMenu :key="`${route.params.id ?? ''}:${projectList.length}`" :collapsed="collapsed" :items="items" orientation="vertical" />
       </template>
 
       <template #footer="{ collapsed }">

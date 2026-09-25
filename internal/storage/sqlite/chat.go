@@ -81,8 +81,11 @@ func (r chatRepo) AddMessage(ctx context.Context, m storage.Message) (storage.Me
 	if m.Tools == nil {
 		m.Tools = []storage.ToolCall{}
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, role, content, tools, run_id, author, created_at) VALUES (?,?,?,?,?,?,?,?)`,
-		m.ID, m.ConversationID, m.Role, m.Content, toJSON(m.Tools), nullStr(m.RunID), m.Author, fmtTime(m.CreatedAt))
+	if m.Attachments == nil {
+		m.Attachments = []storage.Attachment{}
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, role, content, tools, attachments, run_id, author, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+		m.ID, m.ConversationID, m.Role, m.Content, toJSON(m.Tools), toJSON(m.Attachments), nullStr(m.RunID), m.Author, fmtTime(m.CreatedAt))
 	if err == nil {
 		_, _ = r.db.ExecContext(ctx, `UPDATE conversations SET updated_at=? WHERE id=?`, fmtTime(m.CreatedAt), m.ConversationID)
 	}
@@ -90,7 +93,7 @@ func (r chatRepo) AddMessage(ctx context.Context, m storage.Message) (storage.Me
 }
 
 func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]storage.Message, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, conversation_id, role, content, tools, run_id, author, created_at
+	rows, err := r.db.QueryContext(ctx, `SELECT id, conversation_id, role, content, tools, attachments, run_id, author, created_at
 		FROM messages WHERE conversation_id=? ORDER BY created_at, id`, conversationID)
 	if err != nil {
 		return nil, err
@@ -99,15 +102,18 @@ func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]st
 	var out []storage.Message
 	for rows.Next() {
 		var (
-			m              storage.Message
-			tools, created string
-			run            sql.NullString
+			m                    storage.Message
+			tools, atts, created string
+			run                  sql.NullString
 		)
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &tools, &run, &m.Author, &created); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &tools, &atts, &run, &m.Author, &created); err != nil {
 			return nil, err
 		}
 		m.RunID = run.String
 		if err := json.Unmarshal([]byte(tools), &m.Tools); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(atts), &m.Attachments); err != nil {
 			return nil, err
 		}
 		if m.CreatedAt, err = parseTime(created); err != nil {
@@ -118,17 +124,18 @@ func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]st
 	return out, rows.Err()
 }
 
-const patchCols = `id, conversation_id, message_id, diff, files, status, detail, decided_by, decided_at, created_at`
+const patchCols = `id, conversation_id, message_id, task_id, step_id, diff, files, status, detail, decided_by, decided_at, created_at`
 
 func scanPatch(row scanner) (storage.Patch, error) {
 	var (
-		p              storage.Patch
-		files, created string
-		decided        sql.NullString
+		p                          storage.Patch
+		files, created             string
+		decided, conv, msg, tk, st sql.NullString
 	)
-	if err := row.Scan(&p.ID, &p.ConversationID, &p.MessageID, &p.Diff, &files, &p.Status, &p.Detail, &p.DecidedBy, &decided, &created); err != nil {
+	if err := row.Scan(&p.ID, &conv, &msg, &tk, &st, &p.Diff, &files, &p.Status, &p.Detail, &p.DecidedBy, &decided, &created); err != nil {
 		return p, notFound(err)
 	}
+	p.ConversationID, p.MessageID, p.TaskID, p.StepID = conv.String, msg.String, tk.String, st.String
 	if err := json.Unmarshal([]byte(files), &p.Files); err != nil {
 		return p, err
 	}
@@ -155,8 +162,9 @@ func (r chatRepo) AddPatch(ctx context.Context, p storage.Patch) (storage.Patch,
 		p.Files = []string{}
 	}
 	p.CreatedAt = time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `INSERT INTO patches (`+patchCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.ConversationID, p.MessageID, p.Diff, toJSON(p.Files), p.Status, p.Detail, p.DecidedBy, nil, fmtTime(p.CreatedAt))
+	_, err := r.db.ExecContext(ctx, `INSERT INTO patches (`+patchCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, nullStr(p.ConversationID), nullStr(p.MessageID), nullStr(p.TaskID), nullStr(p.StepID), p.Diff, toJSON(p.Files), p.Status,
+		p.Detail, p.DecidedBy, nil, fmtTime(p.CreatedAt))
 	return p, err
 }
 

@@ -1,0 +1,230 @@
+<script setup lang="ts">
+// Prompt box shared by Chat and Việc: "/" opens the project's skills, files
+// can be attached (button, drag & drop, paste) and are uploaded right away.
+export interface Attachment { id: string, name: string, kind: 'image' | 'pdf' | 'text', mime: string, size: number }
+interface Skill { name: string, description: string, source: 'project' | 'user' | 'plugin' }
+
+const props = withDefaults(defineProps<{
+  projectId: string
+  placeholder?: string
+  rows?: number
+  maxrows?: number
+  submitOnEnter?: boolean
+}>(), { placeholder: '', rows: 1, maxrows: 8, submitOnEnter: true })
+const text = defineModel<string>({ default: '' })
+const files = defineModel<Attachment[]>('attachments', { default: () => [] })
+const emit = defineEmits<{ submit: [] }>()
+const toast = useToast()
+
+// ---- skills ----
+const { data: skillData } = await useFetch<{ skills: Skill[] }>(() => `/api/projects/${props.projectId}/skills`)
+const skills = computed(() => skillData.value?.skills ?? [])
+const menuIndex = ref(0)
+const menuClosed = ref(false)
+// open while typing the first word after "/"
+const query = computed(() => {
+  const m = /^\/([^\s]*)$/.exec(text.value)
+  return m ? m[1]!.toLowerCase() : null
+})
+const matches = computed(() => {
+  if (query.value === null) return []
+  const q = query.value
+  return skills.value
+    .filter(s => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q))
+    .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
+    .slice(0, 8)
+})
+const menuOpen = computed(() => !menuClosed.value && matches.value.length > 0)
+watch(query, () => { menuIndex.value = 0; menuClosed.value = false })
+const activeSkill = computed(() => {
+  const m = /^\/(\S+)\s/.exec(text.value)
+  return m ? skills.value.find(s => s.name === m[1]) : undefined
+})
+const sourceLabel = { project: 'project', user: 'máy', plugin: 'plugin' }
+
+// The menu is teleported to <body> with fixed position so no scrolling or
+// overflow-hidden parent can clip it; it opens upward unless there is no room.
+const root = ref<HTMLElement | null>(null)
+const menuStyle = ref<Record<string, string>>({})
+const MENU_H = 300
+function place() {
+  const r = root.value?.getBoundingClientRect()
+  if (!r) return
+  const width = `${Math.min(r.width, 520)}px`
+  const left = `${r.left}px`
+  menuStyle.value = r.top > MENU_H + 8 || r.top > window.innerHeight - r.bottom
+    ? { left, width, bottom: `${window.innerHeight - r.top + 4}px`, maxHeight: `${Math.min(MENU_H, r.top - 8)}px` }
+    : { left, width, top: `${r.bottom + 4}px`, maxHeight: `${Math.min(MENU_H, window.innerHeight - r.bottom - 8)}px` }
+}
+watch(menuOpen, (open) => {
+  if (open) {
+    place()
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+  } else {
+    window.removeEventListener('scroll', place, true)
+    window.removeEventListener('resize', place)
+  }
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', place, true)
+  window.removeEventListener('resize', place)
+})
+watch(() => matches.value.length, () => { if (menuOpen.value) nextTick(place) })
+
+const box = ref<{ textareaRef?: HTMLTextAreaElement } | null>(null)
+function pick(s: Skill) {
+  text.value = `/${s.name} `
+  nextTick(() => box.value?.textareaRef?.focus())
+}
+
+function onKey(e: KeyboardEvent) {
+  if (menuOpen.value) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const n = matches.value.length
+      menuIndex.value = (menuIndex.value + (e.key === 'ArrowDown' ? 1 : n - 1)) % n
+      return
+    }
+    if ((e.key === 'Enter' || e.key === 'Tab') && !e.isComposing) {
+      e.preventDefault()
+      pick(matches.value[menuIndex.value]!)
+      return
+    }
+    if (e.key === 'Escape') {
+      menuClosed.value = true
+      return
+    }
+  }
+  if (props.submitOnEnter && e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault()
+    if (!uploading.value) emit('submit')
+  }
+}
+
+// ---- attachments ----
+const uploading = ref(0)
+const dragging = ref(false)
+const input = ref<HTMLInputElement | null>(null)
+const MAX = 10 * 1024 * 1024
+
+function toBase64(f: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).split(',')[1] ?? '')
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(f)
+  })
+}
+
+async function upload(list: FileList | File[]) {
+  for (const f of Array.from(list)) {
+    if (files.value.length >= 10) {
+      toast.add({ title: 'Tối đa 10 file mỗi lần gửi', color: 'warning' })
+      break
+    }
+    if (f.size > MAX) {
+      toast.add({ title: `${f.name}: quá 10 MB`, color: 'error' })
+      continue
+    }
+    uploading.value++
+    try {
+      const a = await $fetch<Attachment>(`/api/projects/${props.projectId}/attachments`, {
+        method: 'POST', body: { name: f.name || 'pasted.png', data: await toBase64(f) }
+      })
+      files.value = [...files.value, a]
+    } catch (e) {
+      toast.add({ title: `${f.name}: ${apiError(e)}`, color: 'error' })
+    } finally {
+      uploading.value--
+    }
+  }
+}
+function onPick(e: Event) {
+  const t = e.target as HTMLInputElement
+  if (t.files) upload(t.files)
+  t.value = ''
+}
+function onDrop(e: DragEvent) {
+  dragging.value = false
+  if (e.dataTransfer?.files.length) upload(e.dataTransfer.files)
+}
+function onPaste(e: ClipboardEvent) {
+  const list = Array.from(e.clipboardData?.files ?? [])
+  if (list.length) {
+    e.preventDefault()
+    upload(list)
+  }
+}
+function remove(a: Attachment) {
+  files.value = files.value.filter(f => f.id !== a.id)
+}
+const size = (n: number) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`
+const icon = { image: 'i-lucide-image', pdf: 'i-lucide-file-text', text: 'i-lucide-file-code' }
+
+defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value?.textareaRef?.focus() })
+</script>
+
+<template>
+  <div
+    ref="root"
+    class="relative rounded-lg border bg-(--ui-bg) transition"
+    :class="dragging ? 'border-(--ui-primary) ring-2 ring-(--ui-primary)/20' : 'border-(--ui-border)'"
+    @dragover.prevent="dragging = true" @dragleave.self="dragging = false" @drop.prevent="onDrop"
+  >
+    <!-- skill menu -->
+    <Teleport to="body">
+      <div
+        v-if="menuOpen" role="listbox" :style="menuStyle"
+        class="fixed z-50 overflow-auto rounded-lg border border-(--ui-border) bg-(--ui-bg) p-1 shadow-lg"
+      >
+      <p class="px-2 py-1 text-xs text-(--ui-text-muted)">Skill · ↑↓ chọn, Enter dùng, Esc đóng</p>
+      <button
+        v-for="(s, i) in matches" :key="s.name" type="button" role="option" :aria-selected="i === menuIndex"
+        class="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left"
+        :class="i === menuIndex ? 'bg-(--ui-bg-elevated)' : 'hover:bg-(--ui-bg-elevated)'"
+        @mousedown.prevent="pick(s)" @mouseenter="menuIndex = i"
+      >
+        <UIcon name="i-lucide-sparkles" class="mt-0.5 size-4 shrink-0 text-primary" />
+        <span class="min-w-0 flex-1">
+          <span class="font-mono text-sm">/{{ s.name }}</span>
+          <span class="line-clamp-1 text-xs text-(--ui-text-muted)">{{ s.description }}</span>
+        </span>
+        <UBadge color="neutral" variant="subtle" size="sm" :label="sourceLabel[s.source]" />
+      </button>
+      </div>
+    </Teleport>
+
+    <!-- attached files -->
+    <div v-if="files.length || uploading" class="flex flex-wrap gap-2 px-3 pt-3">
+      <div v-for="a in files" :key="a.id" class="group relative flex items-center gap-2 rounded-md border border-(--ui-border) bg-(--ui-bg-elevated) py-1 ps-1 pe-2 text-xs">
+        <img v-if="a.kind === 'image'" :src="`/api/attachments/${a.id}`" :alt="a.name" class="size-8 rounded object-cover">
+        <UIcon v-else :name="icon[a.kind]" class="size-5 text-(--ui-text-muted)" />
+        <span class="max-w-40 truncate">{{ a.name }}</span>
+        <span class="text-(--ui-text-dimmed)">{{ size(a.size) }}</span>
+        <button type="button" class="text-(--ui-text-muted) hover:text-(--ui-error)" :aria-label="`Bỏ ${a.name}`" @click="remove(a)">
+          <UIcon name="i-lucide-x" class="size-3.5" />
+        </button>
+      </div>
+      <div v-if="uploading" class="flex items-center gap-1 text-xs text-(--ui-text-muted)">
+        <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Đang tải lên…
+      </div>
+    </div>
+
+    <UTextarea
+      ref="box" v-model="text" :rows="rows" autoresize :maxrows="maxrows" variant="none" class="w-full"
+      :placeholder="placeholder" @keydown="onKey" @paste="onPaste"
+    />
+
+    <div class="flex items-center gap-2 px-2 pb-2">
+      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-paperclip" aria-label="Đính kèm file" @click="input?.click()" />
+      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-slash" aria-label="Chọn skill" :disabled="!skills.length" @click="text = '/'; box?.textareaRef?.focus()" />
+      <UBadge v-if="activeSkill" color="primary" variant="subtle" size="sm" icon="i-lucide-sparkles" :label="activeSkill.name" />
+      <span class="hidden text-xs text-(--ui-text-dimmed) sm:inline">Kéo thả hoặc dán ảnh, PDF, file chữ · gõ / để dùng skill</span>
+      <div class="ms-auto flex items-center gap-2">
+        <slot name="actions" />
+      </div>
+    </div>
+    <input ref="input" type="file" multiple class="hidden" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/*,.md,.csv,.json,.log,.yaml,.yml,.ts,.js,.vue,.go,.py,.sql,.php" @change="onPick">
+  </div>
+</template>

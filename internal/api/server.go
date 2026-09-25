@@ -16,12 +16,14 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/auth"
+	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/tasks"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
@@ -41,13 +43,15 @@ type Config struct {
 	Logger         *slog.Logger
 	Version        string
 
-	Providers *provider.Service // nil disables the provider/model/repo routes (auth-only tests)
-	Org       *orgmodel.Service
-	Setup     *setup.Assistant
-	Transfer  *transfer.Service
-	Usage     *usage.Service
-	CLITools  *clitools.Manager // nil: installing/signing in CLIs from the dashboard is off
-	Chat      *chat.Engine
+	Providers  *provider.Service // nil disables the provider/model/repo routes (auth-only tests)
+	Org        *orgmodel.Service
+	Setup      *setup.Assistant
+	Transfer   *transfer.Service
+	Usage      *usage.Service
+	CLITools   *clitools.Manager // nil: installing/signing in CLIs from the dashboard is off
+	Chat       *chat.Engine
+	Tasks      *tasks.Service
+	Automation *automation.Service // nil: skills/agents/MCP management is off
 	// Backup writes a copy of the data to a new folder and returns its path.
 	Backup func(ctx context.Context) (string, error)
 	System SystemInfo
@@ -146,8 +150,11 @@ func (s *server) csrf(next http.Handler) http.Handler {
 			}
 		}
 		limit := int64(maxBody)
-		if r.URL.Path == "/api/transfer/import" {
+		if r.URL.Path == "/api/transfer/import" || strings.HasPrefix(r.URL.Path, "/api/automation/") {
 			limit = 8 << 20
+		}
+		if strings.HasSuffix(r.URL.Path, "/attachments") {
+			limit = 15 << 20 // 10 MB file as base64
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)

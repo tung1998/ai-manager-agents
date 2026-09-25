@@ -115,7 +115,11 @@ func (anthropicRunner) Run(ctx context.Context, req RunRequest, emit func(Event)
 	for _, h := range req.History {
 		messages = append(messages, map[string]any{"role": h.Role, "content": h.Content})
 	}
-	messages = append(messages, map[string]any{"role": "user", "content": req.Prompt})
+	content, err := anthropicContent(req.Prompt, req.Attachments)
+	if err != nil {
+		return RunResult{}, err
+	}
+	messages = append(messages, map[string]any{"role": "user", "content": content})
 	ws := Workspace{Root: req.WorkDir}
 	res := RunResult{}
 	start := time.Now()
@@ -203,7 +207,11 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 	for _, h := range req.History {
 		messages = append(messages, map[string]any{"role": h.Role, "content": h.Content})
 	}
-	messages = append(messages, map[string]any{"role": "user", "content": req.Prompt})
+	content, err := openAIContent(req.Prompt, req.Attachments)
+	if err != nil {
+		return RunResult{}, err
+	}
+	messages = append(messages, map[string]any{"role": "user", "content": content})
 	ws := Workspace{Root: req.WorkDir}
 	res := RunResult{}
 	start := time.Now()

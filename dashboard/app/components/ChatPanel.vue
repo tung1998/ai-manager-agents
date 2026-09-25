@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Patch } from './PatchCard.vue'
+import type { Attachment } from './PromptInput.vue'
 
 interface ToolCall { name: string, summary: string, error?: boolean }
 interface Message {
@@ -7,6 +8,7 @@ interface Message {
   role: 'user' | 'assistant' | 'error'
   content: string
   tools: ToolCall[]
+  attachments?: Attachment[]
   author: string
   created_at: string
   patches: Patch[]
@@ -26,6 +28,8 @@ const conversations = computed(() => convData.value?.conversations ?? [])
 const current = ref<Conversation | null>(null)
 const messages = ref<Message[]>([])
 const draft = ref('')
+const draftFiles = ref<Attachment[]>([])
+const prompt = ref<{ busy: boolean } | null>(null)
 const listEl = ref<HTMLElement | null>(null)
 
 // live answer being streamed
@@ -63,12 +67,13 @@ async function newConversation(agentId = '') {
 
 async function send() {
   const text = draft.value.trim()
-  if (!text || streaming.value) return
+  if ((!text && !draftFiles.value.length) || streaming.value || prompt.value?.busy) return
   if (!current.value) await newConversation()
   if (!current.value) return
   try {
-    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text } })
+    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id) } })
     draft.value = ''
+    draftFiles.value = []
     messages.value.push(res.message)
     follow(res.turn_id)
     scrollDown()
@@ -145,13 +150,6 @@ function onPatchUpdated(msg: Message, p: Patch) {
   if (i >= 0) msg.patches[i] = p
 }
 
-function onKey(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-    e.preventDefault()
-    send()
-  }
-}
-
 const agentMenu = computed(() => [agents.value.map(a => ({ label: a.name, description: a.role, onSelect: () => newConversation(a.id) }))])
 const when = (d: string) => new Date(d).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
@@ -199,8 +197,9 @@ onBeforeUnmount(stopStream)
         </div>
 
         <template v-for="m in messages" :key="m.id">
-          <div v-if="m.role === 'user'" class="flex justify-end">
-            <div class="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--ui-primary) px-3.5 py-2 text-sm text-white">{{ m.content }}</div>
+          <div v-if="m.role === 'user'" class="flex flex-col items-end gap-1.5">
+            <AttachmentList :items="m.attachments ?? []" align="end" />
+            <div v-if="m.content" class="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--ui-primary) px-3.5 py-2 text-sm text-white">{{ m.content }}</div>
           </div>
           <div v-else-if="m.role === 'error'" class="flex items-start gap-2 text-sm text-(--ui-error)">
             <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0" />
@@ -239,15 +238,16 @@ onBeforeUnmount(stopStream)
       </div>
 
       <form class="border-t border-(--ui-border) p-3" @submit.prevent="send">
-        <div class="flex items-end gap-2">
-          <UTextarea
-            v-model="draft" :rows="1" autoresize :maxrows="8" class="flex-1"
-            :placeholder="current ? `Nhắn ${current.agent_name}… (Enter để gửi, Shift+Enter xuống dòng)` : 'Nhắn agent… (Enter để gửi)'"
-            @keydown="onKey"
-          />
-          <UButton v-if="streaming" icon="i-lucide-square" color="neutral" variant="outline" label="Dừng" @click="cancel" />
-          <UButton v-else type="submit" icon="i-lucide-send" :disabled="!draft.trim()" />
-        </div>
+        <PromptInput
+          ref="prompt" v-model="draft" v-model:attachments="draftFiles" :project-id="projectId"
+          :placeholder="current ? `Nhắn ${current.agent_name}… (Enter gửi, Shift+Enter xuống dòng)` : 'Nhắn agent… (Enter gửi)'"
+          @submit="send"
+        >
+          <template #actions>
+            <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" label="Dừng" @click="cancel" />
+            <UButton v-else size="sm" type="submit" icon="i-lucide-send" :disabled="!draft.trim() && !draftFiles.length" />
+          </template>
+        </PromptInput>
       </form>
     </section>
   </div>

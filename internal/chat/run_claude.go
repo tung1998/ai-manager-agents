@@ -57,11 +57,15 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 		bin = "claude"
 	}
 	start := time.Now()
-	prompt := req.Prompt
+	prompt, dirs := claudePrompt(req.Prompt, req.Attachments)
 	if !resume || req.SessionID == "" {
-		prompt = transcript(req.History, req.Prompt)
+		prompt = transcript(req.History, prompt)
 	}
-	cmd := exec.CommandContext(ctx, bin, r.args(req, resume)...)
+	args := r.args(req, resume)
+	for _, d := range dirs {
+		args = append(args, "--add-dir", d)
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = req.WorkDir
 	cmd.Stdin = strings.NewReader(prompt)
 	var stderr bytes.Buffer

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/attach"
+	"bitbucket.org/senprints/agent-office/internal/automation"
+	"bitbucket.org/senprints/agent-office/internal/home"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +23,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/tasks"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 )
 
@@ -66,15 +70,19 @@ func runCmd() *cobra.Command {
 			if cliSetup {
 				cliTools = a.cli
 			}
+			chatEngine := chat.NewEngine(a.store, a.providers, a.usage)
+			chatEngine.SetAttachments(attach.Store{Dir: filepath.Join(h.Dir, "attachments")})
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 			handler := api.New(api.Config{
 				Store: st, Auth: a.auth, AllowedOrigins: origins,
 				SecureCookies: secureCookies, TrustedProxies: proxies, Logger: log, Version: version,
 				Providers: a.providers, Org: a.org, Setup: setup.New(a.store, a.providers, a.org),
-				Transfer: transfer.New(a.store, a.providers, a.org),
-				Usage:    a.usage,
-				CLITools: cliTools,
-				Chat:     chat.NewEngine(a.store, a.providers, a.usage),
+				Transfer:   transfer.New(a.store, a.providers, a.org),
+				Usage:      a.usage,
+				CLITools:   cliTools,
+				Chat:       chatEngine,
+				Tasks:      tasks.New(a.store, chatEngine),
+				Automation: newAutomation(a, h),
 				Backup: func(ctx context.Context) (string, error) {
 					return backupTo(ctx, a, filepath.Join(h.Dir, "backups", time.Now().Format("20060102-150405")))
 				},
@@ -141,4 +149,32 @@ func parsePrefixes(in []string) ([]netip.Prefix, error) {
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// newAutomation manages skills, agents and MCP servers on this machine. The
+// library lives in the office data folder; removed items go to its trash.
+func newAutomation(a *app, h home.Home) *automation.Service {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	trash := filepath.Join(h.Dir, "trash")
+	return &automation.Service{
+		Home:    userHome,
+		Library: automation.Library{Dir: filepath.Join(h.Dir, "library"), Trash: trash},
+		Installer: automation.Installer{Home: userHome, Trash: trash, Claude: func() string {
+			return a.cli.LookPath("claude")
+		}},
+		Projects: func(ctx context.Context) map[string]string {
+			out := map[string]string{}
+			if list, err := a.store.Repos().List(ctx); err == nil {
+				for _, p := range list {
+					if p.Path != "" {
+						out[p.Path] = p.ID
+					}
+				}
+			}
+			return out
+		},
+	}
 }

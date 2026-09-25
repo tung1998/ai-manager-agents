@@ -94,7 +94,10 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Lịch sử lượt gọi AI, chi phí (thật hoặc ước tính), trần ngân sách theo ngày cho office và project, trang Chi phí (ADR-020) | Xong |
 | Cài và đăng nhập Claude Code / Codex ngay trên dashboard (ADR-021) | Xong |
 | Chat với agent trong project: stream, công cụ đọc, diff được duyệt rồi mới áp; Claude Code / API / Codex (ADR-022) | Xong |
-| Team và Tam quyền chạy thật (lead chia việc cho worker), việc định kỳ, `doctor` | Chưa làm |
+| Việc cho cả mô hình: Solo, Team (lập kế hoạch → làm song song → tổng hợp), Tam quyền (biểu quyết, phủ quyết, kiểm tra) (ADR-023) | Xong |
+| Tự động hóa: quét và quản lý skill, agent, MCP (máy, project, riêng máy), thư viện, kiểm tra an toàn, MCP phổ biến và tìm trong MCP Registry; tab Skills & MCP trong project, trang Thư viện, sidebar project lồng nhau (ADR-024) | Xong |
+| Gọi skill bằng "/" và đính kèm ảnh, PDF, file chữ trong Chat và Việc (ADR-025) | Xong |
+| Việc định kỳ, cảnh báo, `doctor` | Chưa làm |
 
 ### M0: Nền móng
 
