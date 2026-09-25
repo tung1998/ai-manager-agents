@@ -178,6 +178,24 @@ func (s *Service) APIKey(p storage.Provider) (string, error) {
 	return s.box.Open(p.APIKeyEnc)
 }
 
+// CLIBin returns the binary a CLI provider runs (explicit path, or the resolver's
+// lookup, or the bare command name).
+func (s *Service) CLIBin(p storage.Provider) string {
+	if !p.Kind.IsCLI() {
+		return ""
+	}
+	if p.BaseURL != "" {
+		return p.BaseURL
+	}
+	bin := map[storage.ProviderKind]string{storage.ProviderClaudeCLI: "claude", storage.ProviderCodexCLI: "codex"}[p.Kind]
+	if s.resolveBin != nil {
+		if path := s.resolveBin(bin); path != "" {
+			return path
+		}
+	}
+	return bin
+}
+
 // Client builds an llm client for p.
 func (s *Service) Client(p storage.Provider) (llm.Client, error) {
 	if p.Kind.IsCLI() && p.BaseURL == "" && s.resolveBin != nil {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/auth"
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
@@ -46,6 +47,7 @@ type Config struct {
 	Transfer  *transfer.Service
 	Usage     *usage.Service
 	CLITools  *clitools.Manager // nil: installing/signing in CLIs from the dashboard is off
+	Chat      *chat.Engine
 	// Backup writes a copy of the data to a new folder and returns its path.
 	Backup func(ctx context.Context) (string, error)
 	System SystemInfo

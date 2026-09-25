@@ -242,6 +242,70 @@ type SettingRepo interface {
 	Set(ctx context.Context, key string, v any) error
 }
 
+// Conversation is a chat thread with one agent of a project.
+type Conversation struct {
+	ID        string
+	ProjectID string
+	AgentID   string
+	AgentName string
+	Title     string
+	SessionID string
+	Runtime   string
+	CreatedBy string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// ToolCall summarises one tool use while answering.
+type ToolCall struct {
+	Name    string `json:"name"`
+	Summary string `json:"summary"`
+	Error   bool   `json:"error,omitempty"`
+}
+
+// Message is one turn of a conversation.
+type Message struct {
+	ID             string
+	ConversationID string
+	Role           string // user | assistant | error
+	Content        string
+	Tools          []ToolCall
+	RunID          string
+	Author         string
+	CreatedAt      time.Time
+}
+
+// Patch is a proposed code change awaiting approval.
+type Patch struct {
+	ID             string
+	ConversationID string
+	MessageID      string
+	Diff           string
+	Files          []string
+	Status         string // pending | applied | rejected | failed
+	Detail         string
+	DecidedBy      string
+	DecidedAt      *time.Time
+	CreatedAt      time.Time
+}
+
+// ChatRepo stores conversations, messages and patches.
+type ChatRepo interface {
+	CreateConversation(ctx context.Context, c Conversation) (Conversation, error)
+	UpdateConversation(ctx context.Context, c Conversation) error
+	GetConversation(ctx context.Context, id string) (Conversation, error)
+	ListConversations(ctx context.Context, projectID string, limit int) ([]Conversation, error)
+	DeleteConversation(ctx context.Context, id string) error
+
+	AddMessage(ctx context.Context, m Message) (Message, error)
+	ListMessages(ctx context.Context, conversationID string) ([]Message, error)
+
+	AddPatch(ctx context.Context, p Patch) (Patch, error)
+	GetPatch(ctx context.Context, id string) (Patch, error)
+	ListPatches(ctx context.Context, conversationID string) ([]Patch, error)
+	DecidePatch(ctx context.Context, id, status, detail, by string, at time.Time) error
+}
+
 // RepoRepo manages registered repositories.
 type RepoRepo interface {
 	Create(ctx context.Context, r Repo) (Repo, error)

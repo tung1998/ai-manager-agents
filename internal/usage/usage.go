@@ -130,7 +130,7 @@ func (s *Service) Record(ctx context.Context, m Meta, p storage.Provider, model 
 	r := storage.Run{
 		Kind: m.Kind, ProjectID: m.ProjectID, AgentID: m.AgentID, ProviderID: p.ID, ProviderName: p.Name,
 		Model: firstNonEmpty(res.Model, model), Status: "ok", InputTokens: res.InputTokens, OutputTokens: res.OutputTokens,
-		DurationMS: res.DurationMS, Actor: actor.From(ctx), CostSource: "unknown",
+		DurationMS: res.DurationMS, Actor: actor.From(ctx), CostSource: "unknown", CreatedAt: s.now().UTC(),
 	}
 	var be *BudgetError
 	switch {

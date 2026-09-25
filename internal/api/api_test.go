@@ -14,6 +14,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/api"
 	"bitbucket.org/senprints/agent-office/internal/auth"
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
@@ -59,7 +60,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	u := usage.New(st, time.UTC)
 	provs.SetUsage(u)
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
-		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager()})
+		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chat.NewEngine(st, provs, u)})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	ctx := context.Background()

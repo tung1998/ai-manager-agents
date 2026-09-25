@@ -9,6 +9,8 @@ const { data: tplData } = await useFetch<{ templates: OrgModel[] }>('/api/templa
 const project = computed(() => data.value?.project)
 const templates = computed(() => tplData.value?.templates ?? [])
 
+const tab = ref<'chat' | 'model'>('chat')
+
 // ---- apply / change model ----
 const applyOpen = ref(false)
 const templateId = ref('')
@@ -99,7 +101,11 @@ async function saveAsTemplate() {
         </div>
       </UCard>
 
-      <OrgModelEditor v-if="project.model" :key="project.model.id" :model-id="project.model.id" @changed="refresh()" />
+      <template v-if="project.model">
+        <UTabs v-model="tab" :items="[{ label: 'Chat', value: 'chat', icon: 'i-lucide-messages-square' }, { label: 'Mô hình', value: 'model', icon: 'i-lucide-network' }]" :content="false" class="w-fit" />
+        <ChatPanel v-if="tab === 'chat'" :project-id="project.id" />
+        <OrgModelEditor v-else :key="project.model.id" :model-id="project.model.id" @changed="refresh()" />
+      </template>
       <div v-else class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
         <p class="font-medium">Project chưa có mô hình tổ chức</p>
         <p class="text-sm text-(--ui-text-muted)">Để AI quét project và đề xuất, hoặc tự chọn Solo, Team, Tam quyền phân lập.</p>

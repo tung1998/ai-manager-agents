@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"bitbucket.org/senprints/agent-office/internal/api"
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -73,6 +74,7 @@ func runCmd() *cobra.Command {
 				Transfer: transfer.New(a.store, a.providers, a.org),
 				Usage:    a.usage,
 				CLITools: cliTools,
+				Chat:     chat.NewEngine(a.store, a.providers, a.usage),
 				Backup: func(ctx context.Context) (string, error) {
 					return backupTo(ctx, a, filepath.Join(h.Dir, "backups", time.Now().Format("20060102-150405")))
 				},

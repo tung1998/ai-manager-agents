@@ -54,6 +54,18 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/fs/dirs", admin(s.listDirs))
 
+	if s.cfg.Chat != nil {
+		mux.Handle("GET /api/projects/{id}/chat/agents", auth(s.chatAgents))
+		mux.Handle("GET /api/projects/{id}/conversations", auth(s.listConversations))
+		mux.Handle("POST /api/projects/{id}/conversations", auth(s.createConversation))
+		mux.Handle("GET /api/conversations/{id}", auth(s.getConversation))
+		mux.Handle("DELETE /api/conversations/{id}", auth(s.deleteConversation))
+		mux.Handle("POST /api/conversations/{id}/messages", auth(s.sendMessage))
+		mux.Handle("GET /api/chat/turns/{id}/stream", auth(s.streamTurn))
+		mux.Handle("POST /api/chat/turns/{id}/cancel", auth(s.cancelTurn))
+		mux.Handle("POST /api/patches/{id}/approve", admin(s.approvePatch))
+		mux.Handle("POST /api/patches/{id}/reject", admin(s.rejectPatch))
+	}
 	mux.Handle("GET /api/cli-tools", admin(s.cliTools))
 	if s.cfg.CLITools != nil {
 		mux.Handle("GET /api/cli-tools/{id}", admin(s.cliTool))

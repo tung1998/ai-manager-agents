@@ -61,6 +61,13 @@ Base `/api`. Auth bằng cookie phiên `office_session` sau khi đăng nhập t�
 | GET | `/api/org-models/:id/revisions` | đăng nhập | Lịch sử chỉnh sửa |
 | GET | `/api/revisions/:id` | đăng nhập | Snapshot |
 | POST | `/api/revisions/:id/restore` | admin | Khôi phục (tạo snapshot hiện tại trước) |
+| GET | `/api/projects/:id/chat/agents` | đăng nhập | Agent trò chuyện được |
+| GET/POST | `/api/projects/:id/conversations` | đăng nhập | Danh sách / tạo cuộc trò chuyện `{agent_id?}` |
+| GET/DELETE | `/api/conversations/:id` | đăng nhập | Tin nhắn kèm đề xuất diff |
+| POST | `/api/conversations/:id/messages` | đăng nhập | `{text}` → `turn_id`; 429 hết ngân sách, 409 đang bận |
+| GET | `/api/chat/turns/:id/stream` | đăng nhập | SSE: text, tool, status, patch, done, error |
+| POST | `/api/chat/turns/:id/cancel` | đăng nhập | Dừng |
+| POST | `/api/patches/:id/approve` \| `/reject` | admin | Áp diff bằng git apply / từ chối |
 | GET | `/api/cli-tools[/:id]` | admin | Claude Code / Codex: đã cài, version, đăng nhập, cách cài |
 | POST | `/api/cli-tools/:id/install` | admin | `{method}`: native \| brew \| npm |
 | POST | `/api/cli-tools/:id/login` | admin | Bắt đầu đăng nhập |

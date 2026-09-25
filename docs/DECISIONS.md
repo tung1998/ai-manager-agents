@@ -324,3 +324,18 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 
 **Chưa kiểm chứng với tài khoản thật:** luồng `claude auth login` và `codex login --device-auth` được test bằng CLI giả để không đăng xuất hoặc thay tài khoản đang dùng trên máy phát triển.
 
+---
+
+## ADR-022: Chat với agent trong project; agent chỉ đọc, sửa code qua diff được duyệt
+
+**Quyết định.**
+- Mỗi project có các cuộc trò chuyện (`conversations`, `messages`), mỗi cuộc với một agent lead hoặc manager của mô hình (mặc định lead đầu tiên). System prompt gồm vai trò, hướng dẫn của agent, tên/thư mục/mô tả project và quy tắc.
+- **Agent không bao giờ tự ghi file.** Chỉ có công cụ đọc. Khi cần sửa code, agent trả unified diff trong khối ` + "```diff" + `; office tách thành `patches` (kiểm tra đường dẫn an toàn, không `..`, không `.git`/`.office`, và `git apply --check`). Người có quyền admin bấm Duyệt thì office chạy `git apply`; Từ chối thì ghi lại. Agent chỉ-đọc (read_only) không đề xuất diff. Project toàn máy không áp diff.
+- **Claude Code**: chạy headless, cô lập khỏi cấu hình cá nhân (`--setting-sources project,local`, `--strict-mcp-config`, `--disable-slash-commands`), chỉ có `Read`, `Glob`, `Grep`, chặn đọc `.env`/khóa; stream từng đoạn (`--include-partial-messages`); tiếp tục phiên bằng `--resume`, tự chạy lại kèm lịch sử nếu phiên mất. Cô lập giảm chi phí một lượt nhỏ từ ~$0.073 xuống ~$0.023 và không chạy hook/plugin của người dùng.
+- **Claude API / OpenAI / API tương thích**: office chạy vòng lặp tool (tối đa 20 vòng) với `list_dir`, `read_file`, `search_text`, giới hạn trong thư mục project (chặn symlink ra ngoài, file bí mật, thư mục build). Nội dung trả về của assistant được gửi lại nguyên vẹn (giữ thinking block).
+- **Codex**: `codex exec --json --sandbox read-only`, lịch sử gửi dạng transcript.
+- Mỗi lượt kiểm tra ngân sách trước, ghi `runs` loại `chat` sau (ADR-020). Một lượt mỗi cuộc trò chuyện tại một thời điểm, tối đa 20 phút, dừng được.
+- Dashboard nhận sự kiện qua SSE (`/api/chat/turns/:id/stream`, phát lại từ `Last-Event-ID`), hiển thị chữ đang stream, công cụ đã dùng, và thẻ diff có nút Duyệt/Từ chối. Markdown render bằng `marked` và làm sạch bằng DOMPurify.
+
+**Phương án đã loại.** Cho agent ghi file trực tiếp (không kiểm soát được). Dùng `--permission-prompt-tool` của Claude Code để hỏi duyệt từng lần ghi (chỉ dùng được cho Claude Code, không thống nhất với runtime khác). Chạy Claude Code với cấu hình cá nhân (tốn gấp ~3 lần và chạy hook/plugin không liên quan).
+
