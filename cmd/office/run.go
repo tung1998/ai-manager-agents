@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/home"
@@ -82,7 +83,8 @@ func runCmd() *cobra.Command {
 			go procs.RunSampler(ctx, 3*time.Second)
 			procs.Autostart(ctx)
 			// agents read build/run/monitoring data through the office tools (MCP for Claude Code)
-			office := officetools.New(a.store, procs)
+			acts := actions.New(a.store, procs) // agents propose, people approve
+			office := officetools.New(a.store, procs, acts)
 			mcp := mcpserver.New(office, version)
 			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")
 			monitors := monitor.New(a.store, procs, chatEngine)
@@ -101,6 +103,7 @@ func runCmd() *cobra.Command {
 				Ops:        procs,
 				Monitors:   monitors,
 				MCP:        mcp,
+				Actions:    acts,
 				Backup: func(ctx context.Context) (string, error) {
 					return backupTo(ctx, a, filepath.Join(h.Dir, "backups", time.Now().Format("20060102-150405")))
 				},

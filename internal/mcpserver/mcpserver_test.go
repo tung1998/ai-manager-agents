@@ -25,10 +25,10 @@ func TestMCP(t *testing.T) {
 	st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "web", Type: "http", Target: "http://x", IntervalS: 60, Enabled: true, Status: "down", LastMessage: "HTTP 500"})
 	st.Monitors().Create(ctx, storage.Monitor{ProjectID: other.ID, Name: "secret", Type: "http", Target: "http://y", IntervalS: 60, Enabled: true})
 
-	s := New(officetools.New(st, nil), "test")
+	s := New(officetools.New(st, nil, nil), "test")
 	srv := httptest.NewServer(s)
 	defer srv.Close()
-	tok, revoke := s.Grant(p.ID, time.Minute)
+	tok, revoke := s.Grant(officetools.Scope{ProjectID: p.ID}, time.Minute)
 
 	call := func(token, body string) (int, map[string]any) {
 		req, _ := http.NewRequest("POST", srv.URL, strings.NewReader(body))

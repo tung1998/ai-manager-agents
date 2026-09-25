@@ -21,8 +21,8 @@ import (
 const ServerName = "office"
 
 type grant struct {
-	projectID string
-	expires   time.Time
+	scope   officetools.Scope
+	expires time.Time
 }
 
 // Server is the MCP endpoint.
@@ -39,8 +39,9 @@ func New(tools *officetools.Toolbox, version string) *Server {
 	return &Server{tools: tools, version: version, grants: map[string]grant{}}
 }
 
-// Grant issues a token for projectID valid for ttl; call revoke when done.
-func (s *Server) Grant(projectID string, ttl time.Duration) (token string, revoke func()) {
+// Grant issues a token for one run (scope: project, conversation/task, run)
+// valid for ttl; call revoke when done.
+func (s *Server) Grant(scope officetools.Scope, ttl time.Duration) (token string, revoke func()) {
 	b := make([]byte, 24)
 	_, _ = rand.Read(b)
 	token = hex.EncodeToString(b)
@@ -51,7 +52,7 @@ func (s *Server) Grant(projectID string, ttl time.Duration) (token string, revok
 			delete(s.grants, k)
 		}
 	}
-	s.grants[token] = grant{projectID: projectID, expires: now.Add(ttl)}
+	s.grants[token] = grant{scope: scope, expires: now.Add(ttl)}
 	s.mu.Unlock()
 	return token, func() {
 		s.mu.Lock()
@@ -60,18 +61,18 @@ func (s *Server) Grant(projectID string, ttl time.Duration) (token string, revok
 	}
 }
 
-func (s *Server) project(r *http.Request) (string, bool) {
+func (s *Server) scope(r *http.Request) (officetools.Scope, bool) {
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || tok == "" {
-		return "", false
+		return officetools.Scope{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	g, ok := s.grants[tok]
 	if !ok || time.Now().After(g.expires) {
-		return "", false
+		return officetools.Scope{}, false
 	}
-	return g.projectID, true
+	return g.scope, true
 }
 
 type request struct {
@@ -96,7 +97,7 @@ type rpcError struct {
 // ServeHTTP handles POST (JSON-RPC message or batch). GET (server stream) is
 // not offered; DELETE (end session) is accepted and ignored.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := s.project(r)
+	sc, ok := s.scope(r)
 	if !ok {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -138,7 +139,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if len(q.ID) == 0 { // notification: no reply
 			continue
 		}
-		out = append(out, s.handle(r, projectID, q))
+		out = append(out, s.handle(r, sc, q))
 	}
 	if len(out) == 0 {
 		w.WriteHeader(http.StatusAccepted)
@@ -151,7 +152,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out[0])
 }
 
-func (s *Server) handle(r *http.Request, projectID string, q request) response {
+func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) response {
 	res := response{JSONRPC: "2.0", ID: q.ID}
 	switch q.Method {
 	case "initialize":
@@ -167,7 +168,7 @@ func (s *Server) handle(r *http.Request, projectID string, q request) response {
 			"protocolVersion": version,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "agent-office", "version": s.version},
-			"instructions":    "Thông tin vận hành của project (tiến trình build/dev/test, docker compose, giám sát). Chỉ đọc.",
+			"instructions":    "Thông tin vận hành của project (tiến trình build/dev/test, docker compose, giám sát). Thao tác chỉ được đề xuất qua propose_action để người dùng duyệt.",
 		}
 	case "ping":
 		res.Result = map[string]any{}
@@ -175,7 +176,7 @@ func (s *Server) handle(r *http.Request, projectID string, q request) response {
 		list := []map[string]any{}
 		for _, t := range s.tools.Tools() {
 			list = append(list, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.Schema,
-				"annotations": map[string]any{"readOnlyHint": true}})
+				"annotations": map[string]any{"readOnlyHint": t.Name != "propose_action"}})
 		}
 		res.Result = map[string]any{"tools": list}
 	case "tools/call":
@@ -187,7 +188,7 @@ func (s *Server) handle(r *http.Request, projectID string, q request) response {
 			res.Error = &rpcError{Code: -32602, Message: "unknown tool"}
 			return res
 		}
-		text, isErr := s.tools.Call(r.Context(), projectID, p.Name, p.Arguments)
+		text, isErr := s.tools.Call(r.Context(), sc, p.Name, p.Arguments)
 		res.Result = map[string]any{"content": []map[string]any{{"type": "text", "text": text}}, "isError": isErr}
 	default:
 		res.Error = &rpcError{Code: -32601, Message: "method not found: " + q.Method}

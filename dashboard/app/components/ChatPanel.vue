@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Patch } from './PatchCard.vue'
+import type { ProposedAction } from './ActionCard.vue'
 import type { Attachment } from './PromptInput.vue'
 
 interface ToolCall { name: string, summary: string, error?: boolean }
@@ -12,6 +13,7 @@ interface Message {
   author: string
   created_at: string
   patches: Patch[]
+  actions?: ProposedAction[]
   cost_usd?: number
 }
 interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string }
@@ -242,6 +244,10 @@ onBeforeUnmount(stopStream)
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div class="markdown text-sm" v-html="renderMarkdown(m.content)" />
             <PatchCard v-for="p in m.patches" :key="p.id" :patch="p" @updated="(np: Patch) => onPatchUpdated(m, np)" />
+            <ActionCard
+              v-for="a in m.actions ?? []" :key="a.id" :action="a" :project-id="projectId"
+              @updated="(na: ProposedAction) => m.actions = (m.actions ?? []).map(x => x.id === na.id ? na : x)"
+            />
           </div>
         </template>
 

@@ -104,7 +104,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Kết nối AI: 18 nhà cung cấp bên thứ 3 có sẵn (OpenRouter, Gemini, DeepSeek, GLM, Kimi, Ollama…), thống kê 7 ngày theo kết nối (ADR-028) | Xong |
 | Kết nối AI: tự chuyển kết nối dự phòng khi lỗi/chạm trần | Chưa làm |
 | MCP nội bộ office (ops_overview, process_logs, container_logs, monitor_detail) cho Claude Code và agent API; nút "Sửa lỗi" (ADR-029) | Xong |
-| Công cụ office có tác động (chạy lại build/test, restart) qua duyệt | Chưa làm |
+| Agent đề xuất chạy/chạy lại/dừng tiến trình hoặc container, người duyệt mới chạy (ADR-030) | Xong |
 | Việc định kỳ, cảnh báo, `doctor` | Chưa làm |
 
 ### M0: Nền móng

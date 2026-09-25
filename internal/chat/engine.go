@@ -5,6 +5,7 @@
 package chat
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
@@ -41,6 +42,7 @@ type MessageDTO struct {
 	Author      string               `json:"author"`
 	CreatedAt   time.Time            `json:"created_at"`
 	Patches     []PatchDTO           `json:"patches"`
+	Actions     []ActionDTO          `json:"actions"`
 	CostUSD     *float64             `json:"cost_usd,omitempty"`
 }
 
@@ -128,13 +130,44 @@ func (e *Engine) SetOffice(tools *officetools.Toolbox, mcp *mcpserver.Server, mc
 	e.office, e.mcp, e.mcpURL = tools, mcp, mcpURL
 }
 
-// officeAccess grants a run read access to its project's operations data.
-func (e *Engine) officeAccess(projectID string) (*OfficeAccess, func()) {
+// officeAccess grants one run the office tools, scoped to its project and
+// to the conversation/task its proposals belong to.
+func (e *Engine) officeAccess(sc officetools.Scope) (*OfficeAccess, func()) {
 	if e.office == nil || e.mcp == nil {
 		return nil, func() {}
 	}
-	token, revoke := e.mcp.Grant(projectID, 30*time.Minute)
-	return &OfficeAccess{MCPURL: e.mcpURL, Token: token, ProjectID: projectID, Tools: e.office}, revoke
+	token, revoke := e.mcp.Grant(sc, 30*time.Minute)
+	return &OfficeAccess{MCPURL: e.mcpURL, Token: token, Scope: sc, Tools: e.office}, revoke
+}
+
+type taskKey struct{}
+
+// WithTask marks ctx as running for a task, so proposals attach to it.
+func WithTask(ctx context.Context, taskID string) context.Context {
+	return context.WithValue(ctx, taskKey{}, taskID)
+}
+
+// ActionDTO is a proposed operation awaiting (or after) approval.
+type ActionDTO struct {
+	ID        string     `json:"id"`
+	MessageID string     `json:"message_id"`
+	TaskID    string     `json:"task_id,omitempty"`
+	Kind      string     `json:"kind"`
+	Label     string     `json:"label"`
+	Target    string     `json:"target"`
+	TargetID  string     `json:"target_id,omitempty"`
+	Reason    string     `json:"reason"`
+	Status    string     `json:"status"`
+	Detail    string     `json:"detail"`
+	By        string     `json:"proposed_by"`
+	DecidedBy string     `json:"decided_by"`
+	DecidedAt *time.Time `json:"decided_at"`
+}
+
+// ToActionDTO converts a stored action.
+func ToActionDTO(a storage.Action) ActionDTO {
+	return ActionDTO{ID: a.ID, MessageID: a.MessageID, TaskID: a.TaskID, Kind: a.Kind, Label: actions.Kinds[a.Kind], Target: a.Target, TargetID: a.TargetID,
+		Reason: a.Reason, Status: a.Status, Detail: a.Detail, By: a.ProposedBy, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt}
 }
 
 // SetAttachments sets where attached files are stored.
@@ -345,7 +378,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: workDir, Prompt: text,
 		System: systemPrompt(project, agent, e.office != nil), History: toHistory(history), Attachments: files,
 	}
-	office, revoke := e.officeAccess(project.ID)
+	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, RunRef: turn.ID, Agent: agent.Name})
 	defer revoke()
 	req.Office = office
 	if conv.Runtime == string(p.Kind) {
@@ -379,7 +412,17 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		fail(err)
 		return
 	}
-	dto := MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Tools: msg.Tools, Attachments: []storage.Attachment{}, Author: msg.Author, CreatedAt: msg.CreatedAt, CostUSD: cost, Patches: []PatchDTO{}}
+	dto := MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Tools: msg.Tools, Attachments: []storage.Attachment{}, Author: msg.Author, CreatedAt: msg.CreatedAt, CostUSD: cost, Patches: []PatchDTO{}, Actions: []ActionDTO{}}
+	// operations the agent proposed during this run belong to its answer
+	if acts, err := e.store.Actions().List(context.Background(), "", "", turn.ID); err == nil {
+		for _, a := range acts {
+			a.MessageID = msg.ID
+			_ = e.store.Actions().Update(context.Background(), a)
+			ad := ToActionDTO(a)
+			dto.Actions = append(dto.Actions, ad)
+			turn.emit(Event{Type: "action", Action: &ad})
+		}
+	}
 	if canPropose(agent) && project.Path != "" {
 		for _, diff := range ExtractPatches(res.Text) {
 			pt := storage.Patch{ConversationID: conv.ID, MessageID: msg.ID, Diff: diff}
@@ -445,7 +488,7 @@ Quy tắc:
 - Trả lời bằng tiếng Việt, ngắn gọn, dùng Markdown.
 `)
 	if officeTools {
-		b.WriteString(`- Bạn có công cụ office (chỉ đọc): ops_overview (tiến trình build/dev/test, docker compose, giám sát, sự cố), process_logs, container_logs, monitor_detail. Khi được hỏi về lỗi build, lỗi chạy, deploy hay giám sát, hãy dùng chúng để lấy log và trạng thái thật trước khi kết luận, rồi đối chiếu với code.
+		b.WriteString(`- Bạn có công cụ office: ops_overview (tiến trình build/dev/test, docker compose, giám sát, sự cố), process_logs, container_logs, monitor_detail để đọc; và propose_action để ĐỀ XUẤT chạy/chạy lại/dừng tiến trình hoặc container (người dùng duyệt rồi office mới làm). Khi được hỏi về lỗi build, lỗi chạy, deploy hay giám sát, hãy lấy log và trạng thái thật trước khi kết luận, rồi đối chiếu với code. Sau khi đề xuất sửa code, đề xuất chạy lại build/test liên quan để kiểm chứng.
 `)
 	}
 	if canPropose(agent) && project.Path != "" {
@@ -496,7 +539,8 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	}
 	req := RunRequest{Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: workDir, Prompt: prompt,
 		System: systemPrompt(project, agent, e.office != nil), Attachments: files}
-	office, revoke := e.officeAccess(project.ID)
+	taskID, _ := ctx.Value(taskKey{}).(string)
+	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, TaskID: taskID, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), Agent: agent.Name})
 	defer revoke()
 	req.Office = office
 	res, runErr := runnerFor(p.Kind).Run(ctx, req, emit)
@@ -529,11 +573,22 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 	for _, p := range patches {
 		byMsg[p.MessageID] = append(byMsg[p.MessageID], toPatchDTO(p))
 	}
+	acts, err := e.store.Actions().List(ctx, conversationID, "", "")
+	if err != nil {
+		return nil, err
+	}
+	actByMsg := map[string][]ActionDTO{}
+	for _, a := range acts {
+		actByMsg[a.MessageID] = append(actByMsg[a.MessageID], ToActionDTO(a))
+	}
 	out := make([]MessageDTO, 0, len(msgs))
 	for _, m := range msgs {
 		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID]}
 		if d.Patches == nil {
 			d.Patches = []PatchDTO{}
+		}
+		if d.Actions = actByMsg[m.ID]; d.Actions == nil {
+			d.Actions = []ActionDTO{}
 		}
 		if d.Tools == nil {
 			d.Tools = []storage.ToolCall{}

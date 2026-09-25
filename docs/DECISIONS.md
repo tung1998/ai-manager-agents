@@ -558,3 +558,25 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Công cụ có tác động (chạy lại build/test, restart service), cần người duyệt.
 - Công cụ cho Codex.
 - Tự chạy lại sau khi diff được duyệt.
+
+---
+
+## ADR-030: Agent đề xuất thao tác vận hành, người duyệt mới chạy
+
+**Bối cảnh.** Sau khi sửa code, cần chạy lại build/test để kiểm chứng, hoặc khởi động lại dịch vụ bị treo. Agent không được tự thao tác.
+
+**Quyết định.**
+- **Công cụ `propose_action {action, target, reason}`** có trong MCP office và trong bộ công cụ của agent qua API.
+  - Hành động cho phép: `run_process`, `restart_process`, `stop_process` (target là tên tiến trình); `start_container`, `restart_container`, `stop_container` (target là service compose).
+  - Kiểm tra lúc đề xuất: hành động phải nằm trong danh sách, mục tiêu phải thuộc project. Nếu đã có một đề xuất giống hệt đang chờ trong cùng cuộc trò chuyện/Việc thì trả lại đề xuất đó, không tạo trùng.
+  - Công cụ này không có `readOnlyHint`.
+- **Lưu trữ:** bảng `actions` (migration 00012). Mỗi lượt chạy mang theo phạm vi (project, cuộc trò chuyện hoặc Việc, `run_ref`) qua token MCP.
+  - Chat: hết lượt, các đề xuất của lượt đó được gắn vào câu trả lời của agent (`message_id`) và gửi sự kiện `action`.
+  - Việc: đề xuất gắn theo `task_id`, và chi tiết Việc có danh sách riêng.
+- **Duyệt:** `POST /api/actions/:id/approve|reject` (chỉ admin, ghi audit).
+  - Duyệt thì office chạy qua `ops`: Start/Restart/Stop với tiến trình, `docker compose up|restart|stop <service>` với container. Kết quả thành `done` hoặc `failed` kèm chi tiết.
+  - Đề xuất đã xử lý rồi trả 409.
+- **Giao diện:** thẻ đề xuất dưới câu trả lời trong Chat và trong chi tiết Việc, gồm Duyệt/Từ chối, kết quả, và link "Xem log" sang tab Vận hành.
+- **Prompt hệ thống:** dặn agent sau khi đề xuất sửa code thì đề xuất chạy lại build/test liên quan để kiểm chứng.
+
+**Đã kiểm tra thật** với Claude Code: agent gọi `propose_action` và thẻ chờ duyệt hiện ra. Duyệt thì build chạy xong với mã thoát 0; duyệt lần hai bị chặn.

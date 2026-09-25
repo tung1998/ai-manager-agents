@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Attachment } from './PromptInput.vue'
 import type { Patch } from './PatchCard.vue'
+import type { ProposedAction } from './ActionCard.vue'
 
 interface ToolCall { name: string, summary: string, error?: boolean }
 interface Task {
@@ -31,7 +32,7 @@ interface Step {
   error: string
   cost_usd: number | null
 }
-interface Detail { task: Task, steps: Step[], patches: Patch[], running: boolean }
+interface Detail { task: Task, steps: Step[], patches: Patch[], actions?: ProposedAction[], running: boolean }
 interface TaskEvent { type: string, step_id?: string, step?: Step, text?: string, tool?: ToolCall, patch?: Patch, task?: Task }
 
 const props = defineProps<{ projectId: string, modelKind: string, governance: string }>()
@@ -246,6 +247,13 @@ onBeforeUnmount(() => source?.close())
           <div class="markdown text-sm" v-html="renderMarkdown(detail.task.result)" />
         </UCard>
 
+        <div v-if="detail.actions?.length" class="space-y-2">
+          <p class="text-sm font-medium">Đề xuất thao tác</p>
+          <ActionCard
+            v-for="a in detail.actions ?? []" :key="a.id" :action="a" :project-id="projectId"
+            @updated="(na: ProposedAction) => { if (detail) detail.actions = (detail.actions ?? []).map(x => x.id === na.id ? na : x) }"
+          />
+        </div>
         <div v-if="detail.patches.length" class="space-y-2">
           <p class="text-sm font-medium">Đề xuất thay đổi code</p>
           <PatchCard v-for="p in detail.patches" :key="p.id" :patch="p" @updated="upsertPatch" />

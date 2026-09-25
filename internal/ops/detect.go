@@ -70,7 +70,7 @@ func runScript(pm, name string) string {
 func Detect(root string) Detection {
 	d := Detection{Suggestions: []Suggestion{}, Compose: []Compose{}}
 	dirs := []string{"."}
-	for _, pat := range []string{"apps/*", "packages/*", "services/*", "frontend", "backend", "web", "api", "server"} {
+	for _, pat := range []string{"apps/*", "packages/*", "services/*", "frontend", "backend", "web", "api", "server", "dashboard", "ui", "client"} {
 		matches, _ := filepath.Glob(filepath.Join(root, pat))
 		for _, m := range matches {
 			if st, err := os.Stat(filepath.Join(m, "package.json")); err == nil && !st.IsDir() {

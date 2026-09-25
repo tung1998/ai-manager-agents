@@ -64,10 +64,11 @@ func toStepDTO(s storage.TaskStep) StepDTO {
 
 // Detail is a task with its steps and patches.
 type Detail struct {
-	Task    TaskDTO         `json:"task"`
-	Steps   []StepDTO       `json:"steps"`
-	Patches []chat.PatchDTO `json:"patches"`
-	Running bool            `json:"running"`
+	Task    TaskDTO          `json:"task"`
+	Steps   []StepDTO        `json:"steps"`
+	Patches []chat.PatchDTO  `json:"patches"`
+	Actions []chat.ActionDTO `json:"actions"`
+	Running bool             `json:"running"`
 }
 
 // List returns a project's tasks, newest first.
@@ -97,7 +98,12 @@ func (s *Service) Get(ctx context.Context, id string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
-	d := Detail{Task: toTaskDTO(t), Steps: []StepDTO{}, Patches: []chat.PatchDTO{}}
+	d := Detail{Task: toTaskDTO(t), Steps: []StepDTO{}, Patches: []chat.PatchDTO{}, Actions: []chat.ActionDTO{}}
+	if acts, err := s.store.Actions().List(ctx, "", id, ""); err == nil {
+		for _, a := range acts {
+			d.Actions = append(d.Actions, chat.ToActionDTO(a))
+		}
+	}
 	for _, st := range steps {
 		d.Steps = append(d.Steps, toStepDTO(st))
 	}

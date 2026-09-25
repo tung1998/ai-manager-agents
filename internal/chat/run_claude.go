@@ -214,6 +214,8 @@ func toolSummary(name string, input json.RawMessage) string {
 		return "Đọc log container " + str("service")
 	case "monitor_detail":
 		return "Xem giám sát " + str("name")
+	case "propose_action":
+		return "Đề xuất " + strings.ReplaceAll(str("action"), "_", " ") + " " + str("target")
 	case "read", "read_file":
 		return "Đọc " + str("file_path", "path")
 	case "glob":

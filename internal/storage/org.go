@@ -480,3 +480,32 @@ type MonitorRepo interface {
 	Events(ctx context.Context, projectID string, limit int) ([]MonitorEvent, error) // "" = all
 	AICostSince(ctx context.Context, monitorID string, since time.Time) (float64, error)
 }
+
+// Action is an operation an agent proposed; it runs only after approval.
+type Action struct {
+	ID             string
+	ProjectID      string
+	ConversationID string
+	MessageID      string
+	TaskID         string
+	RunRef         string
+	Kind           string
+	Target         string
+	TargetID       string
+	Reason         string
+	Status         string // pending | done | failed | rejected
+	Detail         string
+	ProposedBy     string
+	DecidedBy      string
+	DecidedAt      *time.Time
+	CreatedAt      time.Time
+}
+
+// ActionRepo stores proposed actions.
+type ActionRepo interface {
+	Create(ctx context.Context, a Action) (Action, error)
+	Update(ctx context.Context, a Action) error
+	Get(ctx context.Context, id string) (Action, error)
+	// List filters by conversation, task or run (the first non-empty one).
+	List(ctx context.Context, conversationID, taskID, runRef string) ([]Action, error)
+}

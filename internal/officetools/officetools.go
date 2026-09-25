@@ -5,6 +5,7 @@
 package officetools
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/actions"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,12 +26,20 @@ type Tool struct {
 
 // Toolbox runs the tools for one project at a time.
 type Toolbox struct {
-	store storage.Store
-	ops   *ops.Manager
+	store   storage.Store
+	ops     *ops.Manager
+	actions *actions.Service
 }
 
-// New builds a Toolbox; ops may be nil (processes/containers unavailable).
-func New(store storage.Store, o *ops.Manager) *Toolbox { return &Toolbox{store: store, ops: o} }
+// Scope is who calls a tool: the project, and the conversation/task and run
+// that proposals are attached to.
+type Scope = actions.Scope
+
+// New builds a Toolbox; ops may be nil (processes/containers unavailable),
+// acts may be nil (no propose_action).
+func New(store storage.Store, o *ops.Manager, acts *actions.Service) *Toolbox {
+	return &Toolbox{store: store, ops: o, actions: acts}
+}
 
 func obj(props map[string]any, required ...string) map[string]any {
 	s := map[string]any{"type": "object", "properties": props}
@@ -44,7 +53,7 @@ var linesProp = map[string]any{"type": "integer", "description": "Số dòng log
 
 // Tools lists the tools (names are stable: agents and the UI refer to them).
 func (t *Toolbox) Tools() []Tool {
-	return []Tool{
+	list := []Tool{
 		{Name: "ops_overview", Description: "Tổng quan vận hành của project: các tiến trình (dev, build, test…) và trạng thái/mã thoát/cổng, các service docker compose, các giám sát (Up/Down) và sự cố gần đây. Gọi đầu tiên khi được hỏi về lỗi build, lỗi chạy, deploy hay giám sát.",
 			Schema: obj(map[string]any{})},
 		{Name: "process_logs", Description: "Đọc log gần nhất của một tiến trình office chạy cho project (ví dụ dev, build, test), kèm lệnh, trạng thái và mã thoát.",
@@ -54,6 +63,17 @@ func (t *Toolbox) Tools() []Tool {
 		{Name: "monitor_detail", Description: "Chi tiết một giám sát: cấu hình, các lần kiểm tra gần đây, sự kiện Up/Down và phân tích AI trước đó.",
 			Schema: obj(map[string]any{"name": map[string]any{"type": "string", "description": "Tên giám sát, xem ops_overview"}}, "name")},
 	}
+	if t.actions != nil {
+		list = append(list, Tool{Name: "propose_action", Description: "Đề xuất một thao tác vận hành để người dùng duyệt (bạn không tự thực hiện được): " +
+			"run_process / restart_process / stop_process (target = tên tiến trình), start_container / restart_container / stop_container (target = service docker compose). " +
+			"Dùng sau khi đề xuất sửa code để chạy lại build/test kiểm chứng, hoặc để khởi động lại dịch vụ bị treo. Luôn nêu lý do.",
+			Schema: obj(map[string]any{
+				"action": map[string]any{"type": "string", "enum": []string{"run_process", "restart_process", "stop_process", "start_container", "restart_container", "stop_container"}},
+				"target": map[string]any{"type": "string"},
+				"reason": map[string]any{"type": "string", "description": "Vì sao cần thao tác này"},
+			}, "action", "target", "reason")})
+	}
+	return list
 }
 
 // Has reports whether name is one of the tools.
@@ -67,11 +87,15 @@ func (t *Toolbox) Has(name string) bool {
 }
 
 // Call runs a tool for a project and returns text (and whether it failed).
-func (t *Toolbox) Call(ctx context.Context, projectID, name string, raw json.RawMessage) (string, bool) {
+func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawMessage) (string, bool) {
+	projectID := sc.ProjectID
 	var in struct {
 		Name    string `json:"name"`
 		Service string `json:"service"`
 		Lines   int    `json:"lines"`
+		Action  string `json:"action"`
+		Target  string `json:"target"`
+		Reason  string `json:"reason"`
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &in); err != nil {
@@ -95,6 +119,14 @@ func (t *Toolbox) Call(ctx context.Context, projectID, name string, raw json.Raw
 		out, err = t.containerLogs(ctx, projectID, in.Service, in.Lines)
 	case "monitor_detail":
 		out, err = t.monitorDetail(ctx, projectID, in.Name)
+	case "propose_action":
+		if t.actions == nil {
+			return "Công cụ không tồn tại: " + name, true
+		}
+		var a storage.Action
+		if a, err = t.actions.Propose(ctx, sc, in.Action, in.Target, in.Reason); err == nil {
+			out = fmt.Sprintf("Đã tạo đề xuất %q cho %s (mã %s), đang chờ người dùng duyệt. Bạn chưa thực hiện gì; hãy nói với người dùng là cần bấm Duyệt.", actions.Kinds[a.Kind], a.Target, a.ID)
+		}
 	default:
 		return "Công cụ không tồn tại: " + name, true
 	}

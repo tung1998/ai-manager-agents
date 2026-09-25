@@ -155,6 +155,7 @@ func (s *Service) Start(ctx context.Context, projectID, goal string, budgetUSD f
 		return task, err
 	}
 	runCtx, cancel := context.WithTimeout(actor.With(context.Background(), actor.From(ctx)), 45*time.Minute)
+	runCtx = chat.WithTask(runCtx, task.ID) // proposals made by its agents attach to the task
 	live := &Live{wake: make(chan struct{}), cancel: cancel}
 	s.mu.Lock()
 	s.live[task.ID], s.busy[projectID] = live, task.ID

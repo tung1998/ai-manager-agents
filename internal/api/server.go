@@ -3,6 +3,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"context"
@@ -58,6 +59,8 @@ type Config struct {
 	Monitors   *monitor.Service    // nil: health checks are off
 	// MCP serves the office tools to agent runs (bearer token per run, no session).
 	MCP http.Handler
+	// Actions are operations agents proposed; admins approve or reject them.
+	Actions *actions.Service
 	// Backup writes a copy of the data to a new folder and returns its path.
 	Backup func(ctx context.Context) (string, error)
 	System SystemInfo

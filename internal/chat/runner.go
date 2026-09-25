@@ -12,10 +12,11 @@ import (
 // Event is streamed to the dashboard while an agent answers.
 type Event struct {
 	Seq     int               `json:"seq"`
-	Type    string            `json:"type"` // text | tool | status | patch | done | error
+	Type    string            `json:"type"` // text | tool | status | patch | action | done | error
 	Text    string            `json:"text,omitempty"`
 	Tool    *storage.ToolCall `json:"tool,omitempty"`
 	Patch   *PatchDTO         `json:"patch,omitempty"`
+	Action  *ActionDTO        `json:"action,omitempty"`
 	Message *MessageDTO       `json:"message,omitempty"`
 }
 
@@ -45,10 +46,10 @@ type RunRequest struct {
 // OfficeAccess lets one run read the project's operations data: Claude Code
 // through the office MCP server, API agents through the same tools directly.
 type OfficeAccess struct {
-	MCPURL    string
-	Token     string
-	ProjectID string
-	Tools     *officetools.Toolbox
+	MCPURL string
+	Token  string
+	Scope  officetools.Scope
+	Tools  *officetools.Toolbox
 }
 
 // RunResult is what the runtime produced.

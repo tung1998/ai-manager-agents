@@ -88,6 +88,10 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	if s.cfg.Monitors != nil {
 		s.monitorRoutes(mux, auth, admin)
 	}
+	if s.cfg.Actions != nil {
+		mux.Handle("POST /api/actions/{id}/approve", admin(s.decideAction(true)))
+		mux.Handle("POST /api/actions/{id}/reject", admin(s.decideAction(false)))
+	}
 	if s.cfg.MCP != nil {
 		mux.Handle("/mcp", s.cfg.MCP) // authenticated by its own per-run token
 	}
