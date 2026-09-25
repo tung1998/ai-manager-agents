@@ -22,5 +22,7 @@ export default defineNuxtConfig({
     localApiEndpoint: '/_nuxt_icon',
     clientBundle: { scan: true }
   },
-  devServer: { port: 2704 }
+  devServer: { port: 2704 },
+  // "Cập nhật office" builds into a side folder, then swaps it in
+  nitro: { output: { dir: (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.OFFICE_UI_OUT_DIR || '.output' } }
 })

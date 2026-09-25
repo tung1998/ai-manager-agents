@@ -84,6 +84,13 @@ type Service struct {
 	busy map[string]string // project id → running task id
 }
 
+// Running counts tasks in progress.
+func (s *Service) Running() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.busy)
+}
+
 // New builds a Service.
 func New(store storage.Store, engine *chat.Engine) *Service {
 	return &Service{store: store, engine: engine, live: map[string]*Live{}, busy: map[string]string{}}

@@ -63,7 +63,8 @@ const items = computed<NavigationMenuItem[][]>(() => {
         { label: 'Quản trị', type: 'label' },
         { label: 'Tài khoản', icon: 'i-lucide-users', to: '/admin/users' },
         { label: 'Audit log', icon: 'i-lucide-scroll-text', to: '/admin/audit' },
-        { label: 'Sao lưu & đồng bộ', icon: 'i-lucide-archive-restore', to: '/admin/transfer' }
+        { label: 'Sao lưu & đồng bộ', icon: 'i-lucide-archive-restore', to: '/admin/transfer' },
+        { label: 'Cập nhật office', icon: 'i-lucide-package', to: '/admin/update' }
       ]
     : []
   return [main, admin]

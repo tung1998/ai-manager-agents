@@ -580,3 +580,34 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - **Prompt hệ thống:** dặn agent sau khi đề xuất sửa code thì đề xuất chạy lại build/test liên quan để kiểm chứng.
 
 **Đã kiểm tra thật** với Claude Code: agent gọi `propose_action` và thẻ chờ duyệt hiện ra. Duyệt thì build chạy xong với mã thoát 0; duyệt lần hai bị chặn.
+
+---
+
+## ADR-031: Supervisor và "Cập nhật office" từ mã nguồn, tự quay về bản cũ
+
+**Bối cảnh.** Office không tự khởi động lại được từ bên trong. Muốn office dùng được thay đổi của chính nó (do agent hoặc người sửa), cần một tiến trình đứng ngoài để thay bản và cứu khi bản mới hỏng. Máy cài bản build sẵn (không có mã nguồn) sẽ cập nhật bằng bản phát hành, làm sau.
+
+**Quyết định.**
+- **Hai lệnh.**
+  - `office run` là **supervisor**: chạy `office serve` (API) và dashboard (`node dashboard/.output/server/index.mjs`, cổng 2704) làm tiến trình con, rồi tự bật lại khi chúng dừng. Server dừng liên tục hơn 5 lần trong 1 phút thì supervisor thoát.
+  - `office serve` là server như trước. Supervisor tự xử lý `--no-ui`, `--ui-port`, `--ui-dir`, các cờ khác chuyển nguyên cho `serve`.
+- **Cập nhật** (`POST /api/system/update`, chỉ admin). Chỉ bật khi server chạy dưới supervisor (biến `OFFICE_SUPERVISED`) và tìm thấy mã nguồn (đi ngược lên từ `bin/office` tới `go.mod` của module office).
+  1. Build server ra `bin/office.new`; tùy chọn `go test ./...`; build dashboard ra `.output.new` (Nuxt đọc `OFFICE_UI_OUT_DIR`). Bản đang chạy không bị đụng tới. Build hoặc test lỗi thì dừng và ghi `failed`.
+  2. Đổi bản: bản hiện tại thành `*.prev`, bản mới vào đúng chỗ. Server tắt gọn gàng rồi thoát với **mã 75**.
+  3. Supervisor khởi động lại cả hai và chờ `/healthz`. Tối đa 25 giây, nhưng thất bại ngay nếu tiến trình mới thoát. Không lên thì `Rollback`: bản `.prev` quay lại chỗ, bản lỗi thành `*.failed`, chạy lại bản cũ và ghi `rolled_back`. Lên được thì ghi `ok`. Kết quả nằm ở `<office>/update.json`.
+  - Nếu đang có lượt chat hoặc Việc chạy, trả 409 kèm số lượng; người dùng xác nhận thì mới làm (`force`).
+- **Không để lại tiến trình mồ côi.**
+  - Vòng lặp supervisor không dùng lệnh chờ chặn, nên luôn xử lý được tín hiệu tắt.
+  - Server dưới supervisor tự tắt khi supervisor cha mất.
+  - Supervisor ghi PID tiến trình con vào `<office>/supervisor.pids`, và khi khởi động thì dọn các tiến trình con còn sót của lần trước. Chỉ dọn tiến trình trông đúng là `office serve` hoặc dashboard.
+- **Giao diện.**
+  - Trang **Quản trị → Cập nhật office**: bản đang chạy (version, commit, có thay đổi chưa commit hay không), trạng thái supervisor, kết quả lần trước, nút cập nhật (tùy chọn chạy test), log build trực tiếp; sau khi khởi động lại thì trang tự tải lại.
+  - Project trỏ vào mã nguồn office có dòng nhắc kèm nút sang trang này. Project đó vẫn là project bình thường.
+- **Tiến trình của project** dừng khi cập nhật; mục bật "bật cùng office" tự chạy lại. Container không bị ảnh hưởng.
+
+**Đã kiểm tra trên bản sao repo:**
+- Cập nhật thành công: có PID mới, kết quả `ok`.
+- Bản mới crash lúc khởi động: tự quay về bản cũ sau 11 giây (tính cả build), API và dashboard vẫn chạy.
+- Kill cứng supervisor: server tự tắt; dashboard còn sót được dọn ở lần chạy sau.
+
+**Để sau.** Cập nhật từ bản phát hành (tag git kèm file build sẵn), và gộp dashboard vào file chạy để phát hành chỉ còn một file.

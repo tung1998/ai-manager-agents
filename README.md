@@ -14,10 +14,13 @@ Cần Go ≥ 1.27, Node 22, pnpm.
 make build                                   # bin/office
 ./bin/office init --local --template team    # đăng ký repo hiện tại, chọn mô hình
 ./bin/office user create --email you@company.com --name "Bạn" --role admin
-./bin/office run                             # API http://127.0.0.1:8787
-
-make ui-install && make dev-ui               # dashboard http://localhost:2704
+make ui-install && make ui-build             # build dashboard
+./bin/office run                             # API :8787 + dashboard http://localhost:2704
 ```
+
+`office run` là supervisor: chạy server (`office serve`) và dashboard, tự bật lại khi dừng, và
+áp dụng **Quản trị → Cập nhật office** (build lại từ mã nguồn, tự quay về bản cũ nếu bản mới lỗi).
+Khi sửa giao diện: `make dev-ui` (hot reload, cổng 2704) cùng `make dev-api` (chỉ server).
 
 Mở http://localhost:2704, đăng nhập bằng tài khoản vừa tạo. Trang Tổng quan có checklist: Kết nối AI → Repo → Mô hình.
 

@@ -9,6 +9,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
+	"bitbucket.org/senprints/agent-office/internal/selfupdate"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -33,7 +35,9 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 )
 
-func runCmd() *cobra.Command {
+// serveCmd is the API server. `office run` (the supervisor) starts it as a
+// child; it can also be run directly.
+func serveCmd() *cobra.Command {
 	var (
 		addr           string
 		origins        []string
@@ -42,8 +46,8 @@ func runCmd() *cobra.Command {
 		cliSetup       bool
 	)
 	cmd := &cobra.Command{
-		Use:   "run",
-		Short: "Bật server: API cho dashboard (scheduler và heartbeat sẽ thêm ở M1)",
+		Use:   "serve",
+		Short: "Chạy server API (thường do `office run` khởi động)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -88,6 +92,25 @@ func runCmd() *cobra.Command {
 			mcp := mcpserver.New(office, version)
 			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")
 			monitors := monitor.New(a.store, procs, chatEngine)
+
+			// self-update: only under the supervisor and when the source is here
+			supervised := os.Getenv(selfupdate.EnvSupervised) == "1"
+			if supervised {
+				go exitWithParent(ctx)
+			}
+			restart := make(chan struct{})
+			var updater *selfupdate.Updater
+			if supervised {
+				if exe, err := os.Executable(); err == nil {
+					if p, err := filepath.EvalSymlinks(exe); err == nil {
+						exe = p
+					}
+					if src, ok := selfupdate.FindSource(exe); ok {
+						var once sync.Once
+						updater = selfupdate.New(src, h.Dir, a.cli.Env(), func() { once.Do(func() { close(restart) }) })
+					}
+				}
+			}
 			go monitors.Run(ctx)
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 			handler := api.New(api.Config{
@@ -104,6 +127,8 @@ func runCmd() *cobra.Command {
 				Monitors:   monitors,
 				MCP:        mcp,
 				Actions:    acts,
+				Updater:    updater,
+				Supervised: supervised,
 				Backup: func(ctx context.Context) (string, error) {
 					return backupTo(ctx, a, filepath.Join(h.Dir, "backups", time.Now().Format("20060102-150405")))
 				},
@@ -126,6 +151,14 @@ func runCmd() *cobra.Command {
 				if !errors.Is(err, http.ErrServerClosed) {
 					return err
 				}
+			case <-restart:
+				// swapped in a new build: stop cleanly and let the supervisor restart us
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				_ = srv.Shutdown(shutdownCtx)
+				cancel()
+				procs.Shutdown()
+				a.Close()
+				os.Exit(selfupdate.RestartCode)
 			case <-ctx.Done():
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
@@ -211,4 +244,24 @@ func loopback(addr string) string {
 		host = "127.0.0.1"
 	}
 	return net.JoinHostPort(host, port)
+}
+
+// exitWithParent stops the server (as on Ctrl+C) when its supervisor dies, so
+// no orphan keeps the port.
+func exitWithParent(ctx context.Context) {
+	parent := os.Getppid()
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if os.Getppid() != parent {
+				fmt.Fprintln(os.Stderr, "office: supervisor đã dừng, server tắt theo")
+				_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+				return
+			}
+		}
+	}
 }

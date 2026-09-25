@@ -1,4 +1,4 @@
-.PHONY: build test dev-api dev-ui ui-install ui-build ui-start up
+.PHONY: build test start dev-api dev-ui ui-install ui-build ui-start up
 
 build:
 	go build -o bin/office ./cmd/office
@@ -6,8 +6,12 @@ build:
 test:
 	go vet ./... && go test ./...
 
-dev-api: build
+# office run: supervisor with API + dashboard, restarts and self-updates
+start: build ui-build
 	./bin/office run
+
+dev-api: build
+	./bin/office serve
 
 ui-install:
 	cd dashboard && pnpm install

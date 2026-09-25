@@ -197,6 +197,13 @@ func userHome() string {
 	return h
 }
 
+// ActiveTurns counts answers being written right now.
+func (e *Engine) ActiveTurns() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.active)
+}
+
 // Turn returns a turn by id.
 func (e *Engine) Turn(id string) (*Turn, bool) {
 	e.mu.Lock()

@@ -19,6 +19,9 @@ const configSection = computed<'model' | 'skill' | 'mcp'>({
   set: v => navigateTo({ query: { tab: 'config', section: v } }, { replace: true })
 })
 const descOpen = ref(false)
+// office's own source: approved changes take effect after "Cập nhật office"
+const { data: updData } = useFetch<{ source?: { root: string } }>('/api/system/update', { lazy: true, immediate: isAdmin.value })
+const isOfficeSource = computed(() => !!project.value?.path && updData.value?.source?.root === project.value.path)
 
 // "Hỏi agent" from Vận hành: open Chat with the log attached
 // send=true ("Sửa lỗi") starts a new conversation and sends right away
@@ -134,6 +137,12 @@ async function saveAsTemplate() {
           {{ project.description }}
         </button>
       </div>
+
+      <UAlert
+        v-if="isOfficeSource" color="info" variant="subtle" icon="i-lucide-package" title="Đây là mã nguồn của chính office"
+        description="Thay đổi được duyệt chỉ có hiệu lực sau khi build lại. Vào Cập nhật office để build, khởi động lại và tự quay về bản cũ nếu lỗi."
+        :actions="[{ label: 'Cập nhật office', to: '/admin/update', icon: 'i-lucide-refresh-cw', color: 'info', variant: 'outline' }]"
+      />
 
       <UTabs
         v-model="tab" :content="false" variant="link" class="w-full"

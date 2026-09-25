@@ -105,6 +105,8 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Kết nối AI: tự chuyển kết nối dự phòng khi lỗi/chạm trần | Chưa làm |
 | MCP nội bộ office (ops_overview, process_logs, container_logs, monitor_detail) cho Claude Code và agent API; nút "Sửa lỗi" (ADR-029) | Xong |
 | Agent đề xuất chạy/chạy lại/dừng tiến trình hoặc container, người duyệt mới chạy (ADR-030) | Xong |
+| Supervisor `office run` (API + dashboard), "Cập nhật office" từ mã nguồn, tự quay về bản cũ (ADR-031) | Xong |
+| Cập nhật từ bản phát hành; gộp dashboard vào file chạy | Chưa làm |
 | Việc định kỳ, cảnh báo, `doctor` | Chưa làm |
 
 ### M0: Nền móng

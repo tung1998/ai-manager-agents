@@ -6,6 +6,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/ops"
+	"bitbucket.org/senprints/agent-office/internal/selfupdate"
 	"context"
 	"encoding/json"
 	"errors"
@@ -61,6 +62,11 @@ type Config struct {
 	MCP http.Handler
 	// Actions are operations agents proposed; admins approve or reject them.
 	Actions *actions.Service
+	// Updater rebuilds office from its source; nil when not supervised or
+	// running an installed build without source.
+	Updater *selfupdate.Updater
+	// Supervised reports whether `office run` supervises this server.
+	Supervised bool
 	// Backup writes a copy of the data to a new folder and returns its path.
 	Backup func(ctx context.Context) (string, error)
 	System SystemInfo
