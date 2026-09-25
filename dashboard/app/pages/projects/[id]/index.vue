@@ -14,8 +14,8 @@ const templates = computed(() => tplData.value?.templates ?? [])
 // "Cấu hình" holds the org model and Skills & MCP (older links used tab=model|tools)
 type Tab = 'chat' | 'tasks' | 'ops' | 'config'
 const tabs: Tab[] = ['chat', 'tasks', 'ops', 'config']
-const configSection = computed<'model' | 'skill' | 'mcp'>({
-  get: () => route.query.tab === 'tools' ? 'skill' : (['skill', 'mcp'] as const).find(v => v === route.query.section) ?? 'model',
+const configSection = computed<'model' | 'perm' | 'skill' | 'mcp'>({
+  get: () => route.query.tab === 'tools' ? 'skill' : (['perm', 'skill', 'mcp'] as const).find(v => v === route.query.section) ?? 'model',
   set: v => navigateTo({ query: { tab: 'config', section: v } }, { replace: true })
 })
 const descOpen = ref(false)
@@ -160,10 +160,12 @@ async function saveAsTemplate() {
           v-model="configSection"
           :items="[
             { value: 'model', label: 'Mô hình', icon: 'i-lucide-network' },
+            { value: 'perm', label: 'Quyền', icon: 'i-lucide-shield' },
             ...(isAdmin ? [{ value: 'skill', label: 'Skills', icon: 'i-lucide-sparkles' }, { value: 'mcp', label: 'MCP', icon: 'i-lucide-plug-zap' }] : [])
           ]"
         />
-        <ToolsPanel v-if="configSection !== 'model'" :key="configSection" :kind="configSection" :project-path="project.path" />
+        <PolicyPanel v-if="configSection === 'perm'" :project-id="project.id" />
+        <ToolsPanel v-else-if="configSection !== 'model'" :key="configSection" :kind="configSection" :project-path="project.path" />
         <OrgModelEditor v-else-if="project.model" :key="project.model.id" :model-id="project.model.id" @changed="refresh()" />
         <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
       </template>

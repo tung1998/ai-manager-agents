@@ -53,8 +53,51 @@ export interface ProviderStat {
   top_model: string
   days: { day: string, calls: number, cost_usd: number }[]
 }
+export type PermLevel = 'read' | 'propose' | 'check' | 'edit' | 'operate'
+// nested packages: each includes the ones before it
+export const permLevels: { level: PermLevel, label: string, description: string, icon: string }[] = [
+  { level: 'read', label: 'Chỉ đọc', description: 'Đọc code, log, trạng thái vận hành', icon: 'i-lucide-eye' },
+  { level: 'propose', label: 'Đề xuất', description: 'Đề xuất sửa code và thao tác, người duyệt mới làm', icon: 'i-lucide-message-square-diff' },
+  { level: 'check', label: 'Tự kiểm tra', description: 'Tự chạy lệnh kiểm tra được phép (test, typecheck, lint, build)', icon: 'i-lucide-flask-conical' },
+  { level: 'edit', label: 'Tự sửa code', description: 'Tự áp diff áp được sạch, trừ file cấm', icon: 'i-lucide-pencil' },
+  { level: 'operate', label: 'Vận hành', description: 'Tự chạy lại tiến trình và container được phép', icon: 'i-lucide-server-cog' }
+]
+export const permRank = (l?: string) => Math.max(0, permLevels.findIndex(x => x.level === l))
+export const permOf = (l?: string) => permLevels[permRank(l)]!
+export function agentLevel(p: Permissions): PermLevel {
+  if (p.caps) return p.caps.reduce<PermLevel>((m, id) => { const c = permCaps.find(x => x.id === id); return c && permRank(c.min) > permRank(m) ? c.min : m }, 'read')
+  if (p.level && permLevels.some(x => x.level === p.level)) return p.level
+  return p.read_only ? 'read' : 'propose'
+}
+
+// single capabilities; a package is a preset of them (same list as internal/perm)
+export type PermGroup = 'code' | 'commands' | 'git' | 'ops'
+export interface PermCap { id: string, group: PermGroup, label: string, description: string, min: PermLevel, icon: string }
+export const permCaps: PermCap[] = [
+  { id: 'propose', group: 'code', label: 'Đề xuất', description: 'Đưa diff và đề xuất thao tác, người duyệt mới làm', min: 'propose', icon: 'i-lucide-message-square-diff' },
+  { id: 'code.apply', group: 'code', label: 'Tự áp diff', description: 'Diff áp được sạch được áp ngay, trừ file cấm', min: 'edit', icon: 'i-lucide-pencil' },
+  { id: 'commands.run', group: 'commands', label: 'Tự chạy lệnh', description: 'Chạy ngay các lệnh được chọn; lệnh khác phải đề xuất', min: 'check', icon: 'i-lucide-square-terminal' },
+  { id: 'git.commit', group: 'git', label: 'Tự commit', description: 'Commit các file đã sửa với message rõ ràng', min: 'edit', icon: 'i-lucide-git-commit-horizontal' },
+  { id: 'git.branch', group: 'git', label: 'Tự tạo nhánh', description: 'Tạo và chuyển sang nhánh mới', min: 'operate', icon: 'i-lucide-git-branch' },
+  { id: 'ops.process', group: 'ops', label: 'Tự chạy lại tiến trình', description: 'Chạy, chạy lại, dừng tiến trình được phép', min: 'operate', icon: 'i-lucide-rotate-cw' },
+  { id: 'ops.container', group: 'ops', label: 'Tự điều khiển container', description: 'Bật, chạy lại, dừng container được phép', min: 'operate', icon: 'i-lucide-container' }
+]
+export const permGroups: { id: PermGroup, label: string, icon: string }[] = [
+  { id: 'code', label: 'Code', icon: 'i-lucide-code' },
+  { id: 'commands', label: 'Lệnh', icon: 'i-lucide-square-terminal' },
+  { id: 'git', label: 'Git', icon: 'i-lucide-git-fork' },
+  { id: 'ops', label: 'Vận hành', icon: 'i-lucide-server-cog' }
+]
+export const presetCaps = (l: PermLevel) => permCaps.filter(c => permRank(c.min) <= permRank(l)).map(c => c.id)
+export const agentCaps = (p: Permissions) => p.caps ?? presetCaps(agentLevel(p))
+
+export interface CommandPack { id: string, label: string, icon?: string, commands: string[], custom?: boolean }
+
 export interface Permissions {
+  level?: PermLevel
   read_only: boolean
+  caps?: string[] | null
+  commands?: string[] | null
   tools?: string[]
   requires_approval?: boolean
 }

@@ -12,18 +12,18 @@ import (
 
 type chatRepo struct{ db dbtx }
 
-const convCols = `id, project_id, agent_id, agent_name, title, session_id, runtime, created_by, created_at, updated_at`
+const convCols = `id, project_id, agent_id, agent_name, title, session_id, runtime, mode, task_id, created_by, created_at, updated_at`
 
 func scanConv(row scanner) (storage.Conversation, error) {
 	var (
 		c                storage.Conversation
-		agent            sql.NullString
+		agent, task      sql.NullString
 		created, updated string
 	)
-	if err := row.Scan(&c.ID, &c.ProjectID, &agent, &c.AgentName, &c.Title, &c.SessionID, &c.Runtime, &c.CreatedBy, &created, &updated); err != nil {
+	if err := row.Scan(&c.ID, &c.ProjectID, &agent, &c.AgentName, &c.Title, &c.SessionID, &c.Runtime, &c.Mode, &task, &c.CreatedBy, &created, &updated); err != nil {
 		return c, notFound(err)
 	}
-	c.AgentID = agent.String
+	c.AgentID, c.TaskID = agent.String, task.String
 	return c, parseTimes([]*time.Time{&c.CreatedAt, &c.UpdatedAt}, created, updated)
 }
 
@@ -33,25 +33,35 @@ func (r chatRepo) CreateConversation(ctx context.Context, c storage.Conversation
 		c.ID = ids.New("cnv")
 	}
 	c.CreatedAt, c.UpdatedAt = now, now
-	_, err := r.db.ExecContext(ctx, `INSERT INTO conversations (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.ProjectID, nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.CreatedBy, fmtTime(now), fmtTime(now))
+	if c.Mode == "" {
+		c.Mode = "propose"
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO conversations (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.ProjectID, nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.Mode, nullStr(c.TaskID), c.CreatedBy, fmtTime(now), fmtTime(now))
 	return c, err
 }
 
 func (r chatRepo) UpdateConversation(ctx context.Context, c storage.Conversation) error {
-	return execOne(ctx, r.db, `UPDATE conversations SET agent_id=?, agent_name=?, title=?, session_id=?, runtime=?, updated_at=? WHERE id=?`,
-		nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, fmtTime(time.Now()), c.ID)
+	if c.Mode == "" {
+		c.Mode = "propose"
+	}
+	return execOne(ctx, r.db, `UPDATE conversations SET agent_id=?, agent_name=?, title=?, session_id=?, runtime=?, mode=?, updated_at=? WHERE id=?`,
+		nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.Mode, fmtTime(time.Now()), c.ID)
 }
 
 func (r chatRepo) GetConversation(ctx context.Context, id string) (storage.Conversation, error) {
 	return scanConv(r.db.QueryRowContext(ctx, `SELECT `+convCols+` FROM conversations WHERE id=?`, id))
 }
 
+func (r chatRepo) TaskConversation(ctx context.Context, taskID string) (storage.Conversation, error) {
+	return scanConv(r.db.QueryRowContext(ctx, `SELECT `+convCols+` FROM conversations WHERE task_id=?`, taskID))
+}
+
 func (r chatRepo) ListConversations(ctx context.Context, projectID string, limit int) ([]storage.Conversation, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+convCols+` FROM conversations WHERE project_id=? ORDER BY updated_at DESC LIMIT ?`, projectID, limit)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+convCols+` FROM conversations WHERE project_id=? AND task_id IS NULL ORDER BY updated_at DESC LIMIT ?`, projectID, limit)
 	if err != nil {
 		return nil, err
 	}

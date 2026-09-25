@@ -60,6 +60,7 @@ async function decide(approve: boolean) {
         <span class="shrink-0 text-xs"><span class="text-(--ui-success)">+{{ stats.add }}</span> <span class="text-(--ui-error)">−{{ stats.del }}</span></span>
       </button>
       <UBadge :label="statusMeta[patch.status].label" :color="statusMeta[patch.status].color" :icon="statusMeta[patch.status].icon" variant="subtle" size="sm" />
+      <UBadge v-if="patch.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" label="tự động" :title="patch.decided_by.slice(5)" />
       <template v-if="patch.status === 'pending' && isAdmin">
         <UButton size="xs" color="neutral" variant="ghost" label="Từ chối" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
         <UButton size="xs" icon="i-lucide-check" label="Duyệt và áp dụng" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />

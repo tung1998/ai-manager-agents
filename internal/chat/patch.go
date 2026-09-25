@@ -69,8 +69,39 @@ func ApplyPatch(ctx context.Context, root, diff string) error {
 	return gitApply(ctx, root, diff, false)
 }
 
-func gitApply(ctx context.Context, root, diff string, check bool) error {
-	args := []string{"apply", "--recount", "--whitespace=nowarn"}
+// withGitHeaders adds a "diff --git" line before each file section that has
+// none. With --recount, git reads a hunk until the next header; without one,
+// the next file's "--- a/x" line is taken as a removed line of the previous
+// hunk, so multi-file diffs from agents (and batches) would not apply.
+func withGitHeaders(diff string) string {
+	lines := strings.Split(diff, "\n")
+	var b strings.Builder
+	for i, l := range lines {
+		if strings.HasPrefix(l, "--- ") && i+1 < len(lines) && strings.HasPrefix(lines[i+1], "+++ ") &&
+			(i == 0 || !strings.HasPrefix(lines[i-1], "diff --git") && !strings.HasPrefix(lines[i-1], "index ") &&
+				!strings.HasPrefix(lines[i-1], "new file mode") && !strings.HasPrefix(lines[i-1], "deleted file mode")) {
+			oldName := strings.Fields(strings.TrimPrefix(l, "--- "))[0]
+			name := strings.TrimPrefix(strings.Fields(strings.TrimPrefix(lines[i+1], "+++ "))[0], "b/")
+			mode := ""
+			switch {
+			case name == "/dev/null": // deleted file
+				name, mode = strings.TrimPrefix(oldName, "a/"), "deleted file mode 100644\n"
+			case oldName == "/dev/null": // new file
+				mode = "new file mode 100644\n"
+			}
+			fmt.Fprintf(&b, "diff --git a/%s b/%s\n%s", name, name, mode)
+		}
+		b.WriteString(l)
+		if i < len(lines)-1 {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+func gitApply(ctx context.Context, root, diff string, check bool, extra ...string) error {
+	diff = withGitHeaders(diff)
+	args := append([]string{"apply", "--recount", "--whitespace=nowarn"}, extra...)
 	if check {
 		args = append(args, "--check")
 	}
@@ -87,4 +118,43 @@ func gitApply(ctx context.Context, root, diff string, check bool) error {
 		return fmt.Errorf("không áp được diff: %s", msg)
 	}
 	return nil
+}
+
+// joinDiffs concatenates diffs into one patch (each on its own lines).
+func joinDiffs(diffs []string) string {
+	var b strings.Builder
+	for _, d := range diffs {
+		b.WriteString(d)
+		if !strings.HasSuffix(d, "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+// ApplyBatch applies several diffs as one: either all of them apply or none.
+func ApplyBatch(ctx context.Context, root string, diffs []string) error {
+	all := joinDiffs(diffs)
+	if err := gitApply(ctx, root, all, true); err != nil {
+		return err
+	}
+	return gitApply(ctx, root, all, false)
+}
+
+// RevertBatch takes back diffs applied earlier, all or none.
+func RevertBatch(ctx context.Context, root string, diffs []string) error {
+	rev := make([]string, len(diffs))
+	for i, d := range diffs {
+		rev[len(diffs)-1-i] = d
+	}
+	all := joinDiffs(rev)
+	if err := gitApply(ctx, root, all, true, "-R"); err != nil {
+		return fmt.Errorf("không hoàn tác được (file đã đổi sau khi áp?): %w", err)
+	}
+	return gitApply(ctx, root, all, false, "-R")
+}
+
+// CheckBatch reports whether diffs would apply together (nothing is changed).
+func CheckBatch(ctx context.Context, root string, diffs []string) error {
+	return gitApply(ctx, root, joinDiffs(diffs), true)
 }

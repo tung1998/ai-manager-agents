@@ -6,15 +6,16 @@ const { data: prov } = await useFetch<{ providers: Provider[] }>('/api/providers
 const { data: proj } = await useFetch<{ projects: Project[] }>('/api/projects')
 const { data: tpl } = await useFetch<{ templates: OrgModel[] }>('/api/templates')
 
-interface Job { id: string, project_id: string, title: string, goal: string, status: 'running' | 'done' | 'failed' | 'cancelled' | 'rejected', cost_usd: number, created_at: string }
+interface Job { id: string, project_id: string, title: string, goal: string, pending_patches?: number, status: 'running' | 'done' | 'failed' | 'cancelled' | 'rejected' | 'needs_input', cost_usd: number, created_at: string }
 const { data: jobData } = await useFetch<{ tasks: Job[], projects: Record<string, string> }>('/api/jobs')
 const recentJobs = computed(() => (jobData.value?.tasks ?? []).slice(0, 6))
 const jobStatus: Record<Job['status'], { label: string, color: 'info' | 'success' | 'error' | 'neutral' | 'warning', icon: string }> = {
   running: { label: 'Đang chạy', color: 'info', icon: 'i-lucide-loader' },
   done: { label: 'Xong', color: 'success', icon: 'i-lucide-circle-check' },
-  failed: { label: 'Lỗi', color: 'error', icon: 'i-lucide-circle-x' },
+  failed: { label: 'Không thành công', color: 'error', icon: 'i-lucide-circle-x' },
   cancelled: { label: 'Đã dừng', color: 'neutral', icon: 'i-lucide-circle-slash' },
-  rejected: { label: 'Không thông qua', color: 'warning', icon: 'i-lucide-thumbs-down' }
+  rejected: { label: 'Không thông qua', color: 'warning', icon: 'i-lucide-thumbs-down' },
+  needs_input: { label: 'Chờ bạn trả lời', color: 'warning', icon: 'i-lucide-message-circle-question' }
 }
 const when = (d: string) => new Date(d).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
@@ -144,7 +145,10 @@ const steps = computed(() => [
               <p class="truncate text-xs text-(--ui-text-muted)">{{ jobData?.projects[j.project_id] ?? j.project_id }} · {{ when(j.created_at) }}</p>
             </div>
             <span class="text-xs tabular-nums text-(--ui-text-muted)">${{ j.cost_usd.toFixed(3) }}</span>
-            <UBadge :color="jobStatus[j.status].color" variant="subtle" size="sm" :label="jobStatus[j.status].label" />
+            <UBadge
+              :color="j.status === 'done' && j.pending_patches ? 'warning' : jobStatus[j.status].color" variant="subtle" size="sm"
+              :label="j.status === 'done' && j.pending_patches ? `Chờ duyệt (${j.pending_patches})` : jobStatus[j.status].label"
+            />
           </NuxtLink>
         </div>
       </UCard>

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -13,19 +14,20 @@ import (
 type actionRepo struct{ db dbtx }
 
 const actionCols = `id, project_id, conversation_id, message_id, task_id, run_ref, kind, target, target_id, reason, status, detail,
-	proposed_by, decided_by, decided_at, created_at`
+	proposed_by, decided_by, decided_at, created_at, args`
 
 func scanAction(row scanner) (storage.Action, error) {
 	var (
 		a               storage.Action
 		conv, msg, task sql.NullString
 		decided         sql.NullString
-		created         string
+		created, args   string
 	)
 	if err := row.Scan(&a.ID, &a.ProjectID, &conv, &msg, &task, &a.RunRef, &a.Kind, &a.Target, &a.TargetID, &a.Reason, &a.Status, &a.Detail,
-		&a.ProposedBy, &a.DecidedBy, &decided, &created); err != nil {
+		&a.ProposedBy, &a.DecidedBy, &decided, &created, &args); err != nil {
 		return a, notFound(err)
 	}
+	_ = json.Unmarshal([]byte(args), &a.Args)
 	a.ConversationID, a.MessageID, a.TaskID = conv.String, msg.String, task.String
 	var err error
 	if a.DecidedAt, err = optParse(decided); err != nil {
@@ -43,9 +45,9 @@ func (r actionRepo) Create(ctx context.Context, a storage.Action) (storage.Actio
 		a.Status = "pending"
 	}
 	a.CreatedAt = time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `INSERT INTO actions (`+actionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO actions (`+actionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.ProjectID, nullStr(a.ConversationID), nullStr(a.MessageID), nullStr(a.TaskID), a.RunRef, a.Kind, a.Target, a.TargetID, a.Reason,
-		a.Status, a.Detail, a.ProposedBy, a.DecidedBy, optTime(a.DecidedAt), fmtTime(a.CreatedAt))
+		a.Status, a.Detail, a.ProposedBy, a.DecidedBy, optTime(a.DecidedAt), fmtTime(a.CreatedAt), toJSON(a.Args))
 	return a, err
 }
 

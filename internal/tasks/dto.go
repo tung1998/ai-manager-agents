@@ -21,9 +21,12 @@ type TaskDTO struct {
 	BudgetUSD   float64              `json:"budget_usd"`
 	CostUSD     float64              `json:"cost_usd"`
 	Attachments []storage.Attachment `json:"attachments"`
-	CreatedBy   string               `json:"created_by"`
-	CreatedAt   time.Time            `json:"created_at"`
-	FinishedAt  *time.Time           `json:"finished_at"`
+	// diffs waiting for approval / applied: a "done" task with pending ones is awaiting review
+	PendingPatches int        `json:"pending_patches"`
+	AppliedPatches int        `json:"applied_patches"`
+	CreatedBy      string     `json:"created_by"`
+	CreatedAt      time.Time  `json:"created_at"`
+	FinishedAt     *time.Time `json:"finished_at"`
 }
 
 // StepDTO is a step for the dashboard.
@@ -79,7 +82,11 @@ func (s *Service) List(ctx context.Context, projectID string) ([]TaskDTO, error)
 	}
 	out := make([]TaskDTO, 0, len(list))
 	for _, t := range list {
-		out = append(out, toTaskDTO(t))
+		d := toTaskDTO(t)
+		if patches, err := s.store.Tasks().ListPatches(ctx, t.ID); err == nil {
+			d.PendingPatches, d.AppliedPatches = countPatches(patches)
+		}
+		out = append(out, d)
 	}
 	return out, nil
 }
@@ -110,6 +117,7 @@ func (s *Service) Get(ctx context.Context, id string) (Detail, error) {
 	for _, p := range patches {
 		d.Patches = append(d.Patches, chat.PatchDTO{ID: p.ID, Diff: p.Diff, Files: p.Files, Status: p.Status, Detail: p.Detail, DecidedBy: p.DecidedBy, DecidedAt: p.DecidedAt})
 	}
+	d.Task.PendingPatches, d.Task.AppliedPatches = countPatches(patches)
 	if l, ok := s.Live(id); ok {
 		_, done, _ := l.Since(0)
 		d.Running = !done
@@ -122,4 +130,16 @@ func atts(a []storage.Attachment) []storage.Attachment {
 		return []storage.Attachment{}
 	}
 	return a
+}
+
+func countPatches(ps []storage.Patch) (pending, applied int) {
+	for _, p := range ps {
+		switch p.Status {
+		case "pending":
+			pending++
+		case "applied":
+			applied++
+		}
+	}
+	return
 }

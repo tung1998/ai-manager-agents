@@ -1,12 +1,14 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"context"
 	"errors"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -75,6 +77,10 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("GET /api/projects/{id}/tasks", auth(s.listTasks))
 		mux.Handle("POST /api/projects/{id}/tasks", auth(s.createTask))
 		mux.Handle("GET /api/tasks/{id}", auth(s.getTask))
+		mux.Handle("POST /api/tasks/{id}/retry", auth(s.retryTask))
+		mux.Handle("POST /api/tasks/{id}/conversation", auth(s.taskConversation))
+		mux.Handle("POST /api/tasks/{id}/patches/approve-all", admin(s.approveAllPatches))
+		mux.Handle("POST /api/tasks/{id}/patches/revert-all", admin(s.revertAllPatches))
 		mux.Handle("DELETE /api/tasks/{id}", admin(s.deleteTask))
 		mux.Handle("GET /api/tasks/{id}/stream", auth(s.streamTask))
 		mux.Handle("POST /api/tasks/{id}/cancel", auth(s.cancelTask))
@@ -88,7 +94,11 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	if s.cfg.Monitors != nil {
 		s.monitorRoutes(mux, auth, admin)
 	}
+	mux.Handle("GET /api/permission-levels", auth(s.permissionLevels))
+	mux.Handle("GET /api/projects/{id}/policy", auth(s.getPolicy))
+	mux.Handle("PUT /api/projects/{id}/policy", admin(s.putPolicy))
 	if s.cfg.Actions != nil {
+		s.gitRoutes(mux, auth, admin)
 		mux.Handle("POST /api/actions/{id}/approve", admin(s.decideAction(true)))
 		mux.Handle("POST /api/actions/{id}/reject", admin(s.decideAction(false)))
 	}
@@ -585,6 +595,19 @@ func (in agentInput) apply(a *storage.Agent) {
 	a.Key, a.Name, a.Tier, a.Role = strings.TrimSpace(in.Key), strings.TrimSpace(in.Name), in.Tier, in.Role
 	a.Description, a.ReportsTo, a.ProviderID = in.Description, in.ReportsTo, in.ProviderID
 	a.ModelTier, a.LLMModel, a.Instructions, a.Permissions = in.ModelTier, strings.TrimSpace(in.LLMModel), in.Instructions, in.Permissions
+	if a.Permissions.Caps != nil { // own picks: only known capabilities
+		caps := []string{}
+		for _, c := range perm.Caps {
+			if slices.Contains(*a.Permissions.Caps, c.ID) {
+				caps = append(caps, c.ID)
+			}
+		}
+		a.Permissions.Caps = &caps
+	}
+	if !perm.Valid(a.Permissions.Level) {
+		a.Permissions.Level = perm.Agent(*a)
+	}
+	a.Permissions.ReadOnly = perm.Agent(*a) == perm.Read // the legacy flag follows
 	if in.Sort != nil {
 		a.Sort = *in.Sort
 	}

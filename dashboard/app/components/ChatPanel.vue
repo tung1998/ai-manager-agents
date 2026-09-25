@@ -16,14 +16,16 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string }
+interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, mode?: PermLevel }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message }
 
-const props = defineProps<{ projectId: string }>()
+// taskId: the follow-up talk about one task (a single thread, no thread list)
+const props = defineProps<{ projectId: string, taskId?: string }>()
+const emit = defineEmits<{ 'turn-done': [] }>()
 const toast = useToast()
 
 const { data: agentsData } = await useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`)
-const { data: convData, refresh: refreshConvs } = await useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations`)
+const { data: convData, refresh: refreshConvs } = await useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations`, { immediate: !props.taskId })
 const agents = computed(() => (agentsData.value?.agents ?? []).filter(a => a.tier !== 'worker'))
 const conversations = computed(() => convData.value?.conversations ?? [])
 
@@ -31,6 +33,8 @@ const current = ref<Conversation | null>(null)
 const messages = ref<Message[]>([])
 const draft = ref('')
 const draftFiles = ref<Attachment[]>([])
+const mode = ref<PermLevel>('propose') // permission mode of the open conversation
+watch(() => current.value?.id, () => { mode.value = current.value?.mode ?? 'propose' })
 const prompt = ref<{ busy: boolean } | null>(null)
 
 // filled by other tabs (e.g. "Hỏi agent" in Vận hành)
@@ -77,9 +81,19 @@ async function open(c: Conversation) {
 }
 
 async function newConversation(agentId = '') {
+  if (props.taskId) return openTask()
   try {
     const res = await $fetch<{ conversation: Conversation }>(`/api/projects/${props.projectId}/conversations`, { method: 'POST', body: { agent_id: agentId } })
     await refreshConvs()
+    await open(res.conversation)
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+
+async function openTask() {
+  try {
+    const res = await $fetch<{ conversation: Conversation }>(`/api/tasks/${props.taskId}/conversation`, { method: 'POST' })
     await open(res.conversation)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -92,7 +106,7 @@ async function send() {
   if (!current.value) await newConversation()
   if (!current.value) return
   try {
-    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id) } })
+    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: mode.value } })
     draft.value = ''
     draftFiles.value = []
     const first = !messages.value.length
@@ -128,7 +142,8 @@ function follow(id: string) {
       case 'error':
         if (ev.message) messages.value.push(ev.message)
         finishStream()
-        refreshConvs()
+        if (props.taskId) emit('turn-done')
+        else refreshConvs()
         scrollDown()
         break
     }
@@ -176,14 +191,17 @@ function onPatchUpdated(msg: Message, p: Patch) {
 const agentMenu = computed(() => [agents.value.map(a => ({ label: a.name, description: a.role, onSelect: () => newConversation(a.id) }))])
 const when = (d: string) => new Date(d).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
-onMounted(() => { if (conversations.value[0]) open(conversations.value[0]) })
+onMounted(() => {
+  if (props.taskId) openTask()
+  else if (conversations.value[0]) open(conversations.value[0])
+})
 onBeforeUnmount(stopStream)
 </script>
 
 <template>
-  <div class="flex h-[calc(100vh-13rem)] min-h-[28rem] overflow-hidden rounded-lg border border-(--ui-border)">
+  <div class="flex overflow-hidden rounded-lg border border-(--ui-border)" :class="taskId ? 'h-[32rem]' : 'h-[calc(100vh-13rem)] min-h-[28rem]'">
     <!-- threads -->
-    <aside class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
+    <aside v-if="!taskId" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
       <div class="flex items-center gap-1 border-b border-(--ui-border) p-2">
         <UButton icon="i-lucide-square-pen" label="Trò chuyện mới" size="sm" color="neutral" variant="ghost" class="flex-1 justify-start" @click="newConversation()" />
         <UDropdownMenu v-if="agents.length > 1" :items="agentMenu">
@@ -215,8 +233,14 @@ onBeforeUnmount(stopStream)
       <div ref="listEl" class="flex-1 space-y-4 overflow-y-auto p-4">
         <div v-if="!messages.length && !streaming" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
           <UIcon name="i-lucide-messages-square" class="size-8" />
-          <p class="text-sm">Hỏi agent về project: giải thích code, tìm lỗi, đề xuất sửa…</p>
-          <p class="text-xs">Agent chỉ đọc; mọi thay đổi code đều cần bạn duyệt.</p>
+          <template v-if="taskId">
+            <p class="text-sm">Hỏi {{ current?.agent_name || 'quản lý' }} về Việc này: giải thích kết quả, sửa thêm, commit…</p>
+            <p class="text-xs">Diff và thao tác trong cuộc trao đổi được gắn vào Việc, theo chế độ quyền bên dưới.</p>
+          </template>
+          <template v-else>
+            <p class="text-sm">Hỏi agent về project: giải thích code, tìm lỗi, đề xuất sửa…</p>
+            <p class="text-xs">Agent chỉ đọc; mọi thay đổi code đều cần bạn duyệt.</p>
+          </template>
         </div>
 
         <template v-for="m in messages" :key="m.id">
@@ -271,6 +295,7 @@ onBeforeUnmount(stopStream)
           @submit="send"
         >
           <template #actions>
+            <ModePicker v-model="mode" :project-id="projectId" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" label="Dừng" @click="cancel" />
             <UButton v-else size="sm" type="submit" icon="i-lucide-send" :disabled="!draft.trim() && !draftFiles.length" />
           </template>

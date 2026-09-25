@@ -86,7 +86,7 @@ func TestAnthropicToolLoopAndPatch(t *testing.T) {
 			System   string            `json:"system"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
-		if !strings.Contains(body.System, "KHÔNG tự sửa file") {
+		if !strings.Contains(body.System, "không ghi file trực tiếp") {
 			t.Errorf("system prompt missing patch rule: %q", body.System)
 		}
 		if calls == 1 {

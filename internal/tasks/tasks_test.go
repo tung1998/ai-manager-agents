@@ -29,7 +29,9 @@ type fakeModel struct {
 	mu      sync.Mutex
 	voteFor func(system string) string
 	block   bool
-	planFor string // council plan assignee
+	planFor string   // council plan assignee
+	reviews []string // successive auditor verdict JSONs (after these: the default fail)
+	reviewN int
 }
 
 func (f *fakeModel) handler(t *testing.T) http.HandlerFunc {
@@ -47,13 +49,18 @@ func (f *fakeModel) handler(t *testing.T) http.HandlerFunc {
 		switch {
 		case strings.Contains(prompt, "Lập kế hoạch:"):
 			if strings.Contains(body.System, "Trưởng nhóm") {
-				text = "Kế hoạch.\n```json\n" + `{"analysis":"cần đọc code và sửa","assignments":[{"agent":"code-reader","task":"đọc a.txt"},{"agent":"engineer","task":"đổi one thành ONE"},{"agent":"ghost","task":"x"}]}` + "\n```"
+				text = "Kế hoạch.\n```json\n" + `{"analysis":"cần đọc code và sửa","conventions":"viết hoa toàn bộ","assignments":[{"agent":"code-reader","task":"đọc a.txt"},{"agent":"engineer","task":"đổi one thành ONE","files":["a.txt"],"depends_on":[1]},{"agent":"ghost","task":"x"}]}` + "\n```"
 			} else {
-				text = "```json\n" + `{"analysis":"giao worker","assignments":[{"agent":"code-worker","task":"đổi one thành ONE"}]}` + "\n```"
+				text = "```json\n" + `{"analysis":"giao worker","assignments":[{"agent":"code-worker","task":"đổi one thành ONE","files":["a.txt"]}]}` + "\n```"
 			}
 		case strings.Contains(prompt, "Hội đồng đang xét"):
 			v := f.voteFor(body.System)
 			text = "```json\n{\"vote\":\"" + v + "\",\"reason\":\"lý do " + v + "\"}\n```"
+		case strings.Contains(prompt, "Bạn là giám sát") && f.nextReview() != "":
+			f.mu.Lock()
+			text = "Đã kiểm tra.\n```json\n" + f.reviews[f.reviewN] + "\n```"
+			f.reviewN++
+			f.mu.Unlock()
 		case strings.Contains(prompt, "Bạn là giám sát"):
 			b := "false"
 			if f.block {
@@ -75,6 +82,15 @@ func (f *fakeModel) handler(t *testing.T) http.HandlerFunc {
 			"content": []map[string]any{{"type": "text", "text": text}}, "usage": map[string]int{"input_tokens": 1000, "output_tokens": 100}})
 		w.Write(out)
 	}
+}
+
+func (f *fakeModel) nextReview() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.reviewN < len(f.reviews) {
+		return f.reviews[f.reviewN]
+	}
+	return ""
 }
 
 type fixture struct {
@@ -151,11 +167,11 @@ func requireGit(t *testing.T) {
 func TestTeamHierarchy(t *testing.T) {
 	requireGit(t)
 	f := setup(t, &fakeModel{}, "team")
-	task, err := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil)
+	task, err := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.Start(context.Background(), f.project.ID, "việc khác", 0, nil); err != tasks.ErrBusy {
+	if _, err := f.svc.Start(context.Background(), f.project.ID, "việc khác", 0, nil, ""); err != tasks.ErrBusy {
 		t.Fatalf("second task err = %v", err)
 	}
 	d := wait(t, f.svc, task.ID)
@@ -183,11 +199,12 @@ func TestCouncilApprovedAuditorBlocks(t *testing.T) {
 	requireGit(t)
 	fm := &fakeModel{voteFor: func(string) string { return "approve" }, block: true}
 	f := setup(t, fm, "council")
-	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil)
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "")
 	d := wait(t, f.svc, task.ID)
 	got := phases(d)
 	want := "plan:planner,vote:executor,vote:auditor,work:code-worker,review:auditor,synthesize:executor"
-	if got != want || d.Task.Status != "done" {
+	// a failed review is not "done": the task reports why
+	if got != want || d.Task.Status != "failed" || !strings.Contains(d.Task.Detail, "chưa đạt") {
 		t.Fatalf("status=%s phases=%s want %s (%s)", d.Task.Status, got, want, d.Task.Detail)
 	}
 	if len(d.Patches) != 1 || d.Patches[0].Status != "rejected" || !strings.Contains(d.Patches[0].Detail, "phủ quyết") {
@@ -208,7 +225,7 @@ func TestCouncilRejected(t *testing.T) {
 		return "approve"
 	}}
 	f := setup(t, fm, "council")
-	task, _ := f.svc.Start(context.Background(), f.project.ID, "Việc rủi ro", 0, nil)
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "Việc rủi ro", 0, nil, "")
 	d := wait(t, f.svc, task.ID)
 	got := phases(d)
 	if d.Task.Status != "rejected" || got != "plan:planner,vote:executor,vote:auditor,revise:planner,vote:executor,vote:auditor" {
@@ -222,9 +239,99 @@ func TestCouncilRejected(t *testing.T) {
 func TestTaskBudget(t *testing.T) {
 	f := setup(t, &fakeModel{}, "team")
 	// one call costs 1000*2/1e6 + 100*10/1e6 = 0.003
-	task, _ := f.svc.Start(context.Background(), f.project.ID, "x", 0.001, nil)
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "x", 0.001, nil, "")
 	d := wait(t, f.svc, task.ID)
 	if d.Task.Status != "failed" || !strings.Contains(d.Task.Detail, "ngân sách") || len(d.Steps) != 1 {
 		t.Fatalf("status=%s detail=%q steps=%d", d.Task.Status, d.Task.Detail, len(d.Steps))
+	}
+}
+
+func TestRetryWithLessons(t *testing.T) {
+	requireGit(t)
+	fm := &fakeModel{voteFor: func(string) string { return "approve" }, block: true}
+	f := setup(t, fm, "council")
+	first, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0.5, nil, "")
+	d := wait(t, f.svc, first.ID)
+	if d.Task.Status != "failed" {
+		t.Fatalf("first run: %s", d.Task.Status)
+	}
+	again, err := f.svc.Retry(context.Background(), first.ID, true, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2 := wait(t, f.svc, again.ID)
+	if d2.Task.Goal != d.Task.Goal || d2.Task.BudgetUSD != 0.5 || again.ID == first.ID {
+		t.Fatalf("retry must keep goal and budget: %+v", d2.Task)
+	}
+	planned := false
+	for _, s := range d2.Steps {
+		if s.Phase == "plan" {
+			planned = true
+		}
+	}
+	if !planned {
+		t.Fatal("retry did not run")
+	}
+}
+
+func TestCouncilRepairsUntilPass(t *testing.T) {
+	requireGit(t)
+	fm := &fakeModel{voteFor: func(string) string { return "approve" }, reviews: []string{
+		`{"verdict":"fix","summary":"còn lỗi","fixes":[{"job":1,"issue":"gọi hàm không tồn tại"}]}`,
+		`{"verdict":"pass","summary":"đạt"}`,
+	}}
+	f := setup(t, fm, "council")
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "")
+	d := wait(t, f.svc, task.ID)
+	if d.Task.Status != "done" {
+		t.Fatalf("status=%s (%s)", d.Task.Status, d.Task.Detail)
+	}
+	reviews, works := 0, 0
+	for _, s := range d.Steps {
+		switch s.Phase {
+		case "review":
+			reviews++
+		case "work":
+			works++
+		}
+	}
+	if reviews != 2 || works != 2 {
+		t.Fatalf("want review→fix→review: reviews=%d works=%d (%s)", reviews, works, phases(d))
+	}
+	if len(d.Patches) != 2 || d.Patches[0].Status != "rejected" || !strings.Contains(d.Patches[0].Detail, "bản sửa") || d.Patches[1].Status != "pending" {
+		t.Fatalf("patches: %+v", d.Patches)
+	}
+}
+
+func TestCouncilAsksThePerson(t *testing.T) {
+	requireGit(t)
+	fm := &fakeModel{voteFor: func(string) string { return "approve" }, reviews: []string{
+		`{"verdict":"ask","summary":"chưa rõ","question":"Dùng chữ hoa hay chữ thường?"}`,
+		`{"verdict":"pass","summary":"đạt"}`,
+	}}
+	f := setup(t, fm, "council")
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "")
+	d := wait(t, f.svc, task.ID)
+	if d.Task.Status != "needs_input" || d.Task.Detail != "Dùng chữ hoa hay chữ thường?" {
+		t.Fatalf("status=%s detail=%s", d.Task.Status, d.Task.Detail)
+	}
+	again, err := f.svc.Retry(context.Background(), task.ID, false, "", "chữ hoa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d2 := wait(t, f.svc, again.ID); d2.Task.Status != "done" {
+		t.Fatalf("after answer: %s (%s)", d2.Task.Status, d2.Task.Detail)
+	}
+}
+
+func TestCouncilStopsWhenStuck(t *testing.T) {
+	requireGit(t)
+	same := `{"verdict":"fix","summary":"vẫn lỗi","fixes":[{"job":1,"issue":"lỗi cũ"}]}`
+	fm := &fakeModel{voteFor: func(string) string { return "approve" }, reviews: []string{same, same, same, same, same}}
+	f := setup(t, fm, "council")
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "")
+	d := wait(t, f.svc, task.ID)
+	if d.Task.Status != "failed" || !strings.Contains(d.Task.Detail, "vòng sửa") {
+		t.Fatalf("status=%s detail=%s", d.Task.Status, d.Task.Detail)
 	}
 }

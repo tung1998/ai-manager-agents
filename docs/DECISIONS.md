@@ -611,3 +611,156 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Kill cứng supervisor: server tự tắt; dashboard còn sót được dọn ở lần chạy sau.
 
 **Để sau.** Cập nhật từ bản phát hành (tag git kèm file build sẵn), và gộp dashboard vào file chạy để phát hành chỉ còn một file.
+
+---
+
+## ADR-032: Quy tắc chia việc và quyền theo gói (agent, chế độ, project)
+
+**Bối cảnh.** Lần chạy thật Việc "dark/light theme + 2 ngôn ngữ" (Tam quyền, $2.39) thất bại: 25 diff, 18 bị phủ quyết, 7 không áp được. Nguyên nhân là người lập kế hoạch không chốt quy ước chung, giao việc chồng file và giao việc quá lớn, và worker sửa ra ngoài phạm vi. Người dùng cũng muốn các chế độ quyền giống Claude Code, với quyền theo gói cho từng agent.
+
+**Quyết định: chia việc.**
+- Kế hoạch có thêm:
+  - `conventions`: quy ước chung, bắt buộc khi có từ 2 việc trở lên.
+  - Mỗi việc có `files` (tối đa 3 file, bắt buộc với việc sửa code), `depends_on` (chỉ trỏ tới việc đứng trước) và `done_when`.
+- `validatePlan` từ chối kế hoạch khi: thiếu file, có việc quá 3 file, một file thuộc hai việc, phụ thuộc sai, hoặc thiếu quy ước. Kế hoạch bị từ chối được trả lại cho người lập kế hoạch một lần, kèm danh sách lỗi.
+- Việc chạy theo từng đợt phụ thuộc: các việc độc lập chạy song song (tối đa 3), việc phụ thuộc nhận kết quả của việc trước. Worker nhận quy ước chung và danh sách file được sửa.
+- Diff sửa file ngoài danh sách được giao bị loại ngay.
+
+**Quyết định: quyền theo gói** (`internal/perm`), gói cao bao gồm gói thấp:
+1. `read`: Chỉ đọc.
+2. `propose`: Đề xuất, người duyệt.
+3. `check`: Tự chạy lệnh kiểm tra được phép.
+4. `edit`: Tự áp diff áp được sạch.
+5. `operate`: Tự chạy/chạy lại tiến trình và container được phép.
+
+- **Quyền thực tế = min(gói của agent, chế độ của Chat/Việc, gói tối đa của project).**
+  - Gói agent lưu trong `permissions.level`; `read_only` cũ được giữ đồng bộ. Agent cũ không có gói thì suy ra `read` hoặc `propose`.
+  - Chế độ lưu ở `conversations.mode` và `tasks.mode_level` (migration 00013). Thành viên không phải admin chỉ chọn được tối đa `propose`.
+  - Chính sách project (`settings` khóa `policy:<project>`) gồm: `max_level` (mặc định `propose`), `allowed_commands` (id tiến trình), `allowed_containers`, `deny_paths` (glob, hỗ trợ `**/` và thư mục có `/` ở cuối; mặc định là `.env*`, `*.pem`, `*.key`).
+- **Chỗ áp dụng:**
+  - System prompt nói rõ quyền của agent trong lượt đó.
+  - Dưới `propose`: không nhận diff, ẩn `propose_action`.
+  - `deny_paths` chặn diff ở mọi gói.
+  - Chat ở gói `edit` trở lên: diff áp sạch được tự áp, người quyết định ghi là `auto:<agent> (<gói>)`.
+  - Việc: diff của agent gói `edit` chỉ tự áp **khi Việc hoàn tất**. Nếu Giám sát phủ quyết thì diff đã bị từ chối, không áp được nữa.
+  - `propose_action` tự thực hiện khi: là job nằm trong `allowed_commands` và agent có gói `check`; là tiến trình/container nằm trong danh sách cho phép và agent có gói `operate`. Ngoài ra thì chờ duyệt.
+- **Giao diện:**
+  - Chọn gói cho agent trong trình sửa mô hình.
+  - Mục **Cấu hình → Quyền** của project.
+  - Bộ chọn chế độ trong ô Chat và form giao Việc; các gói vượt trần project bị làm mờ kèm lý do.
+  - Thẻ diff/thao tác được quyết định tự động có nhãn "tự động".
+
+**Kết quả thật và chạy lại.**
+- Việc chỉ được tính `done` khi Giám sát không đánh giá `fail`, và nếu có diff thì còn ít nhất một diff dùng được (đang chờ hoặc đã áp). Ngược lại là `failed`, kèm lý do, ví dụ "Giám sát đánh giá chưa đạt: …" hoặc "Không có thay đổi code nào dùng được: X bị từ chối, Y không áp được". Dashboard hiện trạng thái này là "Không thành công".
+- `POST /api/tasks/:id/retry {learn, mode}` tạo Việc mới với cùng mục tiêu, file đính kèm, trần chi phí và chế độ.
+  - `learn` thêm vào prompt cho đội: kết luận lần trước, lý do thất bại, và danh sách diff không dùng được kèm lý do.
+- Chi tiết Việc có 2 nút: "Chạy lại, rút kinh nghiệm" và "Chạy lại".
+
+**Đã kiểm tra:**
+- Test cho quy tắc chia việc, tính gói và tự duyệt thao tác.
+- E2E: tự áp ở chế độ `edit`, chờ duyệt ở `propose`, chặn diff sửa `.env`.
+
+---
+
+## ADR-033: Sửa tới khi xong, chỉ dừng khi không sửa được hoặc cần người quyết định
+
+**Bối cảnh.** Lần chạy lại Việc dark/light theme cho thấy kế hoạch đã đúng hướng, nhưng chỉ vì một lỗi trong file nền (gọi hàm không tồn tại) mà Giám sát phủ quyết cả 11 diff. Người dùng muốn đội tiếp tục sửa khi còn sửa được, và chỉ dừng khi không sửa được hoặc cần họ xác nhận.
+
+**Quyết định.**
+- **Giám sát chọn một trong 4 kết luận:**
+  - `pass`: đạt.
+  - `fix`: còn lỗi sửa được, kèm `fixes: [{job, issue}]`.
+  - `ask`: cần người dùng quyết định, kèm `question`.
+  - `fail`: không sửa được trong phạm vi này.
+- **Vòng lặp** (`reviewLoop`) chạy tới khi đạt:
+  - Các việc bị nêu lỗi và các việc có diff không áp được được **làm lại**. Diff cũ đánh dấu "Thay bằng bản sửa ở vòng N".
+  - Worker nhận: lỗi cần sửa, bản làm trước, kết quả của các việc nó phụ thuộc, quy ước chung, danh sách file. Worker được dặn đọc lại file hiện tại vì diff cũ chưa được áp.
+  - Sau mỗi vòng, Giám sát kiểm tra lại.
+- **Điểm dừng:**
+  - `pass`: Việc hoàn tất.
+  - `fail`: phủ quyết, Việc "Không thành công".
+  - `ask`: Việc chuyển trạng thái **`needs_input`**, hiển thị "Chờ bạn trả lời" (migration 00014 dựng lại bảng `tasks` để thêm trạng thái này).
+  - Chạm trần chi phí của Việc hoặc của ngày.
+  - Chốt chặn cuối: cùng một nhóm lỗi lặp lại 2 vòng liên tiếp (không tiến triển), hoặc đủ 8 vòng.
+- **Mô hình Team** (không có Giám sát): diff không áp được được gửi lại cho worker, cho tới khi áp được hoặc không còn tiến triển.
+- **Trả lời câu hỏi:** `POST /api/tasks/:id/retry {answer}` chạy tiếp Việc, kèm câu hỏi và câu trả lời (cùng bài học của lần trước).
+- **Giao diện:**
+  - Mỗi lần kiểm tra hiện kết luận (Đạt / Cần sửa / Cần hỏi bạn / Không sửa được), số vòng, và danh sách "Việc N cần sửa: …".
+  - Việc chờ trả lời có ô trả lời và nút "Trả lời và chạy tiếp".
+
+**Chờ duyệt và duyệt cả lô.**
+- Việc `done` mà còn diff `pending` thì hiện **"Chờ duyệt (n)"**: DTO của Việc có thêm `pending_patches` và `applied_patches`.
+- `POST /api/tasks/:id/patches/approve-all` (admin):
+  - Gộp mọi diff đang chờ thành một patch, chạy `git apply --check` cho cả lô, đạt mới áp.
+  - Có diff hỏng thì **không áp gì**, và báo diff nào không áp được.
+- `POST /api/tasks/:id/patches/revert-all` gỡ cả lô bằng `git apply -R`, theo thứ tự ngược. Các diff được đánh dấu "Đã hoàn tác cả lô".
+- `git apply` giờ tự thêm dòng `diff --git` trước từng file khi diff thiếu. Không có dòng này, cờ `--recount` đọc nhầm dòng `--- a/x` của file sau thành dòng bị xóa của hunk trước, nên diff nhiều file của agent bị báo "không áp được" oan. File mới (`--- /dev/null`) được thêm `new file mode`, file bị xóa được thêm `deleted file mode`.
+- **Giao diện:**
+  - Nút "Duyệt tất cả (n)" và "Hoàn tác cả lô".
+  - Áp xong thì gợi ý chạy các lệnh kiểm tra (tiến trình loại job) của project.
+  - Các bản cũ đã được thay bằng bản sửa được gom vào mục thu gọn.
+
+**Đã kiểm tra (test):**
+- Sửa rồi đạt: 2 lần kiểm tra, 2 lần làm; diff cũ bị thay, diff mới đang chờ duyệt.
+- Hỏi người dùng rồi chạy tiếp sau khi được trả lời.
+- Dừng khi lỗi lặp lại.
+
+## ADR-034: Quyền git cho agent và trao đổi tiếp với quản lý sau Việc
+
+**Git.**
+- Công cụ đọc: `git_status`, `git_diff`, `git_log` (office MCP và công cụ của agent API).
+- Thao tác đi qua `propose_action`: `git_commit` (message và file), `git_branch`, `git_push`.
+- Trước khi ghi nhận, office kiểm tra:
+  - commit phải có message;
+  - chỉ gồm file đang thay đổi;
+  - không đụng file cấm.
+- Lưu ở `actions.args` (migration 00015).
+- Tự làm theo gói quyền:
+  - commit: từ gói Tự sửa code;
+  - tạo nhánh: gói Vận hành;
+  - **push luôn cần người duyệt**, không bao giờ `--force`.
+- Trên dashboard, nút **Commit** của Việc gọi `POST /api/tasks/:id/commit-draft`. API này lấy các file đã áp của Việc mà git còn thấy thay đổi, rồi nhờ model nhanh soạn message theo phong cách `git log` của repo. Người dùng sửa message, chọn file, rồi commit qua `POST /api/projects/:id/git/commit` và push qua `/git/push` (admin). Hai lệnh này dùng chung đường kiểm tra và lịch sử của actions.
+
+**Trao đổi với quản lý.**
+- Mỗi Việc có một cuộc trò chuyện riêng: `conversations.task_id`, migration 00016, duy nhất theo Việc.
+- Người trả lời là agent đã lập kế hoạch cho Việc. Nếu không có thì là lead đầu tiên.
+- Chế độ quyền mặc định lấy theo chế độ của Việc.
+- Mỗi lượt, system prompt được dựng lại từ trạng thái mới nhất của Việc: yêu cầu, kết quả, 16 bước gần nhất, diff và thao tác. Nhờ vậy quản lý thấy cả những gì đã duyệt, hoàn tác hay commit sau đó.
+- Diff và thao tác trong cuộc trao đổi được gắn `task_id`, nên hiện trong Việc và nằm trong "Duyệt tất cả".
+- Cuộc trao đổi của Việc không hiện trong danh sách Chat của project.
+
+## ADR-035: Quyền lẻ, gói là preset, lệnh theo gói lệnh
+
+**Bối cảnh.** senprints-agents (chỉ tham khảo) để quyền ở 4–5 chỗ tách rời: allow list MCP, skill, danh sách thu hồi built-in, strict mode và permission_mode. Bash chỉ bật/tắt toàn bộ, không có preset, nên khó dùng. Ở đây mỗi agent chỉ có một chỗ chỉnh quyền.
+
+**Quyết định.**
+- **Quyền lẻ** (`internal/perm/caps.go`):
+  - `propose`
+  - `code.apply`
+  - `commands.run`
+  - `git.commit`
+  - `git.branch`
+  - `ops.process`
+  - `ops.container`
+
+  Mỗi quyền có mức thấp nhất chứa nó. Push không phải một quyền: push luôn cần người duyệt.
+- **Gói** (5 mức cũ) giờ là preset của các quyền lẻ.
+  - Agent chọn gói, rồi có thể bật/tắt từng quyền. Khi đó `permissions.caps` được lưu. Nếu lựa chọn trùng một gói thì tự quay về gói đó.
+  - Mức riêng của agent là mức cao nhất trong các quyền đã chọn.
+  - Chế độ chat/Việc và gói tối đa của project vẫn hạ thấp theo mức: quyền nào có mức cao hơn thì bị tắt trong lượt đó.
+- **Lệnh**:
+  - Project bật từng lệnh (`policy.commands`), chọn từ các **gói lệnh**:
+    - gói có sẵn theo thư mục: Git đọc, Go, Node, Python, Rust, Docker đọc;
+    - gói script sinh từ `package.json` theo package manager;
+    - gói do project tự tạo.
+  - Agent có thể thu hẹp danh sách lệnh (`permissions.commands`; không đặt = mọi lệnh của project).
+  - Mẫu lệnh là dòng lệnh; `" *"` ở cuối nghĩa là kèm tham số tùy ý.
+  - Lệnh chạy **không qua shell**: từ chối `| ; & < > $` và backtick. Chạy trong thư mục project, tối đa 5 phút, giữ 6KB output cuối.
+- **Công cụ `run_command`** (office MCP và agent API):
+  - Lệnh có trong danh sách và agent có quyền `commands.run` thì chạy ngay, trả output cho agent.
+  - Lệnh khác thành action `run_command` chờ duyệt. Duyệt xong thì chạy và lưu output.
+- Tự làm của actions giờ xét theo quyền lẻ (`Scope.Access`), không còn theo mức. Tự áp diff trong chat/Việc cũng vậy.
+
+**Giao diện.**
+- Agent (Mô hình → agent): thanh chọn gói, 4 nhóm quyền (Code / Lệnh / Git / Vận hành) bật tắt bằng switch, nhãn "Tùy chỉnh" kèm nút "Về gói X", và cây gói lệnh có checkbox ba trạng thái để chọn từng lệnh.
+- Project (Cấu hình → Quyền): gói tối đa kèm dòng tóm tắt "được tự làm tối đa", thẻ gói lệnh (bật cả gói hoặc từng lệnh, thêm gói hay lệnh riêng), tiến trình, container và file cấm.

@@ -12,7 +12,7 @@ import (
 
 type taskRepo struct{ db dbtx }
 
-const taskCols = `id, project_id, title, goal, mode, status, result, detail, budget_usd, cost_usd, attachments, created_by, created_at, finished_at`
+const taskCols = `id, project_id, title, goal, mode, status, result, detail, budget_usd, cost_usd, mode_level, attachments, created_by, created_at, finished_at`
 
 func scanTask(row scanner) (storage.Task, error) {
 	var (
@@ -21,7 +21,7 @@ func scanTask(row scanner) (storage.Task, error) {
 		finished      sql.NullString
 	)
 	if err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Goal, &t.Mode, &t.Status, &t.Result, &t.Detail, &t.BudgetUSD, &t.CostUSD,
-		&atts, &t.CreatedBy, &created, &finished); err != nil {
+		&t.ModeLevel, &atts, &t.CreatedBy, &created, &finished); err != nil {
 		return t, notFound(err)
 	}
 	if err := json.Unmarshal([]byte(atts), &t.Attachments); err != nil {
@@ -56,8 +56,11 @@ func (r taskRepo) Create(ctx context.Context, t storage.Task) (storage.Task, err
 	if t.Attachments == nil {
 		t.Attachments = []storage.Attachment{}
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO tasks (`+taskCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.ProjectID, t.Title, t.Goal, t.Mode, t.Status, t.Result, t.Detail, t.BudgetUSD, t.CostUSD, toJSON(t.Attachments), t.CreatedBy, fmtTime(t.CreatedAt), optTime(t.FinishedAt))
+	if t.ModeLevel == "" {
+		t.ModeLevel = "propose"
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO tasks (`+taskCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.ProjectID, t.Title, t.Goal, t.Mode, t.Status, t.Result, t.Detail, t.BudgetUSD, t.CostUSD, t.ModeLevel, toJSON(t.Attachments), t.CreatedBy, fmtTime(t.CreatedAt), optTime(t.FinishedAt))
 	return t, err
 }
 

@@ -3,11 +3,13 @@ package api
 import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/tasks"
@@ -28,6 +30,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 		Goal        string   `json:"goal"`
 		BudgetUSD   float64  `json:"budget_usd"`
 		Attachments []string `json:"attachments"`
+		Mode        string   `json:"mode"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -45,7 +48,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	t, err := s.cfg.Tasks.Start(r.Context(), r.PathValue("id"), in.Goal, in.BudgetUSD, in.Attachments)
+	t, err := s.cfg.Tasks.Start(r.Context(), r.PathValue("id"), in.Goal, in.BudgetUSD, in.Attachments, s.allowedMode(r, in.Mode))
 	switch {
 	case errors.Is(err, tasks.ErrBusy):
 		writeError(w, http.StatusConflict, err.Error())
@@ -58,6 +61,67 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAction(r, "task.start", t.ID, map[string]any{"project": t.ProjectID, "mode": t.Mode, "budget_usd": t.BudgetUSD})
+	d, _ := s.cfg.Tasks.Get(r.Context(), t.ID)
+	writeJSON(w, http.StatusAccepted, d)
+}
+
+// approveAllPatches applies a task's pending diffs as one batch (all or none).
+func (s *server) approveAllPatches(w http.ResponseWriter, r *http.Request) {
+	out, err := s.cfg.Chat.ApproveTaskPatches(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, chat.ErrNoFolder) || strings.HasPrefix(err.Error(), "chưa áp gì") || strings.HasPrefix(err.Error(), "không có diff") {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		s.writeDomainError(w, r, err)
+		return
+	}
+	s.auditAction(r, "task.patches.approve_all", r.PathValue("id"), map[string]any{"count": len(out)})
+	writeJSON(w, http.StatusOK, map[string]any{"patches": out})
+}
+
+// revertAllPatches takes back a task's applied diffs (all or none).
+func (s *server) revertAllPatches(w http.ResponseWriter, r *http.Request) {
+	out, err := s.cfg.Chat.RevertTaskPatches(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, chat.ErrNoFolder) || strings.HasPrefix(err.Error(), "không") {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		s.writeDomainError(w, r, err)
+		return
+	}
+	s.auditAction(r, "task.patches.revert_all", r.PathValue("id"), map[string]any{"count": len(out)})
+	writeJSON(w, http.StatusOK, map[string]any{"patches": out})
+}
+
+// retryTask starts a finished task again; learn feeds it last run's lessons.
+func (s *server) retryTask(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Learn  bool   `json:"learn"`
+		Mode   string `json:"mode"`
+		Answer string `json:"answer"` // reply to a task that stopped with a question
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	mode := ""
+	if in.Mode != "" {
+		mode = s.allowedMode(r, in.Mode)
+	}
+	t, err := s.cfg.Tasks.Retry(r.Context(), r.PathValue("id"), in.Learn, mode, in.Answer)
+	switch {
+	case errors.Is(err, tasks.ErrBusy):
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	case errors.Is(err, tasks.ErrNoModel), errors.Is(err, automation.ErrUnknownSkill), errors.Is(err, attach.ErrNotFound):
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	case err != nil:
+		s.writeDomainError(w, r, err)
+		return
+	}
+	s.auditAction(r, "task.retry", t.ID, map[string]any{"from": r.PathValue("id"), "learn": in.Learn})
 	d, _ := s.cfg.Tasks.Get(r.Context(), t.ID)
 	writeJSON(w, http.StatusAccepted, d)
 }

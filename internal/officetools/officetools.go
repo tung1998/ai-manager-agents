@@ -6,6 +6,8 @@ package officetools
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
+	"bitbucket.org/senprints/agent-office/internal/gitops"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"context"
 	"encoding/json"
 	"errors"
@@ -63,17 +65,45 @@ func (t *Toolbox) Tools() []Tool {
 		{Name: "monitor_detail", Description: "Chi tiết một giám sát: cấu hình, các lần kiểm tra gần đây, sự kiện Up/Down và phân tích AI trước đó.",
 			Schema: obj(map[string]any{"name": map[string]any{"type": "string", "description": "Tên giám sát, xem ops_overview"}}, "name")},
 	}
+	list = append(list,
+		Tool{Name: "git_status", Description: "Trạng thái git của project: nhánh, số commit chưa push, các file đang thay đổi.", Schema: obj(map[string]any{})},
+		Tool{Name: "git_diff", Description: "Diff của các thay đổi chưa commit (so với HEAD), có thể giới hạn theo files.",
+			Schema: obj(map[string]any{"files": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}})},
+		Tool{Name: "git_log", Description: "Các commit gần nhất.", Schema: obj(map[string]any{"lines": map[string]any{"type": "integer"}})},
+	)
 	if t.actions != nil {
-		list = append(list, Tool{Name: "propose_action", Description: "Đề xuất một thao tác vận hành để người dùng duyệt (bạn không tự thực hiện được): " +
-			"run_process / restart_process / stop_process (target = tên tiến trình), start_container / restart_container / stop_container (target = service docker compose). " +
-			"Dùng sau khi đề xuất sửa code để chạy lại build/test kiểm chứng, hoặc để khởi động lại dịch vụ bị treo. Luôn nêu lý do.",
+		list = append(list, Tool{Name: "run_command", Description: "Chạy một lệnh trong thư mục project (không qua shell: không dùng | ; & > $, mỗi lần một lệnh), ví dụ test, typecheck, lint, build, git log. " +
+			"Lệnh nằm trong danh sách được phép của bạn chạy ngay và trả về output; lệnh khác thành đề xuất chờ người dùng duyệt.",
 			Schema: obj(map[string]any{
-				"action": map[string]any{"type": "string", "enum": []string{"run_process", "restart_process", "stop_process", "start_container", "restart_container", "stop_container"}},
-				"target": map[string]any{"type": "string"},
-				"reason": map[string]any{"type": "string", "description": "Vì sao cần thao tác này"},
-			}, "action", "target", "reason")})
+				"command": map[string]any{"type": "string", "description": "Dòng lệnh, ví dụ: go test ./internal/..."},
+				"reason":  map[string]any{"type": "string", "description": "Vì sao cần chạy"},
+			}, "command", "reason")})
+		list = append(list, Tool{Name: "propose_action", Description: "Đề xuất một thao tác để người dùng duyệt (tự chạy nếu gói quyền cho phép): " +
+			"run_process / restart_process / stop_process (target = tên tiến trình), start_container / restart_container / stop_container (target = service docker compose), " +
+			"git_commit (message = commit message theo quy ước repo, files = danh sách file; bỏ trống files = mọi thay đổi), git_branch (branch = tên nhánh mới), git_push (đẩy nhánh hiện tại, luôn cần người duyệt). " +
+			"Dùng sau khi đề xuất sửa code để chạy lại build/test kiểm chứng, khởi động lại dịch vụ bị treo, hoặc khi người dùng nhờ commit/push. Luôn nêu lý do.",
+			Schema: obj(map[string]any{
+				"action":  map[string]any{"type": "string", "enum": []string{"run_process", "restart_process", "stop_process", "start_container", "restart_container", "stop_container", "git_commit", "git_branch", "git_push"}},
+				"target":  map[string]any{"type": "string"},
+				"reason":  map[string]any{"type": "string", "description": "Vì sao cần thao tác này"},
+				"message": map[string]any{"type": "string", "description": "git_commit: commit message"},
+				"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "git_commit: file cần commit"},
+				"branch":  map[string]any{"type": "string", "description": "git_branch: tên nhánh"},
+			}, "action", "reason")})
 	}
 	return list
+}
+
+// ToolsFor lists the tools an agent at level may use (proposals need "propose").
+func (t *Toolbox) ToolsFor(level string) []Tool {
+	var out []Tool
+	for _, x := range t.Tools() {
+		if (x.Name == "propose_action" || x.Name == "run_command") && !perm.AtLeast(level, perm.Propose) {
+			continue
+		}
+		out = append(out, x)
+	}
+	return out
 }
 
 // Has reports whether name is one of the tools.
@@ -90,12 +120,16 @@ func (t *Toolbox) Has(name string) bool {
 func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawMessage) (string, bool) {
 	projectID := sc.ProjectID
 	var in struct {
-		Name    string `json:"name"`
-		Service string `json:"service"`
-		Lines   int    `json:"lines"`
-		Action  string `json:"action"`
-		Target  string `json:"target"`
-		Reason  string `json:"reason"`
+		Name    string   `json:"name"`
+		Service string   `json:"service"`
+		Lines   int      `json:"lines"`
+		Action  string   `json:"action"`
+		Target  string   `json:"target"`
+		Reason  string   `json:"reason"`
+		Message string   `json:"message"`
+		Files   []string `json:"files"`
+		Branch  string   `json:"branch"`
+		Command string   `json:"command"`
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &in); err != nil {
@@ -119,13 +153,37 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		out, err = t.containerLogs(ctx, projectID, in.Service, in.Lines)
 	case "monitor_detail":
 		out, err = t.monitorDetail(ctx, projectID, in.Name)
-	case "propose_action":
-		if t.actions == nil {
-			return "Công cụ không tồn tại: " + name, true
+	case "git_status", "git_diff", "git_log":
+		out, err = t.gitRead(ctx, projectID, name, in.Files, in.Lines)
+	case "run_command":
+		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {
+			return "Bạn không có quyền chạy lệnh (gói hiện tại: " + perm.Label(sc.Level) + ")", true
 		}
 		var a storage.Action
-		if a, err = t.actions.Propose(ctx, sc, in.Action, in.Target, in.Reason); err == nil {
-			out = fmt.Sprintf("Đã tạo đề xuất %q cho %s (mã %s), đang chờ người dùng duyệt. Bạn chưa thực hiện gì; hãy nói với người dùng là cần bấm Duyệt.", actions.Kinds[a.Kind], a.Target, a.ID)
+		if a, err = t.actions.Propose(ctx, sc, "run_command", in.Command, in.Reason); err == nil {
+			switch a.Status {
+			case "done":
+				out = "$ " + a.Target + "\n" + a.Detail
+			case "failed":
+				return "$ " + a.Target + "\nLỗi: " + a.Detail, true
+			default:
+				out = fmt.Sprintf("Lệnh %q không nằm trong danh sách bạn được tự chạy, đã tạo đề xuất (mã %s) chờ người dùng duyệt. Chưa chạy gì; hãy báo người dùng.", a.Target, a.ID)
+			}
+		}
+	case "propose_action":
+		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {
+			return "Bạn không có quyền đề xuất thao tác (gói hiện tại: " + perm.Label(sc.Level) + ")", true
+		}
+		var a storage.Action
+		if a, err = t.actions.Propose(ctx, sc, in.Action, in.Target, in.Reason, storage.ActionArgs{Message: in.Message, Files: in.Files, Branch: in.Branch}); err == nil {
+			switch a.Status {
+			case "done":
+				out = fmt.Sprintf("Đã tự thực hiện %q cho %s theo quyền của bạn: %s. Dùng process_logs/container_logs để xem kết quả.", actions.Kinds[a.Kind], a.Target, a.Detail)
+			case "failed":
+				out = fmt.Sprintf("Đã tự thực hiện %q cho %s nhưng lỗi: %s", actions.Kinds[a.Kind], a.Target, a.Detail)
+			default:
+				out = fmt.Sprintf("Đã tạo đề xuất %q cho %s (mã %s), đang chờ người dùng duyệt. Bạn chưa thực hiện gì; hãy nói với người dùng là cần bấm Duyệt.", actions.Kinds[a.Kind], a.Target, a.ID)
+			}
 		}
 	default:
 		return "Công cụ không tồn tại: " + name, true
@@ -295,4 +353,35 @@ func (t *Toolbox) monitorDetail(ctx context.Context, projectID, name string) (st
 		return b.String(), nil
 	}
 	return "", fmt.Errorf("không có giám sát %q; xem ops_overview", name)
+}
+
+func (t *Toolbox) gitRead(ctx context.Context, projectID, name string, files []string, lines int) (string, error) {
+	p, err := t.store.Repos().Get(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	if p.Path == "" {
+		return "", errors.New("project không gắn thư mục")
+	}
+	switch name {
+	case "git_status":
+		st, err := gitops.ReadStatus(ctx, p.Path)
+		if err != nil {
+			return "", err
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "Nhánh %s", st.Branch)
+		if st.Upstream != "" {
+			fmt.Fprintf(&b, " (theo %s, hơn %d, kém %d commit)", st.Upstream, st.Ahead, st.Behind)
+		}
+		fmt.Fprintf(&b, "\n%d file thay đổi:\n", len(st.Changes))
+		for _, c := range st.Changes {
+			fmt.Fprintf(&b, "- %s %s\n", c.Status, c.Path)
+		}
+		return b.String(), nil
+	case "git_diff":
+		return gitops.Diff(ctx, p.Path, files, 60000)
+	default:
+		return gitops.Log(ctx, p.Path, min(max(lines, 10), 50))
+	}
 }

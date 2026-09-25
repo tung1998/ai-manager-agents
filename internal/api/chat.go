@@ -24,10 +24,11 @@ type conversationDTO struct {
 	CreatedBy  string    `json:"created_by"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	ActiveTurn string    `json:"active_turn,omitempty"`
+	Mode       string    `json:"mode"`
 }
 
 func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
-	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt}
+	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode}
 	if t, ok := s.cfg.Chat.Active(c.ID); ok {
 		d.ActiveTurn = t.ID
 	}
@@ -99,6 +100,16 @@ func (s *server) createConversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"conversation": s.toConvDTO(c)})
 }
 
+// taskConversation opens (or returns) the follow-up talk about a task.
+func (s *server) taskConversation(w http.ResponseWriter, r *http.Request) {
+	c, err := s.cfg.Chat.TaskConversation(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.chatError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c)})
+}
+
 func (s *server) getConversation(w http.ResponseWriter, r *http.Request) {
 	c, err := s.cfg.Store.Chat().GetConversation(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -125,9 +136,16 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Text        string   `json:"text"`
 		Attachments []string `json:"attachments"`
+		Mode        string   `json:"mode"` // permission mode for this chat from now on
 	}
 	if !decode(w, r, &in) {
 		return
+	}
+	if in.Mode != "" {
+		if err := s.cfg.Chat.SetMode(r.Context(), r.PathValue("id"), s.allowedMode(r, in.Mode)); err != nil {
+			s.chatError(w, r, err)
+			return
+		}
 	}
 	turn, msg, err := s.cfg.Chat.Send(r.Context(), r.PathValue("id"), in.Text, in.Attachments)
 	if err != nil {

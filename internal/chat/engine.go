@@ -10,6 +10,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"context"
 	"errors"
 	"fmt"
@@ -142,9 +143,22 @@ func (e *Engine) officeAccess(sc officetools.Scope) (*OfficeAccess, func()) {
 
 type taskKey struct{}
 
-// WithTask marks ctx as running for a task, so proposals attach to it.
-func WithTask(ctx context.Context, taskID string) context.Context {
-	return context.WithValue(ctx, taskKey{}, taskID)
+type taskCtx struct{ id, mode string }
+
+// WithTask marks ctx as running for a task (proposals attach to it) with the
+// task's permission mode as a ceiling ("" = ask first).
+func WithTask(ctx context.Context, taskID, mode string) context.Context {
+	return context.WithValue(ctx, taskKey{}, taskCtx{id: taskID, mode: mode})
+}
+
+// Level is what agent may do under mode in project (see internal/perm).
+func (e *Engine) Level(ctx context.Context, projectID string, agent storage.Agent, mode string) string {
+	return e.Access(ctx, projectID, agent, mode).Level
+}
+
+// Access is agent's capabilities and commands under mode in project.
+func (e *Engine) Access(ctx context.Context, projectID string, agent storage.Agent, mode string) perm.Access {
+	return perm.Resolve(agent, mode, perm.LoadPolicy(ctx, e.store, projectID))
 }
 
 // ActionDTO is a proposed operation awaiting (or after) approval.
@@ -157,6 +171,8 @@ type ActionDTO struct {
 	Target    string     `json:"target"`
 	TargetID  string     `json:"target_id,omitempty"`
 	Reason    string     `json:"reason"`
+	Message   string     `json:"message,omitempty"` // git commit
+	Files     []string   `json:"files,omitempty"`
 	Status    string     `json:"status"`
 	Detail    string     `json:"detail"`
 	By        string     `json:"proposed_by"`
@@ -167,7 +183,7 @@ type ActionDTO struct {
 // ToActionDTO converts a stored action.
 func ToActionDTO(a storage.Action) ActionDTO {
 	return ActionDTO{ID: a.ID, MessageID: a.MessageID, TaskID: a.TaskID, Kind: a.Kind, Label: actions.Kinds[a.Kind], Target: a.Target, TargetID: a.TargetID,
-		Reason: a.Reason, Status: a.Status, Detail: a.Detail, By: a.ProposedBy, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt}
+		Reason: a.Reason, Message: a.Args.Message, Files: a.Args.Files, Status: a.Status, Detail: a.Detail, By: a.ProposedBy, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt}
 }
 
 // SetAttachments sets where attached files are stored.
@@ -234,23 +250,27 @@ func (e *Engine) Agents(ctx context.Context, projectID string) ([]storage.Agent,
 
 // StartConversation opens a thread with an agent (default: the first lead).
 func (e *Engine) StartConversation(ctx context.Context, projectID, agentID string) (storage.Conversation, error) {
-	agents, err := e.Agents(ctx, projectID)
+	c, err := e.StartConversationFor(ctx, projectID, agentID)
 	if err != nil {
-		return storage.Conversation{}, err
+		return c, err
 	}
-	var agent *storage.Agent
-	for i := range agents {
-		if (agentID == "" && agents[i].Tier == storage.TierLead) || agents[i].ID == agentID {
-			agent = &agents[i]
-			break
-		}
+	return e.store.Chat().CreateConversation(ctx, c)
+}
+
+// SetMode sets the permission mode (ceiling) of a conversation.
+func (e *Engine) SetMode(ctx context.Context, conversationID, mode string) error {
+	if !perm.Valid(mode) {
+		return errors.New("chế độ không hợp lệ")
 	}
-	if agent == nil {
-		return storage.Conversation{}, ErrNoAgent
+	conv, err := e.store.Chat().GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
 	}
-	return e.store.Chat().CreateConversation(ctx, storage.Conversation{
-		ProjectID: projectID, AgentID: agent.ID, AgentName: agent.Name, CreatedBy: actor.From(ctx),
-	})
+	if conv.Mode == mode {
+		return nil
+	}
+	conv.Mode = mode
+	return e.store.Chat().UpdateConversation(ctx, conv)
 }
 
 // Send stores the person's message (with attached files) and starts the
@@ -381,11 +401,17 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if workDir == "" {
 		workDir, _ = os.UserHomeDir()
 	}
+	policy := perm.LoadPolicy(ctx, e.store, project.ID)
+	acc := perm.Resolve(agent, conv.Mode, policy)
+	level := acc.Level
 	req := RunRequest{
 		Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: workDir, Prompt: text,
-		System: systemPrompt(project, agent, e.office != nil), History: toHistory(history), Attachments: files,
+		System: systemPrompt(project, agent, e.office != nil, acc), History: toHistory(history), Attachments: files,
 	}
-	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, RunRef: turn.ID, Agent: agent.Name})
+	if conv.TaskID != "" {
+		req.System += e.taskBrief(ctx, conv.TaskID)
+	}
+	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, Agent: agent.Name, Level: level, Access: acc})
 	defer revoke()
 	req.Office = office
 	if conv.Runtime == string(p.Kind) {
@@ -430,20 +456,28 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			turn.emit(Event{Type: "action", Action: &ad})
 		}
 	}
-	if canPropose(agent) && project.Path != "" {
+	if perm.AtLeast(level, perm.Propose) && project.Path != "" {
 		for _, diff := range ExtractPatches(res.Text) {
-			pt := storage.Patch{ConversationID: conv.ID, MessageID: msg.ID, Diff: diff}
+			pt := storage.Patch{ConversationID: conv.ID, MessageID: msg.ID, TaskID: conv.TaskID, Diff: diff}
 			files, ferr := PatchFiles(diff)
 			pt.Files = files
 			switch {
 			case ferr != nil:
 				pt.Status, pt.Detail = "failed", ferr.Error()
+			case len(policy.Denied(files)) > 0:
+				pt.Status, pt.Detail = "failed", "sửa file cấm của project: "+strings.Join(policy.Denied(files), ", ")
 			default:
 				if cerr := CheckPatch(ctx, project.Path, diff); cerr != nil {
 					pt.Status, pt.Detail = "failed", cerr.Error()
 				}
 			}
 			saved, err := e.store.Chat().AddPatch(context.Background(), pt)
+			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) {
+				// the agent's package allows applying clean diffs on its own
+				if d, derr := e.DecidePatch(actor.With(context.Background(), "auto:"+agent.Name+" ("+perm.Label(level)+")"), saved.ID, true); derr == nil {
+					saved.Status, saved.Detail, saved.DecidedBy, saved.DecidedAt = d.Status, d.Detail, d.DecidedBy, d.DecidedAt
+				}
+			}
 			if err == nil {
 				pd := toPatchDTO(saved)
 				dto.Patches = append(dto.Patches, pd)
@@ -454,8 +488,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	turn.emit(Event{Type: "done", Message: &dto})
 }
 
-// canPropose: agents allowed to change things may propose diffs; read-only ones only answer.
-func canPropose(a storage.Agent) bool { return !a.Permissions.ReadOnly }
+// canPropose: the agent's own package allows proposing (the run's mode and
+// the project's cap may still lower it, see Engine.Level).
+func canPropose(a storage.Agent) bool { return perm.AtLeast(perm.Agent(a), perm.Propose) }
 
 func toHistory(msgs []storage.Message) []HistoryItem {
 	var out []HistoryItem
@@ -470,7 +505,8 @@ func toHistory(msgs []storage.Message) []HistoryItem {
 	return out
 }
 
-func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool) string {
+func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool, acc perm.Access) string {
+	level := acc.Level
 	var b strings.Builder
 	fmt.Fprintf(&b, "Bạn là %s", agent.Name)
 	if agent.Role != "" {
@@ -495,14 +531,34 @@ Quy tắc:
 - Trả lời bằng tiếng Việt, ngắn gọn, dùng Markdown.
 `)
 	if officeTools {
-		b.WriteString(`- Bạn có công cụ office: ops_overview (tiến trình build/dev/test, docker compose, giám sát, sự cố), process_logs, container_logs, monitor_detail để đọc; và propose_action để ĐỀ XUẤT chạy/chạy lại/dừng tiến trình hoặc container (người dùng duyệt rồi office mới làm). Khi được hỏi về lỗi build, lỗi chạy, deploy hay giám sát, hãy lấy log và trạng thái thật trước khi kết luận, rồi đối chiếu với code. Sau khi đề xuất sửa code, đề xuất chạy lại build/test liên quan để kiểm chứng.
+		b.WriteString(`- Bạn có công cụ office: ops_overview (tiến trình build/dev/test, docker compose, giám sát, sự cố), process_logs, container_logs, monitor_detail để đọc; và git_status/git_diff/git_log để xem git; và propose_action để ĐỀ XUẤT chạy/chạy lại/dừng tiến trình hoặc container, commit/tạo nhánh/push (người dùng duyệt rồi office mới làm, trừ khi gói quyền cho tự làm; push luôn cần duyệt). Khi được hỏi về lỗi build, lỗi chạy, deploy hay giám sát, hãy lấy log và trạng thái thật trước khi kết luận, rồi đối chiếu với code. Sau khi đề xuất sửa code, đề xuất chạy lại build/test liên quan để kiểm chứng.
 `)
 	}
-	if canPropose(agent) && project.Path != "" {
-		b.WriteString(`- Bạn KHÔNG tự sửa file. Khi cần thay đổi code, đưa unified diff trong khối ` + "```diff" + `, đường dẫn tương đối từ gốc project (--- a/đường/dẫn, +++ b/đường/dẫn), đủ dòng ngữ cảnh để áp được bằng git apply. File mới dùng --- /dev/null. Người dùng sẽ duyệt rồi office mới áp dụng.
-`)
+	fmt.Fprintf(&b, "- Quyền của bạn trong lượt này: %s (%s).\n", perm.Label(level), perm.All[perm.Rank(level)].Description)
+	if perm.AtLeast(level, perm.Propose) && project.Path != "" {
+		apply := "Người dùng sẽ duyệt rồi office mới áp dụng."
+		if acc.Can(perm.CapApply) {
+			apply = "Diff áp được sạch sẽ được office tự áp ngay (trừ file cấm), nên chỉ đưa diff khi chắc chắn và đúng phạm vi."
+		}
+		b.WriteString(`- Bạn không ghi file trực tiếp. Khi cần thay đổi code, đưa unified diff trong khối ` + "```diff" + `, đường dẫn tương đối từ gốc project (--- a/đường/dẫn, +++ b/đường/dẫn), đủ dòng ngữ cảnh để áp được bằng git apply. File mới dùng --- /dev/null. ` + apply + "\n")
+		if officeTools {
+			if len(acc.Commands) > 0 {
+				fmt.Fprintf(&b, "- Lệnh bạn được tự chạy bằng run_command (không qua shell, \" *\" = kèm tham số tùy ý): %s. Lệnh khác vẫn gọi được nhưng sẽ chờ người duyệt.\n", strings.Join(acc.Commands, ", "))
+			} else {
+				b.WriteString("- run_command chạy một lệnh trong thư mục project (không qua shell); trong lượt này mọi lệnh đều chờ người duyệt, nên chỉ đề xuất lệnh thật cần.\n")
+			}
+			var auto []string
+			for _, c := range perm.Caps {
+				if c.ID != perm.CapPropose && c.ID != perm.CapCommands && acc.Can(c.ID) {
+					auto = append(auto, c.Label)
+				}
+			}
+			if len(auto) > 0 {
+				fmt.Fprintf(&b, "- Bạn được: %s (các thao tác khác qua propose_action chờ duyệt).\n", strings.Join(auto, ", "))
+			}
+		}
 	} else {
-		b.WriteString("- Bạn chỉ phân tích và trả lời, không đề xuất diff.\n")
+		b.WriteString("- Bạn chỉ phân tích và trả lời, không đề xuất diff hay thao tác.\n")
 	}
 	return b.String()
 }
@@ -545,9 +601,11 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 		workDir, _ = os.UserHomeDir()
 	}
 	req := RunRequest{Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: workDir, Prompt: prompt,
-		System: systemPrompt(project, agent, e.office != nil), Attachments: files}
-	taskID, _ := ctx.Value(taskKey{}).(string)
-	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, TaskID: taskID, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), Agent: agent.Name})
+		Attachments: files}
+	tc, _ := ctx.Value(taskKey{}).(taskCtx)
+	acc := e.Access(ctx, project.ID, agent, tc.mode)
+	req.System = systemPrompt(project, agent, e.office != nil, acc)
+	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, TaskID: tc.id, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), Agent: agent.Name, Level: acc.Level, Access: acc})
 	defer revoke()
 	req.Office = office
 	res, runErr := runnerFor(p.Kind).Run(ctx, req, emit)
@@ -603,6 +661,95 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 		out = append(out, d)
 	}
 	return out, nil
+}
+
+// ApproveTaskPatches applies every pending diff of a task as one batch: all
+// or nothing. When the batch does not apply, nothing changes and the error
+// names the diffs that fail on their own.
+func (e *Engine) ApproveTaskPatches(ctx context.Context, taskID string) ([]PatchDTO, error) {
+	root, patches, err := e.taskPatches(ctx, taskID, "pending")
+	if err != nil {
+		return nil, err
+	}
+	if len(patches) == 0 {
+		return nil, errors.New("không có diff nào đang chờ duyệt")
+	}
+	diffs := make([]string, len(patches))
+	for i, p := range patches {
+		diffs[i] = p.Diff
+	}
+	if err := ApplyBatch(ctx, root, diffs); err != nil {
+		var bad []string
+		for _, p := range patches {
+			if cerr := CheckPatch(ctx, root, p.Diff); cerr != nil {
+				bad = append(bad, strings.Join(p.Files, ", "))
+			}
+		}
+		if len(bad) > 0 {
+			return nil, fmt.Errorf("chưa áp gì: diff cho %s không áp được vào code hiện tại", strings.Join(bad, "; "))
+		}
+		return nil, fmt.Errorf("chưa áp gì: các diff xung đột nhau (%v)", err)
+	}
+	now, who := time.Now().UTC(), actor.From(ctx)
+	detail := fmt.Sprintf("Đã áp cùng lô %d diff", len(patches))
+	out := make([]PatchDTO, 0, len(patches))
+	for _, p := range patches {
+		_ = e.store.Chat().DecidePatch(ctx, p.ID, "applied", detail, who, now)
+		p.Status, p.Detail, p.DecidedBy, p.DecidedAt = "applied", detail, who, &now
+		out = append(out, toPatchDTO(p))
+	}
+	return out, nil
+}
+
+// RevertTaskPatches takes back every applied diff of a task, all or nothing.
+func (e *Engine) RevertTaskPatches(ctx context.Context, taskID string) ([]PatchDTO, error) {
+	root, patches, err := e.taskPatches(ctx, taskID, "applied")
+	if err != nil {
+		return nil, err
+	}
+	if len(patches) == 0 {
+		return nil, errors.New("không có diff nào đã áp")
+	}
+	diffs := make([]string, len(patches))
+	for i, p := range patches {
+		diffs[i] = p.Diff
+	}
+	if err := RevertBatch(ctx, root, diffs); err != nil {
+		return nil, err
+	}
+	now, who := time.Now().UTC(), actor.From(ctx)
+	out := make([]PatchDTO, 0, len(patches))
+	for _, p := range patches {
+		_ = e.store.Chat().DecidePatch(ctx, p.ID, "rejected", "Đã hoàn tác cả lô", who, now)
+		p.Status, p.Detail, p.DecidedBy, p.DecidedAt = "rejected", "Đã hoàn tác cả lô", who, &now
+		out = append(out, toPatchDTO(p))
+	}
+	return out, nil
+}
+
+func (e *Engine) taskPatches(ctx context.Context, taskID, status string) (string, []storage.Patch, error) {
+	t, err := e.store.Tasks().Get(ctx, taskID)
+	if err != nil {
+		return "", nil, err
+	}
+	project, err := e.store.Repos().Get(ctx, t.ProjectID)
+	if err != nil {
+		return "", nil, err
+	}
+	if project.Path == "" {
+		return "", nil, ErrNoFolder
+	}
+	all, err := e.store.Tasks().ListPatches(ctx, taskID)
+	if err != nil {
+		return "", nil, err
+	}
+	var out []storage.Patch
+	for _, p := range all {
+		if p.Status == status {
+			out = append(out, p)
+		}
+	}
+	return project.Path, out, nil
 }
 
 // DecidePatch applies (approve) or rejects a proposed change.

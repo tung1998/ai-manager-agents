@@ -107,6 +107,8 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Agent đề xuất chạy/chạy lại/dừng tiến trình hoặc container, người duyệt mới chạy (ADR-030) | Xong |
 | Supervisor `office run` (API + dashboard), "Cập nhật office" từ mã nguồn, tự quay về bản cũ (ADR-031) | Xong |
 | Cập nhật từ bản phát hành; gộp dashboard vào file chạy | Chưa làm |
+| Quy tắc chia việc (quy ước chung, ≤3 file/việc, không chồng file, phụ thuộc) và quyền theo gói cho agent/chế độ/project (ADR-032) | Xong |
+| Vòng sửa tới khi đạt; dừng khi không sửa được, cần người dùng trả lời, hết ngân sách hoặc không tiến triển (ADR-033) | Xong |
 | Việc định kỳ, cảnh báo, `doctor` | Chưa làm |
 
 ### M0: Nền móng

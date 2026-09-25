@@ -102,9 +102,16 @@ const (
 
 // Permissions bound what an agent may do.
 type Permissions struct {
-	ReadOnly         bool     `json:"read_only"`
-	Tools            []string `json:"tools,omitempty"`
-	RequiresApproval bool     `json:"requires_approval,omitempty"` // side effects need a human
+	// Level is the agent's permission package (see internal/perm); empty
+	// means derived from ReadOnly (read / propose).
+	Level    string `json:"level,omitempty"`
+	ReadOnly bool   `json:"read_only"`
+	// Caps are the agent's own picks of capabilities; nil = its package's preset.
+	Caps *[]string `json:"caps,omitempty"`
+	// Commands narrow the project's commands for this agent; nil = all of them.
+	Commands         *[]string `json:"commands,omitempty"`
+	Tools            []string  `json:"tools,omitempty"`
+	RequiresApproval bool      `json:"requires_approval,omitempty"` // side effects need a human
 }
 
 // Agent belongs to one org model.
@@ -254,6 +261,8 @@ type Conversation struct {
 	Title     string
 	SessionID string
 	Runtime   string
+	Mode      string // permission mode (internal/perm level), a ceiling for this chat
+	TaskID    string // set for the follow-up talk about one task
 	CreatedBy string
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -309,7 +318,9 @@ type ChatRepo interface {
 	CreateConversation(ctx context.Context, c Conversation) (Conversation, error)
 	UpdateConversation(ctx context.Context, c Conversation) error
 	GetConversation(ctx context.Context, id string) (Conversation, error)
+	// ListConversations lists a project's own chats (not the talks about tasks).
 	ListConversations(ctx context.Context, projectID string, limit int) ([]Conversation, error)
+	TaskConversation(ctx context.Context, taskID string) (Conversation, error)
 	DeleteConversation(ctx context.Context, id string) error
 
 	AddMessage(ctx context.Context, m Message) (Message, error)
@@ -333,6 +344,7 @@ type Task struct {
 	Detail      string
 	BudgetUSD   float64
 	CostUSD     float64
+	ModeLevel   string // permission mode (internal/perm level), a ceiling for this task
 	Attachments []Attachment
 	CreatedBy   string
 	CreatedAt   time.Time
@@ -493,12 +505,20 @@ type Action struct {
 	Target         string
 	TargetID       string
 	Reason         string
+	Args           ActionArgs
 	Status         string // pending | done | failed | rejected
 	Detail         string
 	ProposedBy     string
 	DecidedBy      string
 	DecidedAt      *time.Time
 	CreatedAt      time.Time
+}
+
+// ActionArgs are extra inputs of an action.
+type ActionArgs struct {
+	Message string   `json:"message,omitempty"` // git commit
+	Files   []string `json:"files,omitempty"`   // git commit
+	Branch  string   `json:"branch,omitempty"`  // git branch
 }
 
 // ActionRepo stores proposed actions.

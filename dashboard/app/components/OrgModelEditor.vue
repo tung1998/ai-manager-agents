@@ -73,7 +73,7 @@ const editorOpen = ref(false)
 const editing = ref<Agent | null>(null)
 const empty = (): Omit<Agent, 'id' | 'org_model_id' | 'sort'> => ({
   key: '', name: '', tier: 'worker', role: '', description: '', reports_to: [], provider_id: '',
-  model_tier: 'fast', llm_model: '', instructions: '', permissions: { read_only: true, tools: [], requires_approval: false }
+  model_tier: 'fast', llm_model: '', instructions: '', permissions: { level: 'read', read_only: true, tools: [], requires_approval: false }
 })
 const form = reactive(empty())
 const saving = ref(false)
@@ -216,8 +216,9 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
             <p v-if="a.role" class="mt-2 line-clamp-2 text-sm text-(--ui-text-toned)">{{ a.role }}</p>
             <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-(--ui-text-muted)">
               <span class="font-mono">{{ resolvedModel(a) }}</span>
-              <UIcon v-if="a.permissions.read_only" name="i-lucide-eye" class="size-3.5" title="Chỉ đọc" />
-              <UIcon v-else name="i-lucide-pencil" class="size-3.5 text-(--ui-warning)" title="Có thể thay đổi" />
+              <span class="inline-flex items-center gap-1" :class="permRank(agentLevel(a.permissions)) >= 2 ? 'text-(--ui-warning)' : ''" :title="permOf(agentLevel(a.permissions)).description">
+                <UIcon :name="a.permissions.caps ? 'i-lucide-sliders-horizontal' : permOf(agentLevel(a.permissions)).icon" class="size-3.5" />{{ a.permissions.caps ? `Tùy chỉnh (${a.permissions.caps.length} quyền)` : permOf(agentLevel(a.permissions)).label }}
+              </span>
               <UIcon v-if="a.permissions.requires_approval" name="i-lucide-shield-check" class="size-3.5" title="Cần người duyệt" />
             </div>
             <div v-if="a.reports_to.length" class="mt-2 flex flex-wrap gap-1">
@@ -333,10 +334,9 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
             <UFormField label="Hướng dẫn (system prompt riêng)">
               <UTextarea v-model="form.instructions" :rows="6" class="w-full" autoresize />
             </UFormField>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <USwitch v-model="form.permissions.read_only" label="Chỉ đọc" description="Không sửa code, dữ liệu" />
-              <USwitch v-model="form.permissions.requires_approval" label="Cần người duyệt" description="Mọi side effect phải duyệt" />
-            </div>
+            <UFormField label="Quyền" help="Chế độ chọn khi chat/giao việc và giới hạn của project có thể hạ thấp hơn nữa.">
+              <AgentPermEditor v-model="form.permissions" :project-id="model?.repo_id || undefined" />
+            </UFormField>
             <UFormField label="Công cụ được phép" help="VD: read, search, edit, shell:test, mcp:logs">
               <UInputTags v-model="form.permissions.tools" class="w-full" />
             </UFormField>
