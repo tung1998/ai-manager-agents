@@ -13,6 +13,7 @@ export interface ProposedAction {
   proposed_by: string
   decided_by: string
   message?: string
+  target_id?: string
   files?: string[]
   // create_automation / update_automation: the proposed automation
   automation?: { name: string, source: string, every_minutes?: number, cron?: string, timezone?: string, action: string, prompt?: string,
@@ -62,9 +63,16 @@ const when = computed(() => {
   if (s.source === 'webhook') return t('auto.sourceWebhook')
   return s.cron ? `${s.cron}${s.timezone ? ` (${s.timezone})` : ''}` : t('auto.every', { n: s.every_minutes ?? 0 })
 })
-const opsLink = computed(() => props.projectId && !props.action.kind.startsWith('git_') && !props.action.kind.endsWith('_automation')
-  ? `/projects/${props.projectId}?tab=ops&section=${props.action.kind.endsWith('container') ? 'containers' : 'processes'}`
-  : '')
+// the log opens right here in the chat: a command's output, or the live log
+// of the process / container it ran
+const logOpen = ref(false)
+const logUrl = computed(() => {
+  const a = props.action
+  if (a.kind.endsWith('_process') && a.target_id) return `/api/processes/${a.target_id}/stream`
+  if (a.kind.endsWith('_container') && props.projectId) return `/api/projects/${props.projectId}/compose/logs?service=${encodeURIComponent(a.target)}`
+  return null
+})
+const hasLog = computed(() => props.action.status !== 'pending' && (props.action.kind === 'run_command' ? !!props.action.detail : !!logUrl.value))
 
 async function decide(approve: boolean) {
   busy.value = approve ? 'approve' : 'reject'
@@ -106,7 +114,7 @@ async function decide(approve: boolean) {
         </p>
       </div>
       <p v-if="action.reason" class="text-xs text-(--ui-text-muted)">{{ action.reason }}</p>
-      <p v-if="action.status !== 'pending' && action.detail" class="text-xs" :class="action.status === 'failed' ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">{{ action.detail }}</p>
+      <p v-if="action.status !== 'pending' && action.detail" class="line-clamp-2 text-xs" :title="action.detail" :class="action.status === 'failed' ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">{{ action.detail }}</p>
     </div>
     <UBadge :color="statusMeta[action.status].color" variant="subtle" size="sm" :label="statusMeta[action.status].label" />
     <UBadge v-if="action.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('action.auto')" :title="action.decided_by.slice(5)" />
@@ -114,6 +122,15 @@ async function decide(approve: boolean) {
       <UButton size="xs" icon="i-lucide-check" :label="t('action.approve')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
       <UButton size="xs" color="neutral" variant="ghost" :label="t('action.reject')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
     </template>
-    <UButton v-else-if="action.status === 'done' && opsLink" size="xs" color="neutral" variant="ghost" icon="i-lucide-terminal" :label="t('action.seeLog')" :to="opsLink" />
+    <UButton
+      v-else-if="hasLog" size="xs" color="neutral" variant="ghost" icon="i-lucide-terminal"
+      :trailing-icon="logOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" :label="t('action.seeLog')" @click="logOpen = !logOpen"
+    />
+    <div v-if="logOpen" class="basis-full">
+      <pre v-if="action.kind === 'run_command'" class="max-h-96 overflow-auto rounded-md bg-(--ui-bg-elevated) p-2 font-mono text-xs whitespace-pre-wrap">{{ action.detail }}</pre>
+      <div v-else class="h-80 overflow-hidden rounded-md border border-(--ui-border)">
+        <LogTerminal :url="logUrl" :title="action.target" :empty="t('ops.emptyLog')" />
+      </div>
+    </div>
   </div>
 </template>
