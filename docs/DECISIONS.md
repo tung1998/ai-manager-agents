@@ -917,31 +917,37 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - `limits` (JSON): `max_runs_per_hour`, `daily_cost_usd`, `disable_after_failures` (mặc định 5), `debounce_seconds`, `debounce_key`, `debounce_max_seconds`.
   - Trạng thái: `failures`, `disabled_code`, `disabled_reason`, `last_run_at`, `next_run_at`.
   - `created_by`, `created_at`, `updated_at`.
-- `automation_runs` là **bản ghi mỏng bọc một lượt**. Kết quả của lượt chính là một tin Chat (`conversation_id`, `message_id`) hoặc một Việc (`task_id`). Câu trả lời, chi phí, công cụ, diff và prompt đã gửi đều đọc từ đó, không lưu lặp lại.
-  - Bản ghi này vẫn cần, cho những gì xảy ra trước khi có Chat hay Việc:
-    - xếp hàng và trả `run_id` ngay cho webhook;
-    - debounce và hẹn giờ;
-    - chống trùng;
-    - lượt bị bỏ qua, hoặc lỗi trước khi chạy (vượt giới hạn, agent bị xóa, project đang bận quá lâu);
-    - nhớ tin nhắn cần sửa để trả lời trên Discord/Telegram.
-  - Các cột:
-    - `id`, `automation_id`, `trigger` (`schedule` | `webhook` | `telegram` | `discord` | `manual`);
-    - `status`: `pending` | `running` | `done` | `failed` | `skipped`;
-    - `dedupe_key` (unique theo automation), `debounce_key`;
-    - `payload` (tối đa 64KB, dùng để điền prompt lúc chạy);
-    - `reply` (JSON: kênh, chat, id tin để sửa lại);
-    - `conversation_id` + `message_id`, hoặc `task_id`;
-    - `error` (khi lỗi trước khi có Chat hoặc Việc);
-    - `next_attempt_at`, `created_at`, `started_at`, `finished_at`.
+- **`jobs`**: sổ ghi **mọi lần chạy**, gồm lượt Chat do người gửi, Việc do người giao, và lượt do tự động hóa tạo ra. Đây cũng là hàng đợi. Chat (`conversations`, `messages`) và Việc (`tasks`, `task_steps`) vẫn là nơi chứa nội dung. Cách tách "nội dung / lần chạy" này giống Thread/Run của OpenAI Assistants và LangGraph, còn hàng đợi nằm trong DB theo kiểu Oban hay River (ADR-004).
+  - Định danh và nguồn gốc:
+    - `id`, `project_id`, `kind` (`chat_turn` | `task`);
+    - `origin` (`user` | `automation` | `monitor` | `retry`), `origin_id` (id tự động hóa, id giám sát, hoặc job gốc);
+    - `trigger` (`ui` | `schedule` | `webhook` | `telegram` | `discord` | `manual`);
+    - `created_by`.
+  - Liên kết tới nội dung: `conversation_id` + `message_id` (chat_turn), hoặc `task_id` (task).
+  - Trạng thái: `status` (`pending` | `running` | `done` | `failed` | `cancelled` | `skipped`), `error`, `error_code` (mã ổn định để thống kê và dịch, ví dụ `busy_timeout`, `budget`, `rate_limit`, `agent_missing`, `restart`, `agent_error`).
+  - Chép sẵn để lọc và thống kê nhanh, không phải join: `agent_id`, `title`, `cost_usd`, `input_tokens`, `output_tokens`, `duration_ms`. Các số này được tính lúc job kết thúc, từ các lượt gọi AI của job.
+  - Hàng đợi: `next_attempt_at`, `dedupe_key` (unique theo `origin_id`), `debounce_key`, `debounce_until`, `payload` (tối đa 64KB), `reply` (JSON: kênh, chat, id tin để trả lời).
+  - Thời gian: `created_at`, `started_at`, `finished_at`.
+  - Index:
+    - `(project_id, created_at)`;
+    - `(status, next_attempt_at)` cho hàng đợi;
+    - `(origin, origin_id, created_at)` cho lịch sử của từng tự động hóa;
+    - `(kind, created_at)`, `(agent_id, created_at)`.
+- **`runs.job_id`** (lượt gọi AI, ADR-020) trỏ về job, nên chi phí và token của từng job được tính chính xác, Việc có nhiều bước cũng vậy. Trang Chi phí và trang agent lọc được theo nguồn: người hay tự động hóa.
+- Cách mỗi loại tạo job:
+  - Chat: người gửi tin thì tạo job `chat_turn` (`origin=user`, `trigger=ui`), chạy ngay.
+  - Việc: giao Việc thì tạo job `task`. Nếu project đang có Việc chạy, job **xếp hàng** (`pending`) chứ không báo lỗi như trước.
+  - Tự động hóa: tạo job `pending`, và nội dung được tạo lúc job bắt đầu chạy. Mặc định là Việc; hành động "gửi tin cho một agent" tạo một lượt Chat.
+- Prompt được điền lúc job bắt đầu chạy, từ tự động hóa và `payload`. Sau đó prompt nằm trong tin nhắn hoặc trong mục tiêu của Việc, không lưu lặp lại.
 
 *Chạy* (package `internal/trigger`):
 - **Bộ lập lịch** chạy mỗi 15 giây:
   - Tính lượt đến hạn từ `next_run_at`, và tính lại sau mỗi lần tạo lượt, nên khởi động lại không bị chạy sớm.
   - Lỡ nhiều lượt thì chỉ chạy bù 1 lượt, sau đó theo giờ thật.
-  - Còn lượt `pending` hoặc `running` thì bỏ qua (không chạy chồng).
+  - Còn job `pending` hoặc `running` của cùng tự động hóa thì bỏ qua (không chạy chồng).
   - Cron 5 trường (`robfig/cron/v3`), múi giờ IANA, nhúng `time/tzdata`.
 - **Bộ chạy:**
-  - Lấy lượt `pending` có `next_attempt_at <= now` bằng một câu `UPDATE … RETURNING` trong transaction.
+  - Lấy job `pending` có `next_attempt_at <= now` bằng một câu `UPDATE … RETURNING` trong transaction.
   - Tối đa 2 lượt chạy cùng lúc trong office, và 1 lượt cho mỗi tự động hóa.
   - `chat`:
     - Mở cuộc Chat với agent. Với `keep_context`, hoặc khi đến từ cùng thread/chat Discord hay Telegram, thì dùng lại một cuộc Chat.
@@ -955,7 +961,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Lỗi của agent không tự chạy lại, để tránh sửa code hai lần. Mỗi lần lỗi cộng `failures`; đủ `disable_after_failures` lần liên tiếp thì tắt, ghi `disabled_code=failures`.
   - Chạm trần chi phí trong ngày thì tắt với `disabled_code=daily_cost`. Vượt số lượt mỗi giờ thì lượt đó `skipped`.
   - "Chạy ngay" trên dashboard bỏ qua giới hạn.
-  - Khởi động lại office: lượt đang `running` chuyển sang `failed` ("office khởi động lại"), không chạy lại.
+  - Khởi động lại office: job đang `running` chuyển sang `failed` (`error_code=restart`), không chạy lại. Người dùng bấm "Chạy lại" thì tạo job mới với `origin=retry`.
 - **Prompt mẫu.** Các placeholder cố định, không có vòng lặp hay điều kiện vì payload không đáng tin:
   - `{{payload}}`, `{{payload.a.b.0}}`;
   - `{{message}}`, `{{user}}` (cho chat);
@@ -972,16 +978,16 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Chống trùng:
   - lấy từ header `Idempotency-Key`, `X-Request-Id` hoặc id của lần gửi;
   - nếu không có thì dùng hash của body trong 10 phút;
-  - lưu trong DB (unique `(automation_id, dedupe_key)`).
+  - lưu trong DB (unique `(origin_id, dedupe_key)`).
 - Debounce:
   - gom theo `debounce_key` (đường dẫn trong payload);
   - mỗi lần gửi mới dời `next_attempt_at` và thay payload;
   - không quá `debounce_max_seconds` tính từ lần gửi đầu.
 - Kết quả trả về:
-  - `202 {status: queued|debounced, run_id}`;
+  - `202 {status: queued|debounced, job_id}`;
   - `200 {status: duplicate}`;
   - `429` khi vượt giới hạn.
-- `GET /hooks/{id}/runs/{run_id}` (cùng token) trả trạng thái và kết quả.
+- `GET /hooks/{id}/jobs/{job_id}` (cùng token) trả trạng thái và kết quả.
 - Đường đi: dashboard (cổng 2704) chuyển tiếp `/hooks/**` giống như `/api/**`. Muốn nhận từ bên ngoài thì cần URL công khai, ví dụ Cloudflare Tunnel.
 - Secret chỉ hiện một lần lúc tạo hoặc đổi. Đổi secret thì secret cũ hết hiệu lực ngay.
 
@@ -1002,7 +1008,8 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - `GET/PATCH/DELETE /api/automations/:id`
 - `POST /api/automations/:id/run` (chạy ngay)
 - `POST /api/automations/:id/rotate-secret`
-- `GET /api/automations/:id/runs`, `GET /api/automation-runs/:id`
+- `GET /api/jobs?project=&kind=&origin=&origin_id=&status=&agent=&since=` (phân trang theo con trỏ), `GET /api/jobs/:id`, `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/retry`
+- `GET /api/jobs/stats?project=&since=&by=day|kind|origin|agent|status`: số job, tỉ lệ thành công, chi phí, p50/p95 thời gian
 - `GET /api/automations/preview-schedule?cron=&tz=` (5 lần chạy tới, kèm mô tả dễ đọc)
 - Tạo, sửa và xóa cần quyền admin.
 
@@ -1017,8 +1024,14 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Với webhook: hiện URL, ví dụ curl, nút đổi secret; secret mới hiện trong hộp thoại chỉ đóng được bằng nút.
 - Trang con `/projects/:id/automations/:aid` (tô sáng mục Tự động): lịch sử chạy (thời gian, nguồn, trạng thái, chi phí, mở Chat/Việc), cùng banner khi bị tự tắt, ghi rõ lý do và nút bật lại.
 
+- **Trang Job** (mục chung trong sidebar, và lọc sẵn theo project khi mở từ project):
+  - bảng các job, lọc theo loại (Chat, Việc), nguồn (người, tự động hóa nào), trạng thái, agent, thời gian;
+  - dòng đầu là thẻ số: đang chạy, đang chờ, lỗi 24 giờ qua, chi phí;
+  - mỗi dòng có nút mở (tới Chat hoặc Việc), dừng, chạy lại;
+  - job đang chạy cập nhật trực tiếp.
+
 **Giai đoạn.**
-1. Lịch chạy, webhook/API, hàng đợi, trang Tự động. Làm trước.
+1. Bảng `jobs` và hàng đợi (Chat và Việc hiện có chuyển sang tạo job), lịch chạy, webhook/API, trang Tự động, trang Job bản đầu. Làm trước.
 2. Telegram hai chiều.
 3. Discord hai chiều.
 
