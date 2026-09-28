@@ -3,6 +3,7 @@ package chat_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -206,9 +207,9 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"Xin chào"
 	if text.String() != "Xin chào" || done.Content != "Xin chào" || len(done.Tools) != 1 || done.Tools[0].Summary != "Đọc hello.txt" {
 		t.Fatalf("streamed=%q done=%+v", text.String(), done)
 	}
-	conv, _ = f.st.Chat().GetConversation(ctx, conv.ID)
-	if conv.SessionID != "sess-1" || conv.Runtime != "claude_cli" {
-		t.Fatalf("session not saved: %+v", conv)
+	members, _ := f.st.Chat().Members(ctx, conv.ID) // the session is the agent's (ADR-044)
+	if len(members) != 1 || members[0].SessionID != "sess-1" || members[0].Runtime != "claude_cli" || members[0].LastMessageID == "" {
+		t.Fatalf("session not saved: %+v", members)
 	}
 	runs, _ := f.st.Runs().List(ctx, storage.RunFilter{Limit: 5})
 	if len(runs) != 1 || runs[0].CostSource != "provider" || runs[0].InputTokens != 105 {
@@ -260,8 +261,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 	}
 }
 
-// The person picks who answers in a chat (each agent has its own rights):
-// switching starts a fresh session for the new agent, which reads the thread.
+// The person picks who answers in a chat (each agent has its own rights).
 func TestSwitchConversationAgent(t *testing.T) {
 	f := setup(t, func(provs *provider.Service) storage.Provider {
 		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: "/bin/false"})
@@ -286,7 +286,7 @@ func TestSwitchConversationAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := f.st.Chat().GetConversation(ctx, conv.ID)
-	if got.AgentID != agents[1].ID || got.AgentName != agents[1].Name || got.SessionID != "" {
+	if got.AgentID != agents[1].ID || got.AgentName != agents[1].Name { // sessions stay per agent (ADR-044)
 		t.Fatalf("conversation = %+v", got)
 	}
 }
@@ -296,5 +296,72 @@ func TestHistoryKeepsOtherAuthors(t *testing.T) {
 	h := chat.HistoryFor([]storage.Message{{Role: "user", Content: "a"}, {Role: "assistant", Content: "b", Author: "Trưởng nhóm"}, {Role: "assistant", Content: "c", Author: "Dev"}}, "Dev")
 	if len(h) != 3 || h[1].Author != "Trưởng nhóm" || h[2].Author != "" {
 		t.Fatalf("history = %+v", h)
+	}
+}
+
+// fakeTeamClaude answers as the agent named in its system prompt, with a
+// session per agent, and logs every call's args and stdin.
+func fakeTeamClaude(t *testing.T, reply string) (bin, dir string) {
+	dir = t.TempDir()
+	bin = filepath.Join(dir, "claude")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+n=$(ls `+dir+` | grep -c 'args$')
+n=$((n+1))
+echo "$*" > `+dir+`/call$n.args
+cat > `+dir+`/call$n.in
+who=lead
+case "$*" in *"Bạn là Dev"*) who=dev;; esac
+echo '{"type":"system","subtype":"init","session_id":"sess-'$who'"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"'$who': `+reply+`","session_id":"sess-'$who'","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	return bin, dir
+}
+
+func call(t *testing.T, dir string, n int) (args, stdin string) {
+	a, _ := os.ReadFile(filepath.Join(dir, fmt.Sprintf("call%d.args", n)))
+	i, _ := os.ReadFile(filepath.Join(dir, fmt.Sprintf("call%d.in", n)))
+	return string(a), string(i)
+}
+
+// ADR-044: each agent keeps its own session in a chat; coming back it gets
+// only what was said since, with who said it.
+func TestEachAgentKeepsItsSession(t *testing.T) {
+	bin, dir := fakeTeamClaude(t, "ok")
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		return p
+	})
+	ctx := context.Background()
+	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
+	dev, err := f.st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	lead := conv.AgentID
+	say := func(text string) {
+		t.Helper()
+		turn, _, err := f.engine.Send(ctx, conv.ID, text, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, turn)
+	}
+	say("chào")
+	f.engine.SetAgent(ctx, conv.ID, dev.ID)
+	say("sửa đi")
+	f.engine.SetAgent(ctx, conv.ID, lead)
+	say("tiếp")
+	args2, in2 := call(t, dir, 2)
+	if strings.Contains(args2, "--resume") || !strings.Contains(in2, "Cuộc trò chuyện trước đó") {
+		t.Fatalf("Dev's first turn should be a transcript:\n%s\n%s", args2, in2)
+	}
+	args3, in3 := call(t, dir, 3)
+	if !strings.Contains(args3, "--resume sess-lead") || !strings.Contains(in3, "[Dev]") || !strings.Contains(in3, "dev: ok") || !strings.Contains(in3, "tiếp") {
+		t.Fatalf("lead's turn back:\n%s\n%s", args3, in3)
+	}
+	members, _ := f.st.Chat().Members(ctx, conv.ID)
+	if len(members) != 2 || members[1].AgentID != dev.ID || members[1].SessionID != "sess-dev" {
+		t.Fatalf("members = %+v", members)
 	}
 }

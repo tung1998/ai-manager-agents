@@ -363,9 +363,10 @@ func (e *Engine) SetAgent(ctx context.Context, conversationID, agentID string) e
 	if i < 0 {
 		return ErrNoAgent
 	}
+	// sessions stay with each agent (ADR-044): only who answers by default changes
 	conv.AgentID, conv.AgentName = agents[i].ID, agents[i].Name
-	conv.SessionID, conv.Runtime = "", ""
-	conv.ContextTokens, conv.ContextWindow = 0, 0
+	m := e.member(ctx, conv, agents[i])
+	conv.ContextTokens, conv.ContextWindow = m.ContextTokens, m.ContextWindow
 	return e.store.Chat().UpdateConversation(ctx, conv)
 }
 
@@ -583,8 +584,14 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
 	defer revoke()
 	req.Office = office
-	if conv.Runtime == string(p.Kind) {
-		req.SessionID = conv.SessionID
+	// the agent's own session in this chat (ADR-044); coming back, it gets
+	// what the others said since its last answer
+	mem := e.member(ctx, conv, agent)
+	if mem.Runtime == string(p.Kind) && mem.SessionID != "" {
+		req.SessionID = mem.SessionID
+		if more := newSince(history, mem.LastMessageID, agent.Name); more != "" {
+			req.Prompt = more + "Tin nhắn mới:\n" + req.Prompt
+		}
 	}
 	turn.emit(Event{Type: "status", Text: fmt.Sprintf("%s đang trả lời (%s · %s)", agent.Name, p.Name, model)})
 
@@ -597,17 +604,17 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		}
 	}
 	e.keepLimits(p, res.Limits)
-	changed := res.Context.Tokens > 0 && (res.Context != ContextUse{Tokens: conv.ContextTokens, Window: conv.ContextWindow})
-	if changed {
-		conv.ContextTokens, conv.ContextWindow = res.Context.Tokens, res.Context.Window
+	if res.SessionID != "" {
+		mem.SessionID, mem.Runtime = res.SessionID, string(p.Kind)
 	}
-	if res.SessionID != "" && (res.SessionID != conv.SessionID || conv.Runtime != string(p.Kind)) {
-		conv.SessionID, conv.Runtime = res.SessionID, string(p.Kind)
-		changed = true
+	if res.Context.Tokens > 0 {
+		mem.ContextTokens, mem.ContextWindow = res.Context.Tokens, res.Context.Window
+		if agent.ID == conv.AgentID { // the chat shows its default agent's context
+			conv.ContextTokens, conv.ContextWindow = mem.ContextTokens, mem.ContextWindow
+			_ = e.store.Chat().UpdateConversation(context.Background(), conv)
+		}
 	}
-	if changed {
-		_ = e.store.Chat().UpdateConversation(context.Background(), conv)
-	}
+	_ = e.store.Chat().UpsertMember(context.Background(), mem)
 	if runErr != nil && strings.TrimSpace(res.Text) == "" {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			runErr = errors.New("đã dừng")
@@ -679,6 +686,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			}
 		}
 	}
+	mem.LastMessageID = msg.ID // it has seen everything up to its answer
+	_ = e.store.Chat().UpsertMember(context.Background(), mem)
 	e.endJob(turn.JobID, msg.ID, nil, nil)
 	turn.emit(Event{Type: "done", Message: &dto})
 }
