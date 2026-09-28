@@ -47,10 +47,12 @@ const prompt = ref<{ busy: boolean } | null>(null)
 // filled by other tabs (e.g. "Hỏi agent" in Vận hành)
 // agentId opens a new chat with that agent, conversationId opens that chat (the agent page)
 const prefill = useState<{ text: string, files: Attachment[], send?: boolean, agentId?: string, conversationId?: string } | null>('chat-prefill', () => null)
+let tookPrefill = false // it already opened what it was given: the first chat / the URL's does not
 async function takePrefill() {
   if (!prefill.value || single.value) return // a task's or an automation's own chat takes no prefill
   const p = prefill.value
   prefill.value = null
+  tookPrefill = true
   if (p.conversationId) return open({ id: p.conversationId } as Conversation)
   if (p.agentId && !p.send) {
     stopStream()
@@ -97,14 +99,44 @@ async function afterTurn() {
   } catch { /* the next open shows it */ }
 }
 
-async function open(c: Conversation) {
+// the open chat (and a message) live in the URL, so a link points at them;
+// only the project's Chat page (not the corner chat, a task's or a builder's)
+const route = useRoute()
+const router = useRouter()
+const ownsUrl = computed(() => !single.value && !props.compact)
+const copy = useCopy()
+const chatLink = (id: string, messageId?: string) => `${location.origin}/projects/${props.projectId}?tab=chat&c=${id}${messageId ? `&m=${messageId}` : ''}`
+function threadMenu(c: Conversation) {
+  return [[
+    { label: t('chat.copyLink'), icon: 'i-lucide-link', onSelect: () => copy(chatLink(c.id)) },
+    { label: t('chat.copyId'), icon: 'i-lucide-hash', onSelect: () => copy(c.id) }
+  ], [{ label: t('chat.delete'), icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => remove(c) }]]
+}
+function messageMenu(m: Message) {
+  const items = [{ label: t('chat.copyText'), icon: 'i-lucide-copy', onSelect: () => copy(m.content) }]
+  if (current.value) items.push({ label: t('chat.copyMessageLink'), icon: 'i-lucide-link', onSelect: () => copy(chatLink(current.value!.id, m.id)) })
+  return [items]
+}
+const marked = ref('') // the message a link points at
+async function showMessage(id: string) {
+  await nextTick()
+  const el = document.getElementById(`m-${id}`)
+  if (!el) return
+  el.scrollIntoView({ block: 'center' })
+  marked.value = id
+  setTimeout(() => { if (marked.value === id) marked.value = '' }, 2500)
+}
+
+async function open(c: Conversation, messageId?: string) {
   stopStream()
   current.value = c
+  if (ownsUrl.value && route.query.c !== c.id) router.replace({ query: { ...route.query, c: c.id, m: undefined } })
   const res = await $fetch<{ conversation: Conversation, messages: Message[] }>(`/api/conversations/${c.id}`)
   messages.value = res.messages
   current.value = res.conversation
   if (res.conversation.active_turn) follow(res.conversation.active_turn)
-  scrollDown()
+  if (messageId) showMessage(messageId)
+  else scrollDown()
 }
 
 async function newConversation(agentId = '') {
@@ -211,6 +243,7 @@ async function remove(c: Conversation) {
   if (current.value?.id === c.id) {
     current.value = null
     messages.value = []
+    if (ownsUrl.value) router.replace({ query: { ...route.query, c: undefined, m: undefined } })
   }
   refreshConvs()
 }
@@ -254,7 +287,8 @@ const threadPick = computed({
 onMounted(() => {
   if (props.taskId) openTask()
   else if (props.purpose === 'automation') openAutomation()
-  else if (conversations.value[0]) open(conversations.value[0])
+  else if (ownsUrl.value && typeof route.query.c === 'string' && !tookPrefill) open({ id: route.query.c } as Conversation, typeof route.query.m === 'string' ? route.query.m : undefined)
+  else if (conversations.value[0] && !tookPrefill) open(conversations.value[0])
 })
 onBeforeUnmount(stopStream)
 </script>
@@ -282,9 +316,11 @@ onBeforeUnmount(stopStream)
             <p class="truncate text-xs text-(--ui-text-muted)">{{ c.agent_name }} · {{ when(c.updated_at) }}</p>
           </div>
           <UIcon v-if="c.active_turn" name="i-lucide-loader-circle" class="mt-1 size-3.5 animate-spin text-(--ui-text-muted)" />
-          <button type="button" class="invisible mt-0.5 text-(--ui-text-dimmed) group-hover:visible" :title="t('chat.delete')" @click.stop="remove(c)">
-            <UIcon name="i-lucide-trash-2" class="size-3.5" />
-          </button>
+          <UDropdownMenu :items="threadMenu(c)" :content="{ align: 'end' }">
+            <button type="button" class="invisible -me-1 rounded px-0.5 text-(--ui-text-dimmed) hover:text-(--ui-text) group-hover:visible data-[state=open]:visible" :aria-label="t('chat.more')" @click.stop>
+              <UIcon name="i-lucide-ellipsis" class="size-4" />
+            </button>
+          </UDropdownMenu>
         </div>
       </div>
     </aside>
@@ -313,20 +349,32 @@ onBeforeUnmount(stopStream)
         </div>
 
         <template v-for="m in messages" :key="m.id">
-          <div v-if="m.role === 'user'" class="flex flex-col items-end gap-1.5">
+          <div v-if="m.role === 'user'" :id="`m-${m.id}`" class="group/msg flex flex-col items-end gap-1.5 rounded-lg transition" :class="marked === m.id && 'ring-2 ring-primary/60 ring-offset-4 ring-offset-(--ui-bg)'">
             <AttachmentList :items="m.attachments ?? []" align="end" />
-            <div v-if="m.content" class="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--ui-primary) px-3.5 py-2 text-sm text-white">{{ m.content }}</div>
+            <div class="flex max-w-[80%] items-start gap-1">
+              <UDropdownMenu :items="messageMenu(m)" :content="{ align: 'end' }">
+                <button type="button" class="invisible mt-1.5 rounded px-0.5 text-(--ui-text-dimmed) hover:text-(--ui-text) group-hover/msg:visible data-[state=open]:visible" :aria-label="t('chat.more')">
+                  <UIcon name="i-lucide-ellipsis" class="size-4" />
+                </button>
+              </UDropdownMenu>
+              <div v-if="m.content" class="min-w-0 whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--ui-primary) px-3.5 py-2 text-sm text-white">{{ m.content }}</div>
+            </div>
           </div>
           <div v-else-if="m.role === 'error'" class="flex items-start gap-2 text-sm text-(--ui-error)">
             <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0" />
             <span>{{ m.content }}</span>
           </div>
-          <div v-else class="space-y-2">
+          <div v-else :id="`m-${m.id}`" class="group/msg space-y-2 rounded-lg transition" :class="marked === m.id && 'ring-2 ring-primary/60 ring-offset-4 ring-offset-(--ui-bg)'">
             <div class="flex items-center gap-2 text-xs text-(--ui-text-muted)">
               <UIcon name="i-lucide-bot" class="size-4 text-primary" />
               <span class="font-medium">{{ m.author }}</span>
               <span>{{ when(m.created_at) }}</span>
               <span v-if="m.cost_usd">· ${{ m.cost_usd.toFixed(3) }}</span>
+              <UDropdownMenu :items="messageMenu(m)" :content="{ align: 'start' }">
+                <button type="button" class="invisible rounded px-0.5 text-(--ui-text-dimmed) hover:text-(--ui-text) group-hover/msg:visible data-[state=open]:visible" :aria-label="t('chat.more')">
+                  <UIcon name="i-lucide-ellipsis" class="size-4" />
+                </button>
+              </UDropdownMenu>
             </div>
             <details v-if="m.tools.length" class="text-xs text-(--ui-text-muted)">
               <summary class="cursor-pointer">{{ t('chat.toolsUsed', { n: m.tools.length }) }}</summary>

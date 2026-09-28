@@ -74,7 +74,23 @@ const flowHint = computed(() => ({
   council: t('flow.council')
 } as Record<string, string>)[props.governance] ?? '')
 
+// the open task lives in the URL, so a link points at it
+const route = useRoute()
+const router = useRouter()
+const copy = useCopy()
+const moreLabel = computed(() => t('chat.more'))
+const taskLink = (id: string) => `${location.origin}/projects/${props.projectId}?tab=tasks&task=${id}`
+function taskMenu(task: Task) {
+  const items: { label: string, icon: string, color?: 'error', onSelect: () => void }[][] = [[
+    { label: t('task.copyLink'), icon: 'i-lucide-link', onSelect: () => copy(taskLink(task.id)) },
+    { label: t('task.copyId'), icon: 'i-lucide-hash', onSelect: () => copy(task.id) }
+  ]]
+  if (isAdmin.value && task.status !== 'running') items.push([{ label: t('common.delete'), icon: 'i-lucide-trash-2', color: 'error', onSelect: () => remove(task) }])
+  return items
+}
+
 async function open(id: string) {
+  if (route.query.task !== id) router.replace({ query: { ...route.query, task: id } })
   source?.close()
   showNew.value = false
   statusLine.value = ''
@@ -352,9 +368,11 @@ onBeforeUnmount(() => source?.close())
         >
           <div class="flex items-start gap-1">
             <p class="min-w-0 flex-1 truncate">{{ t.title }}</p>
-            <button v-if="isAdmin && t.status !== 'running'" type="button" class="invisible text-(--ui-text-dimmed) group-hover:visible" @click.stop="remove(t)">
-              <UIcon name="i-lucide-trash-2" class="size-3.5" />
-            </button>
+            <UDropdownMenu :items="taskMenu(t)" :content="{ align: 'end' }">
+              <button type="button" class="invisible -me-1 rounded px-0.5 text-(--ui-text-dimmed) hover:text-(--ui-text) group-hover:visible data-[state=open]:visible" :aria-label="moreLabel" @click.stop>
+                <UIcon name="i-lucide-ellipsis" class="size-4" />
+              </button>
+            </UDropdownMenu>
           </div>
           <div class="mt-0.5 flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
             <UBadge :label="badge(t).label" :color="badge(t).color" variant="subtle" size="sm" />
