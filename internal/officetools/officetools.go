@@ -33,7 +33,19 @@ type Toolbox struct {
 	actions *actions.Service
 	// delegate hands a task to another agent of the chat (ADR-044), set by the chat engine
 	delegate func(ctx context.Context, sc Scope, agent, task string) (string, error)
+	// config reads settings for describe/list/get (the API's registry, ADR-045)
+	config ConfigReader
 }
+
+// ConfigReader reads settings for the generic tools.
+type ConfigReader interface {
+	DescribeConfig(kind string) (string, error)
+	ListConfig(ctx context.Context, projectID, kind string) (string, error)
+	GetConfig(ctx context.Context, projectID, kind, id string) (string, error)
+}
+
+// SetConfig turns on describe, list, get and propose_change.
+func (t *Toolbox) SetConfig(c ConfigReader) { t.config = c }
 
 // SetDelegate turns on the delegate tool (the chat engine runs hand-offs).
 func (t *Toolbox) SetDelegate(fn func(ctx context.Context, sc Scope, agent, task string) (string, error)) {
@@ -126,6 +138,25 @@ func (t *Toolbox) Tools() []Tool {
 				"reason": str("Vì sao cần tự động hóa này"),
 			}, "name", "source", "action", "reason")})
 	}
+	if t.config != nil && t.actions != nil {
+		kind := map[string]any{"type": "string", "description": "Loại cài đặt, xem describe"}
+		list = append(list,
+			Tool{Name: "describe", Description: "Các loại cài đặt đổi được (automation, agent, monitor, process, policy, project, usage_settings, provider); có resource thì liệt kê trường sửa được.",
+				Schema: obj(map[string]any{"resource": kind})},
+			Tool{Name: "list", Description: "Danh sách cài đặt của một loại trong project (id, tên, trạng thái).", Schema: obj(map[string]any{"resource": kind}, "resource")},
+			Tool{Name: "get", Description: "Một cài đặt đầy đủ (bí mật đã che). policy, project, usage_settings không cần id.",
+				Schema: obj(map[string]any{"resource": kind, "id": map[string]any{"type": "string"}}, "resource")},
+			Tool{Name: "propose_change", Description: "ĐỀ XUẤT đổi một cài đặt: người dùng duyệt trên thẻ rồi office mới đổi, như khi họ sửa trên dashboard. " +
+				"patch là object JSON chỉ gồm các trường cần đổi (xem describe/get). Không đưa API key: người dùng tự dán trên thẻ.",
+				Schema: obj(map[string]any{
+					"resource": kind,
+					"op":       map[string]any{"type": "string", "enum": []string{"create", "update", "delete"}},
+					"id":       map[string]any{"type": "string", "description": "Cài đặt cần sửa/xóa (trống khi tạo mới, và với policy/project/usage_settings)"},
+					"patch":    map[string]any{"type": "object"},
+					"reason":   map[string]any{"type": "string", "description": "Vì sao cần đổi"},
+				}, "resource", "op", "reason")},
+		)
+	}
 	list = append(list, Tool{Name: "read_link", Description: "Đọc nội dung một liên kết của office mà người dùng dán vào: một cuộc chat (…?tab=chat&c=…), một tin nhắn (&m=…) hoặc một Việc (…?tab=tasks&task=…) của project này.",
 		Schema: obj(map[string]any{"url": map[string]any{"type": "string", "description": "Liên kết dashboard của office"}}, "url")})
 	if t.delegate != nil {
@@ -167,19 +198,23 @@ func (t *Toolbox) Has(name string) bool {
 func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawMessage) (string, bool) {
 	projectID := sc.ProjectID
 	var in struct {
-		Name    string   `json:"name"`
-		Service string   `json:"service"`
-		Lines   int      `json:"lines"`
-		Action  string   `json:"action"`
-		Target  string   `json:"target"`
-		Reason  string   `json:"reason"`
-		Message string   `json:"message"`
-		Files   []string `json:"files"`
-		Branch  string   `json:"branch"`
-		Command string   `json:"command"`
-		Agent   string   `json:"agent"`
-		Task    string   `json:"task"`
-		URL     string   `json:"url"`
+		Name     string          `json:"name"`
+		Service  string          `json:"service"`
+		Lines    int             `json:"lines"`
+		Action   string          `json:"action"`
+		Target   string          `json:"target"`
+		Reason   string          `json:"reason"`
+		Message  string          `json:"message"`
+		Files    []string        `json:"files"`
+		Branch   string          `json:"branch"`
+		Command  string          `json:"command"`
+		Agent    string          `json:"agent"`
+		Task     string          `json:"task"`
+		URL      string          `json:"url"`
+		Resource string          `json:"resource"`
+		Op       string          `json:"op"`
+		ID       string          `json:"id"`
+		Patch    json.RawMessage `json:"patch"`
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &in); err != nil {
@@ -225,6 +260,24 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 				return "$ " + a.Target + "\nLỗi: " + a.Detail, true
 			default:
 				out = fmt.Sprintf("Lệnh %q không nằm trong danh sách bạn được tự chạy, đã tạo đề xuất (mã %s) chờ người dùng duyệt. Chưa chạy gì; hãy báo người dùng.", a.Target, a.ID)
+			}
+		}
+	case "describe", "list", "get", "propose_change":
+		if t.config == nil || t.actions == nil {
+			return "Không có công cụ cài đặt ở đây", true
+		}
+		switch name {
+		case "describe":
+			out, err = t.config.DescribeConfig(in.Resource)
+		case "list":
+			out, err = t.config.ListConfig(ctx, projectID, in.Resource)
+		case "get":
+			out, err = t.config.GetConfig(ctx, projectID, in.Resource, in.ID)
+		default:
+			var a storage.Action
+			a, err = t.actions.Propose(ctx, sc, "config_change", "", in.Reason, storage.ActionArgs{Change: &storage.ConfigChange{Resource: in.Resource, Op: in.Op, ID: in.ID, Patch: in.Patch}})
+			if err == nil {
+				out = "Đã tạo thẻ duyệt: " + a.Target + ". Người dùng duyệt trên thẻ thì office mới đổi; báo họ ngắn gọn bạn đề xuất gì."
 			}
 		}
 	case "read_link":

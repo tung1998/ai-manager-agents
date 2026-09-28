@@ -1,8 +1,11 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/audit"
@@ -14,6 +17,14 @@ import (
 func (s *server) decideAction(approve bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := userFrom(r)
+		// a provider's card: the key the person pasted goes straight to the change
+		var in struct {
+			APIKey string `json:"api_key"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		if in.APIKey != "" {
+			r = r.WithContext(context.WithValue(r.Context(), cfgSecretKey{}, strings.TrimSpace(in.APIKey)))
+		}
 		if cur, err := s.cfg.Store.Actions().Get(r.Context(), r.PathValue("id")); err == nil {
 			who := proposerWho(cur, u)
 			if !approve { // the person's decision

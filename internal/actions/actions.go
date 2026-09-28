@@ -35,12 +35,26 @@ var Kinds = map[string]string{
 	"run_command":       "Chạy lệnh",
 	"create_automation": "Tạo tự động hóa",
 	"update_automation": "Sửa tự động hóa",
+	"config_change":     "Đổi cài đặt",
+}
+
+// ConfigApplier checks and applies settings changes (the config registry of
+// the API, ADR-045).
+type ConfigApplier interface {
+	// CheckChange validates a proposal of projectID's agent, fills c.Before
+	// and returns a label for the card.
+	CheckChange(ctx context.Context, projectID string, c *storage.ConfigChange) (string, error)
+	// ApplyChange carries out an approved change (ctx carries the approver).
+	ApplyChange(ctx context.Context, a storage.Action) (string, error)
 }
 
 // isAutomation: code that will run unattended, so always a person decides.
 func isAutomation(kind string) bool {
 	return kind == "create_automation" || kind == "update_automation"
 }
+
+// SetConfig turns on config_change proposals.
+func (s *Service) SetConfig(c ConfigApplier) { s.config = c }
 
 func isGit(kind string) bool { return strings.HasPrefix(kind, "git_") }
 
@@ -68,8 +82,9 @@ type Scope struct {
 
 // Service proposes and decides actions.
 type Service struct {
-	store storage.Store
-	ops   *ops.Manager
+	store  storage.Store
+	ops    *ops.Manager
+	config ConfigApplier
 }
 
 // New builds a Service.
@@ -89,7 +104,16 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 	if len(args) > 0 {
 		a.Args = args[0]
 	}
-	if isAutomation(kind) {
+	if kind == "config_change" { // a person always decides
+		if s.config == nil || a.Args.Change == nil {
+			return a, errors.New("không đổi được cài đặt ở đây")
+		}
+		label, err := s.config.CheckChange(ctx, sc.ProjectID, a.Args.Change)
+		if err != nil {
+			return a, err
+		}
+		a.Target, a.TargetID = label, a.Args.Change.ID
+	} else if isAutomation(kind) {
 		spec, err := s.automationSpec(ctx, sc.ProjectID, kind, a.Args.Automation)
 		if err != nil {
 			return a, err
@@ -181,8 +205,8 @@ func (s *Service) auditAuto(ctx context.Context, sc Scope, a storage.Action, err
 // lists (processes, containers, commands). Push always needs a person.
 func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Access) bool {
 	switch a.Kind {
-	case "create_automation", "update_automation":
-		return false // code that runs unattended: a person always decides
+	case "create_automation", "update_automation", "config_change":
+		return false // code that runs unattended, or settings: a person always decides
 	case "git_commit":
 		return acc.Can(perm.CapCommit)
 	case "git_branch":
@@ -254,7 +278,7 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 		if a.Kind == "git_commit" {
 			a.Detail = fmt.Sprintf("Đã commit %d file: %s", len(a.Args.Files), a.Target)
 		}
-		if !isProcess(a.Kind) && !isGit(a.Kind) {
+		if strings.HasSuffix(a.Kind, "_container") {
 			a.Detail += " (docker compose chạy nền, xem mục Container)"
 		}
 	}
@@ -338,6 +362,13 @@ func firstNonEmpty(a, b string) string {
 }
 
 func (s *Service) run(ctx context.Context, a storage.Action) error {
+	if a.Kind == "config_change" {
+		if s.config == nil {
+			return errors.New("không đổi được cài đặt ở đây")
+		}
+		_, err := s.config.ApplyChange(ctx, a)
+		return err
+	}
 	if isAutomation(a.Kind) {
 		return s.saveAutomation(ctx, a)
 	}

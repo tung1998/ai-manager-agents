@@ -15,6 +15,8 @@ export interface ProposedAction {
   message?: string
   target_id?: string
   files?: string[]
+  // config_change: a settings change (ADR-045)
+  change?: { resource: string, op: 'create' | 'update' | 'delete', id?: string, patch?: Record<string, unknown>, before?: Record<string, unknown> }
   // create_automation / update_automation: the proposed automation
   automation?: { name: string, source: string, every_minutes?: number, cron?: string, timezone?: string, action: string, prompt?: string,
     script?: { lang: string, body: string, timeout_s?: number }, escalate?: { when?: string, action?: string, agent_id?: string, prompt?: string } }
@@ -44,7 +46,8 @@ const kindLabels: Record<string, string> = {
   git_push: 'action.kind.git_push',
   run_command: 'action.kind.run_command',
   create_automation: 'action.kind.create_automation',
-  update_automation: 'action.kind.update_automation'
+  update_automation: 'action.kind.update_automation',
+  config_change: 'action.kind.config_change'
 }
 const kindLabel = computed(() => {
   const key = kindLabels[props.action.kind]
@@ -63,6 +66,19 @@ const when = computed(() => {
   if (s.source === 'webhook') return t('auto.sourceWebhook')
   return s.cron ? `${s.cron}${s.timezone ? ` (${s.timezone})` : ''}` : t('auto.every', { n: s.every_minutes ?? 0 })
 })
+// a settings change: what each field goes from and to
+const changeRows = computed(() => {
+  const c = props.action.change
+  if (!c) return []
+  if (c.op === 'delete') return []
+  const after = { ...(c.before ?? {}), ...(c.patch ?? {}) }
+  return auditDiff(c.op === 'create' ? null : (c.before ?? null), c.op === 'create' ? (c.patch ?? {}) : after)
+})
+const show = (v: unknown) => v === undefined ? '—' : typeof v === 'string' ? v : JSON.stringify(v)
+// a new AI connection: the person pastes its key here, the AI never sees it
+const apiKey = ref('')
+const needsKey = computed(() => props.action.change?.resource === 'provider' && props.action.change.op === 'create')
+
 // the log opens right here in the chat: a command's output, or the live log
 // of the process / container it ran
 const logOpen = ref(false)
@@ -77,7 +93,7 @@ const hasLog = computed(() => props.action.status !== 'pending' && (props.action
 async function decide(approve: boolean) {
   busy.value = approve ? 'approve' : 'reject'
   try {
-    const res = await $fetch<{ action: ProposedAction }>(`/api/actions/${props.action.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST' })
+    const res = await $fetch<{ action: ProposedAction }>(`/api/actions/${props.action.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: approve && apiKey.value ? { api_key: apiKey.value } : {} })
     emit('updated', res.action)
     if (res.action.status === 'failed') toast.add({ title: t('action.failedToast'), description: res.action.detail, color: 'error' })
   } catch (e) {
@@ -112,6 +128,22 @@ async function decide(approve: boolean) {
           {{ t('auto.escalateAgent') }}: {{ spec.escalate?.agent_id || t('auto.agentDefault') }}<template v-if="spec.escalate?.prompt">
 {{ spec.escalate.prompt }}</template>
         </p>
+      </div>
+      <div v-if="action.change" class="mt-1 space-y-2 text-xs">
+        <p class="text-(--ui-text-muted)">{{ t(`action.op.${action.change.op}` as MessageKey) }} · <code>{{ action.change.resource }}</code></p>
+        <table v-if="changeRows.length" class="w-full">
+          <tbody>
+            <tr v-for="d in changeRows" :key="d.key" class="align-top">
+              <td class="w-40 py-0.5 pr-2 font-mono">{{ d.key }}</td>
+              <td v-if="action.change.op !== 'create'" class="max-w-64 break-all py-0.5 pr-2 text-(--ui-error) line-through decoration-(--ui-error)/40">{{ show(d.before) }}</td>
+              <td class="max-w-64 break-all py-0.5 text-(--ui-success)">{{ show(d.after) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <UInput
+          v-if="needsKey && action.status === 'pending' && isAdmin" v-model="apiKey" type="password" size="sm" class="w-full max-w-sm"
+          :placeholder="t('action.pasteKey')" icon="i-lucide-key-round"
+        />
       </div>
       <p v-if="action.reason" class="text-xs text-(--ui-text-muted)">{{ action.reason }}</p>
       <p v-if="action.status !== 'pending' && action.detail" class="line-clamp-2 text-xs" :title="action.detail" :class="action.status === 'failed' ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">{{ action.detail }}</p>

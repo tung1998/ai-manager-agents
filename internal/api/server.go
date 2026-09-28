@@ -5,6 +5,7 @@ package api
 import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/monitor"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
@@ -72,6 +73,7 @@ type Config struct {
 	// Backup writes a copy of the data to a new folder and returns its path.
 	Backup func(ctx context.Context) (string, error)
 	System SystemInfo
+	Office *officetools.Toolbox // agents' tools: describe/list/get/propose_change use the config registry
 }
 
 // SystemInfo tells the dashboard how this office is installed.
@@ -93,6 +95,13 @@ func New(cfg Config) http.Handler {
 		cfg.Logger = slog.Default()
 	}
 	s := &server{cfg: cfg, origins: map[string]bool{}, log: cfg.Logger}
+	// the config registry behind propose_change and the generic tools (ADR-045)
+	if cfg.Actions != nil {
+		cfg.Actions.SetConfig(s)
+	}
+	if cfg.Office != nil {
+		cfg.Office.SetConfig(s)
+	}
 	for _, o := range cfg.AllowedOrigins {
 		s.origins[strings.TrimRight(strings.ToLower(o), "/")] = true
 	}

@@ -1171,3 +1171,24 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Nhãn "X đang làm…" cho agent đang chạy nền, có nút dừng.
   - Tag trong tin của người dùng được tô màu.
 - **Lead mặc định có quyền Vận hành:** `team-lead`, `assistant`, `executor`, áp cho cả template và các agent chưa tự chỉnh quyền. Instructions của team-lead đổi thành: trong Chat thì tự làm, trong Việc thì chia việc.
+
+## ADR-045: Registry cấu hình và bốn công cụ chung (trợ lý office, phần 2)
+
+**Bối cảnh.** Agent (và sắp tới là trợ lý office, CLI) cần xem và đổi được mọi cài đặt, qua thẻ duyệt, không phải viết riêng từng công cụ.
+
+**Quyết định.**
+- **Registry** (`internal/api/config_registry.go`). Mỗi loại cài đặt khai báo: cách lấy (đã che bí mật), cách liệt kê, và **handler API của dashboard** cho tạo, sửa, xóa. Các loại hiện có: `automation`, `agent`, `monitor`, `process`, `policy`, `project`, `usage_settings`, `provider`.
+- **Công cụ:** `describe` (loại cài đặt và các trường), `list`, `get`, `propose_change(resource, op, id, patch, reason)`.
+- **Lúc đề xuất:**
+  - Kiểm tra: loại cài đặt có tồn tại, thao tác hợp lệ, trường sửa được, id có thật và thuộc đúng project.
+  - Lưu bản hiện tại (`before`).
+  - Tạo action `config_change`. Loại này luôn chờ người duyệt.
+- **Lúc duyệt:**
+  - Đọc lại bản hiện tại. Nếu khác `before` thì từ chối và báo: "đã có thay đổi mới, hãy đề xuất lại".
+  - Ghép patch lên bản hiện tại (với handler nhận cả object), lọc theo đúng các trường input của handler.
+  - **Gọi chính handler đó** với người duyệt trong context. Kiểm tra dữ liệu, ghi và nhật ký vì thế chạy y như khi sửa trên dashboard. Nhật ký ghi agent là người đề xuất, kèm người duyệt.
+- **Kết nối AI:**
+  - Patch có `api_key` thì bị từ chối.
+  - Thẻ tạo kết nối có ô dán key. Key đi từ trình duyệt vào lệnh duyệt (`POST /api/actions/:id/approve {api_key}`), AI không bao giờ thấy.
+- **Thẻ duyệt** hiện loại cài đặt, thao tác, và bảng trước/sau của từng trường.
+- **Để sau:** `org_model`; cho `actions.project_id` được rỗng (cần khi có trợ lý ngoài project).

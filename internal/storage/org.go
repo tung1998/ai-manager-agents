@@ -570,6 +570,19 @@ type ActionArgs struct {
 	Dir     string   `json:"dir,omitempty"`     // run_command: the worktree it runs in ("" = project folder)
 	// create_automation / update_automation: the proposed automation (trigger.Spec)
 	Automation json.RawMessage `json:"automation,omitempty"`
+	// config_change: a settings change through the config registry (ADR-045)
+	Change *ConfigChange `json:"change,omitempty"`
+}
+
+// ConfigChange is a proposed change of one setting: create, update or delete
+// a resource (automation, agent, …) with a JSON patch; Before is the setting
+// as it was when proposed (the approval refuses if it changed since).
+type ConfigChange struct {
+	Resource string          `json:"resource"`
+	Op       string          `json:"op"` // create | update | delete
+	ID       string          `json:"id,omitempty"`
+	Patch    json.RawMessage `json:"patch,omitempty"`
+	Before   json.RawMessage `json:"before,omitempty"`
 }
 
 // ActionRepo stores proposed actions.

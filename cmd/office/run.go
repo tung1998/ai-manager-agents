@@ -129,7 +129,8 @@ func serveCmd() *cobra.Command {
 			go monitors.Run(ctx)
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 			handler := api.New(api.Config{
-				Store: st, Auth: a.auth, AllowedOrigins: origins,
+				Office: office,
+				Store:  st, Auth: a.auth, AllowedOrigins: origins,
 				SecureCookies: secureCookies, TrustedProxies: proxies, Logger: log, Version: version,
 				Providers: a.providers, Org: a.org, Setup: setup.New(a.store, a.providers, a.org),
 				Transfer:   transfer.New(a.store, a.providers, a.org),

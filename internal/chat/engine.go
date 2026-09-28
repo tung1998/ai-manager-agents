@@ -267,17 +267,19 @@ type ActionDTO struct {
 	Files     []string `json:"files,omitempty"`
 	// create_automation / update_automation: the proposed automation
 	Automation json.RawMessage `json:"automation,omitempty"`
-	Status     string          `json:"status"`
-	Detail     string          `json:"detail"`
-	By         string          `json:"proposed_by"`
-	DecidedBy  string          `json:"decided_by"`
-	DecidedAt  *time.Time      `json:"decided_at"`
+	// config_change: the setting, the op, the patch and the setting before (ADR-045)
+	Change    *storage.ConfigChange `json:"change,omitempty"`
+	Status    string                `json:"status"`
+	Detail    string                `json:"detail"`
+	By        string                `json:"proposed_by"`
+	DecidedBy string                `json:"decided_by"`
+	DecidedAt *time.Time            `json:"decided_at"`
 }
 
 // ToActionDTO converts a stored action.
 func ToActionDTO(a storage.Action) ActionDTO {
 	return ActionDTO{ID: a.ID, MessageID: a.MessageID, TaskID: a.TaskID, Kind: a.Kind, Label: actions.Kinds[a.Kind], Target: a.Target, TargetID: a.TargetID,
-		Reason: a.Reason, Message: a.Args.Message, Files: a.Args.Files, Automation: a.Args.Automation, Status: a.Status, Detail: a.Detail, By: a.ProposedBy, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt}
+		Reason: a.Reason, Message: a.Args.Message, Files: a.Args.Files, Automation: a.Args.Automation, Change: a.Args.Change, Status: a.Status, Detail: a.Detail, By: a.ProposedBy, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt}
 }
 
 // SetAttachments sets where attached files are stored.
@@ -887,7 +889,7 @@ Quy tắc:
 - Trả lời bằng tiếng Việt, ngắn gọn, dùng Markdown.
 `)
 	if officeTools {
-		b.WriteString(`- Bạn có công cụ office: ops_overview (tiến trình build/dev/test, docker compose, giám sát, sự cố), process_logs, container_logs, monitor_detail để đọc; và git_status/git_diff/git_log để xem git; và propose_action để ĐỀ XUẤT chạy/chạy lại/dừng tiến trình hoặc container, commit/tạo nhánh/push (người dùng duyệt rồi office mới làm, trừ khi gói quyền cho tự làm; push luôn cần duyệt). Khi được hỏi về lỗi build, lỗi chạy, deploy hay giám sát, hãy lấy log và trạng thái thật trước khi kết luận, rồi đối chiếu với code. Sau khi đề xuất sửa code, đề xuất chạy lại build/test liên quan để kiểm chứng. Người dùng dán liên kết chat/tin nhắn/Việc của office thì đọc bằng read_link. Khi người dùng muốn việc chạy định kỳ hoặc theo webhook, dùng propose_automation, ưu tiên action=script (không tốn token AI) và chỉ gọi agent khi script lỗi hoặc in dòng @@agent.
+		b.WriteString(`- Bạn có công cụ office: ops_overview (tiến trình build/dev/test, docker compose, giám sát, sự cố), process_logs, container_logs, monitor_detail để đọc; và git_status/git_diff/git_log để xem git; và propose_action để ĐỀ XUẤT chạy/chạy lại/dừng tiến trình hoặc container, commit/tạo nhánh/push (người dùng duyệt rồi office mới làm, trừ khi gói quyền cho tự làm; push luôn cần duyệt). Khi được hỏi về lỗi build, lỗi chạy, deploy hay giám sát, hãy lấy log và trạng thái thật trước khi kết luận, rồi đối chiếu với code. Sau khi đề xuất sửa code, đề xuất chạy lại build/test liên quan để kiểm chứng. Người dùng dán liên kết chat/tin nhắn/Việc của office thì đọc bằng read_link. Muốn đổi cài đặt (tự động hóa, agent và quyền, giám sát, tiến trình, lệnh của project, ngân sách, kết nối AI) thì describe/list/get để xem rồi propose_change; người dùng duyệt trên thẻ. Khi người dùng muốn việc chạy định kỳ hoặc theo webhook, dùng propose_automation, ưu tiên action=script (không tốn token AI) và chỉ gọi agent khi script lỗi hoặc in dòng @@agent.
 `)
 	}
 	fmt.Fprintf(&b, "- Quyền của bạn trong lượt này: %s (%s).\n", perm.Label(level), perm.All[perm.Rank(level)].Description)

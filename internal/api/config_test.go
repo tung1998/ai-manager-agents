@@ -1,0 +1,94 @@
+package api_test
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"bitbucket.org/senprints/agent-office/internal/actions"
+	"bitbucket.org/senprints/agent-office/internal/perm"
+	"bitbucket.org/senprints/agent-office/internal/storage"
+)
+
+// ADR-045: an agent proposes a settings change with propose_change; a person
+// approves it on a card; it goes through the same handler as the dashboard.
+func TestConfigChangeProposeApprove(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "other"}, nil)
+	other := body["project"].(map[string]any)["id"].(string)
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Hook", "source": "webhook", "action": "task", "prompt": "x"}, nil)
+	aid := body["automation"].(map[string]any)["id"].(string)
+
+	acts := e.acts // wired to the API's registry by api.New
+	sc := actions.Scope{ProjectID: pid, Agent: "Lead", Level: perm.Read}
+	propose := func(resource, op, id string, patch map[string]any) (storage.Action, error) {
+		raw, _ := json.Marshal(patch)
+		return acts.Propose(ctx, sc, "config_change", "", "đổi tên", storage.ActionArgs{Change: &storage.ConfigChange{Resource: resource, Op: op, ID: id, Patch: raw}})
+	}
+
+	a, err := propose("automation", "update", aid, map[string]any{"name": "Hook mới"})
+	if err != nil || a.Status != "pending" || a.Args.Change.Before == nil {
+		t.Fatalf("propose = %+v %v", a, err)
+	}
+	if resp, b := do(t, admin, "POST", e.srv.URL+"/api/actions/"+a.ID+"/approve", map[string]any{}, nil); resp.StatusCode != 200 {
+		t.Fatalf("approve = %d %v", resp.StatusCode, b)
+	}
+	if got, _ := e.st.Automations().Get(ctx, aid); got.Name != "Hook mới" {
+		t.Fatalf("name = %q", got.Name)
+	}
+	rows, _ := e.st.Audit().List(ctx, storage.AuditFilter{Resource: "automation", ResourceID: aid})
+	if len(rows) == 0 || rows[0].Action != "automation.update" || rows[0].ActorName != "Lead" || rows[0].ApprovedBy != "admin@x.io" {
+		t.Fatalf("audit = %+v", rows[:1])
+	}
+
+	// stale: changed since the proposal
+	a, _ = propose("automation", "update", aid, map[string]any{"name": "A"})
+	do(t, admin, "PATCH", e.srv.URL+"/api/automations/"+aid, map[string]any{"name": "B", "source": "webhook", "action": "task", "prompt": "x", "enabled": true}, nil)
+	_, b := do(t, admin, "POST", e.srv.URL+"/api/actions/"+a.ID+"/approve", map[string]any{}, nil)
+	if got, _ := e.st.Automations().Get(ctx, aid); got.Name != "B" {
+		t.Fatalf("a stale change was applied: %q (%v)", got.Name, b)
+	}
+
+	for name, bad := range map[string]func() error{
+		"unknown field": func() error { _, err := propose("automation", "update", aid, map[string]any{"bogus": 1}); return err },
+		"unknown kind":  func() error { _, err := propose("nope", "update", aid, map[string]any{"name": "x"}); return err },
+		"other project": func() error {
+			sc.ProjectID = other
+			defer func() { sc.ProjectID = pid }()
+			_, err := propose("automation", "update", aid, map[string]any{"name": "x"})
+			return err
+		},
+		"key from the AI": func() error {
+			_, err := propose("provider", "create", "", map[string]any{"name": "p", "kind": "anthropic", "api_key": "sk-1"})
+			return err
+		},
+	} {
+		if bad() == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+
+	// a provider: the person pastes the key on the card, the AI never sees it
+	a, err = propose("provider", "create", "", map[string]any{"name": "Claude API", "kind": "anthropic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, admin, "POST", e.srv.URL+"/api/actions/"+a.ID+"/approve", map[string]any{"api_key": "sk-ant-card-key-0001"}, nil); resp.StatusCode != 200 {
+		t.Fatalf("approve provider = %d %v", resp.StatusCode, b)
+	}
+	ps, _ := e.st.Providers().List(ctx)
+	found := false
+	for _, p := range ps {
+		if p.Name == "Claude API" && len(p.APIKeyEnc) > 0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("provider with key not created: %+v", ps)
+	}
+}
