@@ -5,6 +5,7 @@ import org from './parts/org.en'
 import tools from './parts/tools.en'
 import pages from './parts/pages.en'
 import auto from './parts/auto.en'
+import audit from './parts/audit.en'
 
 const en: Record<MessageKey, string> = {
   ...tasks,
@@ -13,6 +14,7 @@ const en: Record<MessageKey, string> = {
   ...tools,
   ...pages,
   ...auto,
+  ...audit,
   'pref.dark': 'Dark theme',
   'pref.light': 'Light theme',
   'pref.lang': 'Language',

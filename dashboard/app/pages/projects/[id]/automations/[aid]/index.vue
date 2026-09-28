@@ -67,6 +67,10 @@ async function remove() {
       />
       <p class="text-sm font-medium">{{ t('auto.history') }}</p>
       <JobsTable :filter="{ origin_id: aid }" />
+      <template v-if="isAdmin">
+        <p class="text-sm font-medium">{{ t('audit.history') }}</p>
+        <AuditLog :filter="{ resource: 'automation', resource_id: aid }" compact />
+      </template>
     </div>
 
     <WebhookSecretModal :value="secret" @close="secret = null" />

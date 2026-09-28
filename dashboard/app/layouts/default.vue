@@ -36,7 +36,8 @@ function projectSections(id: string): NavigationMenuItem[] {
     ...(isAdmin.value
       ? [
           { label: t('project.sectionSkill'), icon: 'i-lucide-sparkles', to: to('skill'), exactQuery: 'partial' as const },
-          { label: t('project.sectionMcp'), icon: 'i-lucide-plug-zap', to: to('mcp'), exactQuery: 'partial' as const }
+          { label: t('project.sectionMcp'), icon: 'i-lucide-plug-zap', to: to('mcp'), exactQuery: 'partial' as const },
+          { label: t('nav.log'), icon: 'i-lucide-scroll-text', to: to('log'), exactQuery: 'partial' as const }
         ]
       : []),
     { label: t('project.sectionInfo'), icon: 'i-lucide-info', to: to('info'), exactQuery: 'partial' }

@@ -9,7 +9,7 @@
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "test:unit": "node --experimental-strip-types --no-warnings scripts/test-merge-draft.ts"
+    "test:unit": "node --experimental-strip-types --no-warnings scripts/test-merge-draft.ts && node --experimental-strip-types --no-warnings scripts/test-audit-diff.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.0",
