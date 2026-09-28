@@ -1114,3 +1114,33 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Chat ở góc có chip phạm vi.
 - Ngoài project là trợ lý office, cấu hình mọi project bằng các công cụ chung `describe`, `list`, `get`, `propose_change` (luôn qua thẻ xác nhận). Việc cần code thì chuyển sang Chat của project.
 - MCP cho Claude Code CLI.
+
+## ADR-043: Nhật ký thay đổi (ai đổi gì, từ đâu)
+
+**Bối cảnh.** Về sau agent, trợ lý office và CLI đều sửa được cấu hình. Người dùng cần tra được ai đổi gì: người hay agent nào đổi, ai duyệt, đổi trong chat, job hay việc nào, qua kênh nào, và giá trị trước/sau. Trước đây `audit_log` chỉ có `actor` (luôn là người bấm), `action`, `target`, `detail`.
+
+**Quyết định.**
+- **Bảng.** Migration 00024 thêm vào `audit_log` các cột:
+  - người làm: `actor_kind` (`human`, `agent`, `automation`, `system`), `actor_id`, `actor_name`, `approved_by`;
+  - kênh: `via` (`ui`, `chat`, `task`, `assistant`, `mcp`, `automation`, `api`);
+  - nguồn: `project_id`, `conversation_id`, `job_id`, `task_id`, `action_id`;
+  - đối tượng và giá trị: `resource`, `resource_id`, `before_json`, `after_json`, `ok`.
+  - Dòng cũ được suy ra từ `actor`/`action`. Nhật ký chỉ thêm, không sửa, không xóa.
+- **Một cổng ghi `internal/audit`.**
+  - `audit.With(ctx, Who)` gắn người thực hiện vào context. Không có thì đọc chuỗi `actor` cũ (`human:`, `user:`, `auto:`).
+  - `audit.Record` dựng dòng nhật ký. Ghi lỗi thì log, không nuốt.
+  - `Snapshot` che bí mật: tên như `api_key`, `token`, `secret`, `password`, `*_hash` ghi thành `***`. Cờ có/không (`has_api_key`) và chuỗi rỗng giữ nguyên.
+  - API (`auditAction`, `s.audit`) và gói auth đều ghi qua đây.
+- **Trước/sau.** Handler tạo, sửa, xóa ghi bản trước/sau (dạng DTO) cho: tự động hóa, giám sát, tiến trình, agent (kể cả khôi phục), project, quyền & lệnh, kết nối AI, mô hình tổ chức, ngân sách.
+- **Thay đổi do agent đề xuất.**
+  - Duyệt thẻ thì ghi agent là người làm, người bấm là `approved_by`, kèm chat, việc, job và id thẻ.
+  - `actions.job_id` lưu lượt chạy đã đề xuất. `Scope.JobID` do engine truyền vào.
+  - Thẻ được duyệt nhưng chạy lỗi ghi `ok=0`. Từ chối là quyết định của người.
+  - Patch: duyệt thì ghi agent của cuộc chat, kèm người duyệt. Patch agent tự áp dụng (theo quyền) thì ghi agent, không có người duyệt.
+- **Xem.**
+  - `GET /api/audit` có lọc (project, resource, resource_id, actor_kind, actor, via, conversation_id, job_id, task_id, since) và phân trang bằng `before` (id).
+  - `GET /api/audit/stats?by=day|kind|actor|resource|via|project`.
+  - Cả hai chỉ admin gọi được.
+  - Dashboard: trang Nhật ký (số liệu 7 ngày cùng bảng có lọc; mở một dòng ra xem diff trước/sau và liên kết tới chat, job, việc), tab Nhật ký trong project, "Lịch sử thay đổi" ở trang chi tiết tự động hóa.
+
+**Để sau.** Ghi thay đổi và nhật ký trong cùng một transaction sẽ làm ở registry cấu hình (spec trợ lý office, phần 2), vì khi đó mọi thay đổi đi qua một đường `Apply` duy nhất.

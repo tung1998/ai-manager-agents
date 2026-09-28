@@ -119,7 +119,8 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Job cho mọi lần chạy (Chat, Việc, tự động), trang Job; Tự động: lịch chạy (cron + múi giờ), webhook/API có token, chống trùng, debounce, giới hạn và tự tắt (ADR-040 giai đoạn 1) | Xong |
 | Tự động hóa chạy code (bash/node/python) không tốn AI, gọi agent khi lỗi hoặc khi script yêu cầu; agent đề xuất tự động hóa qua Chat, luôn chờ duyệt (ADR-041) | Xong |
 | Trang tạo/sửa tự động hóa chia đôi form và chat (AI điền form, Chạy thử); chat ở góc là Chat của project kèm ngữ cảnh trang (ADR-042 gđ1) | Xong |
-| Trợ lý office ngoài project (chip phạm vi, công cụ cấu hình chung) và MCP cho Claude Code CLI (ADR-042 gđ2) | Chưa làm |
+| Nhật ký thay đổi: ai làm (người/agent/tự động hóa), ai duyệt, từ chat/job/việc nào, kênh nào, trước/sau; trang Nhật ký, tab trong project, thống kê (ADR-043) | Xong |
+| Trợ lý office ngoài project (chip phạm vi, công cụ cấu hình chung) và MCP cho Claude Code CLI (ADR-042 gđ2; spec `docs/superpowers/specs/2026-09-28-office-assistant-design.md`, phần 2–4) | Chưa làm |
 | Tự động: Telegram và Discord hai chiều (ADR-040 giai đoạn 2–3) | Chưa làm |
 | Cảnh báo, `doctor` | Chưa làm |
 
