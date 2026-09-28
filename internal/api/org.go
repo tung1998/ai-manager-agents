@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"context"
@@ -30,6 +31,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/providers", auth(s.listProviders))
 	mux.Handle("GET /api/providers/stats", auth(s.providerStats))
 	mux.Handle("GET /api/providers/limits", auth(s.providerLimits))
+	mux.Handle("GET /api/assistant", auth(s.assistantInfo))
 	mux.Handle("POST /api/providers", admin(s.createProvider))
 	mux.Handle("PATCH /api/providers/{id}", admin(s.updateProvider))
 	mux.Handle("DELETE /api/providers/{id}", admin(s.deleteProvider))
@@ -770,7 +772,11 @@ func (s *server) listRepos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := make([]repoDTO, 0, len(list))
+	hidden := assistant.ID(r.Context(), s.cfg.Store) // the office assistant's own (ADR-046)
 	for _, x := range list {
+		if x.ID == hidden {
+			continue
+		}
 		d, err := s.repoDTO(r, x, false)
 		if err != nil {
 			s.internal(w, r, err)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/automation"
@@ -88,7 +89,12 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := make([]conversationDTO, 0, len(list))
+	private := r.PathValue("id") == assistant.ID(r.Context(), s.cfg.Store) // assistant chats are each person's own
+	me := "human:" + userFrom(r).Email
 	for _, c := range list {
+		if private && c.CreatedBy != me {
+			continue
+		}
 		out = append(out, s.toConvDTO(c))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"conversations": out})
@@ -335,4 +341,14 @@ func (s *server) patchWho(r *http.Request, p storage.Patch, approve bool) (*http
 // working in the background.
 func (s *server) stopConversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"stopped": s.cfg.Chat.StopAll(r.PathValue("id"))})
+}
+
+// assistantInfo: the office assistant's project, where its chats live (ADR-046).
+func (s *server) assistantInfo(w http.ResponseWriter, r *http.Request) {
+	id := assistant.ID(r.Context(), s.cfg.Store)
+	if id == "" {
+		writeError(w, http.StatusNotFound, "office chưa có trợ lý")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"project_id": id})
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
+	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/home"
@@ -107,6 +108,14 @@ func serveCmd() *cobra.Command {
 			// schedules and webhooks start chats and tasks as jobs (ADR-040)
 			runner := trigger.New(a.store, officeExecutor{chat: chatEngine, tasks: taskSvc})
 			go runner.Run(ctx)
+			// the office assistant: a hidden project whose chats span projects (ADR-046)
+			if _, err := assistant.Ensure(ctx, a.store, a.org, filepath.Join(h.Dir, "assistant")); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "office: không dựng được trợ lý office: %v\n", err)
+			}
+			assistantID := func(ctx context.Context) string { return assistant.ID(ctx, a.store) }
+			office.SetOffice(assistantID)
+			chatEngine.SetAssistant(assistantID)
+			acts.SetRunner(assistantRunner{store: a.store, tasks: taskSvc, trigger: runner})
 
 			// self-update: only under the supervisor and when the source is here
 			supervised := os.Getenv(selfupdate.EnvSupervised) == "1"

@@ -8,11 +8,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/chat"
+	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -235,4 +239,46 @@ func mustAgents(t *testing.T, f fixture) []storage.Agent {
 		t.Fatal(err)
 	}
 	return agents
+}
+
+// ADR-046: the assistant's chat runs in office scope (its tools span projects);
+// a project's chat does not.
+func TestAssistantChatGetsOfficeScope(t *testing.T) {
+	var names []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Tools []map[string]any `json:"tools"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		names = names[:0]
+		for _, x := range body.Tools {
+			names = append(names, x["name"].(string))
+		}
+		w.Write([]byte(`{"model":"m","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer srv.Close()
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		key := "sk-ant-test-key-0000"
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "C", Kind: storage.ProviderAnthropic, BaseURL: srv.URL, APIKey: &key})
+		return p
+	})
+	ctx := actor.With(context.Background(), "human:a@b.c")
+	box := officetools.New(f.st, nil, actions.New(f.st, nil))
+	f.engine.SetOffice(box, mcpserver.New(box, "test"), "http://127.0.0.1:1/mcp")
+	f.engine.SetAssistant(func(context.Context) string { return f.project.ID })
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	turn, _, err := f.engine.Send(ctx, conv.ID, "tuần này tốn bao nhiêu", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	if !slices.Contains(names, "projects") || !slices.Contains(names, "usage_summary") {
+		t.Fatalf("assistant tools = %v", names)
+	}
+	f.engine.SetAssistant(func(context.Context) string { return "" })
+	turn, _, _ = f.engine.Send(ctx, conv.ID, "lại", nil)
+	collect(t, turn)
+	if slices.Contains(names, "projects") {
+		t.Fatalf("a project's chat got office tools: %v", names)
+	}
 }

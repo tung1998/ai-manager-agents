@@ -142,6 +142,8 @@ export default {
   'action.op.update': 'Cập nhật',
   'action.op.delete': 'Xóa',
   'action.pasteKey': 'Dán API key (AI không thấy key này)',
+  'action.kind.start_task': 'Giao Việc',
+  'action.kind.run_automation': 'Chạy tự động hóa',
   'action.seeLog': 'Xem log',
   'action.failedToast': 'Không thực hiện được',
   'action.kind.run_process': 'Chạy tiến trình',

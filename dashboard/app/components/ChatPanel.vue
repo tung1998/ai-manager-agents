@@ -361,7 +361,11 @@ const threadPick = computed({
 onMounted(() => {
   if (props.taskId) openTask()
   else if (props.purpose === 'automation') openAutomation()
-  else if (ownsUrl.value && typeof route.query.c === 'string' && !tookPrefill) open({ id: route.query.c } as Conversation, typeof route.query.m === 'string' ? route.query.m : undefined)
+  else if (ownsUrl.value && typeof route.query.draft === 'string' && !tookPrefill) {
+    // handed over by the office assistant: a new chat with the message ready to send
+    draft.value = route.query.draft
+    router.replace({ query: { ...route.query, draft: undefined, c: undefined } })
+  } else if (ownsUrl.value && typeof route.query.c === 'string' && !tookPrefill) open({ id: route.query.c } as Conversation, typeof route.query.m === 'string' ? route.query.m : undefined)
   else if (conversations.value[0] && !tookPrefill) open(conversations.value[0])
 })
 onBeforeUnmount(() => {

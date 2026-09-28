@@ -59,7 +59,7 @@ func officeTools(req RunRequest) []officetools.Tool {
 	if req.Office == nil || req.Office.Tools == nil {
 		return nil
 	}
-	return req.Office.Tools.ToolsFor(req.Office.Scope.Level)
+	return req.Office.Tools.ToolsFor(req.Office.Scope)
 }
 
 // dispatchTool runs an office tool or a workspace tool.

@@ -1192,3 +1192,24 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Thẻ tạo kết nối có ô dán key. Key đi từ trình duyệt vào lệnh duyệt (`POST /api/actions/:id/approve {api_key}`), AI không bao giờ thấy.
 - **Thẻ duyệt** hiện loại cài đặt, thao tác, và bảng trước/sau của từng trường.
 - **Để sau:** `org_model`; cho `actions.project_id` được rỗng (cần khi có trợ lý ngoài project).
+
+## ADR-046: Trợ lý office (phần 3)
+
+**Bối cảnh.** Người dùng cần một trợ lý của cả office: biết việc thuộc project nào, làm thống kê và báo cáo, cài đặt, điều phối.
+
+**Quyết định.**
+- **Project hệ thống "Office".** Office tự dựng khi khởi động (`internal/assistant`, id lưu trong settings). Thư mục làm việc là `.office/assistant/`, để trống.
+  - Chỉ có một agent: "Trợ lý office", quyền Chỉ đọc, model Cân bằng, kèm instructions riêng.
+  - Project này ẩn khỏi danh sách project.
+  - Chat của trợ lý dùng lại nguyên bộ chat hiện có: phiên, job, chi phí, thẻ duyệt.
+  - Mỗi người chỉ thấy các cuộc chat trợ lý của chính mình.
+- **Phạm vi office** (`Scope.Office`). Chat của trợ lý chạy ở phạm vi này:
+  - Công cụ của project nhận thêm `project` (id hoặc tên).
+  - Công cụ riêng của trợ lý:
+    - `projects`, `jobs_query`, `usage_summary`: đọc số liệu.
+    - `handoff`: trả liên kết `/projects/:id?tab=chat&draft=…`. Chat của project mở một cuộc chat mới, có sẵn tin nhắn cho người dùng gửi. Trợ lý không sửa code.
+    - `start_task`, `run_automation`: tạo thẻ duyệt. Duyệt xong mới giao Việc (cho cả đội hoặc một agent) hay chạy tự động hóa.
+  - `propose_change` ở phạm vi office nhắm vào project được chỉ định.
+- **Giao diện:**
+  - Mục "Trợ lý office" trên sidebar, trang `/assistant`.
+  - Chat ở góc: ngoài project là trợ lý. Trong project có nút chọn "Project này" hoặc "Toàn office".

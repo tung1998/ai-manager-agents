@@ -35,7 +35,12 @@ type Toolbox struct {
 	delegate func(ctx context.Context, sc Scope, agent, task string) (string, error)
 	// config reads settings for describe/list/get (the API's registry, ADR-045)
 	config ConfigReader
+	// assistant is the office assistant's own project (hidden from the list)
+	assistant func(ctx context.Context) string
 }
+
+// SetOffice tells the tools which project is the office assistant's.
+func (t *Toolbox) SetOffice(fn func(ctx context.Context) string) { t.assistant = fn }
 
 // ConfigReader reads settings for the generic tools.
 type ConfigReader interface {
@@ -173,13 +178,19 @@ func (t *Toolbox) Tools() []Tool {
 
 // ToolsFor lists the tools an agent at level may use (proposals need
 // "propose"; below it run_command runs only its safe commands).
-func (t *Toolbox) ToolsFor(level string) []Tool {
+func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 	var out []Tool
 	for _, x := range t.Tools() {
-		if (x.Name == "propose_action" || x.Name == "propose_automation") && !perm.AtLeast(level, perm.Propose) {
+		if (x.Name == "propose_action" || x.Name == "propose_automation") && !perm.AtLeast(sc.Level, perm.Propose) {
 			continue
 		}
+		if sc.Office && x.Name == "delegate" {
+			continue // the assistant hands work to a project's chat instead
+		}
 		out = append(out, x)
+	}
+	if sc.Office { // the office assistant (ADR-046)
+		out = append(out, t.officeTools()...)
 	}
 	return out
 }
@@ -198,6 +209,12 @@ func (t *Toolbox) Has(name string) bool {
 func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawMessage) (string, bool) {
 	projectID := sc.ProjectID
 	var in struct {
+		Project  string          `json:"project"`
+		Goal     string          `json:"goal"`
+		Days     int             `json:"days"`
+		By       string          `json:"by"`
+		Status   string          `json:"status"`
+		Limit    int             `json:"limit"`
 		Name     string          `json:"name"`
 		Service  string          `json:"service"`
 		Lines    int             `json:"lines"`
@@ -220,6 +237,20 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "Tham số không hợp lệ: " + err.Error(), true
 		}
+	}
+	if sc.Office { // across projects: the one named, if any
+		if out, isErr, ok := t.officeCall(ctx, sc, name, raw); ok {
+			return out, isErr
+		}
+		if in.Project != "" {
+			p, err := t.findProject(ctx, in.Project)
+			if err != nil {
+				return err.Error(), true
+			}
+			projectID, sc.ProjectID = p.ID, p.ID
+		}
+	} else if in.Project != "" && in.Project != projectID {
+		return "Bạn chỉ làm việc trong project của mình", true
 	}
 	if in.Lines <= 0 {
 		in.Lines = 200

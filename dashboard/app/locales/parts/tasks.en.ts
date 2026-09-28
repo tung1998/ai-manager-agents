@@ -143,6 +143,8 @@ const en: Record<keyof typeof vi, string> = {
   'action.op.update': 'Update',
   'action.op.delete': 'Delete',
   'action.pasteKey': 'Paste the API key (the AI never sees it)',
+  'action.kind.start_task': 'Start a task',
+  'action.kind.run_automation': 'Run an automation',
   'action.seeLog': 'View log',
   'action.failedToast': 'Could not perform the action',
   'action.kind.run_process': 'Run process',

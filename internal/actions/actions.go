@@ -36,7 +36,18 @@ var Kinds = map[string]string{
 	"create_automation": "Tạo tự động hóa",
 	"update_automation": "Sửa tự động hóa",
 	"config_change":     "Đổi cài đặt",
+	"start_task":        "Giao Việc",
+	"run_automation":    "Chạy tự động hóa",
 }
+
+// Runner starts work the office assistant proposed (ADR-046).
+type Runner interface {
+	StartTask(ctx context.Context, projectID, agentID, goal string) (string, error)
+	RunAutomation(ctx context.Context, automationID string) (string, error)
+}
+
+// SetRunner turns on start_task and run_automation proposals.
+func (s *Service) SetRunner(r Runner) { s.runner = r }
 
 // ConfigApplier checks and applies settings changes (the config registry of
 // the API, ADR-045).
@@ -71,6 +82,7 @@ type Scope struct {
 	TaskID         string
 	RunRef         string
 	JobID          string // the chat answer/task run it comes from (ADR-043)
+	Office         bool   // the office assistant: tools across projects (ADR-046)
 	Agent          string
 	Level          string      // what the agent may do in this run (internal/perm)
 	Access         perm.Access // its capabilities and commands in this run
@@ -85,6 +97,7 @@ type Service struct {
 	store  storage.Store
 	ops    *ops.Manager
 	config ConfigApplier
+	runner Runner
 }
 
 // New builds a Service.
@@ -104,7 +117,14 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 	if len(args) > 0 {
 		a.Args = args[0]
 	}
-	if kind == "config_change" { // a person always decides
+	if kind == "start_task" || kind == "run_automation" { // costs tokens: a person always decides
+		if s.runner == nil {
+			return a, errors.New("không giao việc được ở đây")
+		}
+		if err := s.checkRun(ctx, &a); err != nil {
+			return a, err
+		}
+	} else if kind == "config_change" { // a person always decides
 		if s.config == nil || a.Args.Change == nil {
 			return a, errors.New("không đổi được cài đặt ở đây")
 		}
@@ -205,7 +225,7 @@ func (s *Service) auditAuto(ctx context.Context, sc Scope, a storage.Action, err
 // lists (processes, containers, commands). Push always needs a person.
 func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Access) bool {
 	switch a.Kind {
-	case "create_automation", "update_automation", "config_change":
+	case "create_automation", "update_automation", "config_change", "start_task", "run_automation":
 		return false // code that runs unattended, or settings: a person always decides
 	case "git_commit":
 		return acc.Can(perm.CapCommit)
@@ -362,6 +382,18 @@ func firstNonEmpty(a, b string) string {
 }
 
 func (s *Service) run(ctx context.Context, a storage.Action) error {
+	if a.Kind == "start_task" || a.Kind == "run_automation" {
+		if s.runner == nil {
+			return errors.New("không giao việc được ở đây")
+		}
+		var err error
+		if a.Kind == "start_task" {
+			_, err = s.runner.StartTask(ctx, a.ProjectID, a.TargetID, a.Args.Message)
+		} else {
+			_, err = s.runner.RunAutomation(ctx, a.TargetID)
+		}
+		return err
+	}
 	if a.Kind == "config_change" {
 		if s.config == nil {
 			return errors.New("không đổi được cài đặt ở đây")
@@ -405,4 +437,43 @@ func (s *Service) run(ctx context.Context, a storage.Action) error {
 		return s.ops.ComposeAction(ctx, a.ProjectID, "", "stop", a.Target)
 	}
 	return ErrKind
+}
+
+// checkRun checks a start_task (Target = the agent's name, "" = the team;
+// Args.Message = the goal) or run_automation (Target = its id) proposal.
+func (s *Service) checkRun(ctx context.Context, a *storage.Action) error {
+	if a.Kind == "run_automation" {
+		au, err := s.store.Automations().Get(ctx, a.Target)
+		if err != nil || au.ProjectID != a.ProjectID {
+			return errors.New("không có tự động hóa này trong project")
+		}
+		a.Target, a.TargetID = au.Name, au.ID
+		return nil
+	}
+	goal := strings.TrimSpace(a.Args.Message)
+	if goal == "" {
+		return errors.New("hãy ghi rõ việc cần làm")
+	}
+	agent := strings.TrimSpace(a.Target)
+	a.TargetID = ""
+	if agent != "" {
+		m, err := s.store.OrgModels().GetForRepo(ctx, a.ProjectID)
+		if err != nil {
+			return errors.New("project chưa có agent")
+		}
+		list, _ := s.store.Agents().List(ctx, m.ID)
+		for _, x := range list {
+			if strings.EqualFold(x.Name, agent) || strings.EqualFold(x.Key, agent) {
+				a.TargetID = x.ID
+			}
+		}
+		if a.TargetID == "" {
+			return fmt.Errorf("không có agent %q trong project", agent)
+		}
+	}
+	a.Target = goal
+	if r := []rune(goal); len(r) > 80 {
+		a.Target = string(r[:80]) + "…"
+	}
+	return nil
 }

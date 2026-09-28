@@ -138,6 +138,7 @@ type Engine struct {
 	mcp       *mcpserver.Server
 	mcpURL    string
 	trees     *worktree.Manager
+	assistant func(ctx context.Context) string
 
 	mu     sync.Mutex
 	active map[string]*Turn        // conversation id → running turn (the one the person waits for)
@@ -159,6 +160,14 @@ func (e *Engine) SetOffice(tools *officetools.Toolbox, mcp *mcpserver.Server, mc
 	if tools != nil {
 		tools.SetDelegate(e.Delegate)
 	}
+}
+
+// SetAssistant tells the engine which project is the office assistant's: its
+// chats run in office scope (ADR-046).
+func (e *Engine) SetAssistant(id func(ctx context.Context) string) { e.assistant = id }
+
+func (e *Engine) isAssistant(ctx context.Context, projectID string) bool {
+	return e.assistant != nil && projectID != "" && e.assistant(ctx) == projectID
 }
 
 // SetWorktrees lets agents work in their own git worktrees (ADR-037).
@@ -657,7 +666,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if conv.TaskID == "" && conv.Purpose == "" {
 		req.System += e.groupBrief(ctx, conv, agent)
 	}
-	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
+	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Office: e.isAssistant(ctx, project.ID), Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
 	defer revoke()
 	req.Office = office
 	// the agent's own session in this chat (ADR-044); coming back, it gets

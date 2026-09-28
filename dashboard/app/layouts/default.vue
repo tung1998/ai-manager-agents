@@ -54,6 +54,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
   // office-wide pages
   const office: NavigationMenuItem[] = [
     { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/' },
+    { label: t('assistant.title'), icon: 'i-lucide-sparkles', to: '/assistant' },
     { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' },
     { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' },
     { label: t('nav.blackboard'), icon: 'i-lucide-messages-square', to: '/blackboard', badge: 'M4' },

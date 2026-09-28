@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/storage"
 	"context"
 	"encoding/json"
 	"errors"
@@ -105,4 +106,30 @@ func (x officeExecutor) start(ctx context.Context, projectID, agentID, goal stri
 		return t.ID, errors.New(d.Task.Detail)
 	}
 	return t.ID, nil
+}
+
+// assistantRunner starts what the office assistant proposed and a person
+// approved (ADR-046).
+type assistantRunner struct {
+	store   storage.Store
+	tasks   *tasks.Service
+	trigger *trigger.Runner
+}
+
+func (r assistantRunner) StartTask(ctx context.Context, projectID, agentID, goal string) (string, error) {
+	t, err := r.tasks.StartFor(ctx, projectID, agentID, goal, 0, nil, perm.Operate, perm.EditWorktree)
+	if errors.Is(err, tasks.ErrBusy) {
+		j, qerr := r.tasks.Queue(ctx, projectID, agentID, goal, 0, nil, perm.Operate, perm.EditWorktree)
+		return j.ID, qerr
+	}
+	return t.ID, err
+}
+
+func (r assistantRunner) RunAutomation(ctx context.Context, automationID string) (string, error) {
+	a, err := r.store.Automations().Get(ctx, automationID)
+	if err != nil {
+		return "", err
+	}
+	j, _, err := r.trigger.Enqueue(ctx, a, "manual", "", "", "")
+	return j.ID, err
 }
