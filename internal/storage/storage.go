@@ -85,6 +85,8 @@ type Store interface {
 	Processes() ProcessRepo
 	Monitors() MonitorRepo
 	Actions() ActionRepo
+	Jobs() JobRepo
+	Automations() AutomationRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error

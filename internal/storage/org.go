@@ -203,6 +203,7 @@ type RevisionRepo interface {
 type Run struct {
 	ID           string
 	Kind         string
+	JobID        string // the job it ran for ("" = none)
 	ProjectID    string
 	AgentID      string
 	ProviderID   string

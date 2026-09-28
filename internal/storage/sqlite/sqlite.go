@@ -79,21 +79,23 @@ func (s *Store) Migrate(ctx context.Context) error {
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
-func (s *Store) Users() storage.UserRepo         { return userRepo{s.q} }
-func (s *Store) Sessions() storage.SessionRepo   { return sessionRepo{s.q} }
-func (s *Store) Audit() storage.AuditRepo        { return auditRepo{s.q} }
-func (s *Store) Providers() storage.ProviderRepo { return providerRepo{s.q} }
-func (s *Store) OrgModels() storage.OrgModelRepo { return orgModelRepo{s.q} }
-func (s *Store) Agents() storage.AgentRepo       { return agentRepo{s.q} }
-func (s *Store) Repos() storage.RepoRepo         { return repoRepo{s.q} }
-func (s *Store) Revisions() storage.RevisionRepo { return revisionRepo{s.q} }
-func (s *Store) Runs() storage.RunRepo           { return runRepo{s.q} }
-func (s *Store) Settings() storage.SettingRepo   { return settingRepo{s.q} }
-func (s *Store) Chat() storage.ChatRepo          { return chatRepo{s.q} }
-func (s *Store) Tasks() storage.TaskRepo         { return taskRepo{s.q} }
-func (s *Store) Processes() storage.ProcessRepo  { return processRepo{s.q} }
-func (s *Store) Monitors() storage.MonitorRepo   { return monitorRepo{s.q} }
-func (s *Store) Actions() storage.ActionRepo     { return actionRepo{s.q} }
+func (s *Store) Users() storage.UserRepo             { return userRepo{s.q} }
+func (s *Store) Sessions() storage.SessionRepo       { return sessionRepo{s.q} }
+func (s *Store) Audit() storage.AuditRepo            { return auditRepo{s.q} }
+func (s *Store) Providers() storage.ProviderRepo     { return providerRepo{s.q} }
+func (s *Store) OrgModels() storage.OrgModelRepo     { return orgModelRepo{s.q} }
+func (s *Store) Agents() storage.AgentRepo           { return agentRepo{s.q} }
+func (s *Store) Repos() storage.RepoRepo             { return repoRepo{s.q} }
+func (s *Store) Revisions() storage.RevisionRepo     { return revisionRepo{s.q} }
+func (s *Store) Runs() storage.RunRepo               { return runRepo{s.q} }
+func (s *Store) Settings() storage.SettingRepo       { return settingRepo{s.q} }
+func (s *Store) Chat() storage.ChatRepo              { return chatRepo{s.q} }
+func (s *Store) Tasks() storage.TaskRepo             { return taskRepo{s.q} }
+func (s *Store) Processes() storage.ProcessRepo      { return processRepo{s.q} }
+func (s *Store) Monitors() storage.MonitorRepo       { return monitorRepo{s.q} }
+func (s *Store) Actions() storage.ActionRepo         { return actionRepo{s.q} }
+func (s *Store) Jobs() storage.JobRepo               { return jobRepo{s.q} }
+func (s *Store) Automations() storage.AutomationRepo { return automationRepo{s.q} }
 
 // InTx runs fn inside one transaction. Nested calls reuse the outer one.
 func (s *Store) InTx(ctx context.Context, fn func(storage.Store) error) error {
