@@ -86,10 +86,10 @@ const userMenu = computed<DropdownMenuItem[][]>(() => [
   <UDashboardGroup v-else>
     <UDashboardSidebar collapsible resizable :default-size="18">
       <template #header="{ collapsed }">
-        <div class="flex items-center gap-2 px-1 font-semibold">
-          <UIcon name="i-lucide-building-2" class="size-5 text-primary" />
-          <span v-if="!collapsed">agent-office</span>
-          <PrefSwitcher v-if="!collapsed" class="ms-auto" />
+        <div class="flex w-full min-w-0 items-center gap-2 px-1 font-semibold">
+          <UIcon name="i-lucide-building-2" class="size-5 shrink-0 text-primary" />
+          <span v-if="!collapsed" class="min-w-0 truncate">Agent Office</span>
+          <PrefSwitcher v-if="!collapsed" class="ms-auto shrink-0" />
         </div>
       </template>
 

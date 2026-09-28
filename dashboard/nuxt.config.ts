@@ -9,7 +9,7 @@ export default defineNuxtConfig({
   devtools: { enabled: false },
   app: {
     head: {
-      title: 'agent-office',
+      title: 'Agent Office',
       htmlAttrs: { lang: 'vi' }
     }
   },

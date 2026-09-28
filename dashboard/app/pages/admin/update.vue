@@ -89,7 +89,7 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value)
           <UIcon name="i-lucide-package" class="mt-0.5 size-6 text-primary" />
           <div class="min-w-0 flex-1 space-y-1 text-sm">
             <p class="font-semibold">
-              agent-office {{ data.build.version }}
+              Agent Office {{ data.build.version }}
               <code v-if="data.build.revision" class="ms-1 text-xs text-(--ui-text-muted)">{{ data.build.revision.slice(0, 7) }}</code>
               <UBadge v-if="data.build.dirty" color="warning" variant="subtle" size="sm" :label="t('admin.updateDirty')" class="ms-1" />
             </p>

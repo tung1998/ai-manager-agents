@@ -31,7 +31,7 @@ async function onSubmit() {
         <div class="flex items-center gap-2">
           <UIcon name="i-lucide-building-2" class="size-6 text-primary" />
           <div>
-            <h1 class="text-lg font-semibold">agent-office</h1>
+            <h1 class="text-lg font-semibold">Agent Office</h1>
             <p class="text-sm text-(--ui-text-muted)">{{ t('login.subtitle') }}</p>
           </div>
           <PrefSwitcher class="ms-auto" />

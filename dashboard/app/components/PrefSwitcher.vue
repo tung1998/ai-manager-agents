@@ -16,7 +16,7 @@ const isDark = computed(() => colorMode.value === 'dark')
       @click="colorMode.preference = isDark ? 'light' : 'dark'"
     />
     <UButton
-      :label="lang === 'vi' ? 'EN' : 'VI'"
+      :label="lang === 'vi' ? 'VI' : 'EN'"
       :aria-label="t('pref.lang')"
       color="neutral"
       variant="ghost"
