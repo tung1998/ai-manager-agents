@@ -1144,3 +1144,30 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Dashboard: trang Nhật ký (số liệu 7 ngày cùng bảng có lọc; mở một dòng ra xem diff trước/sau và liên kết tới chat, job, việc), tab Nhật ký trong project, "Lịch sử thay đổi" ở trang chi tiết tự động hóa.
 
 **Để sau.** Ghi thay đổi và nhật ký trong cùng một transaction sẽ làm ở registry cấu hình (spec trợ lý office, phần 2), vì khi đó mọi thay đổi đi qua một đường `Apply` duy nhất.
+
+## ADR-044: Chat tag agent vào nhóm, agent giao việc chạy nền
+
+**Bối cảnh.** Người dùng muốn Chat vẫn là 1-1, nhưng tag `@Agent` thì kéo agent đó vào cuộc chat. Họ cũng muốn agent giao việc cho agent khác giống subagent của Claude Code: người dùng vẫn nói chuyện tiếp, việc giao xong thì người giao báo lại.
+
+**Quyết định.**
+- **Thành viên.** Bảng `conversation_agents` (migration 00028) lưu mỗi agent của một cuộc chat, kèm phiên Claude Code riêng, tin cuối cùng agent đó đã thấy, và context của nó.
+  - Đến lượt mình, agent nối tiếp đúng phiên của nó (`--resume`) và chỉ nhận các tin mới kể từ lần trả lời trước, có ghi tên người nói.
+  - Agent vào cuộc chat lần đầu thì nhận transcript.
+  - Đổi agent ở ô nhập chỉ đổi người trả lời mặc định, không mất phiên của ai.
+- **Tag.** `Mentions` nhận `@Tên` hoặc `@key`: không phân biệt hoa thường, ưu tiên tên dài nhất, bỏ qua tag nằm trong code và tag dính giữa một từ.
+  - Tin không tag ai: agent đang chọn ở ô nhập trả lời.
+  - Người dùng tag nhiều agent: các agent trả lời lần lượt. Tối đa 4 agent cho một tin. Sự kiện `done` mang `next_turn_id` để dashboard theo tiếp lượt sau.
+- **Agent giao việc cho agent.**
+  - Agent tag agent khác thì agent kia chạy **ở nền**. Người dùng không bị chặn, vẫn nhắn tiếp được.
+  - Agent ở nền làm xong thì agent đã giao việc tự báo lại, nếu lúc đó cuộc chat đang rảnh. Nếu đang bận, agent giao việc sẽ thấy kết quả ở lượt kế tiếp của nó.
+  - Mỗi tin của người dùng cho phép tối đa 2 lượt chuyển. Quá mức thì dừng và ghi một dòng ghi chú.
+  - Tag một agent đang làm ở nền thì bị báo bận (`ErrAgentBusy`).
+  - Mỗi agent vào cuộc chat sau có worktree riêng (`chat-<id>--<agent>`), để các agent chạy cùng lúc không đè lên nhau.
+  - Prompt dặn agent: chỉ tag khi thật sự cần.
+- **API.** `GET /api/conversations/:id` trả thêm `members` và `running` (lượt nào đang chạy, có phải chạy nền không).
+- **Dashboard.**
+  - Gõ `@` hiện danh sách agent để tag.
+  - Hiện hàng thành viên của cuộc chat.
+  - Nhãn "X đang làm…" cho agent đang chạy nền, có nút dừng.
+  - Tag trong tin của người dùng được tô màu.
+- **Lead mặc định có quyền Vận hành:** `team-lead`, `assistant`, `executor`, áp cho cả template và các agent chưa tự chỉnh quyền. Instructions của team-lead đổi thành: trong Chat thì tự làm, trong Việc thì chia việc.
