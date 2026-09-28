@@ -70,6 +70,7 @@ func toPatchDTO(p storage.Patch) PatchDTO {
 type Turn struct {
 	ID             string
 	ConversationID string
+	JobID          string // the job this answer runs as
 
 	mu     sync.Mutex
 	events []Event
@@ -417,6 +418,14 @@ func (e *Engine) Send(ctx context.Context, conversationID, text string, attachme
 		conv.Title = truncate(strings.Join(strings.Fields(title), " "), 80)
 		_ = e.store.Chat().UpdateConversation(ctx, conv)
 	}
+	job, err := e.beginJob(ctx, conv, agent.ID, truncate(strings.Join(strings.Fields(firstNonEmpty(text, conv.Title)), " "), 80))
+	if err != nil {
+		cancel()
+		e.finish(turn)
+		return nil, storage.Message{}, err
+	}
+	turn.JobID = job.ID
+	runCtx = usage.WithJob(runCtx, job.ID)
 	go e.run(runCtx, turn, conv, project, agent, history, prompt, files)
 	return turn, msg, nil
 }
@@ -455,6 +464,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	defer turn.cancel()
 	defer e.finish(turn)
 	fail := func(err error) {
+		e.endJob(turn.JobID, "", err, ctx.Err())
 		m, _ := e.store.Chat().AddMessage(context.Background(), storage.Message{ConversationID: conv.ID, Role: "error", Content: err.Error()})
 		dto := MessageDTO{ID: m.ID, Role: "error", Content: m.Content, CreatedAt: m.CreatedAt, Tools: []storage.ToolCall{}, Attachments: []storage.Attachment{}, Patches: []PatchDTO{}}
 		turn.emit(Event{Type: "error", Text: err.Error(), Message: &dto})
@@ -595,6 +605,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			}
 		}
 	}
+	e.endJob(turn.JobID, msg.ID, nil, nil)
 	turn.emit(Event{Type: "done", Message: &dto})
 }
 

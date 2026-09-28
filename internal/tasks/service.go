@@ -8,6 +8,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/perm"
+	"bitbucket.org/senprints/agent-office/internal/usage"
 	"bitbucket.org/senprints/agent-office/internal/worktree"
 	"context"
 	"errors"
@@ -224,6 +225,15 @@ func (s *Service) start(ctx context.Context, projectID, goal string, budgetUSD f
 	}
 	runCtx, cancel := context.WithTimeout(actor.With(context.Background(), actor.From(ctx)), 45*time.Minute)
 	runCtx = chat.WithTask(runCtx, task.ID, permMode, editMode) // proposals attach to the task; mode caps what agents do
+	job, err := s.beginJob(ctx, task)
+	if err != nil {
+		cancel()
+		s.mu.Lock()
+		delete(s.busy, projectID)
+		s.mu.Unlock()
+		return task, err
+	}
+	runCtx = usage.WithJob(runCtx, job.ID) // model calls count toward the job
 	live := &Live{wake: make(chan struct{}), cancel: cancel}
 	s.mu.Lock()
 	s.live[task.ID], s.busy[projectID] = live, task.ID
@@ -232,13 +242,14 @@ func (s *Service) start(ctx context.Context, projectID, goal string, budgetUSD f
 	if lesson != "" {
 		prompt += "\n\n" + lesson
 	}
-	r := &run{svc: s, ctx: runCtx, task: task, goal: prompt, files: files, project: project, model: model, agents: agents, live: live}
+	r := &run{svc: s, ctx: runCtx, jobID: job.ID, task: task, goal: prompt, files: files, project: project, model: model, agents: agents, live: live}
 	go r.execute()
 	return task, nil
 }
 
 // run is one task execution.
 type run struct {
+	jobID   string
 	svc     *Service
 	ctx     context.Context
 	task    storage.Task
@@ -319,6 +330,12 @@ func (r *run) execute() {
 	r.task.Status, r.task.Result, r.task.Detail, r.task.CostUSD, r.task.FinishedAt = status, result, detail, r.cost, &now
 	r.mu.Unlock()
 	_ = r.svc.store.Tasks().Update(context.Background(), r.task)
+	jst, code := jobStatus(status)
+	msg := ""
+	if jst == "failed" {
+		msg = detail
+	}
+	_, _ = r.svc.store.Jobs().Finish(context.Background(), r.jobID, jst, code, msg, now)
 	dto := toTaskDTO(r.task)
 	r.live.emit(Event{Type: "done", Task: &dto})
 }

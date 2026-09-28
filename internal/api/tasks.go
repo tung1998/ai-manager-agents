@@ -52,7 +52,14 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 	t, err := s.cfg.Tasks.Start(r.Context(), r.PathValue("id"), in.Goal, in.BudgetUSD, in.Attachments, s.allowedMode(r, in.Mode), s.allowedEditMode(r, in.EditMode))
 	switch {
 	case errors.Is(err, tasks.ErrBusy):
-		writeError(w, http.StatusConflict, err.Error())
+		// the project runs a task: this one waits its turn as a queued job
+		j, qerr := s.cfg.Tasks.Queue(r.Context(), r.PathValue("id"), in.Goal, in.BudgetUSD, in.Attachments, s.allowedMode(r, in.Mode), s.allowedEditMode(r, in.EditMode))
+		if qerr != nil {
+			s.writeDomainError(w, r, qerr)
+			return
+		}
+		s.auditAction(r, "task.queue", j.ID, map[string]any{"project": j.ProjectID})
+		writeJSON(w, http.StatusAccepted, map[string]any{"queued": true, "job_id": j.ID})
 		return
 	case errors.Is(err, tasks.ErrNoModel), errors.Is(err, automation.ErrUnknownSkill), errors.Is(err, attach.ErrNotFound), errors.Is(err, attach.ErrTooMany):
 		writeError(w, http.StatusBadRequest, err.Error())

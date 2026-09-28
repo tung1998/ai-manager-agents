@@ -397,3 +397,21 @@ func TestTeamWorksInWorktree(t *testing.T) {
 		t.Fatal("stray file reached the project")
 	}
 }
+
+func TestTaskIsAJobAndQueuesWhenBusy(t *testing.T) {
+	requireGit(t)
+	f := setup(t, &fakeModel{}, "team")
+	task, err := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := f.svc.Queue(context.Background(), f.project.ID, "việc thứ hai", 0, nil, "", "")
+	if err != nil || queued.Status != "pending" || queued.Kind != "task" {
+		t.Fatalf("queue = %+v %v", queued, err)
+	}
+	wait(t, f.svc, task.ID)
+	jobs, _ := f.st.Jobs().List(context.Background(), storage.JobFilter{ProjectID: f.project.ID, Kind: "task", Status: "done"})
+	if len(jobs) != 1 || jobs[0].TaskID != task.ID || jobs[0].CostUSD <= 0 {
+		t.Fatalf("task jobs = %+v", jobs)
+	}
+}
