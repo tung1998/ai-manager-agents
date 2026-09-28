@@ -49,9 +49,9 @@ const items = computed<NavigationMenuItem[][]>(() => {
         { label: t('nav.update'), icon: 'i-lucide-package', to: '/admin/update' }
       ]
     : []
-  // projects: a title with "+" to the project list, then the most used ones
+  // projects: a title, the most used ones, then a link to all of them
   const projects: NavigationMenuItem[] = [
-    { label: t('nav.projects'), type: 'label', slot: 'projects' as const },
+    { label: t('nav.projects'), type: 'label' },
     ...recentProjects.value.map(p => ({
       value: `project-${p.id}`, // open state follows the project, not its position
       label: p.name,
@@ -60,8 +60,9 @@ const items = computed<NavigationMenuItem[][]>(() => {
       defaultOpen: route.params.id === p.id,
       children: projectSections(p.id)
     })),
-    ...(projectList.value.length > 5 ? [{ label: t('nav.allProjects'), icon: 'i-lucide-ellipsis', to: '/projects', exact: true }] : []),
-    ...(projectList.value.length ? [] : [{ label: t('nav.addProject'), icon: 'i-lucide-plus', to: '/projects', exact: true }])
+    projectList.value.length
+      ? { label: t('nav.allProjects'), icon: 'i-lucide-list', to: '/projects', exact: true }
+      : { label: t('nav.addProject'), icon: 'i-lucide-plus', to: '/projects', exact: true }
   ]
   return [projects, office, admin]
 })
@@ -90,14 +91,7 @@ const userMenu = computed<DropdownMenuItem[][]>(() => [
 
       <template #default="{ collapsed }">
         <!-- remount when the open project or the list changes so its sections expand -->
-        <UNavigationMenu :key="`${route.params.id ?? ''}:${projectList.length}`" :collapsed="collapsed" :items="items" orientation="vertical">
-          <template #projects-trailing>
-            <UButton
-              to="/projects" icon="i-lucide-plus" size="xs" color="neutral" variant="ghost" class="-my-1"
-              :aria-label="t('nav.manageProjects')" :title="t('nav.manageProjects')"
-            />
-          </template>
-        </UNavigationMenu>
+        <UNavigationMenu :key="`${route.params.id ?? ''}:${projectList.length}`" :collapsed="collapsed" :items="items" orientation="vertical" />
       </template>
 
       <template #footer="{ collapsed }">
