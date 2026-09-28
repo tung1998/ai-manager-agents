@@ -156,9 +156,16 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		Mode        string   `json:"mode"`      // permission mode for this chat from now on
 		EditMode    string   `json:"edit_mode"` // where it changes code from now on
 		Context     string   `json:"context"`   // the page the person is on (ADR-042)
+		AgentID     string   `json:"agent_id"`  // who answers from now on
 	}
 	if !decode(w, r, &in) {
 		return
+	}
+	if in.AgentID != "" {
+		if err := s.cfg.Chat.SetAgent(r.Context(), r.PathValue("id"), in.AgentID); err != nil {
+			s.chatError(w, r, err)
+			return
+		}
 	}
 	if in.Mode != "" {
 		if err := s.cfg.Chat.SetMode(r.Context(), r.PathValue("id"), s.allowedMode(r, in.Mode)); err != nil {

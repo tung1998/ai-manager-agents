@@ -57,12 +57,18 @@ const goalFiles = ref<Attachment[]>([])
 const goalBox = ref<{ busy: boolean } | null>(null)
 const budget = ref(0) // 0 = no cap for this task (the office's daily cap still applies)
 const advanced = ref(false)
-const mode = ref<PermLevel>('propose')
+// no separate mode: each agent's own rights decide (members are capped server-side)
+const mode = 'operate'
 const editMode = ref<'worktree' | 'direct'>('worktree')
 // who does it: the team (the lead splits it) or one agent alone
 const TEAM = '__team'
 const assignee = ref(TEAM)
 const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
+// the diffs apply on their own when the one agent may (the team: a person approves)
+const autoApplies = computed(() => {
+  const a = agentsData.value?.agents.find(x => x.id === assignee.value)
+  return !!a && agentCaps(a.permissions).includes('code.apply')
+})
 const agentName = (id?: string) => agentsData.value?.agents.find(a => a.id === id)?.name ?? ''
 const assigneeItems = computed(() => [{ label: t('task.assignTeam'), value: TEAM }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
 const starting = ref(false)
@@ -144,7 +150,7 @@ function follow(id: string) {
 async function start() {
   starting.value = true
   try {
-    const d = await $fetch<Detail & { queued?: boolean }>(`/api/projects/${props.projectId}/tasks`, { method: 'POST', body: { goal: goal.value, budget_usd: Number(budget.value) || 0, attachments: goalFiles.value.map(a => a.id), mode: mode.value, edit_mode: editMode.value, agent_id: assignee.value === TEAM ? '' : assignee.value } })
+    const d = await $fetch<Detail & { queued?: boolean }>(`/api/projects/${props.projectId}/tasks`, { method: 'POST', body: { goal: goal.value, budget_usd: Number(budget.value) || 0, attachments: goalFiles.value.map(a => a.id), mode, edit_mode: editMode.value, agent_id: assignee.value === TEAM ? '' : assignee.value } })
     goal.value = ''
     goalFiles.value = []
     if (d.queued) {
@@ -402,7 +408,6 @@ onBeforeUnmount(() => source?.close())
           <div class="flex items-center gap-2 text-sm">
             <span class="text-(--ui-text-muted)">{{ t('task.modeLabel') }}</span>
             <EditModePicker v-model="editMode" />
-            <ModePicker v-model="mode" :project-id="projectId" />
           </div>
           <UButton
             size="xs" color="neutral" variant="ghost" :label="t('task.advanced')"
@@ -416,7 +421,7 @@ onBeforeUnmount(() => source?.close())
           <p class="text-xs text-(--ui-text-muted)">{{ t('task.budgetHint') }}</p>
         </div>
         <UButton icon="i-lucide-play" :label="t('task.start')" :loading="starting" :disabled="!goal.trim() || goalBox?.busy" @click="start" />
-        <p class="text-xs text-(--ui-text-muted)">{{ permRank(mode) >= 3 ? t('task.autoApplyHint') : t('task.manualApplyHint') }}</p>
+        <p class="text-xs text-(--ui-text-muted)">{{ autoApplies ? t('task.autoApplyHint') : t('task.manualApplyHint') }}</p>
       </div>
 
       <!-- task detail -->

@@ -259,3 +259,34 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 		t.Fatalf("limits = %v %+v", ok, lim)
 	}
 }
+
+// The person picks who answers in a chat (each agent has its own rights):
+// switching starts a fresh session for the new agent, which reads the thread.
+func TestSwitchConversationAgent(t *testing.T) {
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: "/bin/false"})
+		return p
+	})
+	ctx := context.Background()
+	agents, _ := f.engine.Agents(ctx, f.project.ID)
+	if len(agents) < 2 {
+		m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
+		if _, err := f.st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast"}); err != nil {
+			t.Fatal(err)
+		}
+		agents, _ = f.engine.Agents(ctx, f.project.ID)
+	}
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, agents[0].ID)
+	conv.SessionID, conv.Runtime = "sess-old", "claude_cli"
+	f.st.Chat().UpdateConversation(ctx, conv)
+	if err := f.engine.SetAgent(ctx, conv.ID, "agt_nope"); err == nil {
+		t.Fatal("an agent of another project was accepted")
+	}
+	if err := f.engine.SetAgent(ctx, conv.ID, agents[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := f.st.Chat().GetConversation(ctx, conv.ID)
+	if got.AgentID != agents[1].ID || got.AgentName != agents[1].Name || got.SessionID != "" {
+		t.Fatalf("conversation = %+v", got)
+	}
+}

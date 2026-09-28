@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -337,6 +338,34 @@ func (e *Engine) SetMode(ctx context.Context, conversationID, mode string) error
 		return nil
 	}
 	conv.Mode = mode
+	return e.store.Chat().UpdateConversation(ctx, conv)
+}
+
+// SetAgent makes another agent of the project answer this conversation from
+// now on (the person picks by the agent's rights). Its session starts fresh:
+// the new agent gets the thread as a transcript.
+func (e *Engine) SetAgent(ctx context.Context, conversationID, agentID string) error {
+	conv, err := e.store.Chat().GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if conv.AgentID == agentID {
+		return nil
+	}
+	if _, busy := e.Active(conv.ID); busy {
+		return ErrBusy
+	}
+	agents, err := e.Agents(ctx, conv.ProjectID)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(agents, func(a storage.Agent) bool { return a.ID == agentID })
+	if i < 0 {
+		return ErrNoAgent
+	}
+	conv.AgentID, conv.AgentName = agents[i].ID, agents[i].Name
+	conv.SessionID, conv.Runtime = "", ""
+	conv.ContextTokens, conv.ContextWindow = 0, 0
 	return e.store.Chat().UpdateConversation(ctx, conv)
 }
 

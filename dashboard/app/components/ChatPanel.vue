@@ -32,7 +32,8 @@ const { t, dateLocale } = useLang()
 
 const { data: agentsData } = await useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`)
 const { data: convData, refresh: refreshConvs } = await useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations`, { immediate: !single.value })
-const agents = computed(() => (agentsData.value?.agents ?? []).filter(a => a.tier !== 'worker'))
+// every agent of the project: the person picks who answers, by its rights
+const agents = computed(() => agentsData.value?.agents ?? [])
 const conversations = computed(() => convData.value?.conversations ?? [])
 
 const current = ref<Conversation | null>(null)
@@ -40,8 +41,15 @@ const messages = ref<Message[]>([])
 const draft = ref('')
 const draftFiles = ref<Attachment[]>([])
 const editMode = ref<'worktree' | 'direct'>('worktree')
-const mode = ref<PermLevel>('propose') // permission mode of the open conversation
-watch(() => current.value?.id, () => { mode.value = current.value?.mode ?? 'propose'; editMode.value = current.value?.edit_mode ?? 'worktree' })
+// who answers: each agent's own rights decide what it may do (no separate mode)
+const pick = ref('')
+watch([() => current.value?.id, agents], () => {
+  editMode.value = current.value?.edit_mode ?? 'worktree'
+  pick.value = current.value?.agent_id || pick.value || agents.value.find(a => a.tier === 'lead')?.id || agents.value[0]?.id || ''
+}, { immediate: true })
+const picked = computed(() => agents.value.find(a => a.id === pick.value))
+const agentItems = computed(() => agents.value.map(a => ({ label: `${a.name} · ${permOf(agentLevel(a.permissions)).label}`, value: a.id, icon: permOf(agentLevel(a.permissions)).icon })))
+const pickedLevel = computed(() => picked.value ? agentLevel(picked.value.permissions) : 'read')
 const prompt = ref<{ busy: boolean } | null>(null)
 
 // filled by other tabs (e.g. "Hỏi agent" in Vận hành)
@@ -163,10 +171,13 @@ async function openTask() {
 async function send() {
   const text = draft.value.trim()
   if ((!text && !draftFiles.value.length) || streaming.value || prompt.value?.busy) return
-  if (!current.value) await newConversation()
+  if (!current.value) await newConversation(pick.value)
   if (!current.value) return
+  const switching = !single.value && pick.value && pick.value !== current.value.agent_id ? pick.value : ''
   try {
-    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: mode.value, edit_mode: editMode.value, context: props.pageContext?.() ?? '' } })
+    // mode operate: the agent's own rights are the limit (members are capped server-side)
+    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: 'operate', edit_mode: editMode.value, agent_id: switching, context: props.pageContext?.() ?? '' } })
+    if (switching && picked.value && current.value) current.value = { ...current.value, agent_id: picked.value.id, agent_name: picked.value.name }
     draft.value = ''
     draftFiles.value = []
     const first = !messages.value.length
@@ -253,7 +264,6 @@ function onPatchUpdated(msg: Message, p: Patch) {
   if (i >= 0) msg.patches[i] = p
 }
 
-const agentMenu = computed(() => [agents.value.map(a => ({ label: a.name, description: a.role, onSelect: () => newConversation(a.id) }))])
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // ```automation {…}``` blocks of an answer: form changes (bad JSON is skipped)
@@ -298,10 +308,7 @@ onBeforeUnmount(stopStream)
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
       <div class="flex items-center gap-1 border-b border-(--ui-border) p-2">
-        <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" class="flex-1 justify-start" @click="newConversation()" />
-        <UDropdownMenu v-if="agents.length > 1" :items="agentMenu">
-          <UButton icon="i-lucide-chevron-down" size="sm" color="neutral" variant="ghost" :title="t('chat.pickAgent')" />
-        </UDropdownMenu>
+        <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" class="flex-1 justify-start" @click="newConversation(pick)" />
       </div>
       <div class="flex-1 overflow-y-auto p-1">
         <p v-if="!conversations.length" class="p-3 text-xs text-(--ui-text-muted)">{{ t('chat.none') }}</p>
@@ -408,13 +415,16 @@ onBeforeUnmount(stopStream)
       <form class="border-t border-(--ui-border) p-3" @submit.prevent="send">
         <PromptInput
           ref="prompt" v-model="draft" v-model:attachments="draftFiles" :project-id="projectId"
-          :placeholder="current ? t('chat.placeholderWithAgent', { agent: current.agent_name }) : t('chat.placeholderNoAgent')"
+          :placeholder="picked ? t('chat.placeholderWithAgent', { agent: picked.name }) : t('chat.placeholderNoAgent')"
           @submit="send"
         >
           <template #actions>
             <ContextMeter :tokens="current?.context_tokens" :window="current?.context_window" />
-            <EditModePicker v-model="editMode" />
-            <ModePicker v-model="mode" :project-id="projectId" />
+            <USelect
+              v-if="!single && agents.length" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="max-w-56"
+              :icon="permOf(pickedLevel).icon" :title="permOf(pickedLevel).description" :aria-label="t('chat.pickAgent')"
+            />
+            <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
             <UButton v-else size="sm" type="submit" icon="i-lucide-send" :disabled="!draft.trim() && !draftFiles.length" />
           </template>

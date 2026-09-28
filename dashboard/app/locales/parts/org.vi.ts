@@ -17,6 +17,8 @@ export default {
   'perm.cap.propose.description': 'Đưa diff và đề xuất thao tác, người duyệt mới làm',
   'perm.cap.codeApply.label': 'Tự gộp code',
   'perm.cap.codeApply.description': 'Thay đổi sạch được gộp ngay vào project, trừ file cấm',
+  'perm.cap.toolsMcp.label': 'Dùng MCP của bạn',
+  'perm.cap.toolsMcp.description': 'Các MCP/connector trong Claude Code của bạn (Graylog, Jira, Discord…)',
   'perm.cap.commandsRun.label': 'Tự chạy lệnh',
   'perm.cap.commandsRun.description': 'Chạy ngay các lệnh được chọn; lệnh khác phải đề xuất',
   'perm.cap.gitCommit.label': 'Tự commit',

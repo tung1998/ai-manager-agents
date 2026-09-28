@@ -78,6 +78,7 @@ export interface PermCap { id: string, group: PermGroup, readonly label: string,
 export const permCaps: PermCap[] = [
   { id: 'propose', group: 'code', get label() { return useLang().t('perm.cap.propose.label') }, get description() { return useLang().t('perm.cap.propose.description') }, min: 'propose', icon: 'i-lucide-message-square-diff' },
   { id: 'code.apply', group: 'code', get label() { return useLang().t('perm.cap.codeApply.label') }, get description() { return useLang().t('perm.cap.codeApply.description') }, min: 'edit', icon: 'i-lucide-pencil' },
+  { id: 'tools.mcp', group: 'commands', get label() { return useLang().t('perm.cap.toolsMcp.label') }, get description() { return useLang().t('perm.cap.toolsMcp.description') }, min: 'read', icon: 'i-lucide-plug-zap' },
   { id: 'commands.run', group: 'commands', get label() { return useLang().t('perm.cap.commandsRun.label') }, get description() { return useLang().t('perm.cap.commandsRun.description') }, min: 'check', icon: 'i-lucide-square-terminal' },
   { id: 'git.commit', group: 'git', get label() { return useLang().t('perm.cap.gitCommit.label') }, get description() { return useLang().t('perm.cap.gitCommit.description') }, min: 'edit', icon: 'i-lucide-git-commit-horizontal' },
   { id: 'git.branch', group: 'git', get label() { return useLang().t('perm.cap.gitBranch.label') }, get description() { return useLang().t('perm.cap.gitBranch.description') }, min: 'operate', icon: 'i-lucide-git-branch' },

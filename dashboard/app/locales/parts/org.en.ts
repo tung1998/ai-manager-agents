@@ -16,6 +16,8 @@ const en: Record<keyof typeof vi, string> = {
   'perm.cap.propose.description': 'Give diffs and action proposals, an approver applies them',
   'perm.cap.codeApply.label': 'Merge code',
   'perm.cap.codeApply.description': 'Clean changes are merged into the project right away, except forbidden files',
+  'perm.cap.toolsMcp.label': 'Use your MCP',
+  'perm.cap.toolsMcp.description': 'The MCP servers/connectors of your Claude Code (Graylog, Jira, Discord…)',
   'perm.cap.commandsRun.label': 'Run commands',
   'perm.cap.commandsRun.description': 'Run selected commands immediately; other commands must be proposed',
   'perm.cap.gitCommit.label': 'Auto commit',
