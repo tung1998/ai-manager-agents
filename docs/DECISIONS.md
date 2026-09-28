@@ -1226,3 +1226,17 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - **Hộp "Chờ duyệt"** (`GET /api/actions/pending`, chỉ admin) nằm trên trang Trợ lý. Đề xuất từ CLI không thuộc cuộc chat nào nên được duyệt ở đây.
 - Công cụ kiểm tra tên theo phạm vi (`Has(scope, name)`), để các công cụ riêng của phạm vi office gọi được qua MCP.
 - **Để sau:** chế độ "áp dụng ngay" cho token của admin. Hiện mọi đề xuất đều qua thẻ.
+
+## ADR-048: Kênh Telegram / Discord hai chiều
+
+**Quyết định.**
+- **Kênh** (bảng `channels` và `channel_threads`, migration 00034) thuộc một project. Mỗi kênh có: loại, tên, token (mã hóa bằng secrets box, chỉ ghi không đọc lại), agent trả lời (mặc định là trưởng nhóm), quyền tối đa (mặc định Chỉ đọc), danh sách chat/user id được phép, phạm vi trả lời, bật/tắt bộ lọc, câu từ chối. Mỗi cuộc chat bên ngoài ứng với một conversation.
+- **Telegram:** dùng long polling (`getUpdates`), không cần URL công khai. Chat riêng thì luôn trả lời. Trong nhóm chỉ trả lời khi bot được tag hoặc được reply.
+- **Discord:** kết nối Gateway qua một websocket client tối giản tự viết (`internal/channels/ws.go`), không thêm dependency. Dùng các intents guild messages, direct messages, message content. Trả lời tin nhắn riêng hoặc khi bot được tag. Gửi tin qua REST.
+- **Mỗi tin đến:**
+  1. Chat không nằm trong danh sách được phép thì im lặng.
+  2. Nếu bật lọc: `Engine.Invoke` với model *nhanh* hỏi YES/NO về phạm vi. Câu ngoài phạm vi nhận câu từ chối, và được ghi một job `skipped` mã `out_of_scope` để thống kê.
+  3. Câu trong phạm vi: tạo job (origin `user`, trigger `telegram`/`discord`, `origin_id` là id kênh), gửi vào conversation với mode = quyền tối đa của kênh. Trong lúc chờ gửi trạng thái "đang gõ", xong thì gửi câu trả lời (cắt 4000 ký tự với Telegram, 1900 với Discord).
+- **Chạy kênh:** `channels.Manager` chạy các kênh đang bật và khởi động lại kênh khi cấu hình đổi. Trạng thái lưu gồm tên bot, lỗi, tin gần nhất.
+- **Giao diện:** mục **Kênh chat** trong project (chỉ admin), có form tạo/sửa và hướng dẫn tạo bot.
+- **Ruling:** cột `origin` của jobs không có giá trị `channel`. Để không phải dựng lại bảng jobs, lượt từ kênh được ghi là `origin=user`, còn kênh nào thì phân biệt qua `trigger` và `origin_id`.

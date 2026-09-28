@@ -13,8 +13,8 @@ const templates = computed(() => tplData.value?.templates ?? [])
 
 // the tab lives in the URL so the sidebar can link to each section
 // (older links: tab=config&section=…, tab=tools)
-type Tab = 'chat' | 'tasks' | 'automations' | 'ops' | 'model' | 'perm' | 'skill' | 'mcp' | 'info' | 'log'
-const tabs: Tab[] = ['chat', 'tasks', 'automations', 'ops', 'model', 'perm', 'skill', 'mcp', 'info', 'log']
+type Tab = 'chat' | 'tasks' | 'automations' | 'ops' | 'model' | 'perm' | 'skill' | 'mcp' | 'info' | 'log' | 'channels'
+const tabs: Tab[] = ['chat', 'tasks', 'automations', 'ops', 'model', 'perm', 'skill', 'mcp', 'info', 'log', 'channels']
 // office's own source: approved changes take effect after "Cập nhật office"
 const { data: updData } = useFetch<{ source?: { root: string } }>('/api/system/update', { lazy: true, immediate: isAdmin.value })
 const isOfficeSource = computed(() => !!project.value?.path && updData.value?.source?.root === project.value.path)
@@ -135,6 +135,7 @@ async function saveAsTemplate() {
 
       <AutomationsPanel v-if="tab === 'automations'" :project-id="project.id" />
       <AuditLog v-else-if="tab === 'log' && isAdmin" :key="project.id" class="max-w-6xl" :filter="{ project: project.id }" show-filters />
+      <ChannelsPanel v-else-if="tab === 'channels' && isAdmin" :key="project.id" :project-id="project.id" />
       <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
       <template v-else-if="['info', 'model', 'perm', 'skill', 'mcp'].includes(tab)">
         <UCard v-if="tab === 'info'" class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">

@@ -71,9 +71,10 @@ type Config struct {
 	// Supervised reports whether `office run` supervises this server.
 	Supervised bool
 	// Backup writes a copy of the data to a new folder and returns its path.
-	Backup func(ctx context.Context) (string, error)
-	System SystemInfo
-	Office *officetools.Toolbox // agents' tools: describe/list/get/propose_change use the config registry
+	Backup   func(ctx context.Context) (string, error)
+	System   SystemInfo
+	Office   *officetools.Toolbox // agents' tools: describe/list/get/propose_change use the config registry
+	Channels ChannelReloader      // restarts a Telegram/Discord bot after its settings change (nil = off)
 }
 
 // SystemInfo tells the dashboard how this office is installed.

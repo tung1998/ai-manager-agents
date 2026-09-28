@@ -323,3 +323,6 @@ func orStr(a, b string) string {
 	}
 	return b
 }
+
+// Box is the secrets box (other settings keep their secrets with it too).
+func (s *Service) Box() *secrets.Box { return s.box }

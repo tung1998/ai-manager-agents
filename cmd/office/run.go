@@ -5,6 +5,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
+	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/home"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/monitor"
@@ -116,6 +117,18 @@ func serveCmd() *cobra.Command {
 			office.SetOffice(assistantID)
 			chatEngine.SetAssistant(assistantID)
 			acts.SetRunner(assistantRunner{store: a.store, tasks: taskSvc, trigger: runner})
+			// Telegram / Discord bots answered by the projects' agents (ADR-048)
+			bots := channels.NewManager(a.store, chatEngine, func(ch storage.Channel) (channels.Adapter, error) {
+				token, err := a.providers.Box().Open(ch.TokenEnc)
+				if err != nil {
+					return nil, fmt.Errorf("không mở được token: %w", err)
+				}
+				if ch.Kind == "discord" {
+					return &channels.Discord{Token: token}, nil
+				}
+				return &channels.Telegram{Token: token}, nil
+			})
+			bots.Start(ctx)
 
 			// self-update: only under the supervisor and when the source is here
 			supervised := os.Getenv(selfupdate.EnvSupervised) == "1"
@@ -138,8 +151,8 @@ func serveCmd() *cobra.Command {
 			go monitors.Run(ctx)
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 			handler := api.New(api.Config{
-				Office: office,
-				Store:  st, Auth: a.auth, AllowedOrigins: origins,
+				Office: office, Channels: bots,
+				Store: st, Auth: a.auth, AllowedOrigins: origins,
 				SecureCookies: secureCookies, TrustedProxies: proxies, Logger: log, Version: version,
 				Providers: a.providers, Org: a.org, Setup: setup.New(a.store, a.providers, a.org),
 				Transfer:   transfer.New(a.store, a.providers, a.org),
