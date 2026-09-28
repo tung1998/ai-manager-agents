@@ -45,6 +45,11 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/org-models/{id}/revisions", auth(s.listRevisions))
 	mux.Handle("GET /api/revisions/{id}", auth(s.getRevision))
 	mux.Handle("POST /api/revisions/{id}/restore", admin(s.restoreRevision))
+	mux.Handle("GET /api/agents/{id}", auth(s.getAgent))
+	mux.Handle("GET /api/agents/{id}/stats", auth(s.agentStats))
+	mux.Handle("GET /api/agents/{id}/activity", auth(s.agentActivity))
+	mux.Handle("GET /api/agents/{id}/history", auth(s.agentHistory))
+	mux.Handle("POST /api/agents/{id}/restore", admin(s.restoreAgent))
 	mux.Handle("PATCH /api/agents/{id}", admin(s.updateAgent))
 	mux.Handle("DELETE /api/agents/{id}", admin(s.deleteAgent))
 

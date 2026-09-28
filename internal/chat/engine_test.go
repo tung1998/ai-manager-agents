@@ -16,7 +16,6 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
-	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -220,23 +219,5 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"Xin chào"
 	if a := string(b); !strings.Contains(a, "--setting-sources user,project,local") || strings.Contains(a, "--strict-mcp-config") ||
 		!strings.Contains(a, "--tools Read,Glob,Grep,Skill") {
 		t.Fatalf("default args = %s", a)
-	}
-
-	// isolated project: no user setup, no MCP servers but the office's, no skills
-	pol := perm.DefaultPolicy()
-	pol.IsolateClaude = true
-	if err := perm.SavePolicy(ctx, f.st, f.project.ID, pol); err != nil {
-		t.Fatal(err)
-	}
-	os.Remove(argsLog)
-	turn, _, err = f.engine.Send(ctx, conv.ID, "lần nữa", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	collect(t, turn)
-	b, _ = os.ReadFile(argsLog)
-	if a := string(b); !strings.Contains(a, "--setting-sources project,local") || !strings.Contains(a, "--strict-mcp-config") ||
-		!strings.Contains(a, "--disable-slash-commands") || strings.Contains(a, "Skill") {
-		t.Fatalf("isolated args = %s", a)
 	}
 }

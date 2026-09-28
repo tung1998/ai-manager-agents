@@ -80,6 +80,8 @@ const form = reactive(empty())
 const saving = ref(false)
 
 function openAgent(a: Agent) {
+  // a project's agent has its own page; library templates keep the side panel
+  if (model.value?.repo_id) return navigateTo(`/projects/${model.value.repo_id}/agents/${a.id}`)
   editing.value = a
   const { id: _id, org_model_id: _org, sort: _sort, ...rest } = JSON.parse(JSON.stringify(a)) as Agent
   Object.assign(form, empty(), rest)

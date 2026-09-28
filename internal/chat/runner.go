@@ -41,8 +41,6 @@ type RunRequest struct {
 	Attachments []attach.File
 	// Office tools (build/run/monitoring info) for this run; nil = none.
 	Office *OfficeAccess
-	// Isolated runs Claude Code without the user's own setup (see perm.Policy).
-	Isolated bool
 	// Write lets the agent edit files in WorkDir (its worktree, or the
 	// project in direct mode), except DenyPaths.
 	Write     bool

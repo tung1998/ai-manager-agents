@@ -21,22 +21,17 @@ import (
 // (plus Edit/Write when the run may edit its folder).
 // By default it loads the same setup as the user's own CLI (user, project and
 // local settings, MCP servers, plugins, skills), so MCP tools the user allowed
-// there work here too; anything that would prompt is denied. Isolated runs
-// skip the user's setup and MCP servers. Sessions are resumed across turns.
+// there work here too; anything that would prompt is denied. Sessions are
+// resumed across turns.
 type claudeRunner struct{}
 
 var claudeReadTools = []string{"Read", "Glob", "Grep"}
 
 func (claudeRunner) args(req RunRequest, resume bool) []string {
-	tools := claudeReadTools
+	tools := append(slices.Clone(claudeReadTools), "Skill")
 	// dontAsk: whatever is not allowed is denied, whatever the user's defaultMode
-	a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "dontAsk"}
-	if req.Isolated {
-		a = append(a, "--setting-sources", "project,local", "--strict-mcp-config", "--disable-slash-commands")
-	} else {
-		a = append(a, "--setting-sources", "user,project,local")
-		tools = append(slices.Clone(tools), "Skill")
-	}
+	a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "dontAsk",
+		"--setting-sources", "user,project,local"}
 	deny := []string{"Read(./.env)", "Read(./.env.*)", "Read(**/.env)", "Read(**/*.pem)", "Read(**/*.key)"}
 	if req.Write {
 		// edits stay in the working folder (dontAsk refuses the rest), never

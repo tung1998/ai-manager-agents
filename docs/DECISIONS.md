@@ -776,7 +776,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Không còn `--strict-mcp-config`. MCP nội bộ office vẫn được thêm qua `--mcp-config`.
 - **Luôn `--permission-mode dontAsk`**, ở cả hai chế độ. Chỉ các tool được allow mới chạy, gồm tool mặc định của office và `permissions.allow` trong settings của người dùng/repo. Mọi tool khác bị từ chối chứ không hỏi. Nhờ vậy `defaultMode: auto` hay `bypassPermissions` của người dùng không làm agent tự gọi MCP ghi dữ liệu.
 - Tool dựng sẵn vẫn chỉ gồm `Read`, `Glob`, `Grep` (và `Skill`). Sửa code vẫn đi qua diff được duyệt, lệnh vẫn qua `run_command` (ADR-022, ADR-035).
-- Project bật **"Tách Claude Code khỏi cấu hình của bạn"** (Cấu hình → Quyền) thì quay về cách của ADR-022.
+- ~~Project bật "Tách Claude Code khỏi cấu hình của bạn" thì quay về cách của ADR-022.~~ Đã bỏ tùy chọn này. Người dùng không có trường hợp nào cần tách, nên agent luôn dùng cấu hình như CLI.
 - Chỉ áp dụng cho kết nối Claude Code. Codex và agent API không đổi.
 
 **Đánh đổi.** Một lượt nhỏ đắt hơn (đo với haiku: ~$0.09 so với ~$0.023 khi cô lập), vì phải nạp danh sách MCP và skill. Hook của người dùng cũng chạy.
@@ -854,3 +854,33 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Chỉ admin chọn được "Sửa thẳng". Chạy lại một Việc thì giữ cách sửa code cũ.
 - Trang Quyền của project không còn mục này.
 - Bỏ thanh tab Chat / Việc / Vận hành / Cấu hình trong trang project, vì sidebar đã có các mục đó. Bấm vào project thì mở Chat.
+
+## ADR-039: Trang chi tiết agent
+
+**Bối cảnh.** Agent chỉ được sửa trong một panel trượt của trình sửa mô hình, và không có chỗ nào xem agent đã làm gì, tốn bao nhiêu hay đã bị sửa những gì. Đã tham khảo trang agent của senprints-agents (chỉ lấy ý tưởng, không copy code). Những điểm cố ý không lặp lại:
+- form khoảng 50 trường trên một trang, một nút Lưu;
+- phiên bản chỉ là JSON thô, không so sánh được, không khôi phục được;
+- lượt chạy, thống kê và log nằm rải ở ba nơi;
+- chat thử đi theo đường code khác với khi chạy thật.
+
+**Quyết định.**
+- Trang `/projects/:id/agents/:agentId`. Bấm vào thẻ agent trong sơ đồ mô hình của project là mở trang này. Mô hình mẫu trong thư viện vẫn dùng panel cũ.
+- Đầu trang: project và mô hình, cấp bậc, model thực dùng, gói quyền, và nút **Chat với agent**. Nút này mở một cuộc Chat thật trong project, nên chạy thử và chạy thật dùng chung một đường code.
+- Tab **Tổng quan**, chọn khoảng 7, 30 hoặc 90 ngày (`GET /api/agents/:id/stats?days=`):
+  - 5 thẻ số: lượt chạy, tỉ lệ thành công, chi phí (kèm số lượt không rõ giá), thời gian p95 (kèm trung vị), số diff được gộp trên tổng số diff.
+  - Biểu đồ lượt/ngày tách thành công và lỗi, có hover và xem dạng bảng.
+  - Chi phí theo model.
+  - 5 loại lỗi hay gặp nhất, gom theo dòng đầu của thông báo lỗi.
+  - Số liệu lấy từ bảng `runs` (lọc theo `agent_id`) và các diff trong Chat/Việc của agent.
+- Tab **Cấu hình** chia 3 thẻ, mỗi thẻ có nút Lưu riêng: Vai trò & hướng dẫn, Model & kết nối AI, Quyền (dùng lại `AgentPermEditor`).
+- Tab **Hoạt động** (`/activity`) là một dòng thời gian gộp:
+  - các cuộc Chat với agent;
+  - các Việc agent tham gia, kèm số bước, các phase và chi phí.
+  - Bấm vào một mục là mở đúng cuộc Chat hoặc đúng Việc đó.
+- Tab **Lịch sử** (`/history`) dựng lịch sử riêng của agent từ các snapshot mô hình đã có (ADR-019):
+  - Mỗi snapshot là trạng thái ngay trước một lần sửa. Trạng thái ngay sau là snapshot mới hơn kế tiếp, hoặc agent hiện tại nếu là lần sửa mới nhất.
+  - So sánh 11 trường. Hướng dẫn và mô tả được so theo từng dòng. Nếu agent bị đổi key, lịch sử vẫn theo được.
+  - Nút **Quay về trước lần sửa này** (`POST /restore`) chỉ khôi phục agent đó, không khôi phục cả mô hình. Id và key của agent giữ nguyên. Thao tác lưu qua `SaveAgent`, nên tự tạo snapshot và có thể hoàn tác.
+- Code nằm trong `internal/agentinfo`, có test cho lịch sử, khôi phục (cả trường hợp đổi key) và thống kê.
+
+**Chưa làm:** kho kiến thức, lịch chạy/webhook, thông báo. Office chưa có các tính năng này.

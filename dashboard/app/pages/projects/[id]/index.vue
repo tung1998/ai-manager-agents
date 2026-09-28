@@ -25,7 +25,7 @@ const isOfficeSource = computed(() => !!project.value?.path && updData.value?.so
 
 // "Hỏi agent" from Vận hành: open Chat with the log attached
 // send=true ("Sửa lỗi") starts a new conversation and sends right away
-const chatPrefill = useState<{ text: string, files: Attachment[], send?: boolean } | null>('chat-prefill', () => null)
+const chatPrefill = useState<{ text: string, files: Attachment[], send?: boolean, agentId?: string, conversationId?: string } | null>('chat-prefill', () => null)
 function askAgent(text: string, files: Attachment[], send = false) {
   chatPrefill.value = { text, files, send }
   tab.value = 'chat'

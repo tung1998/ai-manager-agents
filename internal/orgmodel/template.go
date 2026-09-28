@@ -67,6 +67,9 @@ func (s AgentSpec) toAgent(orgID string, sort int) storage.Agent {
 	}
 }
 
+// AgentSpecOf is an agent as a template spec (as snapshots store it).
+func AgentSpecOf(a storage.Agent) AgentSpec { return specFromAgent(a) }
+
 func specFromAgent(a storage.Agent) AgentSpec {
 	return AgentSpec{
 		Key: a.Key, Name: a.Name, Tier: a.Tier, Role: a.Role, Description: a.Description, ReportsTo: a.ReportsTo,

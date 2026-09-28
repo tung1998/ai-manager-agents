@@ -122,6 +122,6 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	s.auditAction(r, "project.policy", projectID, map[string]any{"packs": len(in.Packs), "deny_paths": in.DenyPaths, "isolate_claude": in.IsolateClaude})
+	s.auditAction(r, "project.policy", projectID, map[string]any{"packs": len(in.Packs), "deny_paths": in.DenyPaths})
 	writeJSON(w, http.StatusOK, map[string]any{"policy": perm.LoadPolicy(r.Context(), s.cfg.Store, projectID)})
 }

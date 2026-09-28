@@ -2,7 +2,7 @@
 // What a project offers its agents and what none of them may do: the
 // commands it has (each agent picks from them in its own
 // permissions), files no agent may change.
-interface Policy { packs: CommandPack[], deny_paths: string[], isolate_claude: boolean, worktree_links: string[] }
+interface Policy { packs: CommandPack[], deny_paths: string[], worktree_links: string[] }
 
 const props = defineProps<{ projectId: string }>()
 const toast = useToast()
@@ -12,12 +12,11 @@ const { t } = useLang()
 const { data, refresh } = await useFetch<{ policy: Policy, packs: CommandPack[], safe: string[] }>(() => `/api/projects/${props.projectId}/policy`)
 const safe = computed(() => new Set(data.value?.safe ?? []))
 
-const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], isolate_claude: false, links: '' })
+const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '' })
 watch(data, (d) => {
   if (!d) return
   form.packs = JSON.parse(JSON.stringify(d.policy.packs))
   form.deny = [...d.policy.deny_paths]
-  form.isolate_claude = !!d.policy.isolate_claude
   form.links = (d.policy.worktree_links ?? []).join('\n')
 }, { immediate: true })
 
@@ -34,7 +33,7 @@ async function save() {
   try {
     await $fetch(`/api/projects/${props.projectId}/policy`, {
       method: 'PUT',
-      body: { packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, isolate_claude: form.isolate_claude, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean) }
+      body: { packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean) }
     })
     toast.add({ title: t('policy.saved'), color: 'success' })
     await refresh()
@@ -74,6 +73,10 @@ function removePack(p: CommandPack) {
 
 <template>
   <div class="max-w-4xl space-y-3">
+    <!-- save stays in reach while scrolling -->
+    <div v-if="isAdmin" class="sticky top-0 z-10 -mb-1 flex justify-end bg-(--ui-bg)/80 py-1 backdrop-blur">
+      <UButton icon="i-lucide-save" size="sm" :label="t('policy.save')" :loading="saving" @click="save" />
+    </div>
     <!-- the commands agents can be given -->
     <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
       <div class="flex items-center gap-2">
@@ -139,15 +142,10 @@ function removePack(p: CommandPack) {
         <UIcon :name="advanced ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4" />{{ t('policy.advanced') }}
       </button>
       <UCard v-if="advanced" class="mt-2" :ui="{ body: 'space-y-4 sm:p-4' }">
-        <UFormField :label="t('policy.worktreeLinks')" :hint="t('policy.worktreeLinksDesc')">
+        <UFormField :label="t('policy.worktreeLinks')" :description="t('policy.worktreeLinksDesc')">
           <UTextarea v-model="form.links" :rows="2" :disabled="!isAdmin" class="w-full font-mono" placeholder="apps/web/.cache" />
         </UFormField>
-        <UTooltip :text="t('policy.isolateClaudeDesc')">
-          <USwitch v-model="form.isolate_claude" :disabled="!isAdmin" :label="t('policy.isolateClaude')" />
-        </UTooltip>
       </UCard>
     </div>
-
-    <UButton v-if="isAdmin" icon="i-lucide-save" :label="t('policy.save')" :loading="saving" @click="save" />
   </div>
 </template>

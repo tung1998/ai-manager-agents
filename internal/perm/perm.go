@@ -100,9 +100,6 @@ type Policy struct {
 	MaxLevel  string   `json:"max_level"`  // no longer a cap: always Operate (the chat/task mode is the limit)
 	Packs     []Pack   `json:"packs"`      // the project's own command packs
 	DenyPaths []string `json:"deny_paths"` // files no agent may change, at any level
-	// IsolateClaude runs Claude Code without the user's own setup (user settings,
-	// MCP servers, plugins, skills); off = the same setup as the user's CLI.
-	IsolateClaude bool `json:"isolate_claude"`
 	// WorktreeLinks are more ignored folders to link into worktrees, besides
 	// node_modules/.venv (relative to the project).
 	WorktreeLinks []string `json:"worktree_links"`

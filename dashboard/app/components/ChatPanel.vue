@@ -40,11 +40,19 @@ watch(() => current.value?.id, () => { mode.value = current.value?.mode ?? 'prop
 const prompt = ref<{ busy: boolean } | null>(null)
 
 // filled by other tabs (e.g. "Hỏi agent" in Vận hành)
-const prefill = useState<{ text: string, files: Attachment[], send?: boolean } | null>('chat-prefill', () => null)
+// agentId opens a new chat with that agent, conversationId opens that chat (the agent page)
+const prefill = useState<{ text: string, files: Attachment[], send?: boolean, agentId?: string, conversationId?: string } | null>('chat-prefill', () => null)
 async function takePrefill() {
   if (!prefill.value) return
   const p = prefill.value
   prefill.value = null
+  if (p.conversationId) return open({ id: p.conversationId } as Conversation)
+  if (p.agentId && !p.send) {
+    stopStream()
+    current.value = null
+    messages.value = []
+    return newConversation(p.agentId)
+  }
   draft.value = p.text
   draftFiles.value = p.files
   if (p.send) {
