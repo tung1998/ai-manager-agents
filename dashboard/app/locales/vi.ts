@@ -16,6 +16,8 @@ const vi = {
   'nav.overview': 'Tổng quan',
   'nav.projects': 'Project',
   'nav.allProjects': 'Xem tất cả project',
+  'nav.addProject': 'Thêm project',
+  'nav.manageProjects': 'Quản lý project',
   'nav.providers': 'Kết nối AI',
   'nav.blackboard': 'Blackboard',
   'nav.incidents': 'Incidents',

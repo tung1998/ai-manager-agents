@@ -30,28 +30,9 @@ function projectSections(id: string): NavigationMenuItem[] {
 }
 
 const items = computed<NavigationMenuItem[][]>(() => {
-  const main: NavigationMenuItem[] = [
+  // office-wide pages
+  const office: NavigationMenuItem[] = [
     { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/' },
-    {
-      // an item with both a link and children navigates on click; only the chevron toggles
-      label: t('nav.projects'),
-      icon: 'i-lucide-folder-git-2',
-      to: '/projects',
-      exact: true,
-      defaultOpen: true,
-      children: [
-        ...recentProjects.value.map(p => ({
-          value: `project-${p.id}`, // open state follows the project, not its position
-          label: p.name,
-          icon: p.scope === 'machine' ? 'i-lucide-monitor' : 'i-lucide-folder',
-          to: { path: `/projects/${p.id}`, query: { tab: 'chat' } },
-          defaultOpen: route.params.id === p.id,
-          children: projectSections(p.id)
-        })),
-        // "…" only when some projects are hidden
-        ...(projectList.value.length > 5 ? [{ icon: 'i-lucide-ellipsis', to: '/projects', exact: true, 'aria-label': t('nav.allProjects') }] : [])
-      ]
-    },
     { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' },
     { label: t('nav.blackboard'), icon: 'i-lucide-messages-square', to: '/blackboard', badge: 'M4' },
     { label: t('nav.incidents'), icon: 'i-lucide-siren', to: '/incidents', badge: 'M4' },
@@ -68,7 +49,21 @@ const items = computed<NavigationMenuItem[][]>(() => {
         { label: t('nav.update'), icon: 'i-lucide-package', to: '/admin/update' }
       ]
     : []
-  return [main, admin]
+  // projects: a title with "+" to the project list, then the most used ones
+  const projects: NavigationMenuItem[] = [
+    { label: t('nav.projects'), type: 'label', slot: 'projects' as const },
+    ...recentProjects.value.map(p => ({
+      value: `project-${p.id}`, // open state follows the project, not its position
+      label: p.name,
+      icon: p.scope === 'machine' ? 'i-lucide-monitor' : 'i-lucide-folder',
+      to: { path: `/projects/${p.id}`, query: { tab: 'chat' } },
+      defaultOpen: route.params.id === p.id,
+      children: projectSections(p.id)
+    })),
+    ...(projectList.value.length > 5 ? [{ label: t('nav.allProjects'), icon: 'i-lucide-ellipsis', to: '/projects', exact: true }] : []),
+    ...(projectList.value.length ? [] : [{ label: t('nav.addProject'), icon: 'i-lucide-plus', to: '/projects', exact: true }])
+  ]
+  return [projects, office, admin]
 })
 
 const userMenu = computed<DropdownMenuItem[][]>(() => [
@@ -95,7 +90,14 @@ const userMenu = computed<DropdownMenuItem[][]>(() => [
 
       <template #default="{ collapsed }">
         <!-- remount when the open project or the list changes so its sections expand -->
-        <UNavigationMenu :key="`${route.params.id ?? ''}:${projectList.length}`" :collapsed="collapsed" :items="items" orientation="vertical" />
+        <UNavigationMenu :key="`${route.params.id ?? ''}:${projectList.length}`" :collapsed="collapsed" :items="items" orientation="vertical">
+          <template #projects-trailing>
+            <UButton
+              to="/projects" icon="i-lucide-plus" size="xs" color="neutral" variant="ghost" class="-my-1"
+              :aria-label="t('nav.manageProjects')" :title="t('nav.manageProjects')"
+            />
+          </template>
+        </UNavigationMenu>
       </template>
 
       <template #footer="{ collapsed }">
