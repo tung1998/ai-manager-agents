@@ -217,11 +217,12 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
       :placeholder="placeholder" @keydown="onKey" @paste="onPaste"
     />
 
-    <div class="flex items-center gap-2 px-2 pb-2">
+    <div class="@container flex items-center gap-2 px-2 pb-2">
       <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-paperclip" :aria-label="t('prompt.attach')" @click="input?.click()" />
       <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-slash" :aria-label="t('prompt.pickSkill')" :disabled="!skills.length" @click="text = '/'; box?.textareaRef?.focus()" />
       <UBadge v-if="activeSkill" color="primary" variant="subtle" size="sm" icon="i-lucide-sparkles" :label="activeSkill.name" />
-      <span class="hidden text-xs text-(--ui-text-dimmed) sm:inline">{{ t('prompt.dragHint') }}</span>
+      <!-- only when the box itself is wide: narrow panels (the corner chat) keep one tidy row -->
+      <span class="hidden min-w-0 truncate text-xs text-(--ui-text-dimmed) @2xl:inline" :title="t('prompt.dragHint')">{{ t('prompt.dragHint') }}</span>
       <div class="ms-auto flex items-center gap-2">
         <slot name="actions" />
       </div>
