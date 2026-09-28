@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -35,6 +36,7 @@ func git(ctx context.Context, root string, args ...string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0") // never wait for a password prompt (fetch/push)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -149,4 +151,11 @@ func Push(ctx context.Context, root string) (string, error) {
 	}
 	out, err := git(ctx, root, args...)
 	return strings.TrimSpace(out), err
+}
+
+// Fetch updates the remote-tracking branches (read-only for the working
+// tree), so ahead/behind in ReadStatus is current.
+func Fetch(ctx context.Context, root string) error {
+	_, err := git(ctx, root, "fetch", "--quiet", "--prune")
+	return err
 }

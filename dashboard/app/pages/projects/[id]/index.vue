@@ -97,6 +97,9 @@ async function saveAsTemplate() {
 
 <template>
   <PageShell :title="project?.name ?? t('project.defaultTitle')">
+    <template v-if="project?.path" #subtitle>
+      <GitBar :project-id="project.id" />
+    </template>
     <template #actions>
       <template v-if="project && isAdmin">
         <UButton v-if="!project.model" :to="`/projects/${id}/setup`" size="sm" icon="i-lucide-sparkles" :label="t('project.setupAi')" />
@@ -118,7 +121,8 @@ async function saveAsTemplate() {
       </template>
     </template>
 
-    <div v-if="project" class="space-y-4">
+    <!-- Chat fills the page height (the panel body is a bounded flex column) -->
+    <div v-if="project" :class="tab === 'chat' && project.model ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4'">
       <UAlert v-if="!project.exists" color="error" variant="subtle" icon="i-lucide-folder-x" :title="t('project.notFound')" />
 
       <UAlert

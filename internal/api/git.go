@@ -16,6 +16,7 @@ import (
 
 func (s *server) gitRoutes(mux *http.ServeMux, auth, admin func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /api/projects/{id}/git", auth(s.gitStatus))
+	mux.Handle("POST /api/projects/{id}/git/fetch", auth(s.gitFetch))
 	mux.Handle("POST /api/projects/{id}/git/commit", admin(s.gitCommit))
 	mux.Handle("POST /api/projects/{id}/git/push", admin(s.gitPush))
 	mux.Handle("POST /api/tasks/{id}/commit-draft", admin(s.commitDraft))
@@ -39,7 +40,30 @@ func (s *server) gitStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"repo": false})
 		return
 	}
-	st, err := gitops.ReadStatus(r.Context(), p.Path)
+	s.writeGitStatus(w, r, p.Path)
+}
+
+// gitFetch refreshes the remote-tracking branches first (read-only for the
+// working tree), so ahead/behind is current.
+func (s *server) gitFetch(w http.ResponseWriter, r *http.Request) {
+	p, ok, err := s.projectRoot(r, r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"repo": false})
+		return
+	}
+	if err := gitops.Fetch(r.Context(), p.Path); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.writeGitStatus(w, r, p.Path)
+}
+
+func (s *server) writeGitStatus(w http.ResponseWriter, r *http.Request, root string) {
+	st, err := gitops.ReadStatus(r.Context(), root)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"repo": false, "error": err.Error()})
 		return

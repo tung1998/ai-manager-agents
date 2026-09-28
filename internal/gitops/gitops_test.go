@@ -56,3 +56,41 @@ func TestCommitAndStatus(t *testing.T) {
 		t.Fatalf("not a repo: %v", err)
 	}
 }
+
+// Fetch updates what the project knows of its remote, so behind is right.
+func TestFetchShowsBehind(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git missing")
+	}
+	base := t.TempDir()
+	run := func(dir string, args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=T", "GIT_AUTHOR_EMAIL=t@x.io", "GIT_COMMITTER_NAME=T", "GIT_COMMITTER_EMAIL=t@x.io")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatal(string(out))
+		}
+	}
+	remote, a, b := filepath.Join(base, "r.git"), filepath.Join(base, "a"), filepath.Join(base, "b")
+	run(base, "init", "-q", "--bare", "-b", "main", remote)
+	run(base, "clone", "-q", remote, a)
+	os.WriteFile(filepath.Join(a, "x"), []byte("1"), 0o644)
+	run(a, "add", ".")
+	run(a, "commit", "-qm", "one")
+	run(a, "push", "-q", "-u", "origin", "main")
+	run(base, "clone", "-q", remote, b)
+	os.WriteFile(filepath.Join(b, "x"), []byte("2"), 0o644)
+	run(b, "commit", "-qam", "two")
+	run(b, "push", "-q")
+	ctx := context.Background()
+	if st, _ := ReadStatus(ctx, a); st.Behind != 0 {
+		t.Fatalf("before fetch behind = %d", st.Behind)
+	}
+	if err := Fetch(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := ReadStatus(ctx, a); st.Behind != 1 || st.Upstream != "origin/main" {
+		t.Fatalf("after fetch = %+v", st)
+	}
+}

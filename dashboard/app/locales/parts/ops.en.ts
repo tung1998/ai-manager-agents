@@ -1,6 +1,20 @@
 import type vi from './ops.vi'
 
 const en: Record<keyof typeof vi, string> = {
+  'git.commit': 'Commit…',
+  'git.commitTitle': 'Commit to {branch}',
+  'git.messagePlaceholder': 'Commit message',
+  'git.files': 'Files ({picked}/{total})',
+  'git.committed': 'Committed',
+  'git.push': 'Push ({n} commits)',
+  'git.pushNew': 'Push and create the branch on the remote',
+  'git.pushed': 'Pushed',
+  'git.fetch': 'Fetch from remote',
+  'git.noUpstream': 'not on the remote yet',
+  'git.synced': 'in sync',
+  'git.aheadTitle': '{n} commits not pushed',
+  'git.behindTitle': 'The remote has {n} new commits',
+  'git.changes': '{n} changes',
   'ops.noFolder.title': 'Project has no folder',
   'ops.noFolder.desc': 'The machine-wide helper has no command to run. Pick a project with a folder.',
   'ops.nav.processes': 'Processes',
