@@ -384,6 +384,7 @@ case "$*" in *"Bạn là Dev"*) who=dev;; esac
 reply=ok
 [ -f `+dir+`/reply-$who ] && reply=$(cat `+dir+`/reply-$who)
 echo '{"type":"system","subtype":"init","session_id":"sess-'$who'"}'
+echo '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}'
 echo '{"type":"result","subtype":"success","is_error":false,"result":"'$who': '"$reply"'","session_id":"sess-'$who'","usage":{"input_tokens":1,"output_tokens":1}}'
 `), 0o755)
 	return bin, dir
@@ -619,5 +620,28 @@ func TestBusyWhileTheNextAnswers(t *testing.T) {
 	collect(t, turn) // the lead is done, Dev is answering
 	if _, _, err := g.engine.Send(g.context, g.conv.ID, "chen ngang", nil); !errors.Is(err, chat.ErrBusy) {
 		t.Fatalf("err = %v, want busy", err)
+	}
+}
+
+// Review I2: later turns of a chain use the chat as it is now, and never write
+// back an old copy (the person switched the default agent meanwhile).
+func TestLaterTurnsKeepTheChatsSettings(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-dev"), []byte("1"), 0o644)
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, "làm X", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.delegateDuring(t, "Dev", "làm X")
+	collect(t, turn)
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	if err := g.engine.SetAgent(g.context, g.conv.ID, g.dev.ID); err != nil { // while Dev works
+		t.Fatal(err)
+	}
+	g.waitAuthors(t, 3) // Dev, then the lead reports
+	c, _ := g.f.st.Chat().GetConversation(g.context, g.conv.ID)
+	if c.AgentID != g.dev.ID {
+		t.Fatalf("default agent written back to %s", c.AgentName)
 	}
 }

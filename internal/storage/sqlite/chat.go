@@ -256,3 +256,7 @@ func (r chatRepo) Members(ctx context.Context, conversationID string) ([]storage
 	}
 	return out, rows.Err()
 }
+
+func (r chatRepo) SetConversationContext(ctx context.Context, id string, tokens, window int) error {
+	return execOne(ctx, r.db, `UPDATE conversations SET context_tokens=?, context_window=? WHERE id=?`, tokens, window, id)
+}

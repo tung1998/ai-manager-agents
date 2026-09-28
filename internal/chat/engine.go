@@ -572,6 +572,11 @@ func (e *Engine) finish(t *Turn) {
 func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation, project storage.Repo, agent storage.Agent, history []storage.Message, text string, files []attach.File) {
 	defer turn.cancel()
 	defer e.finish(turn)
+	// the chat as it is now: a chained or background turn may start long after
+	// the message (the person may have changed its mode or default agent)
+	if c, err := e.store.Chat().GetConversation(ctx, conv.ID); err == nil {
+		conv = c
+	}
 	fail := func(err error) {
 		e.endJob(turn.JobID, "", err, ctx.Err())
 		m, _ := e.store.Chat().AddMessage(context.Background(), storage.Message{ConversationID: conv.ID, Role: "error", Content: err.Error()})
@@ -660,8 +665,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if res.Context.Tokens > 0 {
 		mem.ContextTokens, mem.ContextWindow = res.Context.Tokens, res.Context.Window
 		if agent.ID == conv.AgentID { // the chat shows its default agent's context
-			conv.ContextTokens, conv.ContextWindow = mem.ContextTokens, mem.ContextWindow
-			_ = e.store.Chat().UpdateConversation(context.Background(), conv)
+			_ = e.store.Chat().SetConversationContext(context.Background(), conv.ID, mem.ContextTokens, mem.ContextWindow)
 		}
 	}
 	_ = e.store.Chat().UpsertMember(context.Background(), mem)
