@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -50,6 +51,10 @@ type Scope struct {
 	Agent          string
 	Level          string      // what the agent may do in this run (internal/perm)
 	Access         perm.Access // its capabilities and commands in this run
+	// Dir is the run's own worktree ("" = the project folder): commands run
+	// there, and the project's allowed commands run without asking since
+	// nothing there touches the project until a person merges it.
+	Dir string
 }
 
 // Service proposes and decides actions.
@@ -76,6 +81,9 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 		a.Args = args[0]
 	}
 	if isGit(kind) {
+		if sc.Dir != "" {
+			return a, errors.New("bạn đang làm trong worktree riêng: commit, tạo nhánh và push làm sau khi người dùng gộp thay đổi vào project")
+		}
 		if err := s.checkGit(ctx, &a); err != nil {
 			return a, err
 		}
@@ -87,7 +95,7 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 		if _, err := s.projectPath(ctx, sc.ProjectID); err != nil {
 			return a, err
 		}
-		a.Target = strings.Join(args, " ")
+		a.Target, a.Args.Dir = strings.Join(args, " "), sc.Dir
 	} else if isProcess(kind) {
 		procs, err := s.store.Processes().List(ctx, sc.ProjectID)
 		if err != nil {
@@ -147,7 +155,7 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 	case "run_command":
 		args, _ := perm.SplitCommand(a.Target)
 		_, ok := perm.MatchCommand(acc.Commands, args)
-		return ok && acc.Can(perm.CapCommands)
+		return ok && (acc.Can(perm.CapCommands) || a.Args.Dir != "" && perm.AtLeast(acc.Level, perm.Propose))
 	}
 	pol := perm.LoadPolicy(ctx, s.store, a.ProjectID)
 	if isProcess(a.Kind) {
@@ -181,6 +189,12 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 	}
 	if a.Kind == "run_command" {
 		root, err := s.projectPath(ctx, a.ProjectID)
+		if a.Args.Dir != "" {
+			root = a.Args.Dir
+			if _, serr := os.Stat(root); serr != nil {
+				err = errors.New("worktree của lượt này đã được dọn nên không chạy được nữa")
+			}
+		}
 		out := ""
 		if err == nil {
 			out, err = runCommand(ctx, root, a.Target)

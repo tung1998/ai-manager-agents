@@ -6,6 +6,7 @@ export interface Patch {
   status: 'pending' | 'applied' | 'rejected' | 'failed'
   detail: string
   decided_by: string
+  origin?: '' | 'worktree'
 }
 
 const props = defineProps<{ patch: Patch }>()
@@ -61,10 +62,11 @@ async function decide(approve: boolean) {
         <span class="shrink-0 text-xs"><span class="text-(--ui-success)">+{{ stats.add }}</span> <span class="text-(--ui-error)">−{{ stats.del }}</span></span>
       </button>
       <UBadge :label="statusMeta[patch.status].label" :color="statusMeta[patch.status].color" :icon="statusMeta[patch.status].icon" variant="subtle" size="sm" />
+      <UBadge v-if="patch.origin === 'worktree'" color="neutral" variant="outline" size="sm" icon="i-lucide-git-branch" :label="t('patch.worktree')" :title="t('patch.worktreeHint')" />
       <UBadge v-if="patch.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('patch.auto')" :title="patch.decided_by.slice(5)" />
       <template v-if="patch.status === 'pending' && isAdmin">
         <UButton size="xs" color="neutral" variant="ghost" :label="t('patch.reject')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
-        <UButton size="xs" icon="i-lucide-check" :label="t('patch.approveApply')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
+        <UButton size="xs" icon="i-lucide-check" :label="patch.origin === 'worktree' ? t('patch.merge') : t('patch.approveApply')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
       </template>
     </div>
     <p v-if="patch.detail && patch.status !== 'applied'" class="border-t border-(--ui-border) px-3 py-1.5 text-xs text-(--ui-error)">{{ patch.detail }}</p>

@@ -19,7 +19,11 @@ type codexRunner struct{}
 
 func (codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
 	bin := firstNonEmpty(req.Bin, "codex")
-	args := []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "--cd", req.WorkDir}
+	sandbox := "read-only"
+	if req.Write {
+		sandbox = "workspace-write" // its worktree, or the project in direct mode
+	}
+	args := []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", sandbox, "--cd", req.WorkDir}
 	if req.Model != "" {
 		args = append(args, "-m", req.Model)
 	}

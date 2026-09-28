@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -55,10 +56,7 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	if !perm.Valid(in.MaxLevel) {
-		writeError(w, http.StatusBadRequest, "gói tối đa không hợp lệ")
-		return
-	}
+	in.MaxLevel = perm.Operate // no project cap: the chat/task mode is the limit
 	// allow lists must name this project's processes
 	procs, _ := s.cfg.Store.Processes().List(r.Context(), projectID)
 	known := map[string]bool{}
@@ -82,6 +80,19 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		return out
 	}
 	in.AllowedContainers, in.DenyPaths = clean(in.AllowedContainers), clean(in.DenyPaths)
+	if in.EditMode != perm.EditDirect {
+		in.EditMode = perm.EditWorktree
+	}
+	links := []string{}
+	for _, l := range clean(in.WorktreeLinks) {
+		l = strings.Trim(filepath.ToSlash(filepath.Clean(l)), "/")
+		if l == "." || l == ".." || strings.HasPrefix(l, "../") || filepath.IsAbs(l) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("đường dẫn %q phải nằm trong project", l))
+			return
+		}
+		links = append(links, l)
+	}
+	in.WorktreeLinks = links
 	patterns := func(list []string) ([]string, error) {
 		out := []string{}
 		for _, x := range list {
@@ -124,6 +135,6 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAction(r, "project.policy", projectID, map[string]any{"max_level": in.MaxLevel, "processes": len(in.AllowedCommands), "commands": in.Commands,
-		"containers": in.AllowedContainers, "deny_paths": in.DenyPaths})
+		"containers": in.AllowedContainers, "deny_paths": in.DenyPaths, "edit_mode": in.EditMode, "isolate_claude": in.IsolateClaude})
 	writeJSON(w, http.StatusOK, map[string]any{"policy": in})
 }

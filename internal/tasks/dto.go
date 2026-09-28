@@ -115,7 +115,7 @@ func (s *Service) Get(ctx context.Context, id string) (Detail, error) {
 		d.Steps = append(d.Steps, toStepDTO(st))
 	}
 	for _, p := range patches {
-		d.Patches = append(d.Patches, chat.PatchDTO{ID: p.ID, Diff: p.Diff, Files: p.Files, Status: p.Status, Detail: p.Detail, DecidedBy: p.DecidedBy, DecidedAt: p.DecidedAt})
+		d.Patches = append(d.Patches, chat.PatchDTO{ID: p.ID, Diff: p.Diff, Files: p.Files, Status: p.Status, Detail: p.Detail, DecidedBy: p.DecidedBy, DecidedAt: p.DecidedAt, Origin: p.Origin})
 	}
 	d.Task.PendingPatches, d.Task.AppliedPatches = countPatches(patches)
 	if l, ok := s.Live(id); ok {

@@ -331,7 +331,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 **Quyết định.**
 - Mỗi project có các cuộc trò chuyện (`conversations`, `messages`), mỗi cuộc với một agent lead hoặc manager của mô hình (mặc định lead đầu tiên). System prompt gồm vai trò, hướng dẫn của agent, tên/thư mục/mô tả project và quy tắc.
 - **Agent không bao giờ tự ghi file.** Chỉ có công cụ đọc. Khi cần sửa code, agent trả unified diff trong khối ` + "```diff" + `; office tách thành `patches` (kiểm tra đường dẫn an toàn, không `..`, không `.git`/`.office`, và `git apply --check`). Người có quyền admin bấm Duyệt thì office chạy `git apply`; Từ chối thì ghi lại. Agent chỉ-đọc (read_only) không đề xuất diff. Project toàn máy không áp diff.
-- **Claude Code**: chạy headless, cô lập khỏi cấu hình cá nhân (`--setting-sources project,local`, `--strict-mcp-config`, `--disable-slash-commands`), chỉ có `Read`, `Glob`, `Grep`, chặn đọc `.env`/khóa; stream từng đoạn (`--include-partial-messages`); tiếp tục phiên bằng `--resume`, tự chạy lại kèm lịch sử nếu phiên mất. Cô lập giảm chi phí một lượt nhỏ từ ~$0.073 xuống ~$0.023 và không chạy hook/plugin của người dùng.
+- **Claude Code**: chạy headless, cô lập khỏi cấu hình cá nhân (`--setting-sources project,local`, `--strict-mcp-config`, `--disable-slash-commands`), chỉ có `Read`, `Glob`, `Grep`, chặn đọc `.env`/khóa; stream từng đoạn (`--include-partial-messages`); tiếp tục phiên bằng `--resume`, tự chạy lại kèm lịch sử nếu phiên mất. Cô lập giảm chi phí một lượt nhỏ từ ~$0.073 xuống ~$0.023 và không chạy hook/plugin của người dùng. *(ADR-036: nay mặc định dùng cấu hình như CLI của người dùng, cô lập thành tùy chọn theo project.)*
 - **Claude API / OpenAI / API tương thích**: office chạy vòng lặp tool (tối đa 20 vòng) với `list_dir`, `read_file`, `search_text`, giới hạn trong thư mục project (chặn symlink ra ngoài, file bí mật, thư mục build). Nội dung trả về của assistant được gửi lại nguyên vẹn (giữ thinking block).
 - **Codex**: `codex exec --json --sandbox read-only`, lịch sử gửi dạng transcript.
 - Mỗi lượt kiểm tra ngân sách trước, ghi `runs` loại `chat` sau (ADR-020). Một lượt mỗi cuộc trò chuyện tại một thời điểm, tối đa 20 phút, dừng được.
@@ -764,3 +764,62 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 **Giao diện.**
 - Agent (Mô hình → agent): thanh chọn gói, 4 nhóm quyền (Code / Lệnh / Git / Vận hành) bật tắt bằng switch, nhãn "Tùy chỉnh" kèm nút "Về gói X", và cây gói lệnh có checkbox ba trạng thái để chọn từng lệnh.
 - Project (Cấu hình → Quyền): gói tối đa kèm dòng tóm tắt "được tự làm tối đa", thẻ gói lệnh (bật cả gói hoặc từng lệnh, thêm gói hay lệnh riêng), tiến trình, container và file cấm.
+
+## ADR-036: Claude Code mặc định dùng cấu hình như CLI của người dùng
+
+**Bối cảnh.** ADR-022 cô lập Claude Code khỏi cấu hình cá nhân. Hệ quả là agent không dùng được MCP (Jira, Figma, docs…) và skill mà người dùng vẫn dùng khi tự chạy `claude` trong repo. Người dùng muốn agent làm việc giống như họ chạy CLI.
+
+**Quyết định.**
+- Mặc định (`policy.isolate_claude = false`):
+  - `--setting-sources user,project,local`: nạp `~/.claude`, `.mcp.json`, plugin, hook và skill như CLI.
+  - Thêm tool `Skill` vào `--tools`.
+  - Không còn `--strict-mcp-config`. MCP nội bộ office vẫn được thêm qua `--mcp-config`.
+- **Luôn `--permission-mode dontAsk`**, ở cả hai chế độ. Chỉ các tool được allow mới chạy, gồm tool mặc định của office và `permissions.allow` trong settings của người dùng/repo. Mọi tool khác bị từ chối chứ không hỏi. Nhờ vậy `defaultMode: auto` hay `bypassPermissions` của người dùng không làm agent tự gọi MCP ghi dữ liệu.
+- Tool dựng sẵn vẫn chỉ gồm `Read`, `Glob`, `Grep` (và `Skill`). Sửa code vẫn đi qua diff được duyệt, lệnh vẫn qua `run_command` (ADR-022, ADR-035).
+- Project bật **"Tách Claude Code khỏi cấu hình của bạn"** (Cấu hình → Quyền) thì quay về cách của ADR-022.
+- Chỉ áp dụng cho kết nối Claude Code. Codex và agent API không đổi.
+
+**Đánh đổi.** Một lượt nhỏ đắt hơn (đo với haiku: ~$0.09 so với ~$0.023 khi cô lập), vì phải nạp danh sách MCP và skill. Hook của người dùng cũng chạy.
+
+## ADR-037: Agent sửa code trong git worktree riêng, hoặc sửa thẳng như CLI
+
+**Bối cảnh.** Agent chỉ đọc và viết diff bằng chữ (ADR-022), nên không tự áp hay chạy build/test trên bản sửa của mình được. Diff tự viết hay không áp được: lần Việc Tam quyền $2.39 có 7 diff hỏng. Vòng sửa (ADR-033) cũng không thấy file đã sửa. Các công cụ khác (Claude Code `--worktree`, Codex cloud, Cursor background agents, Copilot coding agent) đều cho agent làm trong bản sao riêng rồi mới đưa người duyệt. Người dùng muốn theo cách đó, và thêm một lựa chọn sửa thẳng như khi họ chạy CLI.
+
+**Quyết định.**
+- `policy.edit_mode` của project (Cấu hình → Quyền, chỉ admin):
+  - `worktree` (mặc định).
+  - `direct`: sửa thẳng.
+- **Worktree** (`internal/worktree`):
+  - Mỗi Chat có `chat-<id>`, mỗi Việc có `task-<id>`, đặt tại `<office home>/worktrees/<project>/`. Tạo bằng `git worktree add --detach` từ một snapshot của project. Snapshot gồm cả code chưa commit và file mới. Nó được dựng qua index tạm (`GIT_INDEX_FILE`, `write-tree`, `commit-tree`), nên không đụng index, file hay nhánh của người dùng.
+  - Các thư mục `node_modules`, `.venv`, `venv` bị gitignore được symlink sang worktree. Các file `.env*` bị gitignore được sao chép. Thư mục khác thêm qua `policy.worktree_links`. Symlink được ghi vào `info/exclude`, vì mẫu `node_modules/` chỉ khớp thư mục chứ không khớp symlink.
+  - HEAD của worktree là "điểm đã gộp". Diff = `git add -A` + `git diff --cached --binary HEAD`, nên luôn áp được vào điểm xuất phát.
+- **Công cụ ghi** cho lượt được sửa (agent từ gói `propose`):
+  - Claude Code: `Edit`, `Write`. File bí mật, `.git` và `deny_paths` bị chặn bằng `--disallowedTools`, vẫn ở chế độ `dontAsk` (ADR-036).
+  - Agent API: `write_file`, `edit_file` (thay đúng một chỗ), cũng chặn file bí mật và file cấm.
+  - Codex: `--sandbox workspace-write`.
+  - `run_command` chạy trong worktree. Các lệnh project đã bật được **tự chạy từ gói `propose`**, vì trong worktree chưa gì chạm tới project. Lệnh khác vẫn chờ duyệt.
+  - Commit, tạo nhánh và push bị từ chối trong worktree: làm sau khi gộp.
+- **Chat:**
+  - Sau mỗi lượt, mọi thay đổi chưa gộp thành một diff (`patches.origin = 'worktree'`, migration 00017). Diff cũ đang chờ được đánh dấu "Thay bằng thay đổi mới hơn".
+  - **Gộp** = `git apply` vào thư mục project (chưa commit), rồi `worktree.Accept` dời HEAD của worktree qua diff đó.
+  - **Từ chối** = `git apply -R` trong worktree.
+  - Gói có `code.apply` thì tự gộp.
+  - Xóa cuộc trò chuyện thì xóa worktree.
+- **Việc:**
+  - Các worker của một Việc dùng chung một worktree. Kế hoạch đã chia file không chồng nhau (ADR-032).
+  - Chỉ bước `work` được ghi. Các bước lập kế hoạch, bỏ phiếu, kiểm tra và tổng hợp đọc worktree, nên Giám sát thấy code thật.
+  - Diff của mỗi việc là thay đổi cộng dồn trên đúng các file được giao, nên bản sửa ở vòng sau thay bản cũ. Sửa file không ai được giao (so với trước bước đó) hoặc file cấm thì bị trả lại như cũ trong worktree và ghi thành diff "không dùng được", để việc đó được làm lại.
+  - Việc kết thúc thì xóa worktree: diff đã lưu, và áp vào project không cần worktree.
+- **Sửa thẳng:**
+  - Agent làm ngay trong thư mục project với cùng bộ công cụ ghi, không có diff và không cần duyệt.
+  - Mỗi project chỉ một lượt chat sửa thẳng tại một thời điểm.
+- **Khi không dùng được worktree** (không phải git repo): quay về cách của ADR-022, tức là đọc và viết diff bằng chữ.
+- **Dọn dẹp:** khi khởi động, xóa worktree của Việc, của cuộc trò chuyện đã xóa, và worktree không đổi trong 14 ngày.
+
+**Giới hạn.**
+- Worktree không tự cập nhật khi code ở project đổi sau lúc tạo. Nếu diff không còn áp được thì thẻ báo lỗi, người dùng nhờ agent làm lại.
+- Lệnh kiểm tra chỉ tự chạy khi project đã bật gói lệnh.
+
+**Đơn giản hóa trang Quyền (cùng đợt).**
+- Bỏ "gói tối đa" của project. `policy.max_level` luôn là `operate`, nên giới hạn thực tế chỉ còn là min(gói của agent, chế độ chọn ở Chat/Việc). Thành viên không phải admin vẫn chỉ chọn được tối đa `propose`.
+- Trang Quyền thành các thẻ ngắn: Sửa code ở đâu, Lệnh được tự chạy, Tiến trình & container, File cấm sửa (dạng chip), và mục "Nâng cao" thu gọn (mang thêm vào worktree, tách Claude Code). Phần giải thích chuyển vào tooltip ⓘ.

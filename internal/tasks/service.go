@@ -8,9 +8,11 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/perm"
+	"bitbucket.org/senprints/agent-office/internal/worktree"
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -251,6 +253,7 @@ type run struct {
 	failed  string          // review verdict when the auditor judged the work not good enough
 	ask     string          // question for the person; the task stops as needs_input
 	jobs    map[int]*job    // plan jobs by number, with their latest step
+	claimed map[string]int  // file → the plan job it is given to
 }
 
 // job is one plan assignment and the step that last worked on it.
@@ -302,6 +305,10 @@ func (r *run) execute() {
 	}
 	if status == "done" {
 		r.applyAuto()
+	}
+	// the diffs keep what the team changed; the worktree is not needed any more
+	if m := r.svc.engine.Worktrees(); m != nil && r.treeDir() != "" {
+		_ = m.Remove(context.Background(), r.project.Path, r.project.ID, chat.TaskTree(r.task.ID))
 	}
 	now := time.Now().UTC()
 	r.mu.Lock()
@@ -420,7 +427,13 @@ func (r *run) scopedStep(phase string, agent storage.Agent, instruction, prompt 
 	}
 	sd := toStepDTO(st)
 	r.live.emit(Event{Type: "step", StepID: st.ID, Step: &sd})
-	res, runErr := r.svc.engine.Invoke(r.ctx, r.project, agent, prompt, r.files, "task", func(e chat.Event) {
+	ctx := r.ctx
+	var before map[string]bool // unassigned files already changed in the worktree
+	if phase == "work" {
+		ctx = chat.WithWrite(ctx)
+		before = r.unclaimedChanges()
+	}
+	res, runErr := r.svc.engine.Invoke(ctx, r.project, agent, prompt, r.files, "task", func(e chat.Event) {
 		switch e.Type {
 		case "text":
 			r.live.emit(Event{Type: "text", StepID: st.ID, Text: e.Text})
@@ -442,10 +455,122 @@ func (r *run) scopedStep(phase string, agent storage.Agent, instruction, prompt 
 	_ = r.svc.store.Tasks().UpdateStep(context.Background(), st)
 	sd = toStepDTO(st)
 	r.live.emit(Event{Type: "step_done", StepID: st.ID, Step: &sd})
-	if runErr == nil && phase == "work" && perm.AtLeast(r.level(agent), perm.Propose) && r.project.Path != "" {
-		r.collectPatches(st, allowed, agent)
+	if phase == "work" && perm.AtLeast(r.level(agent), perm.Propose) && r.project.Path != "" {
+		switch {
+		case res.Dir != "":
+			r.collectTreePatch(st, allowed, agent, res.Dir, before) // even after an error: its edits are there
+		case runErr == nil && !res.Wrote:
+			r.collectPatches(st, allowed, agent)
+		}
 	}
 	return st, runErr
+}
+
+// treeDir is the task's worktree, when there is one.
+func (r *run) treeDir() string {
+	m := r.svc.engine.Worktrees()
+	if m == nil || !m.Exists(r.project.ID, chat.TaskTree(r.task.ID)) {
+		return ""
+	}
+	return m.Path(r.project.ID, chat.TaskTree(r.task.ID))
+}
+
+// unclaimedChanges are the changed files of the worktree no job was given.
+func (r *run) unclaimedChanges() map[string]bool {
+	out := map[string]bool{}
+	dir := r.treeDir()
+	if dir == "" {
+		return out
+	}
+	files, _ := worktree.Changed(r.ctx, dir)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, f := range files {
+		if r.claimed[f] == 0 {
+			out[f] = true
+		}
+	}
+	return out
+}
+
+// collectTreePatch turns a work step's edits in the task's worktree into its
+// diff: the changes to its files (cumulative, so a redo replaces the earlier
+// diff), or, when it was given no files, the changes no job was given. Edits
+// to files outside what it was given, or to protected files, are put back
+// and reported as an unusable diff, so the job gets redone.
+func (r *run) collectTreePatch(st storage.TaskStep, allowed []string, agent storage.Agent, dir string, before map[string]bool) {
+	ctx := context.Background()
+	policy := perm.LoadPolicy(r.ctx, r.svc.store, r.project.ID)
+	changed, err := worktree.Changed(ctx, dir)
+	if err != nil {
+		r.addPatch(st, agent, storage.Patch{Status: "failed", Detail: "không đọc được thay đổi trong worktree: " + err.Error()})
+		return
+	}
+	ok := map[string]bool{}
+	for _, f := range allowed {
+		ok[cleanPath(f)] = true
+	}
+	r.mu.Lock()
+	claimed := maps.Clone(r.claimed)
+	r.mu.Unlock()
+	var mine, outside []string
+	for _, f := range changed {
+		switch {
+		case len(ok) > 0 && ok[f]:
+			mine = append(mine, f)
+		case claimed[f] != 0:
+			// another job's file
+		case len(ok) == 0:
+			mine = append(mine, f)
+		case !before[f]:
+			outside = append(outside, f) // changed during this step, given to no one
+		}
+	}
+	if len(outside) > 0 {
+		diff, files, _ := worktree.Changes(ctx, dir, outside)
+		_ = worktree.Restore(ctx, dir, outside)
+		r.addPatch(st, agent, storage.Patch{Diff: diff, Files: files, Status: "failed", Detail: "sửa file ngoài phạm vi được giao: " + strings.Join(outside, ", ") + " (đã bỏ khỏi worktree)"})
+	}
+	if denied := policy.Denied(mine); len(denied) > 0 {
+		diff, files, _ := worktree.Changes(ctx, dir, denied)
+		_ = worktree.Restore(ctx, dir, denied)
+		r.addPatch(st, agent, storage.Patch{Diff: diff, Files: files, Status: "failed", Detail: "sửa file cấm của project: " + strings.Join(denied, ", ") + " (đã bỏ khỏi worktree)"})
+		mine = slices.DeleteFunc(mine, func(f string) bool { return slices.Contains(denied, f) })
+	}
+	if len(mine) == 0 {
+		return
+	}
+	diff, files, err := worktree.Changes(ctx, dir, mine)
+	if err != nil || diff == "" {
+		return
+	}
+	r.addPatch(st, agent, storage.Patch{Diff: diff, Files: files})
+}
+
+// addPatch stores a diff of a work step and tells the dashboard.
+func (r *run) addPatch(st storage.TaskStep, agent storage.Agent, p storage.Patch) {
+	p.TaskID, p.StepID = r.task.ID, st.ID
+	if p.Files == nil {
+		p.Files = []string{}
+	}
+	if r.treeDir() != "" {
+		p.Origin = "worktree"
+	}
+	saved, err := r.svc.store.Chat().AddPatch(context.Background(), p)
+	if err != nil {
+		return
+	}
+	r.mu.Lock()
+	r.patches = append(r.patches, saved)
+	if saved.Status == "pending" && r.access(agent).Can(perm.CapApply) {
+		if r.auto == nil {
+			r.auto = map[string]bool{}
+		}
+		r.auto[saved.ID] = true
+	}
+	r.mu.Unlock()
+	pd := chat.PatchDTO{ID: saved.ID, Diff: saved.Diff, Files: saved.Files, Status: saved.Status, Detail: saved.Detail, Origin: saved.Origin}
+	r.live.emit(Event{Type: "patch", StepID: st.ID, Patch: &pd})
 }
 
 func (r *run) collectPatches(st storage.TaskStep, allowed []string, agent storage.Agent) {
@@ -487,7 +612,7 @@ func (r *run) collectPatches(st storage.TaskStep, allowed []string, agent storag
 			r.auto[saved.ID] = true
 		}
 		r.mu.Unlock()
-		pd := chat.PatchDTO{ID: saved.ID, Diff: saved.Diff, Files: saved.Files, Status: saved.Status, Detail: saved.Detail}
+		pd := chat.PatchDTO{ID: saved.ID, Diff: saved.Diff, Files: saved.Files, Status: saved.Status, Detail: saved.Detail, Origin: saved.Origin}
 		r.live.emit(Event{Type: "patch", StepID: st.ID, Patch: &pd})
 	}
 }
@@ -513,6 +638,14 @@ func (r *run) work(assigner storage.Agent, goal string, plan Plan) []storage.Tas
 			break
 		}
 	}
+	r.mu.Lock()
+	r.claimed = map[string]int{}
+	for _, it := range items {
+		for _, f := range it.a.Files {
+			r.claimed[cleanPath(f)] = it.n
+		}
+	}
+	r.mu.Unlock()
 	results := make([]storage.TaskStep, len(items))
 	done := map[int]storage.TaskStep{}
 	remaining := items
@@ -958,7 +1091,7 @@ func (r *run) repair(assigner storage.Agent, plan Plan, targets map[int]string, 
 			if p.StepID == j.step.ID && (p.Status == "pending" || p.Status == "failed") {
 				if err := r.svc.store.Chat().DecidePatch(context.Background(), p.ID, "rejected", reason, "council", now); err == nil {
 					r.patches[i].Status, r.patches[i].Detail = "rejected", reason
-					pd := chat.PatchDTO{ID: p.ID, Diff: p.Diff, Files: p.Files, Status: "rejected", Detail: reason, DecidedBy: "council"}
+					pd := chat.PatchDTO{ID: p.ID, Diff: p.Diff, Files: p.Files, Status: "rejected", Detail: reason, DecidedBy: "council", Origin: p.Origin}
 					r.live.emit(Event{Type: "patch", StepID: p.StepID, Patch: &pd})
 				}
 			}
@@ -1013,7 +1146,7 @@ func (r *run) vetoPatches(reason string) {
 		}
 		if err := r.svc.store.Chat().DecidePatch(context.Background(), p.ID, "rejected", reason, "council", now); err == nil {
 			r.patches[i].Status, r.patches[i].Detail = "rejected", reason
-			pd := chat.PatchDTO{ID: p.ID, Diff: p.Diff, Files: p.Files, Status: "rejected", Detail: reason, DecidedBy: "council"}
+			pd := chat.PatchDTO{ID: p.ID, Diff: p.Diff, Files: p.Files, Status: "rejected", Detail: reason, DecidedBy: "council", Origin: p.Origin}
 			r.live.emit(Event{Type: "patch", StepID: p.StepID, Patch: &pd})
 		}
 	}

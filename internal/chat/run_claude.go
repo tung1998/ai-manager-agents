@@ -10,26 +10,57 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
-// claudeRunner drives Claude Code headless, isolated from the user's personal
-// setup (no user settings, hooks, plugins, MCP servers or skills) and limited
-// to read-only tools. Sessions are resumed across turns.
+// claudeRunner drives Claude Code headless with read-only built-in tools
+// (plus Edit/Write when the run may edit its folder).
+// By default it loads the same setup as the user's own CLI (user, project and
+// local settings, MCP servers, plugins, skills), so MCP tools the user allowed
+// there work here too; anything that would prompt is denied. Isolated runs
+// skip the user's setup and MCP servers. Sessions are resumed across turns.
 type claudeRunner struct{}
 
 var claudeReadTools = []string{"Read", "Glob", "Grep"}
 
 func (claudeRunner) args(req RunRequest, resume bool) []string {
-	a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-		"--setting-sources", "project,local", "--strict-mcp-config", "--disable-slash-commands",
-		"--tools", strings.Join(claudeReadTools, ","),
-		"--allowedTools", strings.Join(claudeReadTools, " "),
-		"--disallowedTools", "Read(./.env) Read(./.env.*) Read(**/.env) Read(**/*.pem) Read(**/*.key)",
+	tools := claudeReadTools
+	// dontAsk: whatever is not allowed is denied, whatever the user's defaultMode
+	a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "dontAsk"}
+	if req.Isolated {
+		a = append(a, "--setting-sources", "project,local", "--strict-mcp-config", "--disable-slash-commands")
+	} else {
+		a = append(a, "--setting-sources", "user,project,local")
+		tools = append(slices.Clone(tools), "Skill")
 	}
+	deny := []string{"Read(./.env)", "Read(./.env.*)", "Read(**/.env)", "Read(**/*.pem)", "Read(**/*.key)"}
+	if req.Write {
+		// edits stay in the working folder (dontAsk refuses the rest), never
+		// secrets or the project's protected files
+		tools = append(slices.Clone(tools), "Edit", "Write")
+		for _, p := range append([]string{".env", ".env.*", "**/.env", "**/*.pem", "**/*.key", ".git/**"}, req.DenyPaths...) {
+			p = strings.TrimSpace(p)
+			if p == "" || strings.ContainsAny(p, " ()") {
+				continue
+			}
+			if !strings.HasPrefix(p, "**/") && !strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "./") {
+				p = "./" + p
+			}
+			if strings.HasSuffix(p, "/") {
+				p += "**"
+			}
+			deny = append(deny, "Edit("+p+")", "Write("+p+")")
+		}
+	}
+	a = append(a,
+		"--tools", strings.Join(tools, ","),
+		"--allowedTools", strings.Join(tools, " "),
+		"--disallowedTools", strings.Join(deny, " "),
+	)
 	if req.Model != "" {
 		a = append(a, "--model", req.Model)
 	}

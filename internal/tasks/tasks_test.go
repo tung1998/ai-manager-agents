@@ -22,6 +22,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 	"bitbucket.org/senprints/agent-office/internal/tasks"
 	"bitbucket.org/senprints/agent-office/internal/usage"
+	"bitbucket.org/senprints/agent-office/internal/worktree"
 )
 
 // fakeModel answers by what is asked; votes follow voteFor(agent system prompt).
@@ -32,6 +33,7 @@ type fakeModel struct {
 	planFor string   // council plan assignee
 	reviews []string // successive auditor verdict JSONs (after these: the default fail)
 	reviewN int
+	edit    bool // workers edit files with tools (worktree) instead of writing diffs
 }
 
 func (f *fakeModel) handler(t *testing.T) http.HandlerFunc {
@@ -44,9 +46,20 @@ func (f *fakeModel) handler(t *testing.T) http.HandlerFunc {
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 		var prompt string
-		json.Unmarshal(body.Messages[len(body.Messages)-1].Content, &prompt)
+		isToolResult := json.Unmarshal(body.Messages[len(body.Messages)-1].Content, &prompt) != nil
 		var text string
 		switch {
+		case isToolResult:
+			text = "Đã sửa a.txt."
+		case f.edit && strings.Contains(prompt, "giao cho bạn một việc") && strings.Contains(prompt, "đổi one thành ONE"):
+			// edits its file, and one it was not given
+			out, _ := json.Marshal(map[string]any{"model": "claude-sonnet-5", "stop_reason": "tool_use", "usage": map[string]int{"input_tokens": 100, "output_tokens": 10},
+				"content": []map[string]any{
+					{"type": "tool_use", "id": "t1", "name": "edit_file", "input": map[string]any{"path": "a.txt", "old": "one", "new": "ONE"}},
+					{"type": "tool_use", "id": "t2", "name": "write_file", "input": map[string]any{"path": "stray.txt", "content": "x\n"}},
+				}})
+			w.Write(out)
+			return
 		case strings.Contains(prompt, "Lập kế hoạch:"):
 			if strings.Contains(body.System, "Trưởng nhóm") {
 				text = "Kế hoạch.\n```json\n" + `{"analysis":"cần đọc code và sửa","conventions":"viết hoa toàn bộ","assignments":[{"agent":"code-reader","task":"đọc a.txt"},{"agent":"engineer","task":"đổi one thành ONE","files":["a.txt"],"depends_on":[1]},{"agent":"ghost","task":"x"}]}` + "\n```"
@@ -95,6 +108,7 @@ func (f *fakeModel) nextReview() string {
 
 type fixture struct {
 	st      storage.Store
+	engine  *chat.Engine
 	svc     *tasks.Service
 	project storage.Repo
 	dir     string
@@ -122,7 +136,8 @@ func setup(t *testing.T, fm *fakeModel, templateKey string) fixture {
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "demo", Path: dir})
 	tpl, _ := st.OrgModels().GetTemplateByKey(ctx, templateKey)
 	org.ApplyToRepo(ctx, project.ID, tpl.ID, false)
-	return fixture{st: st, svc: tasks.New(st, chat.NewEngine(st, provs, u)), project: project, dir: dir}
+	engine := chat.NewEngine(st, provs, u)
+	return fixture{st: st, engine: engine, svc: tasks.New(st, engine), project: project, dir: dir}
 }
 
 func wait(t *testing.T, svc *tasks.Service, id string) tasks.Detail {
@@ -333,5 +348,52 @@ func TestCouncilStopsWhenStuck(t *testing.T) {
 	d := wait(t, f.svc, task.ID)
 	if d.Task.Status != "failed" || !strings.Contains(d.Task.Detail, "vòng sửa") {
 		t.Fatalf("status=%s detail=%s", d.Task.Status, d.Task.Detail)
+	}
+}
+
+func TestTeamWorksInWorktree(t *testing.T) {
+	requireGit(t)
+	f := setup(t, &fakeModel{edit: true}, "team")
+	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = f.dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	trees := worktree.New(filepath.Join(t.TempDir(), "wt"))
+	f.engine.SetWorktrees(trees)
+	task, err := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := wait(t, f.svc, task.ID)
+	var pending, stray []chat.PatchDTO
+	for _, p := range d.Patches {
+		switch {
+		case p.Status == "pending" && strings.Join(p.Files, ",") == "a.txt":
+			pending = append(pending, p)
+		case strings.Contains(p.Detail, "ngoài phạm vi") && strings.Join(p.Files, ",") == "stray.txt":
+			stray = append(stray, p)
+		}
+	}
+	if d.Task.Status != "done" || len(pending) != 1 || !strings.Contains(pending[0].Diff, "+ONE") || len(stray) == 0 {
+		t.Fatalf("status=%s detail=%s patches=%+v", d.Task.Status, d.Task.Detail, d.Patches)
+	}
+	// the project is untouched until approved; the task's worktree is gone
+	if b, _ := os.ReadFile(filepath.Join(f.dir, "a.txt")); string(b) != "one\n" {
+		t.Fatalf("a.txt = %q", b)
+	}
+	if trees.Exists(f.project.ID, chat.TaskTree(task.ID)) {
+		t.Fatal("task worktree not removed")
+	}
+	if _, err := f.engine.ApproveTaskPatches(context.Background(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(f.dir, "a.txt")); string(b) != "ONE\n" {
+		t.Fatalf("a.txt after approve = %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "stray.txt")); !os.IsNotExist(err) {
+		t.Fatal("stray file reached the project")
 	}
 }

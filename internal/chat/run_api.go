@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +29,30 @@ var workspaceTools = []struct {
 	{"search_text", "Tìm các dòng khớp biểu thức chính quy (không phân biệt hoa thường) trong project. glob tùy chọn, ví dụ *.vue.",
 		map[string]any{"type": "object", "properties": map[string]any{"pattern": map[string]any{"type": "string"}, "glob": map[string]any{"type": "string"}},
 			"required": []string{"pattern"}}},
+}
+
+// The tools that write, offered when the run may edit files.
+var writeTools = []struct {
+	Name, Description string
+	Schema            map[string]any
+}{
+	{"write_file", "Tạo mới hoặc ghi đè toàn bộ một file (đường dẫn tương đối từ gốc).",
+		map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "content": map[string]any{"type": "string"}},
+			"required": []string{"path", "content"}}},
+	{"edit_file", "Sửa một file: thay đoạn old (phải khớp đúng một chỗ, kể cả khoảng trắng) bằng new. Đọc file trước khi sửa.",
+		map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "old": map[string]any{"type": "string"}, "new": map[string]any{"type": "string"}},
+			"required": []string{"path", "old", "new"}}},
+}
+
+// fileTools are the workspace tools of a run: reading, and writing when allowed.
+func fileTools(req RunRequest) []struct {
+	Name, Description string
+	Schema            map[string]any
+} {
+	if !req.Write {
+		return workspaceTools
+	}
+	return append(slices.Clone(workspaceTools), writeTools...)
 }
 
 func officeTools(req RunRequest) []officetools.Tool {
@@ -53,6 +78,9 @@ func callTool(w Workspace, name string, raw json.RawMessage) (string, bool) {
 		End     int    `json:"end"`
 		Pattern string `json:"pattern"`
 		Glob    string `json:"glob"`
+		Content string `json:"content"`
+		Old     string `json:"old"`
+		New     string `json:"new"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return "Tham số không hợp lệ: " + err.Error(), true
@@ -68,6 +96,10 @@ func callTool(w Workspace, name string, raw json.RawMessage) (string, bool) {
 		out, err = w.ReadFile(in.Path, in.Start, in.End)
 	case "search_text":
 		out, err = w.Search(in.Pattern, in.Glob)
+	case "write_file":
+		out, err = w.WriteFile(in.Path, in.Content)
+	case "edit_file":
+		out, err = w.EditFile(in.Path, in.Old, in.New)
 	default:
 		return "Công cụ không tồn tại: " + name, true
 	}
@@ -123,8 +155,8 @@ type anthropicRunner struct{}
 func (anthropicRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
 	base := strings.TrimRight(firstNonEmpty(req.Provider.BaseURL, "https://api.anthropic.com"), "/")
 	headers := map[string]string{"x-api-key": req.APIKey, "anthropic-version": "2023-06-01"}
-	tools := make([]map[string]any, 0, len(workspaceTools))
-	for _, t := range workspaceTools {
+	tools := make([]map[string]any, 0, len(workspaceTools)+len(writeTools))
+	for _, t := range fileTools(req) {
 		tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.Schema})
 	}
 	for _, t := range officeTools(req) {
@@ -139,7 +171,7 @@ func (anthropicRunner) Run(ctx context.Context, req RunRequest, emit func(Event)
 		return RunResult{}, err
 	}
 	messages = append(messages, map[string]any{"role": "user", "content": content})
-	ws := Workspace{Root: req.WorkDir}
+	ws := Workspace{Root: req.WorkDir, Write: req.Write, Deny: req.DenyPaths}
 	res := RunResult{}
 	start := time.Now()
 	var answer strings.Builder
@@ -218,8 +250,8 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 	if req.APIKey != "" {
 		headers["Authorization"] = "Bearer " + req.APIKey
 	}
-	tools := make([]map[string]any, 0, len(workspaceTools))
-	for _, t := range workspaceTools {
+	tools := make([]map[string]any, 0, len(workspaceTools)+len(writeTools))
+	for _, t := range fileTools(req) {
 		tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Schema}})
 	}
 	for _, t := range officeTools(req) {
@@ -234,7 +266,7 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 		return RunResult{}, err
 	}
 	messages = append(messages, map[string]any{"role": "user", "content": content})
-	ws := Workspace{Root: req.WorkDir}
+	ws := Workspace{Root: req.WorkDir, Write: req.Write, Deny: req.DenyPaths}
 	res := RunResult{}
 	start := time.Now()
 	var answer strings.Builder

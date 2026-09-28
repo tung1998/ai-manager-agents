@@ -311,6 +311,7 @@ type Patch struct {
 	DecidedBy      string
 	DecidedAt      *time.Time
 	CreatedAt      time.Time
+	Origin         string // "" = written by the agent, "worktree" = taken from its worktree
 }
 
 // ChatRepo stores conversations, messages and patches.
@@ -519,6 +520,7 @@ type ActionArgs struct {
 	Message string   `json:"message,omitempty"` // git commit
 	Files   []string `json:"files,omitempty"`   // git commit
 	Branch  string   `json:"branch,omitempty"`  // git branch
+	Dir     string   `json:"dir,omitempty"`     // run_command: the worktree it runs in ("" = project folder)
 }
 
 // ActionRepo stores proposed actions.

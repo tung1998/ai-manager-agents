@@ -10,6 +10,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
+	"bitbucket.org/senprints/agent-office/internal/worktree"
 	"context"
 	"errors"
 	"fmt"
@@ -82,6 +83,9 @@ func serveCmd() *cobra.Command {
 			}
 			chatEngine := chat.NewEngine(a.store, a.providers, a.usage)
 			chatEngine.SetAttachments(attach.Store{Dir: filepath.Join(h.Dir, "attachments")})
+			// agents edit and check in their own git worktrees (ADR-037)
+			chatEngine.SetWorktrees(worktree.New(filepath.Join(h.Dir, "worktrees")))
+			go chatEngine.SweepWorktrees(ctx, 14*24*time.Hour)
 			procs := ops.NewManager(a.store, filepath.Join(h.Dir, "logs"), a.cli.Env())
 			defer procs.Shutdown() // project processes stop with the office
 			go procs.RunSampler(ctx, 3*time.Second)

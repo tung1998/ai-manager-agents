@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bufio"
 	"errors"
 	"fmt"
@@ -12,14 +13,21 @@ import (
 	"strings"
 )
 
-// Workspace gives an agent read-only access to one folder. Paths are always
-// relative to Root; anything resolving outside it, and secret-looking files,
-// are refused.
-type Workspace struct{ Root string }
+// Workspace gives an agent access to one folder: read-only, or also writing
+// when Write (its own worktree, or the project in direct mode). Paths are
+// always relative to Root; anything resolving outside it, secret-looking
+// files and Deny patterns (the project's protected files) are refused.
+type Workspace struct {
+	Root  string
+	Write bool
+	Deny  []string
+}
 
 var (
 	errOutside = errors.New("đường dẫn nằm ngoài thư mục project")
 	errSecret  = errors.New("file này có thể chứa bí mật nên không được đọc")
+	errDenied  = errors.New("file này bị project cấm sửa")
+	errNoWrite = errors.New("lượt này chỉ được đọc")
 )
 
 var skipDirs = map[string]bool{".git": true, "node_modules": true, "vendor": true, "dist": true, "build": true, ".output": true,
@@ -201,4 +209,78 @@ func (w Workspace) Search(pattern, glob string) (string, error) {
 		b.WriteString("… (dừng ở 200 kết quả, hãy thu hẹp tìm kiếm)\n")
 	}
 	return b.String(), nil
+}
+
+// writable resolves rel for writing: inside Root, not in .git, not a secret
+// and not protected by the project.
+func (w Workspace) writable(rel string) (string, error) {
+	if !w.Write {
+		return "", errNoWrite
+	}
+	clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(rel)))
+	if clean == "." || clean == ".git" || strings.HasPrefix(clean, ".git/") {
+		return "", errOutside
+	}
+	if secretName.MatchString(filepath.Base(clean)) {
+		return "", errSecret
+	}
+	if len(perm.Policy{DenyPaths: w.Deny}.Denied([]string{clean})) > 0 {
+		return "", errDenied
+	}
+	full, err := w.resolve(clean)
+	if err != nil {
+		return "", err
+	}
+	// a new file: its folder must resolve inside Root too
+	if _, err := w.resolve(filepath.Dir(clean)); err != nil {
+		return "", err
+	}
+	return full, nil
+}
+
+// WriteFile creates or replaces a file.
+func (w Workspace) WriteFile(rel, content string) (string, error) {
+	full, err := w.writable(rel)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return "", err
+	}
+	mode := fs.FileMode(0o644)
+	if st, err := os.Stat(full); err == nil {
+		if st.IsDir() {
+			return "", fmt.Errorf("%s là thư mục", rel)
+		}
+		mode = st.Mode().Perm()
+	}
+	if err := os.WriteFile(full, []byte(content), mode); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Đã ghi %s (%d dòng)", rel, strings.Count(content, "\n")+1), nil
+}
+
+// EditFile replaces the one occurrence of old with new in a file.
+func (w Workspace) EditFile(rel, old, new string) (string, error) {
+	full, err := w.writable(rel)
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(full)
+	if err != nil {
+		return "", err
+	}
+	switch n := strings.Count(string(b), old); {
+	case old == "":
+		return "", errors.New("old trống; dùng write_file để tạo file")
+	case n == 0:
+		return "", errors.New("không tìm thấy đoạn old trong file; đọc lại file rồi thử lại")
+	case n > 1:
+		return "", fmt.Errorf("đoạn old xuất hiện %d lần; thêm ngữ cảnh để chỉ khớp một chỗ", n)
+	}
+	st, _ := os.Stat(full)
+	if err := os.WriteFile(full, []byte(strings.Replace(string(b), old, new, 1)), st.Mode().Perm()); err != nil {
+		return "", err
+	}
+	return "Đã sửa " + rel, nil
 }

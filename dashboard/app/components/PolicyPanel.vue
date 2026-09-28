@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // A project's limits on its agents: the highest package any agent may use
 // here, what they may run or restart on their own, and files no diff may touch.
-interface Policy { max_level: PermLevel, allowed_commands: string[], commands: string[], packs: CommandPack[], allowed_containers: string[], deny_paths: string[] }
+interface Policy { allowed_commands: string[], commands: string[], packs: CommandPack[], allowed_containers: string[], deny_paths: string[], isolate_claude: boolean, edit_mode: 'worktree' | 'direct', worktree_links: string[] }
 interface Proc { id: string, name: string, command: string, kind: 'service' | 'job' }
 
 const props = defineProps<{ projectId: string }>()
@@ -15,15 +15,17 @@ const { data: composeData } = useFetch<{ services: { name: string }[] }>(() => `
 const procs = computed(() => procData.value?.processes ?? [])
 const services = computed(() => composeData.value?.services ?? [])
 
-const form = reactive({ max_level: 'propose' as PermLevel, allowed_commands: [] as string[], commands: [] as string[], packs: [] as CommandPack[], allowed_containers: [] as string[], deny: '' })
+const form = reactive({ allowed_commands: [] as string[], commands: [] as string[], packs: [] as CommandPack[], allowed_containers: [] as string[], deny: [] as string[], isolate_claude: false, edit_mode: 'worktree' as 'worktree' | 'direct', links: '' })
 watch(data, (d) => {
   if (!d) return
-  form.max_level = d.policy.max_level
   form.allowed_commands = [...d.policy.allowed_commands]
   form.commands = [...d.policy.commands]
   form.packs = JSON.parse(JSON.stringify(d.policy.packs))
   form.allowed_containers = [...d.policy.allowed_containers]
-  form.deny = d.policy.deny_paths.join('\n')
+  form.deny = [...d.policy.deny_paths]
+  form.isolate_claude = !!d.policy.isolate_claude
+  form.edit_mode = d.policy.edit_mode === 'direct' ? 'direct' : 'worktree'
+  form.links = (d.policy.worktree_links ?? []).join('\n')
 }, { immediate: true })
 
 function toggle(list: string[], v: string) {
@@ -31,13 +33,24 @@ function toggle(list: string[], v: string) {
   if (i >= 0) list.splice(i, 1)
   else list.push(v)
 }
+const editModes = computed(() => [
+  { value: 'worktree' as const, icon: 'i-lucide-git-branch', label: t('policy.editWorktree'), desc: t('policy.editWorktreeDesc') },
+  { value: 'direct' as const, icon: 'i-lucide-pencil', label: t('policy.editDirect'), desc: t('policy.editDirectDesc') }
+])
+const newDeny = ref('')
+function addDeny() {
+  const v = newDeny.value.trim()
+  if (v && !form.deny.includes(v)) form.deny.push(v)
+  newDeny.value = ''
+}
+const advanced = ref(false)
 const saving = ref(false)
 async function save() {
   saving.value = true
   try {
     await $fetch(`/api/projects/${props.projectId}/policy`, {
       method: 'PUT',
-      body: { max_level: form.max_level, allowed_commands: form.allowed_commands, commands: form.commands, packs: form.packs.filter(p => p.label.trim()), allowed_containers: form.allowed_containers, deny_paths: form.deny.split('\n').map(s => s.trim()).filter(Boolean) }
+      body: { allowed_commands: form.allowed_commands, commands: form.commands, packs: form.packs.filter(p => p.label.trim()), allowed_containers: form.allowed_containers, deny_paths: form.deny, isolate_claude: form.isolate_claude, edit_mode: form.edit_mode, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean) }
     })
     toast.add({ title: t('policy.saved'), color: 'success' })
     await refresh()
@@ -93,39 +106,34 @@ const needs = (p: Proc) => p.kind === 'job' ? t('policy.needsJob') : t('policy.n
 </script>
 
 <template>
-  <div class="max-w-4xl space-y-6">
-    <p class="text-sm text-(--ui-text-muted)">
-      {{ t('policy.intro') }}
-    </p>
-
-    <section class="space-y-2">
-      <p class="text-sm font-medium">{{ t('policy.maxLevel') }}</p>
-      <div class="flex flex-wrap gap-1 rounded-lg bg-(--ui-bg-elevated) p-1">
-        <button
-          v-for="p in permLevels" :key="p.level" type="button" :disabled="!isAdmin"
-          class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition disabled:cursor-default"
-          :class="form.max_level === p.level ? 'bg-(--ui-bg) text-(--ui-text-highlighted) shadow-sm' : 'text-(--ui-text-muted) hover:text-(--ui-text)'"
-          @click="form.max_level = p.level"
-        >
-          <UIcon :name="p.icon" class="size-3.5" :class="form.max_level === p.level ? 'text-primary' : ''" />{{ p.label }}
-        </button>
+  <div class="max-w-4xl space-y-3">
+    <!-- where code changes happen -->
+    <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
+      <p class="text-sm font-medium">{{ t('policy.editMode') }}</p>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <UTooltip v-for="m in editModes" :key="m.value" :text="m.desc">
+          <button
+            type="button" :disabled="!isAdmin"
+            class="flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm font-medium transition disabled:cursor-default"
+            :class="form.edit_mode === m.value ? 'border-primary bg-primary/5' : 'border-(--ui-border) hover:border-(--ui-border-accented)'"
+            @click="form.edit_mode = m.value"
+          >
+            <UIcon :name="form.edit_mode === m.value ? 'i-lucide-circle-dot' : 'i-lucide-circle'" class="size-4" :class="form.edit_mode === m.value ? 'text-primary' : 'text-(--ui-text-dimmed)'" />
+            <UIcon :name="m.icon" class="size-4" />{{ m.label }}
+          </button>
+        </UTooltip>
       </div>
-      <p class="text-xs text-(--ui-text-muted)">
-        {{ t('policy.maxCan') }}
-        <template v-for="(c, i) in permCaps.filter(x => permRank(x.min) <= permRank(form.max_level))" :key="c.id">{{ i ? ', ' : '' }}{{ c.label.toLowerCase() }}</template>
-        <template v-if="form.max_level === 'read'">{{ t('policy.maxCanNone') }}</template>.
-      </p>
-    </section>
+    </UCard>
 
-    <section class="space-y-2">
+    <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
       <div class="flex items-center gap-2">
-        <p class="text-sm font-medium">{{ t('policy.commandsTitle') }}</p>
+        <p class="flex items-center gap-1.5 text-sm font-medium">
+          {{ t('policy.commandsTitle') }}
+          <UTooltip :text="t('policy.commandsHelp', { star: '*' })"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-dimmed)" /></UTooltip>
+        </p>
         <UBadge color="neutral" variant="subtle" size="sm" :label="t('policy.commandsCount', { n: form.commands.length })" />
         <UButton v-if="isAdmin" size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" :label="t('policy.addPack')" class="ms-auto" @click="addPack" />
       </div>
-      <p class="text-xs text-(--ui-text-muted)">
-        {{ t('policy.commandsHelp', { star: '*' }) }}
-      </p>
       <div class="grid gap-2 sm:grid-cols-2">
         <details v-for="p in packs" :key="p.id" class="group rounded-lg border border-(--ui-border)" :open="p.custom || enabledIn(p) > 0">
           <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2">
@@ -152,34 +160,60 @@ const needs = (p: Proc) => p.kind === 'job' ? t('policy.needsJob') : t('policy.n
           </div>
         </details>
       </div>
-    </section>
+    </UCard>
 
-    <section class="space-y-2">
-      <p class="text-sm font-medium">{{ t('policy.processesTitle') }} <span class="font-normal text-(--ui-text-muted)">{{ t('policy.processesSource') }}</span></p>
-      <p v-if="!procs.length" class="text-sm text-(--ui-text-muted)">{{ t('policy.processesEmpty') }}</p>
-      <label v-for="p in procs" :key="p.id" class="flex cursor-pointer items-center gap-2 text-sm">
-        <UCheckbox :model-value="form.allowed_commands.includes(p.id)" :disabled="!isAdmin" @update:model-value="toggle(form.allowed_commands, p.id)" />
-        <span class="font-medium">{{ p.name }}</span>
-        <code class="truncate text-xs text-(--ui-text-muted)">{{ p.command }}</code>
-        <UBadge color="neutral" variant="subtle" size="sm" :label="t('policy.needs', { cap: needs(p) })" class="ms-auto shrink-0" />
-      </label>
-    </section>
-
-    <section v-if="services.length" class="space-y-2">
-      <p class="text-sm font-medium">{{ t('policy.containersTitle') }} <span class="font-normal text-(--ui-text-muted)">{{ t('policy.containersHelp') }}</span></p>
-      <div class="flex flex-wrap gap-3">
-        <label v-for="s in services" :key="s.name" class="flex cursor-pointer items-center gap-2 text-sm">
-          <UCheckbox :model-value="form.allowed_containers.includes(s.name)" :disabled="!isAdmin" @update:model-value="toggle(form.allowed_containers, s.name)" />
-          {{ s.name }}
+    <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
+      <p class="flex items-center gap-1.5 text-sm font-medium">
+        {{ t('policy.opsTitle') }}
+        <UTooltip :text="t('policy.opsHint')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-dimmed)" /></UTooltip>
+      </p>
+      <p v-if="!procs.length && !services.length" class="text-sm text-(--ui-text-muted)">{{ t('policy.processesEmpty') }}</p>
+      <div class="flex flex-wrap gap-x-4 gap-y-2">
+        <UTooltip v-for="p in procs" :key="p.id" :text="`${p.command} · ${t('policy.needs', { cap: needs(p) })}`">
+          <label class="flex cursor-pointer items-center gap-1.5 text-sm">
+            <UCheckbox :model-value="form.allowed_commands.includes(p.id)" :disabled="!isAdmin" @update:model-value="toggle(form.allowed_commands, p.id)" />
+            <UIcon :name="p.kind === 'job' ? 'i-lucide-flask-conical' : 'i-lucide-play'" class="size-3.5 text-(--ui-text-muted)" />{{ p.name }}
+          </label>
+        </UTooltip>
+        <label v-for="sv in services" :key="sv.name" class="flex cursor-pointer items-center gap-1.5 text-sm">
+          <UCheckbox :model-value="form.allowed_containers.includes(sv.name)" :disabled="!isAdmin" @update:model-value="toggle(form.allowed_containers, sv.name)" />
+          <UIcon name="i-lucide-container" class="size-3.5 text-(--ui-text-muted)" />{{ sv.name }}
         </label>
       </div>
-    </section>
+    </UCard>
 
-    <section class="space-y-2">
-      <p class="text-sm font-medium">{{ t('policy.denyTitle') }} <span class="font-normal text-(--ui-text-muted)">{{ t('policy.denyHelp') }}</span></p>
-      <UTextarea v-model="form.deny" :rows="5" :disabled="!isAdmin" class="w-full font-mono text-xs" placeholder=".env&#10;**/*.pem&#10;migrations/&#10;nuxt.config.ts" />
-      <p class="text-xs text-(--ui-text-muted)">{{ t('policy.denySupports', { star: '*', starstar: '**/', slash: '/' }) }}</p>
-    </section>
+    <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
+      <p class="flex items-center gap-1.5 text-sm font-medium">
+        {{ t('policy.denyTitle') }}
+        <UTooltip :text="t('policy.denySupports', { star: '*', starstar: '**/', slash: '/' })"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-dimmed)" /></UTooltip>
+      </p>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <UBadge v-for="d in form.deny" :key="d" color="neutral" variant="subtle" class="font-mono">
+          {{ d }}
+          <button v-if="isAdmin" type="button" class="ms-0.5 text-(--ui-text-dimmed) hover:text-(--ui-text)" :aria-label="t('policy.removeCmd')" @click="form.deny = form.deny.filter(x => x !== d)">
+            <UIcon name="i-lucide-x" class="size-3" />
+          </button>
+        </UBadge>
+        <form v-if="isAdmin" class="flex items-center gap-1" @submit.prevent="addDeny">
+          <UInput v-model="newDeny" size="xs" placeholder="migrations/" class="w-36 font-mono" />
+          <UButton type="submit" size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" />
+        </form>
+      </div>
+    </UCard>
+
+    <div>
+      <button type="button" class="flex items-center gap-1 text-sm text-(--ui-text-muted) hover:text-(--ui-text)" @click="advanced = !advanced">
+        <UIcon :name="advanced ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4" />{{ t('policy.advanced') }}
+      </button>
+      <UCard v-if="advanced" class="mt-2" :ui="{ body: 'space-y-4 sm:p-4' }">
+        <UFormField v-if="form.edit_mode === 'worktree'" :label="t('policy.worktreeLinks')" :hint="t('policy.worktreeLinksDesc')">
+          <UTextarea v-model="form.links" :rows="2" :disabled="!isAdmin" class="w-full font-mono" placeholder="apps/web/.cache" />
+        </UFormField>
+        <UTooltip :text="t('policy.isolateClaudeDesc')">
+          <USwitch v-model="form.isolate_claude" :disabled="!isAdmin" :label="t('policy.isolateClaude')" />
+        </UTooltip>
+      </UCard>
+    </div>
 
     <UButton v-if="isAdmin" icon="i-lucide-save" :label="t('policy.save')" :loading="saving" @click="save" />
   </div>

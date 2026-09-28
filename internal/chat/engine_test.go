@@ -16,6 +16,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -166,10 +167,12 @@ func TestAnthropicToolLoopAndPatch(t *testing.T) {
 }
 
 func TestClaudeCLIRunnerStreams(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "claude")
+	tmp := t.TempDir()
+	bin, argsLog := filepath.Join(tmp, "claude"), filepath.Join(tmp, "args")
 	os.WriteFile(bin, []byte(`#!/bin/sh
+echo "$*" >> `+argsLog+`
 case "$*" in *"--tools Read,Glob,Grep"*) ;; *) echo "missing read-only tools: $*" >&2; exit 2;; esac
-case "$*" in *"--setting-sources project,local"*) ;; *) echo "not isolated" >&2; exit 2;; esac
+case "$*" in *"--permission-mode dontAsk"*) ;; *) echo "may ask or bypass: $*" >&2; exit 2;; esac
 cat >/dev/null
 echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
 echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Xin "}}}'
@@ -211,5 +214,29 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"Xin chào"
 	runs, _ := f.st.Runs().List(ctx, storage.RunFilter{Limit: 5})
 	if len(runs) != 1 || runs[0].CostSource != "provider" || runs[0].InputTokens != 105 {
 		t.Fatalf("runs = %+v", runs)
+	}
+	// default: the user's own CLI setup, with skills
+	b, _ := os.ReadFile(argsLog)
+	if a := string(b); !strings.Contains(a, "--setting-sources user,project,local") || strings.Contains(a, "--strict-mcp-config") ||
+		!strings.Contains(a, "--tools Read,Glob,Grep,Skill") {
+		t.Fatalf("default args = %s", a)
+	}
+
+	// isolated project: no user setup, no MCP servers but the office's, no skills
+	pol := perm.DefaultPolicy()
+	pol.IsolateClaude = true
+	if err := perm.SavePolicy(ctx, f.st, f.project.ID, pol); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(argsLog)
+	turn, _, err = f.engine.Send(ctx, conv.ID, "lần nữa", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	b, _ = os.ReadFile(argsLog)
+	if a := string(b); !strings.Contains(a, "--setting-sources project,local") || !strings.Contains(a, "--strict-mcp-config") ||
+		!strings.Contains(a, "--disable-slash-commands") || strings.Contains(a, "Skill") {
+		t.Fatalf("isolated args = %s", a)
 	}
 }

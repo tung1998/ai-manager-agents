@@ -109,6 +109,11 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Cập nhật từ bản phát hành; gộp dashboard vào file chạy | Chưa làm |
 | Quy tắc chia việc (quy ước chung, ≤3 file/việc, không chồng file, phụ thuộc) và quyền theo gói cho agent/chế độ/project (ADR-032) | Xong |
 | Vòng sửa tới khi đạt; dừng khi không sửa được, cần người dùng trả lời, hết ngân sách hoặc không tiến triển (ADR-033) | Xong |
+| Quyền git cho agent; trao đổi tiếp với quản lý sau Việc (ADR-034) | Xong |
+| Quyền lẻ, gói là preset, lệnh chạy theo gói lệnh (ADR-035) | Xong |
+| Dashboard: giao diện sáng/tối, tiếng Việt/tiếng Anh, i18n toàn bộ + kiểm tra thiếu dịch | Xong |
+| Claude Code mặc định dùng cấu hình như CLI (MCP, skill, plugin), luôn `dontAsk`; tùy chọn cô lập theo project (ADR-036) | Xong |
+| Agent sửa file và chạy build/test trong git worktree riêng cho mỗi Chat/Việc, diff lấy từ git rồi gộp; tùy chọn sửa thẳng như CLI (ADR-037) | Xong |
 | Việc định kỳ, cảnh báo, `doctor` | Chưa làm |
 
 ### M0: Nền móng

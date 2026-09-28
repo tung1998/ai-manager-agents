@@ -154,7 +154,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 	case "monitor_detail":
 		out, err = t.monitorDetail(ctx, projectID, in.Name)
 	case "git_status", "git_diff", "git_log":
-		out, err = t.gitRead(ctx, projectID, name, in.Files, in.Lines)
+		out, err = t.gitRead(ctx, projectID, sc.Dir, name, in.Files, in.Lines)
 	case "run_command":
 		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {
 			return "Bạn không có quyền chạy lệnh (gói hiện tại: " + perm.Label(sc.Level) + ")", true
@@ -355,13 +355,17 @@ func (t *Toolbox) monitorDetail(ctx context.Context, projectID, name string) (st
 	return "", fmt.Errorf("không có giám sát %q; xem ops_overview", name)
 }
 
-func (t *Toolbox) gitRead(ctx context.Context, projectID, name string, files []string, lines int) (string, error) {
+// gitRead reads git in the project folder, or in the run's worktree (dir).
+func (t *Toolbox) gitRead(ctx context.Context, projectID, dir, name string, files []string, lines int) (string, error) {
 	p, err := t.store.Repos().Get(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
 	if p.Path == "" {
 		return "", errors.New("project không gắn thư mục")
+	}
+	if dir != "" {
+		p.Path = dir
 	}
 	switch name {
 	case "git_status":

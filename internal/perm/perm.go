@@ -96,18 +96,34 @@ func Agent(a storage.Agent) string {
 
 // Policy is a project's limits on agents.
 type Policy struct {
-	MaxLevel          string   `json:"max_level"`          // cap for every agent and mode
+	MaxLevel          string   `json:"max_level"`          // no longer a cap: always Operate (the chat/task mode is the limit)
 	AllowedCommands   []string `json:"allowed_commands"`   // process ids agents may run on their own (Check+)
 	Commands          []string `json:"commands"`           // command patterns agents may run on their own (commands.run)
 	Packs             []Pack   `json:"packs"`              // the project's own command packs
 	AllowedContainers []string `json:"allowed_containers"` // compose services agents may restart on their own (Operate)
 	DenyPaths         []string `json:"deny_paths"`         // files no diff may touch, at any level
+	// IsolateClaude runs Claude Code without the user's own setup (user settings,
+	// MCP servers, plugins, skills); off = the same setup as the user's CLI.
+	IsolateClaude bool `json:"isolate_claude"`
+	// EditMode is where agents change code: in their own git worktree,
+	// merged after a person approves (EditWorktree, the default), or right in
+	// the project folder like the CLI (EditDirect).
+	EditMode string `json:"edit_mode"`
+	// WorktreeLinks are more ignored folders to link into worktrees, besides
+	// node_modules/.venv (relative to the project).
+	WorktreeLinks []string `json:"worktree_links"`
 }
+
+// Where agents change code (Policy.EditMode).
+const (
+	EditWorktree = "worktree"
+	EditDirect   = "direct"
+)
 
 // DefaultPolicy keeps agents at "propose" and protects secrets.
 func DefaultPolicy() Policy {
-	return Policy{MaxLevel: Propose, AllowedCommands: []string{}, Commands: []string{}, Packs: []Pack{}, AllowedContainers: []string{},
-		DenyPaths: []string{".env", ".env.*", "**/.env", "**/*.pem", "**/*.key"}}
+	return Policy{MaxLevel: Operate, AllowedCommands: []string{}, Commands: []string{}, Packs: []Pack{}, AllowedContainers: []string{},
+		DenyPaths: []string{".env", ".env.*", "**/.env", "**/*.pem", "**/*.key"}, EditMode: EditWorktree, WorktreeLinks: []string{}}
 }
 
 func policyKey(projectID string) string { return "policy:" + projectID }
@@ -118,14 +134,18 @@ func LoadPolicy(ctx context.Context, st storage.Store, projectID string) Policy 
 	if ok, err := st.Settings().Get(ctx, policyKey(projectID), &p); err != nil || !ok {
 		return DefaultPolicy()
 	}
-	if !Valid(p.MaxLevel) {
-		p.MaxLevel = Propose
-	}
+	p.MaxLevel = Operate // the mode picked per chat/task is the limit
 	if p.Commands == nil {
 		p.Commands = []string{}
 	}
 	if p.Packs == nil {
 		p.Packs = []Pack{}
+	}
+	if p.EditMode != EditDirect {
+		p.EditMode = EditWorktree
+	}
+	if p.WorktreeLinks == nil {
+		p.WorktreeLinks = []string{}
 	}
 	return p
 }
