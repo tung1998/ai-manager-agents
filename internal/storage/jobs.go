@@ -10,10 +10,10 @@ import (
 type Job struct {
 	ID             string
 	ProjectID      string
-	Kind           string // chat_turn | task
+	Kind           string // chat_turn | task | script
 	Origin         string // user | automation | monitor | retry
 	OriginID       string // automation id, monitor id or the retried job
-	Trigger        string // ui | schedule | webhook | telegram | discord | manual
+	Trigger        string // ui | schedule | webhook | telegram | discord | manual | escalate
 	CreatedBy      string
 	ConversationID string
 	MessageID      string
@@ -36,6 +36,9 @@ type Job struct {
 	CreatedAt      time.Time
 	StartedAt      *time.Time
 	FinishedAt     *time.Time
+	Output         string // script: the last 64KB of stdout and stderr
+	ExitCode       *int   // script: its exit code
+	ParentJobID    string // escalation: the script job that asked for an agent
 }
 
 // JobFilter narrows a job listing; empty fields match everything.
@@ -87,6 +90,8 @@ type JobRepo interface {
 	// Stats groups jobs by day, kind, origin, agent or status.
 	Stats(ctx context.Context, f JobFilter, by string) ([]JobStats, error)
 	CostSince(ctx context.Context, origin, originID string, since time.Time) (float64, error)
+	// SetOutput stores what a script printed and how it exited.
+	SetOutput(ctx context.Context, id, output string, exitCode int) error
 	// FailRunning ends every running job (the office restarted under them).
 	FailRunning(ctx context.Context, errCode, errMsg string, at time.Time) (int64, error)
 }
@@ -99,12 +104,14 @@ type Automation struct {
 	Enabled        bool
 	Source         string // schedule | webhook | telegram | discord
 	Config         AutomationConfig
-	Action         string // chat | task
+	Action         string // chat | task | script
 	AgentID        string // chat: who answers ("" = first lead)
 	Prompt         string
 	EditMode       string
 	KeepContext    bool
 	Limits         AutomationLimits
+	Script         AutomationScript   // action script
+	Escalate       AutomationEscalate // action script: when to call an agent
 	Failures       int
 	DisabledCode   string
 	DisabledReason string
@@ -134,6 +141,21 @@ type AutomationLimits struct {
 	DebounceSeconds      int     `json:"debounce_seconds,omitempty"`
 	DebounceKey          string  `json:"debounce_key,omitempty"`
 	DebounceMaxSeconds   int     `json:"debounce_max_seconds,omitempty"`
+}
+
+// AutomationScript is code an automation runs, without AI (ADR-041).
+type AutomationScript struct {
+	Lang     string `json:"lang,omitempty"` // bash | node | python
+	Body     string `json:"body,omitempty"`
+	TimeoutS int    `json:"timeout_s,omitempty"`
+}
+
+// AutomationEscalate hands a script's result to an agent when needed.
+type AutomationEscalate struct {
+	When    string `json:"when,omitempty"`   // never | failure | signal
+	Action  string `json:"action,omitempty"` // chat | task
+	AgentID string `json:"agent_id,omitempty"`
+	Prompt  string `json:"prompt,omitempty"`
 }
 
 // AutomationRepo stores automations.

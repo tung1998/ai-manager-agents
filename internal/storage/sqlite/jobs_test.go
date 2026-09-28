@@ -120,3 +120,35 @@ func TestDebounceOnlyTouchesPending(t *testing.T) { // I2
 		t.Fatalf("job = %+v", got)
 	}
 }
+
+func TestScriptJobsAndAutomations(t *testing.T) { // ADR-041
+	ctx := context.Background()
+	st, p := openStore(t)
+	j, err := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "script", Origin: "automation", OriginID: "a", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Jobs().SetOutput(ctx, j.ID, "hello\n", 3); err != nil {
+		t.Fatal(err)
+	}
+	child, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: "a", Trigger: "escalate", Status: "pending", ParentJobID: j.ID})
+	got, _ := st.Jobs().Get(ctx, j.ID)
+	if got.Output != "hello\n" || got.ExitCode == nil || *got.ExitCode != 3 {
+		t.Fatalf("script job = %+v", got)
+	}
+	if c, _ := st.Jobs().Get(ctx, child.ID); c.ParentJobID != j.ID {
+		t.Fatalf("child = %+v", c)
+	}
+	if list, _ := st.Jobs().List(ctx, storage.JobFilter{Kind: "script"}); len(list) != 1 {
+		t.Fatalf("script jobs = %d", len(list))
+	}
+	a, err := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "log", Source: "schedule", Action: "script", Enabled: true,
+		Script:   storage.AutomationScript{Lang: "bash", Body: "echo ok", TimeoutS: 60},
+		Escalate: storage.AutomationEscalate{When: "failure", Action: "chat", Prompt: "Lỗi: {{output}}"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := st.Automations().Get(ctx, a.ID); b.Script.Body != "echo ok" || b.Escalate.When != "failure" || b.Action != "script" {
+		t.Fatalf("automation = %+v", b)
+	}
+}
