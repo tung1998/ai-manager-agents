@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -51,7 +52,11 @@ func (t *Telegram) call(ctx context.Context, method string, body any, out any) e
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return err
+		var ue *url.Error
+		if errors.As(err, &ue) { // its text has the URL, and the URL has the token
+			return fmt.Errorf("telegram %s: %v", method, ue.Err)
+		}
+		return fmt.Errorf("telegram %s: lỗi mạng", method)
 	}
 	defer resp.Body.Close()
 	var env struct {
@@ -146,11 +151,9 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 		in.Text = text
 		return in, true
 	}
-	tag := "@" + t.bot
 	switch {
-	case t.bot != "" && strings.Contains(strings.ToLower(text), strings.ToLower(tag)):
-		i := strings.Index(strings.ToLower(text), strings.ToLower(tag))
-		in.Text = strings.TrimSpace(text[:i] + text[i+len(tag):])
+	case t.bot != "" && removeTag(&text, "@"+t.bot):
+		in.Text = strings.TrimSpace(text)
 	case m.ReplyTo != nil && strings.EqualFold(m.ReplyTo.From.Username, t.bot):
 		in.Text = text
 	default:
@@ -196,4 +199,17 @@ func chunks(text string, n int) []string {
 		out = append(out, text)
 	}
 	return out
+}
+
+// removeTag drops the first "@bot" (any case) from s, rune by rune so a
+// character that changes length when lowercased never throws the index off.
+func removeTag(s *string, tag string) bool {
+	rs, tr := []rune(*s), []rune(tag)
+	for i := 0; i+len(tr) <= len(rs); i++ {
+		if strings.EqualFold(string(rs[i:i+len(tr)]), tag) {
+			*s = string(rs[:i]) + string(rs[i+len(tr):])
+			return true
+		}
+	}
+	return false
 }

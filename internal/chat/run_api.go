@@ -49,6 +49,9 @@ func fileTools(req RunRequest) []struct {
 	Name, Description string
 	Schema            map[string]any
 } {
+	if req.NoTools {
+		return nil
+	}
 	if !req.Write {
 		return workspaceTools
 	}
@@ -56,7 +59,7 @@ func fileTools(req RunRequest) []struct {
 }
 
 func officeTools(req RunRequest) []officetools.Tool {
-	if req.Office == nil || req.Office.Tools == nil {
+	if req.Office == nil || req.Office.Tools == nil || req.NoTools {
 		return nil
 	}
 	return req.Office.Tools.ToolsFor(req.Office.Scope)

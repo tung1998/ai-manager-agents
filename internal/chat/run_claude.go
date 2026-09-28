@@ -32,6 +32,20 @@ var claudeReadTools = []string{"Read", "Glob", "Grep"}
 const userMCPSettings = `{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"agent-office: MCP của người dùng\"}}'"}]}]}}`
 
 func (claudeRunner) args(req RunRequest, resume bool) []string {
+	if req.NoTools { // answered from the conversation only
+		a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "dontAsk",
+			"--setting-sources", "user,project,local", "--tools", ""}
+		if req.Model != "" {
+			a = append(a, "--model", req.Model)
+		}
+		if req.System != "" {
+			a = append(a, "--append-system-prompt", req.System)
+		}
+		if resume && req.SessionID != "" {
+			a = append(a, "--resume", req.SessionID)
+		}
+		return a
+	}
 	tools := append(slices.Clone(claudeReadTools), "Skill")
 	// dontAsk: whatever is not allowed is denied, whatever the user's defaultMode
 	a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "dontAsk",
@@ -102,7 +116,7 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 	for _, d := range dirs {
 		args = append(args, "--add-dir", d)
 	}
-	if req.Office != nil {
+	if req.Office != nil && !req.NoTools {
 		// the office MCP server; the token goes in a private temp file, not argv
 		cfg, err := writeMCPConfig(req.Office)
 		if err != nil {

@@ -59,6 +59,9 @@ type RunRequest struct {
 	// UserMCP lets it use the MCP servers of the person's own setup
 	// (perm.CapUserMCP); otherwise only office's tools.
 	UserMCP bool
+	// NoTools: people outside office drive this run (a Telegram/Discord
+	// channel, ADR-048): no file, MCP or office tools at all.
+	NoTools bool
 }
 
 // OfficeAccess lets one run read the project's operations data: Claude Code

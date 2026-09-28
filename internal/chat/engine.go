@@ -666,9 +666,14 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if conv.TaskID == "" && conv.Purpose == "" {
 		req.System += e.groupBrief(ctx, conv, agent)
 	}
-	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Office: e.isAssistant(ctx, project.ID), Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
-	defer revoke()
-	req.Office = office
+	if conv.Purpose == "channel" || noTools(ctx) {
+		// people outside office drive it (ADR-048): the conversation only
+		req.NoTools, req.UserMCP, req.Write = true, false, false
+	} else {
+		office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Office: e.isAssistant(ctx, project.ID), Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
+		defer revoke()
+		req.Office = office
+	}
 	// the agent's own session in this chat (ADR-044); coming back, it gets
 	// what the others said since its last answer
 	mem := e.member(ctx, conv, agent)
@@ -1001,9 +1006,13 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	req := RunRequest{Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: prompt,
 		Attachments: files, Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP)}
 	req.System = systemPrompt(project, agent, e.office != nil, acc, pl)
-	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, TaskID: tc.id, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), JobID: usage.JobFrom(ctx), Agent: agent.Name, Level: acc.Level, Access: acc, Dir: treeDir(pl)})
-	defer revoke()
-	req.Office = office
+	if noTools(ctx) { // untrusted text (a channel's scope filter): a plain answer
+		req.NoTools, req.UserMCP, req.Write = true, false, false
+	} else {
+		office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, TaskID: tc.id, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), JobID: usage.JobFrom(ctx), Agent: agent.Name, Level: acc.Level, Access: acc, Dir: treeDir(pl)})
+		defer revoke()
+		req.Office = office
+	}
 	res, runErr := runnerFor(p.Kind).Run(ctx, req, emit)
 	e.keepLimits(p, res.Limits)
 	out := InvokeResult{Text: res.Text, Tools: res.Tools, Provider: p.Name, Model: firstNonEmpty(res.Usage.Model, model), Dir: treeDir(pl), Wrote: pl.write}

@@ -77,7 +77,9 @@ func TestManagerAnswersFiltersAndAllows(t *testing.T) {
 	org.SeedBuiltins(ctx)
 	bin := filepath.Join(tmp, "claude")
 	// the filter call gets "YES/NO" questions; an answer otherwise
+	argsLog := filepath.Join(tmp, "args.log")
 	os.WriteFile(bin, []byte(`#!/bin/sh
+printf '%s\n===\n' "$*" >> `+argsLog+`
 in=$(cat)
 out="đơn 123 đang giao"
 case "$in" in *"YES hoặc NO"*) out=NO; case "$in" in *"đơn hàng"*"đơn 123"*) out=YES;; esac;; esac
@@ -128,5 +130,37 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	got, _ := st.Channels().Get(ctx, ch.ID)
 	if got.BotName != "shop_bot" || got.LastMessageAt == nil {
 		t.Fatalf("status = %+v", got)
+	}
+	// review C2/C3: outside people drive these runs: no file, MCP or office tools
+	raw, _ := os.ReadFile(argsLog)
+	for _, call := range strings.Split(strings.TrimSpace(string(raw)), "\n===") {
+		line, _, _ := strings.Cut(call, "--append-system-prompt")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.Contains(line, "--tools  ") || strings.Contains(line, "--settings") || strings.Contains(line, "--mcp-config") || strings.Contains(line, "Read") {
+			t.Errorf("a channel run had tools: %s", line)
+		}
+	}
+}
+
+// Review I6: a flood from one chat is not queued without end.
+func TestFloodIsCapped(t *testing.T) {
+	if n := channels.MaxPending; n < 1 || n > 5 {
+		t.Fatalf("MaxPending = %d", n)
+	}
+	var q channels.Pending
+	taken := 0
+	for range 20 {
+		if q.Take("chat") {
+			taken++
+		}
+	}
+	if taken != channels.MaxPending {
+		t.Fatalf("took %d of 20, want %d", taken, channels.MaxPending)
+	}
+	q.Done("chat")
+	if !q.Take("chat") {
+		t.Fatal("a slot freed is not taken again")
 	}
 }

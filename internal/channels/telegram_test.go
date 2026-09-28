@@ -78,3 +78,25 @@ func TestTelegram(t *testing.T) {
 		t.Fatalf("sent %d parts", len(sent))
 	}
 }
+
+// Review C1: a tag after characters that grow when lowercased never panics.
+func TestTelegramMentionUnicode(t *testing.T) {
+	tg := &Telegram{bot: "shop_bot"}
+	for _, text := range []string{"ȺȺȺ @shop_bot đơn 1", "@SHOP_BOT ẞ hỏi", "İİİİ @Shop_Bot"} {
+		m := &tgMessage{Text: text}
+		m.Chat.Type = "group"
+		in, ok := tg.addressed(m)
+		if !ok || strings.Contains(strings.ToLower(in.Text), "@shop_bot") {
+			t.Errorf("%q → %q %v", text, in.Text, ok)
+		}
+	}
+}
+
+// Review I4: an error never carries the bot token (it is in the URL).
+func TestTelegramErrorHidesToken(t *testing.T) {
+	tg := &Telegram{Token: "123:SECRET", BaseURL: "http://127.0.0.1:1"}
+	err := tg.call(context.Background(), "getMe", map[string]any{}, nil)
+	if err == nil || strings.Contains(err.Error(), "SECRET") {
+		t.Fatalf("err = %v", err)
+	}
+}

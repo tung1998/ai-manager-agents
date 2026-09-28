@@ -31,3 +31,13 @@ func withTier(ctx context.Context, a storage.Agent) storage.Agent {
 	}
 	return a
 }
+
+type noToolsKey struct{}
+
+// WithNoTools makes the runs of ctx tool-less (untrusted text drives them,
+// e.g. a channel's scope filter).
+func WithNoTools(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noToolsKey{}, true)
+}
+
+func noTools(ctx context.Context) bool { v, _ := ctx.Value(noToolsKey{}).(bool); return v }

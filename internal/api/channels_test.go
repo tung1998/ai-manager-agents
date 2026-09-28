@@ -16,8 +16,12 @@ func TestChannelsAPI(t *testing.T) {
 	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/channels", map[string]any{"kind": "slack", "name": "x", "token": "t"}, nil); resp.StatusCode != 400 {
 		t.Fatalf("unknown kind = %d", resp.StatusCode)
 	}
-	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/channels", map[string]any{"kind": "telegram", "name": "x"}, nil); resp.StatusCode != 400 {
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/channels", map[string]any{"kind": "telegram", "name": "x", "allow": []string{"*"}}, nil); resp.StatusCode != 400 {
 		t.Fatalf("no token = %d", resp.StatusCode)
+	}
+	// review C2: an enabled channel names who may use it ("*" = anyone, on purpose)
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/channels", map[string]any{"kind": "telegram", "name": "x", "token": "t"}, nil); resp.StatusCode != 400 {
+		t.Fatalf("an open channel without an allow list = %d", resp.StatusCode)
 	}
 	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/channels", map[string]any{
 		"kind": "telegram", "name": "Hỗ trợ", "token": "123:secret-bot-token", "scope": "đơn hàng", "filter_enabled": true, "allow": []string{"42"}}, nil)

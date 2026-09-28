@@ -103,6 +103,9 @@ func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
 	if c.TokenEnc == "" {
 		return errors.New("cần token của bot")
 	}
+	if c.Enabled && len(c.Allow) == 0 {
+		return errors.New("hãy nhập chat/user id được phép nhắn bot, hoặc * để cho mọi người (người lạ sẽ nhắn được agent)")
+	}
 	return nil
 }
 
