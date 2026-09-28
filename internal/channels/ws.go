@@ -106,7 +106,7 @@ func (w *wsConn) Read() (string, error) {
 			}
 			n = binary.BigEndian.Uint64(b)
 		}
-		if n > 16<<20 {
+		if n > 16<<20 || uint64(len(msg))+n > 16<<20 { // a frame, or fragments together
 			return "", errors.New("websocket: frame too large")
 		}
 		var mask []byte
@@ -126,7 +126,10 @@ func (w *wsConn) Read() (string, error) {
 			}
 		}
 		switch op {
-		case 0x8: // close
+		case 0x8: // close: its code says why (Discord's 4004 = bad token…)
+			if len(p) >= 2 {
+				return "", &CloseError{Code: int(binary.BigEndian.Uint16(p))}
+			}
 			return "", io.EOF
 		case 0x9: // ping
 			_ = w.write(0xA, p)
@@ -141,6 +144,11 @@ func (w *wsConn) Read() (string, error) {
 		}
 	}
 }
+
+// CloseError is a close frame from the server.
+type CloseError struct{ Code int }
+
+func (e *CloseError) Error() string { return fmt.Sprintf("websocket close %d", e.Code) }
 
 // WriteText sends a text message.
 func (w *wsConn) WriteText(s string) error { return w.write(0x1, []byte(s)) }

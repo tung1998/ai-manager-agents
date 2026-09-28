@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -29,6 +30,12 @@ func wsServe(t *testing.T, onOpen func(send func(string)), handle func(msg strin
 		rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + base64.StdEncoding.EncodeToString(h[:]) + "\r\n\r\n")
 		rw.Flush()
 		send := func(s string) {
+			if code, ok := strings.CutPrefix(s, "CLOSE:"); ok { // a close frame with that code
+				var n int
+				fmt.Sscan(code, &n)
+				conn.Write([]byte{0x88, 2, byte(n >> 8), byte(n)})
+				return
+			}
 			frame := []byte{0x81}
 			switch n := len(s); {
 			case n < 126:

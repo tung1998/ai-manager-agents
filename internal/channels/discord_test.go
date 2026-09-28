@@ -82,3 +82,21 @@ func TestDiscord(t *testing.T) {
 		t.Fatalf("posted = %d %v", len(posted), posted)
 	}
 }
+
+// A gateway close that retrying cannot heal (bad token, intents not enabled)
+// stops the bot with a reason instead of reconnecting forever.
+func TestDiscordStopsOnFatalClose(t *testing.T) {
+	for code, want := range map[string]string{"4004": "token", "4014": "Message Content"} {
+		gw := wsServe(t, func(send func(string)) {
+			send(`{"op":10,"d":{"heartbeat_interval":45000}}`)
+		}, func(msg string, send func(string)) { send("CLOSE:" + code) })
+		d := &Discord{Token: "TOK", GatewayURL: "ws" + strings.TrimPrefix(gw.URL, "http")}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err := d.Run(ctx, func(string) {}, func(Incoming) {})
+		if ctx.Err() != nil || err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("close %s: err = %v (timed out: %v)", code, err, ctx.Err() != nil)
+		}
+		cancel()
+		gw.Close()
+	}
+}

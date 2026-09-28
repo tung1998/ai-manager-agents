@@ -37,6 +37,7 @@ type Telegram struct {
 	BaseURL string // "" = https://api.telegram.org
 	client  http.Client
 	bot     string
+	retry   time.Duration // wait before retrying a failed call (0 = 5s)
 }
 
 func (t *Telegram) call(ctx context.Context, method string, body any, out any) error {
@@ -98,8 +99,26 @@ func (t *Telegram) Run(ctx context.Context, onReady func(string), onMessage func
 	var me struct {
 		Username string `json:"username"`
 	}
-	if err := t.call(ctx, "getMe", map[string]any{}, &me); err != nil {
-		return err
+	wait := t.retry
+	if wait == 0 {
+		wait = 5 * time.Second
+	}
+	for backoff := wait; ; backoff = min(backoff*2, 12*wait) { // a network hiccup at start is retried
+		err := t.call(ctx, "getMe", map[string]any{}, &me)
+		if err == nil {
+			break
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		if strings.Contains(err.Error(), "Unauthorized") || strings.Contains(err.Error(), "Not Found") {
+			return err // a wrong token does not heal by retrying
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(backoff):
+		}
 	}
 	t.bot = me.Username
 	onReady(me.Username)

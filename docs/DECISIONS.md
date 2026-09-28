@@ -1192,6 +1192,10 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Thẻ tạo kết nối có ô dán key. Key đi từ trình duyệt vào lệnh duyệt (`POST /api/actions/:id/approve {api_key}`), AI không bao giờ thấy.
 - **Thẻ duyệt** hiện loại cài đặt, thao tác, và bảng trước/sau của từng trường.
 - **Để sau:** `org_model`; cho `actions.project_id` được rỗng (cần khi có trợ lý ngoài project).
+- **Sửa sau review:**
+  - Đề xuất chỉ bị coi là cũ khi **các trường sửa được** đổi. Lúc đề xuất lưu `hash` (SHA-256 của các trường đó, chưa che bí mật) và `before` (đã che, để hiện trên thẻ). Một lần chạy làm đổi `last_run_at` hay số lần lỗi không làm đề xuất bị cũ. Còn bí mật bị đổi thì vẫn bị phát hiện.
+  - `propose_change` cần quyền Đề xuất trở lên, trừ phạm vi office.
+  - `usage_settings` và `provider` là cài đặt chung: chỉ đề xuất được từ phạm vi office (trợ lý office hoặc CLI).
 
 ## ADR-046: Trợ lý office (phần 3)
 
@@ -1213,6 +1217,11 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - **Giao diện:**
   - Mục "Trợ lý office" trên sidebar, trang `/assistant`.
   - Chat ở góc: ngoài project là trợ lý. Trong project có nút chọn "Project này" hoặc "Toàn office".
+- **Sửa sau review:** chat trợ lý là riêng của từng người, và điều này được kiểm ở phía server:
+  - mở, gửi tin, xem stream, dừng, xóa cuộc chat của người khác đều trả 404;
+  - job của những cuộc chat đó không hiện ở trang Jobs;
+  - `jobs_query` bỏ qua job của project Office;
+  - `read_link` không đọc được chat của trợ lý.
 
 ## ADR-047: MCP cho Claude Code CLI của người dùng (phần 4)
 
@@ -1240,3 +1249,11 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - **Chạy kênh:** `channels.Manager` chạy các kênh đang bật và khởi động lại kênh khi cấu hình đổi. Trạng thái lưu gồm tên bot, lỗi, tin gần nhất.
 - **Giao diện:** mục **Kênh chat** trong project (chỉ admin), có form tạo/sửa và hướng dẫn tạo bot.
 - **Ruling:** cột `origin` của jobs không có giá trị `channel`. Để không phải dựng lại bảng jobs, lượt từ kênh được ghi là `origin=user`, còn kênh nào thì phân biệt qua `trigger` và `origin_id`.
+- **Sửa sau review:**
+  - Lượt từ kênh chạy **không có công cụ**: không MCP, không đọc hay sửa file. Bộ lọc phạm vi cũng vậy.
+  - Danh sách được phép là bắt buộc: `*` là ai cũng nhắn được, còn để trống thì không ai nhắn được. Muốn bật kênh cần ít nhất một dòng.
+  - Mỗi cuộc chat chỉ có tối đa 3 tin chờ; tin dồn dập vượt quá bị bỏ.
+  - Tag Unicode không làm crash nữa, và panic không làm sập office.
+  - Lỗi không để lộ token.
+  - Telegram thử lại `getMe` khi lỗi mạng, chỉ dừng khi token sai.
+  - Discord dừng và báo lý do với các mã đóng không tự khỏi được (4004, 4010–4014; 4014 là chưa bật Message Content Intent). Sau một phiên chạy tốt, thời gian chờ nối lại quay về 1 giây.

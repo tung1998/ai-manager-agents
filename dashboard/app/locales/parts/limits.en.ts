@@ -36,7 +36,7 @@ const en: Record<keyof typeof vi, string> = {
   'channels.mode': 'Highest permission',
   'channels.modeHelp': 'For outside people, keep it Read',
   'channels.allow': 'Allow only (chat/user ids)',
-  'channels.allowHelp': 'One id per line; empty = anyone',
+  'channels.allowHelp': 'One chat or user id per line; * = anyone. At least one line is needed to turn the channel on',
   'channels.scope': 'Answers about',
   'channels.scopeHelp': 'The topics the bot answers',
   'channels.filter': 'Filter off-topic messages',

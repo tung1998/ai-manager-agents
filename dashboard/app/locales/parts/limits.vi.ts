@@ -35,7 +35,7 @@ export default {
   'channels.mode': 'Quyền tối đa',
   'channels.modeHelp': 'Người ngoài nhắn nên để Chỉ đọc',
   'channels.allow': 'Chỉ cho phép (chat/user id)',
-  'channels.allowHelp': 'Mỗi dòng một id; để trống thì ai cũng nhắn được',
+  'channels.allowHelp': 'Mỗi dòng một id chat hoặc id người dùng; * = ai cũng nhắn được. Phải có ít nhất một dòng mới bật được kênh',
   'channels.scope': 'Phạm vi trả lời',
   'channels.scopeHelp': 'Bot trả lời về những chủ đề nào',
   'channels.filter': 'Lọc câu ngoài phạm vi',

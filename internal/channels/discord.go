@@ -36,12 +36,18 @@ type gwPayload struct {
 func (d *Discord) Run(ctx context.Context, onReady func(string), onMessage func(Incoming)) error {
 	backoff := time.Second
 	for ctx.Err() == nil {
-		err := d.session(ctx, onReady, onMessage)
+		ready, err := d.session(ctx, onReady, onMessage)
 		if ctx.Err() != nil {
 			return nil
 		}
-		if err != nil && strings.Contains(err.Error(), "4004") {
-			return errors.New("discord: token không hợp lệ") // authentication failed: no retry
+		var ce *CloseError
+		if errors.As(err, &ce) {
+			if why, fatal := discordFatal[ce.Code]; fatal {
+				return errors.New("discord: " + why) // retrying cannot heal these
+			}
+		}
+		if ready {
+			backoff = time.Second // a session that worked: a quick reconnect
 		}
 		select {
 		case <-ctx.Done():
@@ -53,7 +59,17 @@ func (d *Discord) Run(ctx context.Context, onReady func(string), onMessage func(
 	return nil
 }
 
-func (d *Discord) session(ctx context.Context, onReady func(string), onMessage func(Incoming)) error {
+// discordFatal are the gateway close codes a reconnect does not fix.
+var discordFatal = map[int]string{
+	4004: "token không hợp lệ",
+	4010: "shard không hợp lệ",
+	4011: "bot cần sharding",
+	4012: "phiên bản gateway không hợp lệ",
+	4013: "intents không hợp lệ",
+	4014: "bot chưa được bật Message Content Intent (Developer Portal → Bot → Privileged Gateway Intents)",
+}
+
+func (d *Discord) session(ctx context.Context, onReady func(string), onMessage func(Incoming)) (ready bool, err error) {
 	url := d.GatewayURL
 	if url == "" {
 		url = "wss://gateway.discord.gg/?v=10&encoding=json"
@@ -62,10 +78,11 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 	c, err := dialWS(dctx, url)
 	cancel()
 	if err != nil {
-		return err
+		return false, err
 	}
-	defer c.Close()
-	go func() { <-ctx.Done(); c.Close() }()
+	sctx, end := context.WithCancel(ctx)
+	defer end()
+	go func() { <-sctx.Done(); c.Close() }() // ctx ending unblocks Read; the session ending frees this
 	var seq atomic.Int64
 	seq.Store(-1)
 	next := func() (gwPayload, error) {
@@ -84,10 +101,10 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 	}
 	hello, err := next()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if hello.Op != 10 {
-		return fmt.Errorf("discord: expected hello, got op %d", hello.Op)
+		return false, fmt.Errorf("discord: expected hello, got op %d", hello.Op)
 	}
 	var h struct {
 		Interval int `json:"heartbeat_interval"`
@@ -96,7 +113,7 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 	if h.Interval <= 0 {
 		h.Interval = 41250
 	}
-	hbCtx, stop := context.WithCancel(ctx)
+	hbCtx, stop := context.WithCancel(sctx)
 	defer stop()
 	go func() {
 		tick := time.NewTicker(time.Duration(h.Interval) * time.Millisecond)
@@ -120,16 +137,16 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 	identify, _ := json.Marshal(map[string]any{"op": 2, "d": map[string]any{"token": d.Token, "intents": discordIntents,
 		"properties": map[string]string{"os": "linux", "browser": "agent-office", "device": "agent-office"}}})
 	if err := c.WriteText(string(identify)); err != nil {
-		return err
+		return false, err
 	}
 	for {
 		p, err := next()
 		if err != nil {
-			return err
+			return ready, err
 		}
 		switch p.Op {
 		case 7, 9: // reconnect, invalid session
-			return errors.New("discord: gateway asked to reconnect")
+			return ready, errors.New("discord: gateway asked to reconnect")
 		case 1:
 			_ = c.WriteText(fmt.Sprintf(`{"op":1,"d":%d}`, seq.Load()))
 		case 0:
