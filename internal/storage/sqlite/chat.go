@@ -140,7 +140,7 @@ func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]st
 	return out, rows.Err()
 }
 
-const patchCols = `id, conversation_id, message_id, task_id, step_id, diff, files, status, detail, decided_by, decided_at, created_at, origin`
+const patchCols = `id, conversation_id, message_id, task_id, step_id, diff, files, status, detail, decided_by, decided_at, created_at, origin, tree`
 
 func scanPatch(row scanner) (storage.Patch, error) {
 	var (
@@ -148,7 +148,7 @@ func scanPatch(row scanner) (storage.Patch, error) {
 		files, created             string
 		decided, conv, msg, tk, st sql.NullString
 	)
-	if err := row.Scan(&p.ID, &conv, &msg, &tk, &st, &p.Diff, &files, &p.Status, &p.Detail, &p.DecidedBy, &decided, &created, &p.Origin); err != nil {
+	if err := row.Scan(&p.ID, &conv, &msg, &tk, &st, &p.Diff, &files, &p.Status, &p.Detail, &p.DecidedBy, &decided, &created, &p.Origin, &p.Tree); err != nil {
 		return p, notFound(err)
 	}
 	p.ConversationID, p.MessageID, p.TaskID, p.StepID = conv.String, msg.String, tk.String, st.String
@@ -178,9 +178,9 @@ func (r chatRepo) AddPatch(ctx context.Context, p storage.Patch) (storage.Patch,
 		p.Files = []string{}
 	}
 	p.CreatedAt = time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `INSERT INTO patches (`+patchCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO patches (`+patchCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, nullStr(p.ConversationID), nullStr(p.MessageID), nullStr(p.TaskID), nullStr(p.StepID), p.Diff, toJSON(p.Files), p.Status,
-		p.Detail, p.DecidedBy, nil, fmtTime(p.CreatedAt), p.Origin)
+		p.Detail, p.DecidedBy, nil, fmtTime(p.CreatedAt), p.Origin, p.Tree)
 	return p, err
 }
 

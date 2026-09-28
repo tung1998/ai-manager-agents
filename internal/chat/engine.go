@@ -137,21 +137,25 @@ type Engine struct {
 	trees     *worktree.Manager
 
 	mu     sync.Mutex
-	active map[string]*Turn // conversation id → running turn (the one the person waits for)
-	bg     map[string]*Turn // conversation id + "/" + agent id → a hand-off running in the background
-	turns  map[string]*Turn // turn id → turn (kept a while for replay)
-	direct map[string]bool  // projects with a chat editing the project folder right now
+	active map[string]*Turn        // conversation id → running turn (the one the person waits for)
+	bg     map[string]*Turn        // conversation id + "/" + agent id → a hand-off running in the background
+	handed map[string][]delegation // turn id → tasks its agent gave others with the delegate tool
+	turns  map[string]*Turn        // turn id → turn (kept a while for replay)
+	direct map[string]bool         // projects with a chat editing the project folder right now
 }
 
 // NewEngine builds an Engine.
 func NewEngine(store storage.Store, providers *provider.Service, u *usage.Service) *Engine {
-	return &Engine{store: store, providers: providers, usage: u, active: map[string]*Turn{}, bg: map[string]*Turn{}, turns: map[string]*Turn{}, direct: map[string]bool{}}
+	return &Engine{store: store, providers: providers, usage: u, active: map[string]*Turn{}, bg: map[string]*Turn{}, handed: map[string][]delegation{}, turns: map[string]*Turn{}, direct: map[string]bool{}}
 }
 
 // SetOffice gives agents the office tools: over MCP at mcpURL (Claude Code)
 // and directly (API agents).
 func (e *Engine) SetOffice(tools *officetools.Toolbox, mcp *mcpserver.Server, mcpURL string) {
 	e.office, e.mcp, e.mcpURL = tools, mcp, mcpURL
+	if tools != nil {
+		tools.SetDelegate(e.Delegate)
+	}
 }
 
 // SetWorktrees lets agents work in their own git worktrees (ADR-037).
@@ -688,7 +692,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	if pl.tree != "" {
 		// what the agent changed in its worktree, all pending changes in one diff
-		if pt, ok := e.treePatch(ctx, conv, msg.ID, pl.dir, policy); ok {
+		if pt, ok := e.treePatch(ctx, conv, msg.ID, pl.dir, pl.tree, policy); ok {
 			saved, err := e.store.Chat().AddPatch(context.Background(), pt)
 			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) {
 				if d, derr := e.DecidePatch(actor.With(context.Background(), "auto:"+agent.Name+" ("+perm.Label(level)+")"), saved.ID, true); derr == nil {
@@ -748,10 +752,10 @@ func treeDir(pl place) string {
 // treePatch turns the pending changes of a conversation's worktree into one
 // diff, replacing the earlier pending one. Protected files are put back.
 // ok is false when nothing changed since the last diff.
-func (e *Engine) treePatch(ctx context.Context, conv storage.Conversation, messageID, dir string, policy perm.Policy) (storage.Patch, bool) {
+func (e *Engine) treePatch(ctx context.Context, conv storage.Conversation, messageID, dir, tree string, policy perm.Policy) (storage.Patch, bool) {
 	files, err := worktree.Changed(ctx, dir)
 	if err != nil {
-		return storage.Patch{ConversationID: conv.ID, MessageID: messageID, TaskID: conv.TaskID, Origin: "worktree", Status: "failed",
+		return storage.Patch{ConversationID: conv.ID, MessageID: messageID, TaskID: conv.TaskID, Origin: "worktree", Tree: tree, Status: "failed",
 			Detail: "không đọc được thay đổi trong worktree: " + err.Error()}, true
 	}
 	detail := ""
@@ -766,8 +770,8 @@ func (e *Engine) treePatch(ctx context.Context, conv storage.Conversation, messa
 	now := time.Now().UTC()
 	if old, err := e.store.Chat().ListPatches(ctx, conv.ID); err == nil {
 		for _, p := range old {
-			if p.Origin != "worktree" || p.Status != "pending" {
-				continue
+			if p.Origin != "worktree" || p.Status != "pending" || e.patchTree(p) != tree {
+				continue // another agent's worktree: its diff stays (ADR-044)
 			}
 			if p.Diff == diff {
 				return storage.Patch{}, false // nothing new this turn
@@ -775,7 +779,19 @@ func (e *Engine) treePatch(ctx context.Context, conv storage.Conversation, messa
 			_ = e.store.Chat().DecidePatch(ctx, p.ID, "rejected", "Thay bằng thay đổi mới hơn", "office", now)
 		}
 	}
-	return storage.Patch{ConversationID: conv.ID, MessageID: messageID, TaskID: conv.TaskID, Diff: diff, Files: files, Origin: "worktree", Detail: detail}, true
+	return storage.Patch{ConversationID: conv.ID, MessageID: messageID, TaskID: conv.TaskID, Diff: diff, Files: files, Origin: "worktree", Tree: tree, Detail: detail}, true
+}
+
+// patchTree is the name of the worktree a diff came from (older diffs: the
+// chat's or the task's own).
+func (e *Engine) patchTree(p storage.Patch) string {
+	switch {
+	case p.Tree != "":
+		return p.Tree
+	case p.ConversationID != "":
+		return ChatTree(p.ConversationID)
+	}
+	return TaskTree(p.TaskID)
 }
 
 // treeOf is the worktree a diff was taken from, when it is still there.
@@ -783,10 +799,7 @@ func (e *Engine) treeOf(projectID string, p storage.Patch) string {
 	if e.trees == nil || p.Origin != "worktree" {
 		return ""
 	}
-	name := TaskTree(p.TaskID)
-	if p.ConversationID != "" {
-		name = ChatTree(p.ConversationID)
-	}
+	name := e.patchTree(p)
 	if !e.trees.Exists(projectID, name) {
 		return ""
 	}

@@ -17,6 +17,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
@@ -490,32 +491,92 @@ func (g group) waitAuthors(t *testing.T, n int) []string {
 	}
 }
 
-// ADR-044: an agent's tag hands off in the background (like a subagent);
-// when the other is done, the one who asked reports back; limited hops.
+// delegateDuring hands a task to agent from inside the answer in progress,
+// as the delegate tool does (the fake CLI cannot call office's MCP).
+func (g group) delegateDuring(t *testing.T, agent, task string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if turn, ok := g.engine.Active(g.conv.ID); ok {
+			if _, err := g.engine.Delegate(g.context, officetools.Scope{ProjectID: g.f.project.ID, ConversationID: g.conv.ID, RunRef: turn.ID, Agent: g.leadNm}, agent, task); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no answer in progress")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// ADR-044: an agent hands off with the delegate tool (like a subagent); it runs
+// in the background and the one who asked reports back. A plain @Name in an
+// answer only mentions: it pulls nobody in.
 func TestAgentHandoffRunsInBackground(t *testing.T) {
 	g := newGroup(t)
-	os.WriteFile(filepath.Join(g.dir, "reply-lead"), []byte("nhờ @Dev làm"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "reply-lead"), []byte("như @Dev nói hôm qua"), 0o644)
 	os.WriteFile(filepath.Join(g.dir, "reply-dev"), []byte("xong"), 0o644)
-	if got := g.sendAll(t, "làm việc X"); len(got) != 1 || got[0] != g.leadNm {
-		t.Fatalf("the lead answers at once, got %v", got)
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, "làm việc X", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// lead → Dev (bg) → lead reports and tags again → Dev (bg) → lead reports → hand-off cut
-	got := g.waitAuthors(t, 6)
-	want := []string{g.leadNm, "Dev", g.leadNm, "Dev", g.leadNm, "!"}
+	g.delegateDuring(t, "Dev", "sửa lỗi X trong api.go")
+	collect(t, turn)
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	// lead → Dev (bg, from the tool) → lead reports; the lead's "@Dev" mention adds nothing
+	got := g.waitAuthors(t, 3)
+	want := []string{g.leadNm, "Dev", g.leadNm}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("authors = %v, want %v", got, want)
 	}
-	_, in := call(t, g.dir, 3) // the lead's report gets Dev's result
-	if !strings.Contains(in, "dev: xong") {
-		t.Fatalf("report prompt:\n%s", in)
+	_, devIn := call(t, g.dir, 2)
+	if !strings.Contains(devIn, "sửa lỗi X trong api.go") {
+		t.Fatalf("Dev's prompt lacks the task:\n%s", devIn)
+	}
+	_, reportIn := call(t, g.dir, 3)
+	if !strings.Contains(reportIn, "dev: xong") {
+		t.Fatalf("report prompt:\n%s", reportIn)
+	}
+}
+
+func TestMentionInAnswerPullsNobody(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "reply-lead"), []byte("@Dev có thể làm, bạn muốn giao không?"), 0o644)
+	if got := g.sendAll(t, "ai làm được"); len(got) != 1 {
+		t.Fatalf("authors = %v", got)
+	}
+	if got := g.waitAuthors(t, 1); len(got) != 1 {
+		t.Fatalf("a mention pulled someone in: %v", got)
+	}
+}
+
+func TestDelegateChecks(t *testing.T) {
+	g := newGroup(t)
+	sc := officetools.Scope{ProjectID: g.f.project.ID, ConversationID: g.conv.ID, RunRef: "nope", Agent: g.leadNm}
+	if _, err := g.engine.Delegate(g.context, sc, "Nobody", "x"); err == nil {
+		t.Fatal("an unknown agent was accepted")
+	}
+	if _, err := g.engine.Delegate(g.context, sc, g.leadNm, "x"); err == nil {
+		t.Fatal("delegating to itself was accepted")
+	}
+	if _, err := g.engine.Delegate(g.context, officetools.Scope{ProjectID: g.f.project.ID, TaskID: "tsk_1", Agent: g.leadNm}, "Dev", "x"); err == nil {
+		t.Fatal("delegate outside a chat was accepted")
 	}
 }
 
 func TestPersonKeepsChattingWhileAgentWorks(t *testing.T) {
 	g := newGroup(t)
-	os.WriteFile(filepath.Join(g.dir, "reply-lead"), []byte("giao @Dev"), 0o644)
 	os.WriteFile(filepath.Join(g.dir, "sleep-dev"), []byte("2"), 0o644)
-	g.sendAll(t, "làm X")
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, "làm X", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.delegateDuring(t, "Dev", "làm X")
+	collect(t, turn)
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
 	os.WriteFile(filepath.Join(g.dir, "reply-lead"), []byte("đang đợi Dev"), 0o644)
 	if got := g.sendAll(t, "trong lúc đợi thì sao"); len(got) != 1 || got[0] != g.leadNm {
 		t.Fatalf("the person is not blocked by Dev, got %v", got)

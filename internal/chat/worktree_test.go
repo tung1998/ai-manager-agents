@@ -152,3 +152,87 @@ func TestDirectModeEditsProject(t *testing.T) {
 		t.Fatalf("project = %q", b)
 	}
 }
+
+// ADR-044 review C1/I1: two agents of one chat edit in their own worktrees;
+// each diff is accepted in its own tree, and one agent's diff never replaces
+// or reverts the other's.
+func TestTwoAgentsEditInTheirOwnTrees(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+cat >/dev/null
+who=lead
+case "$*" in *"Bạn là Dev"*) who=dev;; esac
+printf '%s\n' "$who" > "$who.txt"
+echo '{"type":"system","subtype":"init","session_id":"sess-'$who'"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"'$who' sửa xong","session_id":"sess-'$who'","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		return p
+	})
+	gitRun(t, f.dir, "init", "-q")
+	gitRun(t, f.dir, "add", "-A")
+	gitRun(t, f.dir, "commit", "-q", "-m", "init")
+	f.engine.SetWorktrees(worktree.New(filepath.Join(t.TempDir(), "worktrees")))
+	ctx := actor.With(context.Background(), "human:a@b.c")
+	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
+	for _, a := range mustAgents(t, f) { // both may edit, and a person approves every diff
+		a.Permissions = storage.Permissions{Level: perm.Edit, Caps: &[]string{perm.CapPropose}}
+		f.st.Agents().Update(ctx, a)
+	}
+	caps := []string{perm.CapPropose}
+	dev, err := f.st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast",
+		Permissions: storage.Permissions{Level: perm.Edit, Caps: &caps}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	f.engine.SetMode(ctx, conv.ID, perm.Operate)
+	say := func(text string) *chat.MessageDTO {
+		t.Helper()
+		turn, _, err := f.engine.Send(ctx, conv.ID, text, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		evs := collect(t, turn)
+		return evs[len(evs)-1].Message
+	}
+	leadMsg := say("sửa đi")
+	devMsg := say("@Dev sửa phần của bạn")
+	if len(leadMsg.Patches) != 1 || len(devMsg.Patches) != 1 || strings.Join(devMsg.Patches[0].Files, ",") != "dev.txt" {
+		t.Fatalf("patches: lead %+v dev %+v", leadMsg.Patches, devMsg.Patches)
+	}
+	patches, _ := f.st.Chat().ListPatches(ctx, conv.ID)
+	for _, p := range patches {
+		if p.Status != "pending" {
+			t.Fatalf("one agent's diff replaced the other's: %+v", patches)
+		}
+	}
+	if _, err := f.engine.DecidePatch(ctx, devMsg.Patches[0].ID, true); err != nil {
+		t.Fatal(err)
+	}
+	// the lead again: its worktree knows nothing of Dev's change and must not revert it
+	again := say("còn gì nữa không")
+	for _, p := range again.Patches {
+		if strings.Contains(p.Diff, "dev.txt") {
+			t.Fatalf("the lead's diff touches Dev's file:\n%s", p.Diff)
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(f.dir, "dev.txt")); err != nil || string(b) != "dev\n" {
+		t.Fatalf("dev.txt in the project = %q %v", b, err)
+	}
+	_ = dev
+}
+
+func mustAgents(t *testing.T, f fixture) []storage.Agent {
+	t.Helper()
+	agents, err := f.engine.Agents(context.Background(), f.project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return agents
+}

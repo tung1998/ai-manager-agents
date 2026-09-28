@@ -333,6 +333,7 @@ type Patch struct {
 	DecidedAt      *time.Time
 	CreatedAt      time.Time
 	Origin         string // "" = written by the agent, "worktree" = taken from its worktree
+	Tree           string // origin worktree: the worktree's name ("" = the chat's or task's own)
 }
 
 // ChatRepo stores conversations, messages and patches.

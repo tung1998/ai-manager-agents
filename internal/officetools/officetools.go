@@ -31,6 +31,13 @@ type Toolbox struct {
 	store   storage.Store
 	ops     *ops.Manager
 	actions *actions.Service
+	// delegate hands a task to another agent of the chat (ADR-044), set by the chat engine
+	delegate func(ctx context.Context, sc Scope, agent, task string) (string, error)
+}
+
+// SetDelegate turns on the delegate tool (the chat engine runs hand-offs).
+func (t *Toolbox) SetDelegate(fn func(ctx context.Context, sc Scope, agent, task string) (string, error)) {
+	t.delegate = fn
 }
 
 // Scope is who calls a tool: the project, and the conversation/task and run
@@ -119,6 +126,15 @@ func (t *Toolbox) Tools() []Tool {
 				"reason": str("Vì sao cần tự động hóa này"),
 			}, "name", "source", "action", "reason")})
 	}
+	if t.delegate != nil {
+		list = append(list, Tool{Name: "delegate", Description: "Giao một phần việc cho agent khác trong cuộc chat, như subagent: agent đó làm ở nền, bạn trả lời người dùng ngay; " +
+			"khi nó xong, kết quả hiện trong cuộc chat và bạn được gọi lại để báo cho người dùng. Chỉ dùng khi thật sự cần (việc cần quyền hay chuyên môn bạn không có). " +
+			"Viết @Tên trong câu trả lời chỉ là nhắc tên, KHÔNG giao việc.",
+			Schema: obj(map[string]any{
+				"agent": map[string]any{"type": "string", "description": "Tên agent của project"},
+				"task":  map[string]any{"type": "string", "description": "Việc cần làm, đủ rõ để làm mà không phải hỏi lại"},
+			}, "agent", "task")})
+	}
 	return list
 }
 
@@ -159,6 +175,8 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		Files   []string `json:"files"`
 		Branch  string   `json:"branch"`
 		Command string   `json:"command"`
+		Agent   string   `json:"agent"`
+		Task    string   `json:"task"`
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &in); err != nil {
@@ -206,6 +224,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 				out = fmt.Sprintf("Lệnh %q không nằm trong danh sách bạn được tự chạy, đã tạo đề xuất (mã %s) chờ người dùng duyệt. Chưa chạy gì; hãy báo người dùng.", a.Target, a.ID)
 			}
 		}
+	case "delegate":
+		if t.delegate == nil {
+			return "Không có công cụ giao việc ở đây", true
+		}
+		out, err = t.delegate(ctx, sc, in.Agent, in.Task)
 	case "propose_automation":
 		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {
 			return "Bạn không có quyền đề xuất tự động hóa (gói hiện tại: " + perm.Label(sc.Level) + ")", true

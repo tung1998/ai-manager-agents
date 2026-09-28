@@ -2,12 +2,14 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/usage"
@@ -19,6 +21,49 @@ const (
 	maxHops    = 2
 	maxAnswers = 4
 )
+
+// delegation is a task an agent gave another with the delegate tool.
+type delegation struct {
+	agent storage.Agent
+	task  string
+}
+
+// Delegate records a hand-off asked by the agent answering in sc (the
+// delegate tool): it starts in the background once that answer is done.
+func (e *Engine) Delegate(ctx context.Context, sc officetools.Scope, agentName, task string) (string, error) {
+	task = strings.TrimSpace(task)
+	if sc.ConversationID == "" || sc.TaskID != "" {
+		return "", errors.New("chỉ giao việc được trong Chat")
+	}
+	conv, err := e.store.Chat().GetConversation(ctx, sc.ConversationID)
+	if err != nil || conv.Purpose != "" || conv.TaskID != "" {
+		return "", errors.New("chỉ giao việc được trong Chat")
+	}
+	if task == "" {
+		return "", errors.New("hãy ghi rõ việc cần làm")
+	}
+	agents, err := e.Agents(ctx, conv.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	name := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(agentName), "@")))
+	i := slices.IndexFunc(agents, func(a storage.Agent) bool { return strings.ToLower(a.Name) == name || strings.ToLower(a.Key) == name })
+	if i < 0 {
+		names := make([]string, 0, len(agents))
+		for _, a := range agents {
+			names = append(names, a.Name)
+		}
+		return "", fmt.Errorf("không có agent %q trong project (có: %s)", agentName, strings.Join(names, ", "))
+	}
+	if agents[i].Name == sc.Agent {
+		return "", errors.New("không tự giao việc cho chính mình")
+	}
+	e.mu.Lock()
+	e.handed[sc.RunRef] = append(e.handed[sc.RunRef], delegation{agent: agents[i], task: task})
+	e.mu.Unlock()
+	return fmt.Sprintf("Đã giao cho %s; %s bắt đầu khi bạn trả lời xong lượt này và làm ở nền. Trả lời người dùng ngay, đừng chờ; khi %s xong bạn sẽ được gọi lại để báo kết quả.",
+		agents[i].Name, agents[i].Name, agents[i].Name), nil
+}
 
 // queued is an agent still to answer, and who tagged it.
 type queued struct {
@@ -131,27 +176,28 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 	}
 	hops := prev.hops
 	agents, _ := e.Agents(ctx, conv.ProjectID)
-	if reply != "" && conv.TaskID == "" && conv.Purpose == "" {
-		cut := false
-		for _, a := range Mentions(reply, agents) {
-			if a.ID == agent.ID || slices.ContainsFunc(prev.queue, func(q queued) bool { return q.agent.ID == a.ID }) {
+	e.mu.Lock()
+	given := e.handed[prev.ID]
+	delete(e.handed, prev.ID)
+	e.mu.Unlock()
+	if conv.TaskID == "" && conv.Purpose == "" {
+		var notes []string
+		for _, d := range given {
+			if hops >= maxHops {
+				notes = append(notes, fmt.Sprintf("Đã dừng giao việc cho %s: quá %d lượt agent giao việc cho nhau trong một tin nhắn. Hãy tag lại nếu cần.", d.agent.Name, maxHops))
 				continue
 			}
-			if prev.background && a.ID == prev.delegator {
-				continue // tagging the one who asked is the report
-			}
-			if hops >= maxHops {
-				cut = true
-				break
+			started := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor,
+				title:  agent.Name + " → " + d.agent.Name,
+				prompt: fmt.Sprintf("%s giao việc cho bạn:\n%s\n\nLàm phần này rồi báo kết quả ngắn gọn.", agent.Name, d.task)})
+			if started == nil {
+				notes = append(notes, fmt.Sprintf("%s đang bận việc khác trong cuộc chat nên chưa nhận việc %s giao.", d.agent.Name, agent.Name))
+				continue
 			}
 			hops++
-			e.startTurn(conv, project, turnSpec{agent: a, background: true, delegator: agent.ID, hops: hops, actor: prev.actor,
-				title:  agent.Name + " → " + a.Name,
-				prompt: fmt.Sprintf("%s giao việc cho bạn trong cuộc chat (xem tin gần nhất của %s). Làm phần được giao rồi báo kết quả ngắn gọn.", agent.Name, agent.Name)})
 		}
-		if cut {
-			_, _ = e.store.Chat().AddMessage(context.Background(), storage.Message{ConversationID: conv.ID, Role: "error",
-				Content: fmt.Sprintf("Đã dừng chuyển tiếp: quá %d lượt agent tag nhau cho một tin nhắn. Hãy tag lại nếu cần.", maxHops)})
+		for _, n := range notes {
+			_, _ = e.store.Chat().AddMessage(context.Background(), storage.Message{ConversationID: conv.ID, Role: "error", Content: n})
 		}
 	}
 	if prev.background {
@@ -243,7 +289,7 @@ func (e *Engine) groupBrief(ctx context.Context, conv storage.Conversation, self
 		}
 		fmt.Fprintf(&b, "- @%s: %s, quyền %s%s\n", a.Name, firstNonEmpty(a.Role, string(a.Tier)), perm.Label(perm.Agent(a)), mark)
 	}
-	b.WriteString("Chỉ tag @agent khác khi thật sự cần (việc cần quyền hay chuyên môn bạn không có) và ghi rõ cần họ làm gì; việc tự làm được thì tự làm. Không tag chỉ để báo tin.\n")
+	b.WriteString("Muốn agent khác làm một phần việc thì dùng công cụ delegate (agent, task), chỉ khi thật sự cần (việc cần quyền hay chuyên môn bạn không có); việc tự làm được thì tự làm. Viết @Tên trong câu trả lời chỉ là nhắc tên, không giao việc.\n")
 	return b.String()
 }
 
