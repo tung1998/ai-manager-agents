@@ -157,7 +157,9 @@ function tagged(text: string) {
   const names = agents.value.map(a => a.name).sort((a, b) => b.length - a.length).map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   if (!names.length) return [{ text, tag: false }]
   // split with a capture group: odd parts are the tags
-  return text.split(new RegExp(`(@(?:${names.join('|')}))`, 'iu')).map((part, i) => ({ text: part, tag: i % 2 === 1 })).filter(p => p.text)
+  // not in the middle of a word (an email) nor inside code
+  if (text.includes('`')) return [{ text, tag: false }]
+  return text.split(new RegExp(`((?<![\\p{L}\\p{N}_])@(?:${names.join('|')}))`, 'iu')).map((part, i) => ({ text: part, tag: i % 2 === 1 })).filter(p => p.text)
 }
 
 // the open chat (and a message) live in the URL, so a link points at them;

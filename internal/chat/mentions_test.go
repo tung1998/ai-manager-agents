@@ -29,6 +29,7 @@ func TestMentions(t *testing.T) {
 		{"@Dev rồi @Dev lần nữa", []string{"a2"}},
 		{"email a@Dev.com", nil},
 		{"@Nobody", nil},
+		{"~~~\n@Dev\n~~~\nxong", nil},
 	}
 	for _, c := range cases {
 		got := ids(Mentions(c.text, agents))

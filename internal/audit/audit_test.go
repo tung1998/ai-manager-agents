@@ -3,6 +3,7 @@ package audit_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
@@ -78,6 +79,31 @@ func TestEntryFallsBackToActorString(t *testing.T) {
 		e := audit.Entry(ctx, audit.Change{Action: "x.y"})
 		if e.ActorKind != want[0] || e.ActorName != want[1] {
 			t.Errorf("%q → %s/%s, want %v", in, e.ActorKind, e.ActorName, want)
+		}
+	}
+}
+
+// Review minors: a rotated secret shows it changed; more secret names; Detail
+// is redacted too.
+func TestSecretChangesAndNames(t *testing.T) {
+	ctx := context.Background()
+	e := audit.Entry(ctx, audit.Change{Action: "provider.update",
+		Before: map[string]any{"api_key": "sk-1", "token": "same", "name": "a"},
+		After:  map[string]any{"api_key": "sk-2", "token": "same", "name": "a"},
+		Detail: map[string]any{"password": "p", "note": "ok"}})
+	if e.Before["api_key"] == e.After["api_key"] || !strings.HasPrefix(e.After["api_key"].(string), "***") {
+		t.Fatalf("rotated secret: %v → %v", e.Before["api_key"], e.After["api_key"])
+	}
+	if e.Before["token"] != e.After["token"] {
+		t.Fatalf("an unchanged secret looks changed: %v → %v", e.Before["token"], e.After["token"])
+	}
+	if e.Detail["password"] != "***" || e.Detail["note"] != "ok" {
+		t.Fatalf("detail = %v", e.Detail)
+	}
+	s := audit.Snapshot(map[string]any{"private_key": "k", "access_key": "k", "credentials": "c", "dsn": "postgres://u:p@h", "heartbeat_path": "/hb/tok123", "commit_hash": "abc"})
+	for _, k := range []string{"private_key", "access_key", "credentials", "dsn", "heartbeat_path"} {
+		if s[k] != "***" {
+			t.Errorf("%s not redacted: %v", k, s[k])
 		}
 	}
 }

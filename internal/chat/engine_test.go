@@ -381,6 +381,7 @@ echo "$*" > `+dir+`/call$n.args
 cat > `+dir+`/call$n.in
 who=lead
 case "$*" in *"Bạn là Dev"*) who=dev;; esac
+if [ -f `+dir+`/fail-$who ]; then rm `+dir+`/fail-$who; echo '{"type":"system","subtype":"init","session_id":"sess-'$who'"}'; echo 'boom' >&2; exit 1; fi
 [ -f `+dir+`/sleep-$who ] && sleep $(cat `+dir+`/sleep-$who)
 reply=ok
 [ -f `+dir+`/reply-$who ] && reply=$(cat `+dir+`/reply-$who)
@@ -760,5 +761,17 @@ func TestCheaperModelForReportsAndOverrides(t *testing.T) {
 	a4, _ := call(t, g.dir, 4)
 	if !strings.Contains(model(a4), "haiku") {
 		t.Fatalf("override model %q", model(a4))
+	}
+}
+
+// Review minor: an agent whose first turn failed still knows what it has seen,
+// so its next resumed turn gets what was said in between.
+func TestFailedTurnKeepsWhatWasSeen(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "fail-lead"), []byte("1"), 0o644)
+	g.sendAll(t, "lần đầu")
+	members, _ := g.f.st.Chat().Members(g.context, g.conv.ID)
+	if len(members) != 1 || members[0].LastMessageID == "" {
+		t.Fatalf("members = %+v", members)
 	}
 }

@@ -632,7 +632,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		e.direct[project.ID] = true
 		e.mu.Unlock()
 		if busy {
-			fail(errors.New("một cuộc trò chuyện khác đang sửa thẳng project này; đợi nó xong rồi gửi lại"))
+			fail(errors.New("một agent khác (trong cuộc chat này hoặc cuộc chat khác) đang sửa thẳng project này; đợi xong rồi gửi lại"))
 			return
 		}
 		defer func() {
@@ -685,6 +685,12 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		mem.ContextTokens, mem.ContextWindow = res.Context.Tokens, res.Context.Window
 		if agent.ID == conv.AgentID { // the chat shows its default agent's context
 			_ = e.store.Chat().SetConversationContext(context.Background(), conv.ID, mem.ContextTokens, mem.ContextWindow)
+		}
+	}
+	if runErr != nil && strings.TrimSpace(res.Text) == "" && mem.LastMessageID == "" {
+		// a first turn that failed: it has still seen the thread so far
+		if msgs, err := e.store.Chat().ListMessages(context.Background(), conv.ID); err == nil && len(msgs) > 0 {
+			mem.LastMessageID = msgs[len(msgs)-1].ID
 		}
 	}
 	_ = e.store.Chat().UpsertMember(context.Background(), mem)

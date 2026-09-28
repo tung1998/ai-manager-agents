@@ -29,7 +29,8 @@ function askAgent(text: string, files: Attachment[], send = false) {
 const tab = computed<Tab>({
   get: () => {
     const q = route.query.tab === 'config' ? (route.query.section ?? 'info') : route.query.tab === 'tools' ? 'skill' : route.query.tab
-    return tabs.find(t => t === q) ?? 'chat'
+    const found = tabs.find(t => t === q) ?? 'chat'
+    return found === 'log' && !isAdmin.value ? 'chat' : found // the change log is for admins
   },
   set: t => navigateTo({ query: { tab: t } }, { replace: true })
 })

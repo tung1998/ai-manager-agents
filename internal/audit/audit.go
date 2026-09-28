@@ -7,6 +7,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -79,12 +80,22 @@ func Entry(ctx context.Context, c Change) storage.AuditEntry {
 		}
 		detail["error"] = c.Err.Error()
 	}
-	return storage.AuditEntry{
+	e := storage.AuditEntry{
 		Actor: w.Kind + ":" + w.Name, Action: c.Action, Target: c.ResourceID, Detail: detail,
 		ActorKind: w.Kind, ActorID: w.ID, ActorName: w.Name, ApprovedBy: w.ApprovedBy, Via: w.Via,
 		ProjectID: c.ProjectID, ConversationID: w.ConversationID, JobID: w.JobID, TaskID: w.TaskID, ActionID: w.ActionID,
-		Resource: res, ResourceID: c.ResourceID, Before: Snapshot(c.Before), After: Snapshot(c.After), OK: c.Err == nil,
+		Resource: res, ResourceID: c.ResourceID, OK: c.Err == nil,
 	}
+	e.Before, e.After = snapshotPair(c.Before, c.After)
+	if e.Detail != nil {
+		d := make(map[string]any, len(e.Detail))
+		for k, v := range e.Detail {
+			d[k] = v
+		}
+		redact(d)
+		e.Detail = d
+	}
+	return e
 }
 
 // Record appends c; a failure is logged, never silently dropped.
@@ -94,6 +105,61 @@ func Record(ctx context.Context, repo storage.AuditRepo, c Change) error {
 		slog.Error("audit: ghi nhật ký thất bại", "action", c.Action, "resource", c.ResourceID, "err", err)
 	}
 	return err
+}
+
+// raw is v as a JSON object, secrets included (nil = none).
+func raw(v any) map[string]any {
+	if v == nil {
+		return nil
+	}
+	if m, ok := v.(map[string]any); ok && m == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	var m map[string]any
+	if json.Unmarshal(b, &m) != nil {
+		return map[string]any{"value": string(b)}
+	}
+	return m
+}
+
+// snapshotPair redacts before and after together, so a secret that changed
+// still shows it changed ("*** (cũ)" → "*** (mới)") without its value.
+func snapshotPair(before, after any) (map[string]any, map[string]any) {
+	b, a := raw(before), raw(after)
+	markChanged(b, a)
+	redact(b)
+	redact(a)
+	return b, a
+}
+
+func markChanged(b, a map[string]any) {
+	if b == nil || a == nil {
+		return
+	}
+	for k, av := range a {
+		bv, ok := b[k]
+		if !ok {
+			continue
+		}
+		if bm, ok := bv.(map[string]any); ok {
+			if am, ok := av.(map[string]any); ok {
+				markChanged(bm, am)
+			}
+			continue
+		}
+		if isSecret(k) && secretSet(av) && secretSet(bv) && fmt.Sprint(av) != fmt.Sprint(bv) {
+			b[k], a[k] = "*** (cũ)", "*** (mới)" // i18n-ignore
+		}
+	}
+}
+
+func secretSet(v any) bool {
+	s, ok := v.(string)
+	return ok && s != "" && !strings.HasPrefix(s, "***")
 }
 
 // Snapshot turns v into a JSON object with secrets replaced by "***"
@@ -124,7 +190,7 @@ func redact(m map[string]any) {
 			switch x := v.(type) {
 			case nil, bool: // "has_api_key": says whether, not what
 			case string:
-				if x != "" {
+				if x != "" && !strings.HasPrefix(x, "***") {
 					m[k] = "***"
 				}
 			default:
@@ -152,10 +218,10 @@ func redactValue(v any) {
 func isSecret(name string) bool {
 	n := strings.ToLower(strings.NewReplacer("_", "", "-", "").Replace(name))
 	switch n {
-	case "password", "token", "secret", "apikey", "authorization", "cookie":
+	case "password", "token", "secret", "apikey", "authorization", "cookie", "credentials", "dsn", "heartbeatpath":
 		return true
 	}
-	for _, suf := range []string{"token", "secret", "hash", "apikey", "password"} {
+	for _, suf := range []string{"token", "secret", "hash", "apikey", "password", "privatekey", "accesskey", "credentials", "dsn"} {
 		if strings.HasSuffix(n, suf) {
 			return true
 		}

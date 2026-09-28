@@ -8,7 +8,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
-var codeSpans = regexp.MustCompile("(?s)```.*?```|`[^`\n]*`")
+var codeSpans = regexp.MustCompile("(?s)```.*?```|~~~.*?~~~|`[^`\n]*`")
 
 // Mentions finds the agents tagged in text ("@Name" or "@key", any case), in
 // the order they appear, once each; the longest name wins ("@Dev Lead" over
