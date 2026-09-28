@@ -7,6 +7,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
+	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,6 +50,7 @@ type Config struct {
 
 	Providers  *provider.Service // nil disables the provider/model/repo routes (auth-only tests)
 	Org        *orgmodel.Service
+	Trigger    *trigger.Runner // automations: schedules and webhooks (nil = none)
 	Setup      *setup.Assistant
 	Transfer   *transfer.Service
 	Usage      *usage.Service

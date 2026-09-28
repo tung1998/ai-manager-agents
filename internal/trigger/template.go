@@ -11,7 +11,7 @@ import (
 
 // Vars fill a prompt template.
 type Vars struct {
-	Payload    any    // decoded JSON (nil when not JSON)
+	Payload    any // decoded JSON (nil when not JSON)
 	RawPayload string
 	Message    string // chat text (Telegram/Discord)
 	User       string

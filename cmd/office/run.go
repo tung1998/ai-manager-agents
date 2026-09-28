@@ -10,6 +10,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
+	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/worktree"
 	"context"
 	"errors"
@@ -100,6 +101,10 @@ func serveCmd() *cobra.Command {
 			mcp := mcpserver.New(office, version)
 			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")
 			monitors := monitor.New(a.store, procs, chatEngine)
+			taskSvc := tasks.New(a.store, chatEngine)
+			// schedules and webhooks start chats and tasks as jobs (ADR-040)
+			runner := trigger.New(a.store, officeExecutor{chat: chatEngine, tasks: taskSvc})
+			go runner.Run(ctx)
 
 			// self-update: only under the supervisor and when the source is here
 			supervised := os.Getenv(selfupdate.EnvSupervised) == "1"
@@ -129,7 +134,8 @@ func serveCmd() *cobra.Command {
 				Usage:      a.usage,
 				CLITools:   cliTools,
 				Chat:       chatEngine,
-				Tasks:      tasks.New(a.store, chatEngine),
+				Tasks:      taskSvc,
+				Trigger:    runner,
 				Automation: newAutomation(a, h),
 				Ops:        procs,
 				Monitors:   monitors,
