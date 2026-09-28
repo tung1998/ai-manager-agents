@@ -3,6 +3,7 @@ import ops from './parts/ops.vi'
 import org from './parts/org.vi'
 import tools from './parts/tools.vi'
 import pages from './parts/pages.vi'
+import auto from './parts/auto.vi'
 
 const vi = {
   ...tasks,
@@ -10,6 +11,7 @@ const vi = {
   ...org,
   ...tools,
   ...pages,
+  ...auto,
   'pref.dark': 'Giao diện tối',
   'pref.light': 'Giao diện sáng',
   'pref.lang': 'Ngôn ngữ',

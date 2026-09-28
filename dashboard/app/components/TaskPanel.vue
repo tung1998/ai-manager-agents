@@ -119,9 +119,14 @@ function follow(id: string) {
 async function start() {
   starting.value = true
   try {
-    const d = await $fetch<Detail>(`/api/projects/${props.projectId}/tasks`, { method: 'POST', body: { goal: goal.value, budget_usd: Number(budget.value) || 0, attachments: goalFiles.value.map(a => a.id), mode: mode.value, edit_mode: editMode.value } })
+    const d = await $fetch<Detail & { queued?: boolean }>(`/api/projects/${props.projectId}/tasks`, { method: 'POST', body: { goal: goal.value, budget_usd: Number(budget.value) || 0, attachments: goalFiles.value.map(a => a.id), mode: mode.value, edit_mode: editMode.value } })
     goal.value = ''
     goalFiles.value = []
+    if (d.queued) {
+      // the project runs another task: this one waits as a queued job
+      toast.add({ title: t('job.queued'), color: 'info', actions: [{ label: t('nav.jobs'), to: `/jobs?project=${props.projectId}` }] })
+      return
+    }
     await refreshList()
     await open(d.task.id)
   } catch (e) {

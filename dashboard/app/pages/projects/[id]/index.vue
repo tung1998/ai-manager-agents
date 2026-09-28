@@ -13,8 +13,8 @@ const templates = computed(() => tplData.value?.templates ?? [])
 
 // the tab lives in the URL so the sidebar can link to each section
 // (older links: tab=config&section=…, tab=tools)
-type Tab = 'chat' | 'tasks' | 'ops' | 'model' | 'perm' | 'skill' | 'mcp' | 'info'
-const tabs: Tab[] = ['chat', 'tasks', 'ops', 'model', 'perm', 'skill', 'mcp', 'info']
+type Tab = 'chat' | 'tasks' | 'automations' | 'ops' | 'model' | 'perm' | 'skill' | 'mcp' | 'info'
+const tabs: Tab[] = ['chat', 'tasks', 'automations', 'ops', 'model', 'perm', 'skill', 'mcp', 'info']
 // office's own source: approved changes take effect after "Cập nhật office"
 const { data: updData } = useFetch<{ source?: { root: string } }>('/api/system/update', { lazy: true, immediate: isAdmin.value })
 const isOfficeSource = computed(() => !!project.value?.path && updData.value?.source?.root === project.value.path)
@@ -128,7 +128,8 @@ async function saveAsTemplate() {
       />
 
 
-      <OpsPanel v-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
+      <AutomationsPanel v-if="tab === 'automations'" :project-id="project.id" />
+      <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
       <template v-else-if="['info', 'model', 'perm', 'skill', 'mcp'].includes(tab)">
         <UCard v-if="tab === 'info'" class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">
           <div class="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">

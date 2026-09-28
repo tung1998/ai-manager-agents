@@ -20,7 +20,7 @@ watch(() => route.path, async () => {
 }, { immediate: true })
 
 // pages below a project (/projects/:id/<child>/…) belong to one of its sections
-const childSection: Record<string, string> = { agents: 'model' }
+const childSection: Record<string, string> = { agents: 'model', automations: 'automations' }
 
 function projectSections(id: string): NavigationMenuItem[] {
   const to = (tab: string) => ({ path: `/projects/${id}`, query: { tab } })
@@ -29,6 +29,7 @@ function projectSections(id: string): NavigationMenuItem[] {
   return withParent(parent, [
     { label: t('nav.chat'), icon: 'i-lucide-messages-square', to: to('chat'), exactQuery: 'partial' },
     { label: t('nav.tasks'), icon: 'i-lucide-list-todo', to: to('tasks'), exactQuery: 'partial' },
+    { label: t('nav.automations'), icon: 'i-lucide-alarm-clock', to: to('automations'), exactQuery: 'partial' },
     { label: t('nav.ops'), icon: 'i-lucide-activity', to: to('ops'), exactQuery: 'partial' },
     { label: t('project.sectionModel'), icon: 'i-lucide-network', to: to('model'), exactQuery: 'partial' },
     { label: t('project.sectionPerm'), icon: 'i-lucide-shield', to: to('perm'), exactQuery: 'partial' },
@@ -52,6 +53,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
   // office-wide pages
   const office: NavigationMenuItem[] = [
     { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/' },
+    { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' },
     { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' },
     { label: t('nav.blackboard'), icon: 'i-lucide-messages-square', to: '/blackboard', badge: 'M4' },
     { label: t('nav.incidents'), icon: 'i-lucide-siren', to: '/incidents', badge: 'M4' },
