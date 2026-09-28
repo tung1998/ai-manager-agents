@@ -19,6 +19,7 @@ type officeExecutor struct {
 }
 
 func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (string, error) {
+	ctx = chat.WithModelTier(ctx, trigger.ModelTierOf(ctx)) // the automation's model choice
 	if conversationID == "" {
 		conv, err := x.chat.StartConversation(ctx, projectID, agentID)
 		if err != nil {
@@ -62,6 +63,7 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 }
 
 func (x officeExecutor) RunTask(ctx context.Context, projectID, agentID, goal, editMode string) (string, error) {
+	ctx = chat.WithModelTier(ctx, trigger.ModelTierOf(ctx))
 	return x.start(ctx, projectID, agentID, goal, 0, nil, perm.Operate, editMode)
 }
 

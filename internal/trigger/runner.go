@@ -261,7 +261,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	if j.ParentJobID != "" { // an agent called in by a script (ADR-041)
 		action, agentID, prompt = firstNonEmpty(a.Escalate.Action, "chat"), a.Escalate.AgentID, escalationPrompt(a, j, now, loc)
 	}
-	actx := actor.With(jctx, "auto:"+a.Name)
+	actx := WithModelTier(actor.With(jctx, "auto:"+a.Name), a.ModelTier)
 	keptConv := ""
 	if action == "task" {
 		_, err = r.exec.RunTask(actx, a.ProjectID, agentID, prompt, a.EditMode)
@@ -386,3 +386,20 @@ func truncateBytes(s string, n int) string {
 
 // SetClock replaces the clock (tests).
 func (r *Runner) SetClock(now func() time.Time) { r.now = now }
+
+type modelTierKey struct{}
+
+// WithModelTier asks the runs of ctx to use this model tier (the automation's
+// choice; "" = each agent's own). The executor passes it to the chat engine.
+func WithModelTier(ctx context.Context, tier string) context.Context {
+	if tier == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, modelTierKey{}, tier)
+}
+
+// ModelTierOf is the tier ctx asks for.
+func ModelTierOf(ctx context.Context) string {
+	s, _ := ctx.Value(modelTierKey{}).(string)
+	return s
+}

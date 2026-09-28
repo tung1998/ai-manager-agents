@@ -18,6 +18,10 @@ const agentOptions = computed(() => [{ label: t('auto.assignTeam'), value: LEAD 
 const chatAgent = computed({ get: () => form.agent_id || LEAD, set: (v: string) => { form.agent_id = v === LEAD ? '' : v } })
 const escalateAgent = computed({ get: () => form.escalate.agent_id || LEAD, set: (v: string) => { form.escalate.agent_id = v === LEAD ? '' : v } })
 const langOptions = [{ label: 'bash', value: 'bash' }, { label: 'node', value: 'node' }, { label: 'python', value: 'python' }]
+// the model its runs use: the agent's own, or a cheaper one for simple daily jobs
+const DEFAULT_TIER = '__agent'
+const tierOptions = computed(() => [{ label: t('auto.modelDefault'), value: DEFAULT_TIER }, ...(['strong', 'balanced', 'fast'] as const).map(v => ({ label: modelTierLabel[v], value: v }))])
+const tier = computed({ get: () => form.model_tier || DEFAULT_TIER, set: (v: string) => { form.model_tier = (v === DEFAULT_TIER ? '' : v) as AutomationDraft['model_tier'] } })
 const whenOptions = computed(() => (['failure', 'signal', 'never'] as const).map(v => ({ label: t(`auto.escalate.${v}`), value: v })))
 
 const presets = computed(() => [
@@ -214,7 +218,8 @@ async function testRun() {
           </p>
           <div class="grid gap-3 @lg:grid-cols-3">
             <UFormField :label="t('auto.escalateWhen')"><USelect v-model="form.escalate.when" :items="whenOptions" class="w-full" /></UFormField>
-            <UFormField v-if="form.escalate.when !== 'never'" :label="t('auto.assignTo')" class="@lg:col-span-2"><USelect v-model="escalateAgent" :items="agentOptions" class="w-full" /></UFormField>
+            <UFormField v-if="form.escalate.when !== 'never'" :label="t('auto.assignTo')"><USelect v-model="escalateAgent" :items="agentOptions" class="w-full" /></UFormField>
+            <UFormField v-if="form.escalate.when !== 'never'" :label="t('auto.model')"><USelect v-model="tier" :items="tierOptions" class="w-full" /></UFormField>
           </div>
           <UFormField v-if="form.escalate.when !== 'never'" :label="t('auto.escalatePrompt')">
             <UTextarea v-model="form.escalate.prompt" :rows="3" autoresize class="w-full" :placeholder="t('auto.escalatePromptPlaceholder')" />
@@ -223,6 +228,7 @@ async function testRun() {
       </template>
       <div v-else class="flex flex-wrap items-end gap-3">
         <UFormField :label="t('auto.assignTo')"><USelect v-model="chatAgent" :items="agentOptions" class="min-w-56" /></UFormField>
+        <UFormField :label="t('auto.model')" :help="t('auto.modelHelp')"><USelect v-model="tier" :items="tierOptions" class="min-w-44" /></UFormField>
         <EditModePicker v-model="form.edit_mode" />
       </div>
     </section>

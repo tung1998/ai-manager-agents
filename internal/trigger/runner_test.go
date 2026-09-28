@@ -33,6 +33,7 @@ type fakeExec struct {
 	mu    sync.Mutex
 	chats []string
 	tasks []string // "agent|goal"
+	tiers []string // model tier each run was asked to use
 	busy  int      // return ErrBusy this many times first
 	fail  bool
 }
@@ -54,6 +55,7 @@ func (f *fakeExec) RunTask(ctx context.Context, projectID, agentID, goal, edit s
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.tasks = append(f.tasks, agentID+"|"+goal)
+	f.tiers = append(f.tiers, trigger.ModelTierOf(ctx))
 	return "tsk_x", nil
 }
 func (f *fakeExec) RunQueuedTask(ctx context.Context, projectID, payload string) (string, error) {
@@ -144,5 +146,27 @@ func TestTaskAutomationForOneAgent(t *testing.T) {
 	defer ex.mu.Unlock()
 	if len(ex.tasks) != 1 || ex.tasks[0] != "agt_1|báo cáo" {
 		t.Fatalf("tasks = %v", ex.tasks)
+	}
+}
+
+// An automation can ask for a cheaper model tier for its runs.
+func TestAutomationModelTier(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	ex := &fakeExec{}
+	r := trigger.New(st, ex)
+	past := time.Now().UTC().Add(-time.Minute)
+	st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "daily", Source: "schedule", Action: "task", Enabled: true, ModelTier: "fast",
+		Prompt: "báo cáo", Config: storage.AutomationConfig{EveryMinutes: 60}, NextRunAt: &past})
+	r.Tick(ctx, time.Now().UTC())
+	r.Wait()
+	ex.mu.Lock()
+	defer ex.mu.Unlock()
+	if len(ex.tiers) != 1 || ex.tiers[0] != "fast" {
+		t.Fatalf("tiers = %v", ex.tiers)
+	}
+	got, _ := st.Automations().List(ctx, p.ID)
+	if got[0].ModelTier != "fast" {
+		t.Fatalf("stored tier = %q", got[0].ModelTier)
 	}
 }

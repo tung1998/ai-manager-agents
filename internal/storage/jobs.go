@@ -108,6 +108,7 @@ type Automation struct {
 	AgentID        string // chat: who answers ("" = first lead)
 	Prompt         string
 	EditMode       string
+	ModelTier      string // strong | balanced | fast; "" = the agent's own
 	KeepContext    bool
 	Limits         AutomationLimits
 	Script         AutomationScript   // action script

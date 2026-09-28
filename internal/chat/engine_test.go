@@ -725,3 +725,40 @@ func TestStopAllStopsBackground(t *testing.T) {
 		t.Fatalf("still running: %+v", g.engine.Running(g.conv.ID))
 	}
 }
+
+// Cheaper where it is enough: the report after a hand-off only sums up, so a
+// strong agent writes it with the balanced model; and a ctx model tier (an
+// automation's choice) overrides the agent's.
+func TestCheaperModelForReportsAndOverrides(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, "làm X", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.delegateDuring(t, "Dev", "làm X")
+	collect(t, turn)
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	g.waitAuthors(t, 3)
+	a1, _ := call(t, g.dir, 1)
+	a3, _ := call(t, g.dir, 3)
+	model := func(args string) string {
+		_, after, _ := strings.Cut(args, "--model ")
+		m, _, _ := strings.Cut(after, " ")
+		return m
+	}
+	if model(a1) == model(a3) || !strings.Contains(model(a3), "sonnet") {
+		t.Fatalf("answer model %q, report model %q", model(a1), model(a3))
+	}
+	// an automation asking for the fast tier
+	ctx := chat.WithModelTier(g.context, "fast")
+	turn, _, err = g.engine.Send(ctx, g.conv.ID, "việc hằng ngày", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	a4, _ := call(t, g.dir, 4)
+	if !strings.Contains(model(a4), "haiku") {
+		t.Fatalf("override model %q", model(a4))
+	}
+}

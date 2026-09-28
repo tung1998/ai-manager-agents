@@ -47,6 +47,7 @@ type automationDTO struct {
 	AgentID        string                     `json:"agent_id"`
 	Prompt         string                     `json:"prompt"`
 	EditMode       string                     `json:"edit_mode"`
+	ModelTier      string                     `json:"model_tier"`
 	KeepContext    bool                       `json:"keep_context"`
 	Limits         storage.AutomationLimits   `json:"limits"`
 	Script         storage.AutomationScript   `json:"script"`
@@ -65,7 +66,7 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 	c := a.Config
 	cfg := map[string]any{"every_minutes": c.EveryMinutes, "cron": c.Cron, "timezone": c.Timezone, "auth": c.Auth, "auth_name": c.AuthName}
 	d := automationDTO{ID: a.ID, ProjectID: a.ProjectID, Name: a.Name, Enabled: a.Enabled, Source: a.Source, Config: cfg, Action: a.Action,
-		AgentID: a.AgentID, Prompt: a.Prompt, EditMode: a.EditMode, KeepContext: a.KeepContext, Limits: a.Limits, Script: a.Script, Escalate: a.Escalate, Failures: a.Failures,
+		AgentID: a.AgentID, Prompt: a.Prompt, EditMode: a.EditMode, ModelTier: a.ModelTier, KeepContext: a.KeepContext, Limits: a.Limits, Script: a.Script, Escalate: a.Escalate, Failures: a.Failures,
 		DisabledCode: a.DisabledCode, DisabledReason: a.DisabledReason, LastRunAt: a.LastRunAt, NextRunAt: a.NextRunAt, CreatedAt: a.CreatedAt}
 	if a.Source == "webhook" {
 		d.WebhookURL = "/hooks/" + a.ID
@@ -85,6 +86,7 @@ type automationInput struct {
 	AgentID     string                     `json:"agent_id"`
 	Prompt      string                     `json:"prompt"`
 	EditMode    string                     `json:"edit_mode"`
+	ModelTier   string                     `json:"model_tier"` // "" = the agent's own
 	KeepContext bool                       `json:"keep_context"`
 	Config      storage.AutomationConfig   `json:"config"`
 	Limits      storage.AutomationLimits   `json:"limits"`
@@ -103,6 +105,10 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	if in.Source != "schedule" && in.Source != "webhook" {
 		return errors.New("nguồn phải là lịch chạy hoặc webhook")
 	}
+	if in.ModelTier != "" && !storage.ValidTier(in.ModelTier) {
+		return errors.New("cấp model phải là mạnh, cân bằng hoặc nhanh")
+	}
+	a.ModelTier = in.ModelTier
 	if in.Action != "chat" && in.Action != "task" && in.Action != "script" {
 		return errors.New("hành động phải là gửi tin (chat), giao Việc (task) hoặc chạy code (script)")
 	}

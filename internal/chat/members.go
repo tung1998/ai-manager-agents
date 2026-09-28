@@ -117,6 +117,7 @@ type turnSpec struct {
 	actor      string
 	replace    *Turn         // the finishing turn it takes the chat from ("" = the chat must be free)
 	total      *atomic.Int32 // replies to the person's message so far, hand-offs included
+	tier       string        // model tier for this turn ("" = the agent's)
 }
 
 // startTurn starts an agent's answer; nil and why when it cannot: the agent
@@ -131,9 +132,9 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 			return nil, fmt.Sprintf("%s không trả lời: %v", s.agent.Name, err)
 		}
 	}
-	runCtx, cancel := context.WithTimeout(actor.With(context.Background(), s.actor), 20*time.Minute)
+	runCtx, cancel := context.WithTimeout(WithModelTier(actor.With(context.Background(), s.actor), s.tier), 20*time.Minute)
 	t := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor, total: s.total,
+		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor, total: s.total, tier: s.tier,
 		agentID: s.agent.ID, agentName: s.agent.Name, background: s.background, delegator: s.delegator}
 	e.mu.Lock()
 	key := conv.ID + "/" + s.agent.ID
@@ -208,7 +209,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 				notes = append(notes, fmt.Sprintf("Đã dừng giao việc cho %s: quá %d lượt agent giao việc cho nhau trong một tin nhắn. Hãy tag lại nếu cần.", d.agent.Name, maxHops))
 				continue
 			}
-			started, why := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor, total: prev.total,
+			started, why := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor, total: prev.total, tier: prev.tier,
 				title:  agent.Name + " → " + d.agent.Name,
 				prompt: fmt.Sprintf("%s giao việc cho bạn:\n%s\n\nLàm phần này rồi báo kết quả ngắn gọn.", agent.Name, d.task)})
 			if started == nil {
@@ -223,7 +224,12 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 	}
 	if prev.background {
 		if i := slices.IndexFunc(agents, func(a storage.Agent) bool { return a.ID == prev.delegator }); i >= 0 {
-			_, why := e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, total: prev.total, title: agent.Name + " → " + agents[i].Name,
+			// the report only sums up: a strong agent writes it with the balanced model
+			tier := prev.tier
+			if tier == "" && agents[i].ModelTier == storage.TierStrong && agents[i].LLMModel == "" {
+				tier = storage.TierBalanced
+			}
+			_, why := e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, total: prev.total, tier: tier, title: agent.Name + " → " + agents[i].Name,
 				prompt: fmt.Sprintf("%s đã làm xong phần việc bạn giao (xem tin gần nhất). Báo lại kết quả cho người dùng ngắn gọn và làm tiếp nếu cần.", agent.Name)})
 			e.note(conv, why)
 		}
@@ -232,7 +238,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 	// the next agent the person tagged; one that cannot answer is skipped with a note
 	for i, q := range prev.queue {
 		next, why := e.startTurn(conv, project, turnSpec{agent: q.agent, queue: prev.queue[i+1:], hops: hops, answered: prev.answered + 1, actor: prev.actor,
-			replace: prev, total: prev.total, title: q.from + " → " + q.agent.Name,
+			replace: prev, total: prev.total, tier: prev.tier, title: q.from + " → " + q.agent.Name,
 			prompt: fmt.Sprintf("%s vừa tag bạn trong cuộc chat. Trả lời phần dành cho bạn trong tin gần nhất.", q.from)})
 		if next != nil {
 			return next.ID

@@ -55,6 +55,7 @@ export interface Automation {
   agent_id: string
   prompt: string
   edit_mode: 'worktree' | 'direct'
+  model_tier?: '' | 'strong' | 'balanced' | 'fast' // '' = the agent's own
   keep_context: boolean
   limits: AutomationLimits
   script: AutomationScript
@@ -70,10 +71,10 @@ export interface Automation {
 }
 
 // automationBody is what PATCH/POST take (the fields a person edits).
-export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'keep_context' | 'limits' | 'script' | 'escalate'>) {
+export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'model_tier' | 'keep_context' | 'limits' | 'script' | 'escalate'>) {
   return {
     name: a.name, enabled: a.enabled, source: a.source, action: a.action, agent_id: a.agent_id, prompt: a.prompt,
-    edit_mode: a.edit_mode, keep_context: a.keep_context, config: a.config, limits: a.limits, script: a.script, escalate: a.escalate
+    edit_mode: a.edit_mode, model_tier: a.model_tier ?? '', keep_context: a.keep_context, config: a.config, limits: a.limits, script: a.script, escalate: a.escalate
   }
 }
 
@@ -101,7 +102,7 @@ export function emptyDraft(): AutomationDraft {
   return {
     name: '', enabled: true, source: 'schedule',
     config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '' },
-    action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', keep_context: false,
+    action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', model_tier: '', keep_context: false,
     script: { lang: 'bash', body: '', timeout_s: 300 },
     escalate: { when: 'failure', action: 'task', agent_id: '', prompt: '' },
     limits: { max_runs_per_hour: 0, daily_cost_usd: 0, disable_after_failures: 5, debounce_seconds: 0, debounce_key: '', debounce_max_seconds: 0 }
@@ -122,9 +123,9 @@ export function draftFrom(a: Automation): AutomationDraft {
 }
 
 const draftObjects = ['config', 'limits', 'script', 'escalate'] as const
-const draftScalars = ['name', 'enabled', 'source', 'action', 'agent_id', 'prompt', 'edit_mode', 'keep_context'] as const
+const draftScalars = ['name', 'enabled', 'source', 'action', 'agent_id', 'prompt', 'edit_mode', 'model_tier', 'keep_context'] as const
 const allowed: Record<string, readonly string[]> = {
-  source: ['schedule', 'webhook'], action: ['script', 'task'], edit_mode: ['worktree', 'direct'],
+  source: ['schedule', 'webhook'], action: ['script', 'task'], edit_mode: ['worktree', 'direct'], model_tier: ['', 'strong', 'balanced', 'fast'],
   'script.lang': ['bash', 'node', 'python'], 'escalate.when': ['never', 'failure', 'signal'], 'escalate.action': ['task'],
   'config.auth': ['bearer', 'header', 'query']
 }

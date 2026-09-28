@@ -84,6 +84,7 @@ type Turn struct {
 	hops     int    // hand-offs agents made so far
 	answered int    // replies given so far
 	actor    string // who sent the message
+	tier     string // the model tier asked for ("" = each agent's)
 	total    *atomic.Int32
 
 	agentID, agentName string // who answers in this turn
@@ -513,9 +514,9 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 			return nil, storage.Message{}, ErrAgentBusy
 		}
 	}
-	runCtx, cancel := context.WithTimeout(actor.With(context.Background(), actor.From(ctx)), 20*time.Minute)
+	runCtx, cancel := context.WithTimeout(WithModelTier(actor.With(context.Background(), actor.From(ctx)), ModelTierFrom(ctx)), 20*time.Minute)
 	turn := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32)}
+		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx)}
 	turn.total.Store(1)
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn
 	e.mu.Unlock()
@@ -602,7 +603,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		turn.emit(Event{Type: "error", Text: err.Error(), Message: &dto, NextTurnID: e.nextTurn(ctx, turn, conv, project, agent, "")})
 	}
 
-	p, model, err := e.providers.ResolveModel(ctx, agent)
+	p, model, err := e.providers.ResolveModel(ctx, withTier(ctx, agent))
 	if errors.Is(err, storage.ErrNotFound) {
 		fail(errors.New("chưa có kết nối AI mặc định"))
 		return
@@ -953,7 +954,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	if emit == nil {
 		emit = func(Event) {}
 	}
-	p, model, err := e.providers.ResolveModel(ctx, agent)
+	p, model, err := e.providers.ResolveModel(ctx, withTier(ctx, agent))
 	if errors.Is(err, storage.ErrNotFound) {
 		return InvokeResult{}, errors.New("chưa có kết nối AI mặc định")
 	}

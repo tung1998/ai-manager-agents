@@ -237,7 +237,7 @@ func (s *Service) start(ctx context.Context, projectID, assignee, goal string, b
 		s.mu.Unlock()
 		return task, err
 	}
-	runCtx, cancel := context.WithTimeout(actor.With(context.Background(), actor.From(ctx)), 45*time.Minute)
+	runCtx, cancel := context.WithTimeout(chat.WithModelTier(actor.With(context.Background(), actor.From(ctx)), chat.ModelTierFrom(ctx)), 45*time.Minute)
 	runCtx = chat.WithTask(runCtx, task.ID, permMode, editMode) // proposals attach to the task; mode caps what agents do
 	job, err := s.beginJob(ctx, task)
 	if err != nil {
