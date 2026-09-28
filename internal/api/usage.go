@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"net/http"
 	"strconv"
 	"time"
@@ -71,11 +72,13 @@ func (s *server) usageSettings(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	old, _ := s.cfg.Usage.Settings(r.Context())
 	if err := s.cfg.Usage.SaveSettings(r.Context(), in); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.auditAction(r, "usage.settings", "", map[string]any{"daily_limit_usd": in.DailyLimitUSD, "project_limits": len(in.ProjectLimits), "prices": len(in.Prices)})
 	st, _ := s.cfg.Usage.Settings(r.Context())
+	s.audit(r, audit.Change{Action: "usage.settings", Resource: "usage_settings", Before: old, After: st,
+		Detail: map[string]any{"daily_limit_usd": in.DailyLimitUSD, "project_limits": len(in.ProjectLimits), "prices": len(in.Prices)}})
 	writeJSON(w, http.StatusOK, st)
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -164,7 +165,8 @@ func (s *server) createProcess(w http.ResponseWriter, r *http.Request) {
 		s.opsError(w, r, err)
 		return
 	}
-	s.auditAction(r, "process.create", p.ID, map[string]any{"project": p.ProjectID, "name": p.Name, "command": p.Command})
+	s.audit(r, audit.Change{Action: "process.create", ResourceID: p.ID, ProjectID: p.ProjectID, After: s.toProcessDTO(p),
+		Detail: map[string]any{"name": p.Name, "command": p.Command}})
 	writeJSON(w, http.StatusCreated, s.toProcessDTO(p))
 }
 
@@ -178,6 +180,7 @@ func (s *server) updateProcess(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	old := p
 	if err := in.apply(&p); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -186,18 +189,24 @@ func (s *server) updateProcess(w http.ResponseWriter, r *http.Request) {
 		s.opsError(w, r, err)
 		return
 	}
-	s.auditAction(r, "process.update", p.ID, map[string]any{"name": p.Name, "command": p.Command})
+	s.audit(r, audit.Change{Action: "process.update", ResourceID: p.ID, ProjectID: p.ProjectID, Before: s.toProcessDTO(old), After: s.toProcessDTO(p),
+		Detail: map[string]any{"name": p.Name, "command": p.Command}})
 	writeJSON(w, http.StatusOK, s.toProcessDTO(p))
 }
 
 func (s *server) deleteProcess(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	old, err := s.cfg.Store.Processes().Get(r.Context(), id)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
 	s.cfg.Ops.Forget(id)
 	if err := s.cfg.Store.Processes().Delete(r.Context(), id); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "process.delete", id, nil)
+	s.audit(r, audit.Change{Action: "process.delete", ResourceID: id, ProjectID: old.ProjectID, Before: s.toProcessDTO(old)})
 	w.WriteHeader(http.StatusNoContent)
 }
 

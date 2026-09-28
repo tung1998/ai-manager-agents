@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"errors"
 	"net/http"
 	"strconv"
@@ -104,6 +105,7 @@ func (s *server) restoreAgent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	old := a
 	a, err := s.agentInfo().Restore(r.Context(), a, in.RevisionID)
 	if errors.Is(err, agentinfo.ErrNoBefore) {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -113,6 +115,7 @@ func (s *server) restoreAgent(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "agent.restore", a.ID, map[string]any{"key": a.Key, "revision": in.RevisionID})
+	s.audit(r, audit.Change{Action: "agent.restore", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a), Before: toAgentDTO(old), After: toAgentDTO(a),
+		Detail: map[string]any{"key": a.Key, "revision": in.RevisionID}})
 	writeJSON(w, http.StatusOK, map[string]any{"agent": toAgentDTO(a)})
 }

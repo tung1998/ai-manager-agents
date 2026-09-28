@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"context"
 	"errors"
@@ -315,7 +316,7 @@ func (s *server) createProvider(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "provider.create", p.ID, map[string]any{"name": p.Name, "kind": string(p.Kind)})
+	s.audit(r, audit.Change{Action: "provider.create", ResourceID: p.ID, After: toProviderDTO(p), Detail: map[string]any{"name": p.Name, "kind": string(p.Kind)}})
 	writeJSON(w, http.StatusCreated, map[string]any{"provider": toProviderDTO(p)})
 }
 
@@ -324,22 +325,33 @@ func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	old, err := s.cfg.Store.Providers().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
 	p, err := s.cfg.Providers.Update(r.Context(), r.PathValue("id"), in.toInput())
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "provider.update", p.ID, map[string]any{"name": p.Name, "key_changed": in.APIKey != nil})
+	s.audit(r, audit.Change{Action: "provider.update", ResourceID: p.ID, Before: toProviderDTO(old), After: toProviderDTO(p),
+		Detail: map[string]any{"name": p.Name, "key_changed": in.APIKey != nil}})
 	writeJSON(w, http.StatusOK, map[string]any{"provider": toProviderDTO(p)})
 }
 
 func (s *server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	old, err := s.cfg.Store.Providers().Get(r.Context(), id)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
 	if err := s.cfg.Store.Providers().Delete(r.Context(), id); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "provider.delete", id, nil)
+	s.audit(r, audit.Change{Action: "provider.delete", ResourceID: id, Before: toProviderDTO(old)})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -536,6 +548,11 @@ func (s *server) updateOrgModel(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	old, err := s.cfg.Store.OrgModels().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
 	m, err := s.cfg.Org.UpdateModel(r.Context(), r.PathValue("id"), func(m *storage.OrgModel) {
 		if in.Name != nil {
 			m.Name = strings.TrimSpace(*in.Name)
@@ -557,7 +574,7 @@ func (s *server) updateOrgModel(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "org_model.update", m.ID, nil)
+	s.audit(r, audit.Change{Action: "org_model.update", ResourceID: m.ID, ProjectID: m.RepoID, Before: modelSnapshot(old), After: modelSnapshot(m)})
 	d, _ := s.loadOrg(r, m.ID, true)
 	writeJSON(w, http.StatusOK, map[string]any{"model": d})
 }
@@ -577,7 +594,7 @@ func (s *server) deleteOrgModel(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "org_model.delete", id, map[string]any{"key": m.Key, "repo": m.RepoID})
+	s.audit(r, audit.Change{Action: "org_model.delete", ResourceID: id, ProjectID: m.RepoID, Before: modelSnapshot(m), Detail: map[string]any{"key": m.Key}})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -648,7 +665,8 @@ func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "agent.create", a.ID, map[string]any{"key": a.Key, "org_model": a.OrgModelID})
+	s.audit(r, audit.Change{Action: "agent.create", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a), After: toAgentDTO(a),
+		Detail: map[string]any{"key": a.Key, "org_model": a.OrgModelID}})
 	writeJSON(w, http.StatusCreated, map[string]any{"agent": toAgentDTO(a)})
 }
 
@@ -666,23 +684,31 @@ func (s *server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	old := a
 	in.apply(&a)
 	a, err = s.cfg.Org.SaveAgent(r.Context(), a)
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "agent.update", a.ID, map[string]any{"key": a.Key})
+	s.audit(r, audit.Change{Action: "agent.update", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a),
+		Before: toAgentDTO(old), After: toAgentDTO(a), Detail: map[string]any{"key": a.Key}})
 	writeJSON(w, http.StatusOK, map[string]any{"agent": toAgentDTO(a)})
 }
 
 func (s *server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	old, err := s.cfg.Store.Agents().Get(r.Context(), id)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	project := s.agentProject(r.Context(), old)
 	if err := s.cfg.Org.DeleteAgent(r.Context(), id); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "agent.delete", id, nil)
+	s.audit(r, audit.Change{Action: "agent.delete", ResourceID: id, ProjectID: project, Before: toAgentDTO(old)})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -812,6 +838,7 @@ func (s *server) updateRepo(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	old := x
 	if in.Name != nil && strings.TrimSpace(*in.Name) != "" {
 		x.Name = strings.TrimSpace(*in.Name)
 	}
@@ -822,18 +849,23 @@ func (s *server) updateRepo(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "project.update", x.ID, nil)
+	s.audit(r, audit.Change{Action: "project.update", ResourceID: x.ID, ProjectID: x.ID, Before: repoSnapshot(old), After: repoSnapshot(x)})
 	d, _ := s.repoDTO(r, x, true)
 	writeJSON(w, http.StatusOK, map[string]any{"project": d})
 }
 
 func (s *server) deleteRepo(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	old, err := s.cfg.Store.Repos().Get(r.Context(), id)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
 	if err := s.cfg.Store.Repos().Delete(r.Context(), id); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "project.delete", id, nil)
+	s.audit(r, audit.Change{Action: "project.delete", ResourceID: id, ProjectID: id, Before: repoSnapshot(old)})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -857,7 +889,7 @@ func (s *server) applyRepoModel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) auditAction(r *http.Request, action, target string, detail map[string]any) {
-	_ = s.cfg.Store.Audit().Append(r.Context(), storage.AuditEntry{Actor: "human:" + userFrom(r).Email, Action: action, Target: target, Detail: detail})
+	s.audit(r, audit.Change{Action: action, ResourceID: target, Detail: detail})
 }
 
 // listDirs powers the folder tree in the dashboard. Browsers cannot hand a web

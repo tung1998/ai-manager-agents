@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -118,10 +119,12 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		packs = append(packs, p)
 	}
 	in.Packs = packs
+	old := perm.LoadPolicy(r.Context(), s.cfg.Store, projectID)
 	if err := perm.SavePolicy(r.Context(), s.cfg.Store, projectID, in); err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	s.auditAction(r, "project.policy", projectID, map[string]any{"packs": len(in.Packs), "deny_paths": in.DenyPaths})
+	s.audit(r, audit.Change{Action: "project.policy", Resource: "policy", ResourceID: projectID, ProjectID: projectID, Before: old,
+		After: perm.LoadPolicy(r.Context(), s.cfg.Store, projectID), Detail: map[string]any{"packs": len(in.Packs)}})
 	writeJSON(w, http.StatusOK, map[string]any{"policy": perm.LoadPolicy(r.Context(), s.cfg.Store, projectID)})
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"errors"
 	"net/http"
 	"os"
@@ -192,11 +193,13 @@ func (s *server) createAutomation(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err = s.cfg.Store.Automations().Create(r.Context(), a)
 	if err != nil {
+		s.audit(r, audit.Change{Action: "automation.create", ProjectID: p.ID, After: a, Err: err})
 		s.internal(w, r, err)
 		return
 	}
 	s.linkBuilder(r, a, in.ConversationID)
-	s.auditAction(r, "automation.create", a.ID, map[string]any{"project": p.ID, "name": a.Name, "source": a.Source})
+	s.audit(r, audit.Change{Action: "automation.create", ResourceID: a.ID, ProjectID: p.ID, After: s.toAutomationDTO(r, a),
+		Detail: map[string]any{"name": a.Name, "source": a.Source}})
 	out := map[string]any{"automation": s.toAutomationDTO(r, a)}
 	if secret != "" {
 		out["secret"] = secret // shown once
@@ -223,6 +226,7 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	old := a
 	wasWebhook := a.Source == "webhook"
 	if err := s.applyAutomation(r, in, &a); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -235,12 +239,16 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 	if a.Source != "webhook" {
 		a.Config.SecretHash = ""
 	}
+	change := audit.Change{Action: "automation.update", ResourceID: a.ID, ProjectID: a.ProjectID,
+		Before: s.toAutomationDTO(r, old), After: s.toAutomationDTO(r, a), Detail: map[string]any{"name": a.Name, "enabled": a.Enabled}}
 	if err := s.cfg.Store.Automations().Update(r.Context(), a); err != nil {
+		change.Err = err
+		s.audit(r, change)
 		s.internal(w, r, err)
 		return
 	}
 	s.linkBuilder(r, a, in.ConversationID)
-	s.auditAction(r, "automation.update", a.ID, map[string]any{"name": a.Name, "enabled": a.Enabled})
+	s.audit(r, change)
 	out := map[string]any{"automation": s.toAutomationDTO(r, a)}
 	if secret != "" {
 		out["secret"] = secret
@@ -250,11 +258,16 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) deleteAutomation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	old, err := s.cfg.Store.Automations().Get(r.Context(), id)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
 	if err := s.cfg.Store.Automations().Delete(r.Context(), id); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "automation.delete", id, nil)
+	s.audit(r, audit.Change{Action: "automation.delete", ResourceID: id, ProjectID: old.ProjectID, Before: s.toAutomationDTO(r, old)})
 	w.WriteHeader(http.StatusNoContent)
 }
 

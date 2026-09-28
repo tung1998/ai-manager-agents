@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"context"
 	"errors"
 	"net"
@@ -208,7 +209,8 @@ func (s *server) createMonitor(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	s.auditAction(r, "monitor.create", m.ID, map[string]any{"project": m.ProjectID, "type": m.Type, "target": m.Target})
+	s.audit(r, audit.Change{Action: "monitor.create", ResourceID: m.ID, ProjectID: m.ProjectID, After: s.toMonitorDTO(r, m, false),
+		Detail: map[string]any{"type": m.Type, "target": m.Target}})
 	if m.Type != "heartbeat" {
 		go s.cfg.Monitors.CheckNow(context.Background(), m.ID) // first result right away
 	}
@@ -225,6 +227,7 @@ func (s *server) updateMonitor(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	old := m
 	if err := s.applyMonitor(r, in, &m); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -237,16 +240,22 @@ func (s *server) updateMonitor(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	s.auditAction(r, "monitor.update", m.ID, map[string]any{"enabled": m.Enabled, "ai_enabled": m.AIEnabled})
+	s.audit(r, audit.Change{Action: "monitor.update", ResourceID: m.ID, ProjectID: m.ProjectID,
+		Before: s.toMonitorDTO(r, old, false), After: s.toMonitorDTO(r, m, false), Detail: map[string]any{"enabled": m.Enabled, "ai_enabled": m.AIEnabled}})
 	writeJSON(w, http.StatusOK, s.toMonitorDTO(r, m, true))
 }
 
 func (s *server) deleteMonitor(w http.ResponseWriter, r *http.Request) {
+	old, err := s.cfg.Store.Monitors().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
 	if err := s.cfg.Store.Monitors().Delete(r.Context(), r.PathValue("id")); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "monitor.delete", r.PathValue("id"), nil)
+	s.audit(r, audit.Change{Action: "monitor.delete", ResourceID: old.ID, ProjectID: old.ProjectID, Before: s.toMonitorDTO(r, old, false)})
 	w.WriteHeader(http.StatusNoContent)
 }
 

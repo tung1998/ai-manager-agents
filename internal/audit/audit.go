@@ -94,7 +94,8 @@ func Record(ctx context.Context, repo storage.AuditRepo, c Change) error {
 }
 
 // Snapshot turns v into a JSON object with secrets replaced by "***"
-// (an empty secret stays empty, so the log still shows "not set").
+// (an empty secret or a yes/no flag stays as is, so the log still shows
+// "not set" / "has a key").
 func Snapshot(v any) map[string]any {
 	if v == nil {
 		return nil
@@ -117,7 +118,13 @@ func Snapshot(v any) map[string]any {
 func redact(m map[string]any) {
 	for k, v := range m {
 		if isSecret(k) {
-			if s, ok := v.(string); !ok || s != "" {
+			switch x := v.(type) {
+			case nil, bool: // "has_api_key": says whether, not what
+			case string:
+				if x != "" {
+					m[k] = "***"
+				}
+			default:
 				m[k] = "***"
 			}
 			continue

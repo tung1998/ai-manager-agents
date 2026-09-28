@@ -21,10 +21,11 @@ func TestSnapshotRedactsSecrets(t *testing.T) {
 		APIKey      string         `json:"api_key"`
 		Empty       string         `json:"token"`
 		Headers     map[string]any `json:"headers"`
+		HasAPIKey   bool           `json:"has_api_key"`
 	}
-	got := audit.Snapshot(auto{Name: "n", Config: cfg{SecretHash: "abc", Cron: "* * * * *"}, InputTokens: 5, APIKey: "sk-1",
+	got := audit.Snapshot(auto{Name: "n", Config: cfg{SecretHash: "abc", Cron: "* * * * *"}, InputTokens: 5, APIKey: "sk-1", HasAPIKey: true,
 		Headers: map[string]any{"Authorization": "Bearer x", "x_token": "y"}})
-	if got["Name"] != "n" || got["input_tokens"] != float64(5) {
+	if got["Name"] != "n" || got["input_tokens"] != float64(5) || got["has_api_key"] != true {
 		t.Fatalf("plain fields changed: %v", got)
 	}
 	if got["api_key"] != "***" || got["Config"].(map[string]any)["SecretHash"] != "***" || got["Config"].(map[string]any)["Cron"] != "* * * * *" {
