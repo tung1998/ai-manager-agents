@@ -32,6 +32,13 @@ var Kinds = map[string]string{
 	"git_branch":        "Tạo nhánh",
 	"git_push":          "Push lên remote",
 	"run_command":       "Chạy lệnh",
+	"create_automation": "Tạo tự động hóa",
+	"update_automation": "Sửa tự động hóa",
+}
+
+// isAutomation: code that will run unattended, so always a person decides.
+func isAutomation(kind string) bool {
+	return kind == "create_automation" || kind == "update_automation"
 }
 
 func isGit(kind string) bool { return strings.HasPrefix(kind, "git_") }
@@ -80,7 +87,16 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 	if len(args) > 0 {
 		a.Args = args[0]
 	}
-	if isGit(kind) {
+	if isAutomation(kind) {
+		spec, err := s.automationSpec(ctx, sc.ProjectID, kind, a.Args.Automation)
+		if err != nil {
+			return a, err
+		}
+		a.Target = spec.Name
+		if kind == "update_automation" {
+			a.TargetID = spec.AutomationID
+		}
+	} else if isGit(kind) {
 		if sc.Dir != "" {
 			return a, errors.New("bạn đang làm trong worktree riêng: commit, tạo nhánh và push làm sau khi người dùng gộp thay đổi vào project")
 		}
@@ -146,6 +162,8 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 // lists (processes, containers, commands). Push always needs a person.
 func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Access) bool {
 	switch a.Kind {
+	case "create_automation", "update_automation":
+		return false // code that runs unattended: a person always decides
 	case "git_commit":
 		return acc.Can(perm.CapCommit)
 	case "git_branch":
@@ -301,6 +319,9 @@ func firstNonEmpty(a, b string) string {
 }
 
 func (s *Service) run(ctx context.Context, a storage.Action) error {
+	if isAutomation(a.Kind) {
+		return s.saveAutomation(ctx, a)
+	}
 	if isGit(a.Kind) {
 		root, err := s.projectPath(ctx, a.ProjectID)
 		if err != nil {

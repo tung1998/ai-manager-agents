@@ -90,6 +90,34 @@ func (t *Toolbox) Tools() []Tool {
 				"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "git_commit: file cần commit"},
 				"branch":  map[string]any{"type": "string", "description": "git_branch: tên nhánh"},
 			}, "action", "reason")})
+		str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
+		list = append(list, Tool{Name: "propose_automation", Description: "Đề xuất một tự động hóa cho project (luôn chờ người dùng duyệt). " +
+			"Ưu tiên action=script (bash/node/python, chạy trong thư mục project, KHÔNG tốn token AI): script nhận payload qua stdin và $OFFICE_PAYLOAD, in kết quả ra stdout; " +
+			"thoát khác 0 khi có lỗi; in dòng '@@agent: <nội dung>' khi cần agent xem. escalate.when: never | failure (mặc định, khi script lỗi) | signal (khi có dòng @@agent). " +
+			"Chỉ dùng action=chat/task khi mỗi lần chạy thật sự cần AI. Lịch: every_minutes hoặc cron 5 trường kèm timezone (IANA). Có automation_id thì là sửa tự động hóa đó.",
+			Schema: obj(map[string]any{
+				"automation_id": str("Sửa tự động hóa này (bỏ trống = tạo mới)"),
+				"name":          str("Tên ngắn"),
+				"source":        map[string]any{"type": "string", "enum": []string{"schedule", "webhook"}},
+				"every_minutes": map[string]any{"type": "integer"},
+				"cron":          str("Ví dụ 0 8 * * 1-5"),
+				"timezone":      str("Ví dụ Asia/Ho_Chi_Minh"),
+				"action":        map[string]any{"type": "string", "enum": []string{"script", "chat", "task"}},
+				"agent_id":      str("chat: agent trả lời (bỏ trống = trưởng nhóm)"),
+				"prompt":        str("chat/task: nội dung gửi agent, có {{payload}}, {{today}}…"),
+				"script": obj(map[string]any{
+					"lang":      map[string]any{"type": "string", "enum": []string{"bash", "node", "python"}},
+					"body":      str("Mã nguồn script"),
+					"timeout_s": map[string]any{"type": "integer", "description": "Mặc định 300, tối đa 3600"},
+				}),
+				"escalate": obj(map[string]any{
+					"when":     map[string]any{"type": "string", "enum": []string{"never", "failure", "signal"}},
+					"action":   map[string]any{"type": "string", "enum": []string{"chat", "task"}},
+					"agent_id": str("Agent xử lý (bỏ trống = trưởng nhóm)"),
+					"prompt":   str("Nội dung gửi agent, có {{output}}, {{exit_code}}, {{message}}"),
+				}),
+				"reason": str("Vì sao cần tự động hóa này"),
+			}, "name", "source", "action", "reason")})
 	}
 	return list
 }
@@ -99,7 +127,7 @@ func (t *Toolbox) Tools() []Tool {
 func (t *Toolbox) ToolsFor(level string) []Tool {
 	var out []Tool
 	for _, x := range t.Tools() {
-		if x.Name == "propose_action" && !perm.AtLeast(level, perm.Propose) {
+		if (x.Name == "propose_action" || x.Name == "propose_automation") && !perm.AtLeast(level, perm.Propose) {
 			continue
 		}
 		out = append(out, x)
@@ -177,6 +205,22 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 			default:
 				out = fmt.Sprintf("Lệnh %q không nằm trong danh sách bạn được tự chạy, đã tạo đề xuất (mã %s) chờ người dùng duyệt. Chưa chạy gì; hãy báo người dùng.", a.Target, a.ID)
 			}
+		}
+	case "propose_automation":
+		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {
+			return "Bạn không có quyền đề xuất tự động hóa (gói hiện tại: " + perm.Label(sc.Level) + ")", true
+		}
+		var id struct {
+			AutomationID string `json:"automation_id"`
+		}
+		_ = json.Unmarshal(raw, &id)
+		kind, target := "create_automation", in.Name
+		if id.AutomationID != "" {
+			kind, target = "update_automation", id.AutomationID
+		}
+		var a storage.Action
+		if a, err = t.actions.Propose(ctx, sc, kind, target, in.Reason, storage.ActionArgs{Automation: raw}); err == nil {
+			out = fmt.Sprintf("Đã tạo đề xuất %q (mã %s), đang chờ người dùng duyệt. Chưa có gì chạy; hãy tóm tắt cho người dùng script/lịch và nhắc họ bấm Duyệt.", a.Target, a.ID)
 		}
 	case "propose_action":
 		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -529,6 +530,8 @@ type ActionArgs struct {
 	Files   []string `json:"files,omitempty"`   // git commit
 	Branch  string   `json:"branch,omitempty"`  // git branch
 	Dir     string   `json:"dir,omitempty"`     // run_command: the worktree it runs in ("" = project folder)
+	// create_automation / update_automation: the proposed automation (trigger.Spec)
+	Automation json.RawMessage `json:"automation,omitempty"`
 }
 
 // ActionRepo stores proposed actions.
