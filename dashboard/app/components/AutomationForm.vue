@@ -11,7 +11,11 @@ const { t, dateLocale } = useLang()
 const form = props.form
 
 const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
-const agentOptions = computed(() => [{ label: t('auto.agentDefault'), value: '' }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
+// a Select item cannot have "" as its value: "the lead" is a sentinel
+const LEAD = '__lead'
+const agentOptions = computed(() => [{ label: t('auto.agentDefault'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
+const chatAgent = computed({ get: () => form.agent_id || LEAD, set: (v: string) => { form.agent_id = v === LEAD ? '' : v } })
+const escalateAgent = computed({ get: () => form.escalate.agent_id || LEAD, set: (v: string) => { form.escalate.agent_id = v === LEAD ? '' : v } })
 const langOptions = [{ label: 'bash', value: 'bash' }, { label: 'node', value: 'node' }, { label: 'python', value: 'python' }]
 const whenOptions = computed(() => (['failure', 'signal', 'never'] as const).map(v => ({ label: t(`auto.escalate.${v}`), value: v })))
 const escalateActionOptions = computed(() => [{ label: t('auto.actionChat'), value: 'chat' }, { label: t('auto.actionTask'), value: 'task' }])
@@ -155,7 +159,7 @@ async function testRun() {
             <template v-if="form.escalate.when !== 'never'">
               <div class="grid gap-3 sm:grid-cols-2">
                 <UFormField :label="t('auto.escalateAction')"><USelect v-model="form.escalate.action" :items="escalateActionOptions" class="w-full" /></UFormField>
-                <UFormField v-if="form.escalate.action === 'chat'" :label="t('auto.escalateAgent')"><USelect v-model="form.escalate.agent_id" :items="agentOptions" class="w-full" /></UFormField>
+                <UFormField v-if="form.escalate.action === 'chat'" :label="t('auto.escalateAgent')"><USelect v-model="escalateAgent" :items="agentOptions" class="w-full" /></UFormField>
               </div>
               <UFormField :label="t('auto.escalatePrompt')">
                 <UTextarea v-model="form.escalate.prompt" :rows="3" autoresize class="w-full" :placeholder="t('auto.escalatePromptPlaceholder')" />
@@ -163,7 +167,7 @@ async function testRun() {
             </template>
           </template>
           <div v-if="form.action !== 'script'" class="flex flex-wrap items-center gap-3">
-            <USelect v-if="form.action === 'chat'" v-model="form.agent_id" :items="agentOptions" class="min-w-48" />
+            <USelect v-if="form.action === 'chat'" v-model="chatAgent" :items="agentOptions" class="min-w-48" />
             <EditModePicker v-model="form.edit_mode" />
           </div>
           <USwitch v-if="form.action === 'chat'" v-model="form.keep_context" :label="t('auto.keepContext')" :description="t('auto.keepContextDesc')" />
