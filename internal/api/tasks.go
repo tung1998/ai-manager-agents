@@ -32,6 +32,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 		Attachments []string `json:"attachments"`
 		Mode        string   `json:"mode"`
 		EditMode    string   `json:"edit_mode"`
+		AgentID     string   `json:"agent_id"` // one agent does it ("" = the team)
 	}
 	if !decode(w, r, &in) {
 		return
@@ -49,11 +50,11 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	t, err := s.cfg.Tasks.Start(r.Context(), r.PathValue("id"), in.Goal, in.BudgetUSD, in.Attachments, s.allowedMode(r, in.Mode), s.allowedEditMode(r, in.EditMode))
+	t, err := s.cfg.Tasks.StartFor(r.Context(), r.PathValue("id"), in.AgentID, in.Goal, in.BudgetUSD, in.Attachments, s.allowedMode(r, in.Mode), s.allowedEditMode(r, in.EditMode))
 	switch {
 	case errors.Is(err, tasks.ErrBusy):
 		// the project runs a task: this one waits its turn as a queued job
-		j, qerr := s.cfg.Tasks.Queue(r.Context(), r.PathValue("id"), in.Goal, in.BudgetUSD, in.Attachments, s.allowedMode(r, in.Mode), s.allowedEditMode(r, in.EditMode))
+		j, qerr := s.cfg.Tasks.Queue(r.Context(), r.PathValue("id"), in.AgentID, in.Goal, in.BudgetUSD, in.Attachments, s.allowedMode(r, in.Mode), s.allowedEditMode(r, in.EditMode))
 		if qerr != nil {
 			s.writeDomainError(w, r, qerr)
 			return
@@ -61,7 +62,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 		s.auditAction(r, "task.queue", j.ID, map[string]any{"project": j.ProjectID})
 		writeJSON(w, http.StatusAccepted, map[string]any{"queued": true, "job": s.toJobDTO(r, j, nil)})
 		return
-	case errors.Is(err, tasks.ErrNoModel), errors.Is(err, automation.ErrUnknownSkill), errors.Is(err, attach.ErrNotFound), errors.Is(err, attach.ErrTooMany):
+	case errors.Is(err, tasks.ErrNoModel), errors.Is(err, tasks.ErrNoAgent), errors.Is(err, automation.ErrUnknownSkill), errors.Is(err, attach.ErrNotFound), errors.Is(err, attach.ErrTooMany):
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	case err != nil:

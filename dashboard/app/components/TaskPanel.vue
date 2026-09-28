@@ -14,6 +14,7 @@ interface Task {
   detail: string
   budget_usd: number
   cost_usd: number
+  assignee_id?: string
   attachments?: Attachment[]
   pending_patches?: number
   applied_patches?: number
@@ -57,6 +58,12 @@ const budget = ref(0) // 0 = no cap for this task (the office's daily cap still 
 const advanced = ref(false)
 const mode = ref<PermLevel>('propose')
 const editMode = ref<'worktree' | 'direct'>('worktree')
+// who does it: the team (the lead splits it) or one agent alone
+const TEAM = '__team'
+const assignee = ref(TEAM)
+const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
+const agentName = (id?: string) => agentsData.value?.agents.find(a => a.id === id)?.name ?? ''
+const assigneeItems = computed(() => [{ label: t('task.assignTeam'), value: TEAM }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
 const starting = ref(false)
 let source: EventSource | null = null
 
@@ -120,7 +127,7 @@ function follow(id: string) {
 async function start() {
   starting.value = true
   try {
-    const d = await $fetch<Detail & { queued?: boolean }>(`/api/projects/${props.projectId}/tasks`, { method: 'POST', body: { goal: goal.value, budget_usd: Number(budget.value) || 0, attachments: goalFiles.value.map(a => a.id), mode: mode.value, edit_mode: editMode.value } })
+    const d = await $fetch<Detail & { queued?: boolean }>(`/api/projects/${props.projectId}/tasks`, { method: 'POST', body: { goal: goal.value, budget_usd: Number(budget.value) || 0, attachments: goalFiles.value.map(a => a.id), mode: mode.value, edit_mode: editMode.value, agent_id: assignee.value === TEAM ? '' : assignee.value } })
     goal.value = ''
     goalFiles.value = []
     if (d.queued) {
@@ -351,6 +358,10 @@ onBeforeUnmount(() => source?.close())
         />
         <div class="flex flex-wrap items-center gap-3">
           <div class="flex items-center gap-2 text-sm">
+            <span class="text-(--ui-text-muted)">{{ t('task.assignTo') }}</span>
+            <USelect v-model="assignee" :items="assigneeItems" size="sm" class="min-w-44" />
+          </div>
+          <div class="flex items-center gap-2 text-sm">
             <span class="text-(--ui-text-muted)">{{ t('task.modeLabel') }}</span>
             <EditModePicker v-model="editMode" />
             <ModePicker v-model="mode" :project-id="projectId" />
@@ -376,7 +387,7 @@ onBeforeUnmount(() => source?.close())
           <div class="min-w-0">
             <p class="text-lg font-semibold">{{ detail.task.title }}</p>
             <p class="text-xs text-(--ui-text-muted)">
-              {{ detail.task.created_by.replace('human:', '') }} · {{ when(detail.task.created_at) }}
+              {{ detail.task.created_by.replace('human:', '') }}<template v-if="detail.task.assignee_id"> → {{ agentName(detail.task.assignee_id) || t('task.oneAgent') }}</template> · {{ when(detail.task.created_at) }}
               · ${{ detail.task.cost_usd.toFixed(3) }}<template v-if="detail.task.budget_usd"> / ${{ detail.task.budget_usd }}</template>
             </p>
           </div>

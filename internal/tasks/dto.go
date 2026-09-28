@@ -22,6 +22,7 @@ type TaskDTO struct {
 	CostUSD     float64              `json:"cost_usd"`
 	Attachments []storage.Attachment `json:"attachments"`
 	EditMode    string               `json:"edit_mode"`
+	AssigneeID  string               `json:"assignee_id"` // "" = the team
 	// diffs waiting for approval / applied: a "done" task with pending ones is awaiting review
 	PendingPatches int        `json:"pending_patches"`
 	AppliedPatches int        `json:"applied_patches"`
@@ -35,6 +36,7 @@ type StepDTO struct {
 	ID          string             `json:"id"`
 	Seq         int                `json:"seq"`
 	Phase       string             `json:"phase"`
+	AgentID     string             `json:"agent_id"`
 	AgentKey    string             `json:"agent_key"`
 	AgentName   string             `json:"agent_name"`
 	Instruction string             `json:"instruction"`
@@ -50,7 +52,7 @@ type StepDTO struct {
 
 func toTaskDTO(t storage.Task) TaskDTO {
 	return TaskDTO{ID: t.ID, ProjectID: t.ProjectID, Title: t.Title, Goal: t.Goal, Mode: t.Mode, Status: t.Status, Result: t.Result,
-		Detail: t.Detail, BudgetUSD: t.BudgetUSD, CostUSD: t.CostUSD, Attachments: atts(t.Attachments), EditMode: t.EditMode, CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt, FinishedAt: t.FinishedAt}
+		Detail: t.Detail, BudgetUSD: t.BudgetUSD, CostUSD: t.CostUSD, Attachments: atts(t.Attachments), EditMode: t.EditMode, AssigneeID: t.AssigneeID, CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt, FinishedAt: t.FinishedAt}
 }
 
 func toStepDTO(s storage.TaskStep) StepDTO {
@@ -62,7 +64,7 @@ func toStepDTO(s storage.TaskStep) StepDTO {
 	if data == nil {
 		data = map[string]any{}
 	}
-	return StepDTO{ID: s.ID, Seq: s.Seq, Phase: s.Phase, AgentKey: s.AgentKey, AgentName: s.AgentName, Instruction: s.Instruction,
+	return StepDTO{ID: s.ID, Seq: s.Seq, Phase: s.Phase, AgentID: s.AgentID, AgentKey: s.AgentKey, AgentName: s.AgentName, Instruction: s.Instruction,
 		Output: s.Output, Data: data, Tools: tools, Status: s.Status, Error: s.Error, CostUSD: s.CostUSD, StartedAt: s.StartedAt, FinishedAt: s.FinishedAt}
 }
 

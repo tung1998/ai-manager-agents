@@ -42,8 +42,10 @@ type idleExec struct{}
 func (idleExec) RunChat(context.Context, string, string, string, string, string) (string, error) {
 	return "", nil
 }
-func (idleExec) RunTask(context.Context, string, string, string) (string, error) { return "", nil }
-func (idleExec) RunQueuedTask(context.Context, string, string) (string, error)   { return "", nil }
+func (idleExec) RunTask(context.Context, string, string, string, string) (string, error) {
+	return "", nil
+}
+func (idleExec) RunQueuedTask(context.Context, string, string) (string, error) { return "", nil }
 
 func setup(t *testing.T) *env { return setupWith(t, nil) }
 

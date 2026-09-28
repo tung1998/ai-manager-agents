@@ -61,8 +61,8 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 	}
 }
 
-func (x officeExecutor) RunTask(ctx context.Context, projectID, goal, editMode string) (string, error) {
-	return x.start(ctx, projectID, goal, 0, nil, perm.Operate, editMode)
+func (x officeExecutor) RunTask(ctx context.Context, projectID, agentID, goal, editMode string) (string, error) {
+	return x.start(ctx, projectID, agentID, goal, 0, nil, perm.Operate, editMode)
 }
 
 func (x officeExecutor) RunQueuedTask(ctx context.Context, projectID, payload string) (string, error) {
@@ -70,11 +70,11 @@ func (x officeExecutor) RunQueuedTask(ctx context.Context, projectID, payload st
 	if err := json.Unmarshal([]byte(payload), &q); err != nil {
 		return "", err
 	}
-	return x.start(ctx, projectID, q.Goal, q.BudgetUSD, q.Attachments, q.Mode, q.EditMode)
+	return x.start(ctx, projectID, q.AgentID, q.Goal, q.BudgetUSD, q.Attachments, q.Mode, q.EditMode)
 }
 
-func (x officeExecutor) start(ctx context.Context, projectID, goal string, budget float64, files []string, mode, editMode string) (string, error) {
-	t, err := x.tasks.Start(ctx, projectID, goal, budget, files, mode, editMode)
+func (x officeExecutor) start(ctx context.Context, projectID, agentID, goal string, budget float64, files []string, mode, editMode string) (string, error) {
+	t, err := x.tasks.StartFor(ctx, projectID, agentID, goal, budget, files, mode, editMode)
 	if errors.Is(err, tasks.ErrBusy) {
 		return "", trigger.ErrBusy
 	}

@@ -103,7 +103,7 @@ export function emptyDraft(): AutomationDraft {
     config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '' },
     action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', keep_context: false,
     script: { lang: 'bash', body: '', timeout_s: 300 },
-    escalate: { when: 'failure', action: 'chat', agent_id: '', prompt: '' },
+    escalate: { when: 'failure', action: 'task', agent_id: '', prompt: '' },
     limits: { max_runs_per_hour: 0, daily_cost_usd: 0, disable_after_failures: 5, debounce_seconds: 0, debounce_key: '', debounce_max_seconds: 0 }
   }
 }
@@ -111,17 +111,21 @@ export function emptyDraft(): AutomationDraft {
 export function draftFrom(a: Automation): AutomationDraft {
   const e = emptyDraft()
   const b = JSON.parse(JSON.stringify(automationBody(a))) as AutomationDraft
-  return {
+  const d: AutomationDraft = {
     ...e, ...b, config: { ...e.config, ...b.config }, limits: { ...e.limits, ...b.limits },
     script: { ...e.script, ...(b.script?.lang ? b.script : {}) }, escalate: { ...e.escalate, ...(b.escalate?.when ? b.escalate : {}) }
   }
+  // "message an agent" is gone: it opens as a task for the same agent
+  if (d.action === 'chat') d.action = 'task'
+  if (d.escalate.action === 'chat') d.escalate.action = 'task'
+  return d
 }
 
 const draftObjects = ['config', 'limits', 'script', 'escalate'] as const
 const draftScalars = ['name', 'enabled', 'source', 'action', 'agent_id', 'prompt', 'edit_mode', 'keep_context'] as const
 const allowed: Record<string, readonly string[]> = {
-  source: ['schedule', 'webhook'], action: ['script', 'chat', 'task'], edit_mode: ['worktree', 'direct'],
-  'script.lang': ['bash', 'node', 'python'], 'escalate.when': ['never', 'failure', 'signal'], 'escalate.action': ['chat', 'task'],
+  source: ['schedule', 'webhook'], action: ['script', 'task'], edit_mode: ['worktree', 'direct'],
+  'script.lang': ['bash', 'node', 'python'], 'escalate.when': ['never', 'failure', 'signal'], 'escalate.action': ['task'],
   'config.auth': ['bearer', 'header', 'query']
 }
 const fits = (key: string, v: unknown) => !allowed[key] || allowed[key]!.includes(v as string)

@@ -32,7 +32,8 @@ func openStore(t *testing.T) (storage.Store, storage.Repo) {
 type fakeExec struct {
 	mu    sync.Mutex
 	chats []string
-	busy  int // return ErrBusy this many times first
+	tasks []string // "agent|goal"
+	busy  int      // return ErrBusy this many times first
 	fail  bool
 }
 
@@ -49,7 +50,10 @@ func (f *fakeExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt
 	}
 	return "cnv_x", nil
 }
-func (f *fakeExec) RunTask(ctx context.Context, projectID, goal, edit string) (string, error) {
+func (f *fakeExec) RunTask(ctx context.Context, projectID, agentID, goal, edit string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tasks = append(f.tasks, agentID+"|"+goal)
 	return "tsk_x", nil
 }
 func (f *fakeExec) RunQueuedTask(ctx context.Context, projectID, payload string) (string, error) {
@@ -122,5 +126,23 @@ func TestRestartedJobDoesNotRunAgain(t *testing.T) {
 	r.Wait()
 	if len(ex.chats) != 0 {
 		t.Fatalf("re-ran a restarted job: %v", ex.chats)
+	}
+}
+
+// A task automation can go to one agent (its daily job) instead of the team.
+func TestTaskAutomationForOneAgent(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	ex := &fakeExec{}
+	r := trigger.New(st, ex)
+	past := time.Now().UTC().Add(-time.Minute)
+	st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "daily", Source: "schedule", Action: "task", AgentID: "agt_1", Enabled: true,
+		Prompt: "báo cáo", Config: storage.AutomationConfig{EveryMinutes: 60}, NextRunAt: &past})
+	r.Tick(ctx, time.Now().UTC())
+	r.Wait()
+	ex.mu.Lock()
+	defer ex.mu.Unlock()
+	if len(ex.tasks) != 1 || ex.tasks[0] != "agt_1|báo cáo" {
+		t.Fatalf("tasks = %v", ex.tasks)
 	}
 }

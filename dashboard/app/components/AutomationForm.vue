@@ -13,12 +13,12 @@ const form = props.form
 const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 // a Select item cannot have "" as its value: "the lead" is a sentinel
 const LEAD = '__lead'
-const agentOptions = computed(() => [{ label: t('auto.agentDefault'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
+// a task goes to the team (the lead splits it) or to one agent, like a person's daily job
+const agentOptions = computed(() => [{ label: t('auto.assignTeam'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
 const chatAgent = computed({ get: () => form.agent_id || LEAD, set: (v: string) => { form.agent_id = v === LEAD ? '' : v } })
 const escalateAgent = computed({ get: () => form.escalate.agent_id || LEAD, set: (v: string) => { form.escalate.agent_id = v === LEAD ? '' : v } })
 const langOptions = [{ label: 'bash', value: 'bash' }, { label: 'node', value: 'node' }, { label: 'python', value: 'python' }]
 const whenOptions = computed(() => (['failure', 'signal', 'never'] as const).map(v => ({ label: t(`auto.escalate.${v}`), value: v })))
-const escalateActionOptions = computed(() => [{ label: t('auto.actionChat'), value: 'chat' }, { label: t('auto.actionTask'), value: 'task' }])
 
 const presets = computed(() => [
   { label: t('auto.presetEvery5'), every: 5, cron: '' },
@@ -51,8 +51,7 @@ const tz = computed({ get: () => form.config.timezone || 'Asia/Ho_Chi_Minh', set
 const tzItems = computed(() => timezones.includes(tz.value) ? timezones : [tz.value, ...timezones])
 const actions = computed(() => [
   { value: 'script' as const, icon: 'i-lucide-square-terminal', title: t('auto.cardScript'), desc: t('auto.cardScriptDesc') },
-  { value: 'task' as const, icon: 'i-lucide-list-todo', title: t('auto.cardTask'), desc: t('auto.cardTaskDesc') },
-  { value: 'chat' as const, icon: 'i-lucide-messages-square', title: t('auto.cardChat'), desc: t('auto.cardChatDesc') }
+  { value: 'task' as const, icon: 'i-lucide-list-todo', title: t('auto.cardTask'), desc: t('auto.cardTaskDesc') }
 ])
 
 // next runs, asked from the server (same parser as the scheduler)
@@ -169,7 +168,7 @@ async function testRun() {
       <p class="flex items-center gap-2 text-sm font-semibold">
         <span class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">2</span>{{ t('auto.stepAction') }}
       </p>
-      <div class="grid gap-2 @md:grid-cols-3">
+      <div class="grid gap-2 @md:grid-cols-2">
         <button
           v-for="x in actions" :key="x.value" type="button"
           class="flex h-full items-start gap-2.5 rounded-lg border p-3 text-left transition"
@@ -215,23 +214,17 @@ async function testRun() {
           </p>
           <div class="grid gap-3 @lg:grid-cols-3">
             <UFormField :label="t('auto.escalateWhen')"><USelect v-model="form.escalate.when" :items="whenOptions" class="w-full" /></UFormField>
-            <template v-if="form.escalate.when !== 'never'">
-              <UFormField :label="t('auto.escalateAction')"><USelect v-model="form.escalate.action" :items="escalateActionOptions" class="w-full" /></UFormField>
-              <UFormField v-if="form.escalate.action === 'chat'" :label="t('auto.escalateAgent')"><USelect v-model="escalateAgent" :items="agentOptions" class="w-full" /></UFormField>
-            </template>
+            <UFormField v-if="form.escalate.when !== 'never'" :label="t('auto.assignTo')" class="@lg:col-span-2"><USelect v-model="escalateAgent" :items="agentOptions" class="w-full" /></UFormField>
           </div>
           <UFormField v-if="form.escalate.when !== 'never'" :label="t('auto.escalatePrompt')">
             <UTextarea v-model="form.escalate.prompt" :rows="3" autoresize class="w-full" :placeholder="t('auto.escalatePromptPlaceholder')" />
           </UFormField>
         </div>
       </template>
-      <template v-else>
-        <div class="flex flex-wrap items-center gap-3">
-          <USelect v-if="form.action === 'chat'" v-model="chatAgent" :items="agentOptions" class="min-w-48" />
-          <EditModePicker v-model="form.edit_mode" />
-        </div>
-        <USwitch v-if="form.action === 'chat'" v-model="form.keep_context" :label="t('auto.keepContext')" :description="t('auto.keepContextDesc')" />
-      </template>
+      <div v-else class="flex flex-wrap items-end gap-3">
+        <UFormField :label="t('auto.assignTo')"><USelect v-model="chatAgent" :items="agentOptions" class="min-w-56" /></UFormField>
+        <EditModePicker v-model="form.edit_mode" />
+      </div>
     </section>
 
     <!-- 3. content -->

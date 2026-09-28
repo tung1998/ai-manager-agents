@@ -406,7 +406,7 @@ func TestTaskIsAJobAndQueuesWhenBusy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := f.svc.Queue(context.Background(), f.project.ID, "việc thứ hai", 0, nil, "", "")
+	queued, err := f.svc.Queue(context.Background(), f.project.ID, "", "việc thứ hai", 0, nil, "", "")
 	if err != nil || queued.Status != "pending" || queued.Kind != "task" {
 		t.Fatalf("queue = %+v %v", queued, err)
 	}
@@ -451,5 +451,42 @@ func TestAutoAppliedTaskPatchIsAudited(t *testing.T) {
 	rows, _ := f.st.Audit().List(context.Background(), storage.AuditFilter{TaskID: task.ID, Resource: "patch"})
 	if len(rows) == 0 || rows[0].ActorKind != "agent" || rows[0].Via != "task" || rows[0].JobID == "" || rows[0].ProjectID != f.project.ID || rows[0].Action != "patch.applied" {
 		t.Fatalf("audit rows: %+v", rows)
+	}
+}
+
+// A task can go to one agent (a person's daily job) instead of the team: that
+// agent does it alone, and a retry keeps the assignee.
+func TestTaskForOneAgent(t *testing.T) {
+	f := setup(t, &fakeModel{}, "team")
+	ctx := context.Background()
+	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
+	agents, _ := f.st.Agents().List(ctx, m.ID)
+	var worker storage.Agent
+	for _, a := range agents {
+		if a.Tier != storage.TierLead {
+			worker = a
+			break
+		}
+	}
+	if worker.ID == "" {
+		t.Fatal("template has no non-lead agent")
+	}
+	if _, err := f.svc.StartFor(ctx, f.project.ID, "agt_nope", "Báo cáo hằng ngày", 0, nil, "", ""); err == nil {
+		t.Fatal("an agent of another project was accepted")
+	}
+	task, err := f.svc.StartFor(ctx, f.project.ID, worker.ID, "Báo cáo hằng ngày", 0, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := wait(t, f.svc, task.ID)
+	if d.Task.Mode != "single" || d.Task.AssigneeID != worker.ID || len(d.Steps) != 1 || d.Steps[0].AgentID != worker.ID || d.Steps[0].Phase != "work" {
+		t.Fatalf("task = %+v steps = %+v", d.Task, d.Steps)
+	}
+	again, err := f.svc.Retry(ctx, task.ID, false, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := wait(t, f.svc, again.ID); d.Task.AssigneeID != worker.ID || d.Steps[0].AgentID != worker.ID {
+		t.Fatalf("retry lost the assignee: %+v", d.Task)
 	}
 }

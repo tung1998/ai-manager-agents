@@ -1,6 +1,6 @@
 // Tests for mergeDraft (ADR-042): run with node --experimental-strip-types.
 import assert from 'node:assert/strict'
-import { emptyDraft, mergeDraft } from '../app/composables/useAutomations.ts'
+import { draftFrom, emptyDraft, mergeDraft } from '../app/composables/useAutomations.ts'
 
 // nested fields: known keys of the right type only
 {
@@ -31,5 +31,18 @@ import { emptyDraft, mergeDraft } from '../app/composables/useAutomations.ts'
   mergeDraft(d, { config: { cron: '0 9 * * *' } })
   assert.equal(d.config.cron, '0 9 * * *')
   assert.equal(d.config.every_minutes, 0, 'a cron clears every N minutes')
+}
+// "message an agent" is gone: tasks go to the team or to one agent
+{
+  const d = emptyDraft()
+  mergeDraft(d, { action: 'chat', escalate: { action: 'chat' } })
+  assert.equal(d.action, 'script', 'chat action refused')
+  assert.equal(d.escalate.action, 'task', 'escalation defaults to a task')
+  const old = { ...emptyDraft(), id: 'aut_1', project_id: 'p', action: 'chat', agent_id: 'agt_1', escalate: { when: 'failure', action: 'chat', agent_id: 'agt_2', prompt: '' } }
+  const conv = draftFrom(old as never)
+  assert.equal(conv.action, 'task', 'an old chat automation opens as a task')
+  assert.equal(conv.agent_id, 'agt_1', 'for the same agent')
+  assert.equal(conv.escalate.action, 'task', 'its escalation too')
+  assert.equal(conv.escalate.agent_id, 'agt_2')
 }
 console.log('mergeDraft: ok')

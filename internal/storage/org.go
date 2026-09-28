@@ -360,6 +360,7 @@ type Task struct {
 	CostUSD     float64
 	ModeLevel   string // permission mode (internal/perm level), a ceiling for this task
 	EditMode    string // where it changes code: perm.EditWorktree (default) or perm.EditDirect
+	AssigneeID  string // one agent does it alone ("" = the team, by the org model)
 	Attachments []Attachment
 	CreatedBy   string
 	CreatedAt   time.Time

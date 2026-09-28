@@ -47,7 +47,7 @@ func (f *recExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt,
 	f.mu.Unlock()
 	return f.returnCnv, f.err
 }
-func (f *recExec) RunTask(ctx context.Context, projectID, goal, edit string) (string, error) {
+func (f *recExec) RunTask(ctx context.Context, projectID, agentID, goal, edit string) (string, error) {
 	return "", f.err
 }
 func (f *recExec) RunQueuedTask(ctx context.Context, projectID, payload string) (string, error) {

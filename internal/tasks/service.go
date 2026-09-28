@@ -29,6 +29,7 @@ import (
 var (
 	ErrNoModel    = errors.New("project chưa có mô hình tổ chức")
 	ErrNoLead     = errors.New("mô hình chưa có agent lead")
+	ErrNoAgent    = errors.New("agent được giao không thuộc project")
 	ErrBusy       = errors.New("project đang chạy một việc khác")
 	ErrTaskBudget = errors.New("đã dùng hết ngân sách của việc này")
 )
@@ -113,7 +114,13 @@ func (s *Service) Live(taskID string) (*Live, bool) {
 // Start creates a task and runs it in the background.
 // editMode is where agents change code (perm.EditWorktree or perm.EditDirect).
 func (s *Service) Start(ctx context.Context, projectID, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode string) (storage.Task, error) {
-	return s.start(ctx, projectID, goal, budgetUSD, attachmentIDs, permMode, editMode, "")
+	return s.start(ctx, projectID, "", goal, budgetUSD, attachmentIDs, permMode, editMode, "")
+}
+
+// StartFor gives the task to one agent of the project, who does it alone
+// (like a person's daily job); agentID "" = the team.
+func (s *Service) StartFor(ctx context.Context, projectID, agentID, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode string) (storage.Task, error) {
+	return s.start(ctx, projectID, agentID, goal, budgetUSD, attachmentIDs, permMode, editMode, "")
 }
 
 // Retry starts the task again with the same goal, files, budget and mode
@@ -159,10 +166,10 @@ func (s *Service) Retry(ctx context.Context, taskID string, learn bool, permMode
 	if answer = strings.TrimSpace(answer); answer != "" {
 		lesson = strings.TrimSpace(lesson + fmt.Sprintf("\n\nLần trước đội hỏi người dùng: %s\nNgười dùng trả lời: %s\nLàm tiếp theo câu trả lời này.", old.Detail, answer))
 	}
-	return s.start(ctx, old.ProjectID, old.Goal, old.BudgetUSD, ids, permMode, old.EditMode, lesson)
+	return s.start(ctx, old.ProjectID, old.AssigneeID, old.Goal, old.BudgetUSD, ids, permMode, old.EditMode, lesson)
 }
 
-func (s *Service) start(ctx context.Context, projectID, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode, lesson string) (storage.Task, error) {
+func (s *Service) start(ctx context.Context, projectID, assignee, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode, lesson string) (storage.Task, error) {
 	if !perm.Valid(permMode) {
 		permMode = perm.Propose
 	}
@@ -206,6 +213,12 @@ func (s *Service) start(ctx context.Context, projectID, goal string, budgetUSD f
 			mode = "hierarchy"
 		}
 	}
+	if assignee != "" { // one agent, alone
+		if !slices.ContainsFunc(agents, func(a storage.Agent) bool { return a.ID == assignee }) {
+			return storage.Task{}, ErrNoAgent
+		}
+		mode = "single"
+	}
 	s.mu.Lock()
 	if _, busy := s.busy[projectID]; busy {
 		s.mu.Unlock()
@@ -216,7 +229,7 @@ func (s *Service) start(ctx context.Context, projectID, goal string, budgetUSD f
 
 	task, err := s.store.Tasks().Create(ctx, storage.Task{
 		ProjectID: projectID, Title: truncate(strings.Join(strings.Fields(goal), " "), 90), Goal: goal, Mode: mode,
-		Status: "running", BudgetUSD: budgetUSD, ModeLevel: permMode, EditMode: editMode, Attachments: attach.Refs(files), CreatedBy: actor.From(ctx),
+		Status: "running", BudgetUSD: budgetUSD, ModeLevel: permMode, EditMode: editMode, AssigneeID: assignee, Attachments: attach.Refs(files), CreatedBy: actor.From(ctx),
 	})
 	if err != nil {
 		s.mu.Lock()
@@ -775,6 +788,14 @@ func (r *run) plan(planner storage.Agent, phase, feedback string) (Plan, storage
 
 func (r *run) single() (string, error) {
 	leads := r.leads()
+	if r.task.AssigneeID != "" {
+		leads = nil
+		for _, a := range r.agents {
+			if a.ID == r.task.AssigneeID {
+				leads = []storage.Agent{a}
+			}
+		}
+	}
 	if len(leads) == 0 {
 		return "", ErrNoLead
 	}

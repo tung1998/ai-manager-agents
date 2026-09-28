@@ -18,12 +18,13 @@ type QueuedTask struct {
 	Attachments []string `json:"attachments"`
 	Mode        string   `json:"mode"`
 	EditMode    string   `json:"edit_mode"`
+	AgentID     string   `json:"agent_id,omitempty"` // one agent does it ("" = the team)
 }
 
 // Queue records a task to start once the project is free: a pending job the
 // trigger runner starts (ADR-040).
-func (s *Service) Queue(ctx context.Context, projectID, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode string) (storage.Job, error) {
-	raw, _ := json.Marshal(QueuedTask{Goal: goal, BudgetUSD: budgetUSD, Attachments: attachmentIDs, Mode: permMode, EditMode: editMode})
+func (s *Service) Queue(ctx context.Context, projectID, agentID, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode string) (storage.Job, error) {
+	raw, _ := json.Marshal(QueuedTask{Goal: goal, BudgetUSD: budgetUSD, Attachments: attachmentIDs, Mode: permMode, EditMode: editMode, AgentID: agentID})
 	now := time.Now().UTC()
 	return s.store.Jobs().Create(ctx, storage.Job{ProjectID: projectID, Kind: "task", Origin: "user", Trigger: "ui", CreatedBy: actor.From(ctx),
 		Title: truncate(strings.Join(strings.Fields(goal), " "), 90), Status: "pending", Payload: string(raw), NextAttemptAt: &now})

@@ -46,7 +46,7 @@ async function runNow(a: Automation) {
           <span class="block truncate font-medium">{{ a.name }}</span>
           <span class="block truncate text-xs text-(--ui-text-muted)">
             {{ scheduleText(a, t) }}
-            · {{ a.action === 'task' ? t('auto.toTask') : a.action === 'script' ? t('auto.toScript') : t('auto.toChat', { agent: agentName(a.agent_id) }) }}
+            · {{ a.action === 'task' ? (a.agent_id ? t('auto.toAgentTask', { agent: agentName(a.agent_id) }) : t('auto.toTask')) : a.action === 'script' ? t('auto.toScript') : t('auto.toChat', { agent: agentName(a.agent_id) }) }}
           </span>
         </NuxtLink>
         <UBadge v-if="a.disabled_code" color="error" variant="subtle" size="sm" icon="i-lucide-circle-alert" :label="t('auto.disabledBy', { reason: a.disabled_reason })" class="max-w-64 truncate" />

@@ -29,8 +29,8 @@ const (
 type Executor interface {
 	// RunChat sends prompt to agentID (conversationID "" = a new chat).
 	RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (string, error)
-	// RunTask gives goal to the project's team.
-	RunTask(ctx context.Context, projectID, goal, editMode string) (string, error)
+	// RunTask gives goal to the project's team, or to one agent (agentID).
+	RunTask(ctx context.Context, projectID, agentID, goal, editMode string) (string, error)
 	// RunQueuedTask starts a task a person queued while the project was busy.
 	RunQueuedTask(ctx context.Context, projectID, payload string) (string, error)
 }
@@ -264,7 +264,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	actx := actor.With(jctx, "auto:"+a.Name)
 	keptConv := ""
 	if action == "task" {
-		_, err = r.exec.RunTask(actx, a.ProjectID, prompt, a.EditMode)
+		_, err = r.exec.RunTask(actx, a.ProjectID, agentID, prompt, a.EditMode)
 	} else {
 		conv := ""
 		if a.KeepContext {
