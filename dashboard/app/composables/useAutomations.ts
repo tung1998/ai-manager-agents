@@ -5,7 +5,7 @@ export interface Job {
   id: string
   project_id: string
   project_name: string
-  kind: 'chat_turn' | 'task'
+  kind: 'chat_turn' | 'task' | 'script'
   origin: 'user' | 'automation' | 'monitor' | 'retry'
   origin_id: string
   trigger: string
@@ -27,6 +27,10 @@ export interface Job {
   created_at: string
   started_at: string | null
   finished_at: string | null
+  exit_code: number | null
+  parent_job_id: string
+  output?: string
+  payload?: string
 }
 
 export interface AutomationConfig { every_minutes?: number, cron?: string, timezone?: string, auth?: string, auth_name?: string }
@@ -38,6 +42,8 @@ export interface AutomationLimits {
   debounce_key?: string
   debounce_max_seconds?: number
 }
+export interface AutomationScript { lang: 'bash' | 'node' | 'python', body: string, timeout_s?: number }
+export interface AutomationEscalate { when: 'never' | 'failure' | 'signal', action: 'chat' | 'task', agent_id: string, prompt: string }
 export interface Automation {
   id: string
   project_id: string
@@ -45,12 +51,14 @@ export interface Automation {
   enabled: boolean
   source: 'schedule' | 'webhook'
   config: AutomationConfig
-  action: 'chat' | 'task'
+  action: 'chat' | 'task' | 'script'
   agent_id: string
   prompt: string
   edit_mode: 'worktree' | 'direct'
   keep_context: boolean
   limits: AutomationLimits
+  script: AutomationScript
+  escalate: AutomationEscalate
   failures: number
   disabled_code: string
   disabled_reason: string
@@ -62,10 +70,10 @@ export interface Automation {
 }
 
 // automationBody is what PATCH/POST take (the fields a person edits).
-export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'keep_context' | 'limits'>) {
+export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'keep_context' | 'limits' | 'script' | 'escalate'>) {
   return {
     name: a.name, enabled: a.enabled, source: a.source, action: a.action, agent_id: a.agent_id, prompt: a.prompt,
-    edit_mode: a.edit_mode, keep_context: a.keep_context, config: a.config, limits: a.limits
+    edit_mode: a.edit_mode, keep_context: a.keep_context, config: a.config, limits: a.limits, script: a.script, escalate: a.escalate
   }
 }
 

@@ -51,7 +51,7 @@ onMounted(() => {
 onBeforeUnmount(() => clearInterval(timer))
 
 const selectItems = computed(() => ({
-  kind: [{ label: t('job.kindAll'), value: '' }, ...(['chat_turn', 'task'] as const).map(v => ({ label: t(`job.kind.${v}`), value: v }))],
+  kind: [{ label: t('job.kindAll'), value: '' }, ...(['chat_turn', 'task', 'script'] as const).map(v => ({ label: t(`job.kind.${v}`), value: v }))],
   origin: [{ label: t('job.originAll'), value: '' }, ...(['user', 'automation'] as const).map(v => ({ label: t(`job.origin.${v}`), value: v }))],
   status: [{ label: t('job.statusAll'), value: '' }, ...(['running', 'pending', 'done', 'failed', 'needs_input', 'cancelled', 'skipped'] as const).map(v => ({ label: t(`job.status.${v}`), value: v }))],
   since: [{ label: t('job.range24h'), value: '24h' }, { label: t('job.range7d'), value: '168h' }, { label: t('job.range30d'), value: '720h' }],
@@ -74,7 +74,12 @@ const source = (j: Job) => j.origin === 'automation'
   : j.created_by || t('job.origin.user')
 
 const prefill = useState<{ text: string, files: unknown[], conversationId?: string } | null>('chat-prefill', () => null)
+const detail = ref<string | null>(null) // a script job shown in the modal
 function openJob(j: Job) {
+  if (j.kind === 'script') {
+    detail.value = j.id
+    return
+  }
   if (j.kind === 'chat_turn' && j.conversation_id) {
     prefill.value = { text: '', files: [], conversationId: j.conversation_id }
     return navigateTo({ path: `/projects/${j.project_id}`, query: { tab: 'chat' } })
@@ -124,7 +129,7 @@ defineExpose({ reload: () => load() })
               <td class="px-4 py-2"><JobStatusBadge :status="j.status" /></td>
               <td class="max-w-72 px-2 py-2">
                 <span class="flex items-center gap-1.5">
-                  <UIcon :name="j.kind === 'task' ? 'i-lucide-list-todo' : 'i-lucide-messages-square'" class="size-3.5 shrink-0 text-(--ui-text-muted)" />
+                  <UIcon :name="j.kind === 'task' ? 'i-lucide-list-todo' : j.kind === 'script' ? 'i-lucide-square-terminal' : 'i-lucide-messages-square'" class="size-3.5 shrink-0 text-(--ui-text-muted)" />
                   <span class="truncate" :title="j.title">{{ j.title || '—' }}</span>
                 </span>
                 <span v-if="j.error" class="block truncate text-xs text-(--ui-error)" :title="j.error">{{ j.error }}</span>
@@ -136,7 +141,7 @@ defineExpose({ reload: () => load() })
               <td class="px-2 py-2 text-right text-xs tabular-nums">{{ secs(j.duration_ms) }}</td>
               <td class="whitespace-nowrap px-2 py-2 text-xs text-(--ui-text-muted)">{{ when(j.created_at) }}</td>
               <td class="whitespace-nowrap px-4 py-2 text-right">
-                <UButton v-if="j.conversation_id || j.task_id" size="xs" color="neutral" variant="ghost" icon="i-lucide-external-link" :title="t('job.open')" :aria-label="t('job.open')" @click="openJob(j)" />
+                <UButton v-if="j.conversation_id || j.task_id || j.kind === 'script'" size="xs" color="neutral" variant="ghost" icon="i-lucide-external-link" :title="t('job.open')" :aria-label="t('job.open')" @click="openJob(j)" />
                 <UButton v-if="isAdmin && (j.status === 'pending' || j.status === 'running')" size="xs" color="neutral" variant="ghost" icon="i-lucide-square" :title="t('job.cancel')" :aria-label="t('job.cancel')" @click="act(j, 'cancel')" />
                 <UButton v-if="isAdmin && ['failed', 'cancelled', 'skipped'].includes(j.status) && (j.origin === 'automation' || j.kind === 'task')" size="xs" color="neutral" variant="ghost" icon="i-lucide-rotate-ccw" :title="t('job.retry')" :aria-label="t('job.retry')" @click="act(j, 'retry')" />
               </td>
@@ -148,5 +153,6 @@ defineExpose({ reload: () => load() })
         <UButton size="xs" color="neutral" variant="ghost" :loading="loading" :label="t('job.more')" @click="load(true)" />
       </div>
     </UCard>
+    <JobDetailModal :job-id="detail" @close="detail = null" @open="(j: Job) => { detail = null; openJob(j) }" />
   </div>
 </template>

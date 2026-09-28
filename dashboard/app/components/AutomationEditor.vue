@@ -14,6 +14,8 @@ const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone
 const empty = (): Omit<Automation, 'id' | 'project_id' | 'failures' | 'disabled_code' | 'disabled_reason' | 'last_run_at' | 'next_run_at' | 'last_job' | 'created_at'> => ({
   name: '', enabled: true, source: 'schedule', config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: browserTz, auth: 'bearer', auth_name: '' },
   action: 'task', agent_id: '', prompt: '', edit_mode: 'worktree', keep_context: false,
+  script: { lang: 'bash', body: '', timeout_s: 300 },
+  escalate: { when: 'failure', action: 'chat', agent_id: '', prompt: '' },
   limits: { max_runs_per_hour: 0, daily_cost_usd: 0, disable_after_failures: 5, debounce_seconds: 0, debounce_key: '', debounce_max_seconds: 0 }
 })
 const form = reactive(empty())
@@ -23,7 +25,12 @@ watch(open, (v) => {
   Object.assign(form, empty(), a ? JSON.parse(JSON.stringify(automationBody(a))) : {})
   form.config = { ...empty().config, ...(a?.config ?? {}) }
   form.limits = { ...empty().limits, ...(a?.limits ?? {}) }
+  form.script = { ...empty().script, ...(a?.script?.lang ? a.script : {}) }
+  form.escalate = { ...empty().escalate, ...(a?.escalate?.when ? a.escalate : {}) }
 })
+const langOptions = [{ label: 'bash', value: 'bash' }, { label: 'node', value: 'node' }, { label: 'python', value: 'python' }]
+const whenOptions = computed(() => (['failure', 'signal', 'never'] as const).map(v => ({ label: t(`auto.escalate.${v}`), value: v })))
+const escalateActionOptions = computed(() => [{ label: t('auto.actionChat'), value: 'chat' }, { label: t('auto.actionTask'), value: 'task' }])
 
 const presets = computed(() => [
   { label: t('auto.presetEvery5'), every: 5, cron: '' },
@@ -133,18 +140,37 @@ async function save() {
         <!-- 2. action -->
         <section class="space-y-3">
           <p class="text-sm font-medium">{{ t('auto.stepAction') }}</p>
-          <div class="grid grid-cols-2 gap-2">
+          <div class="grid grid-cols-3 gap-2">
             <button
-              v-for="x in (['task', 'chat'] as const)" :key="x" type="button"
-              class="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium"
+              v-for="x in (['script', 'task', 'chat'] as const)" :key="x" type="button"
+              class="flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-medium"
               :class="form.action === x ? 'border-primary bg-primary/5' : 'border-(--ui-border)'"
               @click="form.action = x"
             >
-              <UIcon :name="x === 'task' ? 'i-lucide-list-todo' : 'i-lucide-messages-square'" class="size-4" />
-              {{ x === 'task' ? t('auto.actionTask') : t('auto.actionChat') }}
+              <UIcon :name="x === 'task' ? 'i-lucide-list-todo' : x === 'chat' ? 'i-lucide-messages-square' : 'i-lucide-square-terminal'" class="size-4 shrink-0" />
+              {{ x === 'task' ? t('auto.actionTask') : x === 'chat' ? t('auto.actionChat') : t('auto.actionScript') }}
             </button>
           </div>
-          <div class="flex flex-wrap items-center gap-3">
+          <template v-if="form.action === 'script'">
+            <div class="flex flex-wrap gap-3">
+              <UFormField :label="t('auto.scriptLang')"><USelect v-model="form.script.lang" :items="langOptions" class="w-28" /></UFormField>
+              <UFormField :label="t('auto.timeout')"><UInputNumber v-model="form.script.timeout_s" :min="1" :max="3600" class="w-32" /></UFormField>
+            </div>
+            <UFormField :label="t('auto.scriptBody')" :help="t('auto.scriptHelp')">
+              <UTextarea v-model="form.script.body" :rows="8" autoresize class="w-full font-mono text-xs" placeholder="grep -c ERROR logs/app.log || true" />
+            </UFormField>
+            <UFormField :label="t('auto.escalateWhen')"><USelect v-model="form.escalate.when" :items="whenOptions" class="w-full" /></UFormField>
+            <template v-if="form.escalate.when !== 'never'">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <UFormField :label="t('auto.escalateAction')"><USelect v-model="form.escalate.action" :items="escalateActionOptions" class="w-full" /></UFormField>
+                <UFormField v-if="form.escalate.action === 'chat'" :label="t('auto.escalateAgent')"><USelect v-model="form.escalate.agent_id" :items="agentOptions" class="w-full" /></UFormField>
+              </div>
+              <UFormField :label="t('auto.escalatePrompt')">
+                <UTextarea v-model="form.escalate.prompt" :rows="3" autoresize class="w-full" :placeholder="t('auto.escalatePromptPlaceholder')" />
+              </UFormField>
+            </template>
+          </template>
+          <div v-if="form.action !== 'script'" class="flex flex-wrap items-center gap-3">
             <USelect v-if="form.action === 'chat'" v-model="form.agent_id" :items="agentOptions" class="min-w-48" />
             <EditModePicker v-model="form.edit_mode" />
           </div>
@@ -152,7 +178,7 @@ async function save() {
         </section>
 
         <!-- 3. content -->
-        <section class="space-y-2">
+        <section v-if="form.action !== 'script'" class="space-y-2">
           <p class="text-sm font-medium">{{ t('auto.stepPrompt') }}</p>
           <UTextarea ref="promptEl" v-model="form.prompt" :rows="5" autoresize class="w-full" :placeholder="t('auto.promptPlaceholder')" />
           <div class="flex flex-wrap items-center gap-1 text-xs text-(--ui-text-muted)">

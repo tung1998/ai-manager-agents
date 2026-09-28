@@ -121,7 +121,28 @@ const en: Record<keyof typeof vi, string> = {
   'job.trigger.manual': 'run by hand',
   'job.trigger.telegram': 'Telegram',
   'job.trigger.discord': 'Discord',
-  'job.queued': 'The project is running another task: this one is queued and starts when the project is free.'
+  'job.queued': 'The project is running another task: this one is queued and starts when the project is free.',
+  'auto.actionScript': 'Run code (no AI cost)',
+  'auto.toScript': '→ Code',
+  'auto.scriptLang': 'Language',
+  'auto.scriptBody': 'Script',
+  'auto.scriptHelp': 'Runs in the project folder. Read the payload from stdin or $OFFICE_PAYLOAD. Exit non-zero on failure; print "@@agent: …" to call an agent.',
+  'auto.timeout': 'Timeout (seconds)',
+  'auto.escalateWhen': 'When to call AI',
+  'auto.escalate.never': 'Never call AI',
+  'auto.escalate.failure': 'Call AI when the script fails',
+  'auto.escalate.signal': 'Call AI when the script asks (@@agent)',
+  'auto.escalateAgent': 'Agent handling it',
+  'auto.escalateAction': 'What the agent does',
+  'auto.escalatePrompt': 'What the agent gets',
+  'auto.escalatePromptPlaceholder': 'e.g. The log check reported: {{message}}. Look at the output and propose a fix.',
+  'job.kind.script': 'Code',
+  'job.trigger.escalate': 'script called AI',
+  'job.exit': 'Exit code {n}',
+  'job.output': 'Output',
+  'job.children': 'Agents called in',
+  'job.noOutput': '(no output)',
+  'job.detail': 'Job details'
 }
 
 export default en

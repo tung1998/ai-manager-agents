@@ -14,6 +14,9 @@ export interface ProposedAction {
   decided_by: string
   message?: string
   files?: string[]
+  // create_automation / update_automation: the proposed automation
+  automation?: { name: string, source: string, every_minutes?: number, cron?: string, timezone?: string, action: string, prompt?: string,
+    script?: { lang: string, body: string, timeout_s?: number }, escalate?: { when?: string, action?: string } }
 }
 
 const props = defineProps<{ action: ProposedAction, projectId?: string }>()
@@ -23,7 +26,7 @@ const { isAdmin } = useAuth()
 const { t } = useLang()
 const busy = ref<'' | 'approve' | 'reject'>('')
 
-const icon = computed(() => props.action.kind === 'git_commit' ? 'i-lucide-git-commit-horizontal'
+const icon = computed(() => props.action.kind.endsWith('_automation') ? 'i-lucide-alarm-clock' : props.action.kind === 'git_commit' ? 'i-lucide-git-commit-horizontal'
   : props.action.kind === 'git_branch' ? 'i-lucide-git-branch'
     : props.action.kind === 'git_push' ? 'i-lucide-upload'
       : props.action.kind.startsWith('stop') ? 'i-lucide-square'
@@ -38,7 +41,9 @@ const kindLabels: Record<string, string> = {
   git_commit: 'action.kind.git_commit',
   git_branch: 'action.kind.git_branch',
   git_push: 'action.kind.git_push',
-  run_command: 'action.kind.run_command'
+  run_command: 'action.kind.run_command',
+  create_automation: 'action.kind.create_automation',
+  update_automation: 'action.kind.update_automation'
 }
 const kindLabel = computed(() => {
   const key = kindLabels[props.action.kind]
@@ -50,7 +55,14 @@ const statusMeta = computed<Record<ProposedAction['status'], { label: string, co
   failed: { label: t('action.failed'), color: 'error' },
   rejected: { label: t('action.rejected'), color: 'neutral' }
 }))
-const opsLink = computed(() => props.projectId && !props.action.kind.startsWith('git_')
+const spec = computed(() => props.action.automation)
+const when = computed(() => {
+  const s = spec.value
+  if (!s) return ''
+  if (s.source === 'webhook') return t('auto.sourceWebhook')
+  return s.cron ? `${s.cron}${s.timezone ? ` (${s.timezone})` : ''}` : t('auto.every', { n: s.every_minutes ?? 0 })
+})
+const opsLink = computed(() => props.projectId && !props.action.kind.startsWith('git_') && !props.action.kind.endsWith('_automation')
   ? `/projects/${props.projectId}?tab=ops&section=${props.action.kind.endsWith('container') ? 'containers' : 'processes'}`
   : '')
 
@@ -79,6 +91,16 @@ async function decide(approve: boolean) {
       <p class="text-sm font-medium">{{ kindLabel }} <code>{{ action.target }}</code></p>
       <pre v-if="action.message" class="mt-1 whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1 font-mono text-xs">{{ action.message }}</pre>
       <p v-if="action.files?.length" class="mt-1 truncate font-mono text-xs text-(--ui-text-muted)" :title="action.files.join('\n')">{{ t('action.fileCount', { n: action.files.length, files: action.files.join(', ') }) }}</p>
+      <div v-if="spec" class="mt-1 space-y-1 text-xs">
+        <p class="text-(--ui-text-muted)">
+          <UIcon name="i-lucide-clock" class="me-1 inline size-3.5 align-[-2px]" />{{ when }}
+          · {{ spec.action === 'script' ? t('auto.actionScript') : spec.action === 'task' ? t('auto.actionTask') : t('auto.actionChat') }}
+          <template v-if="spec.action === 'script'"> · {{ t(`auto.escalate.${spec.escalate?.when || 'failure'}` as MessageKey) }}</template>
+        </p>
+        <pre v-if="spec.script?.body" class="max-h-64 overflow-auto rounded bg-(--ui-bg-elevated) px-2 py-1 font-mono">{{ spec.script.lang }} ·
+{{ spec.script.body }}</pre>
+        <p v-else-if="spec.prompt" class="whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1">{{ spec.prompt }}</p>
+      </div>
       <p v-if="action.reason" class="text-xs text-(--ui-text-muted)">{{ action.reason }}</p>
       <p v-if="action.status !== 'pending' && action.detail" class="text-xs" :class="action.status === 'failed' ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">{{ action.detail }}</p>
     </div>

@@ -128,6 +128,8 @@ export default {
   'action.kind.git_branch': 'Tạo nhánh',
   'action.kind.git_push': 'Push',
   'action.kind.run_command': 'Chạy lệnh',
+  'action.kind.create_automation': 'Tạo tự động hóa',
+  'action.kind.update_automation': 'Sửa tự động hóa',
   'action.fileCount': '{n} file: {files}',
   'prompt.skillHint': 'Skill · ↑↓ chọn, Enter dùng, Esc đóng',
   'prompt.sourceProject': 'project',

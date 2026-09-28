@@ -129,6 +129,8 @@ const en: Record<keyof typeof vi, string> = {
   'action.kind.git_branch': 'Create branch',
   'action.kind.git_push': 'Push',
   'action.kind.run_command': 'Run command',
+  'action.kind.create_automation': 'Create automation',
+  'action.kind.update_automation': 'Update automation',
   'action.fileCount': '{n} files: {files}',
   'prompt.skillHint': 'Skill · ↑↓ to select, Enter to use, Esc to close',
   'prompt.sourceProject': 'project',
