@@ -221,3 +221,41 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"Xin chào"
 		t.Fatalf("default args = %s", a)
 	}
 }
+
+// After an answer, the conversation knows how full its context is and the
+// provider's latest usage windows are kept (shown in chat and the sidebar).
+func TestClaudeCLIKeepsContextAndLimits(t *testing.T) {
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "claude")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+cat >/dev/null
+echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
+echo '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.2,"resetsAt":1790593200}}}}'
+echo '{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":4,"cache_read_input_tokens":1000,"cache_creation_input_tokens":0},"content":[]}}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"sess-1","usage":{"input_tokens":4,"output_tokens":2},"modelUsage":{"claude-sonnet-5":{"contextWindow":200000}}}'
+`), 0o755)
+	var prov storage.Provider
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, err := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		if err != nil {
+			t.Fatal(err)
+		}
+		prov = p
+		return p
+	})
+	ctx := context.Background()
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	turn, _, err := f.engine.Send(ctx, conv.ID, "chào", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	conv, _ = f.st.Chat().GetConversation(ctx, conv.ID)
+	if conv.ContextTokens != 1004 || conv.ContextWindow != 200000 {
+		t.Fatalf("context = %d/%d", conv.ContextTokens, conv.ContextWindow)
+	}
+	var lim chat.Limits
+	if ok, _ := f.st.Settings().Get(ctx, chat.LimitsKey(prov.ID), &lim); !ok || lim.Windows["five_hour"].Utilization != 0.2 {
+		t.Fatalf("limits = %v %+v", ok, lim)
+	}
+}

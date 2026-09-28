@@ -271,9 +271,11 @@ type Conversation struct {
 	TaskID       string // set for the follow-up talk about one task
 	Purpose      string // "" = a chat of the project; "automation" = builds one automation (not listed)
 	AutomationID string // purpose automation: the automation it builds, once saved
-	CreatedBy    string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// how full the model's context was after the last answer (0 = unknown)
+	ContextTokens, ContextWindow int
+	CreatedBy                    string
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
 }
 
 // ToolCall summarises one tool use while answering.

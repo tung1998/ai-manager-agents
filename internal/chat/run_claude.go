@@ -137,6 +137,7 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 		gotFinal bool
 	)
 	pending := map[string]int{} // tool_use id → index in res.Tools
+	mainModel := ""             // the model of the last call (its context window is the one shown)
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
@@ -151,7 +152,23 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 					Text string `json:"text"`
 				} `json:"delta"`
 			} `json:"event"`
+			RateLimit struct {
+				Status  string `json:"status"`
+				Windows map[string]struct {
+					Utilization float64 `json:"utilization"`
+					ResetsAt    int64   `json:"resetsAt"`
+				} `json:"unifiedWindows"`
+			} `json:"rate_limit_info"`
+			ModelUsage map[string]struct {
+				ContextWindow int `json:"contextWindow"`
+			} `json:"modelUsage"`
 			Message struct {
+				Model string `json:"model"`
+				Usage struct {
+					InputTokens         int `json:"input_tokens"`
+					CacheReadTokens     int `json:"cache_read_input_tokens"`
+					CacheCreationTokens int `json:"cache_creation_input_tokens"`
+				} `json:"usage"`
 				Content []struct {
 					Type      string          `json:"type"`
 					ID        string          `json:"id"`
@@ -182,7 +199,18 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 			if ev.Event.Type == "content_block_delta" && ev.Event.Delta.Type == "text_delta" && ev.Event.Delta.Text != "" {
 				emit(Event{Type: "text", Text: ev.Event.Delta.Text})
 			}
+		case "rate_limit_event":
+			lim := &Limits{Status: ev.RateLimit.Status, Windows: map[string]LimitWindow{}, UpdatedAt: time.Now().UTC()}
+			for k, w := range ev.RateLimit.Windows {
+				lim.Windows[k] = LimitWindow{Utilization: w.Utilization, ResetsAt: time.Unix(w.ResetsAt, 0)}
+			}
+			res.Limits = lim
 		case "assistant":
+			// the last call's input is what the context holds
+			if u := ev.Message.Usage; u.InputTokens+u.CacheReadTokens+u.CacheCreationTokens > 0 {
+				res.Context.Tokens = u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens
+				mainModel = ev.Message.Model
+			}
 			for _, c := range ev.Message.Content {
 				if c.Type == "tool_use" {
 					tc := storage.ToolCall{Name: c.Name, Summary: toolSummary(c.Name, c.Input)}
@@ -201,6 +229,13 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 			}
 		case "result":
 			gotFinal = true
+			if m, ok := ev.ModelUsage[mainModel]; ok {
+				res.Context.Window = m.ContextWindow
+			} else {
+				for _, m := range ev.ModelUsage {
+					res.Context.Window = max(res.Context.Window, m.ContextWindow)
+				}
+			}
 			res.Text = ev.Result
 			res.Usage.InputTokens = ev.Usage.InputTokens + ev.Usage.CacheReadTokens + ev.Usage.CacheCreationTokens
 			res.Usage.OutputTokens = ev.Usage.OutputTokens

@@ -29,6 +29,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/provider-kinds", auth(s.providerKinds))
 	mux.Handle("GET /api/providers", auth(s.listProviders))
 	mux.Handle("GET /api/providers/stats", auth(s.providerStats))
+	mux.Handle("GET /api/providers/limits", auth(s.providerLimits))
 	mux.Handle("POST /api/providers", admin(s.createProvider))
 	mux.Handle("PATCH /api/providers/{id}", admin(s.updateProvider))
 	mux.Handle("DELETE /api/providers/{id}", admin(s.deleteProvider))

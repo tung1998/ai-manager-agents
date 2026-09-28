@@ -29,10 +29,14 @@ type conversationDTO struct {
 	EditMode     string    `json:"edit_mode"`
 	Purpose      string    `json:"purpose"`
 	AutomationID string    `json:"automation_id"`
+	// how full the model's context was after the last answer (0 = unknown)
+	ContextTokens int `json:"context_tokens"`
+	ContextWindow int `json:"context_window"`
 }
 
 func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
-	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode, Purpose: c.Purpose, AutomationID: c.AutomationID}
+	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode, Purpose: c.Purpose, AutomationID: c.AutomationID,
+		ContextTokens: c.ContextTokens, ContextWindow: c.ContextWindow}
 	if t, ok := s.cfg.Chat.Active(c.ID); ok {
 		d.ActiveTurn = t.ID
 	}

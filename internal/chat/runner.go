@@ -65,6 +65,8 @@ type RunResult struct {
 	SessionID string
 	Usage     llm.Result
 	Tools     []storage.ToolCall
+	Limits    *Limits    // subscription usage windows, when the provider reports them
+	Context   ContextUse // the context after this turn (0 = unknown)
 }
 
 // Runner executes a turn on one kind of provider.

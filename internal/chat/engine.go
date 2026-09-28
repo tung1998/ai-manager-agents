@@ -567,8 +567,16 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			runID, cost = r.ID, r.CostUSD
 		}
 	}
+	e.keepLimits(p, res.Limits)
+	changed := res.Context.Tokens > 0 && (res.Context != ContextUse{Tokens: conv.ContextTokens, Window: conv.ContextWindow})
+	if changed {
+		conv.ContextTokens, conv.ContextWindow = res.Context.Tokens, res.Context.Window
+	}
 	if res.SessionID != "" && (res.SessionID != conv.SessionID || conv.Runtime != string(p.Kind)) {
 		conv.SessionID, conv.Runtime = res.SessionID, string(p.Kind)
+		changed = true
+	}
+	if changed {
 		_ = e.store.Chat().UpdateConversation(context.Background(), conv)
 	}
 	if runErr != nil && strings.TrimSpace(res.Text) == "" {
@@ -854,6 +862,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	defer revoke()
 	req.Office = office
 	res, runErr := runnerFor(p.Kind).Run(ctx, req, emit)
+	e.keepLimits(p, res.Limits)
 	out := InvokeResult{Text: res.Text, Tools: res.Tools, Provider: p.Name, Model: firstNonEmpty(res.Usage.Model, model), Dir: treeDir(pl), Wrote: pl.write}
 	if e.usage != nil {
 		if r, err := e.usage.Record(ctx, usage.Meta{Kind: kind, ProjectID: project.ID, AgentID: agent.ID}, p, model, res.Usage, runErr); err == nil {

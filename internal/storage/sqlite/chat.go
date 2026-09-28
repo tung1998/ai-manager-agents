@@ -12,7 +12,7 @@ import (
 
 type chatRepo struct{ db dbtx }
 
-const convCols = `id, project_id, agent_id, agent_name, title, session_id, runtime, mode, task_id, created_by, created_at, updated_at, edit_mode, purpose, automation_id`
+const convCols = `id, project_id, agent_id, agent_name, title, session_id, runtime, mode, task_id, created_by, created_at, updated_at, edit_mode, purpose, automation_id, context_tokens, context_window`
 
 func scanConv(row scanner) (storage.Conversation, error) {
 	var (
@@ -20,7 +20,7 @@ func scanConv(row scanner) (storage.Conversation, error) {
 		agent, task      sql.NullString
 		created, updated string
 	)
-	if err := row.Scan(&c.ID, &c.ProjectID, &agent, &c.AgentName, &c.Title, &c.SessionID, &c.Runtime, &c.Mode, &task, &c.CreatedBy, &created, &updated, &c.EditMode, &c.Purpose, &c.AutomationID); err != nil {
+	if err := row.Scan(&c.ID, &c.ProjectID, &agent, &c.AgentName, &c.Title, &c.SessionID, &c.Runtime, &c.Mode, &task, &c.CreatedBy, &created, &updated, &c.EditMode, &c.Purpose, &c.AutomationID, &c.ContextTokens, &c.ContextWindow); err != nil {
 		return c, notFound(err)
 	}
 	c.AgentID, c.TaskID = agent.String, task.String
@@ -39,8 +39,8 @@ func (r chatRepo) CreateConversation(ctx context.Context, c storage.Conversation
 	if c.EditMode == "" {
 		c.EditMode = "worktree"
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO conversations (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.ProjectID, nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.Mode, nullStr(c.TaskID), c.CreatedBy, fmtTime(now), fmtTime(now), c.EditMode, c.Purpose, c.AutomationID)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO conversations (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.ProjectID, nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.Mode, nullStr(c.TaskID), c.CreatedBy, fmtTime(now), fmtTime(now), c.EditMode, c.Purpose, c.AutomationID, c.ContextTokens, c.ContextWindow)
 	return c, err
 }
 
@@ -51,8 +51,8 @@ func (r chatRepo) UpdateConversation(ctx context.Context, c storage.Conversation
 	if c.EditMode == "" {
 		c.EditMode = "worktree"
 	}
-	return execOne(ctx, r.db, `UPDATE conversations SET agent_id=?, agent_name=?, title=?, session_id=?, runtime=?, mode=?, edit_mode=?, updated_at=? WHERE id=?`,
-		nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.Mode, c.EditMode, fmtTime(time.Now()), c.ID)
+	return execOne(ctx, r.db, `UPDATE conversations SET agent_id=?, agent_name=?, title=?, session_id=?, runtime=?, mode=?, edit_mode=?, context_tokens=?, context_window=?, updated_at=? WHERE id=?`,
+		nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.Mode, c.EditMode, c.ContextTokens, c.ContextWindow, fmtTime(time.Now()), c.ID)
 }
 
 func (r chatRepo) GetConversation(ctx context.Context, id string) (storage.Conversation, error) {
