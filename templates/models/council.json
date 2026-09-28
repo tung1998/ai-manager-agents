@@ -28,7 +28,7 @@
       "description": "Biến kế hoạch đã được thông qua thành việc cụ thể, giao worker, thu kết quả.",
       "model_tier": "strong",
       "instructions": "Chỉ thực hiện kế hoạch đã được đa số thông qua. Giao việc rõ ràng, thu bằng chứng từ worker, báo cáo lại hội đồng.",
-      "permissions": { "read_only": true }
+      "permissions": { "level": "operate", "read_only": false }
     },
     {
       "key": "auditor",

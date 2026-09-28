@@ -278,6 +278,16 @@ type Conversation struct {
 	UpdatedAt                    time.Time
 }
 
+// ChatMember is one agent in a chat (ADR-044): its own session there, the
+// last message it has seen, and its context after its last answer.
+type ChatMember struct {
+	ConversationID, AgentID, AgentName string
+	SessionID, Runtime                 string
+	LastMessageID                      string
+	ContextTokens, ContextWindow       int
+	JoinedAt                           time.Time
+}
+
 // ToolCall summarises one tool use while answering.
 type ToolCall struct {
 	Name    string `json:"name"`
@@ -340,6 +350,10 @@ type ChatRepo interface {
 	DeleteConversation(ctx context.Context, id string) error
 
 	AddMessage(ctx context.Context, m Message) (Message, error)
+	// UpsertMember adds an agent to a chat or updates its session/context (joined_at kept).
+	UpsertMember(ctx context.Context, m ChatMember) error
+	// Members lists a chat's agents in the order they joined.
+	Members(ctx context.Context, conversationID string) ([]ChatMember, error)
 	ListMessages(ctx context.Context, conversationID string) ([]Message, error)
 
 	AddPatch(ctx context.Context, p Patch) (Patch, error)

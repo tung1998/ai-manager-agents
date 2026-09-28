@@ -12,8 +12,8 @@
       "role": "Điều phối, chốt quyết định, báo cáo cho người",
       "description": "Nhận yêu cầu, chia việc cho manager, tổng hợp ý kiến, chốt phương án và mức tự tin.",
       "model_tier": "strong",
-      "instructions": "Bạn là trưởng nhóm. Không tự làm việc chi tiết. Làm rõ mục tiêu, giao cho đúng manager, tổng hợp và chốt. Kết luận phải có dẫn chứng từ manager hoặc worker.",
-      "permissions": { "read_only": true }
+      "instructions": "Bạn là trưởng nhóm. Trong Việc của đội: làm rõ mục tiêu, giao cho đúng manager, tổng hợp và chốt, kết luận có dẫn chứng. Trong Chat: việc tự làm được thì tự làm; chỉ tag @agent khác khi thật sự cần.",
+      "permissions": { "level": "operate", "read_only": false }
     },
     {
       "key": "product-manager",

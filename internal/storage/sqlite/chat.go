@@ -220,3 +220,39 @@ func (r chatRepo) LinkAutomation(ctx context.Context, conversationID, automation
 	}
 	return err
 }
+
+func (r chatRepo) UpsertMember(ctx context.Context, m storage.ChatMember) error {
+	if m.JoinedAt.IsZero() {
+		m.JoinedAt = time.Now().UTC()
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO conversation_agents (conversation_id, agent_id, agent_name, session_id, runtime, last_message_id, context_tokens, context_window, joined_at)
+		VALUES (?,?,?,?,?,?,?,?,?)
+		ON CONFLICT (conversation_id, agent_id) DO UPDATE SET agent_name=excluded.agent_name, session_id=excluded.session_id, runtime=excluded.runtime,
+			last_message_id=excluded.last_message_id, context_tokens=excluded.context_tokens, context_window=excluded.context_window`,
+		m.ConversationID, m.AgentID, m.AgentName, m.SessionID, m.Runtime, m.LastMessageID, m.ContextTokens, m.ContextWindow, fmtTime(m.JoinedAt))
+	return err
+}
+
+func (r chatRepo) Members(ctx context.Context, conversationID string) ([]storage.ChatMember, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT conversation_id, agent_id, agent_name, session_id, runtime, last_message_id, context_tokens, context_window, joined_at
+		FROM conversation_agents WHERE conversation_id=? ORDER BY joined_at, agent_id`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []storage.ChatMember{}
+	for rows.Next() {
+		var (
+			m      storage.ChatMember
+			joined string
+		)
+		if err := rows.Scan(&m.ConversationID, &m.AgentID, &m.AgentName, &m.SessionID, &m.Runtime, &m.LastMessageID, &m.ContextTokens, &m.ContextWindow, &joined); err != nil {
+			return nil, err
+		}
+		if m.JoinedAt, err = parseTime(joined); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}

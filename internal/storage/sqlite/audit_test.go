@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
@@ -56,5 +57,35 @@ func TestUserMCPMigrationShape(t *testing.T) {
 	err = db.QueryRow(`SELECT json_insert('{"caps":["propose"]}', '$.caps[#]', 'tools.mcp')`).Scan(&got)
 	if err != nil || got != `{"caps":["propose","tools.mcp"]}` {
 		t.Fatalf("json_insert = %q %v", got, err)
+	}
+}
+
+// Members of a chat: each agent's own session, what it has seen, when it joined.
+func TestChatMembers(t *testing.T) {
+	s, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	s.Migrate(ctx)
+	p, _ := s.Repos().Create(ctx, storage.Repo{Name: "p"})
+	c, err := s.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Chat().UpsertMember(ctx, storage.ChatMember{ConversationID: c.ID, AgentID: "a1", AgentName: "Lead", SessionID: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	s.Chat().UpsertMember(ctx, storage.ChatMember{ConversationID: c.ID, AgentID: "a2", AgentName: "Dev"})
+	first, _ := s.Chat().Members(ctx, c.ID)
+	s.Chat().UpsertMember(ctx, storage.ChatMember{ConversationID: c.ID, AgentID: "a1", AgentName: "Lead", SessionID: "s2", LastMessageID: "msg_9", ContextTokens: 5, ContextWindow: 100})
+	got, err := s.Chat().Members(ctx, c.ID)
+	if err != nil || len(got) != 2 || got[0].AgentID != "a1" || got[1].AgentID != "a2" {
+		t.Fatalf("members = %+v %v", got, err)
+	}
+	if got[0].SessionID != "s2" || got[0].LastMessageID != "msg_9" || got[0].ContextWindow != 100 || !got[0].JoinedAt.Equal(first[0].JoinedAt) {
+		t.Fatalf("upsert = %+v (joined %v)", got[0], first[0].JoinedAt)
 	}
 }
