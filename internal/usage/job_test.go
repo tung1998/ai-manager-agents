@@ -13,7 +13,7 @@ import (
 func TestRecordCarriesJob(t *testing.T) {
 	ctx := context.Background()
 	u := usage.New(newStore(t), time.UTC)
-	r, err := u.Record(usage.WithJob(ctx, "job_1"), usage.Meta{Kind: "chat"}, storage.Provider{ID: "p", Name: "P"}, "m", llm.Result{InputTokens: 1}, nil)
+	r, err := u.Record(usage.WithJob(ctx, "job_1"), usage.Meta{Kind: "chat"}, storage.Provider{Name: "P"}, "m", llm.Result{InputTokens: 1}, nil)
 	if err != nil || r.JobID != "job_1" {
 		t.Fatalf("run = %+v %v", r, err)
 	}
