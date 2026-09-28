@@ -142,7 +142,11 @@ const en: Record<keyof typeof vi, string> = {
   'job.output': 'Output',
   'job.children': 'Agents called in',
   'job.noOutput': '(no output)',
-  'job.detail': 'Job details'
+  'job.detail': 'Job details',
+  'auto.filled': 'The agent filled {n} parts of the form',
+  'auto.testRun': 'Test run',
+  'auto.testPayload': 'Test payload (optional)',
+  'auto.testTimeout': 'Timed out'
 }
 
 export default en

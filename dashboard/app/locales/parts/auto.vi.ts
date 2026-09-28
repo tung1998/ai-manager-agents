@@ -141,5 +141,9 @@ export default {
   'job.output': 'Output',
   'job.children': 'Agent được gọi',
   'job.noOutput': '(không có output)',
-  'job.detail': 'Chi tiết job'
+  'job.detail': 'Chi tiết job',
+  'auto.filled': 'Agent đã điền {n} phần của form',
+  'auto.testRun': 'Chạy thử',
+  'auto.testPayload': 'Payload thử (tùy chọn)',
+  'auto.testTimeout': 'Quá thời gian'
 } as const

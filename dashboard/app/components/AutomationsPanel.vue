@@ -12,12 +12,6 @@ const list = computed(() => data.value?.automations ?? [])
 const agentName = (id: string) => agentsData.value?.agents.find(a => a.id === id)?.name ?? t('auto.lead')
 const when = (d?: string | null) => d ? new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : t('auto.never')
 
-const editorOpen = ref(false)
-const editing = ref<Automation | null>(null)
-function open(a: Automation | null) {
-  editing.value = a
-  editorOpen.value = true
-}
 
 async function toggle(a: Automation, enabled: boolean) {
   try {
@@ -42,7 +36,7 @@ async function runNow(a: Automation) {
   <div class="max-w-5xl space-y-3">
     <div class="flex items-center justify-between gap-2">
       <p class="text-sm text-(--ui-text-muted)">{{ list.length ? '' : t('auto.empty') }}</p>
-      <UButton v-if="isAdmin" icon="i-lucide-plus" size="sm" :label="t('auto.new')" @click="open(null)" />
+      <UButton v-if="isAdmin" icon="i-lucide-plus" size="sm" :label="t('auto.new')" :to="`/projects/${projectId}/automations/new`" />
     </div>
 
     <UCard v-if="list.length" :ui="{ body: 'p-0 sm:p-0' }">
@@ -65,6 +59,5 @@ async function runNow(a: Automation) {
       </div>
     </UCard>
 
-    <AutomationEditor v-model:open="editorOpen" :project-id="projectId" :automation="editing" @saved="refresh()" />
   </div>
 </template>

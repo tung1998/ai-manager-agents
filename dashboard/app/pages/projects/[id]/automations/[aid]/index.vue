@@ -9,7 +9,6 @@ const aid = computed(() => route.params.aid as string)
 
 const { data, refresh } = await useFetch<{ automation: Automation }>(() => `/api/automations/${aid.value}`)
 const a = computed(() => data.value?.automation)
-const editorOpen = ref(false)
 const secret = ref<{ url: string, secret: string } | null>(null)
 
 async function act(fn: () => Promise<unknown>, ok?: string) {
@@ -45,7 +44,7 @@ async function remove() {
         <UDropdownMenu
           :content="{ align: 'end' }"
           :items="[[
-            { label: t('auto.edit'), icon: 'i-lucide-pencil', onSelect: () => { editorOpen = true } },
+            { label: t('auto.edit'), icon: 'i-lucide-pencil', to: `/projects/${projectId}/automations/${aid}/edit` },
             ...(a.source === 'webhook' ? [{ label: t('auto.rotate'), icon: 'i-lucide-key-round', onSelect: rotate }] : [])
           ], [{ label: t('auto.delete'), icon: 'i-lucide-trash', color: 'error' as const, onSelect: remove }]]"
         >
@@ -70,7 +69,6 @@ async function remove() {
       <JobsTable :filter="{ origin_id: aid }" />
     </div>
 
-    <AutomationEditor v-model:open="editorOpen" :project-id="projectId" :automation="a ?? null" @saved="refresh()" />
     <WebhookSecretModal :value="secret" @close="secret = null" />
   </PageShell>
 </template>

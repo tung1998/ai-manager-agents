@@ -1,33 +1,16 @@
 <script setup lang="ts">
-// Create or edit an automation in four steps: trigger, action, content,
-// limits. A new webhook's secret is shown once, in a modal only a button closes.
-const props = defineProps<{ projectId: string, automation: Automation | null }>()
-const open = defineModel<boolean>('open', { default: false })
-const emit = defineEmits<{ saved: [Automation] }>()
+// The automation form: trigger, action, content, limits (ADR-042). It edits
+// the draft it is given; the builder page saves it. highlight marks fields an
+// agent just changed; "Chạy thử" runs the script now without saving.
+const props = defineProps<{ projectId: string, form: AutomationDraft, highlight?: string[] }>()
+const emit = defineEmits<{ tested: [{ output: string, exit_code: number, timed_out: boolean }] }>()
 const toast = useToast()
 const { t, dateLocale } = useLang()
+// eslint-disable-next-line vue/no-mutating-props -- the draft is the parent's reactive object, edited in place
+const form = props.form
 
 const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const agentOptions = computed(() => [{ label: t('auto.agentDefault'), value: '' }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
-const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone
-
-const empty = (): Omit<Automation, 'id' | 'project_id' | 'failures' | 'disabled_code' | 'disabled_reason' | 'last_run_at' | 'next_run_at' | 'last_job' | 'created_at'> => ({
-  name: '', enabled: true, source: 'schedule', config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: browserTz, auth: 'bearer', auth_name: '' },
-  action: 'task', agent_id: '', prompt: '', edit_mode: 'worktree', keep_context: false,
-  script: { lang: 'bash', body: '', timeout_s: 300 },
-  escalate: { when: 'failure', action: 'chat', agent_id: '', prompt: '' },
-  limits: { max_runs_per_hour: 0, daily_cost_usd: 0, disable_after_failures: 5, debounce_seconds: 0, debounce_key: '', debounce_max_seconds: 0 }
-})
-const form = reactive(empty())
-watch(open, (v) => {
-  if (!v) return
-  const a = props.automation
-  Object.assign(form, empty(), a ? JSON.parse(JSON.stringify(automationBody(a))) : {})
-  form.config = { ...empty().config, ...(a?.config ?? {}) }
-  form.limits = { ...empty().limits, ...(a?.limits ?? {}) }
-  form.script = { ...empty().script, ...(a?.script?.lang ? a.script : {}) }
-  form.escalate = { ...empty().escalate, ...(a?.escalate?.when ? a.escalate : {}) }
-})
 const langOptions = [{ label: 'bash', value: 'bash' }, { label: 'node', value: 'node' }, { label: 'python', value: 'python' }]
 const whenOptions = computed(() => (['failure', 'signal', 'never'] as const).map(v => ({ label: t(`auto.escalate.${v}`), value: v })))
 const escalateActionOptions = computed(() => [{ label: t('auto.actionChat'), value: 'chat' }, { label: t('auto.actionTask'), value: 'task' }])
@@ -66,37 +49,33 @@ function insert(p: string) {
   form.prompt = form.prompt.slice(0, at) + p + form.prompt.slice(at)
 }
 
-const saving = ref(false)
-const secret = ref<{ url: string, secret: string } | null>(null)
-async function save() {
-  saving.value = true
+const hl = (key: string) => props.highlight?.includes(key) ? 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition' : ''
+
+// "Chạy thử": the script runs now, not saved
+const testPayload = ref('')
+const testing = ref(false)
+const tested = ref<{ output: string, exit_code: number, timed_out: boolean } | null>(null)
+async function testRun() {
+  testing.value = true
   try {
-    const body = automationBody(form)
-    const res = props.automation
-      ? await $fetch<{ automation: Automation, secret?: string }>(`/api/automations/${props.automation.id}`, { method: 'PATCH', body })
-      : await $fetch<{ automation: Automation, secret?: string }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body })
-    toast.add({ title: t('auto.saved'), color: 'success' })
-    emit('saved', res.automation)
-    open.value = false
-    if (res.secret) secret.value = { url: `${location.origin}${res.automation.webhook_url}`, secret: res.secret }
+    tested.value = await $fetch(`/api/projects/${props.projectId}/automations/test-script`, { method: 'POST', body: { script: form.script, payload: testPayload.value } })
+    emit('tested', tested.value!)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
-    saving.value = false
+    testing.value = false
   }
 }
 </script>
 
 <template>
-  <USlideover v-model:open="open" :title="automation ? automation.name : t('auto.new')" :ui="{ content: 'max-w-xl' }">
-    <template #body>
-      <form id="automation-form" class="space-y-5" @submit.prevent="save">
-        <UFormField :label="t('auto.name')" required>
+  <div class="space-y-5">
+        <UFormField :label="t('auto.name')" required :class="hl('name')">
           <UInput v-model="form.name" class="w-full" :placeholder="t('auto.namePlaceholder')" />
         </UFormField>
 
         <!-- 1. trigger -->
-        <section class="space-y-3">
+        <section class="space-y-3" :class="hl('source') || hl('config')">
           <p class="text-sm font-medium">{{ t('auto.stepSource') }}</p>
           <div class="grid grid-cols-2 gap-2">
             <button
@@ -138,7 +117,7 @@ async function save() {
         </section>
 
         <!-- 2. action -->
-        <section class="space-y-3">
+        <section class="space-y-3" :class="hl('action') || hl('escalate')">
           <p class="text-sm font-medium">{{ t('auto.stepAction') }}</p>
           <div class="grid grid-cols-3 gap-2">
             <button
@@ -156,9 +135,21 @@ async function save() {
               <UFormField :label="t('auto.scriptLang')"><USelect v-model="form.script.lang" :items="langOptions" class="w-28" /></UFormField>
               <UFormField :label="t('auto.timeout')"><UInputNumber v-model="form.script.timeout_s" :min="1" :max="3600" class="w-32" /></UFormField>
             </div>
-            <UFormField :label="t('auto.scriptBody')" :help="t('auto.scriptHelp')">
-              <UTextarea v-model="form.script.body" :rows="8" autoresize class="w-full font-mono text-xs" placeholder="grep -c ERROR logs/app.log || true" />
+            <UFormField :label="t('auto.scriptBody')" :help="t('auto.scriptHelp')" :class="hl('script')">
+              <UTextarea v-model="form.script.body" :rows="12" autoresize class="w-full font-mono text-xs" placeholder="grep -c ERROR logs/app.log || true" />
             </UFormField>
+            <div class="space-y-2 rounded-lg border border-(--ui-border) p-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <UInput v-model="testPayload" size="xs" class="min-w-0 flex-1 font-mono" :placeholder="t('auto.testPayload')" />
+                <UButton size="xs" icon="i-lucide-play" :label="t('auto.testRun')" :loading="testing" :disabled="!form.script.body.trim()" @click="testRun" />
+              </div>
+              <template v-if="tested">
+                <p class="text-xs" :class="tested.exit_code === 0 ? 'text-(--ui-success)' : 'text-(--ui-error)'">
+                  {{ tested.timed_out ? t('auto.testTimeout') : t('job.exit', { n: tested.exit_code }) }}
+                </p>
+                <pre class="max-h-60 overflow-auto rounded bg-(--ui-bg-elevated) p-2 font-mono text-xs">{{ tested.output || t('job.noOutput') }}</pre>
+              </template>
+            </div>
             <UFormField :label="t('auto.escalateWhen')"><USelect v-model="form.escalate.when" :items="whenOptions" class="w-full" /></UFormField>
             <template v-if="form.escalate.when !== 'never'">
               <div class="grid gap-3 sm:grid-cols-2">
@@ -178,7 +169,7 @@ async function save() {
         </section>
 
         <!-- 3. content -->
-        <section v-if="form.action !== 'script'" class="space-y-2">
+        <section v-if="form.action !== 'script'" class="space-y-2" :class="hl('prompt')">
           <p class="text-sm font-medium">{{ t('auto.stepPrompt') }}</p>
           <UTextarea ref="promptEl" v-model="form.prompt" :rows="5" autoresize class="w-full" :placeholder="t('auto.promptPlaceholder')" />
           <div class="flex flex-wrap items-center gap-1 text-xs text-(--ui-text-muted)">
@@ -202,15 +193,5 @@ async function save() {
             <UFormField :label="t('auto.debounceMax')"><UInputNumber v-model="form.limits.debounce_max_seconds" :min="0" class="w-full" /></UFormField>
           </div>
         </details>
-      </form>
-    </template>
-    <template #footer>
-      <div class="flex w-full justify-end gap-2">
-        <UButton color="neutral" variant="ghost" :label="t('org.form.close')" @click="open = false" />
-        <UButton type="submit" form="automation-form" :loading="saving" :label="t('auto.save')" />
       </div>
-    </template>
-  </USlideover>
-
-  <WebhookSecretModal :value="secret" @close="secret = null" />
 </template>

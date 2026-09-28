@@ -20,13 +20,18 @@ interface Conversation { id: string, agent_id: string, agent_name: string, title
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message }
 
 // taskId: the follow-up talk about one task (a single thread, no thread list)
-const props = defineProps<{ projectId: string, taskId?: string }>()
-const emit = defineEmits<{ 'turn-done': [] }>()
+// purpose "automation": the chat that builds one automation (ADR-042), made on
+// first send or opened by automationId; its answers may fill the form.
+// compact: no thread column (a picker instead), fills its container.
+// pageContext: what the person is looking at, sent with each message.
+const props = defineProps<{ projectId: string, taskId?: string, purpose?: 'automation', automationId?: string, compact?: boolean, pageContext?: () => string }>()
+const emit = defineEmits<{ 'turn-done': [], 'automation-patch': [Record<string, unknown>], 'conversation': [string] }>()
+const single = computed(() => !!props.taskId || props.purpose === 'automation')
 const toast = useToast()
 const { t, dateLocale } = useLang()
 
 const { data: agentsData } = await useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`)
-const { data: convData, refresh: refreshConvs } = await useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations`, { immediate: !props.taskId })
+const { data: convData, refresh: refreshConvs } = await useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations`, { immediate: !single.value })
 const agents = computed(() => (agentsData.value?.agents ?? []).filter(a => a.tier !== 'worker'))
 const conversations = computed(() => convData.value?.conversations ?? [])
 
@@ -93,8 +98,9 @@ async function open(c: Conversation) {
 async function newConversation(agentId = '') {
   if (props.taskId) return openTask()
   try {
-    const res = await $fetch<{ conversation: Conversation }>(`/api/projects/${props.projectId}/conversations`, { method: 'POST', body: { agent_id: agentId } })
-    await refreshConvs()
+    const res = await $fetch<{ conversation: Conversation }>(`/api/projects/${props.projectId}/conversations`, { method: 'POST', body: { agent_id: agentId, purpose: props.purpose ?? '' } })
+    if (props.purpose) emit('conversation', res.conversation.id)
+    else await refreshConvs()
     await open(res.conversation)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -116,7 +122,7 @@ async function send() {
   if (!current.value) await newConversation()
   if (!current.value) return
   try {
-    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: mode.value, edit_mode: editMode.value } })
+    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: mode.value, edit_mode: editMode.value, context: props.pageContext?.() ?? '' } })
     draft.value = ''
     draftFiles.value = []
     const first = !messages.value.length
@@ -150,10 +156,13 @@ function follow(id: string) {
       case 'tool': if (ev.tool) liveTools.value.push(ev.tool); scrollDown(); break
       case 'done':
       case 'error':
-        if (ev.message) messages.value.push(ev.message)
+        if (ev.message) {
+          messages.value.push(ev.message)
+          if (props.purpose === 'automation' && ev.type === 'done') automationBlocks(ev.message.content).forEach(p => emit('automation-patch', p))
+        }
         finishStream()
         if (props.taskId) emit('turn-done')
-        else refreshConvs()
+        else if (!single.value) refreshConvs()
         scrollDown()
         break
     }
@@ -201,17 +210,46 @@ function onPatchUpdated(msg: Message, p: Patch) {
 const agentMenu = computed(() => [agents.value.map(a => ({ label: a.name, description: a.role, onSelect: () => newConversation(a.id) }))])
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
+// ```automation {…}``` blocks of an answer: form changes (bad JSON is skipped)
+function automationBlocks(text: string): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = []
+  for (const m of text.matchAll(/```automation\s*\n([\s\S]*?)```/g)) {
+    try {
+      const v = JSON.parse(m[1]!)
+      if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v)
+    } catch { /* not JSON: ignore */ }
+  }
+  return out
+}
+
+async function openAutomation() {
+  if (!props.automationId) return
+  try {
+    const res = await $fetch<{ conversation: Conversation }>(`/api/automations/${props.automationId}/conversation`, { method: 'POST', body: {} })
+    emit('conversation', res.conversation.id)
+    await open(res.conversation)
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+const threadItems = computed(() => conversations.value.map(c => ({ label: c.title || t('chat.untitled'), value: c.id })))
+const threadPick = computed({
+  get: () => current.value?.id,
+  set: (id?: string) => { const c = conversations.value.find(x => x.id === id); if (c) open(c) }
+})
+
 onMounted(() => {
   if (props.taskId) openTask()
+  else if (props.purpose === 'automation') openAutomation()
   else if (conversations.value[0]) open(conversations.value[0])
 })
 onBeforeUnmount(stopStream)
 </script>
 
 <template>
-  <div class="flex overflow-hidden rounded-lg border border-(--ui-border)" :class="taskId ? 'h-[32rem]' : 'h-[calc(100vh-13rem)] min-h-[28rem]'">
+  <div class="flex overflow-hidden rounded-lg border border-(--ui-border)" :class="compact || purpose ? 'h-full min-h-0' : taskId ? 'h-[32rem]' : 'h-[calc(100vh-13rem)] min-h-[28rem]'">
     <!-- threads -->
-    <aside v-if="!taskId" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
+    <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
       <div class="flex items-center gap-1 border-b border-(--ui-border) p-2">
         <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" class="flex-1 justify-start" @click="newConversation()" />
         <UDropdownMenu v-if="agents.length > 1" :items="agentMenu">
@@ -240,12 +278,20 @@ onBeforeUnmount(stopStream)
 
     <!-- thread -->
     <section class="flex min-w-0 flex-1 flex-col">
+      <div v-if="compact && !single" class="flex items-center gap-1 border-b border-(--ui-border) p-2">
+        <USelect v-model="threadPick" :items="threadItems" size="xs" class="min-w-0 flex-1" :placeholder="t('chat.newThread')" />
+        <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" :aria-label="t('chat.newThread')" @click="newConversation()" />
+      </div>
       <div ref="listEl" class="flex-1 space-y-4 overflow-y-auto p-4">
         <div v-if="!messages.length && !streaming" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
           <UIcon name="i-lucide-messages-square" class="size-8" />
           <template v-if="taskId">
             <p class="text-sm">{{ t('chat.askAboutTask', { agent: current?.agent_name || t('chat.sendManager') }) }}</p>
             <p class="text-xs">{{ t('chat.taskPatchHint') }}</p>
+          </template>
+          <template v-else-if="purpose === 'automation'">
+            <p class="text-sm">{{ t('chat.askAboutAutomation') }}</p>
+            <p class="text-xs">{{ t('chat.automationHint') }}</p>
           </template>
           <template v-else>
             <p class="text-sm">{{ t('chat.askAboutProject') }}</p>
