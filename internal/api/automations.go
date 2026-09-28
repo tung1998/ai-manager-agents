@@ -107,14 +107,8 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 			return err
 		}
 	}
-	if in.AgentID != "" {
-		ag, err := s.cfg.Store.Agents().Get(r.Context(), in.AgentID)
-		if err != nil {
-			return errors.New("không tìm thấy agent")
-		}
-		if m, err := s.cfg.Store.OrgModels().Get(r.Context(), ag.OrgModelID); err != nil || m.RepoID != a.ProjectID {
-			return errors.New("agent không thuộc mô hình của project này")
-		}
+	if err := trigger.CheckAgents(r.Context(), s.cfg.Store, a.ProjectID, in.AgentID, in.Escalate.AgentID); err != nil {
+		return err
 	}
 	cfg := storage.AutomationConfig{ConversationID: a.Config.ConversationID, SecretHash: a.Config.SecretHash}
 	if in.Source == "schedule" {

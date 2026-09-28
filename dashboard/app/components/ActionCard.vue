@@ -16,7 +16,7 @@ export interface ProposedAction {
   files?: string[]
   // create_automation / update_automation: the proposed automation
   automation?: { name: string, source: string, every_minutes?: number, cron?: string, timezone?: string, action: string, prompt?: string,
-    script?: { lang: string, body: string, timeout_s?: number }, escalate?: { when?: string, action?: string } }
+    script?: { lang: string, body: string, timeout_s?: number }, escalate?: { when?: string, action?: string, agent_id?: string, prompt?: string } }
 }
 
 const props = defineProps<{ action: ProposedAction, projectId?: string }>()
@@ -100,6 +100,10 @@ async function decide(approve: boolean) {
         <pre v-if="spec.script?.body" class="max-h-64 overflow-auto rounded bg-(--ui-bg-elevated) px-2 py-1 font-mono">{{ spec.script.lang }} ·
 {{ spec.script.body }}</pre>
         <p v-else-if="spec.prompt" class="whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1">{{ spec.prompt }}</p>
+        <p v-if="spec.action === 'script' && spec.escalate?.when !== 'never' && (spec.escalate?.agent_id || spec.escalate?.prompt)" class="whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1">
+          {{ t('auto.escalateAgent') }}: {{ spec.escalate?.agent_id || t('auto.agentDefault') }}<template v-if="spec.escalate?.prompt">
+{{ spec.escalate.prompt }}</template>
+        </p>
       </div>
       <p v-if="action.reason" class="text-xs text-(--ui-text-muted)">{{ action.reason }}</p>
       <p v-if="action.status !== 'pending' && action.detail" class="text-xs" :class="action.status === 'failed' ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">{{ action.detail }}</p>

@@ -74,7 +74,7 @@ function removePack(p: CommandPack) {
 <template>
   <div class="max-w-4xl space-y-3">
     <!-- save stays in reach while scrolling -->
-    <div v-if="isAdmin" class="sticky top-0 z-10 -mb-1 flex justify-end bg-(--ui-bg)/80 py-1 backdrop-blur">
+    <div v-if="isAdmin" class="sticky top-0 z-10 flex justify-end bg-(--ui-bg)/80 py-1 backdrop-blur">
       <UButton icon="i-lucide-save" size="sm" :label="t('policy.save')" :loading="saving" @click="save" />
     </div>
     <!-- the commands agents can be given -->

@@ -1,6 +1,8 @@
 package api_test
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/storage"
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -98,5 +100,39 @@ func TestScriptAutomationAPI(t *testing.T) { // ADR-041
 	}
 	if job["kind"] != "script" || job["status"] != "failed" || job["exit_code"] != float64(4) || !strings.Contains(job["output"].(string), "hi") {
 		t.Fatalf("job = %v", job)
+	}
+}
+
+func TestEscalationAgentAndRetry(t *testing.T) { // I4, M2
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "other"}, nil)
+	oid := body["project"].(map[string]any)["id"].(string)
+	m, _ := e.st.OrgModels().Create(context.Background(), storage.OrgModel{RepoID: oid, Key: "m", Name: "m", Kind: "solo"})
+	foreign, _ := e.st.Agents().Create(context.Background(), storage.Agent{OrgModelID: m.ID, Key: "x", Name: "X", Tier: storage.TierLead, ModelTier: "fast"})
+	if resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
+		"name": "x", "source": "schedule", "action": "script", "config": map[string]any{"every_minutes": 5},
+		"script": map[string]any{"lang": "bash", "body": "exit 1"}, "escalate": map[string]any{"when": "failure", "action": "chat", "agent_id": foreign.ID},
+	}, nil); resp.StatusCode != 400 {
+		t.Fatalf("foreign escalation agent = %d %v", resp.StatusCode, body)
+	}
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
+		"name": "y", "source": "schedule", "action": "script", "config": map[string]any{"every_minutes": 600},
+		"script": map[string]any{"lang": "bash", "body": "exit 1"}, "escalate": map[string]any{"when": "failure", "action": "chat"},
+	}, nil)
+	aid := body["automation"].(map[string]any)["id"].(string)
+	// a child an escalation made, that failed: retrying calls the agent again, not the script
+	child, _ := e.st.Jobs().Create(context.Background(), storage.Job{ProjectID: pid, Kind: "chat_turn", Origin: "automation", OriginID: aid,
+		Trigger: "escalate", Status: "failed", ParentJobID: "job_parent", Payload: `{"output":"boom","exit_code":1}`})
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/jobs/"+child.ID+"/retry", map[string]any{}, nil)
+	if resp.StatusCode != 202 {
+		t.Fatalf("retry = %d %v", resp.StatusCode, body)
+	}
+	j := body["job"].(map[string]any)
+	if j["kind"] != "chat_turn" || j["parent_job_id"] != "job_parent" {
+		t.Fatalf("retried job = %v", j)
 	}
 }

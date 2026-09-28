@@ -1,6 +1,7 @@
 package trigger
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -93,4 +94,22 @@ func (s Spec) Apply(a *storage.Automation, now time.Time) {
 			a.NextRunAt = &next
 		}
 	}
+}
+
+// CheckAgents makes sure every agent an automation calls belongs to the
+// project's own model (the UI and agent paths share it).
+func CheckAgents(ctx context.Context, st storage.Store, projectID string, ids ...string) error {
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		ag, err := st.Agents().Get(ctx, id)
+		if err != nil {
+			return errors.New("không tìm thấy agent")
+		}
+		if m, err := st.OrgModels().Get(ctx, ag.OrgModelID); err != nil || m.RepoID != projectID {
+			return errors.New("agent không thuộc mô hình của project này")
+		}
+	}
+	return nil
 }

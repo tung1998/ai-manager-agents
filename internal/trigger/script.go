@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -80,40 +81,50 @@ func RunScript(ctx context.Context, dir string, s storage.AutomationScript, env 
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.Command(argv[0], append(argv[1:], file)...)
+	cmd := exec.CommandContext(ctx, argv[0], append(argv[1:], file)...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(scriptEnv(os.Environ()), env...)
 	cmd.Stdin = strings.NewReader(stdin)
 	out := &tail{n: maxOutput}
 	cmd.Stdout, cmd.Stderr = out, out
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// the timeout kills the whole group; a child that left the group (setsid,
+	// a daemon) or still holds the output keeps nothing waiting past WaitDelay
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = waitDelay
 	if err := cmd.Start(); err != nil {
 		return "", -1, false, fmt.Errorf("không chạy được %s: %w", argv[0], err)
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	var werr error
-	timedOut := false
-	select {
-	case werr = <-done:
-	case <-ctx.Done():
-		timedOut = errors.Is(ctx.Err(), context.DeadlineExceeded)
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // the whole group
-		werr = <-done
+	werr := cmd.Wait()
+	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
+	if timedOut {
+		return out.String(), -1, true, nil
 	}
-	code := 0
 	var ee *exec.ExitError
 	switch {
-	case werr == nil:
+	case werr == nil, errors.Is(werr, exec.ErrWaitDelay): // exited; something it started still held the output
+		return out.String(), cmd.ProcessState.ExitCode(), false, nil
 	case errors.As(werr, &ee):
-		code = ee.ExitCode()
+		return out.String(), ee.ExitCode(), false, nil
 	default:
-		return out.String(), -1, timedOut, werr
+		return out.String(), -1, false, werr
 	}
-	if timedOut {
-		code = -1
+}
+
+const waitDelay = 3 * time.Second
+
+// hiddenEnv are office secrets a script never sees (the AI keys it runs with).
+var hiddenEnv = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OFFICE_SECRET_KEY"}
+
+func scriptEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(hiddenEnv, name) {
+			out = append(out, kv)
+		}
 	}
-	return out.String(), code, timedOut, nil
+	return out
 }
 
 // Signals are the "@@agent: …" lines a script prints to ask for an agent.

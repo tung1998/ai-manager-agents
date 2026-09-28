@@ -208,6 +208,18 @@ func (s *server) retryJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case j.ParentJobID != "" && s.cfg.Trigger != nil:
+		// an agent a script called in: call it again with the same result
+		now := time.Now().UTC()
+		nj, err := s.cfg.Store.Jobs().Create(r.Context(), storage.Job{ProjectID: j.ProjectID, Kind: j.Kind, Origin: j.Origin, OriginID: j.OriginID,
+			Trigger: "escalate", Status: "pending", Payload: j.Payload, ParentJobID: j.ParentJobID, AgentID: j.AgentID, Title: j.Title, NextAttemptAt: &now})
+		if err != nil {
+			s.internal(w, r, err)
+			return
+		}
+		s.cfg.Trigger.StartReady(detached(r), now)
+		s.auditAction(r, "job.retry", j.ID, map[string]any{"job": nj.ID})
+		writeJSON(w, http.StatusAccepted, map[string]any{"job": s.toJobDTO(r, nj, nil)})
 	case j.Origin == "automation" && s.cfg.Trigger != nil:
 		a, err := s.cfg.Store.Automations().Get(r.Context(), j.OriginID)
 		if err != nil {

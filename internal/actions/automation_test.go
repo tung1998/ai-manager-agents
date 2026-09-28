@@ -59,3 +59,26 @@ func TestProposeAutomation(t *testing.T) { // ADR-041
 		t.Fatalf("updated = %+v", b)
 	}
 }
+
+func TestProposeAutomationAgentsMustBelongToTheProject(t *testing.T) { // I4
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
+	other, _ := st.Repos().Create(ctx, storage.Repo{Name: "q", Path: t.TempDir()})
+	m, _ := st.OrgModels().Create(ctx, storage.OrgModel{RepoID: other.ID, Key: "m", Name: "m", Kind: "solo"})
+	foreign, _ := st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "x", Name: "X", Tier: storage.TierLead, ModelTier: "fast"})
+	svc := New(st, nil)
+	sc := Scope{ProjectID: proj.ID, RunRef: "r1", Agent: "Lead", Level: perm.Propose, Access: perm.Access{Level: perm.Propose, Caps: perm.Preset(perm.Propose)}}
+	for _, spec := range []map[string]any{
+		{"name": "a", "source": "schedule", "every_minutes": 5, "action": "chat", "agent_id": foreign.ID},
+		{"name": "b", "source": "schedule", "every_minutes": 5, "action": "script", "script": map[string]any{"lang": "bash", "body": "exit 1"},
+			"escalate": map[string]any{"when": "failure", "agent_id": foreign.ID}},
+	} {
+		raw, _ := json.Marshal(spec)
+		if _, err := svc.Propose(ctx, sc, "create_automation", spec["name"].(string), "", storage.ActionArgs{Automation: raw}); err == nil {
+			t.Fatalf("another project's agent accepted: %v", spec)
+		}
+	}
+}

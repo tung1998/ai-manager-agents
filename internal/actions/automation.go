@@ -20,6 +20,9 @@ func (s *Service) automationSpec(ctx context.Context, projectID, kind string, ra
 	if err := spec.Check(); err != nil {
 		return spec, err
 	}
+	if err := trigger.CheckAgents(ctx, s.store, projectID, spec.AgentID, spec.Escalate.AgentID); err != nil {
+		return spec, err
+	}
 	if kind == "update_automation" {
 		a, err := s.store.Automations().Get(ctx, spec.AutomationID)
 		if err != nil || a.ProjectID != projectID {

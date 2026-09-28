@@ -228,12 +228,12 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		return
 	}
 	loc, _ := location(a.Config.Timezone)
-	if j.Trigger != "manual" {
+	if j.Trigger != "manual" && j.ParentJobID == "" { // an agent a script called in is part of that run
 		if a.Limits.MaxRunsPerHour > 0 {
 			recent, _ := r.store.Jobs().List(ctx, storage.JobFilter{Origin: "automation", OriginID: a.ID, Since: now.Add(-time.Hour), Limit: 200})
 			n := 0
 			for _, x := range recent {
-				if x.ID != j.ID && x.Status != "skipped" {
+				if x.ID != j.ID && x.Status != "skipped" && x.ParentJobID == "" {
 					n++
 				}
 			}
@@ -279,6 +279,9 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	r.settle(ctx, j, err)
 	if errors.Is(err, ErrBusy) {
 		return
+	}
+	if j.ParentJobID != "" {
+		return // the script's run already counted; the agent it called in does not reset or add to it
 	}
 	var be *usage.BudgetError
 	budget := errors.As(err, &be)
