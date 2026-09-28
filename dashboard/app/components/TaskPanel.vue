@@ -53,7 +53,8 @@ const showNew = ref(false)
 const goal = ref('')
 const goalFiles = ref<Attachment[]>([])
 const goalBox = ref<{ busy: boolean } | null>(null)
-const budget = ref(1)
+const budget = ref(0) // 0 = no cap for this task (the office's daily cap still applies)
+const advanced = ref(false)
 const mode = ref<PermLevel>('propose')
 const editMode = ref<'worktree' | 'direct'>('worktree')
 const starting = ref(false)
@@ -349,15 +350,21 @@ onBeforeUnmount(() => source?.close())
           :placeholder="t('task.goalPlaceholder')"
         />
         <div class="flex flex-wrap items-center gap-3">
-          <UFormField :label="t('task.budgetLabel')" class="w-56">
-            <UInputNumber v-model="budget" :min="0" :step="0.5" size="sm" />
-          </UFormField>
-          <p class="text-xs text-(--ui-text-muted)">{{ t('task.budgetHint') }}</p>
           <div class="flex items-center gap-2 text-sm">
             <span class="text-(--ui-text-muted)">{{ t('task.modeLabel') }}</span>
             <EditModePicker v-model="editMode" />
             <ModePicker v-model="mode" :project-id="projectId" />
           </div>
+          <UButton
+            size="xs" color="neutral" variant="ghost" :label="t('task.advanced')"
+            :trailing-icon="advanced ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" @click="advanced = !advanced"
+          />
+        </div>
+        <div v-if="advanced" class="flex flex-wrap items-center gap-3 rounded-md border border-(--ui-border) p-3">
+          <UFormField :label="t('task.budgetLabel')" class="w-56">
+            <UInputNumber v-model="budget" :min="0" :step="0.5" size="sm" />
+          </UFormField>
+          <p class="text-xs text-(--ui-text-muted)">{{ t('task.budgetHint') }}</p>
         </div>
         <UButton icon="i-lucide-play" :label="t('task.start')" :loading="starting" :disabled="!goal.trim() || goalBox?.busy" @click="start" />
         <p class="text-xs text-(--ui-text-muted)">{{ permRank(mode) >= 3 ? t('task.autoApplyHint') : t('task.manualApplyHint') }}</p>

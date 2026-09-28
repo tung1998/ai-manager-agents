@@ -4,6 +4,7 @@ export default {
   'task.none': 'Chưa có việc nào.',
   'task.newTitle': 'Giao việc cho cả mô hình',
   'task.goalPlaceholder': 'VD: Tìm nguyên nhân lỗi checkout khi chọn thanh toán PayPal và đề xuất cách sửa. Đính kèm ảnh lỗi, log hoặc tài liệu liên quan.',
+  'task.advanced': 'Nâng cao',
   'task.budgetLabel': 'Trần chi phí cho việc này (USD)',
   'task.budgetHint': '0 là không giới hạn (vẫn áp trần theo ngày).',
   'task.modeLabel': 'Chế độ',

@@ -247,7 +247,7 @@ onBeforeUnmount(stopStream)
 </script>
 
 <template>
-  <div class="flex overflow-hidden rounded-lg border border-(--ui-border)" :class="compact || purpose ? 'h-full min-h-0' : taskId ? 'h-[32rem]' : 'h-[calc(100vh-13rem)] min-h-[28rem]'">
+  <div class="flex overflow-hidden rounded-lg border border-(--ui-border)" :class="compact || purpose ? 'h-full min-h-0' : taskId ? 'h-[32rem]' : 'min-h-[24rem] flex-1'">
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
       <div class="flex items-center gap-1 border-b border-(--ui-border) p-2">
