@@ -163,7 +163,7 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
           <h2 class="text-lg font-semibold">{{ t('org.editor.agentsCount', { n: agents.length }) }}</h2>
           <p class="flex flex-wrap items-center gap-x-1.5 text-xs text-(--ui-text-muted)" :title="model.description">
             <UIcon :name="kindIcon[model.kind]" class="size-3.5" />
-            {{ t('org.editor.modelLine', { name: model.name, kind: kindLabel[model.kind] }) }}
+            {{ t('org.editor.modelLine', { name: model.name, kind: kindLabel[model.kind] ?? model.kind }) }}
             · {{ t('org.editor.decision') }} {{ governanceLabel[model.governance.mode] ?? model.governance.mode }}
           </p>
         </div>
