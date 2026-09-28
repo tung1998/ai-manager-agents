@@ -34,6 +34,7 @@ interface Step {
   status: 'running' | 'done' | 'failed' | 'skipped'
   error: string
   cost_usd: number | null
+  started_at?: string
 }
 interface Detail { task: Task, steps: Step[], patches: Patch[], actions?: ProposedAction[], running: boolean }
 interface TaskEvent { type: string, step_id?: string, step?: Step, text?: string, tool?: ToolCall, patch?: Patch, task?: Task }
@@ -222,6 +223,25 @@ async function remove(task: Task) {
     toast.add({ title: apiError(e), color: 'error' })
   }
 }
+
+// the task as a group conversation: who assigned what, who reported back
+type TaskView = 'chat' | 'steps'
+const view = ref<TaskView>('chat')
+onMounted(() => {
+  try {
+    const v = localStorage.getItem('office-task-view')
+    if (v === 'chat' || v === 'steps') view.value = v
+  } catch { /* storage blocked: default view */ }
+})
+watch(view, (v) => {
+  try { localStorage.setItem('office-task-view', v) } catch { /* ignore */ }
+})
+const expanded = ref<Record<string, boolean>>({})
+const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?'
+const avatarColors = ['bg-sky-600', 'bg-emerald-600', 'bg-violet-600', 'bg-amber-600', 'bg-rose-600', 'bg-teal-600', 'bg-indigo-600']
+const avatarColor = (name: string) => avatarColors[[...name].reduce((n, c) => n + c.charCodeAt(0), 0) % avatarColors.length]
+// plan/review output is the agent's JSON: shown as its parts, not raw
+const showsOutput = (s: Step) => !((s.phase === 'plan' || s.phase === 'revise') && assignments(s).length)
 
 const phaseLabel = computed<Record<Step['phase'], string>>(() => ({
   plan: t('phase.plan'), revise: t('phase.revise'), vote: t('phase.vote'), work: t('phase.work'), review: t('phase.review'), synthesize: t('phase.synthesize')
@@ -499,8 +519,68 @@ onBeforeUnmount(() => source?.close())
           <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-primary" />{{ statusLine }}
         </div>
 
+        <div class="flex justify-end">
+          <div class="flex rounded-lg bg-(--ui-bg-elevated) p-0.5 text-xs">
+            <button
+              v-for="v in (['chat', 'steps'] as const)" :key="v" type="button" class="flex items-center gap-1 rounded-md px-2.5 py-1"
+              :class="view === v ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted) hover:text-(--ui-text)'" @click="view = v"
+            >
+              <UIcon :name="v === 'chat' ? 'i-lucide-messages-square' : 'i-lucide-list-tree'" class="size-3.5" />{{ v === 'chat' ? t('task.viewChat') : t('task.viewSteps') }}
+            </button>
+          </div>
+        </div>
+
+        <!-- the team's conversation -->
+        <div v-if="view === 'chat'" class="space-y-4">
+          <div v-for="s in detail.steps" :key="s.id" class="flex gap-3">
+            <span class="grid size-8 shrink-0 place-items-center rounded-full text-xs font-semibold text-white" :class="avatarColor(s.agent_name)">{{ initials(s.agent_name) }}</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                <span class="text-sm font-medium">{{ s.agent_name }}</span>
+                <span class="flex items-center gap-1 text-(--ui-text-muted)"><UIcon :name="phaseIcon[s.phase]" class="size-3" />{{ phaseLabel[s.phase] }}</span>
+                <span v-if="s.started_at" class="text-(--ui-text-dimmed)">{{ when(s.started_at) }}</span>
+                <span v-if="s.cost_usd" class="text-(--ui-text-dimmed)">· ${{ s.cost_usd.toFixed(3) }}</span>
+              </div>
+              <div class="mt-1 space-y-2 rounded-lg rounded-tl-none bg-(--ui-bg-elevated)/60 px-3 py-2 text-sm">
+                <p v-if="s.phase === 'work' && s.instruction" class="border-s-2 border-(--ui-border-accented) ps-2 text-xs text-(--ui-text-muted)">{{ t('task.gotAssigned', { instruction: s.instruction }) }}</p>
+                <template v-if="s.phase === 'vote' && s.data.vote">
+                  <UBadge size="sm" variant="subtle" :color="s.data.vote === 'approve' ? 'success' : 'error'" :label="s.data.vote === 'approve' ? t('vote.approve') : t('vote.reject')" />
+                  <p v-if="s.data.reason">{{ s.data.reason }}</p>
+                </template>
+                <UBadge
+                  v-if="s.phase === 'review' && s.data.verdict" size="sm" variant="subtle"
+                  :color="verdictMeta[String(s.data.verdict)]?.color ?? 'warning'" :label="verdictMeta[String(s.data.verdict)]?.label ?? t('verdict.fix')"
+                />
+                <ul v-if="fixes(s).length" class="space-y-1 text-xs">
+                  <li v-for="(f, i) in fixes(s)" :key="i"><span class="font-medium">{{ t('task.jobNeedsFix', { n: f.job }) }}</span> {{ f.issue }}</li>
+                </ul>
+                <p v-if="conventions(s)" class="text-xs"><span class="font-medium">{{ t('task.conventions') }}</span> {{ conventions(s) }}</p>
+                <ul v-if="assignments(s).length" class="space-y-1.5">
+                  <li v-for="(a, i) in assignments(s)" :key="i">
+                    <span class="me-1 font-medium text-primary">@{{ a.agent }}</span>{{ a.task }}
+                    <span v-if="a.files?.length" class="block text-xs text-(--ui-text-muted)">{{ t('task.editsFiles') }} <code>{{ a.files.join(', ') }}</code></span>
+                  </li>
+                </ul>
+                <div v-if="showsOutput(s) && (s.output || liveText[s.id])" class="relative" :class="!expanded[s.id] && s.status !== 'running' ? 'max-h-60 overflow-hidden' : ''">
+                  <!-- eslint-disable-next-line vue/no-v-html -->
+                  <div class="markdown text-sm" v-html="renderMarkdown(s.output || liveText[s.id] || '')" />
+                  <div v-if="!expanded[s.id] && s.status !== 'running' && (s.output || '').length > 900" class="absolute inset-x-0 bottom-0 flex h-16 items-end justify-center bg-gradient-to-t from-(--ui-bg-elevated) to-transparent">
+                    <UButton size="xs" color="neutral" variant="soft" :label="t('task.showMore')" @click="expanded[s.id] = true" />
+                  </div>
+                </div>
+                <p v-if="s.status === 'running' && !liveText[s.id]" class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
+                  <UIcon name="i-lucide-loader-circle" class="size-3.5 animate-spin" />{{ t('task.working') }}
+                  <template v-if="liveTools[s.id]?.length"> · {{ liveTools[s.id]!.at(-1)!.summary }}</template>
+                </p>
+                <p v-if="s.error" class="text-xs text-(--ui-error)">{{ s.error }}</p>
+                <p v-if="s.status !== 'running' && s.tools.length" class="text-xs text-(--ui-text-dimmed)">{{ t('task.toolsUsed', { n: s.tools.length }) }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- timeline -->
-        <ol class="relative space-y-3 border-s border-(--ui-border) ps-5">
+        <ol v-else class="relative space-y-3 border-s border-(--ui-border) ps-5">
           <li v-for="s in detail.steps" :key="s.id" class="relative">
             <span class="absolute -start-[1.72rem] top-1 flex size-6 items-center justify-center rounded-full border border-(--ui-border) bg-(--ui-bg)">
               <UIcon v-if="s.status === 'running'" name="i-lucide-loader-circle" class="size-3.5 animate-spin text-primary" />
