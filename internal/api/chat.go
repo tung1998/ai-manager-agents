@@ -49,7 +49,7 @@ func (s *server) chatError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.As(err, &be):
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": be.Error(), "code": "budget"})
-	case errors.Is(err, chat.ErrBusy):
+	case errors.Is(err, chat.ErrBusy), errors.Is(err, chat.ErrAgentBusy):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, chat.ErrNoModel), errors.Is(err, chat.ErrNoAgent), errors.Is(err, chat.ErrNoFolder), errors.Is(err, chat.ErrDecided), errors.Is(err, automation.ErrUnknownSkill),
 		errors.Is(err, attach.ErrNotFound), errors.Is(err, attach.ErrTooMany):
@@ -139,7 +139,8 @@ func (s *server) getConversation(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c), "messages": msgs, "members": s.chatMembers(r, c.ID)})
+	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c), "messages": msgs, "members": s.chatMembers(r, c.ID),
+		"running": s.cfg.Chat.Running(c.ID)})
 }
 
 // chatMembers: the agents in a chat (ADR-044), with their rights and context.

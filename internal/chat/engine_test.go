@@ -463,19 +463,70 @@ func TestTwoTagsAnswerInOrder(t *testing.T) {
 	}
 }
 
-func TestAgentHandoffIsLimited(t *testing.T) {
+// waitAuthors waits until the chat has n replies (and errors), returning
+// "author" for replies and "!" for notes.
+func (g group) waitAuthors(t *testing.T, n int) []string {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		msgs, _ := g.f.st.Chat().ListMessages(g.context, g.conv.ID)
+		var out []string
+		for _, m := range msgs {
+			switch m.Role {
+			case "assistant":
+				out = append(out, m.Author)
+			case "error":
+				out = append(out, "!")
+			}
+		}
+		_, busy := g.engine.Active(g.conv.ID)
+		if len(out) >= n && !busy && len(g.engine.Running(g.conv.ID)) == 0 {
+			return out
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out: %v", out)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// ADR-044: an agent's tag hands off in the background (like a subagent);
+// when the other is done, the one who asked reports back; limited hops.
+func TestAgentHandoffRunsInBackground(t *testing.T) {
 	g := newGroup(t)
 	os.WriteFile(filepath.Join(g.dir, "reply-lead"), []byte("nhờ @Dev làm"), 0o644)
-	os.WriteFile(filepath.Join(g.dir, "reply-dev"), []byte("nhờ @"+g.leadNm+" xem lại"), 0o644)
-	got := g.sendAll(t, "làm việc X")
-	// lead → dev (1) → lead (2) → dev refused
-	if len(got) != 3 || got[0] != g.leadNm || got[1] != "Dev" || got[2] != g.leadNm {
-		t.Fatalf("authors = %v", got)
+	os.WriteFile(filepath.Join(g.dir, "reply-dev"), []byte("xong"), 0o644)
+	if got := g.sendAll(t, "làm việc X"); len(got) != 1 || got[0] != g.leadNm {
+		t.Fatalf("the lead answers at once, got %v", got)
 	}
-	msgs, _ := g.f.st.Chat().ListMessages(g.context, g.conv.ID)
-	if last := msgs[len(msgs)-1]; last.Role != "error" || !strings.Contains(last.Content, "chuyển tiếp") {
-		t.Fatalf("last message = %+v", last)
+	// lead → Dev (bg) → lead reports and tags again → Dev (bg) → lead reports → hand-off cut
+	got := g.waitAuthors(t, 6)
+	want := []string{g.leadNm, "Dev", g.leadNm, "Dev", g.leadNm, "!"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("authors = %v, want %v", got, want)
 	}
+	_, in := call(t, g.dir, 3) // the lead's report gets Dev's result
+	if !strings.Contains(in, "dev: xong") {
+		t.Fatalf("report prompt:\n%s", in)
+	}
+}
+
+func TestPersonKeepsChattingWhileAgentWorks(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "reply-lead"), []byte("giao @Dev"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-dev"), []byte("2"), 0o644)
+	g.sendAll(t, "làm X")
+	os.WriteFile(filepath.Join(g.dir, "reply-lead"), []byte("đang đợi Dev"), 0o644)
+	if got := g.sendAll(t, "trong lúc đợi thì sao"); len(got) != 1 || got[0] != g.leadNm {
+		t.Fatalf("the person is not blocked by Dev, got %v", got)
+	}
+	if _, _, err := g.engine.Send(g.context, g.conv.ID, "@Dev nhanh lên", nil); !errors.Is(err, chat.ErrAgentBusy) {
+		t.Fatalf("tagging a working agent: %v", err)
+	}
+	if running := g.engine.Running(g.conv.ID); len(running) != 1 || running[0].AgentName != "Dev" || !running[0].Background {
+		t.Fatalf("running = %+v", running)
+	}
+	g.waitAuthors(t, 4)
 }
 
 func TestStopDropsTheQueue(t *testing.T) {

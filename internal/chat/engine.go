@@ -32,11 +32,13 @@ import (
 )
 
 var (
-	ErrBusy     = errors.New("agent đang trả lời tin nhắn trước")
-	ErrNoModel  = errors.New("project chưa có mô hình tổ chức")
-	ErrNoAgent  = errors.New("không tìm thấy agent để trò chuyện")
-	ErrDecided  = errors.New("đề xuất này đã được xử lý")
-	ErrNoFolder = errors.New("project không gắn thư mục nên không áp được thay đổi")
+	ErrBusy = errors.New("agent đang trả lời tin nhắn trước")
+	// ErrAgentBusy: the agent tagged is still working on a hand-off in this chat
+	ErrAgentBusy = errors.New("agent này đang làm việc được giao trong cuộc chat, đợi nó xong rồi tag lại")
+	ErrNoModel   = errors.New("project chưa có mô hình tổ chức")
+	ErrNoAgent   = errors.New("không tìm thấy agent để trò chuyện")
+	ErrDecided   = errors.New("đề xuất này đã được xử lý")
+	ErrNoFolder  = errors.New("project không gắn thư mục nên không áp được thay đổi")
 )
 
 // MessageDTO is a message as the dashboard shows it.
@@ -81,6 +83,10 @@ type Turn struct {
 	hops     int    // hand-offs agents made so far
 	answered int    // replies given so far
 	actor    string // who sent the message
+
+	agentID, agentName string // who answers in this turn
+	background         bool   // a hand-off from another agent (ADR-044)
+	delegator          string // background: the agent that tagged it, to report back
 
 	mu     sync.Mutex
 	events []Event
@@ -131,14 +137,15 @@ type Engine struct {
 	trees     *worktree.Manager
 
 	mu     sync.Mutex
-	active map[string]*Turn // conversation id → running turn
+	active map[string]*Turn // conversation id → running turn (the one the person waits for)
+	bg     map[string]*Turn // conversation id + "/" + agent id → a hand-off running in the background
 	turns  map[string]*Turn // turn id → turn (kept a while for replay)
 	direct map[string]bool  // projects with a chat editing the project folder right now
 }
 
 // NewEngine builds an Engine.
 func NewEngine(store storage.Store, providers *provider.Service, u *usage.Service) *Engine {
-	return &Engine{store: store, providers: providers, usage: u, active: map[string]*Turn{}, turns: map[string]*Turn{}, direct: map[string]bool{}}
+	return &Engine{store: store, providers: providers, usage: u, active: map[string]*Turn{}, bg: map[string]*Turn{}, turns: map[string]*Turn{}, direct: map[string]bool{}}
 }
 
 // SetOffice gives agents the office tools: over MCP at mcpURL (Claude Code)
@@ -189,7 +196,13 @@ func (e *Engine) placeFor(ctx context.Context, project storage.Repo, policy perm
 
 // ChatTree and TaskTree name the worktrees of a conversation and a task.
 func ChatTree(conversationID string) string { return "chat-" + conversationID }
-func TaskTree(taskID string) string         { return "task-" + taskID }
+
+// ChatAgentTree is the worktree of an agent that joined a chat later: agents
+// work at the same time (hand-offs), so each edits its own copy (ADR-044).
+func ChatAgentTree(conversationID, agentID string) string {
+	return "chat-" + conversationID + "--" + agentID
+}
+func TaskTree(taskID string) string { return "task-" + taskID }
 
 // officeAccess grants one run the office tools, scoped to its project and
 // to the conversation/task its proposals belong to.
@@ -473,9 +486,15 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		e.mu.Unlock()
 		return nil, storage.Message{}, ErrBusy
 	}
+	for _, a := range append([]storage.Agent{agent}, agentsOf(queue)...) {
+		if _, working := e.bg[conv.ID+"/"+a.ID]; working {
+			e.mu.Unlock()
+			return nil, storage.Message{}, ErrAgentBusy
+		}
+	}
 	runCtx, cancel := context.WithTimeout(actor.With(context.Background(), actor.From(ctx)), 20*time.Minute)
 	turn := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: queue, actor: actor.From(ctx)}
+		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name}
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn
 	e.mu.Unlock()
 
@@ -534,6 +553,9 @@ func (e *Engine) finish(t *Turn) {
 	if e.active[t.ConversationID] == t { // the next agent's turn may already hold the chat
 		delete(e.active, t.ConversationID)
 	}
+	if k := t.ConversationID + "/" + t.agentID; e.bg[k] == t {
+		delete(e.bg, k)
+	}
 	e.mu.Unlock()
 	// keep the turn for late subscribers, then forget it
 	time.AfterFunc(10*time.Minute, func() {
@@ -570,7 +592,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	policy := perm.LoadPolicy(ctx, e.store, project.ID)
 	acc := perm.Resolve(agent, conv.Mode, policy)
 	level := acc.Level
-	pl, err := e.placeFor(ctx, project, policy, acc, ChatTree(conv.ID), true, conv.EditMode)
+	pl, err := e.placeFor(ctx, project, policy, acc, e.chatTree(ctx, conv, agent), true, conv.EditMode)
 	if err != nil {
 		fail(err)
 		return
@@ -1147,6 +1169,11 @@ func (e *Engine) DeleteConversation(ctx context.Context, id string) error {
 	if conv, err := e.store.Chat().GetConversation(ctx, id); err == nil && e.trees != nil {
 		if project, err := e.store.Repos().Get(ctx, conv.ProjectID); err == nil {
 			_ = e.trees.Remove(ctx, project.Path, project.ID, ChatTree(id))
+			if members, err := e.store.Chat().Members(ctx, id); err == nil {
+				for _, m := range members {
+					_ = e.trees.Remove(ctx, project.Path, project.ID, ChatAgentTree(id, m.AgentID))
+				}
+			}
 		}
 	}
 	return e.store.Chat().DeleteConversation(ctx, id)
@@ -1171,6 +1198,7 @@ func (e *Engine) SweepWorktrees(ctx context.Context, maxAge time.Duration) {
 			if !ok {
 				return false
 			}
+			id, _, _ = strings.Cut(id, "--") // an agent's own tree in the chat
 			_, err := e.store.Chat().GetConversation(ctx, id)
 			return err == nil
 		}, maxAge)
