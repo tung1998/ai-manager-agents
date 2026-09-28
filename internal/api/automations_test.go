@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -178,5 +179,43 @@ func TestAutomationBuilderAPI(t *testing.T) { // ADR-042
 	resp, body = do(t, admin, "POST", e.srv.URL+"/api/automations/"+aid+"/conversation", map[string]any{}, nil)
 	if resp.StatusCode != 200 || body["conversation"].(map[string]any)["id"] != cid {
 		t.Fatalf("automation conversation = %d %v", resp.StatusCode, body)
+	}
+}
+
+func TestAutomationConversationIsOneEvenAtOnce(t *testing.T) { // review I2
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
+	solo := ""
+	for _, x := range body["templates"].([]any) {
+		if m := x.(map[string]any); m["key"] == "solo" {
+			solo = m["id"].(string)
+		}
+	}
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
+		"name": "đếm", "source": "schedule", "action": "script", "config": map[string]any{"every_minutes": 60}, "script": map[string]any{"lang": "bash", "body": "echo ok"},
+	}, nil)
+	aid := body["automation"].(map[string]any)["id"].(string)
+	var mu sync.Mutex
+	ids := map[string]bool{}
+	var wg sync.WaitGroup
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, b := do(t, admin, "POST", e.srv.URL+"/api/automations/"+aid+"/conversation", map[string]any{}, nil)
+			if c, ok := b["conversation"].(map[string]any); ok {
+				mu.Lock()
+				ids[c["id"].(string)] = true
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if len(ids) != 1 {
+		t.Fatalf("got %d conversations for one automation: %v", len(ids), ids)
 	}
 }

@@ -214,5 +214,9 @@ func (r chatRepo) AutomationConversation(ctx context.Context, automationID strin
 }
 
 func (r chatRepo) LinkAutomation(ctx context.Context, conversationID, automationID string) error {
-	return execOne(ctx, r.db, `UPDATE conversations SET automation_id=?, purpose='automation' WHERE id=?`, automationID, conversationID)
+	err := execOne(ctx, r.db, `UPDATE conversations SET automation_id=?, purpose='automation' WHERE id=?`, automationID, conversationID)
+	if isUnique(err) {
+		return storage.ErrConflict // the automation has its chat already
+	}
+	return err
 }

@@ -332,11 +332,19 @@ func (s *server) automationConversation(w http.ResponseWriter, r *http.Request) 
 			s.chatError(w, r, err)
 			return
 		}
-		if err := s.cfg.Store.Chat().LinkAutomation(r.Context(), c.ID, a.ID); err != nil {
+		if err := s.cfg.Store.Chat().LinkAutomation(r.Context(), c.ID, a.ID); errors.Is(err, storage.ErrConflict) {
+			// another tab made it first: use that one
+			_ = s.cfg.Store.Chat().DeleteConversation(r.Context(), c.ID)
+			if c, err = s.cfg.Store.Chat().AutomationConversation(r.Context(), a.ID); err != nil {
+				s.internal(w, r, err)
+				return
+			}
+		} else if err != nil {
 			s.internal(w, r, err)
 			return
+		} else {
+			c.AutomationID = a.ID
 		}
-		c.AutomationID = a.ID
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c)})
 }

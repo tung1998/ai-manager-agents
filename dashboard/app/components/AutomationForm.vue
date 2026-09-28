@@ -5,6 +5,7 @@
 const props = defineProps<{ projectId: string, form: AutomationDraft, highlight?: string[] }>()
 const emit = defineEmits<{ tested: [{ output: string, exit_code: number, timed_out: boolean }] }>()
 const toast = useToast()
+const { isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
 // eslint-disable-next-line vue/no-mutating-props -- the draft is the parent's reactive object, edited in place
 const form = props.form
@@ -141,7 +142,7 @@ async function testRun() {
             <div class="space-y-2 rounded-lg border border-(--ui-border) p-3">
               <div class="flex flex-wrap items-center gap-2">
                 <UInput v-model="testPayload" size="xs" class="min-w-0 flex-1 font-mono" :placeholder="t('auto.testPayload')" />
-                <UButton size="xs" icon="i-lucide-play" :label="t('auto.testRun')" :loading="testing" :disabled="!form.script.body.trim()" @click="testRun" />
+                <UButton v-if="isAdmin" size="xs" icon="i-lucide-play" :label="t('auto.testRun')" :loading="testing" :disabled="!form.script.body.trim()" @click="testRun" />
               </div>
               <template v-if="tested">
                 <p class="text-xs" :class="tested.exit_code === 0 ? 'text-(--ui-success)' : 'text-(--ui-error)'">

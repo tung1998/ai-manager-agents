@@ -177,3 +177,16 @@ func TestAutomationConversations(t *testing.T) { // ADR-042
 		t.Fatalf("messages = %+v", msgs)
 	}
 }
+
+func TestOneBuildingChatPerAutomation(t *testing.T) { // review I2
+	ctx := context.Background()
+	st, p := openStore(t)
+	a, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p.ID, Purpose: "automation"})
+	b, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p.ID, Purpose: "automation"})
+	if err := st.Chat().LinkAutomation(ctx, a.ID, "aut_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Chat().LinkAutomation(ctx, b.ID, "aut_1"); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("second chat linked: %v", err)
+	}
+}

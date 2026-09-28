@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/provider"
@@ -363,10 +364,24 @@ func (e *Engine) Send(ctx context.Context, conversationID, text string, attachme
 // maxPageContext bounds what the dashboard sends about the page.
 const maxPageContext = 8 << 10
 
+// pageData is the page context as the agent sees it: at most 8KB, cut on a
+// character, and unable to close the fence it is shown in.
+func pageData(s string) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "```", "'''")
+	if len(s) <= maxPageContext {
+		return s
+	}
+	s = s[:maxPageContext]
+	for !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
 // SendWithContext is Send with the page the person is on (JSON or text from
 // the dashboard, ADR-042): the agent gets it marked as data, the message keeps it.
 func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, pageContext string, attachmentIDs []string) (*Turn, storage.Message, error) {
-	pageContext = truncate(strings.TrimSpace(pageContext), maxPageContext)
+	pageContext = pageData(pageContext)
 	text = strings.TrimSpace(text)
 	if text == "" && len(attachmentIDs) == 0 {
 		return nil, storage.Message{}, errors.New("tin nhắn trống")

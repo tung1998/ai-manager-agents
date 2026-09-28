@@ -48,7 +48,7 @@ const prompt = ref<{ busy: boolean } | null>(null)
 // agentId opens a new chat with that agent, conversationId opens that chat (the agent page)
 const prefill = useState<{ text: string, files: Attachment[], send?: boolean, agentId?: string, conversationId?: string } | null>('chat-prefill', () => null)
 async function takePrefill() {
-  if (!prefill.value) return
+  if (!prefill.value || single.value) return // a task's or an automation's own chat takes no prefill
   const p = prefill.value
   prefill.value = null
   if (p.conversationId) return open({ id: p.conversationId } as Conversation)

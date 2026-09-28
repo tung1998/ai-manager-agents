@@ -5,7 +5,7 @@ build:
 
 test:
 	go vet ./... && go test ./...
-	cd dashboard && node scripts/check-i18n.mjs
+	cd dashboard && node scripts/check-i18n.mjs && pnpm test:unit
 
 # office run: supervisor with API + dashboard, restarts and self-updates
 start: build ui-build

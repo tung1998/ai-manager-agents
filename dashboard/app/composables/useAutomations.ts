@@ -120,17 +120,22 @@ export function draftFrom(a: Automation): AutomationDraft {
 const draftObjects = ['config', 'limits', 'script', 'escalate'] as const
 const draftScalars = ['name', 'enabled', 'source', 'action', 'agent_id', 'prompt', 'edit_mode', 'keep_context'] as const
 const allowed: Record<string, readonly string[]> = {
-  source: ['schedule', 'webhook'], action: ['script', 'chat', 'task'], edit_mode: ['worktree', 'direct']
+  source: ['schedule', 'webhook'], action: ['script', 'chat', 'task'], edit_mode: ['worktree', 'direct'],
+  'script.lang': ['bash', 'node', 'python'], 'escalate.when': ['never', 'failure', 'signal'], 'escalate.action': ['chat', 'task'],
+  'config.auth': ['bearer', 'header', 'query']
 }
+const fits = (key: string, v: unknown) => !allowed[key] || allowed[key]!.includes(v as string)
 
-// mergeDraft applies an agent's partial draft: known fields of the right kind
-// only (anything else is ignored). It returns the top-level keys it changed.
+// mergeDraft applies an agent's partial draft: only fields the draft has, of
+// the same type and an allowed value (anything else is ignored, so a bad
+// block cannot break the form or a later Save). A schedule is either a cron
+// or every N minutes: setting one clears the other. It returns the top-level
+// keys it changed.
 export function mergeDraft(d: AutomationDraft, patch: Record<string, unknown>): string[] {
   const changed: string[] = []
   for (const k of draftScalars) {
     const v = patch[k]
-    if (v === undefined || typeof v !== typeof d[k]) continue
-    if (allowed[k] && !allowed[k]!.includes(v as string)) continue
+    if (v === undefined || typeof v !== typeof d[k] || !fits(k, v)) continue
     ;(d as Record<string, unknown>)[k] = v
     changed.push(k)
   }
@@ -140,9 +145,14 @@ export function mergeDraft(d: AutomationDraft, patch: Record<string, unknown>): 
     const target = d[k] as Record<string, unknown>
     let any = false
     for (const [f, x] of Object.entries(v as Record<string, unknown>)) {
-      if (x !== null && typeof x === 'object') continue
+      if (!(f in target) || x === null || typeof x !== typeof target[f] || !fits(`${k}.${f}`, x)) continue
       target[f] = x
       any = true
+    }
+    if (k === 'config' && any) {
+      const c = v as Record<string, unknown>
+      if (typeof c.every_minutes === 'number' && c.every_minutes > 0 && c.cron === undefined) d.config.cron = ''
+      if (typeof c.cron === 'string' && c.cron.trim() && c.every_minutes === undefined) d.config.every_minutes = 0
     }
     if (any) changed.push(k)
   }

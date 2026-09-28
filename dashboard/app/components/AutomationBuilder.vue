@@ -19,12 +19,18 @@ function applyPatch(p: Record<string, unknown>) {
   toast.add({ title: t('auto.filled', { n: changed.length }), color: 'info' })
 }
 const lastTest = ref<{ output: string, exit_code: number, timed_out: boolean } | null>(null)
-const pageContext = () => JSON.stringify({
-  page: props.automation ? 'automation.edit' : 'automation.new',
-  automation_id: props.automation?.id ?? '',
-  draft: automationBody(form),
-  test: lastTest.value ? { exit_code: lastTest.value.exit_code, timed_out: lastTest.value.timed_out, output: lastTest.value.output.slice(-3000) } : null
-})
+// the last test run first, and a long script cut, so both fit the 8KB the server keeps
+const pageContext = () => {
+  const draft = automationBody(form)
+  const body = draft.script.body
+  if (body.length > 4000) draft.script = { ...draft.script, body: `${body.slice(0, 4000)}\n… (${body.length - 4000} ký tự nữa, xem trong form)` } // i18n-ignore: sent to the agent
+  return JSON.stringify({
+    page: props.automation ? 'automation.edit' : 'automation.new',
+    automation_id: props.automation?.id ?? '',
+    test: lastTest.value ? { exit_code: lastTest.value.exit_code, timed_out: lastTest.value.timed_out, output: lastTest.value.output.slice(-2000) } : null,
+    draft
+  })
+}
 
 const conversationId = ref('')
 const saving = ref(false)
