@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
@@ -114,32 +115,45 @@ type turnSpec struct {
 	hops       int
 	answered   int
 	actor      string
-	replace    *Turn // the finishing turn it takes the chat from ("" = the chat must be free)
+	replace    *Turn         // the finishing turn it takes the chat from ("" = the chat must be free)
+	total      *atomic.Int32 // replies to the person's message so far, hand-offs included
 }
 
-// startTurn starts an agent's answer; nil when the chat (or, in the
-// background, that agent) is busy.
-func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s turnSpec) *Turn {
+// startTurn starts an agent's answer; nil and why when it cannot: the agent
+// is already working in this chat, the chat is busy, the message had its
+// replies (maxAnswers), or the budget is spent.
+func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s turnSpec) (*Turn, string) {
+	if s.total != nil && s.total.Load() >= maxAnswers {
+		return nil, fmt.Sprintf("Đã đủ %d lượt trả lời cho một tin nhắn nên %s không trả lời tiếp. Hãy nhắn lại nếu cần.", maxAnswers, s.agent.Name)
+	}
+	if e.usage != nil {
+		if err := e.usage.Check(context.Background(), project.ID); err != nil {
+			return nil, fmt.Sprintf("%s không trả lời: %v", s.agent.Name, err)
+		}
+	}
 	runCtx, cancel := context.WithTimeout(actor.With(context.Background(), s.actor), 20*time.Minute)
 	t := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor,
+		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor, total: s.total,
 		agentID: s.agent.ID, agentName: s.agent.Name, background: s.background, delegator: s.delegator}
 	e.mu.Lock()
 	key := conv.ID + "/" + s.agent.ID
+	if _, working := e.bg[key]; working { // one session, one worktree: never twice at once
+		e.mu.Unlock()
+		cancel()
+		return nil, fmt.Sprintf("%s đang làm việc được giao trong cuộc chat nên chưa trả lời được.", s.agent.Name)
+	}
 	if s.background {
-		if _, working := e.bg[key]; working {
-			e.mu.Unlock()
-			cancel()
-			return nil
-		}
 		e.bg[key] = t
 	} else {
 		if cur, busy := e.active[conv.ID]; busy && cur != s.replace {
 			e.mu.Unlock()
 			cancel()
-			return nil
+			return nil, ""
 		}
 		e.active[conv.ID] = t // held before the previous turn lets go
+	}
+	if s.total != nil {
+		s.total.Add(1)
 	}
 	e.turns[t.ID] = t
 	e.mu.Unlock()
@@ -150,17 +164,24 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 	history, err := e.store.Chat().ListMessages(runCtx, conv.ID)
 	if err != nil {
 		release()
-		return nil
+		return nil, err.Error()
 	}
 	job, err := e.beginJob(runCtx, conv, s.agent.ID, truncate(s.title, 80))
 	if err != nil {
 		release()
-		return nil
+		return nil, err.Error()
 	}
 	t.JobID = job.ID
 	runCtx = usage.WithJob(runCtx, job.ID)
 	go e.run(runCtx, t, conv, project, s.agent, history, s.prompt, nil)
-	return t
+	return t, ""
+}
+
+// note leaves a line in the chat (why an agent did not answer).
+func (e *Engine) note(conv storage.Conversation, text string) {
+	if text != "" {
+		_, _ = e.store.Chat().AddMessage(context.Background(), storage.Message{ConversationID: conv.ID, Role: "error", Content: text})
+	}
 }
 
 // nextTurn runs what follows an answer (ADR-044) and returns the turn the
@@ -187,11 +208,11 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 				notes = append(notes, fmt.Sprintf("Đã dừng giao việc cho %s: quá %d lượt agent giao việc cho nhau trong một tin nhắn. Hãy tag lại nếu cần.", d.agent.Name, maxHops))
 				continue
 			}
-			started := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor,
+			started, why := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor, total: prev.total,
 				title:  agent.Name + " → " + d.agent.Name,
 				prompt: fmt.Sprintf("%s giao việc cho bạn:\n%s\n\nLàm phần này rồi báo kết quả ngắn gọn.", agent.Name, d.task)})
 			if started == nil {
-				notes = append(notes, fmt.Sprintf("%s đang bận việc khác trong cuộc chat nên chưa nhận việc %s giao.", d.agent.Name, agent.Name))
+				notes = append(notes, why)
 				continue
 			}
 			hops++
@@ -202,22 +223,23 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 	}
 	if prev.background {
 		if i := slices.IndexFunc(agents, func(a storage.Agent) bool { return a.ID == prev.delegator }); i >= 0 {
-			e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, title: agent.Name + " → " + agents[i].Name,
+			_, why := e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, total: prev.total, title: agent.Name + " → " + agents[i].Name,
 				prompt: fmt.Sprintf("%s đã làm xong phần việc bạn giao (xem tin gần nhất). Báo lại kết quả cho người dùng ngắn gọn và làm tiếp nếu cần.", agent.Name)})
+			e.note(conv, why)
 		}
 		return ""
 	}
-	if len(prev.queue) == 0 {
-		return ""
+	// the next agent the person tagged; one that cannot answer is skipped with a note
+	for i, q := range prev.queue {
+		next, why := e.startTurn(conv, project, turnSpec{agent: q.agent, queue: prev.queue[i+1:], hops: hops, answered: prev.answered + 1, actor: prev.actor,
+			replace: prev, total: prev.total, title: q.from + " → " + q.agent.Name,
+			prompt: fmt.Sprintf("%s vừa tag bạn trong cuộc chat. Trả lời phần dành cho bạn trong tin gần nhất.", q.from)})
+		if next != nil {
+			return next.ID
+		}
+		e.note(conv, why)
 	}
-	q := prev.queue[0]
-	next := e.startTurn(conv, project, turnSpec{agent: q.agent, queue: prev.queue[1:], hops: hops, answered: prev.answered + 1, actor: prev.actor, replace: prev,
-		title:  q.from + " → " + q.agent.Name,
-		prompt: fmt.Sprintf("%s vừa tag bạn trong cuộc chat. Trả lời phần dành cho bạn trong tin gần nhất.", q.from)})
-	if next == nil {
-		return ""
-	}
-	return next.ID
+	return ""
 }
 
 // member is the agent's place in a chat (ADR-044): its own session there and

@@ -167,3 +167,25 @@ func TestAuditRowsCarryProject(t *testing.T) {
 		t.Fatalf("rows seen = %v", seen)
 	}
 }
+
+// Review I7: in a group chat an approved diff is logged as the agent that
+// wrote it, not the chat's default agent.
+func TestAuditPatchAuthorInGroupChat(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	c, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, AgentName: "Lead"})
+	m, _ := e.st.Chat().AddMessage(ctx, storage.Message{ConversationID: c.ID, Role: "assistant", Content: "sửa xong", Author: "Dev"})
+	p, err := e.st.Chat().AddPatch(ctx, storage.Patch{ConversationID: c.ID, MessageID: m.ID, Diff: "not a diff", Files: []string{"a.txt"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	do(t, admin, "POST", e.srv.URL+"/api/patches/"+p.ID+"/approve", map[string]any{}, nil)
+	rows, _ := e.st.Audit().List(ctx, storage.AuditFilter{Resource: "patch"})
+	if len(rows) != 1 || rows[0].ActorName != "Dev" || rows[0].ActorKind != "agent" {
+		t.Fatalf("rows = %+v", rows)
+	}
+}

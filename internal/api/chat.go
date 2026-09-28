@@ -307,6 +307,14 @@ func (s *server) patchWho(r *http.Request, p storage.Patch, approve bool) (*http
 		if c, err := s.cfg.Store.Chat().GetConversation(r.Context(), p.ConversationID); err == nil {
 			projectID, agent = c.ProjectID, c.AgentName
 		}
+		// in a group chat the diff is the agent's who wrote the answer (ADR-044)
+		if msgs, err := s.cfg.Store.Chat().ListMessages(r.Context(), p.ConversationID); err == nil {
+			for _, m := range msgs {
+				if m.ID == p.MessageID && m.Author != "" {
+					agent = m.Author
+				}
+			}
+		}
 	}
 	if projectID == "" && p.TaskID != "" {
 		if t, err := s.cfg.Store.Tasks().Get(r.Context(), p.TaskID); err == nil {

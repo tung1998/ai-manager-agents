@@ -186,7 +186,7 @@ func (s *server) cancelJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case j.Status == "running" && j.Kind == "chat_turn" && j.ConversationID != "":
-		if t, ok := s.cfg.Chat.Active(j.ConversationID); ok {
+		if t, ok := s.cfg.Chat.TurnByJob(j.ID); ok { // a hand-off in the background has its own job
 			t.Cancel()
 		}
 	case j.Status == "running" && j.Kind == "task" && j.TaskID != "":

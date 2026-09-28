@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -644,4 +645,58 @@ func TestLaterTurnsKeepTheChatsSettings(t *testing.T) {
 	if c.AgentID != g.dev.ID {
 		t.Fatalf("default agent written back to %s", c.AgentName)
 	}
+}
+
+// Review I3: an agent never answers in the foreground while it works in the
+// background (same session, same worktree).
+func TestAgentNeverRunsTwiceAtOnce(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-dev"), []byte("2"), 0o644)
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, "@"+g.leadNm+" @Dev cùng xem", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.delegateDuring(t, "Dev", "việc riêng") // Dev will be busy in the background
+	collect(t, turn)
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	got := g.waitAuthors(t, 3)
+	devs := 0
+	for _, a := range got {
+		if a == "Dev" {
+			devs++
+		}
+	}
+	if devs != 1 || !slices.Contains(got, "!") {
+		t.Fatalf("authors = %v: Dev should answer once, with a note that it was busy", got)
+	}
+}
+
+// Review I6: background hand-offs count as running (an update waits for them)
+// and are found by their job (cancelling that job stops them, not the chat).
+func TestBackgroundTurnsAreVisible(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-dev"), []byte("2"), 0o644)
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, "làm X", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.delegateDuring(t, "Dev", "làm X")
+	collect(t, turn)
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	var bg chat.RunningTurn
+	for _, r := range g.engine.Running(g.conv.ID) {
+		if r.Background {
+			bg = r
+		}
+	}
+	if bg.TurnID == "" || g.engine.ActiveTurns() < 1 {
+		t.Fatalf("running = %+v, active = %d", g.engine.Running(g.conv.ID), g.engine.ActiveTurns())
+	}
+	dt, _ := g.engine.Turn(bg.TurnID)
+	if got, ok := g.engine.TurnByJob(dt.JobID); !ok || got != dt {
+		t.Fatalf("TurnByJob(%s) = %v %v", dt.JobID, got, ok)
+	}
+	g.waitAuthors(t, 3)
 }

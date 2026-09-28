@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -83,6 +84,7 @@ type Turn struct {
 	hops     int    // hand-offs agents made so far
 	answered int    // replies given so far
 	actor    string // who sent the message
+	total    *atomic.Int32
 
 	agentID, agentName string // who answers in this turn
 	background         bool   // a hand-off from another agent (ADR-044)
@@ -308,7 +310,22 @@ func userHome() string {
 func (e *Engine) ActiveTurns() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return len(e.active)
+	return len(e.active) + len(e.bg) // hand-offs in the background run too
+}
+
+// TurnByJob finds the answer in progress that runs as a job.
+func (e *Engine) TurnByJob(jobID string) (*Turn, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, t := range e.turns {
+		t.mu.Lock()
+		done := t.done
+		t.mu.Unlock()
+		if t.JobID == jobID && !done {
+			return t, true
+		}
+	}
+	return nil, false
 }
 
 // Turn returns a turn by id.
@@ -498,7 +515,8 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	}
 	runCtx, cancel := context.WithTimeout(actor.With(context.Background(), actor.From(ctx)), 20*time.Minute)
 	turn := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name}
+		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32)}
+	turn.total.Store(1)
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn
 	e.mu.Unlock()
 
