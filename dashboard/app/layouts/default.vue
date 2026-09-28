@@ -19,14 +19,33 @@ watch(() => route.path, async () => {
   } catch { /* signed out: the auth middleware redirects */ }
 }, { immediate: true })
 
+// pages below a project (/projects/:id/<child>/…) belong to one of its sections
+const childSection: Record<string, string> = { agents: 'model' }
+
 function projectSections(id: string): NavigationMenuItem[] {
   const to = (tab: string) => ({ path: `/projects/${id}`, query: { tab } })
-  return [
+  const child = route.path.match(new RegExp(`^/projects/${id}/([^/]+)/`))?.[1]
+  const parent = child ? childSection[child] : undefined
+  return withParent(parent, [
     { label: t('nav.chat'), icon: 'i-lucide-messages-square', to: to('chat'), exactQuery: 'partial' },
     { label: t('nav.tasks'), icon: 'i-lucide-list-todo', to: to('tasks'), exactQuery: 'partial' },
     { label: t('nav.ops'), icon: 'i-lucide-activity', to: to('ops'), exactQuery: 'partial' },
-    { label: t('nav.config'), icon: 'i-lucide-settings-2', to: to('config'), exactQuery: 'partial' }
-  ]
+    { label: t('project.sectionModel'), icon: 'i-lucide-network', to: to('model'), exactQuery: 'partial' },
+    { label: t('project.sectionPerm'), icon: 'i-lucide-shield', to: to('perm'), exactQuery: 'partial' },
+    ...(isAdmin.value
+      ? [
+          { label: t('project.sectionSkill'), icon: 'i-lucide-sparkles', to: to('skill'), exactQuery: 'partial' as const },
+          { label: t('project.sectionMcp'), icon: 'i-lucide-plug-zap', to: to('mcp'), exactQuery: 'partial' as const }
+        ]
+      : []),
+    { label: t('project.sectionInfo'), icon: 'i-lucide-info', to: to('info'), exactQuery: 'partial' }
+  ])
+}
+
+// marks the section a child page belongs to as the active one
+function withParent(parent: string | undefined, items: NavigationMenuItem[]): NavigationMenuItem[] {
+  if (!parent) return items
+  return items.map(x => (x.to as { query?: { tab?: string } })?.query?.tab === parent ? { ...x, active: true } : x)
 }
 
 const items = computed<NavigationMenuItem[][]>(() => {

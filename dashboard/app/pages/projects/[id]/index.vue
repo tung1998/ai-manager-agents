@@ -11,14 +11,10 @@ const { data: tplData } = await useFetch<{ templates: OrgModel[] }>('/api/templa
 const project = computed(() => data.value?.project)
 const templates = computed(() => tplData.value?.templates ?? [])
 
-// the tab lives in the URL so the sidebar can link to each section;
-// "Cấu hình" holds the org model and Skills & MCP (older links used tab=model|tools)
-type Tab = 'chat' | 'tasks' | 'ops' | 'config'
-const tabs: Tab[] = ['chat', 'tasks', 'ops', 'config']
-const configSection = computed<'info' | 'model' | 'perm' | 'skill' | 'mcp'>({
-  get: () => route.query.tab === 'tools' ? 'skill' : (['model', 'perm', 'skill', 'mcp'] as const).find(v => v === route.query.section) ?? 'info',
-  set: v => navigateTo({ query: { tab: 'config', section: v } }, { replace: true })
-})
+// the tab lives in the URL so the sidebar can link to each section
+// (older links: tab=config&section=…, tab=tools)
+type Tab = 'chat' | 'tasks' | 'ops' | 'model' | 'perm' | 'skill' | 'mcp' | 'info'
+const tabs: Tab[] = ['chat', 'tasks', 'ops', 'model', 'perm', 'skill', 'mcp', 'info']
 // office's own source: approved changes take effect after "Cập nhật office"
 const { data: updData } = useFetch<{ source?: { root: string } }>('/api/system/update', { lazy: true, immediate: isAdmin.value })
 const isOfficeSource = computed(() => !!project.value?.path && updData.value?.source?.root === project.value.path)
@@ -31,7 +27,10 @@ function askAgent(text: string, files: Attachment[], send = false) {
   tab.value = 'chat'
 }
 const tab = computed<Tab>({
-  get: () => route.query.tab === 'model' || route.query.tab === 'tools' ? 'config' : tabs.find(t => t === route.query.tab) ?? 'chat',
+  get: () => {
+    const q = route.query.tab === 'config' ? (route.query.section ?? 'info') : route.query.tab === 'tools' ? 'skill' : route.query.tab
+    return tabs.find(t => t === q) ?? 'chat'
+  },
   set: t => navigateTo({ query: { tab: t } }, { replace: true })
 })
 const { touch } = useProjectUsage()
@@ -130,17 +129,8 @@ async function saveAsTemplate() {
 
 
       <OpsPanel v-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
-      <template v-else-if="tab === 'config'">
-        <SegmentedNav
-          v-model="configSection"
-          :items="[
-            { value: 'info', label: t('project.sectionInfo'), icon: 'i-lucide-info' },
-            { value: 'model', label: t('project.sectionModel'), icon: 'i-lucide-network' },
-            { value: 'perm', label: t('project.sectionPerm'), icon: 'i-lucide-shield' },
-            ...(isAdmin ? [{ value: 'skill', label: t('project.sectionSkill'), icon: 'i-lucide-sparkles' }, { value: 'mcp', label: t('project.sectionMcp'), icon: 'i-lucide-plug-zap' }] : [])
-          ]"
-        />
-        <UCard v-if="configSection === 'info'" class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">
+      <template v-else-if="['info', 'model', 'perm', 'skill', 'mcp'].includes(tab)">
+        <UCard v-if="tab === 'info'" class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">
           <div class="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
             <span class="text-(--ui-text-muted)">{{ t('project.infoFolder') }}</span>
             <span v-if="project.scope === 'folder'" class="min-w-0 break-all font-mono text-xs">{{ project.path }}</span>
@@ -154,8 +144,8 @@ async function saveAsTemplate() {
           </div>
           <UButton v-if="isAdmin" size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('project.rename')" @click="openEdit" />
         </UCard>
-        <PolicyPanel v-else-if="configSection === 'perm'" :project-id="project.id" />
-        <ToolsPanel v-else-if="configSection === 'skill' || configSection === 'mcp'" :key="configSection" :kind="configSection" :project-path="project.path" />
+        <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" />
+        <ToolsPanel v-else-if="tab === 'skill' || tab === 'mcp'" :key="tab" :kind="tab" :project-path="project.path" />
         <OrgModelEditor v-else-if="project.model" :key="project.model.id" :model-id="project.model.id" @changed="refresh()" />
         <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
       </template>

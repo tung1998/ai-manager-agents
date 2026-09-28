@@ -32,7 +32,6 @@ const en: Record<MessageKey, string> = {
   'nav.chat': 'Chat',
   'nav.tasks': 'Tasks',
   'nav.ops': 'Operations',
-  'nav.config': 'Settings',
   'user.changePassword': 'Change password',
   'user.logout': 'Sign out',
   'login.subtitle': 'Sign in to the admin dashboard',

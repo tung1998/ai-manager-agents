@@ -31,7 +31,6 @@ const vi = {
   'nav.chat': 'Chat',
   'nav.tasks': 'Việc',
   'nav.ops': 'Vận hành',
-  'nav.config': 'Cấu hình',
   'user.changePassword': 'Đổi mật khẩu',
   'user.logout': 'Đăng xuất',
   'login.subtitle': 'Đăng nhập trang quản trị',

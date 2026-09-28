@@ -111,7 +111,7 @@ async function remove() {
   if (!agent.value || !confirm(t('org.editor.deleteAgentConfirm', { name: agent.value.name }))) return
   try {
     await $fetch(`/api/agents/${agent.value.id}`, { method: 'DELETE' })
-    await navigateTo({ path: `/projects/${projectId.value}`, query: { tab: 'config', section: 'model' } })
+    await navigateTo({ path: `/projects/${projectId.value}`, query: { tab: 'model' } })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
@@ -178,8 +178,12 @@ async function restore(e: Entry) {
     </template>
 
     <div v-if="agent" class="space-y-4">
+      <UButton
+        :to="{ path: `/projects/${projectId}`, query: { tab: 'model' } }" icon="i-lucide-arrow-left" size="xs" color="neutral" variant="ghost"
+        class="-ms-2" :label="t('project.sectionModel')"
+      />
       <div class="flex flex-wrap items-center gap-2 text-xs text-(--ui-text-muted)">
-        <NuxtLink v-if="data?.project" :to="{ path: `/projects/${projectId}`, query: { tab: 'config', section: 'model' } }" class="hover:text-(--ui-text)">
+        <NuxtLink v-if="data?.project" :to="{ path: `/projects/${projectId}`, query: { tab: 'model' } }" class="hover:text-(--ui-text)">
           {{ data.project.name }} · {{ data.model.name }}
         </NuxtLink>
         <UBadge :label="tierLabel[agent.tier]" color="neutral" variant="subtle" size="sm" />
