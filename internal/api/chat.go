@@ -352,3 +352,33 @@ func (s *server) assistantInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"project_id": id})
 }
+
+// mayOpen: an office assistant chat is its creator's alone (ADR-046);
+// project chats are the project's.
+func (s *server) mayOpen(r *http.Request, conversationID string) bool {
+	c, err := s.cfg.Store.Chat().GetConversation(r.Context(), conversationID)
+	if err != nil {
+		return true // the handler reports it
+	}
+	return c.ProjectID != assistant.ID(r.Context(), s.cfg.Store) || c.CreatedBy == "human:"+userFrom(r).Email
+}
+
+func (s *server) ownChat(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.mayOpen(r, r.PathValue("id")) {
+			writeError(w, http.StatusNotFound, "không tìm thấy cuộc trò chuyện")
+			return
+		}
+		h(w, r)
+	}
+}
+
+func (s *server) ownTurn(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if t, ok := s.cfg.Chat.Turn(r.PathValue("id")); ok && !s.mayOpen(r, t.ConversationID) {
+			writeError(w, http.StatusNotFound, "không tìm thấy lượt trả lời")
+			return
+		}
+		h(w, r)
+	}
+}

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"context"
 	"net/http"
 	"strconv"
@@ -109,7 +110,11 @@ func (s *server) listJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	n := &names{map[string]string{}, map[string]string{}, map[string]string{}}
 	out := make([]jobDTO, 0, len(jobs))
+	own, me := assistant.ID(r.Context(), s.cfg.Store), "human:"+userFrom(r).Email
 	for _, j := range jobs {
+		if own != "" && j.ProjectID == own && j.CreatedBy != me {
+			continue // an assistant chat is its creator's alone (ADR-046)
+		}
 		out = append(out, s.toJobDTO(r, j, n))
 	}
 	next := ""

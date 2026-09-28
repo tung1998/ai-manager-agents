@@ -122,7 +122,14 @@ func (t *Toolbox) officeCall(ctx context.Context, sc Scope, name string, raw jso
 		var jobs []storage.Job
 		if jobs, err = t.store.Jobs().List(ctx, f); err == nil {
 			rows := []map[string]any{}
+			own := ""
+			if t.assistant != nil {
+				own = t.assistant(ctx)
+			}
 			for _, j := range jobs {
+				if own != "" && j.ProjectID == own {
+					continue // the assistant's chats are each person's own
+				}
 				rows = append(rows, map[string]any{"id": j.ID, "project_id": j.ProjectID, "kind": j.Kind, "origin": j.Origin, "title": j.Title,
 					"status": j.Status, "error": j.Error, "cost_usd": j.CostUSD, "created_at": j.CreatedAt.Format(time.RFC3339)})
 			}

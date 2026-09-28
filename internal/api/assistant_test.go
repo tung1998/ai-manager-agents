@@ -38,3 +38,26 @@ func TestAssistantProject(t *testing.T) {
 		t.Fatalf("admin sees %v", list)
 	}
 }
+
+// Review I1: another person's assistant chat cannot be opened, written or deleted.
+func TestAssistantChatsArePrivate(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	id, _ := assistant.Ensure(ctx, e.st, orgmodel.NewService(e.st), t.TempDir())
+	theirs, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: id, Title: "riêng", CreatedBy: "human:member@x.io"})
+	if resp, _ := do(t, admin, "GET", e.srv.URL+"/api/conversations/"+theirs.ID, nil, nil); resp.StatusCode != 404 {
+		t.Fatalf("read another's = %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/conversations/"+theirs.ID+"/messages", map[string]any{"text": "x"}, nil); resp.StatusCode != 404 {
+		t.Fatalf("write another's = %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, admin, "DELETE", e.srv.URL+"/api/conversations/"+theirs.ID, nil, nil); resp.StatusCode != 404 {
+		t.Fatalf("delete another's = %d", resp.StatusCode)
+	}
+	mine, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: id, Title: "của tôi", CreatedBy: "human:admin@x.io"})
+	if resp, _ := do(t, admin, "GET", e.srv.URL+"/api/conversations/"+mine.ID, nil, nil); resp.StatusCode != 200 {
+		t.Fatalf("read mine = %d", resp.StatusCode)
+	}
+}

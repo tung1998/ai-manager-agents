@@ -59,6 +59,16 @@ func TestOfficeScopeTools(t *testing.T) {
 	if _, isErr := call("jobs_query", map[string]any{"project": "không có"}); !isErr {
 		t.Fatal("an unknown project was accepted")
 	}
+	// review I1: the assistant's own chats (each person's) never show through tools
+	private, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: office.ID, Title: "riêng", CreatedBy: "human:b@x.io"})
+	st.Chat().AddMessage(ctx, storage.Message{ConversationID: private.ID, Role: "user", Content: "lương của tôi"})
+	st.Jobs().Create(ctx, storage.Job{ProjectID: office.ID, Kind: "chat_turn", Origin: "user", Trigger: "ui", Title: "lương của tôi", Status: "done", ConversationID: private.ID})
+	if out, _ := call("jobs_query", nil); strings.Contains(out, "lương của tôi") {
+		t.Fatalf("jobs_query shows an assistant chat: %s", out)
+	}
+	if _, isErr := call("read_link", map[string]any{"url": "http://x/projects/" + office.ID + "?tab=chat&c=" + private.ID}); !isErr {
+		t.Fatal("read_link read another person's assistant chat")
+	}
 	out, isErr := call("start_task", map[string]any{"project": "Storefront", "goal": "báo cáo lỗi tuần này"})
 	if isErr || !strings.Contains(out, "thẻ") {
 		t.Fatalf("start_task = %v %s", isErr, out)

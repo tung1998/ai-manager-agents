@@ -20,6 +20,9 @@ func (t *Toolbox) readLink(ctx context.Context, sc Scope, link string) (string, 
 	if !ok || projectID == "" || strings.Contains(projectID, "/") {
 		return "", errors.New("đây không phải liên kết chat hay Việc của office")
 	}
+	if t.assistant != nil && projectID == t.assistant(ctx) {
+		return "", errors.New("chat của trợ lý office là riêng của từng người, không đọc được bằng liên kết")
+	}
 	if projectID != sc.ProjectID {
 		return "", errors.New("liên kết thuộc project khác; bạn chỉ đọc được chat và Việc của project này")
 	}
