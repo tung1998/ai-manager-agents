@@ -45,6 +45,9 @@ type RunRequest struct {
 	// project in direct mode), except DenyPaths.
 	Write     bool
 	DenyPaths []string
+	// UserMCP lets it use the MCP servers of the person's own setup
+	// (perm.CapUserMCP); otherwise only office's tools.
+	UserMCP bool
 }
 
 // OfficeAccess lets one run read the project's operations data: Claude Code

@@ -27,6 +27,10 @@ type claudeRunner struct{}
 
 var claudeReadTools = []string{"Read", "Glob", "Grep"}
 
+// userMCPSettings: a PreToolUse hook that allows the tools of any MCP server
+// (the person's own Claude Code setup), for agents with perm.CapUserMCP.
+const userMCPSettings = `{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"agent-office: MCP của người dùng\"}}'"}]}]}}`
+
 func (claudeRunner) args(req RunRequest, resume bool) []string {
 	tools := append(slices.Clone(claudeReadTools), "Skill")
 	// dontAsk: whatever is not allowed is denied, whatever the user's defaultMode
@@ -56,6 +60,11 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 		"--allowedTools", strings.Join(tools, " "),
 		"--disallowedTools", strings.Join(deny, " "),
 	)
+	if req.UserMCP {
+		// dontAsk denies tools it was not told about, and the user's MCP
+		// servers are not known up front: a hook allows every mcp__ tool
+		a = append(a, "--settings", userMCPSettings)
+	}
 	if req.Model != "" {
 		a = append(a, "--model", req.Model)
 	}

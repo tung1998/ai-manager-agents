@@ -1,6 +1,7 @@
 package perm
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -97,5 +98,11 @@ func TestCommands(t *testing.T) {
 	}
 	if _, err := CleanPattern("go * test"); err == nil {
 		t.Fatal("star only at the end")
+	}
+}
+
+func TestUserMCPFromCheck(t *testing.T) {
+	if slices.Contains(Preset(Propose), CapUserMCP) || !slices.Contains(Preset(Check), CapUserMCP) || !slices.Contains(Preset(Operate), CapUserMCP) {
+		t.Fatalf("user MCP presets: propose=%v check=%v", Preset(Propose), Preset(Check))
 	}
 }

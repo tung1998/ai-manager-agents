@@ -543,7 +543,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	req := RunRequest{
 		Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: text,
 		System: systemPrompt(project, agent, e.office != nil, acc, pl), History: toHistory(history), Attachments: files,
-		Write: pl.write, DenyPaths: policy.DenyPaths,
+		Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP),
 	}
 	if conv.TaskID != "" {
 		req.System += e.taskBrief(ctx, conv.TaskID)
@@ -848,7 +848,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 		return InvokeResult{}, err
 	}
 	req := RunRequest{Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: prompt,
-		Attachments: files, Write: pl.write, DenyPaths: policy.DenyPaths}
+		Attachments: files, Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP)}
 	req.System = systemPrompt(project, agent, e.office != nil, acc, pl)
 	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, TaskID: tc.id, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), JobID: usage.JobFrom(ctx), Agent: agent.Name, Level: acc.Level, Access: acc, Dir: treeDir(pl)})
 	defer revoke()

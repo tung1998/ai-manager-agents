@@ -18,6 +18,7 @@ const (
 	CapBranch    = "git.branch"    // create a branch on its own
 	CapProcess   = "ops.process"   // run/restart/stop allowed processes on its own
 	CapContainer = "ops.container" // start/restart/stop allowed containers on its own
+	CapUserMCP   = "tools.mcp"     // use the MCP servers of the person's own Claude Code setup
 )
 
 // Cap describes a capability for the dashboard.
@@ -34,6 +35,7 @@ var Caps = []Cap{
 	{CapPropose, "code", "Đề xuất", "Đưa diff và đề xuất thao tác, người duyệt mới làm", Propose},
 	{CapApply, "code", "Tự áp diff", "Diff áp được sạch được áp ngay, trừ file cấm", Edit},
 	{CapCommands, "commands", "Tự chạy lệnh", "Chạy ngay các lệnh được chọn; lệnh khác phải đề xuất", Check},
+	{CapUserMCP, "commands", "Dùng MCP của bạn", "Dùng các MCP/connector trong Claude Code của bạn (Graylog, Jira, Discord…)", Check},
 	{CapCommit, "git", "Tự commit", "Commit các file đã sửa với message rõ ràng", Edit},
 	{CapBranch, "git", "Tự tạo nhánh", "Tạo và chuyển sang nhánh mới", Operate},
 	{CapProcess, "ops", "Tự chạy lại tiến trình", "Chạy, chạy lại, dừng tiến trình được phép", Operate},
