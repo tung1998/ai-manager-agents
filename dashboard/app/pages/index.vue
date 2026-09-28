@@ -8,7 +8,7 @@ const { data: proj } = await useFetch<{ projects: Project[] }>('/api/projects')
 const { data: tpl } = await useFetch<{ templates: OrgModel[] }>('/api/templates')
 
 interface Job { id: string, project_id: string, title: string, goal: string, pending_patches?: number, status: 'running' | 'done' | 'failed' | 'cancelled' | 'rejected' | 'needs_input', cost_usd: number, created_at: string }
-const { data: jobData } = await useFetch<{ tasks: Job[], projects: Record<string, string> }>('/api/jobs')
+const { data: jobData } = await useFetch<{ tasks: Job[], projects: Record<string, string> }>('/api/tasks/recent')
 const recentJobs = computed(() => (jobData.value?.tasks ?? []).slice(0, 6))
 const jobStatus = computed<Record<Job['status'], { label: string, color: 'info' | 'success' | 'error' | 'neutral' | 'warning', icon: string }>>(() => ({
   running: { label: t('home.jobRunning'), color: 'info', icon: 'i-lucide-loader' },

@@ -121,6 +121,9 @@ func New(cfg Config) http.Handler {
 		mux.Handle("POST /hooks/{id}", cfg.Trigger.Webhook())
 		mux.Handle("GET /hooks/{id}/jobs/{job}", cfg.Trigger.Webhook())
 	}
+	if cfg.Org != nil {
+		s.triggerRoutes(mux)
+	}
 
 	return s.securityHeaders(s.csrf(mux))
 }

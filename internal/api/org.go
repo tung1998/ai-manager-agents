@@ -78,7 +78,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/patches/{id}/reject", admin(s.rejectPatch))
 	}
 	if s.cfg.Tasks != nil {
-		mux.Handle("GET /api/jobs", auth(s.jobs))
+		mux.Handle("GET /api/tasks/recent", auth(s.jobs)) // the home page's recent tasks
 		mux.Handle("GET /api/projects/{id}/tasks", auth(s.listTasks))
 		mux.Handle("POST /api/projects/{id}/tasks", auth(s.createTask))
 		mux.Handle("GET /api/tasks/{id}", auth(s.getTask))

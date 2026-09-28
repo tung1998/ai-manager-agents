@@ -25,13 +25,24 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 	"bitbucket.org/senprints/agent-office/internal/tasks"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
+	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
 type env struct {
 	srv  *httptest.Server
 	auth *auth.Service
+	st   storage.Store
 }
+
+// idleExec is an automation executor that does nothing (API tests only queue).
+type idleExec struct{}
+
+func (idleExec) RunChat(context.Context, string, string, string, string, string) (string, error) {
+	return "", nil
+}
+func (idleExec) RunTask(context.Context, string, string, string) (string, error) { return "", nil }
+func (idleExec) RunQueuedTask(context.Context, string, string) (string, error)   { return "", nil }
 
 func setup(t *testing.T) *env { return setupWith(t, nil) }
 
@@ -62,7 +73,8 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	provs.SetUsage(u)
 	chatEng := chat.NewEngine(st, provs, u)
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
-		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chatEng, Tasks: tasks.New(st, chatEng)})
+		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chatEng, Tasks: tasks.New(st, chatEng),
+		Trigger: trigger.New(st, idleExec{})})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	ctx := context.Background()
@@ -72,7 +84,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	if _, err := svc.CreateUser(ctx, auth.NewUser{Email: "member@x.io", Role: storage.RoleMember, Password: "member-password"}, "system"); err != nil {
 		t.Fatal(err)
 	}
-	return &env{srv: srv, auth: svc}
+	return &env{srv: srv, auth: svc, st: st}
 }
 
 func (e *env) client(t *testing.T) *http.Client {

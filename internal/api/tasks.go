@@ -59,7 +59,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.auditAction(r, "task.queue", j.ID, map[string]any{"project": j.ProjectID})
-		writeJSON(w, http.StatusAccepted, map[string]any{"queued": true, "job_id": j.ID})
+		writeJSON(w, http.StatusAccepted, map[string]any{"queued": true, "job": s.toJobDTO(r, j, nil)})
 		return
 	case errors.Is(err, tasks.ErrNoModel), errors.Is(err, automation.ErrUnknownSkill), errors.Is(err, attach.ErrNotFound), errors.Is(err, attach.ErrTooMany):
 		writeError(w, http.StatusBadRequest, err.Error())
