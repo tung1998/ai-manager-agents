@@ -126,6 +126,8 @@ func (t *Toolbox) Tools() []Tool {
 				"reason": str("Vì sao cần tự động hóa này"),
 			}, "name", "source", "action", "reason")})
 	}
+	list = append(list, Tool{Name: "read_link", Description: "Đọc nội dung một liên kết của office mà người dùng dán vào: một cuộc chat (…?tab=chat&c=…), một tin nhắn (&m=…) hoặc một Việc (…?tab=tasks&task=…) của project này.",
+		Schema: obj(map[string]any{"url": map[string]any{"type": "string", "description": "Liên kết dashboard của office"}}, "url")})
 	if t.delegate != nil {
 		list = append(list, Tool{Name: "delegate", Description: "Giao một phần việc cho agent khác trong cuộc chat, như subagent: agent đó làm ở nền, bạn trả lời người dùng ngay; " +
 			"khi nó xong, kết quả hiện trong cuộc chat và bạn được gọi lại để báo cho người dùng. Chỉ dùng khi thật sự cần (việc cần quyền hay chuyên môn bạn không có). " +
@@ -177,6 +179,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		Command string   `json:"command"`
 		Agent   string   `json:"agent"`
 		Task    string   `json:"task"`
+		URL     string   `json:"url"`
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &in); err != nil {
@@ -224,6 +227,8 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 				out = fmt.Sprintf("Lệnh %q không nằm trong danh sách bạn được tự chạy, đã tạo đề xuất (mã %s) chờ người dùng duyệt. Chưa chạy gì; hãy báo người dùng.", a.Target, a.ID)
 			}
 		}
+	case "read_link":
+		out, err = t.readLink(ctx, sc, in.URL)
 	case "delegate":
 		if t.delegate == nil {
 			return "Không có công cụ giao việc ở đây", true
