@@ -72,7 +72,11 @@ func agentCaps(a storage.Agent) []string {
 type Access struct {
 	Level    string   `json:"level"`
 	Caps     []string `json:"caps"`
-	Commands []string `json:"commands"` // command patterns it may run on its own
+	Commands []string `json:"commands"` // command patterns it may run: safe ones from read, others per Can/worktree
+	Safe     []string `json:"safe"`     // those of Commands it runs on its own at any level
+	// process ids and compose services it may run/restart on its own (with the capability)
+	Processes  []string `json:"processes"`
+	Containers []string `json:"containers"`
 }
 
 // Can reports a capability.
@@ -81,18 +85,31 @@ func (a Access) Can(capID string) bool { return slices.Contains(a.Caps, capID) }
 // Resolve works out an agent's access under a mode and the project's policy.
 func Resolve(a storage.Agent, mode string, p Policy) Access {
 	level := Effective(a, mode, p)
-	acc := Access{Level: level, Caps: []string{}, Commands: []string{}}
+	acc := Access{Level: level, Caps: []string{}, Commands: []string{}, Safe: []string{}}
 	for _, id := range agentCaps(a) {
 		if c, ok := capInfo(id); ok && Rank(c.Min) <= Rank(level) && !acc.Can(id) {
 			acc.Caps = append(acc.Caps, id)
 		}
 	}
-	if acc.Can(CapCommands) {
-		for _, c := range p.Commands {
-			if a.Permissions.Commands == nil || slices.Contains(*a.Permissions.Commands, c) {
-				acc.Commands = append(acc.Commands, c)
+	// the agent's picks from the project's catalog; by default its safe commands
+	picks := p.Safe
+	if a.Permissions.Commands != nil {
+		picks = *a.Permissions.Commands
+	}
+	for _, c := range p.Catalog {
+		if slices.Contains(picks, c) {
+			acc.Commands = append(acc.Commands, c)
+			if slices.Contains(p.Safe, c) {
+				acc.Safe = append(acc.Safe, c)
 			}
 		}
+	}
+	acc.Processes, acc.Containers = p.Jobs, []string{}
+	if a.Permissions.Processes != nil {
+		acc.Processes = *a.Permissions.Processes
+	}
+	if a.Permissions.Containers != nil {
+		acc.Containers = *a.Permissions.Containers
 	}
 	return acc
 }

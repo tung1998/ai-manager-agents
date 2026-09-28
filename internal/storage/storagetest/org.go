@@ -65,7 +65,7 @@ func testOrg(t *testing.T, s storage.Store) {
 	}
 	prov, _ := s.Providers().Create(ctx, storage.Provider{Name: "P", Kind: storage.ProviderAnthropic})
 	lead, err := s.Agents().Create(ctx, storage.Agent{OrgModelID: tpl.ID, Key: "lead", Name: "Lead", Tier: storage.TierLead, ModelTier: "strong",
-		ProviderID: prov.ID, Permissions: storage.Permissions{ReadOnly: true, Tools: []string{"read"}}})
+		ProviderID: prov.ID, Permissions: storage.Permissions{ReadOnly: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

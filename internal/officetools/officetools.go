@@ -94,11 +94,12 @@ func (t *Toolbox) Tools() []Tool {
 	return list
 }
 
-// ToolsFor lists the tools an agent at level may use (proposals need "propose").
+// ToolsFor lists the tools an agent at level may use (proposals need
+// "propose"; below it run_command runs only its safe commands).
 func (t *Toolbox) ToolsFor(level string) []Tool {
 	var out []Tool
 	for _, x := range t.Tools() {
-		if (x.Name == "propose_action" || x.Name == "run_command") && !perm.AtLeast(level, perm.Propose) {
+		if x.Name == "propose_action" && !perm.AtLeast(level, perm.Propose) {
 			continue
 		}
 		out = append(out, x)
@@ -156,8 +157,15 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 	case "git_status", "git_diff", "git_log":
 		out, err = t.gitRead(ctx, projectID, sc.Dir, name, in.Files, in.Lines)
 	case "run_command":
-		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {
-			return "Bạn không có quyền chạy lệnh (gói hiện tại: " + perm.Label(sc.Level) + ")", true
+		if t.actions == nil {
+			return "Office không chạy lệnh được lúc này", true
+		}
+		if !perm.AtLeast(sc.Level, perm.Propose) {
+			// read only: checks and reads run, nothing is proposed
+			args, err := perm.SplitCommand(in.Command)
+			if _, safe := perm.MatchCommand(sc.Access.Safe, args); err != nil || !safe {
+				return "Ở mức " + perm.Label(sc.Level) + " bạn chỉ được chạy lệnh kiểm tra an toàn: " + strings.Join(sc.Access.Safe, ", "), true
+			}
 		}
 		var a storage.Action
 		if a, err = t.actions.Propose(ctx, sc, "run_command", in.Command, in.Reason); err == nil {

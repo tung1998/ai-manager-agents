@@ -100,7 +100,8 @@ export interface Permissions {
   read_only: boolean
   caps?: string[] | null
   commands?: string[] | null
-  tools?: string[]
+  processes?: string[] | null
+  containers?: string[] | null
   requires_approval?: boolean
 }
 

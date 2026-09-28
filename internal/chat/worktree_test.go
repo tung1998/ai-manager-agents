@@ -135,11 +135,11 @@ func TestDirectModeEditsProject(t *testing.T) {
 		return p
 	})
 	f.engine.SetWorktrees(worktree.New(t.TempDir()))
-	pol := perm.DefaultPolicy()
-	pol.EditMode = perm.EditDirect
-	perm.SavePolicy(context.Background(), f.st, f.project.ID, pol)
 	ctx := actor.With(context.Background(), "human:a@b.c")
 	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	if err := f.engine.SetEditMode(ctx, conv.ID, perm.EditDirect); err != nil {
+		t.Fatal(err)
+	}
 	turn, _, err := f.engine.Send(ctx, conv.ID, "đổi", nil)
 	if err != nil {
 		t.Fatal(err)

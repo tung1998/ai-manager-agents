@@ -15,11 +15,10 @@ const templates = computed(() => tplData.value?.templates ?? [])
 // "Cấu hình" holds the org model and Skills & MCP (older links used tab=model|tools)
 type Tab = 'chat' | 'tasks' | 'ops' | 'config'
 const tabs: Tab[] = ['chat', 'tasks', 'ops', 'config']
-const configSection = computed<'model' | 'perm' | 'skill' | 'mcp'>({
-  get: () => route.query.tab === 'tools' ? 'skill' : (['perm', 'skill', 'mcp'] as const).find(v => v === route.query.section) ?? 'model',
+const configSection = computed<'info' | 'model' | 'perm' | 'skill' | 'mcp'>({
+  get: () => route.query.tab === 'tools' ? 'skill' : (['model', 'perm', 'skill', 'mcp'] as const).find(v => v === route.query.section) ?? 'info',
   set: v => navigateTo({ query: { tab: 'config', section: v } }, { replace: true })
 })
-const descOpen = ref(false)
 // office's own source: approved changes take effect after "Cập nhật office"
 const { data: updData } = useFetch<{ source?: { root: string } }>('/api/system/update', { lazy: true, immediate: isAdmin.value })
 const isOfficeSource = computed(() => !!project.value?.path && updData.value?.source?.root === project.value.path)
@@ -121,23 +120,7 @@ async function saveAsTemplate() {
     </template>
 
     <div v-if="project" class="space-y-4">
-      <!-- one quiet line of context -->
-      <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-(--ui-text-muted)">
-        <span v-if="project.scope === 'folder'" class="flex min-w-0 items-center gap-1.5">
-          <UIcon name="i-lucide-folder" class="size-3.5 shrink-0" /><span class="truncate font-mono">{{ project.path }}</span>
-        </span>
-        <span v-else class="flex items-center gap-1.5"><UIcon name="i-lucide-monitor" class="size-3.5" /> {{ t('project.machineHelper') }}</span>
-        <span v-if="project.git_remote" class="flex min-w-0 items-center gap-1.5">
-          <UIcon name="i-lucide-git-branch" class="size-3.5 shrink-0" /><span class="truncate font-mono">{{ project.git_remote }}</span>
-        </span>
-        <UBadge v-if="!project.exists" :label="t('project.notFound')" color="error" variant="subtle" size="sm" />
-        <button
-          v-if="project.description" type="button" class="min-w-0 basis-full text-left hover:text-(--ui-text)"
-          :class="descOpen ? '' : 'truncate'" :title="descOpen ? '' : project.description" @click="descOpen = !descOpen"
-        >
-          {{ project.description }}
-        </button>
-      </div>
+      <UAlert v-if="!project.exists" color="error" variant="subtle" icon="i-lucide-folder-x" :title="t('project.notFound')" />
 
       <UAlert
         v-if="isOfficeSource" color="info" variant="subtle" icon="i-lucide-package" :title="t('project.officeSourceTitle')"
@@ -145,28 +128,34 @@ async function saveAsTemplate() {
         :actions="[{ label: t('project.goToUpdate'), to: '/admin/update', icon: 'i-lucide-refresh-cw', color: 'info', variant: 'outline' }]"
       />
 
-      <UTabs
-        v-model="tab" :content="false" variant="link" class="w-full"
-        :items="[
-          { label: t('project.tabChat'), value: 'chat', icon: 'i-lucide-messages-square' },
-          { label: t('project.tabTasks'), value: 'tasks', icon: 'i-lucide-list-todo' },
-          { label: t('project.tabOps'), value: 'ops', icon: 'i-lucide-activity' },
-          { label: t('project.tabConfig'), value: 'config', icon: 'i-lucide-settings-2' }
-        ]"
-      />
 
       <OpsPanel v-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
       <template v-else-if="tab === 'config'">
         <SegmentedNav
           v-model="configSection"
           :items="[
+            { value: 'info', label: t('project.sectionInfo'), icon: 'i-lucide-info' },
             { value: 'model', label: t('project.sectionModel'), icon: 'i-lucide-network' },
             { value: 'perm', label: t('project.sectionPerm'), icon: 'i-lucide-shield' },
             ...(isAdmin ? [{ value: 'skill', label: t('project.sectionSkill'), icon: 'i-lucide-sparkles' }, { value: 'mcp', label: t('project.sectionMcp'), icon: 'i-lucide-plug-zap' }] : [])
           ]"
         />
-        <PolicyPanel v-if="configSection === 'perm'" :project-id="project.id" />
-        <ToolsPanel v-else-if="configSection !== 'model'" :key="configSection" :kind="configSection" :project-path="project.path" />
+        <UCard v-if="configSection === 'info'" class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">
+          <div class="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
+            <span class="text-(--ui-text-muted)">{{ t('project.infoFolder') }}</span>
+            <span v-if="project.scope === 'folder'" class="min-w-0 break-all font-mono text-xs">{{ project.path }}</span>
+            <span v-else>{{ t('project.machineHelper') }}</span>
+            <template v-if="project.git_remote">
+              <span class="text-(--ui-text-muted)">{{ t('project.infoRemote') }}</span>
+              <span class="min-w-0 break-all font-mono text-xs">{{ project.git_remote }}</span>
+            </template>
+            <span class="text-(--ui-text-muted)">{{ t('project.infoDescription') }}</span>
+            <p class="whitespace-pre-line text-(--ui-text-toned)">{{ project.description || '—' }}</p>
+          </div>
+          <UButton v-if="isAdmin" size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('project.rename')" @click="openEdit" />
+        </UCard>
+        <PolicyPanel v-else-if="configSection === 'perm'" :project-id="project.id" />
+        <ToolsPanel v-else-if="configSection === 'skill' || configSection === 'mcp'" :key="configSection" :kind="configSection" :project-path="project.path" />
         <OrgModelEditor v-else-if="project.model" :key="project.model.id" :model-id="project.model.id" @changed="refresh()" />
         <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
       </template>

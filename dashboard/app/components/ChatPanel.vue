@@ -16,7 +16,7 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, mode?: PermLevel }
+interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct' }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message }
 
 // taskId: the follow-up talk about one task (a single thread, no thread list)
@@ -34,8 +34,9 @@ const current = ref<Conversation | null>(null)
 const messages = ref<Message[]>([])
 const draft = ref('')
 const draftFiles = ref<Attachment[]>([])
+const editMode = ref<'worktree' | 'direct'>('worktree')
 const mode = ref<PermLevel>('propose') // permission mode of the open conversation
-watch(() => current.value?.id, () => { mode.value = current.value?.mode ?? 'propose' })
+watch(() => current.value?.id, () => { mode.value = current.value?.mode ?? 'propose'; editMode.value = current.value?.edit_mode ?? 'worktree' })
 const prompt = ref<{ busy: boolean } | null>(null)
 
 // filled by other tabs (e.g. "Hỏi agent" in Vận hành)
@@ -107,7 +108,7 @@ async function send() {
   if (!current.value) await newConversation()
   if (!current.value) return
   try {
-    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: mode.value } })
+    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: mode.value, edit_mode: editMode.value } })
     draft.value = ''
     draftFiles.value = []
     const first = !messages.value.length
@@ -296,6 +297,7 @@ onBeforeUnmount(stopStream)
           @submit="send"
         >
           <template #actions>
+            <EditModePicker v-model="editMode" />
             <ModePicker v-model="mode" :project-id="projectId" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
             <UButton v-else size="sm" type="submit" icon="i-lucide-send" :disabled="!draft.trim() && !draftFiles.length" />

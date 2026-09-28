@@ -140,7 +140,6 @@ const en: Record<keyof typeof vi, string> = {
   'prompt.uploading': 'Uploading…',
   'prompt.maxFiles': 'Max 10 files per message',
   'prompt.tooLarge': '{name}: over 10 MB',
-  'mode.overCap': 'The project caps this at "{label}"',
   'mode.adminOnly': 'Admin only',
   'mode.title': 'Mode: {description}',
 }

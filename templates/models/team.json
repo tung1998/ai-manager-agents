@@ -68,7 +68,7 @@
       "reports_to": ["project-manager", "architect"],
       "model_tier": "balanced",
       "instructions": "Làm đúng task, không mở rộng phạm vi. Viết test cho thay đổi. Trả về diff và cách kiểm tra.",
-      "permissions": { "read_only": false, "requires_approval": true, "tools": ["read", "search", "edit", "shell"] }
+      "permissions": { "read_only": false, "requires_approval": true }
     },
     {
       "key": "code-reader",
@@ -79,7 +79,7 @@
       "reports_to": ["architect", "product-manager"],
       "model_tier": "fast",
       "instructions": "Chỉ trả dữ liệu: file, dòng, đoạn code, lịch sử commit. Không đánh giá.",
-      "permissions": { "read_only": true, "tools": ["read", "search", "git_log"] }
+      "permissions": { "read_only": true }
     },
     {
       "key": "test-runner",
@@ -90,7 +90,7 @@
       "reports_to": ["qa-lead"],
       "model_tier": "fast",
       "instructions": "Chạy đúng lệnh được giao, trả output và exit code. Không sửa code.",
-      "permissions": { "read_only": true, "tools": ["read", "shell:test"] }
+      "permissions": { "read_only": true }
     },
     {
       "key": "monitor",
@@ -101,7 +101,7 @@
       "reports_to": ["team-lead", "qa-lead"],
       "model_tier": "fast",
       "instructions": "Chỉ lấy dữ liệu trong khoảng thời gian được yêu cầu, trả số liệu và mẫu log. Không kết luận.",
-      "permissions": { "read_only": true, "tools": ["mcp:logs", "mcp:metrics"] }
+      "permissions": { "read_only": true }
     }
   ]
 }

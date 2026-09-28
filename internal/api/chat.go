@@ -25,10 +25,11 @@ type conversationDTO struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 	ActiveTurn string    `json:"active_turn,omitempty"`
 	Mode       string    `json:"mode"`
+	EditMode   string    `json:"edit_mode"`
 }
 
 func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
-	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode}
+	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode}
 	if t, ok := s.cfg.Chat.Active(c.ID); ok {
 		d.ActiveTurn = t.ID
 	}
@@ -136,13 +137,20 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Text        string   `json:"text"`
 		Attachments []string `json:"attachments"`
-		Mode        string   `json:"mode"` // permission mode for this chat from now on
+		Mode        string   `json:"mode"`      // permission mode for this chat from now on
+		EditMode    string   `json:"edit_mode"` // where it changes code from now on
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	if in.Mode != "" {
 		if err := s.cfg.Chat.SetMode(r.Context(), r.PathValue("id"), s.allowedMode(r, in.Mode)); err != nil {
+			s.chatError(w, r, err)
+			return
+		}
+	}
+	if in.EditMode != "" {
+		if err := s.cfg.Chat.SetEditMode(r.Context(), r.PathValue("id"), s.allowedEditMode(r, in.EditMode)); err != nil {
 			s.chatError(w, r, err)
 			return
 		}

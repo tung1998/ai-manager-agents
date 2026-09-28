@@ -31,6 +31,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 		BudgetUSD   float64  `json:"budget_usd"`
 		Attachments []string `json:"attachments"`
 		Mode        string   `json:"mode"`
+		EditMode    string   `json:"edit_mode"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -48,7 +49,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	t, err := s.cfg.Tasks.Start(r.Context(), r.PathValue("id"), in.Goal, in.BudgetUSD, in.Attachments, s.allowedMode(r, in.Mode))
+	t, err := s.cfg.Tasks.Start(r.Context(), r.PathValue("id"), in.Goal, in.BudgetUSD, in.Attachments, s.allowedMode(r, in.Mode), s.allowedEditMode(r, in.EditMode))
 	switch {
 	case errors.Is(err, tasks.ErrBusy):
 		writeError(w, http.StatusConflict, err.Error())

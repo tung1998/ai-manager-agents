@@ -109,13 +109,14 @@ func (s *Service) Live(taskID string) (*Live, bool) {
 }
 
 // Start creates a task and runs it in the background.
-func (s *Service) Start(ctx context.Context, projectID, goal string, budgetUSD float64, attachmentIDs []string, permMode string) (storage.Task, error) {
-	return s.start(ctx, projectID, goal, budgetUSD, attachmentIDs, permMode, "")
+// editMode is where agents change code (perm.EditWorktree or perm.EditDirect).
+func (s *Service) Start(ctx context.Context, projectID, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode string) (storage.Task, error) {
+	return s.start(ctx, projectID, goal, budgetUSD, attachmentIDs, permMode, editMode, "")
 }
 
 // Retry starts the task again with the same goal, files, budget and mode
-// (mode "" keeps the old one). learn adds what went wrong last time, so the
-// team does not repeat it.
+// (mode "" keeps the old one; the edit mode is kept). learn adds what went
+// wrong last time, so the team does not repeat it.
 func (s *Service) Retry(ctx context.Context, taskID string, learn bool, permMode, answer string) (storage.Task, error) {
 	old, err := s.store.Tasks().Get(ctx, taskID)
 	if err != nil {
@@ -156,12 +157,15 @@ func (s *Service) Retry(ctx context.Context, taskID string, learn bool, permMode
 	if answer = strings.TrimSpace(answer); answer != "" {
 		lesson = strings.TrimSpace(lesson + fmt.Sprintf("\n\nLần trước đội hỏi người dùng: %s\nNgười dùng trả lời: %s\nLàm tiếp theo câu trả lời này.", old.Detail, answer))
 	}
-	return s.start(ctx, old.ProjectID, old.Goal, old.BudgetUSD, ids, permMode, lesson)
+	return s.start(ctx, old.ProjectID, old.Goal, old.BudgetUSD, ids, permMode, old.EditMode, lesson)
 }
 
-func (s *Service) start(ctx context.Context, projectID, goal string, budgetUSD float64, attachmentIDs []string, permMode, lesson string) (storage.Task, error) {
+func (s *Service) start(ctx context.Context, projectID, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode, lesson string) (storage.Task, error) {
 	if !perm.Valid(permMode) {
 		permMode = perm.Propose
+	}
+	if editMode != perm.EditDirect {
+		editMode = perm.EditWorktree
 	}
 	goal = strings.TrimSpace(goal)
 	if goal == "" {
@@ -210,7 +214,7 @@ func (s *Service) start(ctx context.Context, projectID, goal string, budgetUSD f
 
 	task, err := s.store.Tasks().Create(ctx, storage.Task{
 		ProjectID: projectID, Title: truncate(strings.Join(strings.Fields(goal), " "), 90), Goal: goal, Mode: mode,
-		Status: "running", BudgetUSD: budgetUSD, ModeLevel: permMode, Attachments: attach.Refs(files), CreatedBy: actor.From(ctx),
+		Status: "running", BudgetUSD: budgetUSD, ModeLevel: permMode, EditMode: editMode, Attachments: attach.Refs(files), CreatedBy: actor.From(ctx),
 	})
 	if err != nil {
 		s.mu.Lock()
@@ -219,7 +223,7 @@ func (s *Service) start(ctx context.Context, projectID, goal string, budgetUSD f
 		return task, err
 	}
 	runCtx, cancel := context.WithTimeout(actor.With(context.Background(), actor.From(ctx)), 45*time.Minute)
-	runCtx = chat.WithTask(runCtx, task.ID, permMode) // proposals attach to the task; mode caps what agents do
+	runCtx = chat.WithTask(runCtx, task.ID, permMode, editMode) // proposals attach to the task; mode caps what agents do
 	live := &Live{wake: make(chan struct{}), cancel: cancel}
 	s.mu.Lock()
 	s.live[task.ID], s.busy[projectID] = live, task.ID

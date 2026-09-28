@@ -23,6 +23,14 @@ func (s *server) allowedMode(r *http.Request, mode string) string {
 	return mode
 }
 
+// allowedEditMode: editing the project folder directly is for admins
+func (s *server) allowedEditMode(r *http.Request, mode string) string {
+	if mode == perm.EditDirect && userFrom(r).Role == storage.RoleAdmin {
+		return perm.EditDirect
+	}
+	return perm.EditWorktree
+}
+
 func (s *server) permissionLevels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"levels": perm.All, "caps": perm.Caps, "presets": presets()})
 }
@@ -43,7 +51,7 @@ func (s *server) getPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pol := perm.LoadPolicy(r.Context(), s.cfg.Store, p.ID)
-	writeJSON(w, http.StatusOK, map[string]any{"policy": pol, "levels": perm.All, "packs": perm.ProjectPacks(p.Path, pol.Packs)})
+	writeJSON(w, http.StatusOK, map[string]any{"policy": pol, "levels": perm.All, "packs": perm.ProjectPacks(p.Path, pol.Packs), "safe": pol.Safe})
 }
 
 func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
@@ -57,19 +65,6 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.MaxLevel = perm.Operate // no project cap: the chat/task mode is the limit
-	// allow lists must name this project's processes
-	procs, _ := s.cfg.Store.Processes().List(r.Context(), projectID)
-	known := map[string]bool{}
-	for _, p := range procs {
-		known[p.ID] = true
-	}
-	cmds := []string{}
-	for _, id := range in.AllowedCommands {
-		if known[id] {
-			cmds = append(cmds, id)
-		}
-	}
-	in.AllowedCommands = cmds
 	clean := func(list []string) []string {
 		out := []string{}
 		for _, x := range list {
@@ -79,10 +74,7 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		}
 		return out
 	}
-	in.AllowedContainers, in.DenyPaths = clean(in.AllowedContainers), clean(in.DenyPaths)
-	if in.EditMode != perm.EditDirect {
-		in.EditMode = perm.EditWorktree
-	}
+	in.DenyPaths = clean(in.DenyPaths)
 	links := []string{}
 	for _, l := range clean(in.WorktreeLinks) {
 		l = strings.Trim(filepath.ToSlash(filepath.Clean(l)), "/")
@@ -110,10 +102,6 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		return out, nil
 	}
 	var err error
-	if in.Commands, err = patterns(in.Commands); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	packs := []perm.Pack{}
 	for i, p := range in.Packs {
 		p.Label, p.Custom = strings.TrimSpace(p.Label), false
@@ -134,7 +122,6 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	s.auditAction(r, "project.policy", projectID, map[string]any{"max_level": in.MaxLevel, "processes": len(in.AllowedCommands), "commands": in.Commands,
-		"containers": in.AllowedContainers, "deny_paths": in.DenyPaths, "edit_mode": in.EditMode, "isolate_claude": in.IsolateClaude})
-	writeJSON(w, http.StatusOK, map[string]any{"policy": in})
+	s.auditAction(r, "project.policy", projectID, map[string]any{"packs": len(in.Packs), "deny_paths": in.DenyPaths, "isolate_claude": in.IsolateClaude})
+	writeJSON(w, http.StatusOK, map[string]any{"policy": perm.LoadPolicy(r.Context(), s.cfg.Store, projectID)})
 }

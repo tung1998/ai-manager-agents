@@ -32,7 +32,6 @@ type AgentChange struct {
 	ReportsTo    []string `json:"reports_to,omitempty"`
 	ModelTier    string   `json:"model_tier,omitempty"`
 	Instructions string   `json:"instructions,omitempty"` // add: full prompt; update: project context appended
-	Tools        []string `json:"tools,omitempty"`
 	ReadOnly     *bool    `json:"read_only,omitempty"`
 	Source       string   `json:"source,omitempty"` // existing agent file it came from
 	Reason       string   `json:"reason"`
@@ -180,9 +179,6 @@ func Apply(t orgmodel.Template, changes []AgentChange) orgmodel.Template {
 			if strings.TrimSpace(c.Instructions) != "" {
 				a.Instructions = strings.TrimSpace(a.Instructions + "\n\nBối cảnh project:\n" + strings.TrimSpace(c.Instructions))
 			}
-			if len(c.Tools) > 0 {
-				a.Permissions.Tools = c.Tools
-			}
 			if c.ReadOnly != nil {
 				a.Permissions.ReadOnly = *c.ReadOnly
 			}
@@ -193,7 +189,7 @@ func Apply(t orgmodel.Template, changes []AgentChange) orgmodel.Template {
 			spec := orgmodel.AgentSpec{
 				Key: key, Name: orDefault(c.Name, key), Tier: orDefault(c.Tier, storage.TierWorker), Role: c.Role,
 				Description: c.Description, ReportsTo: c.ReportsTo, ModelTier: c.ModelTier, Instructions: strings.TrimSpace(c.Instructions),
-				Permissions: storage.Permissions{ReadOnly: true, Tools: c.Tools},
+				Permissions: storage.Permissions{ReadOnly: true},
 			}
 			if !storage.ValidTier(spec.ModelTier) {
 				spec.ModelTier = storage.TierFast

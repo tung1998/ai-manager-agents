@@ -74,7 +74,7 @@ const editorOpen = ref(false)
 const editing = ref<Agent | null>(null)
 const empty = (): Omit<Agent, 'id' | 'org_model_id' | 'sort'> => ({
   key: '', name: '', tier: 'worker', role: '', description: '', reports_to: [], provider_id: '',
-  model_tier: 'fast', llm_model: '', instructions: '', permissions: { level: 'read', read_only: true, tools: [], requires_approval: false }
+  model_tier: 'fast', llm_model: '', instructions: '', permissions: { level: 'read', read_only: true, requires_approval: false }
 })
 const form = reactive(empty())
 const saving = ref(false)
@@ -83,7 +83,6 @@ function openAgent(a: Agent) {
   editing.value = a
   const { id: _id, org_model_id: _org, sort: _sort, ...rest } = JSON.parse(JSON.stringify(a)) as Agent
   Object.assign(form, empty(), rest)
-  form.permissions.tools ??= []
   problems.value = []
   editorOpen.value = true
 }
@@ -337,9 +336,6 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
             </UFormField>
             <UFormField :label="t('org.form.permissions')" :help="t('org.form.permissionsHelp')">
               <AgentPermEditor v-model="form.permissions" :project-id="model?.repo_id || undefined" />
-            </UFormField>
-            <UFormField :label="t('org.form.tools')" :help="t('org.form.toolsHelp')">
-              <UInputTags v-model="form.permissions.tools" class="w-full" />
             </UFormField>
           </fieldset>
 

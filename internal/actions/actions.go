@@ -154,12 +154,14 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 		return false // publishing code always needs a person
 	case "run_command":
 		args, _ := perm.SplitCommand(a.Target)
+		if _, safe := perm.MatchCommand(acc.Safe, args); safe {
+			return true // checks and reads, from read only
+		}
 		_, ok := perm.MatchCommand(acc.Commands, args)
 		return ok && (acc.Can(perm.CapCommands) || a.Args.Dir != "" && perm.AtLeast(acc.Level, perm.Propose))
 	}
-	pol := perm.LoadPolicy(ctx, s.store, a.ProjectID)
 	if isProcess(a.Kind) {
-		if !slices.Contains(pol.AllowedCommands, a.TargetID) {
+		if !slices.Contains(acc.Processes, a.TargetID) {
 			return false
 		}
 		if a.Kind == "run_process" && acc.Can(perm.CapCommands) {
@@ -169,7 +171,7 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 		}
 		return acc.Can(perm.CapProcess)
 	}
-	return slices.Contains(pol.AllowedContainers, a.Target) && acc.Can(perm.CapContainer)
+	return slices.Contains(acc.Containers, a.Target) && acc.Can(perm.CapContainer)
 }
 
 // Decide runs (approve) or rejects a pending action.

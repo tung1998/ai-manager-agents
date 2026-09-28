@@ -1,21 +1,17 @@
 <script setup lang="ts">
 // Permission mode for a chat or a task: a ceiling on what its agents may do on
-// their own. Members can only read or ask first; the project caps the rest.
-const props = defineProps<{ projectId: string }>()
+// their own. Members can only read or ask first.
+defineProps<{ projectId?: string }>()
 const mode = defineModel<PermLevel>({ default: 'propose' })
 const { isAdmin } = useAuth()
 const { t } = useLang()
-const { data } = useFetch<{ policy: { max_level: PermLevel } }>(() => `/api/projects/${props.projectId}/policy`, { lazy: true })
-const cap = computed(() => data.value?.policy.max_level ?? 'propose')
-
 const items = computed(() => [permLevels.map((p) => {
-  const overCap = permRank(p.level) > permRank(cap.value)
   const adminOnly = !isAdmin.value && permRank(p.level) > permRank('propose')
   return {
     label: p.label,
-    description: overCap ? t('mode.overCap', { label: permOf(cap.value).label }) : adminOnly ? t('mode.adminOnly') : p.description,
+    description: adminOnly ? t('mode.adminOnly') : p.description,
     icon: p.icon,
-    disabled: overCap || adminOnly,
+    disabled: adminOnly,
     active: mode.value === p.level,
     onSelect: () => { mode.value = p.level }
   }

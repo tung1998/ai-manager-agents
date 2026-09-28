@@ -182,11 +182,11 @@ func requireGit(t *testing.T) {
 func TestTeamHierarchy(t *testing.T) {
 	requireGit(t)
 	f := setup(t, &fakeModel{}, "team")
-	task, err := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, "")
+	task, err := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.Start(context.Background(), f.project.ID, "việc khác", 0, nil, ""); err != tasks.ErrBusy {
+	if _, err := f.svc.Start(context.Background(), f.project.ID, "việc khác", 0, nil, "", ""); err != tasks.ErrBusy {
 		t.Fatalf("second task err = %v", err)
 	}
 	d := wait(t, f.svc, task.ID)
@@ -214,7 +214,7 @@ func TestCouncilApprovedAuditorBlocks(t *testing.T) {
 	requireGit(t)
 	fm := &fakeModel{voteFor: func(string) string { return "approve" }, block: true}
 	f := setup(t, fm, "council")
-	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "")
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "", "")
 	d := wait(t, f.svc, task.ID)
 	got := phases(d)
 	want := "plan:planner,vote:executor,vote:auditor,work:code-worker,review:auditor,synthesize:executor"
@@ -240,7 +240,7 @@ func TestCouncilRejected(t *testing.T) {
 		return "approve"
 	}}
 	f := setup(t, fm, "council")
-	task, _ := f.svc.Start(context.Background(), f.project.ID, "Việc rủi ro", 0, nil, "")
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "Việc rủi ro", 0, nil, "", "")
 	d := wait(t, f.svc, task.ID)
 	got := phases(d)
 	if d.Task.Status != "rejected" || got != "plan:planner,vote:executor,vote:auditor,revise:planner,vote:executor,vote:auditor" {
@@ -254,7 +254,7 @@ func TestCouncilRejected(t *testing.T) {
 func TestTaskBudget(t *testing.T) {
 	f := setup(t, &fakeModel{}, "team")
 	// one call costs 1000*2/1e6 + 100*10/1e6 = 0.003
-	task, _ := f.svc.Start(context.Background(), f.project.ID, "x", 0.001, nil, "")
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "x", 0.001, nil, "", "")
 	d := wait(t, f.svc, task.ID)
 	if d.Task.Status != "failed" || !strings.Contains(d.Task.Detail, "ngân sách") || len(d.Steps) != 1 {
 		t.Fatalf("status=%s detail=%q steps=%d", d.Task.Status, d.Task.Detail, len(d.Steps))
@@ -265,7 +265,7 @@ func TestRetryWithLessons(t *testing.T) {
 	requireGit(t)
 	fm := &fakeModel{voteFor: func(string) string { return "approve" }, block: true}
 	f := setup(t, fm, "council")
-	first, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0.5, nil, "")
+	first, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0.5, nil, "", "")
 	d := wait(t, f.svc, first.ID)
 	if d.Task.Status != "failed" {
 		t.Fatalf("first run: %s", d.Task.Status)
@@ -296,7 +296,7 @@ func TestCouncilRepairsUntilPass(t *testing.T) {
 		`{"verdict":"pass","summary":"đạt"}`,
 	}}
 	f := setup(t, fm, "council")
-	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "")
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "", "")
 	d := wait(t, f.svc, task.ID)
 	if d.Task.Status != "done" {
 		t.Fatalf("status=%s (%s)", d.Task.Status, d.Task.Detail)
@@ -325,7 +325,7 @@ func TestCouncilAsksThePerson(t *testing.T) {
 		`{"verdict":"pass","summary":"đạt"}`,
 	}}
 	f := setup(t, fm, "council")
-	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "")
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "", "")
 	d := wait(t, f.svc, task.ID)
 	if d.Task.Status != "needs_input" || d.Task.Detail != "Dùng chữ hoa hay chữ thường?" {
 		t.Fatalf("status=%s detail=%s", d.Task.Status, d.Task.Detail)
@@ -344,7 +344,7 @@ func TestCouncilStopsWhenStuck(t *testing.T) {
 	same := `{"verdict":"fix","summary":"vẫn lỗi","fixes":[{"job":1,"issue":"lỗi cũ"}]}`
 	fm := &fakeModel{voteFor: func(string) string { return "approve" }, reviews: []string{same, same, same, same, same}}
 	f := setup(t, fm, "council")
-	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "")
+	task, _ := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE", 0, nil, "", "")
 	d := wait(t, f.svc, task.ID)
 	if d.Task.Status != "failed" || !strings.Contains(d.Task.Detail, "vòng sửa") {
 		t.Fatalf("status=%s detail=%s", d.Task.Status, d.Task.Detail)
@@ -363,7 +363,7 @@ func TestTeamWorksInWorktree(t *testing.T) {
 	}
 	trees := worktree.New(filepath.Join(t.TempDir(), "wt"))
 	f.engine.SetWorktrees(trees)
-	task, err := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, "")
+	task, err := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

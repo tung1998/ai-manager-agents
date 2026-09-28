@@ -21,6 +21,7 @@ type TaskDTO struct {
 	BudgetUSD   float64              `json:"budget_usd"`
 	CostUSD     float64              `json:"cost_usd"`
 	Attachments []storage.Attachment `json:"attachments"`
+	EditMode    string               `json:"edit_mode"`
 	// diffs waiting for approval / applied: a "done" task with pending ones is awaiting review
 	PendingPatches int        `json:"pending_patches"`
 	AppliedPatches int        `json:"applied_patches"`
@@ -49,7 +50,7 @@ type StepDTO struct {
 
 func toTaskDTO(t storage.Task) TaskDTO {
 	return TaskDTO{ID: t.ID, ProjectID: t.ProjectID, Title: t.Title, Goal: t.Goal, Mode: t.Mode, Status: t.Status, Result: t.Result,
-		Detail: t.Detail, BudgetUSD: t.BudgetUSD, CostUSD: t.CostUSD, Attachments: atts(t.Attachments), CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt, FinishedAt: t.FinishedAt}
+		Detail: t.Detail, BudgetUSD: t.BudgetUSD, CostUSD: t.CostUSD, Attachments: atts(t.Attachments), EditMode: t.EditMode, CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt, FinishedAt: t.FinishedAt}
 }
 
 func toStepDTO(s storage.TaskStep) StepDTO {

@@ -154,13 +154,13 @@ type place struct {
 // worktree name (created from the project's current state) or, in direct
 // mode, in the project folder; others read the worktree when there is one
 // (reviewing the team's work) or the project. Without git: read and diffs.
-func (e *Engine) placeFor(ctx context.Context, project storage.Repo, policy perm.Policy, acc perm.Access, name string, write bool) (place, error) {
+func (e *Engine) placeFor(ctx context.Context, project storage.Repo, policy perm.Policy, acc perm.Access, name string, write bool, editMode string) (place, error) {
 	if project.Path == "" {
 		home, _ := os.UserHomeDir()
 		return place{dir: home}, nil
 	}
 	write = write && perm.AtLeast(acc.Level, perm.Propose)
-	if policy.EditMode == perm.EditDirect {
+	if editMode == perm.EditDirect {
 		return place{dir: project.Path, write: write, mode: perm.EditDirect}, nil
 	}
 	if e.trees == nil || name == "" || !write && !e.trees.Exists(project.ID, name) {
@@ -194,13 +194,14 @@ type taskKey struct{}
 
 type taskCtx struct {
 	id, mode string
-	write    bool // this step may edit files (work steps)
+	edit     string // where it changes code (perm.EditWorktree / perm.EditDirect)
+	write    bool   // this step may edit files (work steps)
 }
 
 // WithTask marks ctx as running for a task (proposals attach to it) with the
 // task's permission mode as a ceiling ("" = ask first).
-func WithTask(ctx context.Context, taskID, mode string) context.Context {
-	return context.WithValue(ctx, taskKey{}, taskCtx{id: taskID, mode: mode})
+func WithTask(ctx context.Context, taskID, mode, editMode string) context.Context {
+	return context.WithValue(ctx, taskKey{}, taskCtx{id: taskID, mode: mode, edit: editMode})
 }
 
 // WithWrite marks a task step that may edit files (its work, not planning,
@@ -333,6 +334,22 @@ func (e *Engine) SetMode(ctx context.Context, conversationID, mode string) error
 	return e.store.Chat().UpdateConversation(ctx, conv)
 }
 
+// SetEditMode sets where a conversation changes code from now on.
+func (e *Engine) SetEditMode(ctx context.Context, conversationID, mode string) error {
+	if mode != perm.EditDirect && mode != perm.EditWorktree {
+		return errors.New("cách sửa code không hợp lệ")
+	}
+	conv, err := e.store.Chat().GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if conv.EditMode == mode {
+		return nil
+	}
+	conv.EditMode = mode
+	return e.store.Chat().UpdateConversation(ctx, conv)
+}
+
 // Send stores the person's message (with attached files) and starts the
 // agent's answer in the background.
 func (e *Engine) Send(ctx context.Context, conversationID, text string, attachmentIDs []string) (*Turn, storage.Message, error) {
@@ -460,7 +477,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	policy := perm.LoadPolicy(ctx, e.store, project.ID)
 	acc := perm.Resolve(agent, conv.Mode, policy)
 	level := acc.Level
-	pl, err := e.placeFor(ctx, project, policy, acc, ChatTree(conv.ID), true)
+	pl, err := e.placeFor(ctx, project, policy, acc, ChatTree(conv.ID), true, conv.EditMode)
 	if err != nil {
 		fail(err)
 		return
@@ -728,7 +745,10 @@ Quy tắc:
 			}
 		}
 	} else {
-		b.WriteString("- Bạn chỉ phân tích và trả lời, không đề xuất diff hay thao tác.\n")
+		b.WriteString("- Bạn chỉ phân tích và trả lời, không sửa file, không đề xuất diff hay thao tác.\n")
+		if officeTools && len(acc.Safe) > 0 {
+			fmt.Fprintf(&b, "- Bạn được tự chạy lệnh kiểm tra an toàn bằng run_command (không qua shell): %s.\n", strings.Join(acc.Safe, ", "))
+		}
 	}
 	return b.String()
 }
@@ -775,7 +795,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	if tc.id != "" {
 		tree = TaskTree(tc.id)
 	}
-	pl, err := e.placeFor(ctx, project, policy, acc, tree, tc.write)
+	pl, err := e.placeFor(ctx, project, policy, acc, tree, tc.write, tc.edit)
 	if err != nil {
 		return InvokeResult{}, err
 	}

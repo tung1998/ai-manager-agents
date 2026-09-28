@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -98,6 +99,36 @@ var BuiltinPacks = []Pack{
 	{ID: "python", Label: "Python", Icon: "i-simple-icons-python", Commands: []string{"pytest", "pytest *", "ruff check .", "mypy ."}},
 	{ID: "rust", Label: "Rust", Icon: "i-simple-icons-rust", Commands: []string{"cargo check", "cargo test", "cargo clippy", "cargo fmt --check"}},
 	{ID: "docker-read", Label: "Docker (đọc)", Icon: "i-simple-icons-docker", Commands: []string{"docker compose ps", "docker compose logs *", "docker ps"}},
+}
+
+// safeScript: package.json scripts that only check or build.
+var safeScript = regexp.MustCompile(`^(test|lint|typecheck|type-check|tsc|check|build|vet|format:check|fmt:check|prettier:check)([:.-].*)?$`)
+
+// unsafeBuiltin: built-in commands that change files, left out of the default.
+var unsafeBuiltin = map[string]bool{"go mod tidy": true}
+
+// Catalog lists every command of packs, and the safe ones: built-in packs
+// (read, test, lint, build) and check scripts, not the project's own packs.
+func Catalog(packs []Pack) (all, safe []string) {
+	all, safe = []string{}, []string{}
+	for _, p := range packs {
+		for _, c := range p.Commands {
+			if slices.Contains(all, c) {
+				continue
+			}
+			all = append(all, c)
+			switch {
+			case p.Custom:
+			case p.ID == "scripts":
+				if f := strings.Fields(c); len(f) > 0 && safeScript.MatchString(f[len(f)-1]) {
+					safe = append(safe, c)
+				}
+			case !unsafeBuiltin[c]:
+				safe = append(safe, c)
+			}
+		}
+	}
+	return all, safe
 }
 
 // ProjectPacks: the built-in packs relevant to a project folder, with a

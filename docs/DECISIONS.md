@@ -823,3 +823,34 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 **Đơn giản hóa trang Quyền (cùng đợt).**
 - Bỏ "gói tối đa" của project. `policy.max_level` luôn là `operate`, nên giới hạn thực tế chỉ còn là min(gói của agent, chế độ chọn ở Chat/Việc). Thành viên không phải admin vẫn chỉ chọn được tối đa `propose`.
 - Trang Quyền thành các thẻ ngắn: Sửa code ở đâu, Lệnh được tự chạy, Tiến trình & container, File cấm sửa (dạng chip), và mục "Nâng cao" thu gọn (mang thêm vào worktree, tách Claude Code). Phần giải thích chuyển vào tooltip ⓘ.
+
+## ADR-038: Project liệt kê, agent được cấp quyền
+
+**Bối cảnh.** Trang Quyền của project có ô tick lệnh, tiến trình và container. Agent cũng có ô tick lệnh riêng, nên người dùng không rõ quyền thật nằm ở đâu.
+
+**Quyết định.**
+- **Project** (Cấu hình → Quyền) chỉ nêu những gì repo có và những gì cấm mọi agent:
+  - Sửa code ở đâu.
+  - **Danh mục lệnh**: gói lệnh phát hiện được, cộng gói tự tạo. Không có ô tick.
+  - File cấm sửa.
+  - Nâng cao.
+  - Bỏ `policy.commands`, `allowed_commands`, `allowed_containers`.
+- **Agent** (Mô hình → agent) được cấp quyền: gói quyền, quyền lẻ, cộng các lựa chọn sau.
+  - `permissions.commands`: lệnh chọn từ danh mục. Không đặt thì là **lệnh an toàn**:
+    - các gói có sẵn, gồm Git đọc, Docker đọc, test/lint/build của Go, Node, Python, Rust, nhưng không có `go mod tidy`;
+    - các script `test`, `lint`, `typecheck`, `build`, `check`… trong package.json.
+    - Gói tự tạo không bao giờ là mặc định.
+  - `permissions.processes`: tiến trình được tự chạy lại. Không đặt thì là các tiến trình kiểm tra (loại job).
+  - `permissions.containers`: không đặt thì không có container nào.
+- **Lệnh an toàn tự chạy từ mức Chỉ đọc**, ở cả thư mục project lẫn worktree.
+  - Ở mức Chỉ đọc, `run_command` chỉ chạy lệnh an toàn. Lệnh khác bị từ chối, không tạo đề xuất.
+  - Lệnh khác mà agent được chọn: tự chạy khi agent có quyền `commands.run`, hoặc khi ở trong worktree với mức `propose`. Ngoài ra thì chờ duyệt.
+- `perm.LoadPolicy` tính danh mục, danh sách lệnh an toàn và các job của project (`Catalog`, `Safe`, `Jobs`; không lưu).
+- **Sửa lỗi kèm theo:** trước đây `Access.Commands` chỉ được tính khi agent có `commands.run`. Vì vậy agent mức Đề xuất trong worktree thực tế không tự chạy được lệnh nào (ADR-037).
+
+**Cập nhật: "Sửa code ở đâu" chọn theo từng Chat/Việc (thay cho `policy.edit_mode`).**
+- Lưu ở `conversations.edit_mode` và `tasks.edit_mode` (migration 00019, mặc định `worktree`).
+- Dashboard có bộ chọn cạnh bộ chọn quyền trong ô Chat và form giao Việc.
+- Chỉ admin chọn được "Sửa thẳng". Chạy lại một Việc thì giữ cách sửa code cũ.
+- Trang Quyền của project không còn mục này.
+- Bỏ thanh tab Chat / Việc / Vận hành / Cấu hình trong trang project, vì sidebar đã có các mục đó. Bấm vào project thì mở Chat.

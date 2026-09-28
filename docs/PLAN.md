@@ -114,6 +114,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Dashboard: giao diện sáng/tối, tiếng Việt/tiếng Anh, i18n toàn bộ + kiểm tra thiếu dịch | Xong |
 | Claude Code mặc định dùng cấu hình như CLI (MCP, skill, plugin), luôn `dontAsk`; tùy chọn cô lập theo project (ADR-036) | Xong |
 | Agent sửa file và chạy build/test trong git worktree riêng cho mỗi Chat/Việc, diff lấy từ git rồi gộp; tùy chọn sửa thẳng như CLI (ADR-037) | Xong |
+| Project chỉ liệt kê lệnh; agent được chọn lệnh/tiến trình/container, mặc định lệnh an toàn chạy từ Chỉ đọc (ADR-038) | Xong |
 | Việc định kỳ, cảnh báo, `doctor` | Chưa làm |
 
 ### M0: Nền móng

@@ -26,7 +26,7 @@ const aiAnswer = "Đây là đề xuất:\n```json\n" + `{
   "confidence": 0.8,
   "agent_changes": [
     {"action": "update", "key": "engineer", "instructions": "Dùng pnpm, chạy pnpm test trước khi commit.", "reason": "Quy ước trong CLAUDE.md"},
-    {"action": "add", "key": "graylog-reader", "name": "Graylog Reader", "tier": "worker", "reports_to": ["qa-lead"], "tools": ["mcp:graylog"], "source": ".claude/skills/fetch-graylog-logs/SKILL.md", "reason": "Project log qua Graylog"},
+    {"action": "add", "key": "graylog-reader", "name": "Graylog Reader", "tier": "worker", "reports_to": ["qa-lead"], "source": ".claude/skills/fetch-graylog-logs/SKILL.md", "reason": "Project log qua Graylog"},
     {"action": "remove", "key": "monitor", "reason": "Đã có graylog-reader"}
   ],
   "notes": ["Nên kết nối Stripe read-only"]

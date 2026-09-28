@@ -94,27 +94,27 @@ func Agent(a storage.Agent) string {
 	return Propose
 }
 
-// Policy is a project's limits on agents.
+// Policy is what a project offers its agents (which of it each agent may
+// use is the agent's own permissions, see Resolve) and what no agent may do.
 type Policy struct {
-	MaxLevel          string   `json:"max_level"`          // no longer a cap: always Operate (the chat/task mode is the limit)
-	AllowedCommands   []string `json:"allowed_commands"`   // process ids agents may run on their own (Check+)
-	Commands          []string `json:"commands"`           // command patterns agents may run on their own (commands.run)
-	Packs             []Pack   `json:"packs"`              // the project's own command packs
-	AllowedContainers []string `json:"allowed_containers"` // compose services agents may restart on their own (Operate)
-	DenyPaths         []string `json:"deny_paths"`         // files no diff may touch, at any level
+	MaxLevel  string   `json:"max_level"`  // no longer a cap: always Operate (the chat/task mode is the limit)
+	Packs     []Pack   `json:"packs"`      // the project's own command packs
+	DenyPaths []string `json:"deny_paths"` // files no agent may change, at any level
 	// IsolateClaude runs Claude Code without the user's own setup (user settings,
 	// MCP servers, plugins, skills); off = the same setup as the user's CLI.
 	IsolateClaude bool `json:"isolate_claude"`
-	// EditMode is where agents change code: in their own git worktree,
-	// merged after a person approves (EditWorktree, the default), or right in
-	// the project folder like the CLI (EditDirect).
-	EditMode string `json:"edit_mode"`
 	// WorktreeLinks are more ignored folders to link into worktrees, besides
 	// node_modules/.venv (relative to the project).
 	WorktreeLinks []string `json:"worktree_links"`
+
+	// Worked out when loaded, not stored:
+	Catalog []string `json:"-"` // every command of the project's packs
+	Safe    []string `json:"-"` // the check/read ones: an agent's default, run on their own from read
+	Jobs    []string `json:"-"` // ids of the project's check processes (kind job): an agent's default
 }
 
-// Where agents change code (Policy.EditMode).
+// Where a chat or task changes code: in its own git worktree, merged after a
+// person approves (the default), or right in the project folder like the CLI.
 const (
 	EditWorktree = "worktree"
 	EditDirect   = "direct"
@@ -122,8 +122,8 @@ const (
 
 // DefaultPolicy keeps agents at "propose" and protects secrets.
 func DefaultPolicy() Policy {
-	return Policy{MaxLevel: Operate, AllowedCommands: []string{}, Commands: []string{}, Packs: []Pack{}, AllowedContainers: []string{},
-		DenyPaths: []string{".env", ".env.*", "**/.env", "**/*.pem", "**/*.key"}, EditMode: EditWorktree, WorktreeLinks: []string{}}
+	return Policy{MaxLevel: Operate, Packs: []Pack{},
+		DenyPaths: []string{".env", ".env.*", "**/.env", "**/*.pem", "**/*.key"}, WorktreeLinks: []string{}}
 }
 
 func policyKey(projectID string) string { return "policy:" + projectID }
@@ -132,20 +132,27 @@ func policyKey(projectID string) string { return "policy:" + projectID }
 func LoadPolicy(ctx context.Context, st storage.Store, projectID string) Policy {
 	p := DefaultPolicy()
 	if ok, err := st.Settings().Get(ctx, policyKey(projectID), &p); err != nil || !ok {
-		return DefaultPolicy()
+		p = DefaultPolicy()
 	}
 	p.MaxLevel = Operate // the mode picked per chat/task is the limit
-	if p.Commands == nil {
-		p.Commands = []string{}
-	}
 	if p.Packs == nil {
 		p.Packs = []Pack{}
 	}
-	if p.EditMode != EditDirect {
-		p.EditMode = EditWorktree
-	}
 	if p.WorktreeLinks == nil {
 		p.WorktreeLinks = []string{}
+	}
+	root := ""
+	if r, err := st.Repos().Get(ctx, projectID); err == nil {
+		root = r.Path
+	}
+	p.Catalog, p.Safe = Catalog(ProjectPacks(root, p.Packs))
+	p.Jobs = []string{}
+	if procs, err := st.Processes().List(ctx, projectID); err == nil {
+		for _, x := range procs {
+			if x.Kind == "job" {
+				p.Jobs = append(p.Jobs, x.ID)
+			}
+		}
 	}
 	return p
 }

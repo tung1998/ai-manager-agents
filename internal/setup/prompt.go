@@ -30,7 +30,7 @@ const outputSchema = `{
   "agent_changes": [
     {"action": "update|add|remove", "key": "string", "name": "string?", "tier": "lead|manager|worker?", "role": "string?",
      "description": "string?", "reports_to": ["key"]?, "model_tier": "strong|balanced|fast?", "instructions": "string?",
-     "tools": ["string"]?, "read_only": true?, "source": "string?", "reason": "string"}
+     "read_only": true?, "source": "string?", "reason": "string"}
   ],
   "notes": ["string"]
 }`

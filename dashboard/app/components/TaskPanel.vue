@@ -55,6 +55,7 @@ const goalFiles = ref<Attachment[]>([])
 const goalBox = ref<{ busy: boolean } | null>(null)
 const budget = ref(1)
 const mode = ref<PermLevel>('propose')
+const editMode = ref<'worktree' | 'direct'>('worktree')
 const starting = ref(false)
 let source: EventSource | null = null
 
@@ -118,7 +119,7 @@ function follow(id: string) {
 async function start() {
   starting.value = true
   try {
-    const d = await $fetch<Detail>(`/api/projects/${props.projectId}/tasks`, { method: 'POST', body: { goal: goal.value, budget_usd: Number(budget.value) || 0, attachments: goalFiles.value.map(a => a.id), mode: mode.value } })
+    const d = await $fetch<Detail>(`/api/projects/${props.projectId}/tasks`, { method: 'POST', body: { goal: goal.value, budget_usd: Number(budget.value) || 0, attachments: goalFiles.value.map(a => a.id), mode: mode.value, edit_mode: editMode.value } })
     goal.value = ''
     goalFiles.value = []
     await refreshList()
@@ -349,6 +350,7 @@ onBeforeUnmount(() => source?.close())
           <p class="text-xs text-(--ui-text-muted)">{{ t('task.budgetHint') }}</p>
           <div class="flex items-center gap-2 text-sm">
             <span class="text-(--ui-text-muted)">{{ t('task.modeLabel') }}</span>
+            <EditModePicker v-model="editMode" />
             <ModePicker v-model="mode" :project-id="projectId" />
           </div>
         </div>

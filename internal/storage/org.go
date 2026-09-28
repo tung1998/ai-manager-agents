@@ -109,8 +109,11 @@ type Permissions struct {
 	// Caps are the agent's own picks of capabilities; nil = its package's preset.
 	Caps *[]string `json:"caps,omitempty"`
 	// Commands narrow the project's commands for this agent; nil = all of them.
-	Commands         *[]string `json:"commands,omitempty"`
-	Tools            []string  `json:"tools,omitempty"`
+	Commands *[]string `json:"commands,omitempty"`
+	// Processes and Containers it may run/restart on its own (with the
+	// capability); nil = the project's check processes, and no containers.
+	Processes        *[]string `json:"processes,omitempty"`
+	Containers       *[]string `json:"containers,omitempty"`
 	RequiresApproval bool      `json:"requires_approval,omitempty"` // side effects need a human
 }
 
@@ -262,6 +265,7 @@ type Conversation struct {
 	SessionID string
 	Runtime   string
 	Mode      string // permission mode (internal/perm level), a ceiling for this chat
+	EditMode  string // where it changes code: perm.EditWorktree (default) or perm.EditDirect
 	TaskID    string // set for the follow-up talk about one task
 	CreatedBy string
 	CreatedAt time.Time
@@ -346,6 +350,7 @@ type Task struct {
 	BudgetUSD   float64
 	CostUSD     float64
 	ModeLevel   string // permission mode (internal/perm level), a ceiling for this task
+	EditMode    string // where it changes code: perm.EditWorktree (default) or perm.EditDirect
 	Attachments []Attachment
 	CreatedBy   string
 	CreatedAt   time.Time

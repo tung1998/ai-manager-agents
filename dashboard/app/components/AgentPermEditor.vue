@@ -35,25 +35,23 @@ function toggle(id: string, on: boolean) {
   setCaps(next)
 }
 
-// ---- commands the agent may run by itself (within the project's list) ----
-const { data: pol } = useFetch<{ policy: { commands: string[] }, packs: CommandPack[] }>(
+// ---- commands it may run, from the project's catalog (default: the safe ones) ----
+const { data: pol } = useFetch<{ packs: CommandPack[], safe: string[] }>(
   () => `/api/projects/${props.projectId}/policy`, { lazy: true, immediate: !!props.projectId })
-const projectCmds = computed(() => pol.value?.policy.commands ?? [])
+const safe = computed(() => pol.value?.safe ?? [])
 const tree = computed(() => {
   const seen = new Set<string>()
   const groups: { id: string, label: string, icon?: string, commands: string[] }[] = []
   for (const p of pol.value?.packs ?? []) {
-    const cmds = p.commands.filter(c => projectCmds.value.includes(c) && !seen.has(c))
+    const cmds = p.commands.filter(c => !seen.has(c))
     cmds.forEach(c => seen.add(c))
     if (cmds.length) groups.push({ ...p, commands: cmds })
   }
-  const rest = projectCmds.value.filter(c => !seen.has(c))
-  if (rest.length) groups.push({ id: 'other', label: t('perm.editor.otherPack'), icon: 'i-lucide-terminal', commands: rest })
   return groups
 })
-const allCmds = computed(() => perms.value.commands == null)
-const picked = computed(() => perms.value.commands ?? projectCmds.value)
-function setAll(on: boolean) { perms.value.commands = on ? null : [...projectCmds.value] }
+const byDefault = computed(() => perms.value.commands == null)
+const picked = computed(() => perms.value.commands ?? safe.value)
+function setDefault(on: boolean) { perms.value.commands = on ? null : [...safe.value] }
 function toggleCmd(c: string, on: boolean) {
   const next = picked.value.filter(x => x !== c)
   if (on) next.push(c)
@@ -67,6 +65,20 @@ function togglePack(cmds: string[]) {
   const on = packState(cmds) !== true
   const next = picked.value.filter(c => !cmds.includes(c))
   perms.value.commands = on ? [...next, ...cmds] : next
+}
+
+// ---- processes and containers it may run/restart (default: check jobs, no containers) ----
+interface Proc { id: string, name: string, kind: 'service' | 'job' }
+const { data: procData } = useFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`, { lazy: true, immediate: !!props.projectId })
+const { data: composeData } = useFetch<{ services: { name: string }[] }>(() => `/api/projects/${props.projectId}/compose`, { lazy: true, immediate: !!props.projectId })
+const procs = computed(() => procData.value?.processes ?? [])
+const services = computed(() => composeData.value?.services ?? [])
+const pickedProcs = computed(() => perms.value.processes ?? procs.value.filter(p => p.kind === 'job').map(p => p.id))
+const pickedContainers = computed(() => perms.value.containers ?? [])
+function toggleIn(key: 'processes' | 'containers', current: string[], v: string, on: boolean) {
+  const next = current.filter(x => x !== v)
+  if (on) next.push(v)
+  perms.value[key] = next
 }
 </script>
 
@@ -116,17 +128,16 @@ function togglePack(cmds: string[]) {
             <UIcon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" />
             <span class="text-xs">{{ t('perm.editor.gitPushNote') }}</span>
           </div>
-          <!-- commands it may run by itself -->
-          <div v-if="g.id === 'commands' && caps.includes('commands.run')" class="space-y-2 px-3 py-2">
+          <!-- commands it may run: safe ones on its own from read -->
+          <div v-if="g.id === 'commands'" class="space-y-2 px-3 py-2">
             <p v-if="!projectId" class="text-xs text-(--ui-text-muted)">{{ t('perm.editor.commandsNoModel') }}</p>
-            <p v-else-if="!projectCmds.length" class="text-xs text-(--ui-text-muted)">{{ t('perm.editor.commandsNoneEnabled') }}</p>
-            <template v-else>
+            <template v-else-if="tree.length">
               <label class="flex cursor-pointer items-center gap-2 text-xs">
-                <UCheckbox :model-value="allCmds" :disabled="disabled" @update:model-value="(v: boolean | 'indeterminate') => setAll(v === true)" />
-                {{ t('perm.editor.allCommands', { n: projectCmds.length }) }}
+                <UCheckbox :model-value="byDefault" :disabled="disabled" @update:model-value="(v: boolean | 'indeterminate') => setDefault(v === true)" />
+                <UIcon name="i-lucide-shield-check" class="size-3.5 text-(--ui-success)" />{{ t('perm.editor.safeDefault', { n: safe.length }) }}
               </label>
-              <div v-if="!allCmds" class="space-y-1.5">
-                <details v-for="p in tree" :key="p.id" class="rounded-md bg-(--ui-bg-elevated)/60 px-2 py-1" open>
+              <div v-if="!byDefault" class="space-y-1.5">
+                <details v-for="p in tree" :key="p.id" class="rounded-md bg-(--ui-bg-elevated)/60 px-2 py-1">
                   <summary class="flex cursor-pointer list-none items-center gap-2 text-xs font-medium">
                     <UCheckbox :model-value="packState(p.commands)" :disabled="disabled" @click.stop @update:model-value="togglePack(p.commands)" />
                     <UIcon v-if="p.icon" :name="p.icon" class="size-3.5" />{{ p.label }}
@@ -135,9 +146,25 @@ function togglePack(cmds: string[]) {
                   <label v-for="c in p.commands" :key="c" class="flex cursor-pointer items-center gap-2 py-0.5 ps-6 text-xs">
                     <UCheckbox :model-value="picked.includes(c)" :disabled="disabled" @update:model-value="(v: boolean | 'indeterminate') => toggleCmd(c, v === true)" />
                     <code class="truncate">{{ c }}</code>
+                    <UIcon v-if="safe.includes(c)" name="i-lucide-shield-check" class="size-3 shrink-0 text-(--ui-success)" />
                   </label>
                 </details>
               </div>
+            </template>
+          </div>
+          <!-- processes and containers it may run/restart -->
+          <div v-if="g.id === 'ops' && projectId && (caps.includes('ops.process') && procs.length || caps.includes('ops.container') && services.length)" class="flex flex-wrap gap-x-3 gap-y-1.5 px-3 py-2">
+            <template v-if="caps.includes('ops.process')">
+              <label v-for="p in procs" :key="p.id" class="flex cursor-pointer items-center gap-1.5 text-xs">
+                <UCheckbox :model-value="pickedProcs.includes(p.id)" :disabled="disabled" @update:model-value="(v: boolean | 'indeterminate') => toggleIn('processes', pickedProcs, p.id, v === true)" />
+                <UIcon :name="p.kind === 'job' ? 'i-lucide-flask-conical' : 'i-lucide-play'" class="size-3.5 text-(--ui-text-muted)" />{{ p.name }}
+              </label>
+            </template>
+            <template v-if="caps.includes('ops.container')">
+              <label v-for="sv in services" :key="sv.name" class="flex cursor-pointer items-center gap-1.5 text-xs">
+                <UCheckbox :model-value="pickedContainers.includes(sv.name)" :disabled="disabled" @update:model-value="(v: boolean | 'indeterminate') => toggleIn('containers', pickedContainers, sv.name, v === true)" />
+                <UIcon name="i-lucide-container" class="size-3.5 text-(--ui-text-muted)" />{{ sv.name }}
+              </label>
             </template>
           </div>
         </div>

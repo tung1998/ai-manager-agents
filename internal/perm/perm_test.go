@@ -1,6 +1,7 @@
 package perm
 
 import (
+	"strings"
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -43,8 +44,8 @@ func TestResolveCustomCaps(t *testing.T) {
 		t.Fatalf("own level follows the highest pick: %s", Agent(a))
 	}
 	p := DefaultPolicy()
-	p.MaxLevel = Operate
-	p.Commands = []string{"go test ./...", "go vet ./..."}
+	p.Catalog = []string{"go test ./...", "go vet ./...", "pnpm run deploy"}
+	p.Safe = []string{"go test ./...", "go vet ./..."}
 	acc := Resolve(a, Operate, p)
 	if !acc.Can(CapCommit) || acc.Can(CapApply) || len(acc.Commands) != 1 {
 		t.Fatalf("custom picks: %+v", acc)
@@ -52,8 +53,27 @@ func TestResolveCustomCaps(t *testing.T) {
 	if acc := Resolve(a, Check, p); acc.Can(CapCommit) || !acc.Can(CapCommands) {
 		t.Fatalf("mode lowers: %+v", acc)
 	}
-	if acc := Resolve(storage.Agent{Permissions: storage.Permissions{Level: Check}}, Operate, p); len(acc.Commands) != 2 {
-		t.Fatalf("preset gets all project commands: %+v", acc)
+	// no picks: the safe commands, from read on
+	if acc := Resolve(storage.Agent{Permissions: storage.Permissions{Level: Read}}, Operate, p); len(acc.Commands) != 2 || len(acc.Safe) != 2 {
+		t.Fatalf("default is the safe commands: %+v", acc)
+	}
+	// picking an unsafe command: listed, but not run on its own at any level
+	deploy := []string{"pnpm run deploy", "gone"}
+	acc = Resolve(storage.Agent{Permissions: storage.Permissions{Level: Check, Commands: &deploy}}, Operate, p)
+	if len(acc.Commands) != 1 || len(acc.Safe) != 0 {
+		t.Fatalf("picks within the catalog: %+v", acc)
+	}
+}
+
+func TestCatalogSafe(t *testing.T) {
+	packs := []Pack{
+		{ID: "scripts", Commands: []string{"pnpm run test", "pnpm run test:unit", "pnpm run dev", "pnpm run deploy", "pnpm run typecheck", "pnpm run build"}},
+		{ID: "go", Commands: []string{"go test ./...", "go mod tidy"}},
+		{ID: "custom-1", Custom: true, Commands: []string{"make test"}},
+	}
+	all, safe := Catalog(packs)
+	if len(all) != 9 || strings.Join(safe, ",") != "pnpm run test,pnpm run test:unit,pnpm run typecheck,pnpm run build,go test ./..." {
+		t.Fatalf("all=%v safe=%v", all, safe)
 	}
 }
 

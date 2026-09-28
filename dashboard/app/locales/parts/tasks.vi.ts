@@ -139,7 +139,6 @@ export default {
   'prompt.uploading': 'Đang tải lên…',
   'prompt.maxFiles': 'Tối đa 10 file mỗi lần gửi',
   'prompt.tooLarge': '{name}: quá 10 MB',
-  'mode.overCap': 'Project giới hạn ở "{label}"',
   'mode.adminOnly': 'Chỉ admin',
   'mode.title': 'Chế độ: {description}',
 } as const

@@ -49,7 +49,7 @@
       "reports_to": ["planner", "executor", "auditor"],
       "model_tier": "fast",
       "instructions": "Làm đúng việc được giao, trả diff hoặc dữ liệu kèm nguồn. Không kết luận thay admin.",
-      "permissions": { "read_only": false, "requires_approval": true, "tools": ["read", "search", "edit"] }
+      "permissions": { "read_only": false, "requires_approval": true }
     },
     {
       "key": "data-worker",
@@ -60,7 +60,7 @@
       "reports_to": ["planner", "executor", "auditor"],
       "model_tier": "fast",
       "instructions": "Chỉ đọc dữ liệu, giới hạn số dòng và khoảng thời gian. Che thông tin cá nhân.",
-      "permissions": { "read_only": true, "tools": ["mcp:sql", "mcp:dashboard"] }
+      "permissions": { "read_only": true }
     },
     {
       "key": "ops-worker",
@@ -71,7 +71,7 @@
       "reports_to": ["planner", "executor", "auditor"],
       "model_tier": "fast",
       "instructions": "Trả số liệu và mẫu log trong khoảng thời gian được yêu cầu. Không kết luận.",
-      "permissions": { "read_only": true, "tools": ["mcp:logs", "mcp:metrics"] }
+      "permissions": { "read_only": true }
     }
   ]
 }

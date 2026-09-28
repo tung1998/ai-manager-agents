@@ -30,11 +30,7 @@ func TestAutoByPackage(t *testing.T) {
 	m := ops.NewManager(st, t.TempDir(), nil)
 	defer m.Shutdown()
 	svc := New(st, m)
-	pol := perm.DefaultPolicy()
-	pol.MaxLevel, pol.AllowedCommands = perm.Operate, []string{test.ID, dev.ID}
-	if err := perm.SavePolicy(ctx, st, proj.ID, pol); err != nil {
-		t.Fatal(err)
-	}
+	allProcs = []string{test.ID, dev.ID}
 
 	sc := Scope{ProjectID: proj.ID, RunRef: "r1", Agent: "a", Level: perm.Propose}
 	if a, _ := svc.Propose(ctx, sc, "run_process", "test", "kiểm tra"); a.Status != "pending" {
@@ -114,7 +110,12 @@ func TestGitActions(t *testing.T) {
 }
 
 // at is the preset access of a package.
-func at(level string) perm.Access { return perm.Access{Level: level, Caps: perm.Preset(level)} }
+// at: an agent at level allowed to run/restart every process of the test
+func at(level string) perm.Access {
+	return perm.Access{Level: level, Caps: perm.Preset(level), Processes: allProcs}
+}
+
+var allProcs []string
 
 func TestRunCommand(t *testing.T) {
 	ctx := context.Background()

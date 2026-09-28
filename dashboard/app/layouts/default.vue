@@ -44,7 +44,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
           value: `project-${p.id}`, // open state follows the project, not its position
           label: p.name,
           icon: p.scope === 'machine' ? 'i-lucide-monitor' : 'i-lucide-folder',
-          to: `/projects/${p.id}`,
+          to: { path: `/projects/${p.id}`, query: { tab: 'chat' } },
           defaultOpen: route.params.id === p.id,
           children: projectSections(p.id)
         })),
