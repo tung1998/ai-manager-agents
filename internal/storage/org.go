@@ -592,4 +592,6 @@ type ActionRepo interface {
 	Get(ctx context.Context, id string) (Action, error)
 	// List filters by conversation, task or run (the first non-empty one).
 	List(ctx context.Context, conversationID, taskID, runRef string) ([]Action, error)
+	// Pending lists actions waiting for a person, newest first.
+	Pending(ctx context.Context, limit int) ([]Action, error)
 }

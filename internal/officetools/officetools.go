@@ -196,8 +196,8 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 }
 
 // Has reports whether name is one of the tools.
-func (t *Toolbox) Has(name string) bool {
-	for _, x := range t.Tools() {
+func (t *Toolbox) Has(sc Scope, name string) bool {
+	for _, x := range t.ToolsFor(sc) {
 		if x.Name == name {
 			return true
 		}

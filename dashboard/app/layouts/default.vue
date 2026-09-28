@@ -92,7 +92,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
 
 const userMenu = computed<DropdownMenuItem[][]>(() => [
   [{ label: user.value?.email ?? '', type: 'label' }],
-  [{ label: t('user.changePassword'), icon: 'i-lucide-key-round', to: '/account' }],
+  [{ label: t('user.changePassword'), icon: 'i-lucide-key-round', to: '/account' }, { label: t('cli.title'), icon: 'i-lucide-terminal', to: '/account' }],
   [{ label: t('user.logout'), icon: 'i-lucide-log-out', color: 'error', onSelect: () => logout() }]
 ])
 </script>

@@ -80,6 +80,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) Users() storage.UserRepo             { return userRepo{s.q} }
+func (s *Store) Tokens() storage.TokenRepo           { return tokenRepo{s.q} }
 func (s *Store) Sessions() storage.SessionRepo       { return sessionRepo{s.q} }
 func (s *Store) Audit() storage.AuditRepo            { return auditRepo{s.q} }
 func (s *Store) Providers() storage.ProviderRepo     { return providerRepo{s.q} }

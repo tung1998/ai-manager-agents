@@ -64,7 +64,7 @@ func officeTools(req RunRequest) []officetools.Tool {
 
 // dispatchTool runs an office tool or a workspace tool.
 func dispatchTool(ctx context.Context, req RunRequest, w Workspace, name string, raw json.RawMessage) (string, bool) {
-	if req.Office != nil && req.Office.Tools != nil && req.Office.Tools.Has(name) {
+	if req.Office != nil && req.Office.Tools != nil && req.Office.Tools.Has(req.Office.Scope, name) {
 		return req.Office.Tools.Call(ctx, req.Office.Scope, name, raw)
 	}
 	return callTool(w, name, raw)

@@ -1213,3 +1213,16 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - **Giao diện:**
   - Mục "Trợ lý office" trên sidebar, trang `/assistant`.
   - Chat ở góc: ngoài project là trợ lý. Trong project có nút chọn "Project này" hoặc "Toàn office".
+
+## ADR-047: MCP cho Claude Code CLI của người dùng (phần 4)
+
+**Quyết định.**
+- **Token cá nhân** (bảng `user_tokens`, migration 00033). Token có dạng `ofc_…`, chỉ lưu SHA-256.
+  - Tạo ở trang Tài khoản. Token chỉ hiện một lần, kèm lệnh `claude mcp add --transport http agent-office http://<máy>:8787/mcp --header "Authorization: Bearer …"`.
+  - Có thể thu hồi. Hệ thống ghi lại lần dùng cuối.
+- **Xác thực ở `/mcp`.** Bên cạnh token theo từng lượt chạy, `/mcp` nhận token cá nhân và đổi thành **phạm vi office** của người đó.
+  - Agent hiện là "Claude Code CLI (email)", quyền Đề xuất, không chạy gì trên máy.
+  - Dùng được mọi công cụ của trợ lý (ADR-046). Mọi thay đổi vẫn qua thẻ duyệt.
+- **Hộp "Chờ duyệt"** (`GET /api/actions/pending`, chỉ admin) nằm trên trang Trợ lý. Đề xuất từ CLI không thuộc cuộc chat nào nên được duyệt ở đây.
+- Công cụ kiểm tra tên theo phạm vi (`Has(scope, name)`), để các công cụ riêng của phạm vi office gọi được qua MCP.
+- **Để sau:** chế độ "áp dụng ngay" cho token của admin. Hiện mọi đề xuất đều qua thẻ.

@@ -5,6 +5,7 @@
 package mcpserver
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -32,6 +33,13 @@ type Server struct {
 
 	mu     sync.Mutex
 	grants map[string]grant
+	// personal tokens of people's own CLIs (ADR-047)
+	tokenAuth func(ctx context.Context, token string) (officetools.Scope, bool)
+}
+
+// SetTokenAuth accepts personal tokens besides the per-run grants.
+func (s *Server) SetTokenAuth(fn func(ctx context.Context, token string) (officetools.Scope, bool)) {
+	s.tokenAuth = fn
 }
 
 // New builds a Server.
@@ -67,12 +75,15 @@ func (s *Server) scope(r *http.Request) (officetools.Scope, bool) {
 		return officetools.Scope{}, false
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	g, ok := s.grants[tok]
-	if !ok || time.Now().After(g.expires) {
-		return officetools.Scope{}, false
+	s.mu.Unlock()
+	if ok && time.Now().Before(g.expires) {
+		return g.scope, true
 	}
-	return g.scope, true
+	if s.tokenAuth != nil {
+		return s.tokenAuth(r.Context(), tok)
+	}
+	return officetools.Scope{}, false
 }
 
 type request struct {
@@ -184,7 +195,7 @@ func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) respon
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
 		}
-		if err := json.Unmarshal(q.Params, &p); err != nil || !s.tools.Has(p.Name) {
+		if err := json.Unmarshal(q.Params, &p); err != nil || !s.tools.Has(sc, p.Name) {
 			res.Error = &rpcError{Code: -32602, Message: "unknown tool"}
 			return res
 		}

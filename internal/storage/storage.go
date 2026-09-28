@@ -97,6 +97,8 @@ type Store interface {
 	Close() error
 
 	Users() UserRepo
+	// Tokens are personal tokens for a person's own CLI (ADR-047).
+	Tokens() TokenRepo
 	Sessions() SessionRepo
 	Audit() AuditRepo
 
@@ -149,4 +151,21 @@ type AuditRepo interface {
 	List(ctx context.Context, f AuditFilter) ([]AuditEntry, error)
 	// Count groups by "day" (UTC), "kind", "actor" (kind:name), "resource", "via" or "project".
 	Count(ctx context.Context, f AuditFilter, by string) ([]AuditCount, error)
+}
+
+// UserToken is a personal token (its hash) for a person's own Claude Code CLI.
+type UserToken struct {
+	ID, UserID, Name, TokenHash string
+	CreatedAt                   time.Time
+	LastUsedAt                  *time.Time
+	Revoked                     bool
+}
+
+// TokenRepo stores personal tokens.
+type TokenRepo interface {
+	Create(ctx context.Context, t UserToken) (UserToken, error)
+	List(ctx context.Context, userID string) ([]UserToken, error)
+	GetByHash(ctx context.Context, hash string) (UserToken, error)
+	Touch(ctx context.Context, id string, at time.Time) error
+	Revoke(ctx context.Context, id, userID string) error
 }

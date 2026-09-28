@@ -89,3 +89,23 @@ func (r actionRepo) List(ctx context.Context, conversationID, taskID, runRef str
 	}
 	return out, rows.Err()
 }
+
+func (r actionRepo) Pending(ctx context.Context, limit int) ([]storage.Action, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT `+actionCols+` FROM actions WHERE status='pending' ORDER BY created_at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []storage.Action{}
+	for rows.Next() {
+		a, err := scanAction(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

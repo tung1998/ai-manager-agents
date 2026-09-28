@@ -14,10 +14,13 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/api"
+	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/auth"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/llm"
+	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
@@ -77,9 +80,11 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	provs.SetUsage(u)
 	chatEng := chat.NewEngine(st, provs, u)
 	acts := actions.New(st, nil)
+	office := officetools.New(st, nil, acts)
+	office.SetOffice(func(ctx context.Context) string { return assistant.ID(ctx, st) })
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
 		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chatEng, Tasks: tasks.New(st, chatEng),
-		Trigger: trigger.New(st, idleExec{}), Actions: acts})
+		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcpserver.New(office, "test")})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	ctx := context.Background()
