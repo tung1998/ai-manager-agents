@@ -116,6 +116,11 @@ func New(cfg Config) http.Handler {
 	if cfg.Providers != nil && cfg.Org != nil {
 		s.orgRoutes(mux)
 	}
+	if cfg.Trigger != nil {
+		// automation webhooks: authenticated by each automation's token (ADR-040)
+		mux.Handle("POST /hooks/{id}", cfg.Trigger.Webhook())
+		mux.Handle("GET /hooks/{id}/jobs/{job}", cfg.Trigger.Webhook())
+	}
 
 	return s.securityHeaders(s.csrf(mux))
 }
@@ -153,6 +158,10 @@ func (s *server) csrf(next http.Handler) http.Handler {
 		switch r.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/hooks/") {
+			next.ServeHTTP(w, r) // no cookie: a token per automation, any content type
 			return
 		}
 		if origin := r.Header.Get("Origin"); origin != "" && !s.originAllowed(r, origin) {
