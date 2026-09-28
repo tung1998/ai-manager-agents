@@ -18,6 +18,7 @@ export default {
   'perm.cap.codeApply.label': 'Tự gộp code',
   'perm.cap.codeApply.description': 'Thay đổi sạch được gộp ngay vào project, trừ file cấm',
   'avatar.title': 'Avatar',
+  'avatar.edit': 'Sửa',
   'avatar.upload': 'Tải ảnh lên',
   'avatar.shuffle': 'Ngẫu nhiên',
   'avatar.reset': 'Mặc định',

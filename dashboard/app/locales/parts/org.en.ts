@@ -17,6 +17,7 @@ const en: Record<keyof typeof vi, string> = {
   'perm.cap.codeApply.label': 'Merge code',
   'perm.cap.codeApply.description': 'Clean changes are merged into the project right away, except forbidden files',
   'avatar.title': 'Avatar',
+  'avatar.edit': 'Edit',
   'avatar.upload': 'Upload image',
   'avatar.shuffle': 'Random',
   'avatar.reset': 'Default',

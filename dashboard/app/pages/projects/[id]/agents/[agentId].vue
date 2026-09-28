@@ -87,6 +87,7 @@ const providerOptions = computed(() => [
 const formProvider = computed(() => providers.value.find(p => p.id === form.provider_id) ?? defaultProvider.value)
 const bossOptions = computed(() => others.value.filter(a => a.tier !== 'worker').map(a => ({ label: `${a.name} (${a.key})`, value: a.key })))
 const saving = ref('')
+const avatarEditing = ref(false)
 async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
   const a = agent.value!
   // each card sends its own fields on top of the saved agent
@@ -286,12 +287,20 @@ async function restore(e: Entry) {
 
       <!-- config -->
       <fieldset v-else-if="tab === 'config'" :disabled="!isAdmin" class="max-w-4xl space-y-3">
+        <!-- avatar: just the picture until the person edits it -->
         <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
-          <div class="flex items-center justify-between gap-2">
-            <p class="text-sm font-medium">{{ t('avatar.title') }}</p>
-            <UButton v-if="isAdmin" size="xs" icon="i-lucide-save" :label="t('common.save')" :loading="saving === 'avatar'" @click="save('avatar')" />
+          <div class="flex items-center gap-3">
+            <AgentAvatar :agent="{ ...agent, avatar: form.avatar }" size="md" />
+            <p class="flex-1 text-sm font-medium">{{ t('avatar.title') }}</p>
+            <template v-if="isAdmin">
+              <template v-if="avatarEditing">
+                <UButton size="xs" color="neutral" variant="ghost" :label="t('common.cancel')" @click="form.avatar = agent?.avatar ?? {}; avatarEditing = false" />
+                <UButton size="xs" icon="i-lucide-save" :label="t('common.save')" :loading="saving === 'avatar'" @click="save('avatar').then(() => { avatarEditing = false })" />
+              </template>
+              <UButton v-else size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('avatar.edit')" @click="avatarEditing = true" />
+            </template>
           </div>
-          <AvatarPicker v-if="agent" v-model="form.avatar" :agent="agent" />
+          <AvatarPicker v-if="agent && avatarEditing" v-model="form.avatar" :agent="agent" />
         </UCard>
         <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
           <p class="text-sm font-medium">{{ t('agentPage.cardRole') }}</p>
