@@ -136,3 +136,34 @@ func TestAuditListAndStats(t *testing.T) {
 		}
 	}
 }
+
+// Rows of a project's actions carry the project, so its Nhật ký tab shows them.
+func TestAuditRowsCarryProject(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Hook", "source": "webhook", "action": "chat", "prompt": "x"}, nil)
+	aid := body["automation"].(map[string]any)["id"].(string)
+	do(t, admin, "POST", e.srv.URL+"/api/automations/"+aid+"/run", map[string]any{}, nil)
+	do(t, admin, "POST", e.srv.URL+"/api/automations/"+aid+"/rotate-secret", map[string]any{}, nil)
+	do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations/test-script", map[string]any{"script": map[string]any{"lang": "bash", "body": "echo hi"}}, nil)
+	rows, _ := e.st.Audit().List(context.Background(), storage.AuditFilter{Limit: 50})
+	seen := map[string]bool{}
+	for _, r := range rows {
+		switch r.Action {
+		case "automation.run", "automation.rotate", "automation.test_script":
+			seen[r.Action] = true
+			if r.ProjectID != pid {
+				t.Errorf("%s project = %q, want %q", r.Action, r.ProjectID, pid)
+			}
+			if r.Action == "automation.test_script" && r.ResourceID == pid {
+				t.Errorf("test_script resource_id is the project id")
+			}
+		}
+	}
+	if len(seen) != 3 {
+		t.Fatalf("rows seen = %v", seen)
+	}
+}

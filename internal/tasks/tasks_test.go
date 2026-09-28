@@ -16,6 +16,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -413,5 +414,42 @@ func TestTaskIsAJobAndQueuesWhenBusy(t *testing.T) {
 	jobs, _ := f.st.Jobs().List(context.Background(), storage.JobFilter{ProjectID: f.project.ID, Kind: "task", Status: "done"})
 	if len(jobs) != 1 || jobs[0].TaskID != task.ID || jobs[0].CostUSD <= 0 {
 		t.Fatalf("task jobs = %+v", jobs)
+	}
+}
+
+// ADR-043: a diff the agent applies on its own at the end of a task is in
+// the change log as the agent's, with the task and its job.
+func TestAutoAppliedTaskPatchIsAudited(t *testing.T) {
+	requireGit(t)
+	f := setup(t, &fakeModel{edit: true}, "team")
+	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = f.dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	f.engine.SetWorktrees(worktree.New(filepath.Join(t.TempDir(), "wt")))
+	ctx := context.Background()
+	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
+	agents, _ := f.st.Agents().List(ctx, m.ID)
+	for _, a := range agents { // every agent may apply clean diffs on its own
+		caps := append(perm.Preset(perm.Edit), perm.CapApply)
+		a.Permissions.Level, a.Permissions.Caps = perm.Edit, &caps
+		f.st.Agents().Update(ctx, a)
+	}
+	task, err := f.svc.Start(ctx, f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, perm.Edit, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := wait(t, f.svc, task.ID); d.Task.Status != "done" {
+		t.Fatalf("task = %s %s", d.Task.Status, d.Task.Detail)
+	}
+	if b, _ := os.ReadFile(filepath.Join(f.dir, "a.txt")); string(b) != "ONE\n" {
+		t.Fatalf("the team did not apply on its own at edit (a.txt = %q)", b)
+	}
+	rows, _ := f.st.Audit().List(context.Background(), storage.AuditFilter{TaskID: task.ID, Resource: "patch"})
+	if len(rows) == 0 || rows[0].ActorKind != "agent" || rows[0].Via != "task" || rows[0].JobID == "" || rows[0].ProjectID != f.project.ID || rows[0].Action != "patch.applied" {
+		t.Fatalf("audit rows: %+v", rows)
 	}
 }

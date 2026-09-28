@@ -6,6 +6,7 @@ package tasks
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/usage"
@@ -264,11 +265,11 @@ type run struct {
 	seq     int
 	cost    float64
 	patches []storage.Patch
-	auto    map[string]bool // patch ids to apply on their own once the task succeeds
-	failed  string          // review verdict when the auditor judged the work not good enough
-	ask     string          // question for the person; the task stops as needs_input
-	jobs    map[int]*job    // plan jobs by number, with their latest step
-	claimed map[string]int  // file → the plan job it is given to
+	auto    map[string]string // patch id → the agent that wrote it; patch ids to apply on their own once the task succeeds
+	failed  string            // review verdict when the auditor judged the work not good enough
+	ask     string            // question for the person; the task stops as needs_input
+	jobs    map[int]*job      // plan jobs by number, with their latest step
+	claimed map[string]int    // file → the plan job it is given to
 }
 
 // job is one plan assignment and the step that last worked on it.
@@ -376,17 +377,22 @@ func (r *run) outcome() (string, string) {
 // a veto that rejected them wins.
 func (r *run) applyAuto() {
 	r.mu.Lock()
-	ids := make([]string, 0, len(r.auto))
-	for id := range r.auto {
-		ids = append(ids, id)
-	}
+	auto := maps.Clone(r.auto)
 	r.mu.Unlock()
-	for _, id := range ids {
+	for _, id := range slices.Sorted(maps.Keys(auto)) {
 		ctx := actor.With(context.Background(), "auto:"+r.task.ID+" ("+perm.Label(perm.Edit)+")")
-		if d, err := r.svc.engine.DecidePatch(ctx, id, true); err == nil {
+		d, err := r.svc.engine.DecidePatch(ctx, id, true)
+		if err == nil {
 			pd := d
 			r.live.emit(Event{Type: "patch", Patch: &pd})
 		}
+		// ADR-043: the agent's change, applied on its own permission
+		who := audit.Who{Kind: "agent", Name: auto[id], Via: "task", JobID: r.jobID, TaskID: r.task.ID}
+		if err == nil && d.Status == "failed" {
+			err = errors.New(d.Detail)
+		}
+		_ = audit.Record(audit.With(context.Background(), who), r.svc.store.Audit(), audit.Change{Action: "patch." + firstNonEmpty(d.Status, "failed"),
+			ResourceID: id, ProjectID: r.project.ID, Detail: map[string]any{"files": d.Files, "auto": true}, Err: err})
 	}
 }
 
@@ -585,9 +591,9 @@ func (r *run) addPatch(st storage.TaskStep, agent storage.Agent, p storage.Patch
 	r.patches = append(r.patches, saved)
 	if saved.Status == "pending" && r.access(agent).Can(perm.CapApply) {
 		if r.auto == nil {
-			r.auto = map[string]bool{}
+			r.auto = map[string]string{}
 		}
-		r.auto[saved.ID] = true
+		r.auto[saved.ID] = agent.Name
 	}
 	r.mu.Unlock()
 	pd := chat.PatchDTO{ID: saved.ID, Diff: saved.Diff, Files: saved.Files, Status: saved.Status, Detail: saved.Detail, Origin: saved.Origin}
@@ -628,9 +634,9 @@ func (r *run) collectPatches(st storage.TaskStep, allowed []string, agent storag
 		r.patches = append(r.patches, saved)
 		if autoApply && saved.Status == "pending" {
 			if r.auto == nil {
-				r.auto = map[string]bool{}
+				r.auto = map[string]string{}
 			}
-			r.auto[saved.ID] = true
+			r.auto[saved.ID] = agent.Name
 		}
 		r.mu.Unlock()
 		pd := chat.PatchDTO{ID: saved.ID, Diff: saved.Diff, Files: saved.Files, Status: saved.Status, Detail: saved.Detail, Origin: saved.Origin}

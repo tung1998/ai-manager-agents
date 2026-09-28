@@ -391,6 +391,6 @@ func (s *server) testScript(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.auditAction(r, "automation.test_script", p.ID, map[string]any{"lang": in.Script.Lang, "exit_code": code})
+	s.audit(r, audit.Change{Action: "automation.test_script", ProjectID: p.ID, Detail: map[string]any{"lang": in.Script.Lang, "exit_code": code}})
 	writeJSON(w, http.StatusOK, map[string]any{"output": out, "exit_code": code, "timed_out": timedOut})
 }

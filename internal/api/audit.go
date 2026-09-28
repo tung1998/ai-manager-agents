@@ -32,13 +32,66 @@ func (s *server) audit(r *http.Request, c audit.Change) {
 			c.ProjectID = c.ResourceID
 		}
 	}
+	if c.ProjectID == "" && c.ResourceID != "" {
+		c.ProjectID = s.projectOf(ctx, res, c.ResourceID)
+	}
 	switch res {
 	case "job":
 		w.JobID = c.ResourceID
 	case "task":
-		w.TaskID = c.ResourceID
+		if _, err := s.cfg.Store.Tasks().Get(ctx, c.ResourceID); err == nil { // task.queue names a job
+			w.TaskID = c.ResourceID
+		} else if w.JobID == "" {
+			w.JobID = c.ResourceID
+		}
 	}
 	_ = audit.Record(audit.With(ctx, w), s.cfg.Store.Audit(), c)
+}
+
+// projectOf finds the project a changed thing belongs to, so the project's
+// Nhật ký tab shows it ("" = office-wide or gone).
+func (s *server) projectOf(ctx context.Context, resource, id string) string {
+	st := s.cfg.Store
+	switch resource {
+	case "automation":
+		if a, err := st.Automations().Get(ctx, id); err == nil {
+			return a.ProjectID
+		}
+	case "job":
+		if j, err := st.Jobs().Get(ctx, id); err == nil {
+			return j.ProjectID
+		}
+	case "task":
+		if t, err := st.Tasks().Get(ctx, id); err == nil {
+			return t.ProjectID
+		}
+		if j, err := st.Jobs().Get(ctx, id); err == nil {
+			return j.ProjectID
+		}
+	case "process":
+		if p, err := st.Processes().Get(ctx, id); err == nil {
+			return p.ProjectID
+		}
+	case "monitor":
+		if m, err := st.Monitors().Get(ctx, id); err == nil {
+			return m.ProjectID
+		}
+	case "org_model":
+		if m, err := st.OrgModels().Get(ctx, id); err == nil {
+			return m.RepoID
+		}
+	case "action", "git":
+		if a, err := st.Actions().Get(ctx, id); err == nil {
+			return a.ProjectID
+		}
+	case "agent":
+		if a, err := st.Agents().Get(ctx, id); err == nil {
+			return s.agentProject(ctx, a)
+		}
+	case "compose":
+		return id
+	}
+	return ""
 }
 
 // agentProject is the project an agent belongs to ("" = a template's agent).

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/gitops"
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/perm"
@@ -154,9 +155,26 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 	// within the agent's permission package and the project's allow lists,
 	// office carries it out right away
 	if s.autoAllowed(ctx, a, sc.Access) {
-		return s.Decide(ctx, a.ID, true, "auto:"+sc.Agent+" ("+perm.Label(sc.Access.Level)+")")
+		done, err := s.Decide(ctx, a.ID, true, "auto:"+sc.Agent+" ("+perm.Label(sc.Access.Level)+")")
+		s.auditAuto(ctx, sc, done, err)
+		return done, err
 	}
 	return a, nil
+}
+
+// auditAuto logs an action office carried out on the agent's own permission
+// (no person approved it) as the agent's change (ADR-043).
+func (s *Service) auditAuto(ctx context.Context, sc Scope, a storage.Action, err error) {
+	via := "chat"
+	if sc.ConversationID == "" && sc.TaskID != "" {
+		via = "task"
+	}
+	if err == nil && a.Status == "failed" {
+		err = errors.New(a.Detail)
+	}
+	actx := audit.With(ctx, audit.Who{Kind: "agent", Name: sc.Agent, Via: via, ConversationID: sc.ConversationID, JobID: sc.JobID, TaskID: sc.TaskID, ActionID: a.ID})
+	_ = audit.Record(actx, s.store.Audit(), audit.Change{Action: "action.approve", Resource: "action", ResourceID: a.ID, ProjectID: sc.ProjectID,
+		Detail: map[string]any{"kind": a.Kind, "target": a.Target, "status": a.Status, "auto": true}, Err: err})
 }
 
 // autoAllowed: the run's capabilities decide, within the project's allow

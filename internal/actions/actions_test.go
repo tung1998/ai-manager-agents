@@ -37,8 +37,16 @@ func TestAutoByPackage(t *testing.T) {
 		t.Fatalf("propose level must wait: %s", a.Status)
 	}
 	sc.Level, sc.Access, sc.RunRef = perm.Check, at(perm.Check), "r2"
-	if a, _ := svc.Propose(ctx, sc, "run_process", "test", "kiểm tra"); a.Status != "done" {
-		t.Fatalf("check level runs an allowed job: %s %s", a.Status, a.Detail)
+	sc.ConversationID, sc.JobID = "", "job_7"
+	auto, _ := svc.Propose(ctx, sc, "run_process", "test", "kiểm tra")
+	if auto.Status != "done" {
+		t.Fatalf("check level runs an allowed job: %s %s", auto.Status, auto.Detail)
+	}
+	// ADR-043: what the agent did on its own is in the log, as the agent's
+	rows, _ := st.Audit().List(ctx, storage.AuditFilter{JobID: "job_7"})
+	if len(rows) != 1 || rows[0].Action != "action.approve" || rows[0].ActorKind != "agent" || rows[0].ActorName != "a" ||
+		rows[0].ApprovedBy != "" || rows[0].ActionID != auto.ID || rows[0].ProjectID != proj.ID || rows[0].Detail["auto"] != true || !rows[0].OK {
+		t.Fatalf("auto action audit: %+v", rows)
 	}
 	if a, _ := svc.Propose(ctx, sc, "restart_process", "dev", "treo"); a.Status != "pending" {
 		t.Fatalf("restarting a service needs operate: %s", a.Status)
