@@ -99,6 +99,8 @@ type Store interface {
 	Users() UserRepo
 	// Tokens are personal tokens for a person's own CLI (ADR-047).
 	Tokens() TokenRepo
+	// Channels are two-way Telegram/Discord bots (ADR-048).
+	Channels() ChannelRepo
 	Sessions() SessionRepo
 	Audit() AuditRepo
 
@@ -168,4 +170,33 @@ type TokenRepo interface {
 	GetByHash(ctx context.Context, hash string) (UserToken, error)
 	Touch(ctx context.Context, id string, at time.Time) error
 	Revoke(ctx context.Context, id, userID string) error
+}
+
+// Channel is a Telegram or Discord bot an agent of the project answers.
+type Channel struct {
+	ID, ProjectID, Kind, Name string
+	TokenEnc                  string // the bot token, encrypted
+	AgentID                   string // "" = the lead
+	Mode                      string // the most its runs may do (perm level), default read
+	Enabled                   bool
+	Allow                     []string // chat/user ids allowed ("" = anyone)
+	Scope                     string   // topics it answers
+	FilterEnabled             bool     // refuse what is out of Scope (a fast model decides)
+	Refusal                   string   // the reply to an out-of-scope message
+	BotName                   string
+	LastError                 string
+	LastMessageAt             *time.Time
+	CreatedAt, UpdatedAt      time.Time
+}
+
+// ChannelRepo stores channels and which conversation each outside chat is.
+type ChannelRepo interface {
+	Create(ctx context.Context, c Channel) (Channel, error)
+	Update(ctx context.Context, c Channel) error
+	Get(ctx context.Context, id string) (Channel, error)
+	List(ctx context.Context, projectID string) ([]Channel, error) // "" = all
+	Delete(ctx context.Context, id string) error
+	SetStatus(ctx context.Context, id, botName, lastError string, lastMessage *time.Time) error
+	Thread(ctx context.Context, channelID, chatID string) (string, error)
+	SetThread(ctx context.Context, channelID, chatID, conversationID string) error
 }

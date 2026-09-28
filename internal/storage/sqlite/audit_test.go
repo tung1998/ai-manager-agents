@@ -89,3 +89,35 @@ func TestChatMembers(t *testing.T) {
 		t.Fatalf("upsert = %+v (joined %v)", got[0], first[0].JoinedAt)
 	}
 }
+
+func TestChannels(t *testing.T) {
+	s, _ := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
+	defer s.Close()
+	ctx := context.Background()
+	s.Migrate(ctx)
+	p, _ := s.Repos().Create(ctx, storage.Repo{Name: "p"})
+	c, err := s.Channels().Create(ctx, storage.Channel{ProjectID: p.ID, Kind: "telegram", Name: "Hỗ trợ", TokenEnc: "enc", Allow: []string{"42"}, FilterEnabled: true, Scope: "đơn hàng"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Name, c.Enabled = "Hỗ trợ 2", false
+	if err := s.Channels().Update(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	s.Channels().SetStatus(ctx, c.ID, "shop_bot", "", nil)
+	got, _ := s.Channels().Get(ctx, c.ID)
+	if got.Name != "Hỗ trợ 2" || got.Enabled || got.Allow[0] != "42" || !got.FilterEnabled || got.BotName != "shop_bot" || got.TokenEnc != "enc" {
+		t.Fatalf("channel = %+v", got)
+	}
+	conv, _ := s.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p.ID})
+	if id, _ := s.Channels().Thread(ctx, c.ID, "chat-1"); id != "" {
+		t.Fatalf("thread before = %q", id)
+	}
+	s.Channels().SetThread(ctx, c.ID, "chat-1", conv.ID)
+	if id, _ := s.Channels().Thread(ctx, c.ID, "chat-1"); id != conv.ID {
+		t.Fatalf("thread = %q", id)
+	}
+	if all, _ := s.Channels().List(ctx, ""); len(all) != 1 {
+		t.Fatalf("list all = %d", len(all))
+	}
+}
