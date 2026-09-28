@@ -17,7 +17,10 @@ interface Message {
   cost_usd?: number
 }
 interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
-interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message }
+interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message, next_turn_id?: string }
+// the agents in a chat and the answers in progress (ADR-044)
+interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
+interface RunningTurn { turn_id: string, agent_name: string, background: boolean }
 
 // taskId: the follow-up talk about one task (a single thread, no thread list)
 // purpose "automation": the chat that builds one automation (ADR-042), made on
@@ -102,9 +105,62 @@ async function afterTurn() {
   const id = current.value?.id
   if (!id) return
   try {
-    const res = await $fetch<{ conversation: Conversation }>(`/api/conversations/${id}`)
-    if (current.value?.id === id) current.value = { ...current.value, context_tokens: res.conversation.context_tokens, context_window: res.conversation.context_window }
+    const res = await $fetch<{ conversation: Conversation, members?: Member[], running?: RunningTurn[] }>(`/api/conversations/${id}`)
+    if (current.value?.id !== id) return
+    current.value = { ...current.value, context_tokens: res.conversation.context_tokens, context_window: res.conversation.context_window }
+    applyGroup(res.members, res.running)
   } catch { /* the next open shows it */ }
+}
+
+// agents working in the background on a hand-off (like subagents): their
+// answers land in the thread when done; the one who asked then reports back
+const members = ref<Member[]>([])
+const running = ref<RunningTurn[]>([])
+const background = computed(() => running.value.filter(r => r.background))
+const bgSources = new Map<string, EventSource>()
+function applyGroup(m?: Member[], r?: RunningTurn[]) {
+  members.value = m ?? []
+  running.value = r ?? []
+  for (const b of background.value) {
+    if (bgSources.has(b.turn_id)) continue
+    const es = new EventSource(`/api/chat/turns/${b.turn_id}/stream`)
+    bgSources.set(b.turn_id, es)
+    es.onmessage = (msg) => {
+      const ev = JSON.parse(msg.data) as ChatEvent
+      if (ev.type !== 'done' && ev.type !== 'error') return
+      if (ev.message && !messages.value.some(x => x.id === ev.message!.id)) messages.value.push(ev.message)
+      es.close()
+      bgSources.delete(b.turn_id)
+      scrollDown()
+      afterTurn()
+    }
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        bgSources.delete(b.turn_id)
+        afterTurn()
+      }
+    }
+  }
+  // the one who asked reports back: follow it when nothing else is streaming
+  const fg = running.value.find(x => !x.background)
+  if (fg && !streaming.value) follow(fg.turn_id)
+}
+function stopBackground() {
+  bgSources.forEach(es => es.close())
+  bgSources.clear()
+}
+async function cancelTurn(id: string) {
+  await $fetch(`/api/chat/turns/${id}/cancel`, { method: 'POST', body: {} }).catch(() => {})
+}
+const memberInitials = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?'
+const memberColors = ['bg-sky-600', 'bg-emerald-600', 'bg-violet-600', 'bg-amber-600', 'bg-rose-600', 'bg-teal-600', 'bg-indigo-600']
+const memberColor = (n: string) => memberColors[[...n].reduce((s, c) => s + c.charCodeAt(0), 0) % memberColors.length]
+// the person's message with the tags of agents marked
+function tagged(text: string) {
+  const names = agents.value.map(a => a.name).sort((a, b) => b.length - a.length).map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  if (!names.length) return [{ text, tag: false }]
+  // split with a capture group: odd parts are the tags
+  return text.split(new RegExp(`(@(?:${names.join('|')}))`, 'iu')).map((part, i) => ({ text: part, tag: i % 2 === 1 })).filter(p => p.text)
 }
 
 // the open chat (and a message) live in the URL, so a link points at them;
@@ -139,10 +195,12 @@ async function open(c: Conversation, messageId?: string) {
   stopStream()
   current.value = c
   if (ownsUrl.value && route.query.c !== c.id) router.replace({ query: { ...route.query, c: c.id, m: undefined } })
-  const res = await $fetch<{ conversation: Conversation, messages: Message[] }>(`/api/conversations/${c.id}`)
+  stopBackground()
+  const res = await $fetch<{ conversation: Conversation, messages: Message[], members?: Member[], running?: RunningTurn[] }>(`/api/conversations/${c.id}`)
   messages.value = res.messages
   current.value = res.conversation
-  if (res.conversation.active_turn) follow(res.conversation.active_turn)
+  applyGroup(res.members, res.running)
+  if (res.conversation.active_turn && !streaming.value) follow(res.conversation.active_turn)
   if (messageId) showMessage(messageId)
   else scrollDown()
 }
@@ -214,6 +272,11 @@ function follow(id: string) {
         if (ev.message) {
           messages.value.push(ev.message)
           if (props.purpose === 'automation' && ev.type === 'done') automationBlocks(ev.message.content).forEach(p => emit('automation-patch', p))
+        }
+        if (ev.next_turn_id) { // the next agent tagged answers now
+          follow(ev.next_turn_id)
+          scrollDown()
+          break
         }
         finishStream()
         afterTurn()
@@ -300,7 +363,10 @@ onMounted(() => {
   else if (ownsUrl.value && typeof route.query.c === 'string' && !tookPrefill) open({ id: route.query.c } as Conversation, typeof route.query.m === 'string' ? route.query.m : undefined)
   else if (conversations.value[0] && !tookPrefill) open(conversations.value[0])
 })
-onBeforeUnmount(stopStream)
+onBeforeUnmount(() => {
+  stopStream()
+  stopBackground()
+})
 </script>
 
 <template>
@@ -338,6 +404,21 @@ onBeforeUnmount(stopStream)
         <USelect v-model="threadPick" :items="threadItems" size="xs" class="min-w-0 flex-1" :placeholder="t('chat.newThread')" />
         <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" :aria-label="t('chat.newThread')" @click="newConversation()" />
       </div>
+      <div v-if="!single && (members.length > 1 || background.length)" class="flex flex-wrap items-center gap-2 border-b border-(--ui-border) px-3 py-1.5 text-xs">
+        <span class="text-(--ui-text-muted)">{{ t('chat.members') }}</span>
+        <div class="flex -space-x-1.5">
+          <span
+            v-for="m in members" :key="m.agent_id" class="grid size-6 place-items-center rounded-full text-[10px] font-semibold text-white ring-2 ring-(--ui-bg)"
+            :class="memberColor(m.agent_name)" :title="`${m.agent_name} · ${permOf(m.level).label}${m.context_window ? ` · ${Math.round(m.context_tokens / m.context_window * 100)}% context` : ''}`"
+          >{{ memberInitials(m.agent_name) }}</span>
+        </div>
+        <span v-for="b in background" :key="b.turn_id" class="flex items-center gap-1 rounded-full bg-(--ui-bg-elevated) py-0.5 ps-2 pe-1 text-(--ui-text-muted)">
+          <UIcon name="i-lucide-loader-circle" class="size-3 animate-spin" />{{ t('chat.working', { name: b.agent_name }) }}
+          <button type="button" class="rounded-full px-1 hover:text-(--ui-error)" :aria-label="t('chat.stop')" :title="t('chat.stop')" @click="cancelTurn(b.turn_id)">
+            <UIcon name="i-lucide-square" class="size-3" />
+          </button>
+        </span>
+      </div>
       <div ref="listEl" class="flex-1 space-y-4 overflow-y-auto p-4">
         <div v-if="!messages.length && !streaming" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
           <UIcon name="i-lucide-messages-square" class="size-8" />
@@ -364,7 +445,7 @@ onBeforeUnmount(stopStream)
                   <UIcon name="i-lucide-ellipsis" class="size-4" />
                 </button>
               </UDropdownMenu>
-              <div v-if="m.content" class="min-w-0 whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--ui-primary) px-3.5 py-2 text-sm text-white">{{ m.content }}</div>
+              <div v-if="m.content" class="min-w-0 whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--ui-primary) px-3.5 py-2 text-sm text-white"><template v-for="(p, i) in tagged(m.content)" :key="i"><span v-if="p.tag" class="rounded bg-white/20 px-0.5 font-medium">{{ p.text }}</span><template v-else>{{ p.text }}</template></template></div>
             </div>
           </div>
           <div v-else-if="m.role === 'error'" class="flex items-start gap-2 text-sm text-(--ui-error)">
@@ -416,6 +497,7 @@ onBeforeUnmount(stopStream)
         <PromptInput
           ref="prompt" v-model="draft" v-model:attachments="draftFiles" :project-id="projectId"
           :placeholder="picked ? t('chat.placeholderWithAgent', { agent: picked.name }) : t('chat.placeholderNoAgent')"
+          :mentions="single ? [] : agents.map(a => ({ name: a.name, label: permOf(agentLevel(a.permissions)).label, icon: permOf(agentLevel(a.permissions)).icon }))"
           @submit="send"
         >
           <template #actions>

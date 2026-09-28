@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// Prompt box shared by Chat and Việc: "/" opens the project's skills, files
+// Prompt box shared by Chat and Việc: "/" opens the project's skills, "@"
+// the agents to tag (Chat, ADR-044), files
 // can be attached (button, drag & drop, paste) and are uploaded right away.
 export interface Attachment { id: string, name: string, kind: 'image' | 'pdf' | 'text', mime: string, size: number }
 interface Skill { name: string, description: string, source: 'project' | 'user' | 'plugin' }
@@ -10,7 +11,8 @@ const props = withDefaults(defineProps<{
   rows?: number
   maxrows?: number
   submitOnEnter?: boolean
-}>(), { placeholder: '', rows: 1, maxrows: 8, submitOnEnter: true })
+  mentions?: { name: string, label: string, icon?: string }[] // agents "@" can tag
+}>(), { placeholder: '', rows: 1, maxrows: 8, submitOnEnter: true, mentions: () => [] })
 const text = defineModel<string>({ default: '' })
 const files = defineModel<Attachment[]>('attachments', { default: () => [] })
 const emit = defineEmits<{ submit: [] }>()
@@ -35,8 +37,23 @@ const matches = computed(() => {
     .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
     .slice(0, 8)
 })
-const menuOpen = computed(() => !menuClosed.value && matches.value.length > 0)
-watch(query, () => { menuIndex.value = 0; menuClosed.value = false })
+// "@" right before the caret: the agents whose name has what was typed after it
+const caret = ref(0)
+function syncCaret() { caret.value = box.value?.textareaRef?.selectionStart ?? text.value.length }
+const mentionQuery = computed(() => {
+  if (!props.mentions.length) return null
+  const m = /(?:^|\s)@([^\s@]*)$/u.exec(text.value.slice(0, caret.value))
+  return m ? m[1]!.toLowerCase() : null
+})
+const mentionMatches = computed(() => {
+  const q = mentionQuery.value
+  if (q === null) return []
+  return props.mentions.filter(a => a.name.toLowerCase().includes(q)).slice(0, 8)
+})
+const menuKind = computed<'mention' | 'skill'>(() => mentionMatches.value.length ? 'mention' : 'skill')
+const menuCount = computed(() => menuKind.value === 'mention' ? mentionMatches.value.length : matches.value.length)
+const menuOpen = computed(() => !menuClosed.value && menuCount.value > 0)
+watch([query, mentionQuery], () => { menuIndex.value = 0; menuClosed.value = false })
 const activeSkill = computed(() => {
   const m = /^\/(\S+)\s/.exec(text.value)
   return m ? skills.value.find(s => s.name === m[1]) : undefined
@@ -71,25 +88,39 @@ onBeforeUnmount(() => {
   window.removeEventListener('scroll', place, true)
   window.removeEventListener('resize', place)
 })
-watch(() => matches.value.length, () => { if (menuOpen.value) nextTick(place) })
+watch(menuCount, () => { if (menuOpen.value) nextTick(place) })
 
 const box = ref<{ textareaRef?: HTMLTextAreaElement } | null>(null)
 function pick(s: Skill) {
   text.value = `/${s.name} `
   nextTick(() => box.value?.textareaRef?.focus())
 }
+function pickMention(name: string) {
+  const before = text.value.slice(0, caret.value).replace(/@([^\s@]*)$/u, `@${name} `)
+  text.value = before + text.value.slice(caret.value)
+  nextTick(() => {
+    const el = box.value?.textareaRef
+    el?.focus()
+    el?.setSelectionRange(before.length, before.length)
+    syncCaret()
+  })
+}
+function pickCurrent() {
+  if (menuKind.value === 'mention') pickMention(mentionMatches.value[menuIndex.value]!.name)
+  else pick(matches.value[menuIndex.value]!)
+}
 
 function onKey(e: KeyboardEvent) {
   if (menuOpen.value) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
-      const n = matches.value.length
+      const n = menuCount.value
       menuIndex.value = (menuIndex.value + (e.key === 'ArrowDown' ? 1 : n - 1)) % n
       return
     }
     if ((e.key === 'Enter' || e.key === 'Tab') && !e.isComposing) {
       e.preventDefault()
-      pick(matches.value[menuIndex.value]!)
+      pickCurrent()
       return
     }
     if (e.key === 'Escape') {
@@ -179,6 +210,20 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
         v-if="menuOpen" role="listbox" :style="menuStyle"
         class="fixed z-50 overflow-auto rounded-lg border border-(--ui-border) bg-(--ui-bg) p-1 shadow-lg"
       >
+      <template v-if="menuKind === 'mention'">
+        <p class="px-2 py-1 text-xs text-(--ui-text-muted)">{{ t('prompt.mentionHint') }}</p>
+        <button
+          v-for="(a, i) in mentionMatches" :key="a.name" type="button" role="option" :aria-selected="i === menuIndex"
+          class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left"
+          :class="i === menuIndex ? 'bg-(--ui-bg-elevated)' : 'hover:bg-(--ui-bg-elevated)'"
+          @mousedown.prevent="pickMention(a.name)" @mouseenter="menuIndex = i"
+        >
+          <UIcon :name="a.icon || 'i-lucide-bot'" class="size-4 shrink-0 text-primary" />
+          <span class="min-w-0 flex-1 truncate text-sm">@{{ a.name }}</span>
+          <UBadge color="neutral" variant="subtle" size="sm" :label="a.label" />
+        </button>
+      </template>
+      <template v-else>
       <p class="px-2 py-1 text-xs text-(--ui-text-muted)">{{ t('prompt.skillHint') }}</p>
       <button
         v-for="(s, i) in matches" :key="s.name" type="button" role="option" :aria-selected="i === menuIndex"
@@ -193,6 +238,7 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
         </span>
         <UBadge color="neutral" variant="subtle" size="sm" :label="sourceLabel[s.source]" />
       </button>
+      </template>
       </div>
     </Teleport>
 
@@ -214,7 +260,7 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
 
     <UTextarea
       ref="box" v-model="text" :rows="rows" autoresize :maxrows="maxrows" variant="none" class="w-full"
-      :placeholder="placeholder" @keydown="onKey" @paste="onPaste"
+      :placeholder="placeholder" @keydown="onKey" @paste="onPaste" @keyup="syncCaret" @click="syncCaret" @input="syncCaret"
     />
 
     <div class="@container flex items-center gap-2 px-2 pb-2">
