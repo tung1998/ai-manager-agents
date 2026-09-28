@@ -81,3 +81,26 @@ func (fakeRunner) StartTask(context.Context, string, string, string) (string, er
 	return "tsk_x", nil
 }
 func (fakeRunner) RunAutomation(context.Context, string) (string, error) { return "job_x", nil }
+
+type fakeConfig struct{}
+
+func (fakeConfig) DescribeConfig(string) (string, error)                             { return "", nil }
+func (fakeConfig) ListConfig(context.Context, string, string) (string, error)        { return "", nil }
+func (fakeConfig) GetConfig(context.Context, string, string, string) (string, error) { return "", nil }
+
+// A read-only agent of a project may look at settings but not propose a
+// change (the office assistant may: its cards are what it is for).
+func TestProposeChangeNeedsProposeLevel(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	shop, _ := st.Repos().Create(ctx, storage.Repo{Name: "Storefront"})
+	box := New(st, nil, actions.New(st, nil))
+	box.SetConfig(fakeConfig{})
+	raw, _ := json.Marshal(map[string]any{"resource": "automation", "op": "create", "patch": map[string]any{"name": "x"}, "reason": "r"})
+	out, isErr := box.Call(ctx, Scope{ProjectID: shop.ID, Level: "read"}, "propose_change", raw)
+	if !isErr || !strings.Contains(out, "quyền") {
+		t.Fatalf("a read-only agent proposed a change: %v %s", isErr, out)
+	}
+}

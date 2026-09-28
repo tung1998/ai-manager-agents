@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/perm"
@@ -54,6 +55,20 @@ func TestConfigChangeProposeApprove(t *testing.T) {
 		t.Fatalf("a stale change was applied: %q (%v)", got.Name, b)
 	}
 
+	// not stale: only runtime fields (last run, failures) moved since the proposal
+	a, _ = propose("automation", "update", aid, map[string]any{"name": "C"})
+	cur, _ := e.st.Automations().Get(ctx, aid)
+	cur.Failures = 2
+	now := time.Now().UTC()
+	cur.LastRunAt = &now
+	_ = e.st.Automations().Update(ctx, cur)
+	if resp, b := do(t, admin, "POST", e.srv.URL+"/api/actions/"+a.ID+"/approve", map[string]any{}, nil); resp.StatusCode != 200 {
+		t.Fatalf("approve after a run = %d %v", resp.StatusCode, b)
+	}
+	if got, _ := e.st.Automations().Get(ctx, aid); got.Name != "C" {
+		t.Fatalf("a run made the proposal stale: %q", got.Name)
+	}
+
 	for name, bad := range map[string]func() error{
 		"unknown field": func() error { _, err := propose("automation", "update", aid, map[string]any{"bogus": 1}); return err },
 		"unknown kind":  func() error { _, err := propose("nope", "update", aid, map[string]any{"name": "x"}); return err },
@@ -61,6 +76,10 @@ func TestConfigChangeProposeApprove(t *testing.T) {
 			sc.ProjectID = other
 			defer func() { sc.ProjectID = pid }()
 			_, err := propose("automation", "update", aid, map[string]any{"name": "x"})
+			return err
+		},
+		"office setting from a project": func() error {
+			_, err := propose("provider", "create", "", map[string]any{"name": "p", "kind": "anthropic"})
 			return err
 		},
 		"key from the AI": func() error {
@@ -74,6 +93,7 @@ func TestConfigChangeProposeApprove(t *testing.T) {
 	}
 
 	// a provider: the person pastes the key on the card, the AI never sees it
+	sc.Office = true // the office assistant (or the CLI) proposes office settings
 	a, err = propose("provider", "create", "", map[string]any{"name": "Claude API", "kind": "anthropic"})
 	if err != nil {
 		t.Fatal(err)

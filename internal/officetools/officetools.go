@@ -305,6 +305,9 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		case "get":
 			out, err = t.config.GetConfig(ctx, projectID, in.Resource, in.ID)
 		default:
+			if !sc.Office && !perm.AtLeast(sc.Level, perm.Propose) {
+				return "Bạn không có quyền đề xuất đổi cài đặt (gói hiện tại: " + perm.Label(sc.Level) + ")", true
+			}
 			var a storage.Action
 			a, err = t.actions.Propose(ctx, sc, "config_change", "", in.Reason, storage.ActionArgs{Change: &storage.ConfigChange{Resource: in.Resource, Op: in.Op, ID: in.ID, Patch: in.Patch}})
 			if err == nil {

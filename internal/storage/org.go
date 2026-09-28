@@ -582,7 +582,8 @@ type ConfigChange struct {
 	Op       string          `json:"op"` // create | update | delete
 	ID       string          `json:"id,omitempty"`
 	Patch    json.RawMessage `json:"patch,omitempty"`
-	Before   json.RawMessage `json:"before,omitempty"`
+	Before   json.RawMessage `json:"before,omitempty"` // the fields a patch may set, secrets hidden (shown on the card)
+	Hash     string          `json:"hash,omitempty"`   // of those fields unhidden: a change since the proposal makes it stale
 }
 
 // ActionRepo stores proposed actions.

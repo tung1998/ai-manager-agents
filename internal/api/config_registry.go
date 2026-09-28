@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -204,14 +206,38 @@ func (k cfgKind) fields() []string {
 	return out
 }
 
+// state is the setting as a patch sees it: only the input's fields, so a run
+// moving last_run_at or a failure count never makes a proposal stale.
+func (k cfgKind) state(obj any) map[string]any {
+	raw, _ := json.Marshal(obj)
+	var all map[string]any
+	_ = json.Unmarshal(raw, &all)
+	out := map[string]any{}
+	for _, f := range k.fields() {
+		if v, ok := all[f]; ok {
+			out[f] = v
+		}
+	}
+	return out
+}
+
+func stateHash(st map[string]any) string {
+	raw, _ := json.Marshal(st) // map keys are sorted: the same state, the same hash
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
 // ---- actions.ConfigApplier ----
 
 // CheckChange validates a proposal made in projectID and keeps the setting
 // as it is now in c.Before.
-func (s *server) CheckChange(ctx context.Context, projectID string, c *storage.ConfigChange) (string, error) {
+func (s *server) CheckChange(ctx context.Context, projectID string, office bool, c *storage.ConfigChange) (string, error) {
 	k, err := s.cfgKind(c.Resource)
 	if err != nil {
 		return "", err
+	}
+	if k.office && !office {
+		return "", fmt.Errorf("%s là cài đặt chung của office: nhờ trợ lý office đề xuất", k.title)
 	}
 	if k.route(c.Op) == nil {
 		return "", fmt.Errorf("%s không hỗ trợ thao tác %q", k.title, c.Op)
@@ -239,8 +265,9 @@ func (s *server) CheckChange(ctx context.Context, projectID string, c *storage.C
 		if !k.office && project != projectID {
 			return "", fmt.Errorf("%s này thuộc project khác", k.title)
 		}
-		before, _ := json.Marshal(audit.Snapshot(obj))
-		c.Before = before
+		st := k.state(obj)
+		c.Before, _ = json.Marshal(audit.Snapshot(st))
+		c.Hash = stateHash(st)
 		return k.title + " " + labelOf(obj, c.ID), nil
 	}
 	if len(patch) == 0 {
@@ -276,8 +303,9 @@ func (s *server) ApplyChange(ctx context.Context, a storage.Action) (string, err
 		if err != nil {
 			return "", fmt.Errorf("không còn %s %q", k.title, c.ID)
 		}
-		now, _ := json.Marshal(audit.Snapshot(obj))
-		if len(c.Before) > 0 && !sameJSON(now, c.Before) {
+		st := k.state(obj)
+		now, _ := json.Marshal(audit.Snapshot(st))
+		if (c.Hash != "" && stateHash(st) != c.Hash) || (c.Hash == "" && len(c.Before) > 0 && !sameJSON(now, c.Before)) {
 			return "", errors.New("đã có thay đổi mới kể từ lúc đề xuất; hãy đề xuất lại")
 		}
 		if k.merge && c.Op == "update" {

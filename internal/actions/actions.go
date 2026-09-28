@@ -54,7 +54,9 @@ func (s *Service) SetRunner(r Runner) { s.runner = r }
 type ConfigApplier interface {
 	// CheckChange validates a proposal of projectID's agent, fills c.Before
 	// and returns a label for the card.
-	CheckChange(ctx context.Context, projectID string, c *storage.ConfigChange) (string, error)
+	// office: proposed in the office scope, the only one that may touch
+	// office-wide settings (AI connections, the budget).
+	CheckChange(ctx context.Context, projectID string, office bool, c *storage.ConfigChange) (string, error)
 	// ApplyChange carries out an approved change (ctx carries the approver).
 	ApplyChange(ctx context.Context, a storage.Action) (string, error)
 }
@@ -128,7 +130,7 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 		if s.config == nil || a.Args.Change == nil {
 			return a, errors.New("không đổi được cài đặt ở đây")
 		}
-		label, err := s.config.CheckChange(ctx, sc.ProjectID, a.Args.Change)
+		label, err := s.config.CheckChange(ctx, sc.ProjectID, sc.Office, a.Args.Change)
 		if err != nil {
 			return a, err
 		}
