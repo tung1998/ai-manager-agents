@@ -10,6 +10,5 @@ export default {
   'limits.context': 'Context window',
   'limits.contextTitle': 'Context đã dùng {pct}%',
   'limits.contextUnknown': 'chưa có',
-  'limits.fromLastRun': 'Cập nhật theo lượt chạy gần nhất',
-  'limits.sidebar': 'Giới hạn dùng'
+  'limits.fromLastRun': 'Cập nhật theo lượt chạy gần nhất'
 }

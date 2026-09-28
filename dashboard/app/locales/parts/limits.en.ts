@@ -11,7 +11,6 @@ const en: Record<keyof typeof vi, string> = {
   'limits.context': 'Context window',
   'limits.contextTitle': 'Context used {pct}%',
   'limits.contextUnknown': 'unknown yet',
-  'limits.fromLastRun': 'As of the latest run',
-  'limits.sidebar': 'Usage limits'
+  'limits.fromLastRun': 'As of the latest run'
 }
 export default en
