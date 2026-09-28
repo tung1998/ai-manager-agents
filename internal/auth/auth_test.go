@@ -117,6 +117,9 @@ func TestLoginAuthenticateLogout(t *testing.T) {
 	actions := map[string]bool{}
 	for _, e := range entries {
 		actions[e.Action] = true
+		if e.Action == "auth.login" && (e.ActorKind != "human" || !e.OK || e.Resource != "auth") {
+			t.Errorf("login row = %+v (ADR-043: kind, ok, resource)", e)
+		}
 	}
 	for _, a := range []string{"user.create", "auth.login", "auth.logout"} {
 		if !actions[a] {

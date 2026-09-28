@@ -6,6 +6,8 @@
 package auth
 
 import (
+	actorpkg "bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -307,7 +309,13 @@ func (s *Service) fail(ctx context.Context, email string, meta ClientMeta, reaso
 }
 
 func (s *Service) audit(ctx context.Context, actor, action, target string, detail map[string]any) {
-	_ = s.store.Audit().Append(ctx, storage.AuditEntry{Actor: actor, Action: action, Target: target, Detail: detail, At: s.opts.Now()})
+	c := audit.Change{Action: action, ResourceID: target, Detail: detail}
+	if strings.HasSuffix(action, "_failed") || strings.HasSuffix(action, "_throttled") {
+		c.Err = errors.New(strings.TrimPrefix(action, "auth."))
+	}
+	e := audit.Entry(actorpkg.With(ctx, actor), c)
+	e.At = s.opts.Now()
+	_ = s.store.Audit().Append(ctx, e)
 }
 
 func newToken() (token, hash string, err error) {

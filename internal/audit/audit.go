@@ -40,6 +40,9 @@ func fromActor(ctx context.Context) Who {
 	switch {
 	case strings.HasPrefix(a, "human:"):
 		return Who{Kind: "human", Name: strings.TrimPrefix(a, "human:"), Via: "ui"}
+	case strings.HasPrefix(a, "user:"): // a person known by id (e.g. logout)
+		id := strings.TrimPrefix(a, "user:")
+		return Who{Kind: "human", ID: id, Name: id, Via: "ui"}
 	case strings.HasPrefix(a, "auto:"):
 		return Who{Kind: "automation", Name: strings.TrimPrefix(a, "auto:"), Via: "automation"}
 	}

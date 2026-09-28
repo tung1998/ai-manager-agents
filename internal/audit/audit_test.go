@@ -66,6 +66,7 @@ func TestEntryFallsBackToActorString(t *testing.T) {
 	cases := map[string][2]string{
 		"human:a@x.io": {"human", "a@x.io"},
 		"auto:Nightly": {"automation", "Nightly"},
+		"user:usr_1":   {"human", "usr_1"},
 		"monitor:api":  {"system", "monitor:api"},
 		"":             {"system", "system"},
 	}
