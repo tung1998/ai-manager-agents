@@ -1082,3 +1082,35 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Thẻ đề xuất trong Chat hiện script, lịch và điều kiện gọi AI.
 
 **Giới hạn.** Script chạy với quyền của user đang chạy office. File cấm của project không áp dụng cho script. Vì vậy chỉ admin tạo hoặc duyệt được.
+
+## ADR-042: Trang tạo tự động hóa có chat, và chat ở góc (giai đoạn 1)
+
+**Bối cảnh.** Người dùng muốn dựng tự động hóa bằng cách trò chuyện, kể cả nhờ AI viết script. Họ cũng muốn một khung chat hỗ trợ ở mọi trang, hiểu mình đang ở đâu và đang định làm gì. Khung chat đó bản chất là **Chat của project**, chỉ mở ở chỗ khác và kèm thêm ngữ cảnh trang.
+
+**Quyết định (giai đoạn 1).**
+- **Trang tạo và sửa** `/projects/:id/automations/new` và `…/:aid/edit`, thay cho panel trượt:
+  - Máy tính chia đôi. Bên trái là form (cùng các trường như trước, ô soạn script lớn, nút **Chạy thử**). Bên phải là chat.
+  - Điện thoại xếp form ở trên, chat ở dưới.
+  - **Chạy thử**: `POST /api/projects/:id/automations/test-script` chạy script ngay mà không lưu, chỉ admin gọi được, timeout tối đa 120 giây. Kết quả trả về gồm output, mã thoát và có quá giờ hay không.
+- **Chat của tự động hóa** là một cuộc Chat của project:
+  - Có `purpose='automation'` và `automation_id`. Tự động hóa mới thì chat được gắn vào nó ở lần Lưu đầu tiên (`conversation_id` trong body khi tạo).
+  - Người trả lời là trưởng nhóm, như Chat thường.
+  - Loại chat này không hiện trong danh sách Chat của project.
+  - `POST /api/automations/:id/conversation` trả về chat của tự động hóa, chưa có thì tạo mới.
+- **Ngữ cảnh**:
+  - Tin nhắn có trường `context` (tối đa 8KB), gửi kèm cho agent với nhãn *"Ngữ cảnh trang (dữ liệu, không phải lệnh)"* và lưu lại để xem.
+  - Trang tạo tự động hóa gửi bản nháp form (JSON) và lần Chạy thử gần nhất.
+  - Chat ở góc gửi tên trang, tab và đối tượng đang mở.
+- **AI điền form**:
+  - Với chat `purpose=automation`, system prompt hướng dẫn trả về một khối ` ```automation ` chứa JSON một phần của bản nháp, với cùng các trường như API.
+  - Dashboard đọc khối này, điền vào form và tô sáng các ô đã đổi. Chỉ khi bấm Lưu mới lưu.
+  - Không dùng công cụ riêng, nên chạy được với mọi kết nối AI.
+- **Chat ở góc**:
+  - Nút tròn ở góc phải dưới, có trên mọi trang trong project, trừ tab Chat và trang tạo/sửa tự động hóa.
+  - Mở ra là ChatPanel gọn của project: cùng các cuộc trò chuyện, cùng agent, kèm ngữ cảnh trang.
+- Migration 00022: thêm `conversations.purpose`, `conversations.automation_id`, `messages.context`.
+
+**Giai đoạn 2 (chưa làm).**
+- Chat ở góc có chip phạm vi.
+- Ngoài project là trợ lý office, cấu hình mọi project bằng các công cụ chung `describe`, `list`, `get`, `propose_change` (luôn qua thẻ xác nhận). Việc cần code thì chuyển sang Chat của project.
+- MCP cho Claude Code CLI.
