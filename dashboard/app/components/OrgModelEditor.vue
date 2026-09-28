@@ -174,10 +174,10 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
           </p>
           <p v-if="model.governance.notes" class="text-xs text-(--ui-text-muted)">{{ model.governance.notes }}</p>
         </div>
-        <div class="flex gap-2">
-          <UButton icon="i-lucide-history" :label="t('org.editor.history')" color="neutral" variant="ghost" @click="historyOpen = true" />
-        </div>
-        <div v-if="isAdmin" class="flex gap-2">
+        <!-- one row of actions, same size and style -->
+        <div class="flex shrink-0 flex-wrap items-center gap-2">
+          <UButton icon="i-lucide-history" :label="t('org.editor.history')" color="neutral" variant="outline" @click="historyOpen = true" />
+          <template v-if="isAdmin">
           <UButton icon="i-lucide-settings-2" :label="t('org.editor.settings')" color="neutral" variant="outline" @click="openSettings" />
           <UDropdownMenu :items="[[
             { label: t('org.editor.addLead'), icon: 'i-lucide-crown', onSelect: () => newAgent('lead') },
@@ -186,6 +186,7 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
           ]]">
             <UButton icon="i-lucide-user-plus" :label="t('org.editor.addAgent')" />
           </UDropdownMenu>
+          </template>
         </div>
       </div>
     </UCard>
