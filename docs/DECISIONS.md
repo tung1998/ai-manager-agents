@@ -924,7 +924,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
     - `trigger` (`ui` | `schedule` | `webhook` | `telegram` | `discord` | `manual`);
     - `created_by`.
   - Liên kết tới nội dung: `conversation_id` + `message_id` (chat_turn), hoặc `task_id` (task).
-  - Trạng thái: `status` (`pending` | `running` | `done` | `failed` | `cancelled` | `skipped`), `error`, `error_code` (mã ổn định để thống kê và dịch, ví dụ `busy_timeout`, `budget`, `rate_limit`, `agent_missing`, `restart`, `agent_error`).
+  - Trạng thái: `status` (`pending` | `running` | `done` | `failed` | `cancelled` | `skipped` | `needs_input`), `error`, `error_code` (mã ổn định để thống kê và dịch, ví dụ `busy_timeout`, `budget`, `rate_limit`, `agent_missing`, `restart`, `agent_error`).
   - Chép sẵn để lọc và thống kê nhanh, không phải join: `agent_id`, `title`, `cost_usd`, `input_tokens`, `output_tokens`, `duration_ms`. Các số này được tính lúc job kết thúc, từ các lượt gọi AI của job.
   - Hàng đợi: `next_attempt_at`, `dedupe_key` (unique theo `origin_id`), `debounce_key`, `debounce_until`, `payload` (tối đa 64KB), `reply` (JSON: kênh, chat, id tin để trả lời).
   - Thời gian: `created_at`, `started_at`, `finished_at`.
@@ -1039,3 +1039,13 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Mỗi nguồn một hệ thống riêng: tạo job mỗi nơi một kiểu, đã gây lỗi ở senprints-agents.
 - Dùng công cụ ngoài như n8n hay Zapier: agent không dùng được quyền, worktree và chi phí của office.
 - Discord qua Interactions endpoint: cần URL công khai, và token của interaction hết hạn sau 15 phút.
+
+**Đã làm (giai đoạn 1).**
+- Code: `internal/trigger` (lịch chạy, bộ chạy, webhook), `internal/api/automations.go` và `jobs.go`, migration 00020.
+- Dashboard: mục Tự động của project, trang Job.
+- Khác với spec ở mấy điểm:
+  - Job xong thì lấy ngay job kế tiếp, không đợi lượt kiểm tra 15 giây.
+  - Chạy lại một lượt tự động tạo job mới với `trigger=manual`, `origin` vẫn là `automation` để giới hạn và lịch sử gom đúng.
+  - Đường `GET /api/jobs` cũ (Việc gần đây ở trang Tổng quan) chuyển sang `/api/tasks/recent`.
+  - `/hooks/` không đi qua middleware CSRF, vì không dùng cookie mà mỗi tự động hóa có token riêng.
+  - Debounce không có khóa thì mọi lần gửi gom thành một lượt.

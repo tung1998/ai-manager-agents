@@ -116,7 +116,9 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Agent sửa file và chạy build/test trong git worktree riêng cho mỗi Chat/Việc, diff lấy từ git rồi gộp; tùy chọn sửa thẳng như CLI (ADR-037) | Xong |
 | Project chỉ liệt kê lệnh; agent được chọn lệnh/tiến trình/container, mặc định lệnh an toàn chạy từ Chỉ đọc (ADR-038) | Xong |
 | Trang chi tiết agent: thống kê, cấu hình theo thẻ, hoạt động, lịch sử có so sánh và khôi phục (ADR-039) | Xong |
-| Việc định kỳ, cảnh báo, `doctor` | Chưa làm |
+| Job cho mọi lần chạy (Chat, Việc, tự động), trang Job; Tự động: lịch chạy (cron + múi giờ), webhook/API có token, chống trùng, debounce, giới hạn và tự tắt (ADR-040 giai đoạn 1) | Xong |
+| Tự động: Telegram và Discord hai chiều (ADR-040 giai đoạn 2–3) | Chưa làm |
+| Cảnh báo, `doctor` | Chưa làm |
 
 ### M0: Nền móng
 
