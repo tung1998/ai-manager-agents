@@ -518,6 +518,7 @@ type Action struct {
 	MessageID      string
 	TaskID         string
 	RunRef         string
+	JobID          string // the chat answer/task run it was proposed in
 	Kind           string
 	Target         string
 	TargetID       string

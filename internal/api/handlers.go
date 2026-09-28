@@ -196,7 +196,7 @@ func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	entries, err := s.cfg.Store.Audit().List(r.Context(), limit)
+	entries, err := s.cfg.Store.Audit().List(r.Context(), storage.AuditFilter{Limit: limit})
 	if err != nil {
 		s.internal(w, r, err)
 		return

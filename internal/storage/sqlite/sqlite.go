@@ -300,6 +300,9 @@ func (r sessionRepo) DeleteExpired(ctx context.Context, now time.Time) (int64, e
 
 type auditRepo struct{ db dbtx }
 
+const auditCols = `id, actor, action, target, detail, at, actor_kind, actor_id, actor_name, approved_by, via,
+	project_id, conversation_id, job_id, task_id, action_id, resource, resource_id, before_json, after_json, ok`
+
 func (r auditRepo) Append(ctx context.Context, e storage.AuditEntry) error {
 	if e.ID == "" {
 		e.ID = ids.New("aud")
@@ -315,18 +318,69 @@ func (r auditRepo) Append(ctx context.Context, e storage.AuditEntry) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.ExecContext(ctx,
-		`INSERT INTO audit_log (id, actor, action, target, detail, at) VALUES (?, ?, ?, ?, ?, ?)`,
-		e.ID, e.Actor, e.Action, e.Target, string(raw), fmtTime(e.At))
+	before, err := nullJSON(e.Before)
+	if err != nil {
+		return err
+	}
+	after, err := nullJSON(e.After)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `INSERT INTO audit_log (`+auditCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		e.ID, e.Actor, e.Action, e.Target, string(raw), fmtTime(e.At), e.ActorKind, e.ActorID, e.ActorName, e.ApprovedBy, e.Via,
+		e.ProjectID, e.ConversationID, e.JobID, e.TaskID, e.ActionID, e.Resource, e.ResourceID, before, after, boolInt(e.OK))
 	return err
 }
 
-func (r auditRepo) List(ctx context.Context, limit int) ([]storage.AuditEntry, error) {
-	if limit <= 0 {
-		limit = 100
+// nullJSON: nil map = SQL NULL (no snapshot), otherwise its JSON.
+func nullJSON(m map[string]any) (any, error) {
+	if m == nil {
+		return nil, nil
 	}
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, actor, action, target, detail, at FROM audit_log ORDER BY at DESC, id DESC LIMIT ?`, limit)
+	b, err := json.Marshal(m)
+	return string(b), err
+}
+
+func auditWhere(f storage.AuditFilter) (string, []any) {
+	var conds []string
+	var args []any
+	eq := func(col, v string) {
+		if v != "" {
+			conds, args = append(conds, col+" = ?"), append(args, v)
+		}
+	}
+	eq("project_id", f.ProjectID)
+	eq("resource", f.Resource)
+	eq("resource_id", f.ResourceID)
+	eq("actor_kind", f.ActorKind)
+	eq("actor_id", f.ActorID)
+	eq("actor_name", f.ActorName)
+	eq("via", f.Via)
+	eq("conversation_id", f.ConversationID)
+	eq("job_id", f.JobID)
+	eq("task_id", f.TaskID)
+	if !f.From.IsZero() {
+		conds, args = append(conds, "at >= ?"), append(args, fmtTime(f.From))
+	}
+	if !f.To.IsZero() {
+		conds, args = append(conds, "at < ?"), append(args, fmtTime(f.To))
+	}
+	if f.BeforeID != "" {
+		conds = append(conds, "(at, id) < (SELECT at, id FROM audit_log WHERE id = ?)")
+		args = append(args, f.BeforeID)
+	}
+	if len(conds) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args
+}
+
+func (r auditRepo) List(ctx context.Context, f storage.AuditFilter) ([]storage.AuditEntry, error) {
+	if f.Limit <= 0 || f.Limit > 500 {
+		f.Limit = 100
+	}
+	where, args := auditWhere(f)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+auditCols+` FROM audit_log`+where+` ORDER BY at DESC, id DESC LIMIT ?`, append(args, f.Limit)...)
 	if err != nil {
 		return nil, err
 	}
@@ -334,19 +388,61 @@ func (r auditRepo) List(ctx context.Context, limit int) ([]storage.AuditEntry, e
 	var out []storage.AuditEntry
 	for rows.Next() {
 		var (
-			e       storage.AuditEntry
-			raw, at string
+			e             storage.AuditEntry
+			raw, at       string
+			before, after sql.NullString
+			ok            int
 		)
-		if err := rows.Scan(&e.ID, &e.Actor, &e.Action, &e.Target, &raw, &at); err != nil {
+		if err := rows.Scan(&e.ID, &e.Actor, &e.Action, &e.Target, &raw, &at, &e.ActorKind, &e.ActorID, &e.ActorName, &e.ApprovedBy, &e.Via,
+			&e.ProjectID, &e.ConversationID, &e.JobID, &e.TaskID, &e.ActionID, &e.Resource, &e.ResourceID, &before, &after, &ok); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(raw), &e.Detail); err != nil {
 			return nil, err
 		}
+		if before.Valid {
+			if err := json.Unmarshal([]byte(before.String), &e.Before); err != nil {
+				return nil, err
+			}
+		}
+		if after.Valid {
+			if err := json.Unmarshal([]byte(after.String), &e.After); err != nil {
+				return nil, err
+			}
+		}
+		e.OK = ok == 1
 		if e.At, err = parseTime(at); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+var auditGroups = map[string]string{
+	"day": "substr(at, 1, 10)", "kind": "actor_kind", "actor": "actor_kind || ':' || actor_name",
+	"resource": "resource", "via": "via", "project": "project_id",
+}
+
+func (r auditRepo) Count(ctx context.Context, f storage.AuditFilter, by string) ([]storage.AuditCount, error) {
+	expr, ok := auditGroups[by]
+	if !ok {
+		return nil, fmt.Errorf("không nhóm được theo %q", by)
+	}
+	f.BeforeID = ""
+	where, args := auditWhere(f)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+expr+` AS k, COUNT(*), SUM(ok = 0) FROM audit_log`+where+` GROUP BY k ORDER BY COUNT(*) DESC, k LIMIT 500`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storage.AuditCount
+	for rows.Next() {
+		var c storage.AuditCount
+		if err := rows.Scan(&c.Key, &c.Count, &c.Failed); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
 	}
 	return out, rows.Err()
 }

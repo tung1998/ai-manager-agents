@@ -123,17 +123,68 @@ func testSessions(t *testing.T, s storage.Store) {
 
 func testAudit(t *testing.T, s storage.Store) {
 	ctx := context.Background()
-	if err := s.Audit().Append(ctx, storage.AuditEntry{Actor: "system", Action: "user.create", Target: "usr_1", Detail: map[string]any{"role": "admin"}}); err != nil {
+	at := time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
+	add := func(e storage.AuditEntry) {
+		t.Helper()
+		if e.At.IsZero() {
+			e.At = at
+		}
+		if err := s.Audit().Append(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(storage.AuditEntry{Actor: "system", Action: "user.create", Target: "usr_1", Detail: map[string]any{"role": "admin"}, ActorKind: "system", OK: true})
+	add(storage.AuditEntry{Action: "automation.update", ActorKind: "agent", ActorName: "Lead", ApprovedBy: "a@x.io", Via: "chat",
+		ProjectID: "prj_1", ConversationID: "cnv_1", JobID: "job_1", ActionID: "act_1", Resource: "automation", ResourceID: "aut_1",
+		Before: map[string]any{"name": "a"}, After: map[string]any{"name": "b"}, OK: true})
+	add(storage.AuditEntry{Action: "automation.update", ActorKind: "human", ActorName: "a@x.io", Via: "ui", ProjectID: "prj_1",
+		Resource: "automation", ResourceID: "aut_1", OK: false})
+
+	got, err := s.Audit().List(ctx, storage.AuditFilter{ProjectID: "prj_1"})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("project filter = %d %v", len(got), err)
+	}
+	agent, _ := s.Audit().List(ctx, storage.AuditFilter{ActorKind: "agent"})
+	if len(agent) != 1 || agent[0].ApprovedBy != "a@x.io" || agent[0].JobID != "job_1" || agent[0].After["name"] != "b" || agent[0].Before["name"] != "a" || !agent[0].OK {
+		t.Fatalf("agent row = %+v", agent)
+	}
+	if got, _ := s.Audit().List(ctx, storage.AuditFilter{ConversationID: "cnv_1"}); len(got) != 1 {
+		t.Fatalf("conversation filter = %d", len(got))
+	}
+
+	// same timestamp: paging by id neither repeats nor skips
+	seen := map[string]bool{}
+	before := ""
+	for range 5 {
+		page, err := s.Audit().List(ctx, storage.AuditFilter{Limit: 1, BeforeID: before})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		if seen[page[0].ID] {
+			t.Fatalf("page repeated %s", page[0].ID)
+		}
+		seen[page[0].ID] = true
+		before = page[0].ID
+	}
+	if len(seen) != 3 {
+		t.Fatalf("paged %d rows, want 3", len(seen))
+	}
+
+	byKind, err := s.Audit().Count(ctx, storage.AuditFilter{ProjectID: "prj_1"}, "kind")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Audit().Append(ctx, storage.AuditEntry{Actor: "human:a", Action: "auth.login"}); err != nil {
-		t.Fatal(err)
+	counts := map[string]storage.AuditCount{}
+	for _, c := range byKind {
+		counts[c.Key] = c
 	}
-	list, err := s.Audit().List(ctx, 10)
-	if err != nil || len(list) != 2 {
-		t.Fatalf("List = %d, %v", len(list), err)
+	if counts["agent"].Count != 1 || counts["human"].Count != 1 || counts["human"].Failed != 1 {
+		t.Fatalf("count by kind = %+v", byKind)
 	}
-	if list[0].Action != "auth.login" || list[1].Detail["role"] != "admin" {
-		t.Fatalf("order/detail wrong: %+v", list)
+	if _, err := s.Audit().Count(ctx, storage.AuditFilter{}, "nope"); err == nil {
+		t.Fatal("unknown group accepted")
 	}
 }

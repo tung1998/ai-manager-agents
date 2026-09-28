@@ -54,14 +54,41 @@ type Session struct {
 	IP         string
 }
 
-// AuditEntry is one append-only audit record.
+// AuditEntry is one append-only audit record (ADR-043: who, who approved,
+// where from, which channel, before/after).
 type AuditEntry struct {
 	ID     string
-	Actor  string
+	Actor  string // older "human:<email>" form, kept for compatibility
 	Action string
 	Target string
 	Detail map[string]any
 	At     time.Time
+
+	ActorKind  string // human | agent | automation | system
+	ActorID    string
+	ActorName  string
+	ApprovedBy string // the person who approved an agent's proposal
+	Via        string // ui | chat | task | assistant | mcp | automation | api
+
+	ProjectID, ConversationID, JobID, TaskID, ActionID string
+
+	Resource, ResourceID string
+	Before, After        map[string]any // nil = no snapshot
+	OK                   bool
+}
+
+// AuditFilter selects audit rows; empty fields match everything.
+type AuditFilter struct {
+	ProjectID, Resource, ResourceID, ActorKind, ActorID, ActorName, Via, ConversationID, JobID, TaskID string
+	From, To                                                                                           time.Time // zero = unbounded
+	BeforeID                                                                                           string    // cursor: the id of the last row of the previous page
+	Limit                                                                                              int       // default 100, at most 500
+}
+
+// AuditCount is one group of a Count.
+type AuditCount struct {
+	Key           string
+	Count, Failed int
 }
 
 // Store is the root handle a driver returns.
@@ -119,5 +146,7 @@ type SessionRepo interface {
 // AuditRepo appends audit records. There is deliberately no update or delete.
 type AuditRepo interface {
 	Append(ctx context.Context, e AuditEntry) error
-	List(ctx context.Context, limit int) ([]AuditEntry, error)
+	List(ctx context.Context, f AuditFilter) ([]AuditEntry, error)
+	// Count groups by "day" (UTC), "kind", "actor" (kind:name), "resource", "via" or "project".
+	Count(ctx context.Context, f AuditFilter, by string) ([]AuditCount, error)
 }

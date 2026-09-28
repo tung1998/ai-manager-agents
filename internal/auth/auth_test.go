@@ -113,7 +113,7 @@ func TestLoginAuthenticateLogout(t *testing.T) {
 	if _, _, err := svc.Authenticate(ctx, res.Token); !errors.Is(err, auth.ErrUnauthenticated) {
 		t.Fatalf("after logout err = %v", err)
 	}
-	entries, _ := st.Audit().List(ctx, 10)
+	entries, _ := st.Audit().List(ctx, storage.AuditFilter{Limit: 10})
 	actions := map[string]bool{}
 	for _, e := range entries {
 		actions[e.Action] = true
