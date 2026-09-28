@@ -38,3 +38,23 @@ func TestAuditLegacyRow(t *testing.T) {
 		t.Fatalf("legacy row: %+v", r)
 	}
 }
+
+// Migration 00027 gives agents with hand-picked capabilities the user's MCP.
+func TestUserMCPMigrationShape(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "office.db")
+	s, err := sqlite.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := sql.Open("sqlite", path)
+	defer db.Close()
+	var got string
+	err = db.QueryRow(`SELECT json_insert('{"caps":["propose"]}', '$.caps[#]', 'tools.mcp')`).Scan(&got)
+	if err != nil || got != `{"caps":["propose","tools.mcp"]}` {
+		t.Fatalf("json_insert = %q %v", got, err)
+	}
+}

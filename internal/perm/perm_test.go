@@ -101,8 +101,14 @@ func TestCommands(t *testing.T) {
 	}
 }
 
-func TestUserMCPFromCheck(t *testing.T) {
-	if slices.Contains(Preset(Propose), CapUserMCP) || !slices.Contains(Preset(Check), CapUserMCP) || !slices.Contains(Preset(Operate), CapUserMCP) {
-		t.Fatalf("user MCP presets: propose=%v check=%v", Preset(Propose), Preset(Check))
+func TestUserMCPAtEveryLevel(t *testing.T) { // MCP servers are tools, like Read
+	for _, l := range []string{Read, Propose, Check, Edit, Operate} {
+		if !slices.Contains(Preset(l), CapUserMCP) {
+			t.Fatalf("%s preset lacks user MCP: %v", l, Preset(l))
+		}
+	}
+	a := storage.Agent{Permissions: storage.Permissions{ReadOnly: true}}
+	if acc := Resolve(a, Operate, Policy{MaxLevel: Operate}); !acc.Can(CapUserMCP) || acc.Level != Read {
+		t.Fatalf("a read-only lead = %+v", acc)
 	}
 }
