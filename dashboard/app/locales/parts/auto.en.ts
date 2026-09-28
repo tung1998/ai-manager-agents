@@ -146,7 +146,9 @@ const en: Record<keyof typeof vi, string> = {
   'auto.filled': 'The agent filled {n} parts of the form',
   'auto.testRun': 'Test run',
   'auto.testPayload': 'Test payload (optional)',
-  'auto.testTimeout': 'Timed out'
+  'auto.testTimeout': 'Timed out',
+  'floating.open': 'Ask the project agent',
+  'floating.title': 'Project chat'
 }
 
 export default en

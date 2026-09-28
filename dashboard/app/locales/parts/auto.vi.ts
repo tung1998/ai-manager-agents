@@ -145,5 +145,7 @@ export default {
   'auto.filled': 'Agent đã điền {n} phần của form',
   'auto.testRun': 'Chạy thử',
   'auto.testPayload': 'Payload thử (tùy chọn)',
-  'auto.testTimeout': 'Quá thời gian'
+  'auto.testTimeout': 'Quá thời gian',
+  'floating.open': 'Hỏi agent của project',
+  'floating.title': 'Chat của project'
 } as const

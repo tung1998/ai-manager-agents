@@ -133,5 +133,6 @@ const userMenu = computed<DropdownMenuItem[][]>(() => [
     </UDashboardSidebar>
 
     <slot />
+    <FloatingChat />
   </UDashboardGroup>
 </template>
