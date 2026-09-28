@@ -117,6 +117,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Project chỉ liệt kê lệnh; agent được chọn lệnh/tiến trình/container, mặc định lệnh an toàn chạy từ Chỉ đọc (ADR-038) | Xong |
 | Trang chi tiết agent: thống kê, cấu hình theo thẻ, hoạt động, lịch sử có so sánh và khôi phục (ADR-039) | Xong |
 | Job cho mọi lần chạy (Chat, Việc, tự động), trang Job; Tự động: lịch chạy (cron + múi giờ), webhook/API có token, chống trùng, debounce, giới hạn và tự tắt (ADR-040 giai đoạn 1) | Xong |
+| Tự động hóa chạy code (bash/node/python) không tốn AI, gọi agent khi lỗi hoặc khi script yêu cầu; agent đề xuất tự động hóa qua Chat, luôn chờ duyệt (ADR-041) | Xong |
 | Tự động: Telegram và Discord hai chiều (ADR-040 giai đoạn 2–3) | Chưa làm |
 | Cảnh báo, `doctor` | Chưa làm |
 
