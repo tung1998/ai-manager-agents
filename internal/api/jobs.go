@@ -38,6 +38,9 @@ type jobDTO struct {
 	OutputTokens   int        `json:"output_tokens"`
 	DurationMS     int64      `json:"duration_ms"`
 	Payload        string     `json:"payload,omitempty"`
+	Output         string     `json:"output,omitempty"` // script: only with the job itself
+	ExitCode       *int       `json:"exit_code"`
+	ParentJobID    string     `json:"parent_job_id"`
 	NextAttemptAt  *time.Time `json:"next_attempt_at"`
 	CreatedAt      time.Time  `json:"created_at"`
 	StartedAt      *time.Time `json:"started_at"`
@@ -66,7 +69,7 @@ func (s *server) toJobDTO(r *http.Request, j storage.Job, n *names) jobDTO {
 	d := jobDTO{ID: j.ID, ProjectID: j.ProjectID, Kind: j.Kind, Origin: j.Origin, OriginID: j.OriginID, Trigger: j.Trigger, CreatedBy: j.CreatedBy,
 		ConversationID: j.ConversationID, MessageID: j.MessageID, TaskID: j.TaskID, Status: j.Status, Error: j.Error, ErrorCode: j.ErrorCode,
 		AgentID: j.AgentID, Title: j.Title, CostUSD: j.CostUSD, InputTokens: j.InputTokens, OutputTokens: j.OutputTokens, DurationMS: j.DurationMS,
-		NextAttemptAt: j.NextAttemptAt, CreatedAt: j.CreatedAt, StartedAt: j.StartedAt, FinishedAt: j.FinishedAt}
+		NextAttemptAt: j.NextAttemptAt, CreatedAt: j.CreatedAt, StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, ExitCode: j.ExitCode, ParentJobID: j.ParentJobID}
 	d.AgentName = look(n.agents, j.AgentID, func() (string, error) {
 		a, err := s.cfg.Store.Agents().Get(ctx, j.AgentID)
 		return a.Name, err
@@ -123,8 +126,15 @@ func (s *server) getJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := s.toJobDTO(r, j, nil)
-	d.Payload = j.Payload
-	writeJSON(w, http.StatusOK, map[string]any{"job": d})
+	d.Payload, d.Output = j.Payload, j.Output
+	children, _ := s.cfg.Store.Jobs().List(r.Context(), storage.JobFilter{OriginID: j.OriginID, Since: j.CreatedAt, Limit: 50})
+	var kids []jobDTO
+	for _, c := range children {
+		if c.ParentJobID == j.ID {
+			kids = append(kids, s.toJobDTO(r, c, nil))
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"job": d, "children": kids})
 }
 
 func (s *server) jobStats(w http.ResponseWriter, r *http.Request) {

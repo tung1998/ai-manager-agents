@@ -33,33 +33,35 @@ func (s *server) triggerRoutes(mux *http.ServeMux) {
 }
 
 type automationDTO struct {
-	ID             string                   `json:"id"`
-	ProjectID      string                   `json:"project_id"`
-	Name           string                   `json:"name"`
-	Enabled        bool                     `json:"enabled"`
-	Source         string                   `json:"source"`
-	Config         map[string]any           `json:"config"`
-	Action         string                   `json:"action"`
-	AgentID        string                   `json:"agent_id"`
-	Prompt         string                   `json:"prompt"`
-	EditMode       string                   `json:"edit_mode"`
-	KeepContext    bool                     `json:"keep_context"`
-	Limits         storage.AutomationLimits `json:"limits"`
-	Failures       int                      `json:"failures"`
-	DisabledCode   string                   `json:"disabled_code"`
-	DisabledReason string                   `json:"disabled_reason"`
-	LastRunAt      *time.Time               `json:"last_run_at"`
-	NextRunAt      *time.Time               `json:"next_run_at"`
-	WebhookURL     string                   `json:"webhook_url,omitempty"`
-	LastJob        *jobDTO                  `json:"last_job"`
-	CreatedAt      time.Time                `json:"created_at"`
+	ID             string                     `json:"id"`
+	ProjectID      string                     `json:"project_id"`
+	Name           string                     `json:"name"`
+	Enabled        bool                       `json:"enabled"`
+	Source         string                     `json:"source"`
+	Config         map[string]any             `json:"config"`
+	Action         string                     `json:"action"`
+	AgentID        string                     `json:"agent_id"`
+	Prompt         string                     `json:"prompt"`
+	EditMode       string                     `json:"edit_mode"`
+	KeepContext    bool                       `json:"keep_context"`
+	Limits         storage.AutomationLimits   `json:"limits"`
+	Script         storage.AutomationScript   `json:"script"`
+	Escalate       storage.AutomationEscalate `json:"escalate"`
+	Failures       int                        `json:"failures"`
+	DisabledCode   string                     `json:"disabled_code"`
+	DisabledReason string                     `json:"disabled_reason"`
+	LastRunAt      *time.Time                 `json:"last_run_at"`
+	NextRunAt      *time.Time                 `json:"next_run_at"`
+	WebhookURL     string                     `json:"webhook_url,omitempty"`
+	LastJob        *jobDTO                    `json:"last_job"`
+	CreatedAt      time.Time                  `json:"created_at"`
 }
 
 func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automationDTO {
 	c := a.Config
 	cfg := map[string]any{"every_minutes": c.EveryMinutes, "cron": c.Cron, "timezone": c.Timezone, "auth": c.Auth, "auth_name": c.AuthName}
 	d := automationDTO{ID: a.ID, ProjectID: a.ProjectID, Name: a.Name, Enabled: a.Enabled, Source: a.Source, Config: cfg, Action: a.Action,
-		AgentID: a.AgentID, Prompt: a.Prompt, EditMode: a.EditMode, KeepContext: a.KeepContext, Limits: a.Limits, Failures: a.Failures,
+		AgentID: a.AgentID, Prompt: a.Prompt, EditMode: a.EditMode, KeepContext: a.KeepContext, Limits: a.Limits, Script: a.Script, Escalate: a.Escalate, Failures: a.Failures,
 		DisabledCode: a.DisabledCode, DisabledReason: a.DisabledReason, LastRunAt: a.LastRunAt, NextRunAt: a.NextRunAt, CreatedAt: a.CreatedAt}
 	if a.Source == "webhook" {
 		d.WebhookURL = "/hooks/" + a.ID
@@ -72,16 +74,18 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 }
 
 type automationInput struct {
-	Name        string                   `json:"name"`
-	Enabled     *bool                    `json:"enabled"`
-	Source      string                   `json:"source"`
-	Action      string                   `json:"action"`
-	AgentID     string                   `json:"agent_id"`
-	Prompt      string                   `json:"prompt"`
-	EditMode    string                   `json:"edit_mode"`
-	KeepContext bool                     `json:"keep_context"`
-	Config      storage.AutomationConfig `json:"config"`
-	Limits      storage.AutomationLimits `json:"limits"`
+	Name        string                     `json:"name"`
+	Enabled     *bool                      `json:"enabled"`
+	Source      string                     `json:"source"`
+	Action      string                     `json:"action"`
+	AgentID     string                     `json:"agent_id"`
+	Prompt      string                     `json:"prompt"`
+	EditMode    string                     `json:"edit_mode"`
+	KeepContext bool                       `json:"keep_context"`
+	Config      storage.AutomationConfig   `json:"config"`
+	Limits      storage.AutomationLimits   `json:"limits"`
+	Script      storage.AutomationScript   `json:"script"`
+	Escalate    storage.AutomationEscalate `json:"escalate"`
 }
 
 // apply validates in and puts it on a (the secret hash and state stay).
@@ -93,8 +97,15 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	if in.Source != "schedule" && in.Source != "webhook" {
 		return errors.New("nguồn phải là lịch chạy hoặc webhook")
 	}
-	if in.Action != "chat" && in.Action != "task" {
-		return errors.New("hành động phải là gửi tin (chat) hoặc giao Việc (task)")
+	if in.Action != "chat" && in.Action != "task" && in.Action != "script" {
+		return errors.New("hành động phải là gửi tin (chat), giao Việc (task) hoặc chạy code (script)")
+	}
+	if in.Action == "script" {
+		spec := trigger.Spec{Name: in.Name, Source: in.Source, EveryMinutes: in.Config.EveryMinutes, Cron: in.Config.Cron, Timezone: in.Config.Timezone,
+			Action: in.Action, Script: in.Script, Escalate: in.Escalate}
+		if err := spec.Check(); err != nil {
+			return err
+		}
 	}
 	if in.AgentID != "" {
 		ag, err := s.cfg.Store.Agents().Get(r.Context(), in.AgentID)
@@ -126,6 +137,13 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	lim.DailyCostUSD = max(lim.DailyCostUSD, 0)
 	a.Name, a.Source, a.Action, a.AgentID, a.Prompt, a.KeepContext = in.Name, in.Source, in.Action, in.AgentID, in.Prompt, in.KeepContext
 	a.EditMode, a.Config, a.Limits = s.allowedEditMode(r, in.EditMode), cfg, lim
+	a.Script, a.Escalate = storage.AutomationScript{}, storage.AutomationEscalate{}
+	if a.Action == "script" {
+		a.Script, a.Escalate = in.Script, in.Escalate
+		if a.Escalate.When == "" {
+			a.Escalate.When = "failure"
+		}
+	}
 	if in.Enabled != nil {
 		if *in.Enabled && !a.Enabled {
 			a.Failures, a.DisabledCode, a.DisabledReason = 0, "", "" // turned back on

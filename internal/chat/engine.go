@@ -14,6 +14,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/worktree"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -225,27 +226,29 @@ func (e *Engine) Access(ctx context.Context, projectID string, agent storage.Age
 
 // ActionDTO is a proposed operation awaiting (or after) approval.
 type ActionDTO struct {
-	ID        string     `json:"id"`
-	MessageID string     `json:"message_id"`
-	TaskID    string     `json:"task_id,omitempty"`
-	Kind      string     `json:"kind"`
-	Label     string     `json:"label"`
-	Target    string     `json:"target"`
-	TargetID  string     `json:"target_id,omitempty"`
-	Reason    string     `json:"reason"`
-	Message   string     `json:"message,omitempty"` // git commit
-	Files     []string   `json:"files,omitempty"`
-	Status    string     `json:"status"`
-	Detail    string     `json:"detail"`
-	By        string     `json:"proposed_by"`
-	DecidedBy string     `json:"decided_by"`
-	DecidedAt *time.Time `json:"decided_at"`
+	ID        string   `json:"id"`
+	MessageID string   `json:"message_id"`
+	TaskID    string   `json:"task_id,omitempty"`
+	Kind      string   `json:"kind"`
+	Label     string   `json:"label"`
+	Target    string   `json:"target"`
+	TargetID  string   `json:"target_id,omitempty"`
+	Reason    string   `json:"reason"`
+	Message   string   `json:"message,omitempty"` // git commit
+	Files     []string `json:"files,omitempty"`
+	// create_automation / update_automation: the proposed automation
+	Automation json.RawMessage `json:"automation,omitempty"`
+	Status     string          `json:"status"`
+	Detail     string          `json:"detail"`
+	By         string          `json:"proposed_by"`
+	DecidedBy  string          `json:"decided_by"`
+	DecidedAt  *time.Time      `json:"decided_at"`
 }
 
 // ToActionDTO converts a stored action.
 func ToActionDTO(a storage.Action) ActionDTO {
 	return ActionDTO{ID: a.ID, MessageID: a.MessageID, TaskID: a.TaskID, Kind: a.Kind, Label: actions.Kinds[a.Kind], Target: a.Target, TargetID: a.TargetID,
-		Reason: a.Reason, Message: a.Args.Message, Files: a.Args.Files, Status: a.Status, Detail: a.Detail, By: a.ProposedBy, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt}
+		Reason: a.Reason, Message: a.Args.Message, Files: a.Args.Files, Automation: a.Args.Automation, Status: a.Status, Detail: a.Detail, By: a.ProposedBy, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt}
 }
 
 // SetAttachments sets where attached files are stored.
