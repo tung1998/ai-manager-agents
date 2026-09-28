@@ -76,6 +76,12 @@ type Turn struct {
 	ConversationID string
 	JobID          string // the job this answer runs as
 
+	// the agents still to answer this message of the person (ADR-044)
+	queue    []queued
+	hops     int    // hand-offs agents made so far
+	answered int    // replies given so far
+	actor    string // who sent the message
+
 	mu     sync.Mutex
 	events []Event
 	done   bool
@@ -429,6 +435,18 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	if err != nil {
 		return nil, storage.Message{}, err
 	}
+	// @tags pull agents in (ADR-044): the first tagged answers, then the others
+	var queue []queued
+	if conv.TaskID == "" && conv.Purpose == "" {
+		if agents, err := e.Agents(ctx, conv.ProjectID); err == nil {
+			if tagged := Mentions(text, agents); len(tagged) > 0 {
+				agent = tagged[0]
+				for _, a := range tagged[1:min(len(tagged), maxAnswers)] {
+					queue = append(queue, queued{agent: a, from: "Người dùng"}) // i18n-ignore
+				}
+			}
+		}
+	}
 	// "/skill request": the agent gets the skill's instructions; the
 	// conversation keeps what the person typed
 	prompt, _, err := automation.ExpandSkillCall(userHome(), project.Path, text)
@@ -456,7 +474,8 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		return nil, storage.Message{}, ErrBusy
 	}
 	runCtx, cancel := context.WithTimeout(actor.With(context.Background(), actor.From(ctx)), 20*time.Minute)
-	turn := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel}
+	turn := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
+		queue: queue, actor: actor.From(ctx)}
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn
 	e.mu.Unlock()
 
@@ -512,7 +531,9 @@ func (e *Engine) agentFor(ctx context.Context, conv storage.Conversation) (stora
 
 func (e *Engine) finish(t *Turn) {
 	e.mu.Lock()
-	delete(e.active, t.ConversationID)
+	if e.active[t.ConversationID] == t { // the next agent's turn may already hold the chat
+		delete(e.active, t.ConversationID)
+	}
 	e.mu.Unlock()
 	// keep the turn for late subscribers, then forget it
 	time.AfterFunc(10*time.Minute, func() {
@@ -529,7 +550,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		e.endJob(turn.JobID, "", err, ctx.Err())
 		m, _ := e.store.Chat().AddMessage(context.Background(), storage.Message{ConversationID: conv.ID, Role: "error", Content: err.Error()})
 		dto := MessageDTO{ID: m.ID, Role: "error", Content: m.Content, CreatedAt: m.CreatedAt, Tools: []storage.ToolCall{}, Attachments: []storage.Attachment{}, Patches: []PatchDTO{}}
-		turn.emit(Event{Type: "error", Text: err.Error(), Message: &dto})
+		turn.emit(Event{Type: "error", Text: err.Error(), Message: &dto, NextTurnID: e.nextTurn(ctx, turn, conv, project, agent, "")})
 	}
 
 	p, model, err := e.providers.ResolveModel(ctx, agent)
@@ -580,6 +601,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	if conv.Purpose == "automation" {
 		req.System += automationGuide
+	}
+	if conv.TaskID == "" && conv.Purpose == "" {
+		req.System += e.groupBrief(ctx, conv, agent)
 	}
 	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
 	defer revoke()
@@ -689,7 +713,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	mem.LastMessageID = msg.ID // it has seen everything up to its answer
 	_ = e.store.Chat().UpsertMember(context.Background(), mem)
 	e.endJob(turn.JobID, msg.ID, nil, nil)
-	turn.emit(Event{Type: "done", Message: &dto})
+	turn.emit(Event{Type: "done", Message: &dto, NextTurnID: e.nextTurn(ctx, turn, conv, project, agent, res.Text)})
 }
 
 func treeDir(pl place) string {

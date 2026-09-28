@@ -18,6 +18,8 @@ type Event struct {
 	Patch   *PatchDTO         `json:"patch,omitempty"`
 	Action  *ActionDTO        `json:"action,omitempty"`
 	Message *MessageDTO       `json:"message,omitempty"`
+	// done/error: the turn of the next agent tagged in the chat (ADR-044)
+	NextTurnID string `json:"next_turn_id,omitempty"`
 }
 
 // HistoryItem is a previous turn given to runtimes that do not keep sessions.

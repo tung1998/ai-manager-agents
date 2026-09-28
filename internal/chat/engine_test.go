@@ -3,6 +3,7 @@ package chat_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -363,5 +364,148 @@ func TestEachAgentKeepsItsSession(t *testing.T) {
 	members, _ := f.st.Chat().Members(ctx, conv.ID)
 	if len(members) != 2 || members[1].AgentID != dev.ID || members[1].SessionID != "sess-dev" {
 		t.Fatalf("members = %+v", members)
+	}
+}
+
+// fakeGroupClaude: like fakeTeamClaude, replies from reply-<who> files and
+// sleeps from sleep-<who> files (who = lead | dev).
+func fakeGroupClaude(t *testing.T) (bin, dir string) {
+	dir = t.TempDir()
+	bin = filepath.Join(dir, "claude")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+n=$(ls `+dir+` | grep -c 'args$')
+n=$((n+1))
+echo "$*" > `+dir+`/call$n.args
+cat > `+dir+`/call$n.in
+who=lead
+case "$*" in *"Bạn là Dev"*) who=dev;; esac
+[ -f `+dir+`/sleep-$who ] && sleep $(cat `+dir+`/sleep-$who)
+reply=ok
+[ -f `+dir+`/reply-$who ] && reply=$(cat `+dir+`/reply-$who)
+echo '{"type":"system","subtype":"init","session_id":"sess-'$who'"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"'$who': '"$reply"'","session_id":"sess-'$who'","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	return bin, dir
+}
+
+type group struct {
+	f       fixture
+	dir     string
+	conv    storage.Conversation
+	lead    string
+	dev     storage.Agent
+	leadNm  string
+	engine  *chat.Engine
+	context context.Context
+}
+
+func newGroup(t *testing.T) group {
+	bin, dir := fakeGroupClaude(t)
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		return p
+	})
+	ctx := context.Background()
+	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
+	dev, err := f.st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	return group{f: f, dir: dir, conv: conv, lead: conv.AgentID, leadNm: conv.AgentName, dev: dev, engine: f.engine, context: ctx}
+}
+
+// sendAll sends text and follows every turn of the chain; the replies' authors.
+func (g group) sendAll(t *testing.T, text string) (authors []string) {
+	t.Helper()
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, text, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for turn != nil {
+		events := collect(t, turn)
+		last := events[len(events)-1]
+		if last.Message != nil {
+			authors = append(authors, last.Message.Author)
+		}
+		next, _ := g.engine.Turn(last.NextTurnID)
+		if last.NextTurnID == "" {
+			next = nil
+		}
+		turn = next
+	}
+	return authors
+}
+
+func TestMentionPullsAgentIn(t *testing.T) { // ADR-044
+	g := newGroup(t)
+	if got := g.sendAll(t, "@Dev xem lỗi này"); len(got) != 1 || got[0] != "Dev" {
+		t.Fatalf("authors = %v", got)
+	}
+	if got := g.sendAll(t, "cảm ơn"); len(got) != 1 || got[0] != g.leadNm {
+		t.Fatalf("no tag → the default agent, got %v", got)
+	}
+	members, _ := g.f.st.Chat().Members(g.context, g.conv.ID)
+	if len(members) != 2 {
+		t.Fatalf("members = %+v", members)
+	}
+}
+
+func TestTwoTagsAnswerInOrder(t *testing.T) {
+	g := newGroup(t)
+	got := g.sendAll(t, "@"+g.leadNm+" @Dev cùng xem")
+	if len(got) != 2 || got[0] != g.leadNm || got[1] != "Dev" {
+		t.Fatalf("authors = %v", got)
+	}
+	_, in2 := call(t, g.dir, 2)
+	if !strings.Contains(in2, "lead: ok") || !strings.Contains(in2, "cùng xem") {
+		t.Fatalf("Dev should see the lead's answer and the question:\n%s", in2)
+	}
+}
+
+func TestAgentHandoffIsLimited(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "reply-lead"), []byte("nhờ @Dev làm"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "reply-dev"), []byte("nhờ @"+g.leadNm+" xem lại"), 0o644)
+	got := g.sendAll(t, "làm việc X")
+	// lead → dev (1) → lead (2) → dev refused
+	if len(got) != 3 || got[0] != g.leadNm || got[1] != "Dev" || got[2] != g.leadNm {
+		t.Fatalf("authors = %v", got)
+	}
+	msgs, _ := g.f.st.Chat().ListMessages(g.context, g.conv.ID)
+	if last := msgs[len(msgs)-1]; last.Role != "error" || !strings.Contains(last.Content, "chuyển tiếp") {
+		t.Fatalf("last message = %+v", last)
+	}
+}
+
+func TestStopDropsTheQueue(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("2"), 0o644)
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, "@"+g.leadNm+" @Dev xem", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	turn.Cancel()
+	events := collect(t, turn)
+	if last := events[len(events)-1]; last.NextTurnID != "" {
+		t.Fatalf("stopped, yet next = %s", last.NextTurnID)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(g.dir, "call2.args")); err == nil {
+		t.Fatal("Dev ran after Stop")
+	}
+}
+
+func TestBusyWhileTheNextAnswers(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "sleep-dev"), []byte("2"), 0o644)
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, "@"+g.leadNm+" @Dev xem", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn) // the lead is done, Dev is answering
+	if _, _, err := g.engine.Send(g.context, g.conv.ID, "chen ngang", nil); !errors.Is(err, chat.ErrBusy) {
+		t.Fatalf("err = %v, want busy", err)
 	}
 }
