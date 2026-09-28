@@ -55,6 +55,7 @@ type Scope struct {
 	ConversationID string
 	TaskID         string
 	RunRef         string
+	JobID          string // the chat answer/task run it comes from (ADR-043)
 	Agent          string
 	Level          string      // what the agent may do in this run (internal/perm)
 	Access         perm.Access // its capabilities and commands in this run
@@ -82,7 +83,7 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 		return storage.Action{}, fmt.Errorf("%w: %s (cho phép: %s)", ErrKind, kind, strings.Join(slices.Sorted(maps.Keys(Kinds)), ", "))
 	}
 	target = strings.TrimSpace(target)
-	a := storage.Action{ProjectID: sc.ProjectID, ConversationID: sc.ConversationID, TaskID: sc.TaskID, RunRef: sc.RunRef,
+	a := storage.Action{ProjectID: sc.ProjectID, ConversationID: sc.ConversationID, TaskID: sc.TaskID, RunRef: sc.RunRef, JobID: sc.JobID,
 		Kind: kind, Target: target, Reason: strings.TrimSpace(reason), ProposedBy: sc.Agent}
 	if len(args) > 0 {
 		a.Args = args[0]

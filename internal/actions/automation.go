@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
@@ -44,11 +45,15 @@ func (s *Service) saveAutomation(ctx context.Context, a storage.Action) error {
 		if err != nil {
 			return err
 		}
+		old := x
 		spec.Apply(&x, now)
-		return s.store.Automations().Update(ctx, x)
+		err = s.store.Automations().Update(ctx, x)
+		_ = audit.Record(ctx, s.store.Audit(), audit.Change{Action: "automation.update", ResourceID: x.ID, ProjectID: x.ProjectID, Before: old, After: x, Err: err})
+		return err
 	}
 	x := storage.Automation{ProjectID: a.ProjectID, Enabled: true, EditMode: "worktree", CreatedBy: a.DecidedBy}
 	spec.Apply(&x, now)
-	_, err = s.store.Automations().Create(ctx, x)
+	created, err := s.store.Automations().Create(ctx, x)
+	_ = audit.Record(ctx, s.store.Audit(), audit.Change{Action: "automation.create", ResourceID: created.ID, ProjectID: x.ProjectID, After: created, Err: err})
 	return err
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
@@ -80,5 +81,35 @@ func TestProposeAutomationAgentsMustBelongToTheProject(t *testing.T) { // I4
 		if _, err := svc.Propose(ctx, sc, "create_automation", spec["name"].(string), "", storage.ActionArgs{Automation: raw}); err == nil {
 			t.Fatalf("another project's agent accepted: %v", spec)
 		}
+	}
+}
+
+// ADR-043: an approved proposal is logged as the agent's change, with the
+// approver, the chat/job it came from, and before/after.
+func TestApprovedAutomationIsAudited(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
+	svc := New(st, nil)
+	sc := Scope{ProjectID: proj.ID, RunRef: "r1", JobID: "job_1", Agent: "Lead", Level: perm.Operate, Access: perm.Access{Level: perm.Operate, Caps: perm.Preset(perm.Operate)}}
+	raw, _ := json.Marshal(map[string]any{"name": "Nightly", "source": "schedule", "every_minutes": 30, "action": "script",
+		"script": map[string]any{"lang": "bash", "body": "echo 1"}})
+	a, err := svc.Propose(ctx, sc, "create_automation", "Nightly", "", storage.ActionArgs{Automation: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Actions().Get(ctx, a.ID); got.JobID != "job_1" {
+		t.Fatalf("proposal job = %q", got.JobID)
+	}
+	who := audit.Who{Kind: "agent", Name: "Lead", ApprovedBy: "a@x.io", Via: "chat", JobID: "job_1", ActionID: a.ID}
+	if _, err := svc.Decide(audit.With(ctx, who), a.ID, true, "a@x.io"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := st.Audit().List(ctx, storage.AuditFilter{Resource: "automation"})
+	if len(rows) != 1 || rows[0].Action != "automation.create" || rows[0].ActorName != "Lead" || rows[0].ApprovedBy != "a@x.io" ||
+		rows[0].JobID != "job_1" || rows[0].ActionID != a.ID || rows[0].ProjectID != proj.ID || rows[0].After["Name"] != "Nightly" || rows[0].Before != nil {
+		t.Fatalf("audit: %+v", rows)
 	}
 }

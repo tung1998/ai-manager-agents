@@ -8,6 +8,7 @@ package chat
 import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/attach"
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
@@ -550,7 +551,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if conv.Purpose == "automation" {
 		req.System += automationGuide
 	}
-	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
+	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
 	defer revoke()
 	req.Office = office
 	if conv.Runtime == string(p.Kind) {
@@ -602,6 +603,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) {
 				if d, derr := e.DecidePatch(actor.With(context.Background(), "auto:"+agent.Name+" ("+perm.Label(level)+")"), saved.ID, true); derr == nil {
 					saved.Status, saved.Detail, saved.DecidedBy, saved.DecidedAt = d.Status, d.Detail, d.DecidedBy, d.DecidedAt
+					e.auditAutoPatch(agent.Name, conv, turn.JobID, saved)
 				}
 			}
 			if err == nil {
@@ -630,6 +632,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 				// the agent's package allows applying clean diffs on its own
 				if d, derr := e.DecidePatch(actor.With(context.Background(), "auto:"+agent.Name+" ("+perm.Label(level)+")"), saved.ID, true); derr == nil {
 					saved.Status, saved.Detail, saved.DecidedBy, saved.DecidedAt = d.Status, d.Detail, d.DecidedBy, d.DecidedAt
+					e.auditAutoPatch(agent.Name, conv, turn.JobID, saved)
 				}
 			}
 			if err == nil {
@@ -847,7 +850,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	req := RunRequest{Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: prompt,
 		Attachments: files, Write: pl.write, DenyPaths: policy.DenyPaths}
 	req.System = systemPrompt(project, agent, e.office != nil, acc, pl)
-	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, TaskID: tc.id, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), Agent: agent.Name, Level: acc.Level, Access: acc, Dir: treeDir(pl)})
+	office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, TaskID: tc.id, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), JobID: usage.JobFrom(ctx), Agent: agent.Name, Level: acc.Level, Access: acc, Dir: treeDir(pl)})
 	defer revoke()
 	req.Office = office
 	res, runErr := runnerFor(p.Kind).Run(ctx, req, emit)
@@ -1095,4 +1098,20 @@ func (e *Engine) SweepWorktrees(ctx context.Context, maxAge time.Duration) {
 			return err == nil
 		}, maxAge)
 	}
+}
+
+// auditAutoPatch logs a patch the agent applied on its own (its permission
+// allows it): the agent's change, no approver (ADR-043).
+func (e *Engine) auditAutoPatch(agent string, conv storage.Conversation, jobID string, p storage.Patch) {
+	via := "chat"
+	if conv.TaskID != "" {
+		via = "task"
+	}
+	ctx := audit.With(context.Background(), audit.Who{Kind: "agent", Name: agent, Via: via, ConversationID: conv.ID, JobID: jobID, TaskID: conv.TaskID})
+	var err error
+	if p.Status == "failed" {
+		err = errors.New(p.Detail)
+	}
+	_ = audit.Record(ctx, e.store.Audit(), audit.Change{Action: "patch." + p.Status, ResourceID: p.ID, ProjectID: conv.ProjectID,
+		Detail: map[string]any{"files": p.Files, "auto": true}, Err: err})
 }

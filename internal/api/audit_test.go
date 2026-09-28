@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -61,5 +62,37 @@ func TestAuditRedactsProviderKey(t *testing.T) {
 	}
 	if len(rows) != 2 || rows[0].Before["name"] != "p" || rows[0].After["name"] != "p2" {
 		t.Fatalf("provider rows: %+v", rows)
+	}
+}
+
+// An agent's proposal that is approved but fails still leaves a row naming
+// the agent, the approver and the job (ADR-043).
+func TestAuditApprovedProposalThatFails(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	spec, _ := json.Marshal(map[string]any{"automation_id": "aut_gone", "name": "x", "source": "schedule", "every_minutes": 30, "action": "script",
+		"script": map[string]any{"lang": "bash", "body": "echo"}})
+	a, err := e.st.Actions().Create(ctx, storage.Action{ProjectID: pid, Kind: "update_automation", Target: "x", ProposedBy: "Lead", JobID: "job_9",
+		Args: storage.ActionArgs{Automation: spec}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, body := do(t, admin, "POST", e.srv.URL+"/api/actions/"+a.ID+"/approve", map[string]any{}, nil); resp.StatusCode != 200 {
+		t.Fatalf("approve = %d %v", resp.StatusCode, body)
+	}
+	rows, _ := e.st.Audit().List(ctx, storage.AuditFilter{JobID: "job_9"})
+	var approve *storage.AuditEntry
+	for i := range rows {
+		if rows[i].Action == "action.approve" {
+			approve = &rows[i]
+		}
+	}
+	if approve == nil || approve.ActorKind != "agent" || approve.ActorName != "Lead" || approve.ApprovedBy != "admin@x.io" ||
+		approve.ActionID != a.ID || approve.ProjectID != pid || approve.OK {
+		t.Fatalf("rows: %+v", rows)
 	}
 }

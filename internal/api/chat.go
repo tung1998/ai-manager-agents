@@ -2,6 +2,7 @@ package api
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"encoding/json"
 	"errors"
@@ -239,6 +240,10 @@ func (s *server) cancelTurn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) decidePatch(w http.ResponseWriter, r *http.Request, approve bool) {
+	projectID := ""
+	if cur, err := s.cfg.Store.Chat().GetPatch(r.Context(), r.PathValue("id")); err == nil {
+		r, projectID = s.patchWho(r, cur, approve)
+	}
 	p, err := s.cfg.Chat.DecidePatch(r.Context(), r.PathValue("id"), approve)
 	if err != nil && !errors.Is(err, chat.ErrDecided) {
 		s.chatError(w, r, err)
@@ -252,9 +257,40 @@ func (s *server) decidePatch(w http.ResponseWriter, r *http.Request, approve boo
 	if approve {
 		action = "patch." + p.Status
 	}
-	s.auditAction(r, action, p.ID, map[string]any{"files": p.Files, "detail": p.Detail})
+	var failed error
+	if p.Status == "failed" {
+		failed = errors.New(p.Detail)
+	}
+	s.audit(r, audit.Change{Action: action, ResourceID: p.ID, ProjectID: projectID, Detail: map[string]any{"files": p.Files, "detail": p.Detail}, Err: failed})
 	writeJSON(w, http.StatusOK, map[string]any{"patch": p})
 }
 
 func (s *server) approvePatch(w http.ResponseWriter, r *http.Request) { s.decidePatch(w, r, true) }
 func (s *server) rejectPatch(w http.ResponseWriter, r *http.Request)  { s.decidePatch(w, r, false) }
+
+// patchWho: approving a patch records the agent that wrote it and the person
+// who approved it; rejecting is the person's decision (ADR-043).
+func (s *server) patchWho(r *http.Request, p storage.Patch, approve bool) (*http.Request, string) {
+	u := userFrom(r)
+	who := audit.Who{Kind: "human", ID: u.ID, Name: u.Email, Via: "ui", ConversationID: p.ConversationID, TaskID: p.TaskID}
+	projectID := ""
+	agent := ""
+	if p.ConversationID != "" {
+		if c, err := s.cfg.Store.Chat().GetConversation(r.Context(), p.ConversationID); err == nil {
+			projectID, agent = c.ProjectID, c.AgentName
+		}
+	}
+	if projectID == "" && p.TaskID != "" {
+		if t, err := s.cfg.Store.Tasks().Get(r.Context(), p.TaskID); err == nil {
+			projectID = t.ProjectID
+		}
+	}
+	if approve && agent != "" {
+		via := "chat"
+		if p.TaskID != "" {
+			via = "task"
+		}
+		who = audit.Who{Kind: "agent", Name: agent, ApprovedBy: u.Email, Via: via, ConversationID: p.ConversationID, TaskID: p.TaskID}
+	}
+	return r.WithContext(audit.With(r.Context(), who)), projectID
+}
