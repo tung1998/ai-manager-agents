@@ -1049,3 +1049,36 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Đường `GET /api/jobs` cũ (Việc gần đây ở trang Tổng quan) chuyển sang `/api/tasks/recent`.
   - `/hooks/` không đi qua middleware CSRF, vì không dùng cookie mà mỗi tự động hóa có token riêng.
   - Debounce không có khóa thì mọi lần gửi gom thành một lượt.
+
+## ADR-041: Tự động hóa chạy code, gọi AI khi cần, tạo bằng trò chuyện
+
+**Bối cảnh.** Mỗi lượt tự động gọi agent tốn khoảng $1 (ADR-040), vì trưởng nhóm dùng Opus và nạp đủ cấu hình Claude Code. Phần lớn việc định kỳ chỉ cần code: kiểm tra log, gọi API, đếm lỗi. Người dùng muốn:
+- job chạy code, không tốn token AI;
+- chỉ gọi AI khi có chuyện;
+- tạo job bằng cách trò chuyện với agent.
+
+**Quyết định.**
+- **Hành động `script`**, cạnh `chat` và `task`. Tự động hóa có thêm `script {lang: bash|node|python, body (≤64KB), timeout_s (mặc định 300, tối đa 3600)}`.
+  - Office ghi script ra file tạm rồi chạy bằng `bash`, `node` hoặc `python3`, trong thư mục project (project toàn máy thì chạy ở thư mục home).
+  - Script nhận payload qua stdin. Các biến môi trường `OFFICE_PAYLOAD`, `OFFICE_TRIGGER`, `OFFICE_JOB_ID`, `OFFICE_AUTOMATION` cũng được truyền vào.
+  - Script chạy trong một process group riêng. Quá timeout thì cả group bị kill.
+  - Job loại `script` lưu `output` (64KB cuối của stdout và stderr) và `exit_code`.
+  - Exit 0 thì job `done`. Khác 0 thì `failed` với `error_code=script_error`, hoặc `timeout` nếu quá giờ.
+- **Gọi AI khi cần** (`escalate {when, action, agent_id, prompt}`):
+  - `when` nhận một trong:
+    - `never`;
+    - `failure` (mặc định): exit khác 0 hoặc quá giờ;
+    - `signal`: script in dòng `@@agent: <nội dung>`, cả khi thành công.
+  - Khi điều kiện xảy ra, office tạo **job con** (`chat_turn` hoặc `task`) với `parent_job_id` trỏ về job script, `trigger=escalate`, và payload `{output, exit_code, messages, payload}`.
+  - Prompt của job con điền thêm được `{{output}}`, `{{exit_code}}`, `{{message}}`. Nội dung đó luôn được đánh dấu là dữ liệu.
+- **Tạo bằng trò chuyện:**
+  - Agent (từ gói `propose`) có công cụ `propose_automation` (tạo mới, hoặc sửa khi có `automation_id`). Công cụ này tạo thao tác `create_automation` hoặc `update_automation` chờ duyệt. Đặc tả nằm trong `actions.args.automation`.
+  - Các thao tác này **luôn cần người duyệt**, vì code sẽ chạy không người xem.
+  - Duyệt thì office tạo hoặc sửa tự động hóa. Webhook tạo theo cách này không hiện secret trong Chat: admin lấy secret bằng nút "Đổi secret" ở trang tự động hóa.
+- **Dữ liệu** (migration 00021): dựng lại `jobs` để `kind` nhận thêm `script`, và thêm `output`, `exit_code`, `parent_job_id`. Dựng lại `automations` để `action` nhận thêm `script`, và thêm `script` và `escalate` (JSON).
+- **Giao diện:**
+  - Trình sửa có hành động "Chạy code": chọn ngôn ngữ, ô soạn script, timeout, "Khi nào gọi AI" (kèm agent và prompt).
+  - Trang Job có loại Code. Mở job Code thì xem được output và exit code, kèm link sang job con.
+  - Thẻ đề xuất trong Chat hiện script, lịch và điều kiện gọi AI.
+
+**Giới hạn.** Script chạy với quyền của user đang chạy office. File cấm của project không áp dụng cho script. Vì vậy chỉ admin tạo hoặc duyệt được.
