@@ -13,7 +13,9 @@ import (
 type Vars struct {
 	Payload    any // decoded JSON (nil when not JSON)
 	RawPayload string
-	Message    string // chat text (Telegram/Discord)
+	Message    string // chat text (Telegram/Discord), or a script's @@agent lines
+	Output     string // escalation: what the script printed
+	ExitCode   string // escalation: its exit code
 	User       string
 	Source     string
 	Automation string
@@ -38,6 +40,10 @@ func Render(tpl string, v Vars) string {
 			return v.RawPayload
 		case "message":
 			return v.Message
+		case "output":
+			return v.Output
+		case "exit_code":
+			return v.ExitCode
 		case "user":
 			return v.User
 		case "source":

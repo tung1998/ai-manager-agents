@@ -139,8 +139,9 @@ reserve:
 }
 
 func kindOf(action string) string {
-	if action == "task" {
-		return "task"
+	switch action {
+	case "task", "script":
+		return action
 	}
 	return "chat_turn"
 }
@@ -252,10 +253,17 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 			}
 		}
 	}
-	prompt := promptFor(a, j, now, loc)
+	if a.Action == "script" && j.ParentJobID == "" {
+		r.runScriptJob(ctx, a, j, now)
+		return
+	}
+	action, agentID, prompt := a.Action, a.AgentID, promptFor(a, j, now, loc)
+	if j.ParentJobID != "" { // an agent called in by a script (ADR-041)
+		action, agentID, prompt = firstNonEmpty(a.Escalate.Action, "chat"), a.Escalate.AgentID, escalationPrompt(a, j, now, loc)
+	}
 	actx := actor.With(jctx, "auto:"+a.Name)
 	keptConv := ""
-	if a.Action == "task" {
+	if action == "task" {
 		_, err = r.exec.RunTask(actx, a.ProjectID, prompt, a.EditMode)
 	} else {
 		conv := ""
@@ -263,7 +271,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 			conv = a.Config.ConversationID
 		}
 		var got string
-		got, err = r.exec.RunChat(actx, a.ProjectID, a.AgentID, conv, prompt, a.EditMode)
+		got, err = r.exec.RunChat(actx, a.ProjectID, agentID, conv, prompt, a.EditMode)
 		if a.KeepContext && got != "" && got != a.Config.ConversationID {
 			keptConv = got
 		}
