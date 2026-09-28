@@ -1,5 +1,6 @@
 <script setup lang="ts">
-const props = defineProps<{ modelId: string }>()
+// agentsFirst (a project's Agents page): the agents are the page, the model a line
+const props = defineProps<{ modelId: string, agentsFirst?: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
 
 const toast = useToast()
@@ -158,7 +159,15 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
     <!-- summary -->
     <UCard>
       <div class="flex flex-wrap items-start justify-between gap-4">
-        <div class="min-w-0 space-y-1">
+        <div v-if="agentsFirst" class="min-w-0 space-y-0.5">
+          <h2 class="text-lg font-semibold">{{ t('org.editor.agentsCount', { n: agents.length }) }}</h2>
+          <p class="flex flex-wrap items-center gap-x-1.5 text-xs text-(--ui-text-muted)" :title="model.description">
+            <UIcon :name="kindIcon[model.kind]" class="size-3.5" />
+            {{ t('org.editor.modelLine', { name: model.name, kind: kindLabel[model.kind] }) }}
+            · {{ t('org.editor.decision') }} {{ governanceLabel[model.governance.mode] ?? model.governance.mode }}
+          </p>
+        </div>
+        <div v-else class="min-w-0 space-y-1">
           <div class="flex items-center gap-2">
             <UIcon :name="kindIcon[model.kind]" class="size-5 text-primary" />
             <h2 class="text-lg font-semibold">{{ model.name }}</h2>

@@ -152,7 +152,7 @@ async function saveAsTemplate() {
         </UCard>
         <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" />
         <ToolsPanel v-else-if="tab === 'skill' || tab === 'mcp'" :key="tab" :kind="tab" :project-path="project.path" />
-        <OrgModelEditor v-else-if="project.model" :key="project.model.id" :model-id="project.model.id" @changed="refresh()" />
+        <OrgModelEditor v-else-if="project.model" :key="project.model.id" :model-id="project.model.id" agents-first @changed="refresh()" />
         <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
       </template>
       <template v-else-if="project.model">

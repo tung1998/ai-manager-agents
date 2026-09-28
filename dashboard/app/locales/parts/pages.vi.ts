@@ -139,7 +139,7 @@ export default {
   'project.infoFolder': 'Thư mục',
   'project.infoRemote': 'Git remote',
   'project.infoDescription': 'Mô tả',
-  'project.sectionModel': 'Mô hình',
+  'project.sectionModel': 'Agents',
   'project.sectionPerm': 'Quyền',
   'project.sectionSkill': 'Skills',
   'project.sectionMcp': 'MCP',

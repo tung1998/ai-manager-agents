@@ -56,6 +56,8 @@ const en: Record<keyof typeof vi, string> = {
   'org.governance.council': 'Council: quorum vote',
 
   'org.editor.builtin': 'Built-in',
+  'org.editor.agentsCount': '{n} agents',
+  'org.editor.modelLine': 'Model {name} ({kind})',
   'org.editor.decision': 'Decision-making:',
   'org.editor.quorum': '· needs {n}/{total} votes',
   'org.editor.veto': '· veto: {names}',

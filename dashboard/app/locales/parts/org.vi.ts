@@ -60,6 +60,8 @@ export default {
 
   // OrgModelEditor
   'org.editor.builtin': 'Có sẵn',
+  'org.editor.agentsCount': '{n} agent',
+  'org.editor.modelLine': 'Mô hình {name} ({kind})',
   'org.editor.decision': 'Ra quyết định:',
   'org.editor.quorum': '· cần {n}/{total} phiếu',
   'org.editor.veto': '· phủ quyết: {names}',

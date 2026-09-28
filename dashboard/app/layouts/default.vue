@@ -31,7 +31,7 @@ function projectSections(id: string): NavigationMenuItem[] {
     { label: t('nav.tasks'), icon: 'i-lucide-list-todo', to: to('tasks'), exactQuery: 'partial' },
     { label: t('nav.automations'), icon: 'i-lucide-alarm-clock', to: to('automations'), exactQuery: 'partial' },
     { label: t('nav.ops'), icon: 'i-lucide-activity', to: to('ops'), exactQuery: 'partial' },
-    { label: t('project.sectionModel'), icon: 'i-lucide-network', to: to('model'), exactQuery: 'partial' },
+    { label: t('project.sectionModel'), icon: 'i-lucide-users', to: to('model'), exactQuery: 'partial' },
     { label: t('project.sectionPerm'), icon: 'i-lucide-shield', to: to('perm'), exactQuery: 'partial' },
     ...(isAdmin.value
       ? [

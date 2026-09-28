@@ -140,7 +140,7 @@ const en: Record<keyof typeof vi, string> = {
   'project.infoFolder': 'Folder',
   'project.infoRemote': 'Git remote',
   'project.infoDescription': 'Description',
-  'project.sectionModel': 'Model',
+  'project.sectionModel': 'Agents',
   'project.sectionPerm': 'Permissions',
   'project.sectionSkill': 'Skills',
   'project.sectionMcp': 'MCP',
