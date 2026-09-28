@@ -290,3 +290,11 @@ func TestSwitchConversationAgent(t *testing.T) {
 		t.Fatalf("conversation = %+v", got)
 	}
 }
+
+// toHistory names the answers of other agents (after a switch).
+func TestHistoryKeepsOtherAuthors(t *testing.T) {
+	h := chat.HistoryFor([]storage.Message{{Role: "user", Content: "a"}, {Role: "assistant", Content: "b", Author: "Trưởng nhóm"}, {Role: "assistant", Content: "c", Author: "Dev"}}, "Dev")
+	if len(h) != 3 || h[1].Author != "Trưởng nhóm" || h[2].Author != "" {
+		t.Fatalf("history = %+v", h)
+	}
+}

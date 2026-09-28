@@ -24,6 +24,15 @@ type Event struct {
 type HistoryItem struct {
 	Role    string // user | assistant
 	Content string
+	Author  string // another agent's answer (after a switch); "" = this agent's or the person's
+}
+
+// Said is the content with who said it, when another agent did.
+func (h HistoryItem) Said() string {
+	if h.Author == "" {
+		return h.Content
+	}
+	return "(" + h.Author + " trả lời trước đây) " + h.Content // i18n-ignore
 }
 
 // RunRequest is one agent turn.

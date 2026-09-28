@@ -323,6 +323,9 @@ func transcript(history []HistoryItem, prompt string) string {
 		who := "Người dùng"
 		if h.Role == "assistant" {
 			who = "Bạn"
+			if h.Author != "" { // an agent that answered before a switch
+				who = h.Author
+			}
 		}
 		fmt.Fprintf(&b, "\n[%s]\n%s\n", who, truncate(h.Content, 6000))
 	}

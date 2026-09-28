@@ -571,7 +571,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	req := RunRequest{
 		Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: text,
-		System: systemPrompt(project, agent, e.office != nil, acc, pl), History: toHistory(history), Attachments: files,
+		System: systemPrompt(project, agent, e.office != nil, acc, pl), History: HistoryFor(history, agent.Name), Attachments: files,
 		Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP),
 	}
 	if conv.TaskID != "" {
@@ -742,11 +742,17 @@ func (e *Engine) treeOf(projectID string, p storage.Patch) string {
 // the project's cap may still lower it, see Engine.Level).
 func canPropose(a storage.Agent) bool { return perm.AtLeast(perm.Agent(a), perm.Propose) }
 
-func toHistory(msgs []storage.Message) []HistoryItem {
+// HistoryFor is the thread as self (the agent answering now) sees it: the
+// answers of another agent (before a switch) carry that agent's name.
+func HistoryFor(msgs []storage.Message, self string) []HistoryItem {
 	var out []HistoryItem
 	for _, m := range msgs {
 		if m.Role == "user" || m.Role == "assistant" {
-			out = append(out, HistoryItem{Role: m.Role, Content: m.Content})
+			h := HistoryItem{Role: m.Role, Content: m.Content}
+			if m.Role == "assistant" && m.Author != "" && m.Author != self {
+				h.Author = m.Author
+			}
+			out = append(out, h)
 		}
 	}
 	if len(out) > 30 {

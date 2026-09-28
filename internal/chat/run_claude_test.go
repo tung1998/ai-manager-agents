@@ -75,3 +75,16 @@ func TestClaudeReportsLimitsAndContext(t *testing.T) {
 		t.Fatalf("context = %+v", res.Context)
 	}
 }
+
+// After a switch the new agent must know which answers were another agent's.
+func TestTranscriptNamesOtherAgents(t *testing.T) {
+	h := []HistoryItem{
+		{Role: "user", Content: "kiểm tra graylog"},
+		{Role: "assistant", Content: "mình chỉ đọc", Author: "Trưởng nhóm"},
+		{Role: "assistant", Content: "đã xem"}, // this agent's own
+	}
+	got := transcript(h, "sửa đi")
+	if !strings.Contains(got, "[Trưởng nhóm]\nmình chỉ đọc") || !strings.Contains(got, "[Bạn]\nđã xem") || strings.Contains(got, "[Bạn]\nmình chỉ đọc") {
+		t.Fatalf("transcript:\n%s", got)
+	}
+}
