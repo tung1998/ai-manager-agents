@@ -86,3 +86,37 @@ func TestAutomationsDue(t *testing.T) {
 		t.Fatalf("disabled is due: %+v", due)
 	}
 }
+
+func TestFailRunningCountsCostAndEndsTasks(t *testing.T) { // I6
+	ctx := context.Background()
+	st, p := openStore(t)
+	now := time.Now().UTC()
+	j, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "task", Origin: "automation", OriginID: "a", Status: "running", StartedAt: &now})
+	cost := 0.4
+	st.Runs().Create(ctx, storage.Run{Kind: "task", ProjectID: p.ID, JobID: j.ID, Status: "ok", CostUSD: &cost, InputTokens: 7})
+	st.Jobs().FailRunning(ctx, "restart", "restart", now)
+	if got, _ := st.Jobs().Get(ctx, j.ID); got.CostUSD != 0.4 || got.InputTokens != 7 {
+		t.Fatalf("failed job = %+v", got)
+	}
+	task, _ := st.Tasks().Create(ctx, storage.Task{ProjectID: p.ID, Title: "x", Goal: "x", Mode: "single", Status: "running"})
+	if n, err := st.Tasks().FailRunning(ctx, "office khởi động lại", now); err != nil || n != 1 {
+		t.Fatalf("fail tasks = %d %v", n, err)
+	}
+	if got, _ := st.Tasks().Get(ctx, task.ID); got.Status != "failed" || got.FinishedAt == nil {
+		t.Fatalf("task = %+v", got)
+	}
+}
+
+func TestDebounceOnlyTouchesPending(t *testing.T) { // I2
+	ctx := context.Background()
+	st, p := openStore(t)
+	now := time.Now().UTC()
+	j, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: "a", Status: "pending", DebounceKey: "k", NextAttemptAt: &now})
+	st.Jobs().Claim(ctx, now.Add(time.Second), 1, nil) // the runner took it
+	if ok, err := st.Jobs().Debounce(ctx, j.ID, `{"n":2}`, now.Add(time.Minute)); err != nil || ok {
+		t.Fatalf("debounced a running job: %v %v", ok, err)
+	}
+	if got, _ := st.Jobs().Get(ctx, j.ID); got.Status != "running" || got.Payload == `{"n":2}` {
+		t.Fatalf("job = %+v", got)
+	}
+}

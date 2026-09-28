@@ -390,6 +390,8 @@ type TaskRepo interface {
 	UpdateStep(ctx context.Context, s TaskStep) error
 	ListSteps(ctx context.Context, taskID string) ([]TaskStep, error)
 	ListPatches(ctx context.Context, taskID string) ([]Patch, error)
+	// FailRunning ends tasks left running (the office restarted under them).
+	FailRunning(ctx context.Context, detail string, at time.Time) (int64, error)
 }
 
 // RepoRepo manages registered repositories.

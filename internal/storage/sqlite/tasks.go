@@ -199,3 +199,11 @@ func (r taskRepo) ListPatches(ctx context.Context, taskID string) ([]storage.Pat
 	}
 	return out, rows.Err()
 }
+
+func (r taskRepo) FailRunning(ctx context.Context, detail string, at time.Time) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE tasks SET status='failed', detail=?, finished_at=? WHERE status='running'`, detail, fmtTime(at))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

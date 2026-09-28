@@ -228,6 +228,20 @@ func (r jobRepo) ByDebounce(ctx context.Context, originID, key string) (storage.
 		ORDER BY created_at DESC LIMIT 1`, originID, key))
 }
 
+func (r jobRepo) Debounce(ctx context.Context, id, payload string, next time.Time) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE jobs SET payload=?, next_attempt_at=? WHERE id=? AND status='pending'`, payload, fmtTime(next), id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+func (r jobRepo) ClearDedupe(ctx context.Context, originID, key string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE jobs SET dedupe_key='' WHERE origin_id=? AND dedupe_key=?`, originID, key)
+	return err
+}
+
 func (r jobRepo) Stats(ctx context.Context, f storage.JobFilter, by string) ([]storage.JobStats, error) {
 	w, args := r.where(f)
 	jobs, err := r.query(ctx, `SELECT `+jobCols+` FROM jobs`+w+` ORDER BY created_at`, args...)
@@ -297,8 +311,11 @@ func (r jobRepo) CostSince(ctx context.Context, origin, originID string, since t
 }
 
 func (r jobRepo) FailRunning(ctx context.Context, errCode, errMsg string, at time.Time) (int64, error) {
-	res, err := r.db.ExecContext(ctx, `UPDATE jobs SET status='failed', error_code=?, error=?, finished_at=? WHERE status='running'`,
-		errCode, errMsg, fmtTime(at))
+	res, err := r.db.ExecContext(ctx, `UPDATE jobs SET status='failed', error_code=?, error=?, finished_at=?,
+		cost_usd=(SELECT COALESCE(SUM(cost_usd),0) FROM runs WHERE job_id=jobs.id),
+		input_tokens=(SELECT COALESCE(SUM(input_tokens),0) FROM runs WHERE job_id=jobs.id),
+		output_tokens=(SELECT COALESCE(SUM(output_tokens),0) FROM runs WHERE job_id=jobs.id)
+		WHERE status='running'`, errCode, errMsg, fmtTime(at))
 	if err != nil {
 		return 0, err
 	}

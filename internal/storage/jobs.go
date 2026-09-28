@@ -79,6 +79,11 @@ type JobRepo interface {
 	ByDedupe(ctx context.Context, originID, key string, since time.Time) (Job, error)
 	// ByDebounce is the pending job of an origin waiting on a debounce key.
 	ByDebounce(ctx context.Context, originID, key string) (Job, error)
+	// Debounce replaces the payload and wait of a job still pending; false
+	// when it already started.
+	Debounce(ctx context.Context, id, payload string, next time.Time) (bool, error)
+	// ClearDedupe frees a dedupe key whose window has passed.
+	ClearDedupe(ctx context.Context, originID, key string) error
 	// Stats groups jobs by day, kind, origin, agent or status.
 	Stats(ctx context.Context, f JobFilter, by string) ([]JobStats, error)
 	CostSince(ctx context.Context, origin, originID string, since time.Time) (float64, error)
