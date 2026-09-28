@@ -399,6 +399,7 @@ type agentDTO struct {
 	LLMModel     string              `json:"llm_model"`
 	Instructions string              `json:"instructions"`
 	Permissions  storage.Permissions `json:"permissions"`
+	Avatar       storage.Avatar      `json:"avatar"`
 	Sort         int                 `json:"sort"`
 }
 
@@ -409,7 +410,7 @@ func toAgentDTO(a storage.Agent) agentDTO {
 	}
 	return agentDTO{ID: a.ID, OrgModelID: a.OrgModelID, Key: a.Key, Name: a.Name, Tier: a.Tier, Role: a.Role,
 		Description: a.Description, ReportsTo: rt, ProviderID: a.ProviderID, ModelTier: a.ModelTier, LLMModel: a.LLMModel,
-		Instructions: a.Instructions, Permissions: a.Permissions, Sort: a.Sort}
+		Instructions: a.Instructions, Permissions: a.Permissions, Avatar: a.Avatar, Sort: a.Sort}
 }
 
 type orgDTO struct {
@@ -611,6 +612,7 @@ type agentInput struct {
 	LLMModel     string              `json:"llm_model"`
 	Instructions string              `json:"instructions"`
 	Permissions  storage.Permissions `json:"permissions"`
+	Avatar       *storage.Avatar     `json:"avatar"` // nil = keep
 	Sort         *int                `json:"sort"`
 }
 
@@ -634,6 +636,9 @@ func (in agentInput) apply(a *storage.Agent) {
 	if in.Sort != nil {
 		a.Sort = *in.Sort
 	}
+	if in.Avatar != nil {
+		a.Avatar = *in.Avatar
+	}
 	if a.ModelTier == "" {
 		a.ModelTier = storage.TierBalanced
 	}
@@ -655,6 +660,10 @@ func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	if err := checkAvatar(in.Avatar); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := s.checkProvider(r, in.ProviderID); err != nil {
 		s.writeDomainError(w, r, err)
 		return
@@ -674,6 +683,10 @@ func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 func (s *server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	var in agentInput
 	if !decode(w, r, &in) {
+		return
+	}
+	if err := checkAvatar(in.Avatar); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := s.checkProvider(r, in.ProviderID); err != nil {

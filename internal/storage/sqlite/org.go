@@ -248,17 +248,18 @@ func (r orgModelRepo) Delete(ctx context.Context, id string) error {
 type agentRepo struct{ db dbtx }
 
 const agentCols = `id, org_model_id, key, name, tier, role, description, reports_to, provider_id, model_tier, llm_model,
-	instructions, permissions, sort, created_at, updated_at`
+	instructions, permissions, sort, created_at, updated_at, avatar`
 
 func scanAgent(row scanner) (storage.Agent, error) {
 	var (
 		a                storage.Agent
 		reports, perms   string
+		avatar           string
 		provider         sql.NullString
 		created, updated string
 	)
 	if err := row.Scan(&a.ID, &a.OrgModelID, &a.Key, &a.Name, &a.Tier, &a.Role, &a.Description, &reports, &provider, &a.ModelTier,
-		&a.LLMModel, &a.Instructions, &perms, &a.Sort, &created, &updated); err != nil {
+		&a.LLMModel, &a.Instructions, &perms, &a.Sort, &created, &updated, &avatar); err != nil {
 		return a, notFound(err)
 	}
 	a.ProviderID = provider.String
@@ -268,6 +269,7 @@ func scanAgent(row scanner) (storage.Agent, error) {
 	if err := json.Unmarshal([]byte(perms), &a.Permissions); err != nil {
 		return a, err
 	}
+	_ = json.Unmarshal([]byte(avatar), &a.Avatar)
 	return a, parseTimes([]*time.Time{&a.CreatedAt, &a.UpdatedAt}, created, updated)
 }
 
@@ -280,9 +282,9 @@ func (r agentRepo) Create(ctx context.Context, a storage.Agent) (storage.Agent, 
 		a.ReportsTo = []string{}
 	}
 	a.CreatedAt, a.UpdatedAt = now, now
-	_, err := r.db.ExecContext(ctx, `INSERT INTO agents (`+agentCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO agents (`+agentCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.OrgModelID, a.Key, a.Name, a.Tier, a.Role, a.Description, toJSON(a.ReportsTo), nullStr(a.ProviderID), a.ModelTier,
-		a.LLMModel, a.Instructions, toJSON(a.Permissions), a.Sort, fmtTime(now), fmtTime(now))
+		a.LLMModel, a.Instructions, toJSON(a.Permissions), a.Sort, fmtTime(now), fmtTime(now), toJSON(a.Avatar))
 	if isUnique(err) {
 		return storage.Agent{}, storage.ErrConflict
 	}
@@ -294,9 +296,9 @@ func (r agentRepo) Update(ctx context.Context, a storage.Agent) error {
 		a.ReportsTo = []string{}
 	}
 	err := execOne(ctx, r.db, `UPDATE agents SET key=?, name=?, tier=?, role=?, description=?, reports_to=?, provider_id=?,
-		model_tier=?, llm_model=?, instructions=?, permissions=?, sort=?, updated_at=? WHERE id=?`,
+		model_tier=?, llm_model=?, instructions=?, permissions=?, sort=?, avatar=?, updated_at=? WHERE id=?`,
 		a.Key, a.Name, a.Tier, a.Role, a.Description, toJSON(a.ReportsTo), nullStr(a.ProviderID), a.ModelTier, a.LLMModel,
-		a.Instructions, toJSON(a.Permissions), a.Sort, fmtTime(time.Now()), a.ID)
+		a.Instructions, toJSON(a.Permissions), a.Sort, toJSON(a.Avatar), fmtTime(time.Now()), a.ID)
 	if isUnique(err) {
 		return storage.ErrConflict
 	}

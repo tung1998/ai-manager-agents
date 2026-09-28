@@ -133,9 +133,18 @@ type Agent struct {
 	LLMModel     string
 	Instructions string
 	Permissions  Permissions
+	Avatar       Avatar
 	Sort         int
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+// Avatar is how an agent looks: a color and an icon, or a small image
+// (a data URL). Empty = the dashboard derives one from the agent's id.
+type Avatar struct {
+	Color string `json:"color,omitempty"`
+	Icon  string `json:"icon,omitempty"`
+	Image string `json:"image,omitempty"`
 }
 
 // Repo is a codebase agent-office manages.
