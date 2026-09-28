@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/auth"
@@ -189,29 +188,4 @@ func (s *server) resetPassword(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
-}
-
-func (s *server) listAudit(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-	entries, err := s.cfg.Store.Audit().List(r.Context(), storage.AuditFilter{Limit: limit})
-	if err != nil {
-		s.internal(w, r, err)
-		return
-	}
-	type dto struct {
-		ID     string         `json:"id"`
-		Actor  string         `json:"actor"`
-		Action string         `json:"action"`
-		Target string         `json:"target"`
-		Detail map[string]any `json:"detail"`
-		At     time.Time      `json:"at"`
-	}
-	out := make([]dto, 0, len(entries))
-	for _, e := range entries {
-		out = append(out, dto{e.ID, e.Actor, e.Action, e.Target, e.Detail, e.At})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": out})
 }

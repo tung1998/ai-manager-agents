@@ -96,3 +96,43 @@ func TestAuditApprovedProposalThatFails(t *testing.T) {
 		t.Fatalf("rows: %+v", rows)
 	}
 }
+
+func TestAuditListAndStats(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	for _, n := range []string{"a", "b", "c"} {
+		do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": n, "source": "webhook", "action": "chat", "prompt": "x"}, nil)
+	}
+	resp, body := do(t, admin, "GET", e.srv.URL+"/api/audit?project="+pid+"&resource=automation&limit=2", nil, nil)
+	entries := body["entries"].([]any)
+	if resp.StatusCode != 200 || len(entries) != 2 || body["next_before"] == "" {
+		t.Fatalf("page 1 = %d %v", resp.StatusCode, body)
+	}
+	first := entries[0].(map[string]any)
+	if first["actor_kind"] != "human" || first["project_name"] != "shop" || first["after"] == nil {
+		t.Fatalf("entry: %v", first)
+	}
+	_, body = do(t, admin, "GET", e.srv.URL+"/api/audit?project="+pid+"&resource=automation&limit=2&before="+body["next_before"].(string), nil, nil)
+	if n := len(body["entries"].([]any)); n != 1 || body["next_before"] != "" {
+		t.Fatalf("page 2 = %d next=%v", n, body["next_before"])
+	}
+	_, body = do(t, admin, "GET", e.srv.URL+"/api/audit/stats?by=kind&project="+pid, nil, nil)
+	rows := body["rows"].([]any)
+	if len(rows) != 1 || rows[0].(map[string]any)["key"] != "human" || rows[0].(map[string]any)["count"].(float64) < 3 {
+		t.Fatalf("stats = %v", body)
+	}
+	if resp, _ := do(t, admin, "GET", e.srv.URL+"/api/audit/stats?by=nope", nil, nil); resp.StatusCode != 400 {
+		t.Fatalf("bad by = %d", resp.StatusCode)
+	}
+
+	member := e.client(t)
+	login(t, e, member, "member@x.io", "member-password")
+	for _, p := range []string{"/api/audit", "/api/audit/stats?by=day"} {
+		if resp, _ := do(t, member, "GET", e.srv.URL+p, nil, nil); resp.StatusCode != 403 {
+			t.Fatalf("member %s = %d", p, resp.StatusCode)
+		}
+	}
+}

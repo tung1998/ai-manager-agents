@@ -112,6 +112,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("PATCH /api/users/{id}", s.requireRole(storage.RoleAdmin, http.HandlerFunc(s.updateUser)))
 	mux.Handle("POST /api/users/{id}/reset-password", s.requireRole(storage.RoleAdmin, http.HandlerFunc(s.resetPassword)))
 	mux.Handle("GET /api/audit", s.requireRole(storage.RoleAdmin, http.HandlerFunc(s.listAudit)))
+	mux.Handle("GET /api/audit/stats", s.requireRole(storage.RoleAdmin, http.HandlerFunc(s.auditStats)))
 
 	if cfg.Providers != nil && cfg.Org != nil {
 		s.orgRoutes(mux)
