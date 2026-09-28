@@ -5,6 +5,7 @@ import tools from './parts/tools.vi'
 import pages from './parts/pages.vi'
 import auto from './parts/auto.vi'
 import audit from './parts/audit.vi'
+import limits from './parts/limits.vi'
 
 const vi = {
   ...tasks,
@@ -14,6 +15,7 @@ const vi = {
   ...pages,
   ...auto,
   ...audit,
+  ...limits,
   'pref.dark': 'Giao diện tối',
   'pref.light': 'Giao diện sáng',
   'pref.lang': 'Ngôn ngữ',

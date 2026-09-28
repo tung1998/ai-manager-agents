@@ -16,7 +16,7 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct' }
+interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message }
 
 // taskId: the follow-up talk about one task (a single thread, no thread list)
@@ -83,6 +83,18 @@ let turnId = ''
 async function scrollDown() {
   await nextTick()
   listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
+}
+
+// after an answer: the conversation's context and the connection's usage changed
+const { refresh: refreshLimits } = useLimits()
+async function afterTurn() {
+  refreshLimits(true)
+  const id = current.value?.id
+  if (!id) return
+  try {
+    const res = await $fetch<{ conversation: Conversation }>(`/api/conversations/${id}`)
+    if (current.value?.id === id) current.value = { ...current.value, context_tokens: res.conversation.context_tokens, context_window: res.conversation.context_window }
+  } catch { /* the next open shows it */ }
 }
 
 async function open(c: Conversation) {
@@ -161,6 +173,7 @@ function follow(id: string) {
           if (props.purpose === 'automation' && ev.type === 'done') automationBlocks(ev.message.content).forEach(p => emit('automation-patch', p))
         }
         finishStream()
+        afterTurn()
         if (props.taskId) emit('turn-done')
         else if (!single.value) refreshConvs()
         scrollDown()
@@ -351,6 +364,7 @@ onBeforeUnmount(stopStream)
           @submit="send"
         >
           <template #actions>
+            <ContextMeter :tokens="current?.context_tokens" :window="current?.context_window" />
             <EditModePicker v-model="editMode" />
             <ModePicker v-model="mode" :project-id="projectId" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />

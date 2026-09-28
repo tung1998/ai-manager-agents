@@ -309,6 +309,8 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
               />
             </div>
           </div>
+          <!-- subscription usage windows (Claude Code), as of its latest run -->
+          <UsageLimits :provider-id="p.id" class="mt-3 border-t border-(--ui-border) pt-3" />
 
           <p class="mt-2 flex flex-wrap gap-x-3 text-xs text-(--ui-text-muted)">
             <span>{{ ago(statOf(p.id)?.last_used_at ?? null) }}</span>

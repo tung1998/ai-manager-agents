@@ -117,6 +117,9 @@ const userMenu = computed<DropdownMenuItem[][]>(() => [
       </template>
 
       <template #footer="{ collapsed }">
+        <NuxtLink v-if="!collapsed" to="/providers" class="mb-1 block w-full rounded-md px-2 py-1.5 hover:bg-(--ui-bg-elevated)/60" :title="t('limits.sidebar')">
+          <UsageLimits compact />
+        </NuxtLink>
         <UDropdownMenu :items="userMenu" :content="{ align: 'start' }" class="w-full">
           <UButton
             color="neutral"
