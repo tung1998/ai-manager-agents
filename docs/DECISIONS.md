@@ -884,3 +884,135 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Code nằm trong `internal/agentinfo`, có test cho lịch sử, khôi phục (cả trường hợp đổi key) và thống kê.
 
 **Chưa làm:** kho kiến thức, lịch chạy/webhook, thông báo. Office chưa có các tính năng này.
+
+## ADR-040: Tự động: lịch chạy và trigger gọi agent
+
+**Bối cảnh.** Người dùng muốn agent tự chạy theo lịch (mỗi 5 phút, 8 giờ sáng các ngày trong tuần) và khi có trigger từ API, webhook, Discord hay Telegram. Thường là gọi trưởng nhóm hoặc một agent cá nhân. Đã tham khảo senprints-agents (chỉ lấy ý tưởng).
+- Những điểm học theo:
+  - hàng đợi nằm trong DB, một cột `next_attempt_at` dùng chung cho retry, debounce và hẹn giờ;
+  - mỗi lượt chạy chụp lại prompt, agent và quyền lúc tạo;
+  - secret chỉ lưu dạng hash;
+  - prompt mẫu chỉ có placeholder cố định;
+  - có giới hạn số lượt mỗi giờ và trần chi phí mỗi ngày; tự tắt khi lỗi liên tiếp, lưu mã lý do;
+  - kiểm tra cron lúc lưu, nhúng sẵn dữ liệu múi giờ;
+  - lịch chạy không chạy chồng;
+  - webhook trả ngay trạng thái rõ ràng.
+- Những điểm cố ý tránh:
+  - chống trùng chỉ giữ trong bộ nhớ;
+  - debounce không có hạn chờ tối đa;
+  - mỗi nguồn tạo job một kiểu;
+  - nhiều đường gửi trả lời Discord khác nhau.
+
+**Quyết định.**
+
+*Mô hình dữ liệu* (migration 00020):
+- `automations`: một tự động hóa của project.
+  - `id`, `project_id`, `name`, `enabled`, `source` (`schedule` | `webhook` | `telegram` | `discord`).
+  - `config` (JSON theo nguồn):
+    - schedule: `every_minutes` hoặc `cron`, cùng `timezone`;
+    - webhook: `auth` (`bearer` | `header` | `query`), `auth_name`, `secret_hash`;
+    - telegram/discord: `channel_id`, `chat_id`, `allow_users[]`, `mention_only`.
+  - `action`: `chat` (gửi tin cho một agent) hoặc `task` (giao Việc cho cả đội).
+  - `agent_id` (chat; bỏ trống là trưởng nhóm đầu tiên), `prompt` (mẫu), `edit_mode`, `keep_context`.
+  - `limits` (JSON): `max_runs_per_hour`, `daily_cost_usd`, `disable_after_failures` (mặc định 5), `debounce_seconds`, `debounce_key`, `debounce_max_seconds`.
+  - Trạng thái: `failures`, `disabled_code`, `disabled_reason`, `last_run_at`, `next_run_at`.
+  - `created_by`, `created_at`, `updated_at`.
+- `automation_runs` vừa là hàng đợi vừa là lịch sử:
+  - `id`, `automation_id`, `project_id`, `trigger` (`schedule` | `webhook` | `telegram` | `discord` | `manual`);
+  - `status`: `pending` | `running` | `done` | `failed` | `skipped`;
+  - `dedupe_key` (unique theo automation), `debounce_key`;
+  - `payload` (tối đa 64KB), và bản chụp lúc tạo: `prompt`, `action`, `agent_id`, `edit_mode`;
+  - `reply` (JSON: kênh, chat, id tin để sửa lại), `conversation_id`, `task_id`, `result` (đoạn đầu), `error`, `cost_usd`;
+  - `next_attempt_at`, `created_at`, `started_at`, `finished_at`.
+
+*Chạy* (package `internal/trigger`):
+- **Bộ lập lịch** chạy mỗi 15 giây:
+  - Tính lượt đến hạn từ `next_run_at`, và tính lại sau mỗi lần tạo lượt, nên khởi động lại không bị chạy sớm.
+  - Lỡ nhiều lượt thì chỉ chạy bù 1 lượt, sau đó theo giờ thật.
+  - Còn lượt `pending` hoặc `running` thì bỏ qua (không chạy chồng).
+  - Cron 5 trường (`robfig/cron/v3`), múi giờ IANA, nhúng `time/tzdata`.
+- **Bộ chạy:**
+  - Lấy lượt `pending` có `next_attempt_at <= now` bằng một câu `UPDATE … RETURNING` trong transaction.
+  - Tối đa 2 lượt chạy cùng lúc trong office, và 1 lượt cho mỗi tự động hóa.
+  - `chat`:
+    - Mở cuộc Chat với agent. Với `keep_context`, hoặc khi đến từ cùng thread/chat Discord hay Telegram, thì dùng lại một cuộc Chat.
+    - Gửi prompt đã điền, đợi lượt trả lời xong, rồi lấy câu trả lời và chi phí.
+  - `task`: gọi `tasks.Start`, rồi đợi Việc kết thúc.
+  - Chế độ quyền là `operate`, tức không đặt trần thêm: agent làm đúng theo quyền đã phân cho nó (ADR-035). Cách sửa code lấy theo tự động hóa, mặc định là worktree.
+  - Người thực hiện ghi là `auto:<tên tự động hóa>`.
+- **Lỗi và giới hạn:**
+  - Cuộc Chat đang bận, hoặc project đang chạy một Việc khác: hẹn lại sau 60 giây, quá 30 phút thì `failed`.
+  - Lỗi của agent không tự chạy lại, để tránh sửa code hai lần. Mỗi lần lỗi cộng `failures`; đủ `disable_after_failures` lần liên tiếp thì tắt, ghi `disabled_code=failures`.
+  - Chạm trần chi phí trong ngày thì tắt với `disabled_code=daily_cost`. Vượt số lượt mỗi giờ thì lượt đó `skipped`.
+  - "Chạy ngay" trên dashboard bỏ qua giới hạn.
+  - Khởi động lại office: lượt đang `running` chuyển sang `failed` ("office khởi động lại"), không chạy lại.
+- **Prompt mẫu.** Các placeholder cố định, không có vòng lặp hay điều kiện vì payload không đáng tin:
+  - `{{payload}}`, `{{payload.a.b.0}}`;
+  - `{{message}}`, `{{user}}` (cho chat);
+  - `{{now}}`, `{{today}}`, `{{yesterday}}` (theo múi giờ);
+  - `{{source}}`, `{{automation}}`.
+  - Placeholder không biết thì giữ nguyên. Đường dẫn không có trong payload thì để trống.
+  - Payload luôn được đánh dấu là dữ liệu chứ không phải lệnh.
+
+*Webhook/API* (giai đoạn 1):
+- `POST /hooks/{automation_id}` với token:
+  - `Authorization: Bearer …`, header tự đặt tên, hoặc `?name=`;
+  - so sánh hash SHA-256 theo thời gian không đổi;
+  - không có token, hoặc tự động hóa đã tắt, đều trả 404.
+- Chống trùng:
+  - lấy từ header `Idempotency-Key`, `X-Request-Id` hoặc id của lần gửi;
+  - nếu không có thì dùng hash của body trong 10 phút;
+  - lưu trong DB (unique `(automation_id, dedupe_key)`).
+- Debounce:
+  - gom theo `debounce_key` (đường dẫn trong payload);
+  - mỗi lần gửi mới dời `next_attempt_at` và thay payload;
+  - không quá `debounce_max_seconds` tính từ lần gửi đầu.
+- Kết quả trả về:
+  - `202 {status: queued|debounced, run_id}`;
+  - `200 {status: duplicate}`;
+  - `429` khi vượt giới hạn.
+- `GET /hooks/{id}/runs/{run_id}` (cùng token) trả trạng thái và kết quả.
+- Đường đi: dashboard (cổng 2704) chuyển tiếp `/hooks/**` giống như `/api/**`. Muốn nhận từ bên ngoài thì cần URL công khai, ví dụ Cloudflare Tunnel.
+- Secret chỉ hiện một lần lúc tạo hoặc đổi. Đổi secret thì secret cũ hết hiệu lực ngay.
+
+*Discord/Telegram hai chiều* (giai đoạn 2 là Telegram, giai đoạn 3 là Discord):
+- Bảng `channels` (id, kind, name, token mã hóa AES-GCM như key AI) được quản lý ở trang **Kết nối kênh**.
+- Telegram dùng long polling `getUpdates`. Discord dùng Gateway qua thư viện `discordgo`. Không cần URL công khai, cũng không cần chạy bot riêng.
+- Nhận tin khi thỏa cả hai điều kiện:
+  - tin đến từ kênh hoặc chat đã gắn, và người gửi nằm trong `allow_users` (nếu có đặt);
+  - bot được tag, hoặc `mention_only=false`.
+- Luồng trả lời:
+  1. Bot trả lời ngay "⏳ đang xử lý…".
+  2. Xong thì sửa tin đó bằng kết quả. Dài quá thì chia nhỏ (Discord 2000, Telegram 4096 ký tự).
+  3. Nếu có diff hoặc thao tác chờ duyệt, gửi kèm link tới dashboard.
+- Đánh dấu đã trả lời chỉ sau khi gửi thành công (ít nhất một lần). Trả lời trong cùng thread thì tiếp tục cùng một cuộc Chat.
+
+*API cho dashboard:*
+- `GET/POST /api/projects/:id/automations`
+- `GET/PATCH/DELETE /api/automations/:id`
+- `POST /api/automations/:id/run` (chạy ngay)
+- `POST /api/automations/:id/rotate-secret`
+- `GET /api/automations/:id/runs`, `GET /api/automation-runs/:id`
+- `GET /api/automations/preview-schedule?cron=&tz=` (5 lần chạy tới, kèm mô tả dễ đọc)
+- Tạo, sửa và xóa cần quyền admin.
+
+*Giao diện:*
+- Mục **Tự động** trong menu project, đặt sau Việc.
+- Trang danh sách: tên, nguồn, lịch hoặc URL, hành động → agent, lần chạy gần nhất, công tắc bật/tắt, nút chạy ngay.
+- Tạo và sửa trong panel trượt, chia theo từng bước:
+  1. Nguồn: có mẫu cron "mỗi 5 phút", "8:00 T2–T6", "mỗi giờ", kèm xem trước lần chạy tới.
+  2. Hành động và agent.
+  3. Prompt: có danh sách placeholder.
+  4. Giới hạn.
+- Với webhook: hiện URL, ví dụ curl, nút đổi secret; secret mới hiện trong hộp thoại chỉ đóng được bằng nút.
+- Trang con `/projects/:id/automations/:aid` (tô sáng mục Tự động): lịch sử chạy (thời gian, nguồn, trạng thái, chi phí, mở Chat/Việc), cùng banner khi bị tự tắt, ghi rõ lý do và nút bật lại.
+
+**Giai đoạn.**
+1. Lịch chạy, webhook/API, hàng đợi, trang Tự động. Làm trước.
+2. Telegram hai chiều.
+3. Discord hai chiều.
+
+**Phương án đã loại.**
+- Mỗi nguồn một hệ thống riêng: tạo job mỗi nơi một kiểu, đã gây lỗi ở senprints-agents.
+- Dùng công cụ ngoài như n8n hay Zapier: agent không dùng được quyền, worktree và chi phí của office.
+- Discord qua Interactions endpoint: cần URL công khai, và token của interaction hết hạn sau 15 phút.
