@@ -330,3 +330,9 @@ func (s *server) patchWho(r *http.Request, p storage.Patch, approve bool) (*http
 	}
 	return r.WithContext(audit.With(r.Context(), who)), projectID
 }
+
+// stopConversation: Stop in a chat stops its answer and every hand-off
+// working in the background.
+func (s *server) stopConversation(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"stopped": s.cfg.Chat.StopAll(r.PathValue("id"))})
+}

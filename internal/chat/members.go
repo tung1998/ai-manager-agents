@@ -323,3 +323,23 @@ func (e *Engine) chatTree(ctx context.Context, conv storage.Conversation, agent 
 	}
 	return ChatTree(conv.ID)
 }
+
+// StopAll stops everything in a chat: the answer the person waits for and the
+// hand-offs in the background (none reports back); how many were stopped.
+func (e *Engine) StopAll(conversationID string) int {
+	e.mu.Lock()
+	var stop []*Turn
+	if t, ok := e.active[conversationID]; ok {
+		stop = append(stop, t)
+	}
+	for k, t := range e.bg {
+		if strings.HasPrefix(k, conversationID+"/") {
+			stop = append(stop, t)
+		}
+	}
+	e.mu.Unlock()
+	for _, t := range stop {
+		t.Cancel()
+	}
+	return len(stop)
+}

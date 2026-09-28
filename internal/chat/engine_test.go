@@ -700,3 +700,28 @@ func TestBackgroundTurnsAreVisible(t *testing.T) {
 	}
 	g.waitAuthors(t, 3)
 }
+
+// Stop in the chat stops everything in it: the answer and the hand-offs
+// working in the background (and so no report-back either).
+func TestStopAllStopsBackground(t *testing.T) {
+	g := newGroup(t)
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-dev"), []byte("3"), 0o644)
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, "làm X", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.delegateDuring(t, "Dev", "làm X")
+	collect(t, turn)
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	if n := g.engine.StopAll(g.conv.ID); n != 1 {
+		t.Fatalf("stopped %d turns, want the background one", n)
+	}
+	time.Sleep(4 * time.Second)
+	if _, err := os.Stat(filepath.Join(g.dir, "call3.args")); err == nil {
+		t.Fatal("the lead reported back after Stop")
+	}
+	if len(g.engine.Running(g.conv.ID)) != 0 {
+		t.Fatalf("still running: %+v", g.engine.Running(g.conv.ID))
+	}
+}

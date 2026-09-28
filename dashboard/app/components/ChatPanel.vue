@@ -305,7 +305,9 @@ function stopStream() {
   streaming.value = false
 }
 async function cancel() {
-  if (turnId) await $fetch(`/api/chat/turns/${turnId}/cancel`, { method: 'POST', body: {} }).catch(() => {})
+  // Stop: the answer and every agent working in the background in this chat
+  if (current.value && !single.value) await $fetch(`/api/conversations/${current.value.id}/stop`, { method: 'POST', body: {} }).catch(() => {})
+  else if (turnId) await $fetch(`/api/chat/turns/${turnId}/cancel`, { method: 'POST', body: {} }).catch(() => {})
 }
 
 async function remove(c: Conversation) {

@@ -76,6 +76,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/conversations/{id}/messages", auth(s.sendMessage))
 		mux.Handle("GET /api/chat/turns/{id}/stream", auth(s.streamTurn))
 		mux.Handle("POST /api/chat/turns/{id}/cancel", auth(s.cancelTurn))
+		mux.Handle("POST /api/conversations/{id}/stop", auth(s.stopConversation))
 		mux.Handle("POST /api/patches/{id}/approve", admin(s.approvePatch))
 		mux.Handle("POST /api/patches/{id}/reject", admin(s.rejectPatch))
 	}
