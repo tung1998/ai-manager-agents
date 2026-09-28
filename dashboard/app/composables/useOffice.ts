@@ -120,6 +120,7 @@ export interface Agent {
   llm_model: string
   instructions: string
   permissions: Permissions
+  avatar?: AvatarSpec
   sort: number
 }
 

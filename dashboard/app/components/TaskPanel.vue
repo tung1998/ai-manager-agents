@@ -35,6 +35,7 @@ interface Step {
   error: string
   cost_usd: number | null
   started_at?: string
+  agent_id?: string
 }
 interface Detail { task: Task, steps: Step[], patches: Patch[], actions?: ProposedAction[], running: boolean }
 interface TaskEvent { type: string, step_id?: string, step?: Step, text?: string, tool?: ToolCall, patch?: Patch, task?: Task }
@@ -259,9 +260,6 @@ watch(view, (v) => {
   try { localStorage.setItem('office-task-view', v) } catch { /* ignore */ }
 })
 const expanded = ref<Record<string, boolean>>({})
-const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?'
-const avatarColors = ['bg-sky-600', 'bg-emerald-600', 'bg-violet-600', 'bg-amber-600', 'bg-rose-600', 'bg-teal-600', 'bg-indigo-600']
-const avatarColor = (name: string) => avatarColors[[...name].reduce((n, c) => n + c.charCodeAt(0), 0) % avatarColors.length]
 // plan/review output is the agent's JSON: shown as its parts, not raw
 const showsOutput = (s: Step) => !((s.phase === 'plan' || s.phase === 'revise') && assignments(s).length)
 
@@ -556,7 +554,7 @@ onBeforeUnmount(() => source?.close())
         <!-- the team's conversation -->
         <div v-if="view === 'chat'" class="space-y-4">
           <div v-for="s in detail.steps" :key="s.id" class="flex gap-3">
-            <span class="grid size-8 shrink-0 place-items-center rounded-full text-xs font-semibold text-white" :class="avatarColor(s.agent_name)">{{ initials(s.agent_name) }}</span>
+            <AgentAvatar :agent="agentsData?.agents.find(a => a.id === s.agent_id || a.name === s.agent_name) ?? { name: s.agent_name }" size="md" />
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                 <span class="text-sm font-medium">{{ s.agent_name }}</span>

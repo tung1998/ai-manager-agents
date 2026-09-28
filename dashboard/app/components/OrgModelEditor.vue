@@ -210,9 +210,12 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
             @click="openAgent(a)"
           >
             <div class="flex items-start justify-between gap-2">
-              <div class="min-w-0">
-                <p class="truncate font-medium">{{ a.name }}</p>
-                <p class="truncate font-mono text-xs text-(--ui-text-muted)">{{ a.key }}</p>
+              <div class="flex min-w-0 items-center gap-2.5">
+                <AgentAvatar :agent="a" size="md" />
+                <div class="min-w-0">
+                  <p class="truncate font-medium">{{ a.name }}</p>
+                  <p class="truncate font-mono text-xs text-(--ui-text-muted)">{{ a.key }}</p>
+                </div>
               </div>
               <UBadge :label="modelTierLabel[a.model_tier]" :color="tierColor[a.tier]" variant="subtle" size="sm" />
             </div>

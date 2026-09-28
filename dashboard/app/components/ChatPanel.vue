@@ -152,9 +152,6 @@ function stopBackground() {
 async function cancelTurn(id: string) {
   await $fetch(`/api/chat/turns/${id}/cancel`, { method: 'POST', body: {} }).catch(() => {})
 }
-const memberInitials = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?'
-const memberColors = ['bg-sky-600', 'bg-emerald-600', 'bg-violet-600', 'bg-amber-600', 'bg-rose-600', 'bg-teal-600', 'bg-indigo-600']
-const memberColor = (n: string) => memberColors[[...n].reduce((s, c) => s + c.charCodeAt(0), 0) % memberColors.length]
 // the person's message with the tags of agents marked
 function tagged(text: string) {
   const names = agents.value.map(a => a.name).sort((a, b) => b.length - a.length).map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
@@ -384,6 +381,7 @@ onBeforeUnmount(() => {
           :class="current?.id === c.id ? 'bg-(--ui-bg-accented)' : 'hover:bg-(--ui-bg-muted)'"
           @click="open(c)"
         >
+          <AgentAvatar :agent="agents.find(a => a.id === c.agent_id) ?? { id: c.agent_id, name: c.agent_name }" size="xs" class="mt-0.5" />
           <div class="min-w-0 flex-1">
             <p class="truncate">{{ c.title || t('chat.newThreadTitle') }}</p>
             <p class="truncate text-xs text-(--ui-text-muted)">{{ c.agent_name }} · {{ when(c.updated_at) }}</p>
@@ -408,9 +406,9 @@ onBeforeUnmount(() => {
         <span class="text-(--ui-text-muted)">{{ t('chat.members') }}</span>
         <div class="flex -space-x-1.5">
           <span
-            v-for="m in members" :key="m.agent_id" class="grid size-6 place-items-center rounded-full text-[10px] font-semibold text-white ring-2 ring-(--ui-bg)"
-            :class="memberColor(m.agent_name)" :title="`${m.agent_name} · ${permOf(m.level).label}${m.context_window ? ` · ${Math.round(m.context_tokens / m.context_window * 100)}% context` : ''}`"
-          >{{ memberInitials(m.agent_name) }}</span>
+            v-for="m in members" :key="m.agent_id" class="rounded-full ring-2 ring-(--ui-bg)"
+            :title="`${m.agent_name} · ${permOf(m.level).label}${m.context_window ? ` · ${Math.round(m.context_tokens / m.context_window * 100)}% context` : ''}`"
+          ><AgentAvatar :agent="agents.find(a => a.id === m.agent_id) ?? { id: m.agent_id, name: m.agent_name }" size="xs" /></span>
         </div>
         <span v-for="b in background" :key="b.turn_id" class="flex items-center gap-1 rounded-full bg-(--ui-bg-elevated) py-0.5 ps-2 pe-1 text-(--ui-text-muted)">
           <UIcon name="i-lucide-loader-circle" class="size-3 animate-spin" />{{ t('chat.working', { name: b.agent_name }) }}
@@ -454,7 +452,7 @@ onBeforeUnmount(() => {
           </div>
           <div v-else :id="`m-${m.id}`" class="group/msg space-y-2 rounded-lg transition" :class="marked === m.id && 'ring-2 ring-primary/60 ring-offset-4 ring-offset-(--ui-bg)'">
             <div class="flex items-center gap-2 text-xs text-(--ui-text-muted)">
-              <UIcon name="i-lucide-bot" class="size-4 text-primary" />
+              <AgentAvatar :agent="agents.find(a => a.name === m.author) ?? { name: m.author }" size="xs" />
               <span class="font-medium">{{ m.author }}</span>
               <span>{{ when(m.created_at) }}</span>
               <span v-if="m.cost_usd">· ${{ m.cost_usd.toFixed(3) }}</span>

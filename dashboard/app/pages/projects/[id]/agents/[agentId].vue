@@ -65,13 +65,13 @@ const tiles = computed(() => {
 })
 
 // ---- config: three cards, each saved on its own ----
-const form = reactive({ name: '', key: '', tier: 'worker' as AgentTier, role: '', description: '', reports_to: [] as string[], instructions: '', provider_id: '', model_tier: 'balanced' as ModelTier, llm_model: '', permissions: { level: 'propose', read_only: false } as Permissions })
+const form = reactive({ name: '', key: '', tier: 'worker' as AgentTier, role: '', description: '', reports_to: [] as string[], instructions: '', provider_id: '', model_tier: 'balanced' as ModelTier, llm_model: '', permissions: { level: 'propose', read_only: false } as Permissions, avatar: {} as AvatarSpec })
 function load() {
   const a = agent.value
   if (!a) return
   Object.assign(form, JSON.parse(JSON.stringify({
     name: a.name, key: a.key, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, instructions: a.instructions,
-    provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, permissions: a.permissions
+    provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, permissions: a.permissions, avatar: a.avatar ?? {}
   })))
 }
 watch(agent, load, { immediate: true })
@@ -87,13 +87,14 @@ const providerOptions = computed(() => [
 const formProvider = computed(() => providers.value.find(p => p.id === form.provider_id) ?? defaultProvider.value)
 const bossOptions = computed(() => others.value.filter(a => a.tier !== 'worker').map(a => ({ label: `${a.name} (${a.key})`, value: a.key })))
 const saving = ref('')
-async function save(card: 'role' | 'model' | 'perm') {
+async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
   const a = agent.value!
   // each card sends its own fields on top of the saved agent
   const base = { key: a.key, name: a.name, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, instructions: a.instructions, permissions: a.permissions }
   const body = card === 'role'
     ? { ...base, key: form.key, name: form.name, tier: form.tier, role: form.role, description: form.description, reports_to: form.tier === 'lead' ? [] : form.reports_to, instructions: form.instructions }
-    : card === 'model' ? { ...base, provider_id: form.provider_id, model_tier: form.model_tier, llm_model: form.llm_model } : { ...base, permissions: form.permissions }
+    : card === 'model' ? { ...base, provider_id: form.provider_id, model_tier: form.model_tier, llm_model: form.llm_model }
+      : card === 'avatar' ? { ...base, avatar: form.avatar } : { ...base, permissions: form.permissions }
   saving.value = card
   try {
     await $fetch(`/api/agents/${a.id}`, { method: 'PATCH', body })
@@ -285,6 +286,13 @@ async function restore(e: Entry) {
 
       <!-- config -->
       <fieldset v-else-if="tab === 'config'" :disabled="!isAdmin" class="max-w-4xl space-y-3">
+        <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-sm font-medium">{{ t('avatar.title') }}</p>
+            <UButton v-if="isAdmin" size="xs" icon="i-lucide-save" :label="t('common.save')" :loading="saving === 'avatar'" @click="save('avatar')" />
+          </div>
+          <AvatarPicker v-if="agent" v-model="form.avatar" :agent="agent" />
+        </UCard>
         <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
           <p class="text-sm font-medium">{{ t('agentPage.cardRole') }}</p>
           <div class="grid gap-3 sm:grid-cols-2">
