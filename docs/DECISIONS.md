@@ -917,13 +917,22 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - `limits` (JSON): `max_runs_per_hour`, `daily_cost_usd`, `disable_after_failures` (mặc định 5), `debounce_seconds`, `debounce_key`, `debounce_max_seconds`.
   - Trạng thái: `failures`, `disabled_code`, `disabled_reason`, `last_run_at`, `next_run_at`.
   - `created_by`, `created_at`, `updated_at`.
-- `automation_runs` vừa là hàng đợi vừa là lịch sử:
-  - `id`, `automation_id`, `project_id`, `trigger` (`schedule` | `webhook` | `telegram` | `discord` | `manual`);
-  - `status`: `pending` | `running` | `done` | `failed` | `skipped`;
-  - `dedupe_key` (unique theo automation), `debounce_key`;
-  - `payload` (tối đa 64KB), và bản chụp lúc tạo: `prompt`, `action`, `agent_id`, `edit_mode`;
-  - `reply` (JSON: kênh, chat, id tin để sửa lại), `conversation_id`, `task_id`, `result` (đoạn đầu), `error`, `cost_usd`;
-  - `next_attempt_at`, `created_at`, `started_at`, `finished_at`.
+- `automation_runs` là **bản ghi mỏng bọc một lượt**. Kết quả của lượt chính là một tin Chat (`conversation_id`, `message_id`) hoặc một Việc (`task_id`). Câu trả lời, chi phí, công cụ, diff và prompt đã gửi đều đọc từ đó, không lưu lặp lại.
+  - Bản ghi này vẫn cần, cho những gì xảy ra trước khi có Chat hay Việc:
+    - xếp hàng và trả `run_id` ngay cho webhook;
+    - debounce và hẹn giờ;
+    - chống trùng;
+    - lượt bị bỏ qua, hoặc lỗi trước khi chạy (vượt giới hạn, agent bị xóa, project đang bận quá lâu);
+    - nhớ tin nhắn cần sửa để trả lời trên Discord/Telegram.
+  - Các cột:
+    - `id`, `automation_id`, `trigger` (`schedule` | `webhook` | `telegram` | `discord` | `manual`);
+    - `status`: `pending` | `running` | `done` | `failed` | `skipped`;
+    - `dedupe_key` (unique theo automation), `debounce_key`;
+    - `payload` (tối đa 64KB, dùng để điền prompt lúc chạy);
+    - `reply` (JSON: kênh, chat, id tin để sửa lại);
+    - `conversation_id` + `message_id`, hoặc `task_id`;
+    - `error` (khi lỗi trước khi có Chat hoặc Việc);
+    - `next_attempt_at`, `created_at`, `started_at`, `finished_at`.
 
 *Chạy* (package `internal/trigger`):
 - **Bộ lập lịch** chạy mỗi 15 giây:
@@ -940,6 +949,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - `task`: gọi `tasks.Start`, rồi đợi Việc kết thúc.
   - Chế độ quyền là `operate`, tức không đặt trần thêm: agent làm đúng theo quyền đã phân cho nó (ADR-035). Cách sửa code lấy theo tự động hóa, mặc định là worktree.
   - Người thực hiện ghi là `auto:<tên tự động hóa>`.
+- Prompt được điền lúc bắt đầu chạy, từ tự động hóa và `payload`. Sau đó prompt nằm trong tin nhắn của Chat hoặc trong mục tiêu của Việc.
 - **Lỗi và giới hạn:**
   - Cuộc Chat đang bận, hoặc project đang chạy một Việc khác: hẹn lại sau 60 giây, quá 30 phút thì `failed`.
   - Lỗi của agent không tự chạy lại, để tránh sửa code hai lần. Mỗi lần lỗi cộng `failures`; đủ `disable_after_failures` lần liên tiếp thì tắt, ghi `disabled_code=failures`.
