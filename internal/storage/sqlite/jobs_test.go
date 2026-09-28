@@ -152,3 +152,28 @@ func TestScriptJobsAndAutomations(t *testing.T) { // ADR-041
 		t.Fatalf("automation = %+v", b)
 	}
 }
+
+func TestAutomationConversations(t *testing.T) { // ADR-042
+	ctx := context.Background()
+	st, p := openStore(t)
+	plain, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p.ID, Title: "chat"})
+	draft, err := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p.ID, Title: "tự động", Purpose: "automation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := st.Chat().ListConversations(ctx, p.ID, 50); len(list) != 1 || list[0].ID != plain.ID {
+		t.Fatalf("list = %+v", list)
+	}
+	if err := st.Chat().LinkAutomation(ctx, draft.ID, "aut_1"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Chat().AutomationConversation(ctx, "aut_1")
+	if err != nil || got.ID != draft.ID || got.Purpose != "automation" || got.AutomationID != "aut_1" {
+		t.Fatalf("automation conversation = %+v %v", got, err)
+	}
+	m, _ := st.Chat().AddMessage(ctx, storage.Message{ConversationID: draft.ID, Role: "user", Content: "viết script", Context: `{"page":"automation"}`})
+	msgs, _ := st.Chat().ListMessages(ctx, draft.ID)
+	if len(msgs) != 1 || msgs[0].ID != m.ID || msgs[0].Context != `{"page":"automation"}` {
+		t.Fatalf("messages = %+v", msgs)
+	}
+}

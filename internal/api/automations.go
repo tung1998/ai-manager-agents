@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ func (s *server) triggerRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/automations/{id}", admin(s.deleteAutomation))
 	mux.Handle("POST /api/automations/{id}/run", admin(s.runAutomation))
 	mux.Handle("POST /api/automations/{id}/rotate-secret", admin(s.rotateSecret))
+	mux.Handle("POST /api/automations/{id}/conversation", auth(s.automationConversation))
+	mux.Handle("POST /api/projects/{id}/automations/test-script", admin(s.testScript))
 
 	mux.Handle("GET /api/jobs", auth(s.listJobs))
 	mux.Handle("GET /api/jobs/stats", auth(s.jobStats))
@@ -86,6 +89,8 @@ type automationInput struct {
 	Limits      storage.AutomationLimits   `json:"limits"`
 	Script      storage.AutomationScript   `json:"script"`
 	Escalate    storage.AutomationEscalate `json:"escalate"`
+	// ConversationID ties the chat that built it (ADR-042)
+	ConversationID string `json:"conversation_id"`
 }
 
 // apply validates in and puts it on a (the secret hash and state stay).
@@ -190,6 +195,7 @@ func (s *server) createAutomation(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
+	s.linkBuilder(r, a, in.ConversationID)
 	s.auditAction(r, "automation.create", a.ID, map[string]any{"project": p.ID, "name": a.Name, "source": a.Source})
 	out := map[string]any{"automation": s.toAutomationDTO(r, a)}
 	if secret != "" {
@@ -233,6 +239,7 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
+	s.linkBuilder(r, a, in.ConversationID)
 	s.auditAction(r, "automation.update", a.ID, map[string]any{"name": a.Name, "enabled": a.Enabled})
 	out := map[string]any{"automation": s.toAutomationDTO(r, a)}
 	if secret != "" {
@@ -300,4 +307,69 @@ func (s *server) previewSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"next": trigger.Upcoming(cfg, time.Now().UTC(), 5)})
+}
+
+// linkBuilder ties a building chat of the same project to the automation.
+func (s *server) linkBuilder(r *http.Request, a storage.Automation, conversationID string) {
+	if conversationID == "" {
+		return
+	}
+	if c, err := s.cfg.Store.Chat().GetConversation(r.Context(), conversationID); err == nil && c.ProjectID == a.ProjectID && c.Purpose == "automation" && c.AutomationID == "" {
+		_ = s.cfg.Store.Chat().LinkAutomation(r.Context(), c.ID, a.ID)
+	}
+}
+
+// automationConversation is the chat that builds an automation (made on first use).
+func (s *server) automationConversation(w http.ResponseWriter, r *http.Request) {
+	a, err := s.cfg.Store.Automations().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	c, err := s.cfg.Store.Chat().AutomationConversation(r.Context(), a.ID)
+	if err != nil {
+		if c, err = s.cfg.Chat.StartConversationPurpose(r.Context(), a.ProjectID, "", "automation"); err != nil {
+			s.chatError(w, r, err)
+			return
+		}
+		if err := s.cfg.Store.Chat().LinkAutomation(r.Context(), c.ID, a.ID); err != nil {
+			s.internal(w, r, err)
+			return
+		}
+		c.AutomationID = a.ID
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c)})
+}
+
+// testScript runs a script now, without saving it (the builder's "Chạy thử").
+func (s *server) testScript(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Script  storage.AutomationScript `json:"script"`
+		Payload string                   `json:"payload"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	p, err := s.cfg.Store.Repos().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if !trigger.ValidLang(in.Script.Lang) || strings.TrimSpace(in.Script.Body) == "" || len(in.Script.Body) > trigger.MaxScript {
+		writeError(w, http.StatusBadRequest, "script cần ngôn ngữ bash, node hoặc python và nội dung không quá 64KB")
+		return
+	}
+	in.Script.TimeoutS = min(max(in.Script.TimeoutS, 1), 120)
+	dir := p.Path
+	if dir == "" {
+		dir, _ = os.UserHomeDir()
+	}
+	env := []string{"OFFICE_PAYLOAD=" + in.Payload, "OFFICE_TRIGGER=test", "OFFICE_AUTOMATION=test"}
+	out, code, timedOut, err := trigger.RunScript(r.Context(), dir, in.Script, env, in.Payload)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.auditAction(r, "automation.test_script", p.ID, map[string]any{"lang": in.Script.Lang, "exit_code": code})
+	writeJSON(w, http.StatusOK, map[string]any{"output": out, "exit_code": code, "timed_out": timedOut})
 }

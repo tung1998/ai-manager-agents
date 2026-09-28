@@ -269,6 +269,8 @@ type Conversation struct {
 	Mode      string // permission mode (internal/perm level), a ceiling for this chat
 	EditMode  string // where it changes code: perm.EditWorktree (default) or perm.EditDirect
 	TaskID    string // set for the follow-up talk about one task
+	Purpose      string // "" = a chat of the project; "automation" = builds one automation (not listed)
+	AutomationID string // purpose automation: the automation it builds, once saved
 	CreatedBy string
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -292,6 +294,7 @@ type Message struct {
 	RunID          string
 	Author         string
 	CreatedAt      time.Time
+	Context        string // the page the person was on (sent to the agent as data)
 }
 
 // Attachment references a file a person attached (see internal/attach).
@@ -328,6 +331,10 @@ type ChatRepo interface {
 	// ListConversations lists a project's own chats (not the talks about tasks).
 	ListConversations(ctx context.Context, projectID string, limit int) ([]Conversation, error)
 	TaskConversation(ctx context.Context, taskID string) (Conversation, error)
+	// AutomationConversation is the chat that builds an automation.
+	AutomationConversation(ctx context.Context, automationID string) (Conversation, error)
+	// LinkAutomation ties a building chat to the automation once it is saved.
+	LinkAutomation(ctx context.Context, conversationID, automationID string) error
 	DeleteConversation(ctx context.Context, id string) error
 
 	AddMessage(ctx context.Context, m Message) (Message, error)

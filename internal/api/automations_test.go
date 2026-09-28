@@ -136,3 +136,47 @@ func TestEscalationAgentAndRetry(t *testing.T) { // I4, M2
 		t.Fatalf("retried job = %v", j)
 	}
 }
+
+func TestAutomationBuilderAPI(t *testing.T) { // ADR-042
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
+	solo := ""
+	for _, x := range body["templates"].([]any) {
+		if m := x.(map[string]any); m["key"] == "solo" {
+			solo = m["id"].(string)
+		}
+	}
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+
+	// test a script without saving
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations/test-script", map[string]any{
+		"script": map[string]any{"lang": "bash", "body": "read p; echo \"got $p\"; exit 2"}, "payload": "hi",
+	}, nil)
+	if resp.StatusCode != 200 || body["exit_code"] != float64(2) || !strings.Contains(body["output"].(string), "got hi") {
+		t.Fatalf("test-script = %d %v", resp.StatusCode, body)
+	}
+	member := e.client(t)
+	login(t, e, member, "member@x.io", "member-password")
+	if resp, _ := do(t, member, "POST", e.srv.URL+"/api/projects/"+pid+"/automations/test-script", map[string]any{"script": map[string]any{"lang": "bash", "body": "id"}}, nil); resp.StatusCode != 403 {
+		t.Fatalf("member test-script = %d", resp.StatusCode)
+	}
+
+	// a building chat, hidden from the project's chats, tied to the automation when it is saved
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{"purpose": "automation"}, nil)
+	cid := body["conversation"].(map[string]any)["id"].(string)
+	if _, body := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/conversations", nil, nil); len(body["conversations"].([]any)) != 0 {
+		t.Fatalf("building chat listed: %v", body)
+	}
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
+		"name": "đếm", "source": "schedule", "action": "script", "config": map[string]any{"every_minutes": 60},
+		"script": map[string]any{"lang": "bash", "body": "echo ok"}, "conversation_id": cid,
+	}, nil)
+	aid := body["automation"].(map[string]any)["id"].(string)
+	resp, body = do(t, admin, "POST", e.srv.URL+"/api/automations/"+aid+"/conversation", map[string]any{}, nil)
+	if resp.StatusCode != 200 || body["conversation"].(map[string]any)["id"] != cid {
+		t.Fatalf("automation conversation = %d %v", resp.StatusCode, body)
+	}
+}

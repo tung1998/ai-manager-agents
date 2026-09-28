@@ -58,6 +58,17 @@ func (e *Engine) StartConversationFor(ctx context.Context, projectID, agentID st
 	return storage.Conversation{}, ErrNoAgent
 }
 
+// StartConversationPurpose opens a thread for a purpose ("automation" = one
+// that builds an automation, not listed with the project's chats).
+func (e *Engine) StartConversationPurpose(ctx context.Context, projectID, agentID, purpose string) (storage.Conversation, error) {
+	c, err := e.StartConversationFor(ctx, projectID, agentID)
+	if err != nil {
+		return c, err
+	}
+	c.Purpose = purpose
+	return e.store.Chat().CreateConversation(ctx, c)
+}
+
 // taskBrief is what the lead knows about the task it is talking about. It is
 // rebuilt every turn, so approvals, reverts and commits since are visible.
 func (e *Engine) taskBrief(ctx context.Context, taskID string) string {

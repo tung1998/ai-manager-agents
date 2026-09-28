@@ -12,7 +12,7 @@ import (
 
 type chatRepo struct{ db dbtx }
 
-const convCols = `id, project_id, agent_id, agent_name, title, session_id, runtime, mode, task_id, created_by, created_at, updated_at, edit_mode`
+const convCols = `id, project_id, agent_id, agent_name, title, session_id, runtime, mode, task_id, created_by, created_at, updated_at, edit_mode, purpose, automation_id`
 
 func scanConv(row scanner) (storage.Conversation, error) {
 	var (
@@ -20,7 +20,7 @@ func scanConv(row scanner) (storage.Conversation, error) {
 		agent, task      sql.NullString
 		created, updated string
 	)
-	if err := row.Scan(&c.ID, &c.ProjectID, &agent, &c.AgentName, &c.Title, &c.SessionID, &c.Runtime, &c.Mode, &task, &c.CreatedBy, &created, &updated, &c.EditMode); err != nil {
+	if err := row.Scan(&c.ID, &c.ProjectID, &agent, &c.AgentName, &c.Title, &c.SessionID, &c.Runtime, &c.Mode, &task, &c.CreatedBy, &created, &updated, &c.EditMode, &c.Purpose, &c.AutomationID); err != nil {
 		return c, notFound(err)
 	}
 	c.AgentID, c.TaskID = agent.String, task.String
@@ -39,8 +39,8 @@ func (r chatRepo) CreateConversation(ctx context.Context, c storage.Conversation
 	if c.EditMode == "" {
 		c.EditMode = "worktree"
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO conversations (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.ProjectID, nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.Mode, nullStr(c.TaskID), c.CreatedBy, fmtTime(now), fmtTime(now), c.EditMode)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO conversations (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.ProjectID, nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.Mode, nullStr(c.TaskID), c.CreatedBy, fmtTime(now), fmtTime(now), c.EditMode, c.Purpose, c.AutomationID)
 	return c, err
 }
 
@@ -67,7 +67,7 @@ func (r chatRepo) ListConversations(ctx context.Context, projectID string, limit
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+convCols+` FROM conversations WHERE project_id=? AND task_id IS NULL ORDER BY updated_at DESC LIMIT ?`, projectID, limit)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+convCols+` FROM conversations WHERE project_id=? AND task_id IS NULL AND purpose='' ORDER BY updated_at DESC LIMIT ?`, projectID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -100,8 +100,8 @@ func (r chatRepo) AddMessage(ctx context.Context, m storage.Message) (storage.Me
 	if m.Attachments == nil {
 		m.Attachments = []storage.Attachment{}
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, role, content, tools, attachments, run_id, author, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
-		m.ID, m.ConversationID, m.Role, m.Content, toJSON(m.Tools), toJSON(m.Attachments), nullStr(m.RunID), m.Author, fmtTime(m.CreatedAt))
+	_, err := r.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		m.ID, m.ConversationID, m.Role, m.Content, toJSON(m.Tools), toJSON(m.Attachments), nullStr(m.RunID), m.Author, fmtTime(m.CreatedAt), m.Context)
 	if err == nil {
 		_, _ = r.db.ExecContext(ctx, `UPDATE conversations SET updated_at=? WHERE id=?`, fmtTime(m.CreatedAt), m.ConversationID)
 	}
@@ -109,7 +109,7 @@ func (r chatRepo) AddMessage(ctx context.Context, m storage.Message) (storage.Me
 }
 
 func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]storage.Message, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, conversation_id, role, content, tools, attachments, run_id, author, created_at
+	rows, err := r.db.QueryContext(ctx, `SELECT id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context
 		FROM messages WHERE conversation_id=? ORDER BY created_at, id`, conversationID)
 	if err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]st
 			tools, atts, created string
 			run                  sql.NullString
 		)
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &tools, &atts, &run, &m.Author, &created); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &tools, &atts, &run, &m.Author, &created, &m.Context); err != nil {
 			return nil, err
 		}
 		m.RunID = run.String
@@ -207,4 +207,12 @@ func (r chatRepo) ListPatches(ctx context.Context, conversationID string) ([]sto
 
 func (r chatRepo) DecidePatch(ctx context.Context, id, status, detail, by string, at time.Time) error {
 	return execOne(ctx, r.db, `UPDATE patches SET status=?, detail=?, decided_by=?, decided_at=? WHERE id=?`, status, detail, by, fmtTime(at), id)
+}
+
+func (r chatRepo) AutomationConversation(ctx context.Context, automationID string) (storage.Conversation, error) {
+	return scanConv(r.db.QueryRowContext(ctx, `SELECT `+convCols+` FROM conversations WHERE automation_id=? ORDER BY updated_at DESC LIMIT 1`, automationID))
+}
+
+func (r chatRepo) LinkAutomation(ctx context.Context, conversationID, automationID string) error {
+	return execOne(ctx, r.db, `UPDATE conversations SET automation_id=?, purpose='automation' WHERE id=?`, automationID, conversationID)
 }

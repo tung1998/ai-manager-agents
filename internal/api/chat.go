@@ -16,20 +16,22 @@ import (
 )
 
 type conversationDTO struct {
-	ID         string    `json:"id"`
-	ProjectID  string    `json:"project_id"`
-	AgentID    string    `json:"agent_id"`
-	AgentName  string    `json:"agent_name"`
-	Title      string    `json:"title"`
-	CreatedBy  string    `json:"created_by"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	ActiveTurn string    `json:"active_turn,omitempty"`
-	Mode       string    `json:"mode"`
-	EditMode   string    `json:"edit_mode"`
+	ID           string    `json:"id"`
+	ProjectID    string    `json:"project_id"`
+	AgentID      string    `json:"agent_id"`
+	AgentName    string    `json:"agent_name"`
+	Title        string    `json:"title"`
+	CreatedBy    string    `json:"created_by"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	ActiveTurn   string    `json:"active_turn,omitempty"`
+	Mode         string    `json:"mode"`
+	EditMode     string    `json:"edit_mode"`
+	Purpose      string    `json:"purpose"`
+	AutomationID string    `json:"automation_id"`
 }
 
 func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
-	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode}
+	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode, Purpose: c.Purpose, AutomationID: c.AutomationID}
 	if t, ok := s.cfg.Chat.Active(c.ID); ok {
 		d.ActiveTurn = t.ID
 	}
@@ -89,11 +91,20 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 func (s *server) createConversation(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		AgentID string `json:"agent_id"`
+		Purpose string `json:"purpose"` // "automation": a chat that builds one automation (ADR-042)
 	}
 	if r.ContentLength != 0 && !decode(w, r, &in) {
 		return
 	}
-	c, err := s.cfg.Chat.StartConversation(r.Context(), r.PathValue("id"), in.AgentID)
+	var (
+		c   storage.Conversation
+		err error
+	)
+	if in.Purpose == "automation" {
+		c, err = s.cfg.Chat.StartConversationPurpose(r.Context(), r.PathValue("id"), in.AgentID, in.Purpose)
+	} else {
+		c, err = s.cfg.Chat.StartConversation(r.Context(), r.PathValue("id"), in.AgentID)
+	}
 	if err != nil {
 		s.chatError(w, r, err)
 		return
@@ -139,6 +150,7 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		Attachments []string `json:"attachments"`
 		Mode        string   `json:"mode"`      // permission mode for this chat from now on
 		EditMode    string   `json:"edit_mode"` // where it changes code from now on
+		Context     string   `json:"context"`   // the page the person is on (ADR-042)
 	}
 	if !decode(w, r, &in) {
 		return
@@ -155,7 +167,7 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	turn, msg, err := s.cfg.Chat.Send(r.Context(), r.PathValue("id"), in.Text, in.Attachments)
+	turn, msg, err := s.cfg.Chat.SendWithContext(r.Context(), r.PathValue("id"), in.Text, in.Context, in.Attachments)
 	if err != nil {
 		s.chatError(w, r, err)
 		return
