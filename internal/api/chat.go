@@ -4,6 +4,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/automation"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -138,7 +139,22 @@ func (s *server) getConversation(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c), "messages": msgs})
+	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c), "messages": msgs, "members": s.chatMembers(r, c.ID)})
+}
+
+// chatMembers: the agents in a chat (ADR-044), with their rights and context.
+func (s *server) chatMembers(r *http.Request, conversationID string) []map[string]any {
+	list, _ := s.cfg.Store.Chat().Members(r.Context(), conversationID)
+	out := make([]map[string]any, 0, len(list))
+	for _, m := range list {
+		level := ""
+		if a, err := s.cfg.Store.Agents().Get(r.Context(), m.AgentID); err == nil {
+			level = perm.Agent(a)
+		}
+		out = append(out, map[string]any{"agent_id": m.AgentID, "agent_name": m.AgentName, "level": level,
+			"context_tokens": m.ContextTokens, "context_window": m.ContextWindow})
+	}
+	return out
 }
 
 func (s *server) deleteConversation(w http.ResponseWriter, r *http.Request) {
