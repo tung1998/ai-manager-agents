@@ -450,7 +450,7 @@ onBeforeUnmount(() => {
           </button>
         </span>
       </div>
-      <div ref="listEl" class="flex-1 space-y-4 overflow-y-auto p-4">
+      <div ref="listEl" class="min-w-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-4">
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
         </div>
@@ -490,7 +490,7 @@ onBeforeUnmount(() => {
             <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0" />
             <span>{{ m.content }}</span>
           </div>
-          <div v-else :id="`m-${m.id}`" class="group/msg space-y-2 rounded-lg transition" :class="marked === m.id && 'ring-2 ring-primary/60 ring-offset-4 ring-offset-(--ui-bg)'">
+          <div v-else :id="`m-${m.id}`" class="group/msg min-w-0 space-y-2 rounded-lg transition" :class="marked === m.id && 'ring-2 ring-primary/60 ring-offset-4 ring-offset-(--ui-bg)'">
             <div class="flex items-center gap-2 text-xs text-(--ui-text-muted)">
               <AgentAvatar :agent="agents.find(a => a.name === m.author) ?? { name: m.author }" size="xs" />
               <span class="font-medium">{{ m.author }}</span>
@@ -509,7 +509,7 @@ onBeforeUnmount(() => {
               </ul>
             </details>
             <!-- eslint-disable-next-line vue/no-v-html -->
-            <div class="markdown text-sm" v-html="renderMarkdown(m.content)" />
+            <div class="markdown min-w-0 text-sm" v-html="renderMarkdown(m.content)" />
             <PatchCard v-for="p in m.patches" :key="p.id" :patch="p" @updated="(np: Patch) => onPatchUpdated(m, np)" />
             <ActionCard
               v-for="a in m.actions ?? []" :key="a.id" :action="a" :project-id="projectId"

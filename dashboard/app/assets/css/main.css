@@ -1,2 +1,16 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+
+/* chat answers: a wide table or code block scrolls inside itself, long words
+   (links, paths) wrap; the page never scrolls sideways */
+.markdown {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.markdown table,
+.markdown pre {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
