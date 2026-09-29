@@ -52,6 +52,10 @@ func (r runRepo) query(ctx context.Context, f storage.RunFilter, limit int) ([]s
 		q += ` AND project_id = ?`
 		args = append(args, f.ProjectID)
 	}
+	if f.Before != "" {
+		q += ` AND (created_at, id) < (SELECT created_at, id FROM runs WHERE id = ?)`
+		args = append(args, f.Before)
+	}
 	q += ` ORDER BY created_at DESC, id DESC`
 	if limit > 0 {
 		q += ` LIMIT ?`

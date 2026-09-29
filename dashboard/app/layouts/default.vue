@@ -62,16 +62,16 @@ const items = computed<NavigationMenuItem[][]>(() => {
   const office: NavigationMenuItem[] = [
     { label: t('nav.work'), type: 'label' },
     // one place to follow the office: what needs a person is counted here
-    { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/', badge: attention.value || undefined },
     { label: t('assistant.title'), icon: 'i-lucide-sparkles', to: '/assistant' },
-    { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' }
+    { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/', badge: attention.value || undefined },
+    { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' },
+    { label: t('nav.costs'), icon: 'i-lucide-wallet', to: '/costs' }
   ]
   const settings: NavigationMenuItem[] = [
     { label: t('nav.settings'), type: 'label' },
     { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' },
     { label: t('nav.templates'), icon: 'i-lucide-network', to: '/templates' },
-    ...(isAdmin.value ? [{ label: t('nav.library'), icon: 'i-lucide-library', to: '/library' }] : []),
-    { label: t('nav.costs'), icon: 'i-lucide-wallet', to: '/costs' }
+    ...(isAdmin.value ? [{ label: t('nav.library'), icon: 'i-lucide-library', to: '/library' }] : [])
   ]
   const admin: NavigationMenuItem[] = isAdmin.value
     ? [

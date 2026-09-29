@@ -235,6 +235,7 @@ type RunFilter struct {
 	ProjectID string
 	Since     time.Time
 	Limit     int
+	Before    string // a run id: only the runs older than it (the next page)
 }
 
 // UsageRow is spend aggregated by one dimension.

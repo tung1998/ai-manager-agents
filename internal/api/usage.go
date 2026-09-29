@@ -45,7 +45,10 @@ func (s *server) usageRuns(w http.ResponseWriter, r *http.Request) {
 		days = 30
 	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	runs, err := s.cfg.Usage.Runs(r.Context(), q.Get("project"), days, limit)
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	runs, err := s.cfg.Usage.Runs(r.Context(), q.Get("project"), days, limit, q.Get("before"))
 	if err != nil {
 		s.internal(w, r, err)
 		return
@@ -64,7 +67,11 @@ func (s *server) usageRuns(w http.ResponseWriter, r *http.Request) {
 			ProviderName: x.ProviderName, Model: x.Model, Status: x.Status, InputTokens: x.InputTokens, OutputTokens: x.OutputTokens,
 			CostUSD: x.CostUSD, CostSource: x.CostSource, DurationMS: x.DurationMS, Error: x.Error, Actor: x.Actor, CreatedAt: x.CreatedAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": out})
+	res := map[string]any{"runs": out}
+	if len(out) == limit { // there may be more: the page after the last one
+		res["next_before"] = out[len(out)-1].ID
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *server) usageSettings(w http.ResponseWriter, r *http.Request) {

@@ -152,8 +152,9 @@ func (s *Service) Record(ctx context.Context, m Meta, p storage.Provider, model 
 }
 
 // Runs lists recent calls.
-func (s *Service) Runs(ctx context.Context, projectID string, days, limit int) ([]storage.Run, error) {
-	return s.store.Runs().List(ctx, storage.RunFilter{ProjectID: projectID, Since: s.StartOfDay().AddDate(0, 0, -days+1), Limit: limit})
+// before (a run id) gives the page after it.
+func (s *Service) Runs(ctx context.Context, projectID string, days, limit int, before string) ([]storage.Run, error) {
+	return s.store.Runs().List(ctx, storage.RunFilter{ProjectID: projectID, Since: s.StartOfDay().AddDate(0, 0, -days+1), Limit: limit, Before: before})
 }
 
 // Summary is what the Chi phí page shows.

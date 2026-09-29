@@ -38,8 +38,26 @@ const toast = useToast()
 const days = ref(30)
 const _f1 = useFetch<Summary>('/api/usage/summary', { query: { days } })
 const { data: sum, refresh } = _f1
-const _f2 = useFetch<{ runs: Run[] }>('/api/usage/runs', { query: { days, limit: 100 } })
+const RUNS_PAGE = 20 // a page of runs at a time (a phone over a VPN)
+const _f2 = useFetch<{ runs: Run[], next_before?: string }>('/api/usage/runs', { query: { days, limit: RUNS_PAGE } })
 const { data: runsData, refresh: refreshRuns } = _f2
+const moreRuns = ref<Run[]>([]) // the pages loaded after the first
+const runsBefore = ref('')
+watch(runsData, (d) => { moreRuns.value = []; runsBefore.value = d?.next_before ?? '' }, { immediate: true })
+const runs = computed(() => [...(runsData.value?.runs ?? []), ...moreRuns.value])
+const loadingRuns = ref(false)
+async function loadMoreRuns() {
+  loadingRuns.value = true
+  try {
+    const res = await $fetch<{ runs: Run[], next_before?: string }>('/api/usage/runs', { query: { days: days.value, limit: RUNS_PAGE, before: runsBefore.value } })
+    moreRuns.value = [...moreRuns.value, ...res.runs]
+    runsBefore.value = res.next_before ?? ''
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    loadingRuns.value = false
+  }
+}
 const _f3 = useFetch<{ projects: Project[] }>('/api/projects')
 const { data: projData } = _f3
 await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
@@ -228,7 +246,7 @@ const statusMeta = computed<Record<string, { label: string, color: 'success' | '
       <!-- recent runs -->
       <UCard>
         <template #header><p class="font-medium">{{ t('costs.recentRuns') }}</p></template>
-        <p v-if="!runsData?.runs.length" class="text-sm text-(--ui-text-muted)">{{ t('costs.noRuns') }}</p>
+        <p v-if="!runs.length" class="text-sm text-(--ui-text-muted)">{{ t('costs.noRuns') }}</p>
         <div v-else class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead class="text-left text-xs text-(--ui-text-muted)">
@@ -238,7 +256,7 @@ const statusMeta = computed<Record<string, { label: string, color: 'success' | '
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in runsData.runs" :key="r.id" class="border-t border-(--ui-border) align-top">
+              <tr v-for="r in runs" :key="r.id" class="border-t border-(--ui-border) align-top">
                 <td class="whitespace-nowrap py-1.5 pe-3 text-(--ui-text-muted)">{{ new Date(r.created_at).toLocaleString(dateLocale) }}</td>
                 <td class="pe-3">{{ kindLabel[r.kind] ?? r.kind }}</td>
                 <td class="pe-3">{{ r.project_name || '—' }}</td>
@@ -256,6 +274,9 @@ const statusMeta = computed<Record<string, { label: string, color: 'success' | '
               </tr>
             </tbody>
           </table>
+          <div v-if="runsBefore" class="mt-2 text-center">
+            <UButton size="xs" color="neutral" variant="ghost" :loading="loadingRuns" :label="t('job.more')" @click="loadMoreRuns" />
+          </div>
           <p class="mt-2 text-xs text-(--ui-text-muted)">{{ t('costs.estimateHint') }}</p>
         </div>
       </UCard>
