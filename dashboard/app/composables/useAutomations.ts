@@ -39,6 +39,7 @@ export interface AutomationConfig {
   channel_id?: string, keywords?: string[], scope?: string
   // …or a custom slash command of the bot, and the text typed after it ("" = none)
   command?: string, command_description?: string, command_arg?: string
+  skill?: string // the command calls this project skill
 }
 export interface AutomationLimits {
   max_runs_per_hour?: number
@@ -129,7 +130,7 @@ export type AutomationDraft = Omit<Automation, 'id' | 'project_id' | 'failures' 
 export function emptyDraft(): AutomationDraft {
   return {
     name: '', enabled: true, source: 'schedule',
-    config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '', channel_id: '', keywords: [], scope: '', command: '', command_description: '', command_arg: '' },
+    config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '', channel_id: '', keywords: [], scope: '', command: '', command_description: '', command_arg: '', skill: '' },
     bot: { token: '', allow: [], refusal: '' },
     action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', model_tier: '', keep_context: false,
     script: { lang: 'bash', body: '', timeout_s: 300 },

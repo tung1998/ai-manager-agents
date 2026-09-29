@@ -43,6 +43,39 @@ function addCommand() {
   d.config.command = ' ' // a command, its name still to type
   cmds.value.push({ key: `k${seq++}`, draft: d, open: true })
 }
+// the project's skills as commands: pick some (or all), each becomes "/skill <text>"
+interface Skill { name: string, description: string, source: string }
+const skillsOpen = ref(false)
+const { data: skillsData } = useFetch<{ skills: Skill[] }>(() => `/api/projects/${props.projectId}/skills`, { lazy: true })
+const skills = computed(() => skillsData.value?.skills ?? [])
+const hasSkill = (name: string) => cmds.value.some(c => c.draft.config.skill === name)
+const picked = ref<string[]>([])
+const addable = computed(() => skills.value.filter(s => !hasSkill(s.name)))
+const allPicked = computed({
+  get: () => addable.value.length > 0 && addable.value.every(s => picked.value.includes(s.name)),
+  set: (v: boolean) => { picked.value = v ? addable.value.map(s => s.name) : [] }
+})
+function togglePick(name: string, v: boolean) {
+  picked.value = v ? [...picked.value, name] : picked.value.filter(n => n !== name)
+}
+function openSkills() {
+  picked.value = []
+  skillsOpen.value = true
+}
+function addSkills() {
+  const taken = new Set(cmds.value.map(c => commandName(c.draft.config.command ?? '')))
+  for (const s of skills.value.filter(x => picked.value.includes(x.name))) {
+    let name = commandName(s.name.replace(/:/g, '-')) || 'skill'
+    for (let i = 2; taken.has(name); i++) name = `${commandName(s.name.replace(/:/g, '-')).slice(0, 29)}-${i}`
+    taken.add(name)
+    const d = draftFor(name)
+    d.config.skill = s.name
+    d.config.command_description = s.description.slice(0, 100)
+    d.config.command_arg = t('auto.cmdArgDefault')
+    cmds.value.push({ key: `k${seq++}`, draft: d, open: false })
+  }
+  skillsOpen.value = false
+}
 function removeCommand(c: Cmd) {
   if (c.id) removed.push(c.id)
   cmds.value = cmds.value.filter(x => x !== c)
@@ -189,6 +222,7 @@ async function save() {
                   <template v-else>/{{ cmdLabel(commandName(c.draft.config.command) || '…') }}<span v-if="c.draft.config.command_arg" class="text-(--ui-text-dimmed)"> &lt;{{ c.draft.config.command_arg }}&gt;</span></template>
                 </span>
                 <UBadge v-if="!c.draft.config.command" :label="t('bot.basic')" color="neutral" variant="subtle" size="sm" />
+                <UBadge v-else-if="c.draft.config.skill" :label="t('bot.skillBadge')" color="primary" variant="subtle" size="sm" icon="i-lucide-sparkles" />
                 <span class="min-w-0 flex-1 truncate text-xs text-(--ui-text-muted)">→ {{ summary(c) }}</span>
                 <USwitch v-model="c.draft.enabled" size="sm" @click.stop />
                 <UButton
@@ -212,6 +246,9 @@ async function save() {
                   </div>
                 </details>
                 <template v-else>
+                  <p v-if="c.draft.config.skill" class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
+                    <UIcon name="i-lucide-sparkles" class="size-3.5 text-primary" />{{ t('bot.callsSkill', { skill: c.draft.config.skill }) }}
+                  </p>
                   <div class="grid gap-3 @lg:grid-cols-2">
                     <UFormField :label="t('auto.cmdName')" :help="t('auto.cmdNameHelp')" required>
                       <UInput
@@ -240,7 +277,10 @@ async function save() {
               <span class="min-w-0 flex-1 truncate text-xs text-(--ui-text-muted)">{{ s.desc }}</span>
             </div>
           </div>
-          <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-plus" :label="t('bot.addCommand')" @click="addCommand" />
+          <div class="flex flex-wrap gap-2">
+            <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-plus" :label="t('bot.addCommand')" @click="addCommand" />
+            <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-sparkles" :label="t('bot.addSkills')" @click="openSkills" />
+          </div>
           <p class="text-xs text-(--ui-text-muted)">{{ t('auto.replyNoTools') }}</p>
         </section>
       </div>
@@ -252,6 +292,36 @@ async function save() {
     <div class="h-[32rem] lg:h-auto lg:min-h-0">
       <ChatPanel :project-id="projectId" purpose="automation" :page-context="pageContext" @automation-patch="applyPatch" />
     </div>
+    <UModal v-model:open="skillsOpen" :title="t('bot.addSkills')" :ui="{ content: 'max-w-xl' }">
+      <template #body>
+        <p v-if="!skills.length" class="text-sm text-(--ui-text-muted)">{{ t('bot.noSkills') }}</p>
+        <div v-else class="space-y-2">
+          <UCheckbox v-model="allPicked" :label="t('bot.pickAll', { n: addable.length })" :disabled="!addable.length" />
+          <div class="max-h-96 divide-y divide-(--ui-border) overflow-y-auto rounded-lg border border-(--ui-border)">
+            <label v-for="s in skills" :key="s.name" class="flex cursor-pointer items-start gap-2.5 px-3 py-2" :class="hasSkill(s.name) ? 'opacity-60' : 'hover:bg-(--ui-bg-elevated)/50'">
+              <UCheckbox
+                :model-value="hasSkill(s.name) || picked.includes(s.name)" :disabled="hasSkill(s.name)" class="mt-0.5"
+                @update:model-value="(v: boolean | 'indeterminate') => togglePick(s.name, v === true)"
+              />
+              <span class="min-w-0 flex-1">
+                <span class="flex items-center gap-1.5">
+                  <span class="font-mono text-sm">/{{ cmdLabel(commandName(s.name.replace(/:/g, '-'))) }}</span>
+                  <UBadge :label="s.source" color="neutral" variant="outline" size="sm" />
+                  <span v-if="hasSkill(s.name)" class="text-xs text-(--ui-text-muted)">{{ t('bot.already') }}</span>
+                </span>
+                <span class="line-clamp-2 block text-xs text-(--ui-text-muted)">{{ s.description }}</span>
+              </span>
+            </label>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="skillsOpen = false" />
+          <UButton :label="t('bot.addN', { n: picked.length })" :disabled="!picked.length" @click="addSkills" />
+        </div>
+      </template>
+    </UModal>
     <UModal v-model:open="guideOpen" :title="bot.kind === 'discord' ? t('channels.guideDiscord') : t('channels.guideTelegram')">
       <template #body><BotGuide :kind="bot.kind" plain /></template>
     </UModal>

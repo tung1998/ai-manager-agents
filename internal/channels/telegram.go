@@ -221,7 +221,7 @@ func (t *Telegram) SetCommands(ctx context.Context, cmds []Command) {
 		if c.Arg != "" {
 			desc += " (" + c.Arg + ")"
 		}
-		list = append(list, map[string]string{"command": strings.ReplaceAll(c.Name, "-", "_"), "description": desc})
+		list = append(list, map[string]string{"command": strings.ReplaceAll(c.Name, "-", "_"), "description": clip(desc, 256)})
 	}
 	_ = t.call(ctx, "setMyCommands", map[string]any{"commands": list}, nil)
 }

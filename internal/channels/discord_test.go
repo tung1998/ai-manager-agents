@@ -177,3 +177,28 @@ func TestDiscordSlashCommands(t *testing.T) {
 		}
 	}
 }
+
+// Discord takes descriptions of at most 100 characters.
+func TestDiscordLongDescription(t *testing.T) {
+	var body string
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.Write([]byte(`[]`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", APIBase: rest.URL, appID: "app1"}
+	d.SetCommands(context.Background(), []Command{{Name: "review", Description: strings.Repeat("dài ", 60), Arg: strings.Repeat("x", 150)}})
+	var cmds []struct {
+		Description string `json:"description"`
+		Options     []struct {
+			Description string `json:"description"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal([]byte(body), &cmds); err != nil || len(cmds) != 1 {
+		t.Fatalf("body = %s", body)
+	}
+	if n := len([]rune(cmds[0].Description)); n > 100 || n == 0 || len([]rune(cmds[0].Options[0].Description)) > 100 {
+		t.Fatalf("description %d runes", n)
+	}
+}

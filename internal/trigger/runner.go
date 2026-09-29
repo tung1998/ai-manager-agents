@@ -434,7 +434,10 @@ func replyPrompt(a storage.Automation, j storage.Job, now time.Time, loc *time.L
 		text = ""
 	}
 	prompt = text
-	if a.Config.Command != "" && text == "" { // not "/cmd": a chat reads a leading "/" as a skill
+	switch {
+	case a.Config.Skill != "": // a command made from a skill: the chat expands "/skill"
+		prompt = strings.TrimSpace("/" + a.Config.Skill + " " + text)
+	case a.Config.Command != "" && text == "": // not "/cmd": a chat reads a leading "/" as a skill
 		prompt = who + " gọi lệnh /" + a.Config.Command + "."
 	}
 	if strings.TrimSpace(a.Prompt) == "" {

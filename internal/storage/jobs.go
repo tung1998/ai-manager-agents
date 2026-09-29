@@ -143,6 +143,8 @@ type AutomationConfig struct {
 	Command            string `json:"command,omitempty"`
 	CommandDescription string `json:"command_description,omitempty"`
 	CommandArg         string `json:"command_arg,omitempty"`
+	// Skill: the command calls this project skill ("/skill text" to the chat)
+	Skill string `json:"skill,omitempty"`
 }
 
 // AutomationLimits guard unattended runs.

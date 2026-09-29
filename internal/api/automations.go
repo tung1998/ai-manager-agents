@@ -75,7 +75,7 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 			keywords = []string{}
 		}
 		cfg = map[string]any{"channel_id": c.ChannelID, "keywords": keywords, "scope": c.Scope,
-			"command": c.Command, "command_description": c.CommandDescription, "command_arg": c.CommandArg}
+			"command": c.Command, "command_description": c.CommandDescription, "command_arg": c.CommandArg, "skill": c.Skill}
 	}
 	d := automationDTO{ID: a.ID, ProjectID: a.ProjectID, Name: a.Name, Enabled: a.Enabled, Source: a.Source, Config: cfg, Action: a.Action,
 		AgentID: a.AgentID, Prompt: a.Prompt, EditMode: a.EditMode, ModelTier: a.ModelTier, KeepContext: a.KeepContext, Limits: a.Limits, Script: a.Script, Escalate: a.Escalate, Failures: a.Failures,
@@ -183,6 +183,7 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 			cfg.Command, cfg.Keywords, cfg.Scope = name, nil, ""
 			cfg.CommandDescription = strings.TrimSpace(in.Config.CommandDescription)
 			cfg.CommandArg = strings.TrimSpace(in.Config.CommandArg)
+			cfg.Skill = strings.TrimSpace(in.Config.Skill)
 		}
 	} else {
 		cfg.Auth, cfg.AuthName = in.Config.Auth, strings.TrimSpace(in.Config.AuthName)

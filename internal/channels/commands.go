@@ -102,3 +102,12 @@ func argName(s string) string {
 	}
 	return "noi-dung"
 }
+
+// clip cuts s to n characters (Discord's limit for descriptions: 100).
+func clip(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
+}

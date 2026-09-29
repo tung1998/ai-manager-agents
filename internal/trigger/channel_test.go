@@ -142,3 +142,20 @@ func TestChannelPromptIsAnInstruction(t *testing.T) {
 		t.Fatalf("prompt = %q instructions = %q", ex.prompts[0], ex.instrs[0])
 	}
 }
+
+// A command made from a project skill calls it: the chat is sent "/skill text"
+// (the engine expands the skill), the command's name being the skill's.
+func TestChannelSkillCommand(t *testing.T) {
+	st, p := openStore(t)
+	ex := &recExec{reply: "ok"}
+	r := trigger.New(st, ex)
+	a, _ := st.Automations().Create(context.Background(), storage.Automation{ProjectID: p.ID, Name: "/review", Source: "discord", Action: "chat", Enabled: true,
+		Config: storage.AutomationConfig{ChannelID: "chn_1", Command: "review", Skill: "superpowers:review"}})
+	raw, _ := json.Marshal(map[string]string{"message": "nhánh fix/checkout", "user": "an", "chat_id": "42", "channel_id": "chn_1", "conversation_id": "cnv_1"})
+	r.Enqueue(context.Background(), a, "discord", string(raw), "", "")
+	r.Tick(context.Background(), time.Now().UTC().Add(time.Second))
+	r.Wait()
+	if len(ex.prompts) != 1 || ex.prompts[0] != "/superpowers:review nhánh fix/checkout" {
+		t.Fatalf("prompts = %q", ex.prompts)
+	}
+}
