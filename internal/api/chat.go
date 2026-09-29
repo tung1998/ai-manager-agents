@@ -147,7 +147,23 @@ func (s *server) getConversation(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c), "messages": msgs, "members": s.chatMembers(r, c.ID),
+	// ?limit=N: the last N messages (before ?before=<id>): a phone over a VPN
+	// gets a page, the older ones when it scrolls up
+	more := false
+	if n, _ := strconv.Atoi(r.URL.Query().Get("limit")); n > 0 {
+		end := len(msgs)
+		if before := r.URL.Query().Get("before"); before != "" {
+			for i, m := range msgs {
+				if m.ID == before {
+					end = i
+					break
+				}
+			}
+		}
+		start := max(end-n, 0)
+		msgs, more = msgs[start:end], start > 0
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c), "messages": msgs, "has_more": more, "members": s.chatMembers(r, c.ID),
 		"running": s.cfg.Chat.Running(c.ID)})
 }
 

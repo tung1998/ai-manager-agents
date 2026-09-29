@@ -24,10 +24,10 @@ onBeforeUnmount(() => clearInterval(timer))
 <template>
   <PageShell :title="t('job.title')">
     <div class="space-y-4">
-      <div class="grid gap-3 sm:grid-cols-4">
+      <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         <UCard v-for="x in tiles" :key="x.label" :ui="{ body: 'p-3 sm:p-4' }">
           <p class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)"><UIcon :name="x.icon" class="size-3.5" />{{ x.label }}</p>
-          <p class="mt-1 text-2xl font-semibold tabular-nums">{{ x.value }}</p>
+          <p class="mt-1 text-xl font-semibold tabular-nums sm:text-2xl">{{ x.value }}</p>
         </UCard>
       </div>
       <JobsTable :key="project" :filter="{ project }" show-filters :projects="projects" />

@@ -133,3 +133,40 @@ func TestJobsBySourceAndTitle(t *testing.T) {
 		}
 	}
 }
+
+// A chat opens on its last messages; older ones come a page at a time.
+func TestConversationMessagesPaged(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	c, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, CreatedBy: "human:admin@x.io"})
+	var ids []string
+	for i := range 5 {
+		m, _ := e.st.Chat().AddMessage(ctx, storage.Message{ConversationID: c.ID, Role: "user", Content: string(rune('a' + i))})
+		ids = append(ids, m.ID)
+	}
+	page := func(q string) ([]string, bool) {
+		_, b := do(t, admin, "GET", e.srv.URL+"/api/conversations/"+c.ID+q, nil, nil)
+		var got []string
+		for _, x := range b["messages"].([]any) {
+			got = append(got, x.(map[string]any)["content"].(string))
+		}
+		more, _ := b["has_more"].(bool)
+		return got, more
+	}
+	if got, more := page("?limit=2"); len(got) != 2 || got[0] != "d" || got[1] != "e" || !more {
+		t.Fatalf("last page = %v more=%v", got, more)
+	}
+	if got, more := page("?limit=2&before=" + ids[3]); len(got) != 2 || got[0] != "b" || got[1] != "c" || !more {
+		t.Fatalf("older page = %v more=%v", got, more)
+	}
+	if got, more := page("?limit=2&before=" + ids[1]); len(got) != 1 || got[0] != "a" || more {
+		t.Fatalf("first page = %v more=%v", got, more)
+	}
+	if got, _ := page(""); len(got) != 5 { // without a limit: all, as before
+		t.Fatalf("all = %v", got)
+	}
+}

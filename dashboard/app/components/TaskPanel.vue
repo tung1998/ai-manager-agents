@@ -52,6 +52,7 @@ const { data: listData, refresh: refreshList } = await useFetch<{ tasks: Task[] 
 const tasks = computed(() => listData.value?.tasks ?? [])
 
 const detail = ref<Detail | null>(null)
+const listOpen = ref(false) // the list over the page on a phone
 const liveText = reactive<Record<string, string>>({})
 const liveTools = reactive<Record<string, ToolCall[]>>({})
 const statusLine = ref('')
@@ -360,10 +361,14 @@ onBeforeUnmount(() => source?.close())
 </script>
 
 <template>
-  <div class="flex h-[calc(100vh-13rem)] min-h-[28rem] overflow-hidden rounded-lg border border-(--ui-border)">
-    <aside class="hidden w-64 shrink-0 flex-col border-e border-(--ui-border) md:flex">
+  <div class="relative flex h-[calc(100vh-13rem)] min-h-[28rem] overflow-hidden rounded-lg border border-(--ui-border)">
+    <!-- the list: a column on a wide screen, over the page on a phone (☰) -->
+    <aside
+      class="w-64 shrink-0 flex-col border-e border-(--ui-border) bg-(--ui-bg) md:static md:flex md:shadow-none"
+      :class="listOpen ? 'absolute inset-y-0 left-0 z-20 flex shadow-xl' : 'hidden'"
+    >
       <div class="space-y-1.5 border-b border-(--ui-border) p-2">
-        <UButton icon="i-lucide-plus" :label="t('task.new')" size="sm" color="neutral" variant="ghost" block class="justify-start" @click="showNew = true; detail = null" />
+        <UButton icon="i-lucide-plus" :label="t('task.new')" size="sm" color="neutral" variant="ghost" block class="justify-start" @click="showNew = true; detail = null; listOpen = false" />
         <SourceFilter v-model="origin" />
       </div>
       <div class="flex-1 overflow-y-auto p-1">
@@ -372,13 +377,13 @@ onBeforeUnmount(() => source?.close())
           v-for="t in tasks" :key="t.id"
           class="group cursor-pointer rounded-md px-2 py-1.5 text-sm"
           :class="detail?.task.id === t.id ? 'bg-(--ui-bg-accented)' : 'hover:bg-(--ui-bg-muted)'"
-          @click="open(t.id)"
+          @click="open(t.id); listOpen = false"
         >
           <div class="flex items-start gap-1">
             <UIcon v-if="t.source && t.source !== 'web'" :name="sourceIcon[t.source]" class="mt-0.5 size-3.5 shrink-0 text-(--ui-text-muted)" />
             <p class="min-w-0 flex-1 truncate">{{ t.title }}</p>
             <UDropdownMenu :items="taskMenu(t)" :content="{ align: 'end' }">
-              <button type="button" class="invisible -me-1 rounded px-0.5 text-(--ui-text-dimmed) hover:text-(--ui-text) group-hover:visible data-[state=open]:visible" :aria-label="moreLabel" @click.stop>
+              <button type="button" class="-me-1 rounded px-0.5 text-(--ui-text-dimmed) hover:text-(--ui-text) md:invisible md:group-hover:visible data-[state=open]:visible" :aria-label="moreLabel" @click.stop>
                 <UIcon name="i-lucide-ellipsis" class="size-4" />
               </button>
             </UDropdownMenu>
@@ -392,7 +397,12 @@ onBeforeUnmount(() => source?.close())
       </div>
     </aside>
 
+    <div v-if="listOpen" class="absolute inset-0 z-10 bg-black/30 md:hidden" @click="listOpen = false" />
     <section class="min-w-0 flex-1 overflow-y-auto p-4">
+      <div class="-mx-2 -mt-2 mb-3 flex items-center gap-1 md:hidden">
+        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-panel-left" :aria-label="t('task.list')" @click="listOpen = true" />
+        <p class="min-w-0 flex-1 truncate text-sm font-medium">{{ detail?.task.title || t('task.newTitle') }}</p>
+      </div>
       <!-- new task -->
       <div v-if="showNew || !detail" class="mx-auto max-w-2xl space-y-4">
         <div>

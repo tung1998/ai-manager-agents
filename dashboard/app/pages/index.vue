@@ -2,8 +2,6 @@
 const { user, isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
 
-const _f1 = useFetch<{ status: string, version: string }>('/api/health')
-const { data: health } = _f1
 const _f2 = useFetch<{ providers: Provider[] }>('/api/providers')
 const { data: prov } = _f2
 const _f3 = useFetch<{ projects: Project[] }>('/api/projects')
@@ -37,7 +35,7 @@ const incidents = computed(() => incData.value?.incidents ?? [])
 const incKind = (k: string) => t(`incidents.kind.${k}` as 'incidents.kind.monitor')
 const _f7 = useFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h')
 const { data: stats } = _f7
-await Promise.all([_f1, _f2, _f3, _f4, _f5, _f6, _f7]) // started together: one round trip, not 7 (a phone over a VPN)
+await Promise.all([_f2, _f3, _f4, _f5, _f6, _f7]) // started together: one round trip, not 7 (a phone over a VPN)
 const incIcon: Record<string, string> = {
   monitor: 'i-lucide-activity', process: 'i-lucide-square-terminal', automation: 'i-lucide-alarm-clock-off',
   bot: 'i-lucide-bot', jobs: 'i-lucide-circle-x', approval: 'i-lucide-stamp'
@@ -74,19 +72,6 @@ const steps = computed(() => [
 <template>
   <PageShell :title="t('nav.overview')">
     <div class="space-y-6">
-      <UCard>
-        <div class="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p class="text-sm text-(--ui-text-muted)">{{ t('home.welcome') }}</p>
-            <p class="text-lg font-semibold">{{ user?.name || user?.email }}</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <UBadge :label="user?.role" :color="isAdmin ? 'primary' : 'neutral'" variant="subtle" />
-            <UBadge v-if="health?.status === 'ok'" :label="t('home.apiConnected', { version: health.version })" color="success" variant="subtle" icon="i-lucide-plug" />
-            <UBadge v-else :label="t('home.apiDisconnected')" color="error" variant="subtle" icon="i-lucide-plug-zap" />
-          </div>
-        </div>
-      </UCard>
 
       <!-- what needs a person now -->
       <UCard :ui="{ body: 'p-0 sm:p-0' }">
@@ -119,23 +104,23 @@ const steps = computed(() => [
       </UCard>
 
       <!-- the last day -->
-      <div class="grid gap-3 sm:grid-cols-4">
+      <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         <UCard :ui="{ body: 'p-3 sm:p-4' }">
           <p class="text-xs text-(--ui-text-muted)">{{ t('job.running') }}</p>
-          <p class="text-2xl font-semibold tabular-nums">{{ (stats?.totals.running ?? 0) + (stats?.totals.pending ?? 0) }}</p>
+          <p class="text-xl font-semibold tabular-nums sm:text-2xl">{{ (stats?.totals.running ?? 0) + (stats?.totals.pending ?? 0) }}</p>
         </UCard>
         <UCard :ui="{ body: 'p-3 sm:p-4' }">
           <p class="text-xs text-(--ui-text-muted)">{{ t('job.failed24') }}</p>
-          <p class="text-2xl font-semibold tabular-nums" :class="stats?.totals.failed_24h ? 'text-(--ui-error)' : ''">{{ stats?.totals.failed_24h ?? 0 }}</p>
+          <p class="text-xl font-semibold tabular-nums sm:text-2xl" :class="stats?.totals.failed_24h ? 'text-(--ui-error)' : ''">{{ stats?.totals.failed_24h ?? 0 }}</p>
         </UCard>
         <UCard :ui="{ body: 'p-3 sm:p-4' }">
           <p class="text-xs text-(--ui-text-muted)">{{ t('job.cost24') }}</p>
-          <p class="text-2xl font-semibold tabular-nums">${{ (stats?.totals.cost_24h ?? 0).toFixed(2) }}</p>
+          <p class="text-xl font-semibold tabular-nums sm:text-2xl">${{ (stats?.totals.cost_24h ?? 0).toFixed(2) }}</p>
         </UCard>
         <NuxtLink to="/projects">
           <UCard :ui="{ body: 'p-3 sm:p-4' }" class="h-full hover:bg-(--ui-bg-elevated)/40">
             <p class="text-xs text-(--ui-text-muted)">{{ t('home.project') }}</p>
-            <p class="text-2xl font-semibold tabular-nums">{{ projects.length }}</p>
+            <p class="text-xl font-semibold tabular-nums sm:text-2xl">{{ projects.length }}</p>
           </UCard>
         </NuxtLink>
       </div>

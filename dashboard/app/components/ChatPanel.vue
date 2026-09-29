@@ -45,6 +45,7 @@ const agents = computed(() => agentsData.value?.agents ?? [])
 const conversations = computed(() => convData.value?.conversations ?? [])
 
 const current = ref<Conversation | null>(null)
+const threadsOpen = ref(false) // the chats drawer on a phone
 const messages = ref<Message[]>([])
 const draft = ref('')
 const draftFiles = ref<Attachment[]>([])
@@ -97,6 +98,30 @@ const liveTools = ref<ToolCall[]>([])
 const liveStatus = ref('')
 let source: EventSource | null = null
 let turnId = ''
+
+// older messages, a page at a time, the reading place kept
+const PAGE = 50
+const hasOlder = ref(false)
+const loadingOlder = ref(false)
+async function loadOlder() {
+  const c = current.value
+  const first = messages.value[0]
+  if (!c || !first || loadingOlder.value) return
+  loadingOlder.value = true
+  try {
+    const el = listEl.value
+    const from = el ? el.scrollHeight - el.scrollTop : 0
+    const res = await $fetch<{ messages: Message[], has_more?: boolean }>(`/api/conversations/${c.id}?limit=${PAGE}&before=${first.id}`)
+    messages.value = [...res.messages, ...messages.value]
+    hasOlder.value = !!res.has_more
+    await nextTick()
+    if (el) el.scrollTop = el.scrollHeight - from
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    loadingOlder.value = false
+  }
+}
 
 async function scrollDown() {
   await nextTick()
@@ -200,8 +225,10 @@ async function open(c: Conversation, messageId?: string) {
   current.value = c
   if (ownsUrl.value && route.query.c !== c.id) router.replace({ query: { ...route.query, c: c.id, m: undefined } })
   stopBackground()
-  const res = await $fetch<{ conversation: Conversation, messages: Message[], members?: Member[], running?: RunningTurn[] }>(`/api/conversations/${c.id}`)
+  // the last page (a phone over a VPN); a link to one message loads it all to find it
+  const res = await $fetch<{ conversation: Conversation, messages: Message[], has_more?: boolean, members?: Member[], running?: RunningTurn[] }>(`/api/conversations/${c.id}${messageId ? '' : `?limit=${PAGE}`}`)
   messages.value = res.messages
+  hasOlder.value = !!res.has_more
   current.value = res.conversation
   applyGroup(res.members, res.running)
   if (res.conversation.active_turn && !streaming.value) follow(res.conversation.active_turn)
@@ -384,38 +411,26 @@ onBeforeUnmount(() => {
   <div class="flex overflow-hidden rounded-lg border border-(--ui-border)" :class="compact || purpose ? 'h-full min-h-0' : taskId ? 'h-[32rem]' : 'min-h-[24rem] flex-1'">
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
-      <div class="space-y-1.5 border-b border-(--ui-border) p-2">
-        <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" block class="justify-start" @click="newConversation(pick)" />
-        <SourceFilter v-model="origin" />
-      </div>
-      <div class="flex-1 overflow-y-auto p-1">
-        <p v-if="!conversations.length" class="p-3 text-xs text-(--ui-text-muted)">{{ t('chat.none') }}</p>
-        <div
-          v-for="c in conversations" :key="c.id"
-          class="group flex cursor-pointer items-start gap-1 rounded-md px-2 py-1.5 text-sm"
-          :class="current?.id === c.id ? 'bg-(--ui-bg-accented)' : 'hover:bg-(--ui-bg-muted)'"
-          @click="open(c)"
-        >
-          <AgentAvatar :agent="agents.find(a => a.id === c.agent_id) ?? { id: c.agent_id, name: c.agent_name }" size="xs" class="mt-0.5" />
-          <div class="min-w-0 flex-1">
-            <p class="truncate">{{ c.title || t('chat.newThreadTitle') }}</p>
-            <p class="flex items-center gap-1 truncate text-xs text-(--ui-text-muted)">
-              <UIcon v-if="c.source && c.source !== 'web'" :name="sourceIcon[c.source]" class="size-3 shrink-0" :title="t(`source.${c.source}`)" />
-              <span class="truncate">{{ c.agent_name }} · {{ when(c.updated_at) }}</span>
-            </p>
-          </div>
-          <UIcon v-if="c.active_turn" name="i-lucide-loader-circle" class="mt-1 size-3.5 animate-spin text-(--ui-text-muted)" />
-          <UDropdownMenu :items="threadMenu(c)" :content="{ align: 'end' }">
-            <button type="button" class="invisible -me-1 rounded px-0.5 text-(--ui-text-dimmed) hover:text-(--ui-text) group-hover:visible data-[state=open]:visible" :aria-label="t('chat.more')" @click.stop>
-              <UIcon name="i-lucide-ellipsis" class="size-4" />
-            </button>
-          </UDropdownMenu>
-        </div>
-      </div>
+      <ThreadList v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :menu="threadMenu" @open="open" @new="newConversation(pick)" />
     </aside>
+    <!-- a phone: the chats in a drawer -->
+    <USlideover v-if="!single && !compact" v-model:open="threadsOpen" side="left" :title="t('chat.threads')" :ui="{ content: 'max-w-xs', body: 'p-0 sm:p-0 flex flex-col' }">
+      <template #body>
+        <ThreadList
+          v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :menu="threadMenu"
+          @open="(c) => { threadsOpen = false; open(c) }" @new="threadsOpen = false; newConversation(pick)"
+        />
+      </template>
+    </USlideover>
 
     <!-- thread -->
     <section class="flex min-w-0 flex-1 flex-col">
+      <!-- a phone: which chat this is, the drawer of chats, a new one -->
+      <div v-if="!single && !compact" class="flex items-center gap-1 border-b border-(--ui-border) p-2 md:hidden">
+        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-panel-left" :aria-label="t('chat.threads')" @click="threadsOpen = true" />
+        <p class="min-w-0 flex-1 truncate text-sm font-medium">{{ current?.title || t('chat.newThreadTitle') }}</p>
+        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-square-pen" :aria-label="t('chat.newThread')" @click="newConversation(pick)" />
+      </div>
       <div v-if="compact && !single" class="flex items-center gap-1 border-b border-(--ui-border) p-2">
         <USelect v-model="threadPick" :items="threadItems" size="xs" class="min-w-0 flex-1" :placeholder="t('chat.newThread')" />
         <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" :aria-label="t('chat.newThread')" @click="newConversation()" />
@@ -436,6 +451,9 @@ onBeforeUnmount(() => {
         </span>
       </div>
       <div ref="listEl" class="flex-1 space-y-4 overflow-y-auto p-4">
+        <div v-if="hasOlder" class="text-center">
+          <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
+        </div>
         <div v-if="!messages.length && !streaming" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
           <UIcon name="i-lucide-messages-square" class="size-8" />
           <template v-if="taskId">
