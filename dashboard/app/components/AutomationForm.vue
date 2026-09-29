@@ -37,12 +37,9 @@ const sourceCards = computed(() => [
     pick: () => { form.source = 'webhook'; if (form.action === 'chat') form.action = 'task' } },
   { value: 'channel', icon: 'i-lucide-messages-square', title: t('auto.sourceChannel'), desc: t('auto.sourceChannelDesc'), active: fromChannel.value, pick: useChannel }
 ])
-// two tabs: this automation's trigger, and the bot's shared settings (a new
-// bot starts on the bot's tab: it needs its token first)
-const chTab = ref<'rule' | 'bot'>(form.config.channel_id ? 'rule' : 'bot')
-const ruleMissing = computed(() => listenBy.value === 'command' && !form.config.command)
 const botMissing = computed(() => (!form.config.channel_id && !form.bot.token) || !form.bot.allow.length)
 const guideOpen = ref(false)
+const botOpen = ref(false) // a bot it has: its settings folded
 const sharedBy = computed(() => bot.value ? (autosData.value?.automations ?? []).filter(a => a.config.channel_id === bot.value!.id).length : 0)
 // which messages: by keyword/topic, or a custom slash command
 const listenBy = ref<'message' | 'command'>(form.config.command ? 'command' : 'message')
@@ -68,6 +65,7 @@ const builtinCommands = computed(() => [
 const customCommands = computed(() => (autosData.value?.automations ?? [])
   .filter(a => isChannelSource(a.source) && a.config.command && a.config.channel_id && a.config.channel_id === form.config.channel_id)
   .map(a => ({ id: a.id, name: a.config.command!, arg: a.config.command_arg ?? '', desc: a.config.command_description || a.name })))
+const automationId = computed(() => String(useRoute().params.aid ?? ''))
 const cmdLabel = (name: string) => form.source === 'telegram' ? name.replace(/-/g, '_') : name
 function useChannel() {
   form.source = bot.value?.kind ?? bots.value[0]?.kind ?? 'telegram'
@@ -234,21 +232,15 @@ async function testRun() {
           </span>
         </div>
 
-        <!-- two tabs: what this automation takes, and the bot shared by all its automations -->
-        <div class="flex border-b border-(--ui-border) text-sm">
-          <button
-            v-for="k in (['bot', 'rule'] as const)" :key="k" type="button"
-            class="-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2"
-            :class="chTab === k ? 'border-primary font-medium text-(--ui-text)' : 'border-transparent text-(--ui-text-muted) hover:text-(--ui-text)'"
-            @click="chTab = k"
-          >
-            <UIcon :name="k === 'rule' ? 'i-lucide-square-slash' : 'i-lucide-bot'" class="size-4" />
-            {{ k === 'rule' ? t('auto.tabRule') : t('auto.tabBot') }}
-            <span v-if="(k === 'rule' ? ruleMissing : botMissing)" class="size-1.5 rounded-full bg-(--ui-error)" />
-          </button>
-          <!-- how to make the bot and find the ids: on demand -->
+        <!-- the bot's settings: shared by its automations; folded for a bot it has -->
+        <div class="flex items-center gap-2">
           <UButton
-            class="ms-auto self-center" size="xs" color="neutral" variant="ghost" icon="i-lucide-info"
+            v-if="form.config.channel_id" size="xs" color="neutral" variant="ghost" :icon="botOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+            :label="t('auto.tabBot')" @click="botOpen = !botOpen"
+          />
+          <span v-if="botMissing" class="size-1.5 rounded-full bg-(--ui-error)" />
+          <UButton
+            class="ms-auto" size="xs" color="neutral" variant="ghost" icon="i-lucide-info"
             :label="form.source === 'discord' ? t('channels.guideDiscord') : t('channels.guideTelegram')" @click="guideOpen = true"
           />
         </div>
@@ -257,7 +249,7 @@ async function testRun() {
         </UModal>
 
         <!-- tab: the bot, shared -->
-        <div v-show="chTab === 'bot'" class="space-y-3" :class="hl('bot')">
+        <div v-show="!form.config.channel_id || botOpen" class="space-y-3 rounded-lg bg-(--ui-bg-elevated)/30 p-3" :class="hl('bot')">
           <p v-if="form.config.channel_id && (bot?.id && sharedBy > 1)" class="flex items-center gap-1.5 text-xs text-(--ui-warning)">
             <UIcon name="i-lucide-triangle-alert" class="size-3.5" />{{ t('auto.botSharedN', { n: sharedBy }) }}
           </p>
@@ -283,27 +275,54 @@ async function testRun() {
           <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')">
             <UInput v-model="form.bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />
           </UFormField>
-          <!-- the bot's commands: its own (fixed) and the custom ones -->
-          <div class="space-y-1.5">
-            <p class="text-xs font-medium text-(--ui-text-muted)">{{ t('auto.botCommands') }}</p>
-            <div class="flex flex-wrap gap-1.5">
-              <span
-                v-for="c in builtinCommands" :key="c.name" :title="c.desc"
-                class="inline-flex items-center gap-1 rounded-md bg-(--ui-bg-elevated) px-2 py-0.5 font-mono text-xs text-(--ui-text-muted)"
-              >
-                <UIcon name="i-lucide-lock" class="size-3" />{{ c.name === '@' ? `@${bot?.bot_name || 'bot'}` : `/${cmdLabel(c.name)}` }}<span v-if="c.arg" class="text-(--ui-text-dimmed)">&lt;{{ c.arg }}&gt;</span>
-              </span>
-              <NuxtLink
-                v-for="c in customCommands" :key="c.id" :to="`/projects/${projectId}/automations/${c.id}`" :title="c.desc"
-                class="inline-flex items-center gap-1 rounded-md border border-(--ui-border) px-2 py-0.5 font-mono text-xs hover:border-primary"
-              >
-                /{{ cmdLabel(c.name) }}<span v-if="c.arg" class="text-(--ui-text-dimmed)">&lt;{{ c.arg }}&gt;</span>
-              </NuxtLink>
-            </div>
+        </div>
+
+      </template>
+      <template v-else>
+        <div class="grid gap-3 @lg:grid-cols-2">
+          <UFormField :label="t('auto.auth')">
+            <USelect v-model="form.config.auth" class="w-full" :items="[{ label: t('auto.authBearer'), value: 'bearer' }, { label: t('auto.authHeader'), value: 'header' }, { label: t('auto.authQuery'), value: 'query' }]" />
+          </UFormField>
+          <UFormField v-if="form.config.auth !== 'bearer'" :label="t('auto.authName')">
+            <UInput v-model="form.config.auth_name" class="w-full font-mono" :placeholder="form.config.auth === 'header' ? 'X-Office-Token' : 'token'" />
+          </UFormField>
+        </div>
+        <p class="text-xs text-(--ui-text-muted)">{{ t('auto.tunnelHint') }}</p>
+      </template>
+    </section>
+
+    <!-- 2. action -->
+    <section class="space-y-4 rounded-xl border border-(--ui-border) p-4" :class="hl('action') || hl('escalate')">
+      <p class="flex items-center gap-2 text-sm font-semibold">
+        <span class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">2</span>{{ fromChannel ? t('auto.stepCommandAction') : t('auto.stepAction') }}
+      </p>
+      <!-- a bot: the command (or tag) and what it does, together -->
+      <div v-if="fromChannel" class="space-y-3" :class="hl('config')">
+        <!-- the bot's commands: its own (fixed), the others' custom ones, and this one -->
+        <div class="overflow-hidden rounded-lg border border-(--ui-border)">
+          <p class="border-b border-(--ui-border) bg-(--ui-bg-elevated)/40 px-3 py-1.5 text-xs font-medium text-(--ui-text-muted)">{{ t('auto.botCommands') }}</p>
+          <div v-for="c in builtinCommands" :key="c.name" class="flex items-center gap-2 border-b border-(--ui-border) px-3 py-1.5 text-sm last:border-0">
+            <UIcon name="i-lucide-lock" class="size-3.5 shrink-0 text-(--ui-text-dimmed)" />
+            <span class="shrink-0 font-mono text-xs">{{ c.name === '@' ? `@${bot?.bot_name || 'bot'}` : `/${cmdLabel(c.name)}` }}<span v-if="c.arg" class="text-(--ui-text-dimmed)"> &lt;{{ c.arg }}&gt;</span></span>
+            <span class="min-w-0 flex-1 truncate text-xs text-(--ui-text-muted)">{{ c.desc }}</span>
+          </div>
+          <NuxtLink
+            v-for="c in customCommands.filter(x => x.id !== automationId)" :key="c.id" :to="`/projects/${projectId}/automations/${c.id}`"
+            class="flex items-center gap-2 border-b border-(--ui-border) px-3 py-1.5 text-sm last:border-0 hover:bg-(--ui-bg-elevated)/60"
+          >
+            <UIcon name="i-lucide-square-slash" class="size-3.5 shrink-0 text-(--ui-text-muted)" />
+            <span class="shrink-0 font-mono text-xs">/{{ cmdLabel(c.name) }}<span v-if="c.arg" class="text-(--ui-text-dimmed)"> &lt;{{ c.arg }}&gt;</span></span>
+            <span class="min-w-0 flex-1 truncate text-xs text-(--ui-text-muted)">{{ c.desc }}</span>
+            <UIcon name="i-lucide-arrow-up-right" class="size-3.5 shrink-0 text-(--ui-text-dimmed)" />
+          </NuxtLink>
+          <div v-if="listenBy === 'command' && form.config.command" class="flex items-center gap-2 bg-primary/5 px-3 py-1.5 text-sm">
+            <UIcon name="i-lucide-pencil" class="size-3.5 shrink-0 text-primary" />
+            <span class="shrink-0 font-mono text-xs">/{{ cmdLabel(form.config.command) }}<span v-if="form.config.command_arg" class="text-(--ui-text-dimmed)"> &lt;{{ form.config.command_arg }}&gt;</span></span>
+            <span class="min-w-0 flex-1 truncate text-xs text-(--ui-text-muted)">{{ form.config.command_description || form.name }}</span>
+            <UBadge :label="t('auto.editingThis')" color="primary" variant="subtle" size="sm" />
           </div>
         </div>
-        <!-- tab: this automation -->
-        <div v-show="chTab === 'rule'" class="space-y-3">
+
           <div class="flex rounded-lg bg-(--ui-bg-elevated) p-0.5 text-sm">
             <button
               v-for="k in (['message', 'command'] as const)" :key="k" type="button" class="flex flex-1 items-center justify-center gap-1.5 rounded-md py-1"
@@ -352,28 +371,8 @@ async function testRun() {
               <p v-if="form.config.command_arg" class="mt-2 text-xs text-(--ui-text-muted)">{{ t('auto.cmdArgHint') }}</p>
             </div>
           </template>
-          <p class="text-xs text-(--ui-text-muted)">{{ t('auto.agentPerRule') }}</p>
         </div>
-
-      </template>
-      <template v-else>
-        <div class="grid gap-3 @lg:grid-cols-2">
-          <UFormField :label="t('auto.auth')">
-            <USelect v-model="form.config.auth" class="w-full" :items="[{ label: t('auto.authBearer'), value: 'bearer' }, { label: t('auto.authHeader'), value: 'header' }, { label: t('auto.authQuery'), value: 'query' }]" />
-          </UFormField>
-          <UFormField v-if="form.config.auth !== 'bearer'" :label="t('auto.authName')">
-            <UInput v-model="form.config.auth_name" class="w-full font-mono" :placeholder="form.config.auth === 'header' ? 'X-Office-Token' : 'token'" />
-          </UFormField>
-        </div>
-        <p class="text-xs text-(--ui-text-muted)">{{ t('auto.tunnelHint') }}</p>
-      </template>
-    </section>
-
-    <!-- 2. action -->
-    <section class="space-y-4 rounded-xl border border-(--ui-border) p-4" :class="hl('action') || hl('escalate')">
-      <p class="flex items-center gap-2 text-sm font-semibold">
-        <span class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">2</span>{{ t('auto.stepAction') }}
-      </p>
+        <p v-if="fromChannel" class="flex items-center gap-1.5 pt-1 text-sm font-medium"><UIcon name="i-lucide-corner-down-right" class="size-4 text-(--ui-text-muted)" />{{ t('auto.thenDo') }}</p>
       <div class="grid gap-2 @md:grid-cols-2">
         <button
           v-for="x in actions" :key="x.value" type="button"
