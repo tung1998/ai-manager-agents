@@ -164,7 +164,7 @@ func TestDiscordSlashCommands(t *testing.T) {
 	if msgs[1].Text != "/close-conversation" { // typed without tagging the bot
 		t.Fatalf("typed command = %+v", msgs[1])
 	}
-	if err := msgs[0].Respond(ctx, "Đã bắt đầu"); err != nil {
+	if _, err := msgs[0].Respond(ctx, "Đã bắt đầu"); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()

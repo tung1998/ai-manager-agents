@@ -200,7 +200,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 		Script: storage.AutomationScript{Lang: "bash", Body: `echo "Đơn $(cat | sed 's/.*"message":"\([^"]*\)".*/\1/'): đang giao"`, TimeoutS: 10}})
 	responded := make(chan string, 2)
 	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", Text: "/tra-don 777", Addressed: true,
-		Respond: func(_ context.Context, text string) error { responded <- text; return nil }}
+		Respond: func(_ context.Context, text string) (string, error) { responded <- text; return "slash-0", nil }}
 	select {
 	case got := <-responded:
 		if got != "Đơn 777: đang giao" {
@@ -235,6 +235,26 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	sys, stdin, _ := strings.Cut(call, "STDIN:")
 	if !strings.Contains(sys, "--append-system-prompt") || !strings.Contains(sys, "INSTR-XYZ") || strings.Contains(stdin, "INSTR-XYZ") || !strings.Contains(stdin, "/chao") {
 		t.Fatalf("the instruction is not in the system prompt:\nargs: %.300s\nstdin: %.300s", sys, stdin)
+	}
+
+	// a reply to a slash command's answer goes on with that command: its rule,
+	// its conversation (not the tag's)
+	slash := make(chan string, 1)
+	bot.in <- channels.Incoming{ChatID: "45", UserID: "8", Text: "/chao", Addressed: true,
+		Respond: func(_ context.Context, text string) (string, error) { slash <- text; return "slash-1", nil }}
+	select {
+	case <-slash:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the slash /chao got no answer")
+	}
+	before := resumes()
+	bot.in <- channels.Incoming{ChatID: "45", UserID: "8", Text: "tiếp đi", Addressed: true, ReplyTo: "slash-1"}
+	bot.wait(t, "45", 2)
+	raw1, _ := os.ReadFile(argsLog)
+	calls := strings.Split(string(raw1), "\n===")
+	last := calls[len(calls)-2] // the reply's run
+	if resumes() != before+1 || !strings.Contains(last, "INSTR-XYZ") || !strings.Contains(last, "tiếp đi") {
+		t.Fatalf("a reply to the slash answer: resumes %d→%d, run: %.400s", before, resumes(), last)
 	}
 
 	// /job gives work to the team through the bot's automation
@@ -283,7 +303,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 			answered++
 		}
 	}
-	if skipped != 1 || answered != 10 {
+	if skipped != 1 || answered != 12 {
 		t.Fatalf("skipped %d answered %d: %+v", skipped, answered, jobs)
 	}
 	got, _ := st.Channels().Get(ctx, ch.ID)

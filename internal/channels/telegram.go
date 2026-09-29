@@ -27,8 +27,9 @@ type Incoming struct {
 	// Others come up too: a kept conversation hears its whole chat.
 	Addressed bool
 	// Respond answers a slash command (Discord shows "thinking…" until it
-	// does); nil for a message, which is answered with Send.
-	Respond func(ctx context.Context, text string) error
+	// does) and returns the answer's message id; nil for a message, which is
+	// answered with Send.
+	Respond func(ctx context.Context, text string) (string, error)
 }
 
 // Adapter connects one bot.

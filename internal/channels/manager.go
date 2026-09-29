@@ -51,7 +51,7 @@ type Manager struct {
 type waiter struct {
 	key     string
 	typing  context.CancelFunc
-	respond func(ctx context.Context, text string) error // a slash command's reply ("" = send a message)
+	respond func(ctx context.Context, text string) (string, error) // a slash command's reply (nil = send a message)
 }
 
 // MaxPending is how many messages of one outside chat may wait at once.
@@ -177,7 +177,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	}
 	if !slices.Contains(ch.Allow, "*") && !slices.Contains(ch.Allow, in.ChatID) && !slices.Contains(ch.Allow, in.UserID) {
 		if in.Respond != nil { // a slash command waits for an answer
-			_ = in.Respond(ctx, "Bạn chưa được phép dùng bot này.")
+			_, _ = in.Respond(ctx, "Bạn chưa được phép dùng bot này.")
 		}
 		return // not allowed (an empty list allows no one): no answer to a message
 	}
@@ -201,7 +201,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	}
 	say := func(text string) { // a slash command waits for its answer; a message gets a new one
 		if in.Respond != nil {
-			_ = in.Respond(ctx, text)
+			_, _ = in.Respond(ctx, text)
 		} else {
 			_, _ = ad.Send(ctx, in.ChatID, text)
 		}
@@ -234,6 +234,8 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 			return
 		}
 		in.Text = arg
+	} else if r, replied := m.repliedRule(ctx, ch, in); replied { // a reply goes on with what it replies to
+		rule, ok = r, true
 	} else {
 		rule, ok = m.pick(actx, project, ch, in.Text)
 	}
@@ -319,21 +321,51 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 		if reply == "" {
 			reply = "Xong."
 		}
-		if len(reply) <= 1900 && respond(ctx, reply) == nil {
-			return
+		if len(reply) <= 1900 {
+			if id, err := respond(ctx, reply); err == nil {
+				m.remember(ctx, p, origin, id)
+				return
+			}
 		}
 	}
 	switch {
 	case text != "":
 		ids, _ := ad.Send(ctx, p.ChatID, text)
-		if p.ConversationID != "" { // a reply to any part of it goes on in this conversation
-			for _, id := range ids {
-				_ = m.store.Channels().SetThread(ctx, p.ChannelID, "msg:"+id, p.ConversationID)
-			}
-		}
+		m.remember(ctx, p, origin, ids...)
 	case err != nil && !errors.Is(err, trigger.ErrNoAnswer) && final:
 		_, _ = ad.Send(ctx, p.ChatID, "Xin lỗi, mình chưa trả lời được lúc này.") // what went wrong stays in office
 	}
+}
+
+// remember ties the bot's answer messages to what made them: a reply to any
+// of them goes on with the same automation, in the same conversation.
+func (m *Manager) remember(ctx context.Context, p trigger.ChannelPayload, origin storage.Job, ids ...string) {
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		_ = m.store.Settings().Set(ctx, "channel_rule/"+p.ChannelID+"/"+id, origin.OriginID) // threads hold conversations only
+		if p.ConversationID != "" {
+			_ = m.store.Channels().SetThread(ctx, p.ChannelID, "msg:"+id, p.ConversationID)
+		}
+	}
+}
+
+// repliedRule is the automation that made the bot message in.ReplyTo, if it
+// still takes messages.
+func (m *Manager) repliedRule(ctx context.Context, ch storage.Channel, in Incoming) (storage.Automation, bool) {
+	if in.ReplyTo == "" {
+		return storage.Automation{}, false
+	}
+	var id string
+	if ok, _ := m.store.Settings().Get(ctx, "channel_rule/"+ch.ID+"/"+in.ReplyTo, &id); !ok || id == "" {
+		return storage.Automation{}, false
+	}
+	a, err := m.store.Automations().Get(ctx, id)
+	if err != nil || !a.Enabled || a.Config.ChannelID != ch.ID || a.ProjectID != ch.ProjectID {
+		return storage.Automation{}, false
+	}
+	return a, true
 }
 
 func typing(ctx context.Context, ad Adapter, chatID string) {

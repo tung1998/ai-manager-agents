@@ -289,8 +289,12 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 		in.UserID, in.UserName = x.User.ID, x.User.Username
 	}
 	app, token := d.appID, x.Token
-	in.Respond = func(ctx context.Context, text string) error {
-		return d.do(ctx, "PATCH", "/webhooks/"+app+"/"+token+"/messages/@original", map[string]string{"content": text})
+	in.Respond = func(ctx context.Context, text string) (string, error) {
+		var sent struct {
+			ID string `json:"id"`
+		}
+		err := d.do(ctx, "PATCH", "/webhooks/"+app+"/"+token+"/messages/@original", map[string]string{"content": text}, &sent)
+		return sent.ID, err
 	}
 	return in, true
 }
