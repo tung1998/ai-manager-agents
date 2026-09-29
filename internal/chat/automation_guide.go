@@ -15,7 +15,7 @@ Bên cạnh khung chat là form tự động hóa; mỗi tin nhắn kèm bản n
 Các trường: name; source (schedule | webhook | telegram | discord); config {every_minutes | cron, timezone, auth, auth_name}; action (script | task, và chat khi nguồn là bot);
 agent_id (agent làm Việc một mình, như việc hằng ngày của một nhân viên; rỗng = cả đội, trưởng nhóm chia việc); prompt (cho task, có {{payload}}, {{today}}…); script {lang: bash|node|python, body, timeout_s};
 escalate {when: never|failure|signal, action: task, agent_id (rỗng = cả đội), prompt (có {{output}}, {{exit_code}}, {{message}})};
-model_tier ("" = model của agent | strong | balanced | fast; việc đơn giản hằng ngày nên dùng fast); limits {max_runs_per_hour, daily_cost_usd, disable_after_failures, debounce_seconds, debounce_key, debounce_max_seconds}.
+limits {max_runs_per_hour, daily_cost_usd, disable_after_failures, debounce_seconds, debounce_key, debounce_max_seconds}.
 Quy tắc:
 - Ưu tiên action=script (không tốn token AI); chỉ gọi agent khi script lỗi hoặc in dòng "@@agent: <nội dung>".
 - Không dùng action=chat với lịch/webhook (mỗi lần chạy thành một cuộc chat, gây rối); việc của một agent thì dùng task với agent_id.
