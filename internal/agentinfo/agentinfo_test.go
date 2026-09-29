@@ -128,8 +128,7 @@ func TestActivityHasBotChats(t *testing.T) {
 	}
 }
 
-// One row per place the agent took part in, however often it answered there;
-// its details are what it did in that place.
+// One row per place the agent took part in, however often it answered there.
 func TestActivityByPlace(t *testing.T) {
 	ctx := context.Background()
 	st, org, project, a := setup(t)
@@ -153,9 +152,5 @@ func TestActivityByPlace(t *testing.T) {
 	}
 	if len(items) != 2 || answers["của mình"] != 3 || answers["của người khác"] != 1 {
 		t.Fatalf("items = %+v", items)
-	}
-	d, err := svc.ActivityDetail(ctx, a, own.ID, "")
-	if err != nil || len(d) != 3 || d[0].Text != "trả lời 1" {
-		t.Fatalf("detail = %+v %v", d, err)
 	}
 }

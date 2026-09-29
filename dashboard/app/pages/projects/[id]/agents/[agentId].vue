@@ -12,7 +12,6 @@ interface Stats {
   patches: { total: number, merged: number, pending: number, rejected: number, failed: number }
 }
 interface Item { kind: 'chat' | 'task', source?: Source, at: string, title: string, status: string, phases?: string[], steps?: number, cost_usd: number, conversation_id?: string, task_id?: string, answers?: number }
-interface Did { at: string, text: string, phase?: string, task?: string, status?: string, tools?: number, cost_usd?: number }
 interface Change { field: string, before: unknown, after: unknown }
 interface Entry { revision_id: string, at: string, actor: string, action: string, created: boolean, changes: Change[], restorable: boolean }
 
@@ -144,25 +143,6 @@ const openItem = (it: Item) => it.kind === 'chat'
   ? chat(it.conversation_id)
   : navigateTo({ path: `/projects/${projectId.value}`, query: { tab: 'tasks', task: it.task_id } })
 const phaseName = (p: string) => ({ plan: t('phase.plan'), revise: t('phase.revise'), vote: t('phase.vote'), work: t('phase.work'), review: t('phase.review'), synthesize: t('phase.synthesize') } as Record<string, string>)[p] ?? p
-// what it did in one place, fetched when its details are opened
-const placeKey = (it: Item) => it.conversation_id || it.task_id || ''
-const opened = ref<Record<string, Did[] | null>>({})
-async function toggle(it: Item) {
-  const k = placeKey(it)
-  if (k in opened.value) {
-    const { [k]: _, ...rest } = opened.value
-    opened.value = rest
-    return
-  }
-  opened.value = { ...opened.value, [k]: null }
-  try {
-    const q = it.kind === 'chat' ? { conversation_id: it.conversation_id } : { task_id: it.task_id }
-    const res = await $fetch<{ items: Did[] }>(`/api/agents/${agentId.value}/activity/detail`, { query: q })
-    opened.value = { ...opened.value, [k]: res.items }
-  } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
-  }
-}
 const statusColor = (s: string) => s === 'done' ? 'success' : s === 'running' ? 'info' : s === 'needs_input' ? 'warning' : s === 'failed' || s === 'rejected' ? 'error' : 'neutral'
 
 // ---- history ----
@@ -370,8 +350,8 @@ async function restore(e: Entry) {
       <!-- activity -->
       <UCard v-else-if="tab === 'activity'" :ui="{ body: 'p-0 sm:p-0' }">
         <p v-if="activity && !activity.length" class="p-4 text-sm text-(--ui-text-muted)">{{ t('agentPage.noActivity') }}</p>
-        <!-- one row per place it took part in; its details are what it did there -->
-        <div v-for="it in activity ?? []" :key="placeKey(it)" class="border-b border-(--ui-border) last:border-0">
+        <!-- one row per place it took part in -->
+        <div v-for="it in activity ?? []" :key="(it.conversation_id ?? '') + (it.task_id ?? '')" class="border-b border-(--ui-border) last:border-0">
           <div class="flex items-center gap-3 px-4 py-2.5">
             <UIcon
               :name="it.kind === 'chat' ? (it.source && it.source !== 'web' ? sourceIcon[it.source] : 'i-lucide-messages-square') : 'i-lucide-list-todo'"
@@ -387,23 +367,6 @@ async function restore(e: Entry) {
             </button>
             <UBadge v-if="it.status" :label="it.status" :color="statusColor(it.status)" variant="subtle" size="sm" class="max-sm:hidden" />
             <span v-if="it.cost_usd" class="text-xs tabular-nums text-(--ui-text-muted) max-sm:hidden">{{ usd(it.cost_usd) }}</span>
-            <UButton
-              size="xs" color="neutral" variant="ghost" :icon="placeKey(it) in opened ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-              :label="t('agentPage.details')" :ui="{ label: 'max-sm:hidden' }" @click="toggle(it)"
-            />
-          </div>
-          <div v-if="placeKey(it) in opened" class="space-y-2 bg-(--ui-bg-elevated)/40 px-4 py-3 sm:ps-11">
-            <p v-if="!opened[placeKey(it)]" class="text-xs text-(--ui-text-muted)">{{ t('common.loading') }}</p>
-            <p v-else-if="!opened[placeKey(it)]!.length" class="text-xs text-(--ui-text-muted)">{{ t('agentPage.noDetail') }}</p>
-            <div v-for="(d, i) in opened[placeKey(it)] ?? []" :key="i" class="min-w-0 text-sm">
-              <p class="text-xs text-(--ui-text-muted)">
-                {{ when(d.at) }}<template v-if="d.phase"> · {{ phaseName(d.phase) }}</template><template v-if="d.status"> · {{ d.status }}</template>
-                <template v-if="d.tools"> · {{ t('agentPage.tools', { n: d.tools }) }}</template><template v-if="d.cost_usd"> · {{ usd(d.cost_usd) }}</template>
-              </p>
-              <p v-if="d.task" class="break-anywhere border-s-2 border-(--ui-border-accented) ps-2 text-xs text-(--ui-text-muted)">{{ d.task }}</p>
-              <!-- eslint-disable-next-line vue/no-v-html -->
-              <div class="markdown break-anywhere max-h-32 overflow-hidden text-sm" v-html="renderMarkdown(d.text || '—')" />
-            </div>
           </div>
         </div>
       </UCard>
