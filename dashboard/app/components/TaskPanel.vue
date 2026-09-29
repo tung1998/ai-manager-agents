@@ -375,7 +375,7 @@ onBeforeUnmount(() => source?.close())
       </template>
     </USlideover>
 
-    <section class="flex min-w-0 flex-1 flex-col">
+    <section class="relative flex min-w-0 flex-1 flex-col">
       <!-- a phone: which task this is, the drawer of tasks, a new one (as the chats) -->
       <div class="flex items-center gap-1 border-b border-(--ui-border) p-2 md:hidden">
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-panel-left" :aria-label="t('task.list')" @click="listOpen = true" />
@@ -660,13 +660,15 @@ onBeforeUnmount(() => source?.close())
           </li>
         </ol>
 
-        <!-- the talk with the manager: its messages in the page, its input floating at the bottom (as the chat page) -->
+        <!-- the talk with the manager: its messages in the page, its input docked below (as the chat page) -->
         <ChatPanel
-          :key="detail.task.id" inline :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'"
+          :key="detail.task.id" inline composer-to="#task-composer" :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'"
           @turn-done="reloadDetail"
         />
       </div>
       </div>
+      <!-- the task chat's input, docked under the page as in the chat -->
+      <div id="task-composer" />
     </section>
     <UModal v-model:open="commit.open" :title="t('task.commitTitle2')">
       <template #body>
