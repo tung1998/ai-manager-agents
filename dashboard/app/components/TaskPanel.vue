@@ -53,11 +53,9 @@ const tasks = computed(() => listData.value?.tasks ?? [])
 
 const detail = ref<Detail | null>(null)
 const listOpen = ref(false) // the list over the page on a phone
-const resultOpen = ref(false)
-const chatOpen = ref(false)
+const resultOpen = ref(false) // a task's result read in a big window
 const phone = usePhone() // a phone: the chat behind a button, its input floating
 const agentOf = (s: Step) => agentsData.value?.agents.find(a => a.id === s.agent_id || a.name === s.agent_name) ?? { name: s.agent_name }
-watch(() => detail.value?.task.id, () => { chatOpen.value = false }) // a task's result read in a big window
 const liveText = reactive<Record<string, string>>({})
 const liveTools = reactive<Record<string, ToolCall[]>>({})
 const statusLine = ref('')
@@ -500,13 +498,7 @@ onBeforeUnmount(() => source?.close())
           </template>
         </UModal>
 
-        <div v-if="!phone" class="space-y-2">
-          <div>
-            <p class="text-sm font-medium">{{ detail.task.status === 'running' ? t('task.steer') : t('task.talkWithManager') }}</p>
-            <p v-if="detail.task.status === 'running'" class="text-xs text-(--ui-text-muted)">{{ t('task.steerHint') }}</p>
-          </div>
-          <ChatPanel :key="detail.task.id" :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'" @turn-done="reloadDetail" />
-        </div>
+        <ChatPanel v-if="!phone" :key="detail.task.id" :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'" @turn-done="reloadDetail" />
 
         <div v-if="detail.actions?.length" class="space-y-2">
           <p class="text-sm font-medium">{{ t('task.proposedActions') }}</p>
@@ -671,21 +663,11 @@ onBeforeUnmount(() => source?.close())
           </li>
         </ol>
 
-        <!-- the talk with the manager: its messages in the page, only the input floats -->
-        <template v-if="phone && chatOpen">
-          <p class="border-t border-(--ui-border) pt-4 text-sm font-medium">{{ detail.task.status === 'running' ? t('task.steer') : t('task.talkWithManager') }}</p>
-          <ChatPanel
-            :key="detail.task.id" inline :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'"
-            @turn-done="reloadDetail" @close="chatOpen = false"
-          />
-        </template>
-        <div v-else-if="phone" class="pointer-events-none sticky bottom-0 flex justify-end">
-          <UButton
-            class="pointer-events-auto rounded-full shadow-lg" size="lg" icon="i-lucide-message-circle"
-            :aria-label="detail.task.status === 'running' ? t('task.steer') : t('task.talkWithManager')"
-            :title="detail.task.status === 'running' ? t('task.steerHint') : t('task.talkWithManager')" @click="chatOpen = true"
-          />
-        </div>
+        <!-- a phone: the talk with the manager in the page, its input floating behind a button (as the chat page) -->
+        <ChatPanel
+          v-if="phone" :key="detail.task.id" inline :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'"
+          @turn-done="reloadDetail"
+        />
       </div>
       </div>
     </section>

@@ -25,12 +25,13 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 // taskId: the follow-up talk about one task (a single thread, no thread list)
 // purpose "automation": the chat that builds one automation (ADR-042), made on
 // first send or opened by automationId; its answers may fill the form.
-// inline: no box of its own; the messages flow in the page around it and only
-// the input floats at the bottom of the page (the page's own scroll).
+// inline: no box of its own; the messages flow in the page around it and the
+// input floats at the bottom of the page (its own scroll) behind a button,
+// as the chat page does on a phone.
 // compact: no thread column (a picker instead), fills its container.
 // pageContext: what the person is looking at, sent with each message.
 const props = defineProps<{ projectId: string, taskId?: string, taskRunning?: boolean, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string, inline?: boolean }>()
-const emit = defineEmits<{ 'turn-done': [], 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string], 'close': [] }>()
+const emit = defineEmits<{ 'turn-done': [], 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string] }>()
 const single = computed(() => !!props.taskId || !!props.purpose)
 // the chat page on a phone: the input stays behind a button until asked for,
 // so the messages get the whole screen
@@ -460,7 +461,7 @@ onBeforeUnmount(() => {
           </button>
         </span>
       </div>
-      <div ref="listEl" class="min-w-0 space-y-4" :class="inline ? 'pb-2' : ['flex-1 overflow-y-auto overflow-x-hidden p-4 max-md:px-3', page && 'max-sm:pb-32' /* room for the floating input, open or not: nothing jumps */]">
+      <div ref="listEl" class="min-w-0 space-y-4" :class="inline ? 'pb-32' : ['flex-1 overflow-y-auto overflow-x-hidden p-4 max-md:px-3', page && 'max-sm:pb-32' /* room for the floating input, open or not: nothing jumps */]">
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
         </div>
@@ -541,13 +542,10 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <p v-if="inline && !messages.length && !streaming" class="text-xs text-(--ui-text-muted)">
-        {{ t(taskRunning ? 'chat.steerTaskHint' : 'chat.taskPatchHint') }}
-      </p>
       <form
-        :class="inline ? 'sticky bottom-0 z-10 rounded-lg shadow-lg'
+        :class="inline ? ['sticky bottom-3 z-10 h-0 flex-col justify-end [&>*]:shadow-lg', composeOpen ? 'flex' : 'hidden']
           : ['border-t border-(--ui-border) p-3 max-md:p-2', page && (composeOpen
-            ? 'max-sm:absolute max-sm:inset-x-2 max-sm:bottom-2 max-sm:z-10 max-sm:rounded-lg max-sm:border-0 max-sm:p-0 max-sm:shadow-lg'
+            ? 'max-sm:absolute max-sm:inset-x-3 max-sm:bottom-3 max-sm:z-10 max-sm:border-0 max-sm:p-0 max-sm:[&>*]:shadow-lg'
             : 'max-sm:hidden')]"
         @submit.prevent="send"
       >
@@ -566,8 +564,7 @@ onBeforeUnmount(() => {
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
             <UButton v-else size="sm" type="submit" icon="i-lucide-send" class="shrink-0" :disabled="!draft.trim() && !draftFiles.length" />
-            <UButton v-if="page" size="sm" color="neutral" variant="ghost" icon="i-lucide-x" class="shrink-0 sm:hidden" :aria-label="t('common.close')" @click="composeOpen = false" />
-            <UButton v-if="inline" size="sm" color="neutral" variant="ghost" icon="i-lucide-x" class="shrink-0" :aria-label="t('common.close')" @click="emit('close')" />
+            <UButton v-if="page || inline" size="sm" color="neutral" variant="ghost" icon="i-lucide-x" :class="['shrink-0', page && 'sm:hidden']" :aria-label="t('common.close')" @click="composeOpen = false" />
           </template>
         </PromptInput>
       </form>
@@ -575,6 +572,12 @@ onBeforeUnmount(() => {
         v-if="page && !composeOpen" class="absolute bottom-3 end-3 z-10 rounded-full shadow-lg sm:hidden" size="lg" icon="i-lucide-message-circle"
         :aria-label="t('chat.write')" @click="composeOpen = true; nextTick(() => prompt?.focus?.())"
       />
+      <div v-if="inline && !composeOpen" class="pointer-events-none sticky bottom-3 z-10 flex h-0 items-end justify-end">
+        <UButton
+          class="pointer-events-auto rounded-full shadow-lg" size="lg" icon="i-lucide-message-circle"
+          :aria-label="t('chat.write')" @click="composeOpen = true; nextTick(() => prompt?.focus?.())"
+        />
+      </div>
     </section>
   </div>
 </template>
