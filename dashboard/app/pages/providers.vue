@@ -251,7 +251,7 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
         </NuxtLink>
       </div>
 
-      <div class="grid gap-3 lg:grid-cols-2">
+      <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div v-for="p in providers" :key="p.id" class="rounded-lg border border-(--ui-border) p-4" :class="{ 'opacity-60': !p.enabled }">
           <div class="flex items-start gap-3">
             <span class="grid size-9 shrink-0 place-items-center rounded-lg text-sm font-semibold text-white" :class="avatarColor(avatarOf(p))">
@@ -260,7 +260,7 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
             </span>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <p class="truncate font-semibold">{{ p.name }}</p>
+                <p class="min-w-0 truncate font-semibold">{{ p.name }}</p>
                 <UBadge v-if="p.is_default" :label="t('prov.default')" icon="i-lucide-star" size="sm" variant="subtle" />
               </div>
               <p class="truncate text-xs text-(--ui-text-muted)">
@@ -269,7 +269,7 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
                 <template v-else-if="p.has_api_key"> · {{ t('prov.keyHintPrefix') }} <code>{{ p.api_key_hint }}</code></template>
               </p>
             </div>
-            <div class="flex items-center gap-1">
+            <div class="flex shrink-0 items-center gap-1">
               <UBadge :label="statusText(p.status)" :color="statusColor(p.status)" variant="subtle" size="sm" />
               <UButton
                 v-if="isAdmin" icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="xs"
@@ -283,7 +283,7 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
 
           <!-- 7-day stats -->
           <div class="mt-3 flex items-end gap-4">
-            <div class="grid flex-1 grid-cols-4 gap-2 text-xs">
+            <div class="grid flex-1 grid-cols-2 gap-2 text-xs sm:grid-cols-4">
               <div>
                 <p class="text-(--ui-text-muted)">{{ t('prov.calls') }}</p>
                 <p class="font-mono text-sm font-medium tabular-nums">{{ num(statOf(p.id)?.calls ?? 0) }}</p>

@@ -206,7 +206,7 @@ func percentile(sorted []int64, p float64) int64 {
 // patches are the diffs of the agent's answers and task steps since t.
 func (s *Service) patches(ctx context.Context, a storage.Agent, projectID string, since time.Time) ([]storage.Patch, error) {
 	var out []storage.Patch
-	convs, err := s.store.Chat().ListConversations(ctx, projectID, 200)
+	convs, err := s.store.Chat().ListConversationsFrom(ctx, projectID, "all", 200) // with the bots' chats
 	if err != nil {
 		return nil, err
 	}
@@ -271,19 +271,20 @@ type Item struct {
 	CostUSD        float64   `json:"cost_usd"`
 	ConversationID string    `json:"conversation_id,omitempty"`
 	TaskID         string    `json:"task_id,omitempty"`
+	Source         string    `json:"source,omitempty"` // chat: web | discord | telegram | auto
 }
 
 // Activity lists the agent's chats and tasks, newest first.
 func (s *Service) Activity(ctx context.Context, a storage.Agent, projectID string, limit int) ([]Item, error) {
 	limit = min(max(limit, 1), 100)
 	out := []Item{}
-	convs, err := s.store.Chat().ListConversations(ctx, projectID, 200)
+	convs, err := s.store.Chat().ListConversationsFrom(ctx, projectID, "all", 200) // with the bots' chats
 	if err != nil {
 		return nil, err
 	}
 	for _, c := range convs {
 		if c.AgentID == a.ID {
-			out = append(out, Item{Kind: "chat", At: c.UpdatedAt, Title: c.Title, ConversationID: c.ID})
+			out = append(out, Item{Kind: "chat", At: c.UpdatedAt, Title: c.Title, ConversationID: c.ID, Source: chatSource(c)})
 		}
 	}
 	tasks, err := s.store.Tasks().List(ctx, projectID, 100)
@@ -528,4 +529,16 @@ func (s *Service) Restore(ctx context.Context, a storage.Agent, revisionID strin
 		a.ProviderID = spec.ProviderID
 	}
 	return s.org.SaveAgent(ctx, a)
+}
+
+// chatSource is where a chat started: a bot (discord, telegram), an automation, or the web.
+func chatSource(c storage.Conversation) string {
+	kind, _, _ := strings.Cut(c.CreatedBy, ":")
+	switch {
+	case c.Purpose == "channel" && (kind == "discord" || kind == "telegram"):
+		return kind
+	case kind == "auto":
+		return "auto"
+	}
+	return "web"
 }

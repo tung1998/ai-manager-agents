@@ -33,3 +33,10 @@
    link breaks instead of pushing the page sideways */
 .whitespace-pre-wrap, .break-anywhere { overflow-wrap: anywhere; min-width: 0; }
 
+
+/* a grid with no columns set has one that fits the screen, not its widest
+   content (a long path or model name never pushes the page sideways);
+   grid-cols-* utilities still win (they are in the utilities layer) */
+@layer base {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+}

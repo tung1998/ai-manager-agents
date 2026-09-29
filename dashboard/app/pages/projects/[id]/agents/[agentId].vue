@@ -11,7 +11,7 @@ interface Stats {
   top_errors: { error: string, count: number, last: string }[]
   patches: { total: number, merged: number, pending: number, rejected: number, failed: number }
 }
-interface Item { kind: 'chat' | 'task', at: string, title: string, status: string, phases?: string[], steps?: number, cost_usd: number, conversation_id?: string, task_id?: string }
+interface Item { kind: 'chat' | 'task', source?: Source, at: string, title: string, status: string, phases?: string[], steps?: number, cost_usd: number, conversation_id?: string, task_id?: string }
 interface Change { field: string, before: unknown, after: unknown }
 interface Entry { revision_id: string, at: string, actor: string, action: string, created: boolean, changes: Change[], restorable: boolean }
 

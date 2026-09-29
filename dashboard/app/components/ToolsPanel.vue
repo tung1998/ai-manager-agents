@@ -263,7 +263,7 @@ const summary = (tpl: MCPTemplate) => {
   <div>
     <div class="space-y-4">
       <div class="flex flex-wrap items-center gap-2">
-        <UTabs v-model="tab" :items="tabs" :content="false" size="sm" variant="link" />
+        <UTabs v-model="tab" :items="tabs" :content="false" size="sm" variant="link" :ui="{ root: 'min-w-0', list: 'overflow-x-auto', trigger: 'shrink-0' }" />
         <div class="ms-auto flex gap-2">
           <UButton v-if="tab === 'library' && !scoped" size="sm" icon="i-lucide-plus" :label="t('tools.createNew')" @click="openEdit()" />
           <UButton v-if="kind === 'skill' && projectId && tab === 'installed'" size="sm" icon="i-lucide-plus" :label="t('skill.new')" :to="`/projects/${projectId}/skills/edit`" />

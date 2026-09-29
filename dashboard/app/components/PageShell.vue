@@ -3,8 +3,9 @@ defineProps<{ title: string }>()
 </script>
 
 <template>
-  <!-- the page never scrolls sideways: wide tables scroll inside their own box -->
-  <UDashboardPanel :ui="{ body: 'overflow-x-hidden min-w-0 max-sm:p-3' }">
+  <!-- the page never scrolls sideways: wide tables scroll inside their own box;
+       each block takes the full width (a centered max-w one never grows to its content) -->
+  <UDashboardPanel :ui="{ body: 'overflow-x-hidden min-w-0 max-sm:p-3 *:w-full' }">
     <template #header>
       <UDashboardNavbar :title="title" :ui="{ root: 'max-sm:px-3' }">
         <template #leading>

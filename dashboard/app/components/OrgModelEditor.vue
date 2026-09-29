@@ -187,7 +187,7 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
           <p v-if="model.governance.notes" class="text-xs text-(--ui-text-muted)">{{ model.governance.notes }}</p>
         </div>
         <!-- one row of actions, same size and style -->
-        <div class="flex shrink-0 flex-wrap items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2 sm:shrink-0">
           <UButton icon="i-lucide-history" :label="t('org.editor.history')" color="neutral" variant="outline" @click="historyOpen = true" />
           <template v-if="isAdmin">
           <UButton icon="i-lucide-settings-2" :label="t('org.editor.settings')" color="neutral" variant="outline" @click="openSettings" />

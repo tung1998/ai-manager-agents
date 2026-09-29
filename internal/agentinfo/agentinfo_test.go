@@ -107,3 +107,23 @@ func TestStats(t *testing.T) {
 		t.Fatalf("errors/models = %+v %+v", s.TopErrors, s.ByModel)
 	}
 }
+
+// An agent's activity has its chats from bots (Discord/Telegram) too.
+func TestActivityHasBotChats(t *testing.T) {
+	ctx := context.Background()
+	st, org, project, a := setup(t)
+	svc := agentinfo.New(st, org, time.UTC)
+	st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, AgentID: a.ID, Title: "web"})
+	st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, AgentID: a.ID, Title: "discord", Purpose: "channel", CreatedBy: "discord:an"})
+	items, err := svc.Activity(ctx, a, project.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var titles []string
+	for _, it := range items {
+		titles = append(titles, it.Title)
+	}
+	if len(items) != 2 {
+		t.Fatalf("activity = %v", titles)
+	}
+}
