@@ -30,7 +30,7 @@ var (
 	ErrNoModel    = errors.New("project chưa có mô hình tổ chức")
 	ErrNoLead     = errors.New("mô hình chưa có agent lead")
 	ErrNoAgent    = errors.New("agent được giao không thuộc project")
-	ErrBusy       = errors.New("project đang chạy một việc khác")
+	ErrBusy       = errors.New("project đang có một việc sửa thẳng vào thư mục")
 	ErrTaskBudget = errors.New("đã dùng hết ngân sách của việc này")
 )
 
@@ -88,19 +88,56 @@ type Service struct {
 
 	mu   sync.Mutex
 	live map[string]*Live  // task id
-	busy map[string]string // project id → running task id
+	busy map[string]map[string]string // project id → running task id → its edit mode
+	seq  int                          // reservations of tasks being started
 }
 
 // Running counts tasks in progress.
 func (s *Service) Running() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.busy)
+	n := 0
+	for _, ts := range s.busy {
+		n += len(ts)
+	}
+	return n
+}
+
+// take reserves a place for a new task of a project. Tasks in their own
+// worktrees run side by side; one editing the project folder (direct) runs
+// alone, as two of them would overwrite each other.
+func (s *Service) take(projectID, editMode string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur := s.busy[projectID]
+	for _, m := range cur {
+		if m == perm.EditDirect || editMode == perm.EditDirect {
+			return "", false
+		}
+	}
+	if cur == nil {
+		cur = map[string]string{}
+		s.busy[projectID] = cur
+	}
+	s.seq++
+	key := fmt.Sprintf("starting-%d", s.seq)
+	cur[key] = editMode
+	return key, true
+}
+
+// release frees a task's (or a reservation's) place.
+func (s *Service) release(projectID, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.busy[projectID], key)
+	if len(s.busy[projectID]) == 0 {
+		delete(s.busy, projectID)
+	}
 }
 
 // New builds a Service.
 func New(store storage.Store, engine *chat.Engine) *Service {
-	return &Service{store: store, engine: engine, live: map[string]*Live{}, busy: map[string]string{}}
+	return &Service{store: store, engine: engine, live: map[string]*Live{}, busy: map[string]map[string]string{}}
 }
 
 // Live returns a running (or recently finished) task's stream.
@@ -273,13 +310,10 @@ func (s *Service) start(ctx context.Context, projectID, assignee, goal string, b
 		}
 		mode = "single"
 	}
-	s.mu.Lock()
-	if _, busy := s.busy[projectID]; busy {
-		s.mu.Unlock()
+	slot, ok := s.take(projectID, editMode)
+	if !ok {
 		return storage.Task{}, ErrBusy
 	}
-	s.busy[projectID] = "starting"
-	s.mu.Unlock()
 
 	task, err := s.store.Tasks().Create(ctx, storage.Task{
 		ProjectID: projectID, Title: truncate(strings.Join(strings.Fields(goal), " "), 90), Goal: goal, Mode: mode,
@@ -287,9 +321,7 @@ func (s *Service) start(ctx context.Context, projectID, assignee, goal string, b
 		ConversationID: conversationID,
 	})
 	if err != nil {
-		s.mu.Lock()
-		delete(s.busy, projectID)
-		s.mu.Unlock()
+		s.release(projectID, slot)
 		return task, err
 	}
 	runCtx, cancel := context.WithTimeout(chat.WithModelTier(actor.With(context.Background(), actor.From(ctx)), chat.ModelTierFrom(ctx)), 45*time.Minute)
@@ -297,15 +329,15 @@ func (s *Service) start(ctx context.Context, projectID, assignee, goal string, b
 	job, err := s.beginJob(ctx, task)
 	if err != nil {
 		cancel()
-		s.mu.Lock()
-		delete(s.busy, projectID)
-		s.mu.Unlock()
+		s.release(projectID, slot)
 		return task, err
 	}
 	runCtx = usage.WithJob(runCtx, job.ID) // model calls count toward the job
 	live := &Live{wake: make(chan struct{}), cancel: cancel}
 	s.mu.Lock()
-	s.live[task.ID], s.busy[projectID] = live, task.ID
+	s.live[task.ID] = live
+	delete(s.busy[projectID], slot)
+	s.busy[projectID][task.ID] = editMode
 	s.mu.Unlock()
 
 	if lesson != "" {
@@ -359,9 +391,7 @@ func (r *run) access(a storage.Agent) perm.Access {
 func (r *run) execute() {
 	defer r.live.cancel()
 	defer func() {
-		r.svc.mu.Lock()
-		delete(r.svc.busy, r.project.ID)
-		r.svc.mu.Unlock()
+		r.svc.release(r.project.ID, r.task.ID)
 		time.AfterFunc(15*time.Minute, func() {
 			r.svc.mu.Lock()
 			delete(r.svc.live, r.task.ID)

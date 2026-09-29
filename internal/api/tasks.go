@@ -261,7 +261,7 @@ func (s *server) startChatJob(w http.ResponseWriter, r *http.Request) {
 	t, err := s.cfg.Tasks.StartInChat(r.Context(), c.ID, in.Goal, in.Attachments, s.allowedMode(r, in.Mode), s.allowedEditMode(r, in.EditMode))
 	switch {
 	case errors.Is(err, tasks.ErrBusy):
-		writeError(w, http.StatusConflict, "project đang chạy một Việc khác: đợi xong rồi giao Job")
+		writeError(w, http.StatusConflict, "project đang có một Việc sửa thẳng vào thư mục: đợi xong, hoặc giao Job ở chế độ worktree riêng")
 		return
 	case err != nil:
 		writeError(w, http.StatusBadRequest, err.Error())

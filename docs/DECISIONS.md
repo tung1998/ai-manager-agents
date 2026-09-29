@@ -1406,5 +1406,5 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Lượt chat trong lúc Job chạy không có quyền ghi. Lead biết Job đang chạy qua taskBrief.
 - Job xong thì kết quả thành **tin trả lời của lead** trong cuộc chat. Hỏi tiếp sau đó thì lead có brief của Job gần nhất.
 - Chat hiện **thẻ Job** ngay dưới tin giao việc: trạng thái, số bước, ai đang làm, chi phí, nút Dừng và link mở chi tiết. Thẻ tự cập nhật mỗi 3 giây khi Job đang chạy.
-- Project đang chạy một Việc khác thì Job bị từ chối (409), chưa xếp hàng.
+- Nhiều Việc/Job chạy song song được, mỗi cái có worktree riêng. Chỉ Việc **sửa thẳng** vào thư mục project mới phải chạy một mình: có một Việc như vậy đang chạy thì Việc mới bị từ chối, và ngược lại.
 - Tab Việc giữ nguyên. Các bước sau sẽ đưa duyệt, chạy lại và commit vào thẻ, rồi mới bỏ tab.

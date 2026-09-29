@@ -195,9 +195,6 @@ func TestTeamHierarchy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.Start(context.Background(), f.project.ID, "việc khác", 0, nil, "", ""); err != tasks.ErrBusy {
-		t.Fatalf("second task err = %v", err)
-	}
 	d := wait(t, f.svc, task.ID)
 	got := phases(d)
 	if d.Task.Status != "done" || !strings.HasPrefix(got, "plan:team-lead,") || !strings.HasSuffix(got, ",synthesize:team-lead") ||
@@ -598,5 +595,29 @@ func TestJobInChat(t *testing.T) {
 	}
 	if !asked || !answered {
 		t.Fatalf("chat = %+v", msgs)
+	}
+}
+
+// Jobs in their own worktrees run side by side; one that edits the project
+// folder itself (direct) runs alone.
+func TestTasksRunSideBySide(t *testing.T) {
+	requireGit(t)
+	f := setup(t, &fakeModel{}, "team")
+	ctx := context.Background()
+	a, err := f.svc.Start(ctx, f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := f.svc.Start(ctx, f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, "", "")
+	if err != nil {
+		t.Fatalf("a second worktree job: %v", err)
+	}
+	if _, err := f.svc.Start(ctx, f.project.ID, "sửa thẳng", 0, nil, "", perm.EditDirect); err != tasks.ErrBusy {
+		t.Fatalf("a direct job beside others: %v", err)
+	}
+	for _, id := range []string{a.ID, b.ID} {
+		if d := wait(t, f.svc, id); d.Task.Status != "done" {
+			t.Fatalf("%s: %s %s", id, d.Task.Status, d.Task.Detail)
+		}
 	}
 }
