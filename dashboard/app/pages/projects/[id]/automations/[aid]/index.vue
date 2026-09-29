@@ -10,6 +10,10 @@ const aid = computed(() => route.params.aid as string)
 const { data, refresh } = await useFetch<{ automation: Automation }>(() => `/api/automations/${aid.value}`)
 const a = computed(() => data.value?.automation)
 const secret = ref<{ url: string, secret: string } | null>(null)
+// a bot's command goes back to its bot; others to the automations
+const isBotCmd = computed(() => !!a.value && isChannelSource(a.value.source) && !!a.value.config.channel_id)
+const back = computed(() => isBotCmd.value ? `/projects/${projectId.value}/bots/${a.value!.config.channel_id}` : { path: `/projects/${projectId.value}`, query: { tab: 'automations' } })
+const backLabel = computed(() => isBotCmd.value ? (a.value!.bot_status?.bot_name ? `@${a.value!.bot_status.bot_name}` : t('bot.title')) : t('auto.back'))
 
 async function act(fn: () => Promise<unknown>, ok?: string) {
   try {
@@ -44,7 +48,7 @@ async function remove() {
         <UDropdownMenu
           :content="{ align: 'end' }"
           :items="[[
-            { label: t('auto.edit'), icon: 'i-lucide-pencil', to: `/projects/${projectId}/automations/${aid}/edit` },
+            { label: t('auto.edit'), icon: 'i-lucide-pencil', to: isBotCmd ? `/projects/${projectId}/bots/${a.config.channel_id}/edit` : `/projects/${projectId}/automations/${aid}/edit` },
             ...(a.source === 'webhook' ? [{ label: t('auto.rotate'), icon: 'i-lucide-key-round', onSelect: rotate }] : [])
           ], [{ label: t('auto.delete'), icon: 'i-lucide-trash', color: 'error' as const, onSelect: remove }]]"
         >
@@ -54,7 +58,7 @@ async function remove() {
     </template>
 
     <div v-if="a" class="space-y-4">
-      <UButton :to="{ path: `/projects/${projectId}`, query: { tab: 'automations' } }" icon="i-lucide-arrow-left" size="xs" color="neutral" variant="ghost" class="-ms-2" :label="t('auto.back')" />
+      <UButton :to="back" icon="i-lucide-arrow-left" size="xs" color="neutral" variant="ghost" class="-ms-2" :label="backLabel" />
       <div class="flex flex-wrap items-center gap-2 text-xs text-(--ui-text-muted)">
         <UIcon :name="a.source === 'schedule' ? 'i-lucide-alarm-clock' : isChannelSource(a.source) ? (a.config.command ? 'i-lucide-square-slash' : 'i-lucide-messages-square') : 'i-lucide-webhook'" class="size-4" />
         <span class="font-mono">{{ scheduleText(a, t) }}</span>
