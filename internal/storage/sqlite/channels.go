@@ -117,3 +117,19 @@ func normChannel(c *storage.Channel) {
 		c.Approval = "ask"
 	}
 }
+
+func (r channelRepo) Prune(ctx context.Context, before time.Time) (int, error) {
+	n := 0
+	for _, q := range []string{
+		`DELETE FROM channel_threads WHERE conversation_id IN (SELECT id FROM conversations WHERE updated_at < ?)`,
+		`DELETE FROM settings WHERE (key LIKE 'channel_rule/%' OR key LIKE 'channel_pending/%') AND updated_at < ?`,
+	} {
+		res, err := r.db.ExecContext(ctx, q, fmtTime(before))
+		if err != nil {
+			return n, err
+		}
+		k, _ := res.RowsAffected()
+		n += int(k)
+	}
+	return n, nil
+}

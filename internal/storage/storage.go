@@ -201,4 +201,7 @@ type ChannelRepo interface {
 	SetStatus(ctx context.Context, id, botName, lastError string, lastMessage *time.Time) error
 	Thread(ctx context.Context, channelID, chatID string) (string, error)
 	SetThread(ctx context.Context, channelID, chatID, conversationID string) error
+	// Prune lets go what ties outside chats to conversations quiet since
+	// before (their reply links and rules; the conversations stay).
+	Prune(ctx context.Context, before time.Time) (int, error)
 }

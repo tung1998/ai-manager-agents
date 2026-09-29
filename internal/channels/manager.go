@@ -94,10 +94,14 @@ func NewManager(store storage.Store, engine *chat.Engine, runner Runner, factory
 }
 
 // Start runs the enabled channels until ctx ends.
+// keepLinks is how long a quiet bot chat keeps its reply links and rules.
+const keepLinks = 30 * 24 * time.Hour
+
 func (m *Manager) Start(ctx context.Context) {
 	m.mu.Lock()
 	m.root = ctx
 	m.mu.Unlock()
+	go m.pruneDaily(ctx)
 	list, err := m.store.Channels().List(ctx, "")
 	if err != nil {
 		slog.Error("channels: list", "err", err)
@@ -587,4 +591,23 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// pruneDaily lets go, now and then once a day, what ties outside chats to
+// conversations quiet for keepLinks (the conversations themselves stay).
+func (m *Manager) pruneDaily(ctx context.Context) {
+	t := time.NewTicker(24 * time.Hour)
+	defer t.Stop()
+	for {
+		if n, err := m.store.Channels().Prune(ctx, time.Now().UTC().Add(-keepLinks)); err != nil {
+			slog.Error("channels: prune", "err", err)
+		} else if n > 0 {
+			slog.Info("channels: pruned old chat links", "n", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }
