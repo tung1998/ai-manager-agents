@@ -14,20 +14,21 @@ import (
 type channelRepo struct{ db dbtx }
 
 const channelCols = `id, project_id, kind, name, token_enc, agent_id, mode, enabled, allow, scope, filter_enabled, refusal,
-	bot_name, last_error, last_message_at, created_at, updated_at`
+	bot_name, last_error, last_message_at, created_at, updated_at, approvers, approval`
 
 func scanChannel(row scanner) (storage.Channel, error) {
 	var (
 		c                storage.Channel
-		allow            string
+		allow, approvers string
 		last             sql.NullString
 		created, updated string
 	)
 	if err := row.Scan(&c.ID, &c.ProjectID, &c.Kind, &c.Name, &c.TokenEnc, &c.AgentID, &c.Mode, &c.Enabled, &allow, &c.Scope, &c.FilterEnabled, &c.Refusal,
-		&c.BotName, &c.LastError, &last, &created, &updated); err != nil {
+		&c.BotName, &c.LastError, &last, &created, &updated, &approvers, &c.Approval); err != nil {
 		return c, notFound(err)
 	}
 	_ = json.Unmarshal([]byte(allow), &c.Allow)
+	_ = json.Unmarshal([]byte(approvers), &c.Approvers)
 	var err error
 	if c.LastMessageAt, err = optParse(last); err != nil {
 		return c, err
@@ -41,21 +42,17 @@ func (r channelRepo) Create(ctx context.Context, c storage.Channel) (storage.Cha
 	if c.Mode == "" {
 		c.Mode = "read"
 	}
-	if c.Allow == nil {
-		c.Allow = []string{}
-	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO channels (`+channelCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`,
+	normChannel(&c)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO channels (`+channelCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?)`,
 		c.ID, c.ProjectID, c.Kind, c.Name, c.TokenEnc, c.AgentID, c.Mode, c.Enabled, toJSON(c.Allow), c.Scope, c.FilterEnabled, c.Refusal,
-		c.BotName, c.LastError, fmtTime(now), fmtTime(now))
+		c.BotName, c.LastError, fmtTime(now), fmtTime(now), toJSON(c.Approvers), c.Approval)
 	return c, err
 }
 
 func (r channelRepo) Update(ctx context.Context, c storage.Channel) error {
-	if c.Allow == nil {
-		c.Allow = []string{}
-	}
-	return execOne(ctx, r.db, `UPDATE channels SET name=?, token_enc=?, agent_id=?, mode=?, enabled=?, allow=?, scope=?, filter_enabled=?, refusal=?, updated_at=? WHERE id=?`,
-		c.Name, c.TokenEnc, c.AgentID, c.Mode, c.Enabled, toJSON(c.Allow), c.Scope, c.FilterEnabled, c.Refusal, fmtTime(time.Now()), c.ID)
+	normChannel(&c)
+	return execOne(ctx, r.db, `UPDATE channels SET name=?, token_enc=?, agent_id=?, mode=?, enabled=?, allow=?, scope=?, filter_enabled=?, refusal=?, approvers=?, approval=?, updated_at=? WHERE id=?`,
+		c.Name, c.TokenEnc, c.AgentID, c.Mode, c.Enabled, toJSON(c.Allow), c.Scope, c.FilterEnabled, c.Refusal, toJSON(c.Approvers), c.Approval, fmtTime(time.Now()), c.ID)
 }
 
 func (r channelRepo) Get(ctx context.Context, id string) (storage.Channel, error) {
@@ -107,4 +104,16 @@ func (r channelRepo) SetThread(ctx context.Context, channelID, chatID, conversat
 	_, err := r.db.ExecContext(ctx, `INSERT INTO channel_threads (channel_id, chat_id, conversation_id) VALUES (?,?,?)
 		ON CONFLICT (channel_id, chat_id) DO UPDATE SET conversation_id=excluded.conversation_id`, channelID, chatID, conversationID)
 	return err
+}
+
+func normChannel(c *storage.Channel) {
+	if c.Allow == nil {
+		c.Allow = []string{}
+	}
+	if c.Approvers == nil {
+		c.Approvers = []string{}
+	}
+	if c.Approval != "direct" {
+		c.Approval = "ask"
+	}
 }

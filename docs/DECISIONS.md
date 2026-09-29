@@ -1374,3 +1374,23 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Chat của bot (`purpose = channel`) là chat của đội: có công cụ `delegate` và phần giới thiệu đội như chat trên web.
 - Báo cáo của đội sau câu trả lời được gửi tiếp vào kênh. Đó là các tin của agent trả lời khi được gọi lại, kèm lỗi nếu có. Việc gửi tiếp dừng khi cuộc chat im lặng, khi người dùng nhắn tiếp, hoặc sau 1 giờ.
 - Migration 00035 nâng các cuộc chat bot đang ở `read` lên `operate`, để chúng chạy theo quyền của agent.
+
+## ADR-054: Duyệt đề xuất qua chat của bot
+
+**Bối cảnh.** Agent trả lời qua Discord/Telegram đề xuất diff và lệnh, nhưng chỉ duyệt được trên dashboard.
+
+**Quyết định.**
+- Sau mỗi câu trả lời, bot liệt kê những gì còn chờ duyệt trong cuộc chat đó, đánh số. Số giữ nguyên cho tới khi mọi mục được quyết.
+- Có 4 lệnh:
+  - `/cho-duyet`: xem lại danh sách.
+  - `/duyet <số|all>`: duyệt.
+  - `/tu-choi <số|all>`: từ chối.
+  - `/mode duyet|thang`: đổi chế độ.
+- Chỉ người trong ô **"Ai được duyệt"** của bot (ID, không nhận `*`) mới quyết và đổi chế độ được. Để trống thì chỉ duyệt trên dashboard.
+- Quyết định đi qua đúng đường của dashboard: DecidePatch và actions.Decide. Audit ghi đây là thay đổi của agent, người duyệt là `discord:<tên>`.
+- Có 2 chế độ, lưu theo từng chat:
+  - **Duyệt** (mặc định): chờ lệnh.
+  - **Làm thẳng**: đề xuất được duyệt ngay, đứng tên người đã bật.
+- Cuộc chat mới dùng chế độ đặt trong trang cài bot.
+- Những mục **luôn hỏi**, kể cả khi làm thẳng: push, dừng tiến trình/container, đổi cài đặt, sửa tự động hóa, và lệnh có `rm`, `git reset --hard`, `git clean`, `drop`, `delete`.
+- Quyền của agent và chính sách Quyền của project vẫn áp dụng như cũ.

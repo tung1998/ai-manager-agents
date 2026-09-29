@@ -271,7 +271,7 @@ type Item struct {
 	CostUSD        float64   `json:"cost_usd"`
 	ConversationID string    `json:"conversation_id,omitempty"`
 	TaskID         string    `json:"task_id,omitempty"`
-	Source         string    `json:"source,omitempty"` // chat: web | discord | telegram | auto
+	Source         string    `json:"source,omitempty"`  // chat: web | discord | telegram | auto
 	Answers        int       `json:"answers,omitempty"` // chat: how many times it answered there
 }
 

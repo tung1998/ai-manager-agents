@@ -46,6 +46,7 @@ type Manager struct {
 	root     context.Context
 	pending  Pending
 	reload   sync.Mutex // one Reload at a time: never two bots for one channel
+	decider  Decider    // decides proposals from the chat (nil = only on the dashboard)
 }
 
 type waiter struct {
@@ -212,6 +213,13 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		}
 	}
 	cmd, arg, isCmd := command(in.Text)
+	switch cmd {
+	case "pending", "approve", "reject", "mode": // deciding proposals from the chat (ADR-054)
+		if isCmd {
+			say(m.approvals(ctx, ch, in, cmd, arg, who))
+			return
+		}
+	}
 	if isCmd && cmd != "job" { // /create-conversation, /close-conversation
 		say(m.setKeep(ctx, ch.ID, in.ChatID, cmd == "create"))
 		return
@@ -318,6 +326,13 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 	}
 	if ad == nil {
 		return // the channel is off now
+	}
+	if final && err == nil && p.ConversationID != "" { // after the answer: what it left waiting for a person
+		defer func() {
+			if ch, gerr := m.store.Channels().Get(context.WithoutCancel(ctx), p.ChannelID); gerr == nil {
+				m.announce(context.WithoutCancel(ctx), ch, ad, p.ChatID, p.ConversationID)
+			}
+		}()
 	}
 	text = strings.TrimSpace(text)
 	if respond != nil {
@@ -496,6 +511,14 @@ func command(text string) (cmd, arg string, ok bool) {
 		return "close", "", rest == ""
 	case "job":
 		return "job", rest, true
+	case "cho-duyet":
+		return "pending", "", true
+	case "duyet":
+		return "approve", rest, true
+	case "tu-choi":
+		return "reject", rest, true
+	case "mode":
+		return "mode", rest, true
 	}
 	return "", "", false
 }

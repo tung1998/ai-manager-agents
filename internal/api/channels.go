@@ -27,6 +27,8 @@ type channelDTO struct {
 	Scope         string     `json:"scope"`
 	FilterEnabled bool       `json:"filter_enabled"`
 	Refusal       string     `json:"refusal"`
+	Approvers     []string   `json:"approvers"`
+	Approval      string     `json:"approval"`
 	BotName       string     `json:"bot_name"`
 	LastError     string     `json:"last_error"`
 	LastMessageAt *time.Time `json:"last_message_at"`
@@ -37,8 +39,12 @@ func toChannelDTO(c storage.Channel) channelDTO {
 	if allow == nil {
 		allow = []string{}
 	}
+	approvers := c.Approvers
+	if approvers == nil {
+		approvers = []string{}
+	}
 	return channelDTO{c.ID, c.ProjectID, c.Kind, c.Name, c.TokenEnc != "", c.AgentID, c.Mode, c.Enabled, allow, c.Scope, c.FilterEnabled, c.Refusal,
-		c.BotName, c.LastError, c.LastMessageAt}
+		approvers, firstNonEmptyStr(c.Approval, "ask"), c.BotName, c.LastError, c.LastMessageAt}
 }
 
 type channelInput struct {
@@ -52,6 +58,8 @@ type channelInput struct {
 	Scope         *string   `json:"scope"`
 	FilterEnabled *bool     `json:"filter_enabled"`
 	Refusal       *string   `json:"refusal"`
+	Approvers     *[]string `json:"approvers"`
+	Approval      *string   `json:"approval"`
 }
 
 func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
@@ -86,6 +94,20 @@ func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
 			if a = strings.TrimSpace(a); a != "" {
 				c.Allow = append(c.Allow, a)
 			}
+		}
+	}
+	if in.Approvers != nil {
+		c.Approvers = []string{}
+		for _, a := range *in.Approvers {
+			if a = strings.TrimSpace(a); a != "" && a != "*" { // deciding is for named people only
+				c.Approvers = append(c.Approvers, a)
+			}
+		}
+	}
+	if in.Approval != nil {
+		c.Approval = "ask"
+		if *in.Approval == "direct" {
+			c.Approval = "direct"
 		}
 	}
 	if in.Scope != nil {

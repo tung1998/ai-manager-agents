@@ -183,6 +183,8 @@ type Channel struct {
 	Scope                     string   // topics it answers
 	FilterEnabled             bool     // refuse what is out of Scope (a fast model decides)
 	Refusal                   string   // the reply to an out-of-scope message
+	Approvers                 []string // user ids who may decide proposals from the chat (none = only on the dashboard)
+	Approval                  string   // a new chat's way: ask (commands) | direct (what the agent proposes is approved)
 	BotName                   string
 	LastError                 string
 	LastMessageAt             *time.Time

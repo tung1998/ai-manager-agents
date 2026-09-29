@@ -17,7 +17,9 @@ const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/
 const channel = computed(() => chData.value?.channels.find(c => c.id === props.botId))
 
 // the bot's settings
-const bot = reactive({ kind: (channel.value?.kind ?? 'discord') as 'telegram' | 'discord', token: '', allow: (channel.value?.allow ?? []).join('\n'), refusal: channel.value?.refusal ?? '' })
+const bot = reactive({ kind: (channel.value?.kind ?? 'discord') as 'telegram' | 'discord', token: '', allow: (channel.value?.allow ?? []).join('\n'), refusal: channel.value?.refusal ?? '',
+  approvers: (channel.value?.approvers ?? []).join('\n'), approval: (channel.value?.approval ?? 'ask') as 'ask' | 'direct' })
+const ids = (s: string) => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean)
 const settingsOpen = ref(isNew.value)
 const guideOpen = ref(false)
 
@@ -139,7 +141,7 @@ async function save() {
       d.config.command = d.config.command ? commandName(d.config.command) : ''
       d.name = d.config.command ? `/${d.config.command}` : t('bot.tagName', { bot: botLabel.value })
       const body = automationBody(d)
-      body.bot = i === 0 ? { token: bot.token || undefined, allow: bot.allow.split(/[\n,]/).map(s => s.trim()).filter(Boolean), refusal: bot.refusal } : undefined
+      body.bot = i === 0 ? { token: bot.token || undefined, allow: ids(bot.allow), refusal: bot.refusal, approvers: ids(bot.approvers), approval: bot.approval } : undefined
       const res = c.id
         ? await $fetch<{ automation: Automation }>(`/api/automations/${c.id}`, { method: 'PATCH', body })
         : await $fetch<{ automation: Automation }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body })
@@ -210,6 +212,16 @@ async function save() {
               v-if="bot.allow.split(/[\n,]/).some(s => s.trim() === '*')" color="error" variant="subtle" icon="i-lucide-shield-alert"
               :title="t('bot.anyoneTitle')" :description="t('bot.anyoneDesc')"
             />
+            <!-- deciding what agents propose from the chat (ADR-054) -->
+            <UFormField :label="t('bot.approvers')" :help="t('bot.approversHelp')">
+              <UTextarea v-model="bot.approvers" :rows="1" autoresize class="w-full font-mono text-xs" :placeholder="bot.kind === 'discord' ? '123456789012345678' : '123456789'" />
+            </UFormField>
+            <UFormField v-if="ids(bot.approvers).length" :label="t('bot.approval')" :help="t('bot.approvalHelp')">
+              <USelect
+                v-model="bot.approval" class="w-full"
+                :items="[{ label: t('bot.approvalAsk'), value: 'ask' }, { label: t('bot.approvalDirect'), value: 'direct' }]"
+              />
+            </UFormField>
             <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')">
               <UInput v-model="bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />
             </UFormField>

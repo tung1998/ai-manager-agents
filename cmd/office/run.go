@@ -136,6 +136,7 @@ func serveCmd() *cobra.Command {
 				return &channels.Telegram{Token: token}, nil
 			})
 			runner.SetOnReply(bots.Reply)
+			bots.SetDecider(chatDecider{store: a.store, chat: chatEngine, acts: acts}) // proposals decided from the chat (ADR-054)
 			bots.Start(ctx)
 
 			// self-update: only under the supervisor and when the source is here
