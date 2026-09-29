@@ -109,12 +109,14 @@ async function decide(approve: boolean) {
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center gap-3 rounded-lg border border-(--ui-border) px-3 py-2.5">
+  <!-- a phone: the text takes the width, the status and buttons go under it -->
+  <div class="flex flex-wrap items-start gap-x-3 gap-y-2 rounded-lg border border-(--ui-border) px-3 py-2.5 sm:items-center">
     <span class="grid size-8 shrink-0 place-items-center rounded-md bg-(--ui-bg-elevated)">
       <UIcon :name="icon" class="size-4 text-primary" />
     </span>
-    <div class="min-w-0 flex-1">
-      <p class="text-sm font-medium">{{ kindLabel }} <code>{{ action.target }}</code></p>
+    <div class="min-w-0 flex-1 basis-[calc(100%-2.75rem)] sm:basis-0">
+      <p class="text-sm font-medium">{{ kindLabel }}</p>
+      <code v-if="action.target" class="mt-0.5 block break-all rounded bg-(--ui-bg-elevated) px-1.5 py-0.5 font-mono text-xs">{{ action.target }}</code>
       <pre v-if="action.message" class="mt-1 whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1 font-mono text-xs">{{ action.message }}</pre>
       <p v-if="action.files?.length" class="mt-1 truncate font-mono text-xs text-(--ui-text-muted)" :title="action.files.join('\n')">{{ t('action.fileCount', { n: action.files.length, files: action.files.join(', ') }) }}</p>
       <div v-if="spec" class="mt-1 space-y-1 text-xs">
