@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Every job in one place: what runs, waits or failed, and what it cost.
+// Every piece of work in one place (a chat, a task, an automation): what runs, failed, and what it cost.
 const route = useRoute()
 const { t } = useLang()
 const project = computed(() => (route.query.project as string) || '')
@@ -30,7 +30,7 @@ onBeforeUnmount(() => clearInterval(timer))
           <p class="mt-1 text-xl font-semibold tabular-nums sm:text-2xl">{{ x.value }}</p>
         </UCard>
       </div>
-      <JobsTable :key="project" :filter="{ project }" show-filters :projects="projects" />
+      <JobGroups :key="project" :project="project" :projects="projects" />
     </div>
   </PageShell>
 </template>

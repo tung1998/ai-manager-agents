@@ -111,3 +111,26 @@ func TestRecentConversations(t *testing.T) {
 		t.Fatalf("projects = %v", b["projects"])
 	}
 }
+
+// The Job page: one row per piece of work, named after it.
+func TestJobGroupsAPI(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	conv, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "Sửa lỗi thanh toán"})
+	for i := 0; i < 3; i++ {
+		e.st.Jobs().Create(ctx, storage.Job{ProjectID: pid, Kind: "chat_turn", Origin: "user", Trigger: "discord", ConversationID: conv.ID, Status: "done", Title: "lượt"})
+	}
+	_, b := do(t, admin, "GET", e.srv.URL+"/api/jobs/groups?project="+pid, nil, nil)
+	gs, _ := b["groups"].([]any)
+	if len(gs) != 1 {
+		t.Fatalf("groups = %v", b)
+	}
+	g := gs[0].(map[string]any)
+	if g["title"] != "Sửa lỗi thanh toán" || g["runs"] != float64(3) || g["source"] != "discord" || g["link"] == "" || g["project_name"] != "shop" {
+		t.Fatalf("group = %v", g)
+	}
+}

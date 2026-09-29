@@ -358,3 +358,46 @@ func (r jobRepo) FailRunning(ctx context.Context, errCode, errMsg string, at tim
 	}
 	return res.RowsAffected()
 }
+
+// jobGroupKey names the work a job belongs to: its chat, else its task, else
+// its automation, else itself.
+const jobGroupKey = `CASE WHEN COALESCE(conversation_id,'')<>'' THEN 'c:'||conversation_id WHEN COALESCE(task_id,'')<>'' THEN 't:'||task_id
+	WHEN origin='automation' THEN 'a:'||origin_id ELSE 'j:'||id END`
+
+func (r jobRepo) Groups(ctx context.Context, f storage.JobFilter) ([]storage.JobGroup, error) {
+	if f.Limit <= 0 {
+		f.Limit = 20
+	}
+	f.Limit = min(f.Limit, 100)
+	w, args := r.where(f)
+	having := ""
+	if f.Before != "" { // groups last active before that one
+		having = ` HAVING (MAX(created_at), g) < (SELECT MAX(created_at), g FROM (SELECT created_at, ` + jobGroupKey + ` AS g FROM jobs` + w + `) WHERE g=?)`
+		args = append(args, args...)
+		args = append(args, f.Before)
+	}
+	args = append(args, f.Limit)
+	// SQLite: the bare columns come from the row of MAX(created_at), the latest job
+	q := `SELECT g, project_id, kind, origin, COALESCE(origin_id,''), COALESCE(trigger,''), COALESCE(created_by,''), COALESCE(conversation_id,''), COALESCE(task_id,''), COALESCE(agent_id,''), COALESCE(title,''), status,
+		COUNT(*), SUM(status='failed'), SUM(status IN ('pending','running')), COALESCE(SUM(cost_usd),0), MAX(created_at)
+		FROM (SELECT *, ` + jobGroupKey + ` AS g FROM jobs` + w + `) GROUP BY g` + having + ` ORDER BY MAX(created_at) DESC, g DESC LIMIT ?`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []storage.JobGroup{}
+	for rows.Next() {
+		var g storage.JobGroup
+		var last string
+		if err := rows.Scan(&g.Key, &g.ProjectID, &g.Kind, &g.Origin, &g.OriginID, &g.Trigger, &g.CreatedBy, &g.ConversationID, &g.TaskID, &g.AgentID,
+			&g.Title, &g.Status, &g.Runs, &g.Failed, &g.Active, &g.CostUSD, &last); err != nil {
+			return nil, err
+		}
+		if g.LastAt, err = parseTime(last); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}

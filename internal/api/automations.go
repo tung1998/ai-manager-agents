@@ -32,6 +32,7 @@ func (s *server) triggerRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/projects/{id}/automations/test-script", admin(s.testScript))
 
 	mux.Handle("GET /api/jobs", auth(s.listJobs))
+	mux.Handle("GET /api/jobs/groups", auth(s.jobGroups)) // the Job page: by piece of work
 	mux.Handle("GET /api/incidents", auth(s.incidents))
 	mux.Handle("POST /api/incidents/dismiss", admin(s.dismissIncident))
 	mux.Handle("POST /api/incidents/retry", admin(s.retryIncident))

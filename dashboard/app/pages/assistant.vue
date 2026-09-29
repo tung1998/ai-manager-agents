@@ -9,7 +9,6 @@ const { data, error } = await useFetch<{ project_id: string }>('/api/assistant')
   <PageShell :title="t('assistant.title')">
     <div class="flex min-h-0 flex-1 flex-col gap-3">
       <p class="text-sm text-(--ui-text-muted)">{{ t('assistant.intro') }}</p>
-      <ApprovalInbox />
       <ChatPanel v-if="data?.project_id" :project-id="data.project_id" />
       <UAlert v-else-if="error" color="warning" variant="subtle" :title="t('assistant.missing')" />
     </div>

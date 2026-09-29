@@ -16,8 +16,6 @@ const en: Record<keyof typeof vi, string> = {
   'cli.never': 'never',
   'cli.revoke': 'Revoke',
   'cli.revokeConfirm': 'Revoke token {name}? A CLI using it loses access.',
-  'inbox.title': 'Waiting for approval ({n})',
-  'inbox.refresh': 'Refresh',
   'channels.token': 'Bot token',
   'channels.tokenKept': 'Saved, leave empty to keep it',
   'channels.allow': 'Who may message the bot',

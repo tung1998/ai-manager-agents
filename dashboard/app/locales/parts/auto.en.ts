@@ -126,6 +126,8 @@ const en: Record<keyof typeof vi, string> = {
   'job.open': 'Open',
   'job.cancel': 'Stop',
   'job.retry': 'Retry',
+  'job.groupRuns': '{n} runs',
+  'job.groupFailed': '{n} failed',
   'job.more': 'Load more',
   'job.empty': 'No jobs yet.',
   'job.cancelled': 'Job stopped',

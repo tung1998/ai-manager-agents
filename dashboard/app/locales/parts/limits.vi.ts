@@ -15,8 +15,6 @@ export default {
   'cli.never': 'chưa dùng',
   'cli.revoke': 'Thu hồi',
   'cli.revokeConfirm': 'Thu hồi token {name}? CLI dùng token này sẽ mất quyền.',
-  'inbox.title': 'Chờ duyệt ({n})',
-  'inbox.refresh': 'Làm mới',
   'channels.token': 'Token của bot',
   'channels.tokenKept': 'Đã lưu, để trống nếu giữ nguyên',
   'channels.allow': 'Ai được nhắn bot',

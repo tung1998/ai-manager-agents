@@ -125,6 +125,8 @@ export default {
   'job.open': 'Mở',
   'job.cancel': 'Dừng',
   'job.retry': 'Chạy lại',
+  'job.groupRuns': '{n} lượt chạy',
+  'job.groupFailed': '{n} lỗi',
   'job.more': 'Tải thêm',
   'job.empty': 'Chưa có job nào.',
   'job.cancelled': 'Đã dừng job',

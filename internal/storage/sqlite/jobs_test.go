@@ -209,3 +209,44 @@ func TestJobsByOriginIDs(t *testing.T) {
 		t.Fatalf("list = %d %v", len(list), err)
 	}
 }
+
+// Jobs gathered by the work they belong to: a chat, a task, an automation.
+func TestJobGroups(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	mk := func(j storage.Job) {
+		j.ProjectID = p.ID
+		if _, err := st.Jobs().Create(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	cost := func(v float64) {}
+	_ = cost
+	mk(storage.Job{Kind: "chat_turn", Origin: "user", ConversationID: "cnv_1", Status: "done", Title: "hỏi 1"})
+	mk(storage.Job{Kind: "chat_turn", Origin: "user", ConversationID: "cnv_1", Status: "failed", Title: "hỏi 2"})
+	mk(storage.Job{Kind: "script", Origin: "automation", OriginID: "aut_1", Status: "done", Title: "chạy 1"})
+	mk(storage.Job{Kind: "script", Origin: "automation", OriginID: "aut_1", Status: "done", Title: "chạy 2"})
+	mk(storage.Job{Kind: "task", Origin: "user", TaskID: "tsk_1", Status: "running", Title: "việc"})
+	gs, err := st.Jobs().Groups(ctx, storage.JobFilter{ProjectID: p.ID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gs) != 3 {
+		t.Fatalf("groups = %+v", gs)
+	}
+	if gs[0].TaskID != "tsk_1" || gs[0].Active != 1 {
+		t.Fatalf("newest = %+v", gs[0])
+	}
+	if gs[1].OriginID != "aut_1" || gs[1].Runs != 2 || gs[1].Title != "chạy 2" {
+		t.Fatalf("automation = %+v", gs[1])
+	}
+	if gs[2].ConversationID != "cnv_1" || gs[2].Runs != 2 || gs[2].Failed != 1 || gs[2].Status != "failed" {
+		t.Fatalf("chat = %+v", gs[2])
+	}
+	// the next page starts after the last one shown
+	more, err := st.Jobs().Groups(ctx, storage.JobFilter{ProjectID: p.ID, Limit: 10, Before: gs[1].Key})
+	if err != nil || len(more) != 1 || more[0].ConversationID != "cnv_1" {
+		t.Fatalf("next page = %+v %v", more, err)
+	}
+}

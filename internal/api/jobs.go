@@ -52,20 +52,22 @@ type jobDTO struct {
 // names caches the labels a job listing needs.
 type names struct{ agents, automations, projects map[string]string }
 
+// look finds a name once per request.
+func look(m map[string]string, id string, get func() (string, error)) string {
+	if id == "" {
+		return ""
+	}
+	if v, ok := m[id]; ok {
+		return v
+	}
+	v, _ := get()
+	m[id] = v
+	return v
+}
+
 func (s *server) toJobDTO(r *http.Request, j storage.Job, n *names) jobDTO {
 	if n == nil {
 		n = &names{map[string]string{}, map[string]string{}, map[string]string{}}
-	}
-	look := func(m map[string]string, id string, get func() (string, error)) string {
-		if id == "" {
-			return ""
-		}
-		if v, ok := m[id]; ok {
-			return v
-		}
-		v, _ := get()
-		m[id] = v
-		return v
 	}
 	ctx := r.Context()
 	d := jobDTO{ID: j.ID, ProjectID: j.ProjectID, Kind: j.Kind, Origin: j.Origin, OriginID: j.OriginID, Trigger: j.Trigger, CreatedBy: j.CreatedBy,
@@ -258,4 +260,84 @@ func (s *server) retryJob(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusBadRequest, "job này chạy lại từ cuộc Chat")
 	}
+}
+
+// jobGroupDTO is one piece of work on the Job page: a chat, a task, an
+// automation's runs, with how its jobs went.
+type jobGroupDTO struct {
+	Key         string    `json:"key"`
+	Kind        string    `json:"kind"` // chat | task | automation | job
+	ProjectID   string    `json:"project_id"`
+	ProjectName string    `json:"project_name"`
+	Source      string    `json:"source"` // web | discord | telegram | auto
+	Title       string    `json:"title"`
+	Status      string    `json:"status"` // the latest job's
+	Runs        int       `json:"runs"`
+	Failed      int       `json:"failed"`
+	Active      int       `json:"active"`
+	CostUSD     float64   `json:"cost_usd"`
+	LastAt      time.Time `json:"last_at"`
+	Link        string    `json:"link"`
+	JobID       string    `json:"job_id,omitempty"` // a job of its own: opened in place
+}
+
+func (s *server) jobGroups(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	f := jobFilter(r)
+	gs, err := s.cfg.Store.Jobs().Groups(ctx, f)
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	n := &names{map[string]string{}, map[string]string{}, map[string]string{}}
+	own, me := assistant.ID(ctx, s.cfg.Store), "human:"+userFrom(r).Email
+	out := make([]jobGroupDTO, 0, len(gs))
+	for _, g := range gs {
+		if own != "" && g.ProjectID == own && g.CreatedBy != me {
+			continue // an assistant chat is its creator's alone (ADR-046)
+		}
+		d := jobGroupDTO{Key: g.Key, ProjectID: g.ProjectID, Title: g.Title, Status: g.Status, Runs: g.Runs, Failed: g.Failed, Active: g.Active,
+			CostUSD: g.CostUSD, LastAt: g.LastAt, Source: "web"}
+		switch {
+		case g.Trigger == "discord" || g.Trigger == "telegram":
+			d.Source = g.Trigger
+		case g.Origin == "automation":
+			d.Source = "auto"
+		}
+		base := "/projects/" + g.ProjectID
+		switch g.Key[:2] {
+		case "c:":
+			d.Kind, d.Link = "chat", base+"?tab=chat&c="+g.ConversationID
+			if c, err := s.cfg.Store.Chat().GetConversation(ctx, g.ConversationID); err == nil && c.Title != "" {
+				d.Title = c.Title
+			}
+		case "t:":
+			d.Kind, d.Link = "task", base+"?tab=tasks&task="+g.TaskID
+			if t, err := s.cfg.Store.Tasks().Get(ctx, g.TaskID); err == nil {
+				d.Title = t.Title
+			}
+		case "a:":
+			d.Kind, d.Link = "automation", base+"/automations/"+g.OriginID
+			d.Title = firstNonEmptyStr(look(n.automations, g.OriginID, func() (string, error) {
+				a, err := s.cfg.Store.Automations().Get(ctx, g.OriginID)
+				return a.Name, err
+			}), g.Title)
+		default:
+			d.Kind, d.JobID = "job", strings.TrimPrefix(g.Key, "j:")
+		}
+		d.ProjectName = look(n.projects, g.ProjectID, func() (string, error) {
+			p, err := s.cfg.Store.Repos().Get(ctx, g.ProjectID)
+			return p.Name, err
+		})
+		out = append(out, d)
+	}
+	next := ""
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if len(gs) >= min(limit, 100) {
+		next = gs[len(gs)-1].Key
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"groups": out, "next_before": next})
 }
