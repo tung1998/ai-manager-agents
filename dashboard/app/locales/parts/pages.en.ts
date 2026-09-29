@@ -97,6 +97,7 @@ const en: Record<keyof typeof vi, string> = {
   'incidents.kind.automation': 'automation',
   'incidents.kind.bot': 'bot',
   'incidents.kind.jobs': 'failed jobs',
+  'incidents.kind.patch': 'diff to review',
   'incidents.kind.approval': 'waiting',
 
   'projects.title': 'Projects',

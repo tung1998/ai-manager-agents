@@ -17,7 +17,7 @@ import (
 // fix it: a monitor down, a process crashed, an automation office turned off,
 // a bot that lost its connection, tasks and runs that failed, a card waiting.
 type incident struct {
-	Kind        string    `json:"kind"`     // monitor | process | automation | bot | jobs | approval
+	Kind        string    `json:"kind"`     // monitor | process | automation | bot | jobs | approval | patch
 	Severity    string    `json:"severity"` // error | warning
 	ProjectID   string    `json:"project_id"`
 	ProjectName string    `json:"project_name"`
@@ -124,6 +124,25 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if userFrom(r).Role == storage.RoleAdmin { // chats' diffs waiting for a person
+		if ps, err := s.cfg.Store.Chat().PendingPatches(ctx, 100); err == nil {
+			for _, p := range ps {
+				c, err := s.cfg.Store.Chat().GetConversation(ctx, p.ConversationID)
+				if err != nil || c.ProjectID == hidden {
+					continue
+				}
+				name := c.ProjectID
+				for _, x := range projects {
+					if x.ID == c.ProjectID {
+						name = x.Name
+					}
+				}
+				out = append(out, incident{Kind: "patch", Severity: "warning", ProjectID: c.ProjectID, ProjectName: name,
+					Title: strings.Join(p.Files, ", "), Detail: c.Title, At: p.CreatedAt, Link: "/projects/" + c.ProjectID + "?tab=chat&c=" + c.ID + "&m=" + p.MessageID,
+					ID: p.ID, Key: "patch:" + p.ID})
+			}
+		}
+	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if (out[i].Severity == "error") != (out[j].Severity == "error") {
 			return out[i].Severity == "error"
@@ -142,7 +161,7 @@ func (s *server) dismissIncident(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if in.Key == "" || strings.HasPrefix(in.Key, "approval:") { // a card is decided, not let go
+	if in.Key == "" || strings.HasPrefix(in.Key, "approval:") || strings.HasPrefix(in.Key, "patch:") { // a card is decided, not let go
 		writeError(w, http.StatusBadRequest, "không bỏ qua được mục này")
 		return
 	}

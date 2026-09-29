@@ -96,6 +96,7 @@ export default {
   'incidents.kind.automation': 'tự động hóa',
   'incidents.kind.bot': 'bot',
   'incidents.kind.jobs': 'job lỗi',
+  'incidents.kind.patch': 'diff chờ duyệt',
   'incidents.kind.approval': 'chờ duyệt',
 
   'projects.title': 'Project',

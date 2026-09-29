@@ -36,7 +36,8 @@ const acting = ref('')
 async function act(x: Incident, what: 'approve' | 'reject' | 'retry' | 'dismiss') {
   acting.value = x.key + what
   try {
-    if (what === 'approve' || what === 'reject') await $fetch(`/api/actions/${x.id}/${what}`, { method: 'POST', body: {} })
+    if ((what === 'approve' || what === 'reject') && x.kind === 'patch') await $fetch(`/api/patches/${x.id}/${what}`, { method: 'POST' })
+    else if (what === 'approve' || what === 'reject') await $fetch(`/api/actions/${x.id}/${what}`, { method: 'POST', body: {} })
     else if (what === 'dismiss') await $fetch('/api/incidents/dismiss', { method: 'POST', body: { key: x.key } })
     else if (x.kind === 'jobs') await $fetch(`/api/jobs/${x.id}/retry`, { method: 'POST' })
     else await $fetch('/api/incidents/retry', { method: 'POST', body: { kind: x.kind, id: x.id } })
@@ -57,7 +58,7 @@ function investigate(x: Incident) {
 const canRetry = (k: string) => ['monitor', 'process', 'automation', 'bot', 'jobs'].includes(k)
 const incIcon: Record<string, string> = {
   monitor: 'i-lucide-activity', process: 'i-lucide-square-terminal', automation: 'i-lucide-alarm-clock-off',
-  bot: 'i-lucide-bot', jobs: 'i-lucide-circle-x', approval: 'i-lucide-stamp'
+  bot: 'i-lucide-bot', jobs: 'i-lucide-circle-x', approval: 'i-lucide-stamp', patch: 'i-lucide-file-diff'
 }
 
 const providers = computed(() => prov.value?.providers ?? [])
@@ -121,7 +122,7 @@ const steps = computed(() => [
             </NuxtLink>
             <!-- what to do about it, right here -->
             <div v-if="isAdmin" class="flex shrink-0 flex-wrap items-center gap-1 max-sm:w-full max-sm:ps-7">
-              <template v-if="x.kind === 'approval'">
+              <template v-if="x.kind === 'approval' || x.kind === 'patch'">
                 <UButton size="xs" icon="i-lucide-check" :label="t('home.approve')" :loading="acting === x.key + 'approve'" @click="act(x, 'approve')" />
                 <UButton size="xs" color="neutral" variant="ghost" :label="t('home.reject')" :loading="acting === x.key + 'reject'" @click="act(x, 'reject')" />
               </template>

@@ -220,6 +220,23 @@ func (r chatRepo) ListPatches(ctx context.Context, conversationID string) ([]sto
 	return out, rows.Err()
 }
 
+func (r chatRepo) PendingPatches(ctx context.Context, limit int) ([]storage.Patch, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+patchCols+` FROM patches WHERE status='pending' AND conversation_id<>'' ORDER BY created_at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storage.Patch
+	for rows.Next() {
+		p, err := scanPatch(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func (r chatRepo) DecidePatch(ctx context.Context, id, status, detail, by string, at time.Time) error {
 	return execOne(ctx, r.db, `UPDATE patches SET status=?, detail=?, decided_by=?, decided_at=? WHERE id=?`, status, detail, by, fmtTime(at), id)
 }

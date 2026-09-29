@@ -134,3 +134,29 @@ func TestJobGroupsAPI(t *testing.T) {
 		t.Fatalf("group = %v", g)
 	}
 }
+
+// A chat's diff waiting for a person is in "Cần xử lý", next to the commands.
+func TestPendingPatchIncident(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	conv, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "Sửa nút"})
+	p, _ := e.st.Chat().AddPatch(ctx, storage.Patch{ConversationID: conv.ID, Diff: "x", Files: []string{"a.vue"}, Status: "pending"})
+	e.st.Chat().AddPatch(ctx, storage.Patch{ConversationID: conv.ID, Diff: "y", Files: []string{"b.vue"}, Status: "applied"})
+	_, b := do(t, admin, "GET", e.srv.URL+"/api/incidents", nil, nil)
+	var found map[string]any
+	for _, x := range b["incidents"].([]any) {
+		if it := x.(map[string]any); it["kind"] == "patch" {
+			if found != nil {
+				t.Fatalf("two patch incidents: %v", b["incidents"])
+			}
+			found = it
+		}
+	}
+	if found == nil || found["id"] != p.ID || found["project_id"] != pid || found["link"] == "" {
+		t.Fatalf("patch incident = %v in %v", found, b["incidents"])
+	}
+}
