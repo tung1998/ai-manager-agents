@@ -362,8 +362,8 @@ onBeforeUnmount(() => source?.close())
 <template>
   <div class="flex h-[calc(100vh-13rem)] min-h-[28rem] overflow-hidden rounded-lg border border-(--ui-border)">
     <aside class="hidden w-64 shrink-0 flex-col border-e border-(--ui-border) md:flex">
-      <div class="flex items-center gap-1 border-b border-(--ui-border) p-2">
-        <UButton icon="i-lucide-plus" :label="t('task.new')" size="sm" color="neutral" variant="ghost" class="min-w-0 flex-1 justify-start" @click="showNew = true; detail = null" />
+      <div class="space-y-1.5 border-b border-(--ui-border) p-2">
+        <UButton icon="i-lucide-plus" :label="t('task.new')" size="sm" color="neutral" variant="ghost" block class="justify-start" @click="showNew = true; detail = null" />
         <SourceFilter v-model="origin" />
       </div>
       <div class="flex-1 overflow-y-auto p-1">

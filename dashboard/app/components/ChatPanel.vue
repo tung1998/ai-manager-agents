@@ -380,8 +380,8 @@ onBeforeUnmount(() => {
   <div class="flex overflow-hidden rounded-lg border border-(--ui-border)" :class="compact || purpose ? 'h-full min-h-0' : taskId ? 'h-[32rem]' : 'min-h-[24rem] flex-1'">
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
-      <div class="flex items-center gap-1 border-b border-(--ui-border) p-2">
-        <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" class="min-w-0 flex-1 justify-start" @click="newConversation(pick)" />
+      <div class="space-y-1.5 border-b border-(--ui-border) p-2">
+        <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" block class="justify-start" @click="newConversation(pick)" />
         <SourceFilter v-model="origin" />
       </div>
       <div class="flex-1 overflow-y-auto p-1">
