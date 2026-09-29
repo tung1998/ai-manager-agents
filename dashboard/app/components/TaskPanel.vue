@@ -498,8 +498,6 @@ onBeforeUnmount(() => source?.close())
           </template>
         </UModal>
 
-        <ChatPanel v-if="!phone" :key="detail.task.id" :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'" @turn-done="reloadDetail" />
-
         <div v-if="detail.actions?.length" class="space-y-2">
           <p class="text-sm font-medium">{{ t('task.proposedActions') }}</p>
           <ActionCard
@@ -663,9 +661,9 @@ onBeforeUnmount(() => source?.close())
           </li>
         </ol>
 
-        <!-- a phone: the talk with the manager in the page, its input floating behind a button (as the chat page) -->
+        <!-- the talk with the manager, last as in a chat; a phone: in the page, its input floating behind a button (as the chat page) -->
         <ChatPanel
-          v-if="phone" :key="detail.task.id" inline :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'"
+          :key="detail.task.id" :inline="phone" :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'"
           @turn-done="reloadDetail"
         />
       </div>
