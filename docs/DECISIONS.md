@@ -1278,6 +1278,10 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Mỗi lần kết nối, `Adapter.SetCommands` đặt menu gồm lệnh có sẵn và lệnh custom (Discord `PUT commands`, Telegram `setMyCommands`). Lưu một tự động hóa là khởi động lại bot, nên menu luôn mới. Gõ lệnh trong menu không cần tag bot.
   - Slash command custom có hành động chat hoặc script thì câu trả lời sửa lại chính tin "đang suy nghĩ…". Câu trả lời dài hơn 1900 ký tự, hoặc sau khi token đã hết hạn, thì gửi thành tin mới.
   - Form có danh sách "Lệnh của bot": lệnh có sẵn chỉ để xem, lệnh custom thì link tới tự động hóa của nó. Danh sách này thay cho đoạn giải thích cũ.
+  - Bước Nguồn khi là bot có hai tab:
+    - **Tự động này:** Tin nhắn (từ khóa, chủ đề) hoặc Lệnh (tên, mô tả, nội dung nhập thêm, xem trước).
+    - **Cài đặt bot (chung):** chọn Telegram/Discord và xem các bước hướng dẫn khi tạo bot mới; token, người được nhắn, câu trả lời mặc định; lệnh của bot; cảnh báo khi bot đang dùng chung.
+    Bot mới mở sẵn tab bot, bot có sẵn mở sẵn tab Tự động này; tab còn thiếu thông tin có chấm đỏ. Agent trả lời được chọn riêng cho từng tự động hóa ở bước Hành động.
 - **Nguồn:** `actor.Source(created_by)` trả về web, discord, telegram hoặc auto. DTO của cuộc chat và của Việc có trường `source`; danh sách chat (`?source=`, `all` gồm cả chat của bot) và danh sách Việc lọc được theo nguồn. Giao diện có ô lọc ở đầu hai danh sách, và biểu tượng nguồn trên từng dòng. Người không được phép mà dùng slash command thì nhận câu "chưa được phép", vì Discord luôn chờ một câu trả lời. Trạng thái lưu ở settings `channel_keep/<kênh>/<chat>` dưới dạng một mã thế hệ: mỗi lần create là hội thoại mới hẳn. Trong nhóm, cả nhóm dùng chung một hội thoại. Lượt này luôn **không có công cụ** và chỉ đọc. Prompt mặc định là `{{message}}`, tức chính câu hỏi; có thêm `{{user}}`.
   - `task`: gửi ngay "Đã nhận, đội đang xử lý". Xong Việc thì gửi `Result` (không có thì gửi `Detail`).
   - `script`: stdout (đã bỏ các dòng `@@agent:`) là câu trả lời. Nếu script gọi agent thì câu trả lời của agent được gửi tiếp sau.
