@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/storage"
 	"context"
 	"strings"
 	"testing"
@@ -110,6 +111,17 @@ func TestAutomationCarriesItsBot(t *testing.T) {
 	}
 	if list, _ := e.st.Channels().List(ctx, pid); len(list) != 0 {
 		t.Fatalf("a failed save left a bot: %+v", list)
+	}
+	// a bot made then dropped (the automation refused) leaves no trace in the log
+	if code, b := post(map[string]any{"name": "Trả lời", "source": "discord", "action": "chat", "model_tier": "bogus",
+		"bot": map[string]any{"token": "tok-2", "allow": []string{"42"}}}); code != 400 {
+		t.Fatalf("a bad automation = %d %v", code, b)
+	}
+	if list, _ := e.st.Channels().List(ctx, pid); len(list) != 0 {
+		t.Fatalf("a refused automation left a bot: %+v", list)
+	}
+	if es, _ := e.st.Audit().List(ctx, storage.AuditFilter{Resource: "channel"}); len(es) != 0 {
+		t.Fatalf("a dropped bot was logged: %+v", es)
 	}
 	code, b := post(map[string]any{"name": "Trả lời", "source": "discord", "action": "chat",
 		"bot": map[string]any{"token": "secret-discord-token", "allow": []string{"42"}, "refusal": "Chỉ hỗ trợ đơn hàng"}})

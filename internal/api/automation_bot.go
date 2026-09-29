@@ -64,9 +64,12 @@ func (s *server) saveBot(r *http.Request, in *automationInput, projectID string)
 		if c, err = s.cfg.Store.Channels().Create(r.Context(), c); err != nil {
 			return "", commit, err
 		}
-		s.audit(r, audit.Change{Action: "channel.create", ResourceID: c.ID, ProjectID: projectID, After: toChannelDTO(c)})
 		in.Config.ChannelID = c.ID
-		return c.ID, commit, nil
+		// logged once the automation is saved: a refused one drops the bot, and no trace is left
+		return c.ID, func() error {
+			s.audit(r, audit.Change{Action: "channel.create", ResourceID: c.ID, ProjectID: projectID, After: toChannelDTO(c)})
+			return nil
+		}, nil
 	}
 	if b == nil || (b.Token == nil && b.Allow == nil && b.Refusal == nil && b.Approvers == nil && b.Approval == nil) {
 		return "", commit, nil
