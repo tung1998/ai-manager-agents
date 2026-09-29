@@ -162,6 +162,8 @@ const en: Record<keyof typeof vi, string> = {
   'auto.testTimeout': 'Timed out',
   'floating.open': 'Ask the project agent',
   'floating.title': 'Project chat',
+  'auto.reconnect': 'Reconnect',
+  'auto.reconnecting': 'Reconnecting the bot…',
   'auto.sourceChannel': 'Channel message',
   'auto.bot': 'Bot',
   'auto.botNew': '+ New bot',

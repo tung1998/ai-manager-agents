@@ -161,6 +161,8 @@ export default {
   'auto.testTimeout': 'Quá thời gian',
   'floating.open': 'Hỏi agent của project',
   'floating.title': 'Chat của project',
+  'auto.reconnect': 'Kết nối lại',
+  'auto.reconnecting': 'Đang kết nối lại bot…',
   'auto.sourceChannel': 'Tin nhắn kênh',
   'auto.bot': 'Bot',
   'auto.botNew': '+ Bot mới',

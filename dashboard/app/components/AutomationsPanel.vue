@@ -21,6 +21,16 @@ async function toggle(a: Automation, enabled: boolean) {
     toast.add({ title: apiError(e), color: 'error' })
   }
 }
+// the bot stopped (a wrong token, an intent off): try again once it is fixed on Discord/Telegram
+async function reconnect(a: Automation) {
+  try {
+    await $fetch(`/api/channels/${a.config.channel_id}`, { method: 'PATCH', body: { enabled: true } })
+    toast.add({ title: t('auto.reconnecting'), color: 'info' })
+    setTimeout(() => refresh(), 5000)
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
 async function runNow(a: Automation) {
   try {
     await $fetch(`/api/automations/${a.id}/run`, { method: 'POST', body: {} })
@@ -50,7 +60,10 @@ async function runNow(a: Automation) {
           </span>
         </NuxtLink>
         <UBadge v-if="a.disabled_code" color="error" variant="subtle" size="sm" icon="i-lucide-circle-alert" :label="t('auto.disabledBy', { reason: a.disabled_reason })" class="max-w-64 truncate" />
-        <UBadge v-else-if="a.bot_status?.last_error" color="error" variant="subtle" size="sm" icon="i-lucide-bot" :label="a.bot_status.last_error" class="max-w-64 truncate" />
+        <template v-else-if="a.bot_status?.last_error">
+          <UBadge color="error" variant="subtle" size="sm" icon="i-lucide-bot" :label="a.bot_status.last_error" :title="a.bot_status.last_error" class="max-w-64 truncate" />
+          <UButton v-if="isAdmin" size="xs" color="neutral" variant="outline" icon="i-lucide-refresh-cw" :label="t('auto.reconnect')" @click="reconnect(a)" />
+        </template>
         <span v-else class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
           <JobStatusBadge v-if="a.last_job" :status="a.last_job.status" />
           {{ when(a.last_job?.created_at) }}
