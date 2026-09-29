@@ -178,6 +178,12 @@ func numbered(p proposal) string {
 	return fmt.Sprintf("%d. %s", p.N, p.Label)
 }
 
+// MayDecide: the user is among the bot's approvers ("*" = anyone who may
+// message it).
+func MayDecide(ch storage.Channel, userID string) bool {
+	return slices.Contains(ch.Approvers, "*") || slices.Contains(ch.Approvers, userID)
+}
+
 // approvals answers /cho-duyet, /duyet, /tu-choi and /mode from a chat.
 func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming, cmd, arg, who string) string {
 	if m.decider == nil {
@@ -187,7 +193,7 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	if cmd == "pending" {
 		return m.pendingText(ctx, ch, list)
 	}
-	if !slices.Contains(ch.Approvers, in.UserID) {
+	if !MayDecide(ch, in.UserID) {
 		return "Bạn không được duyệt qua chat ở bot này (xem ô \"Ai được duyệt\" khi cài bot)."
 	}
 	by := ch.Kind + ":" + who

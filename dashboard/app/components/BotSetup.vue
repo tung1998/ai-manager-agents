@@ -218,6 +218,11 @@ async function save() {
             <UFormField :label="t('bot.approvers')" :help="t('bot.approversHelp')">
               <UTextarea v-model="bot.approvers" :rows="1" autoresize class="w-full font-mono text-xs" :placeholder="bot.kind === 'discord' ? '123456789012345678' : '123456789'" />
             </UFormField>
+            <!-- "*": anyone who may message the bot runs what agents propose -->
+            <UAlert
+              v-if="ids(bot.approvers).includes('*')" color="warning" variant="subtle" icon="i-lucide-shield-alert"
+              :title="t('bot.anyoneApproveTitle')" :description="t('bot.anyoneApproveDesc')"
+            />
             <UFormField v-if="ids(bot.approvers).length" :label="t('bot.approval')" :help="t('bot.approvalHelp')">
               <USelect
                 v-model="bot.approval" class="w-full"

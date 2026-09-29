@@ -107,3 +107,13 @@ func TestApprovalsFromChat(t *testing.T) {
 	}
 	_ = push
 }
+
+// "*" lets anyone who may message the bot decide.
+func TestApproversAnyone(t *testing.T) {
+	if !channels.MayDecide(storage.Channel{Approvers: []string{"*"}}, "8") {
+		t.Fatal("* did not let a user decide")
+	}
+	if channels.MayDecide(storage.Channel{Approvers: []string{"7"}}, "8") {
+		t.Fatal("a user not listed may decide")
+	}
+}

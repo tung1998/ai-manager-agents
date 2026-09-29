@@ -1386,7 +1386,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - `/duyet <số|all>`: duyệt.
   - `/tu-choi <số|all>`: từ chối.
   - `/mode duyet|thang`: đổi chế độ.
-- Chỉ người trong ô **"Ai được duyệt"** của bot (ID, không nhận `*`) mới quyết và đổi chế độ được. Để trống thì chỉ duyệt trên dashboard.
+- Chỉ người trong ô **"Ai được duyệt"** của bot mới quyết và đổi chế độ được. Ô này nhận ID, hoặc `*` là ai được nhắn bot cũng duyệt được (trang cài bot hiện cảnh báo). Để trống thì chỉ duyệt trên dashboard.
 - Quyết định đi qua đúng đường của dashboard: DecidePatch và actions.Decide. Audit ghi đây là thay đổi của agent, người duyệt là `discord:<tên>`.
 - Có 2 chế độ, lưu theo từng chat:
   - **Duyệt** (mặc định): chờ lệnh.

@@ -99,7 +99,7 @@ func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
 	if in.Approvers != nil {
 		c.Approvers = []string{}
 		for _, a := range *in.Approvers {
-			if a = strings.TrimSpace(a); a != "" && a != "*" { // deciding is for named people only
+			if a = strings.TrimSpace(a); a != "" { // "*": anyone allowed to message the bot
 				c.Approvers = append(c.Approvers, a)
 			}
 		}
