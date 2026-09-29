@@ -3,6 +3,9 @@ const route = useRoute()
 const { t } = useLang()
 const projectId = computed(() => route.params.id as string)
 const { data } = await useFetch<{ automation: Automation }>(() => `/api/automations/${route.params.aid}`)
+// a bot's command is edited with its bot (ADR-049)
+const a = data.value?.automation
+if (a && isChannelSource(a.source) && a.config.channel_id) await navigateTo(`/projects/${projectId.value}/bots/${a.config.channel_id}`, { replace: true })
 </script>
 
 <template>

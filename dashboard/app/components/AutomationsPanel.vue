@@ -9,6 +9,38 @@ const { t, dateLocale } = useLang()
 const { data, refresh } = await useFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`)
 const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const list = computed(() => data.value?.automations ?? [])
+// a bot is one row: its commands are its automations (ADR-049)
+const others = computed(() => list.value.filter(a => !isChannelSource(a.source)))
+const bots = computed(() => {
+  const by = new Map<string, Automation[]>()
+  for (const a of list.value) {
+    if (isChannelSource(a.source) && a.config.channel_id) by.set(a.config.channel_id, [...(by.get(a.config.channel_id) ?? []), a])
+  }
+  return [...by.entries()].map(([id, cmds]) => {
+    const st = cmds[0]!.bot_status
+    const last = cmds.map(c => c.last_job).filter(Boolean).sort((x, y) => y!.created_at.localeCompare(x!.created_at))[0] ?? null
+    return { id, cmds, kind: st?.kind ?? cmds[0]!.source, name: st?.bot_name ? `@${st.bot_name}` : t('bot.title'), error: st?.last_error ?? '', last }
+  })
+})
+type BotRow = (typeof bots.value)[number]
+async function removeBot(b: BotRow) {
+  if (!confirm(t('bot.deleteConfirm', { name: b.name }))) return
+  try {
+    for (const a of b.cmds) await $fetch(`/api/automations/${a.id}`, { method: 'DELETE' }) // the last one takes the bot along
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+function botMenu(b: BotRow) {
+  return [
+    [
+      { label: t('bot.open'), icon: 'i-lucide-settings-2', to: `/projects/${props.projectId}/bots/${b.id}` },
+      { label: t('auto.reconnect'), icon: 'i-lucide-refresh-cw', onSelect: () => reconnect(b.cmds[0]!) }
+    ],
+    [{ label: t('auto.delete'), icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => removeBot(b) }]
+  ]
+}
 const agentName = (id: string) => agentsData.value?.agents.find(a => a.id === id)?.name ?? t('auto.lead')
 const when = (d?: string | null) => d ? new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : t('auto.never')
 
@@ -74,7 +106,26 @@ async function runNow(a: Automation) {
     </div>
 
     <UCard v-if="list.length" :ui="{ body: 'p-0 sm:p-0' }">
-      <div v-for="a in list" :key="a.id" class="flex flex-wrap items-center gap-3 border-b border-(--ui-border) px-4 py-3 last:border-0">
+      <!-- bots: one row each, opening their setup -->
+      <div v-for="b in bots" :key="b.id" class="flex flex-wrap items-center gap-3 border-b border-(--ui-border) px-4 py-3 last:border-0">
+        <UIcon :name="b.kind === 'telegram' ? 'i-lucide-send' : 'i-lucide-gamepad-2'" class="size-5 shrink-0 text-(--ui-text-muted)" />
+        <NuxtLink :to="`/projects/${projectId}/bots/${b.id}`" class="min-w-0 flex-1 hover:underline">
+          <span class="block truncate font-medium">{{ b.name }}</span>
+          <span class="block truncate text-xs text-(--ui-text-muted)">
+            {{ b.kind === 'telegram' ? 'Telegram' : 'Discord' }} · {{ t('bot.commands', { n: b.cmds.length }) }}
+            <template v-for="c in b.cmds.filter(x => x.config.command)" :key="c.id"> · /{{ c.config.command }}</template>
+          </span>
+        </NuxtLink>
+        <UBadge v-if="b.error" color="error" variant="subtle" size="sm" icon="i-lucide-bot" :label="b.error" :title="b.error" class="max-w-64 truncate" />
+        <span v-else class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
+          <JobStatusBadge v-if="b.last" :status="b.last.status" />
+          {{ when(b.last?.created_at) }}
+        </span>
+        <UDropdownMenu v-if="isAdmin" :items="botMenu(b)" :content="{ align: 'end' }">
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-ellipsis" :aria-label="t('chat.more')" />
+        </UDropdownMenu>
+      </div>
+      <div v-for="a in others" :key="a.id" class="flex flex-wrap items-center gap-3 border-b border-(--ui-border) px-4 py-3 last:border-0">
         <UIcon :name="a.source === 'schedule' ? 'i-lucide-alarm-clock' : isChannelSource(a.source) ? (a.config.command ? 'i-lucide-square-slash' : 'i-lucide-messages-square') : 'i-lucide-webhook'" class="size-5 shrink-0 text-(--ui-text-muted)" />
         <NuxtLink :to="`/projects/${projectId}/automations/${a.id}`" class="min-w-0 flex-1 hover:underline">
           <span class="block truncate font-medium">{{ a.name }}</span>

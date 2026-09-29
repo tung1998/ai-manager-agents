@@ -1,0 +1,259 @@
+<script setup lang="ts">
+// A Telegram / Discord bot and its commands (ADR-049): the bot's own settings
+// (shared), then its commands, each opening onto what it does and sends. Each
+// command is one automation underneath: "@bot" (a tag or a DM) is the basic
+// one, the "/" ones are custom; the office's own commands are listed, fixed.
+const props = defineProps<{ projectId: string, botId: string }>()
+const toast = useToast()
+const { t } = useLang()
+const isNew = computed(() => props.botId === 'new')
+
+const { data: chData } = await useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`)
+const { data: autoData } = await useFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`)
+const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
+const channel = computed(() => chData.value?.channels.find(c => c.id === props.botId))
+
+// the bot's settings
+const bot = reactive({ kind: (channel.value?.kind ?? 'discord') as 'telegram' | 'discord', token: '', allow: (channel.value?.allow ?? []).join('\n'), refusal: channel.value?.refusal ?? '' })
+const settingsOpen = ref(isNew.value)
+const guideOpen = ref(false)
+
+// its commands: drafts of their automations
+interface Cmd { key: string, id?: string, draft: AutomationDraft, open: boolean }
+let seq = 0
+function draftFor(command: string): AutomationDraft {
+  const d = emptyDraft()
+  d.source = bot.kind
+  d.action = 'chat'
+  d.config.channel_id = isNew.value ? '' : props.botId
+  d.config.command = command
+  return d
+}
+const cmds = ref<Cmd[]>([])
+const removed: string[] = []
+{
+  const mine = (autoData.value?.automations ?? []).filter(a => isChannelSource(a.source) && a.config.channel_id === props.botId && !isNew.value)
+  cmds.value = mine.map(a => ({ key: `k${seq++}`, id: a.id, draft: draftFrom(a), open: false }))
+  cmds.value.sort((a, b) => Number(!!a.draft.config.command) - Number(!!b.draft.config.command)) // "@bot" first
+  if (!cmds.value.some(c => !c.draft.config.command)) cmds.value.unshift({ key: `k${seq++}`, draft: draftFor(''), open: isNew.value })
+}
+function addCommand() {
+  cmds.value.forEach((c) => { c.open = false })
+  const d = draftFor('')
+  d.config.command = ' ' // a command, its name still to type
+  cmds.value.push({ key: `k${seq++}`, draft: d, open: true })
+}
+function removeCommand(c: Cmd) {
+  if (c.id) removed.push(c.id)
+  cmds.value = cmds.value.filter(x => x !== c)
+}
+watch(() => bot.kind, (k) => { cmds.value.forEach((c) => { c.draft.source = k }) })
+
+const botLabel = computed(() => channel.value?.bot_name ? `@${channel.value.bot_name}` : '@bot')
+const cmdLabel = (name: string) => bot.kind === 'telegram' ? name.replace(/-/g, '_') : name
+// a name as the "/" menus take it (the server makes it safe the same way)
+const commandName = (s: string) => s.replace(/^\/+/, '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd') // i18n-ignore: the letter đ, not text
+  .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32)
+const agentName = (id: string) => agentsData.value?.agents.find(a => a.id === id)?.name ?? t('channels.agentLead')
+function summary(c: Cmd) {
+  const d = c.draft
+  if (d.action === 'script') return t('bot.doScript')
+  if (d.action === 'task') return t('bot.doTask', { agent: d.agent_id ? agentName(d.agent_id) : t('auto.assignTeam') })
+  return t('bot.doReply', { agent: agentName(d.agent_id) })
+}
+const systemCommands = computed(() => [
+  { name: 'job', arg: t('cmd.jobArg'), desc: t('cmd.job') },
+  { name: 'create-conversation', arg: '', desc: t('cmd.create') },
+  { name: 'close-conversation', arg: '', desc: t('cmd.close') }
+])
+const keywordsText = (c: Cmd) => (c.draft.config.keywords ?? []).join(', ')
+const setKeywords = (c: Cmd, v: string) => { c.draft.config.keywords = v.split(/[,\n]/).map(s => s.trim()).filter(Boolean) }
+
+// the chat next to it fills the command that is open
+const openCmd = computed(() => cmds.value.find(c => c.open))
+const highlight = ref<string[]>([])
+function applyPatch(p: Record<string, unknown>) {
+  const c = openCmd.value
+  if (!c) return toast.add({ title: t('bot.openOneFirst'), color: 'warning' })
+  const changed = mergeDraft(c.draft, p)
+  if (!changed.length) return
+  highlight.value = changed
+  setTimeout(() => { highlight.value = [] }, 4000)
+  toast.add({ title: t('auto.filled', { n: changed.length }), color: 'info' })
+}
+const pageContext = () => JSON.stringify({
+  page: 'automation.bot', bot: { kind: bot.kind, name: botLabel.value },
+  commands: cmds.value.map(c => ({ command: c.draft.config.command ? `/${c.draft.config.command}` : botLabel.value, action: c.draft.action, open: c.open })),
+  draft: openCmd.value ? { ...automationBody(openCmd.value.draft), bot: undefined } : null
+})
+
+// Save: the first command carries the bot (made or updated with it), the
+// others name it; removed commands go last (the last one takes the bot along)
+const saving = ref(false)
+async function save() {
+  const bad = cmds.value.find(c => c.draft.config.command !== '' && !commandName(c.draft.config.command ?? ''))
+  if (bad) return toast.add({ title: t('bot.needName'), color: 'error' })
+  saving.value = true
+  let channelId = isNew.value ? '' : props.botId
+  try {
+    for (const [i, c] of cmds.value.entries()) {
+      const d = c.draft
+      d.source = bot.kind
+      d.config.channel_id = channelId
+      d.config.command = d.config.command ? commandName(d.config.command) : ''
+      d.name = d.config.command ? `/${d.config.command}` : t('bot.tagName', { bot: botLabel.value })
+      const body = automationBody(d)
+      body.bot = i === 0 ? { token: bot.token || undefined, allow: bot.allow.split(/[\n,]/).map(s => s.trim()).filter(Boolean), refusal: bot.refusal } : undefined
+      const res = c.id
+        ? await $fetch<{ automation: Automation }>(`/api/automations/${c.id}`, { method: 'PATCH', body })
+        : await $fetch<{ automation: Automation }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body })
+      c.id = res.automation.id
+      channelId = res.automation.config.channel_id ?? channelId
+    }
+    for (const id of removed.splice(0)) await $fetch(`/api/automations/${id}`, { method: 'DELETE' })
+    toast.add({ title: t('auto.saved'), color: 'success' })
+    if (isNew.value) await navigateTo(`/projects/${props.projectId}/bots/${channelId}`, { replace: true })
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    saving.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="grid gap-4 lg:h-[calc(100vh-9rem)] lg:min-h-[36rem] lg:grid-cols-2">
+    <div class="flex flex-col lg:min-h-0">
+      <div class="@container space-y-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pe-1">
+        <!-- 1. the bot -->
+        <section class="space-y-3 rounded-xl border border-(--ui-border) p-4">
+          <div class="flex flex-wrap items-center gap-2">
+            <p class="flex items-center gap-2 text-sm font-semibold">
+              <span class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">1</span>{{ t('bot.sectionBot') }}
+            </p>
+            <UButton
+              class="ms-auto" size="xs" color="neutral" variant="ghost" icon="i-lucide-info"
+              :label="bot.kind === 'discord' ? t('channels.guideDiscord') : t('channels.guideTelegram')" @click="guideOpen = true"
+            />
+          </div>
+          <div v-if="isNew" class="grid grid-cols-2 gap-2">
+            <button
+              v-for="k in (['discord', 'telegram'] as const)" :key="k" type="button"
+              class="flex items-center gap-2.5 rounded-lg border px-3 py-3 text-left transition"
+              :class="bot.kind === k ? 'border-primary bg-primary/5' : 'border-(--ui-border) hover:border-(--ui-border-accented)'" @click="bot.kind = k"
+            >
+              <UIcon :name="k === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" class="size-5" :class="bot.kind === k ? 'text-primary' : 'text-(--ui-text-muted)'" />
+              <span class="font-medium">{{ k === 'discord' ? 'Discord' : 'Telegram' }}</span>
+            </button>
+          </div>
+          <div v-else-if="channel" class="flex flex-wrap items-center gap-2 text-sm">
+            <UIcon :name="channel.kind === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" class="size-5 text-(--ui-text-muted)" />
+            <span class="font-medium">{{ botLabel }}</span>
+            <span class="text-(--ui-text-muted)">· {{ channel.kind === 'discord' ? 'Discord' : 'Telegram' }}</span>
+            <span class="flex items-center gap-1.5 text-xs" :class="channel.last_error ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">
+              <span class="size-1.5 rounded-full" :class="channel.last_error ? 'bg-(--ui-error)' : channel.bot_name ? 'bg-(--ui-success)' : 'bg-(--ui-warning)'" />
+              {{ channel.last_error || (channel.bot_name ? t('auto.botRunning') : t('channels.connecting')) }}
+            </span>
+          </div>
+          <UButton
+            v-if="!isNew" size="xs" color="neutral" variant="ghost" class="-ms-2" :icon="settingsOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+            :label="t('auto.tabBot')" @click="settingsOpen = !settingsOpen"
+          />
+          <div v-show="settingsOpen" class="space-y-3">
+            <UFormField :label="t('channels.token')" :help="bot.kind === 'discord' ? t('channels.tokenHelpDiscord') : t('channels.tokenHelpTelegram')" :required="isNew">
+              <UInput
+                v-model="bot.token" type="password" name="bot-token" autocomplete="new-password" class="w-full font-mono"
+                :placeholder="isNew ? (bot.kind === 'discord' ? 'MTI3…' : '123456789:AAF…') : t('channels.tokenKept')"
+              />
+            </UFormField>
+            <UFormField :label="t('channels.allow')" :help="bot.kind === 'discord' ? t('channels.allowHelpDiscord') : t('channels.allowHelpTelegram')" required>
+              <UTextarea v-model="bot.allow" :rows="2" autoresize class="w-full font-mono text-xs" :placeholder="bot.kind === 'discord' ? '123456789012345678' : '123456789'" />
+            </UFormField>
+            <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')">
+              <UInput v-model="bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />
+            </UFormField>
+          </div>
+        </section>
+
+        <!-- 2. its commands, each with what it does -->
+        <section class="space-y-3 rounded-xl border border-(--ui-border) p-4">
+          <p class="flex items-center gap-2 text-sm font-semibold">
+            <span class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">2</span>{{ t('bot.sectionCommands') }}
+          </p>
+          <div class="overflow-hidden rounded-lg border border-(--ui-border)">
+            <div v-for="c in cmds" :key="c.key" class="border-b border-(--ui-border) last:border-0">
+              <div class="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-(--ui-bg-elevated)/50" @click="c.open = !c.open">
+                <UIcon :name="c.open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4 shrink-0 text-(--ui-text-muted)" />
+                <span class="shrink-0 font-mono text-sm">
+                  <template v-if="!c.draft.config.command">{{ botLabel }} <span class="text-(--ui-text-dimmed)">&lt;{{ t('cmd.tagArg') }}&gt;</span></template>
+                  <template v-else>/{{ cmdLabel(commandName(c.draft.config.command) || '…') }}<span v-if="c.draft.config.command_arg" class="text-(--ui-text-dimmed)"> &lt;{{ c.draft.config.command_arg }}&gt;</span></template>
+                </span>
+                <UBadge v-if="!c.draft.config.command" :label="t('bot.basic')" color="neutral" variant="subtle" size="sm" />
+                <span class="min-w-0 flex-1 truncate text-xs text-(--ui-text-muted)">→ {{ summary(c) }}</span>
+                <USwitch v-model="c.draft.enabled" size="sm" @click.stop />
+                <UButton
+                  v-if="c.draft.config.command" size="xs" color="neutral" variant="ghost" icon="i-lucide-trash-2" :aria-label="t('common.delete')"
+                  @click.stop="removeCommand(c)"
+                />
+              </div>
+              <div v-if="c.open" class="space-y-3 border-t border-(--ui-border) bg-(--ui-bg-elevated)/20 p-3">
+                <!-- the trigger: a tag (optionally only some messages) or the command's name -->
+                <details v-if="!c.draft.config.command" class="group">
+                  <summary class="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-(--ui-text-muted)">
+                    <UIcon name="i-lucide-chevron-right" class="size-3.5 transition group-open:rotate-90" />{{ t('bot.onlySome') }}
+                  </summary>
+                  <div class="mt-2 grid gap-3 @lg:grid-cols-2">
+                    <UFormField :label="t('auto.keywords')" :help="t('auto.keywordsHelp')">
+                      <UInput :model-value="keywordsText(c)" class="w-full" :placeholder="t('auto.keywordsPlaceholder')" @update:model-value="(v: string | number) => setKeywords(c, String(v))" />
+                    </UFormField>
+                    <UFormField :label="t('auto.scope')" :help="t('auto.scopeHelp')">
+                      <UInput v-model="c.draft.config.scope" class="w-full" :placeholder="t('auto.scopePlaceholder')" />
+                    </UFormField>
+                  </div>
+                </details>
+                <template v-else>
+                  <div class="grid gap-3 @lg:grid-cols-2">
+                    <UFormField :label="t('auto.cmdName')" :help="t('auto.cmdNameHelp')" required>
+                      <UInput
+                        :model-value="c.draft.config.command.trim()" class="w-full font-mono" placeholder="don-hang"
+                        @update:model-value="(v: string | number) => { c.draft.config.command = commandName(String(v)) || ' ' }"
+                      >
+                        <template #leading><span class="font-mono text-(--ui-text-muted)">/</span></template>
+                      </UInput>
+                    </UFormField>
+                    <UFormField :label="t('auto.cmdDescription')">
+                      <UInput v-model="c.draft.config.command_description" class="w-full" :placeholder="t('auto.cmdDescriptionPlaceholder')" />
+                    </UFormField>
+                  </div>
+                  <UFormField :label="t('bot.cmdArg')" :help="t('bot.cmdArgHelp')">
+                    <UInput v-model="c.draft.config.command_arg" class="w-full @lg:w-64" :placeholder="t('auto.cmdArgDefault')" />
+                  </UFormField>
+                </template>
+                <!-- what it does and sends -->
+                <AutomationForm :project-id="projectId" :form="c.draft" :highlight="highlight" command />
+              </div>
+            </div>
+            <!-- the office's own: listed, fixed -->
+            <div v-for="s in systemCommands" :key="s.name" class="flex items-center gap-2 border-b border-(--ui-border) bg-(--ui-bg-elevated)/30 px-3 py-2 text-sm last:border-0">
+              <UIcon name="i-lucide-lock" class="size-4 shrink-0 text-(--ui-text-dimmed)" />
+              <span class="shrink-0 font-mono">/{{ cmdLabel(s.name) }}<span v-if="s.arg" class="text-(--ui-text-dimmed)"> &lt;{{ s.arg }}&gt;</span></span>
+              <span class="min-w-0 flex-1 truncate text-xs text-(--ui-text-muted)">{{ s.desc }}</span>
+            </div>
+          </div>
+          <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-plus" :label="t('bot.addCommand')" @click="addCommand" />
+          <p class="text-xs text-(--ui-text-muted)">{{ t('auto.replyNoTools') }}</p>
+        </section>
+      </div>
+      <div class="flex justify-end gap-2 border-t border-(--ui-border) pt-3">
+        <UButton color="neutral" variant="ghost" :label="t('org.form.close')" :to="{ path: `/projects/${projectId}`, query: { tab: 'automations' } }" />
+        <UButton icon="i-lucide-save" :loading="saving" :label="t('auto.save')" @click="save" />
+      </div>
+    </div>
+    <div class="h-[32rem] lg:h-auto lg:min-h-0">
+      <ChatPanel :project-id="projectId" purpose="automation" :page-context="pageContext" @automation-patch="applyPatch" />
+    </div>
+    <UModal v-model:open="guideOpen" :title="bot.kind === 'discord' ? t('channels.guideDiscord') : t('channels.guideTelegram')">
+      <template #body><BotGuide :kind="bot.kind" plain /></template>
+    </UModal>
+  </div>
+</template>

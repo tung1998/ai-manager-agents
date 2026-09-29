@@ -1278,12 +1278,15 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Mỗi lần kết nối, `Adapter.SetCommands` đặt menu gồm lệnh có sẵn và lệnh custom (Discord `PUT commands`, Telegram `setMyCommands`). Lưu một tự động hóa là khởi động lại bot, nên menu luôn mới. Gõ lệnh trong menu không cần tag bot.
   - Slash command custom có hành động chat hoặc script thì câu trả lời sửa lại chính tin "đang suy nghĩ…". Câu trả lời dài hơn 1900 ký tự, hoặc sau khi token đã hết hạn, thì gửi thành tin mới.
   - Form có danh sách "Lệnh của bot": lệnh có sẵn chỉ để xem, lệnh custom thì link tới tự động hóa của nó. Danh sách này thay cho đoạn giải thích cũ.
-  - Bố cục khi nguồn là bot:
-    - **① Nguồn:** chỉ gồm bot, tức ô chọn bot và trạng thái. Cài đặt chung của bot (token, người được nhắn, câu trả lời mặc định) mở sẵn khi tạo bot mới, còn với bot có sẵn thì thu gọn. Nút ⓘ mở các bước hướng dẫn tạo bot.
-    - **② Câu lệnh và hành động:** trong cùng một khung.
-      - Danh sách lệnh của bot: lệnh có sẵn (`@bot`, `/job`, `/create-conversation`, `/close-conversation`) có khóa, không sửa được; lệnh custom của tự động hóa khác có link; lệnh đang sửa được đánh dấu.
-      - Chọn "@ Tag bot" (từ khóa, chủ đề) hoặc "Lệnh /" (tên, mô tả, nội dung nhập thêm, xem trước).
-      - Rồi "Thì bot làm gì": hành động và agent riêng của lệnh đó.
+  - **Trang setup bot** (`/projects/:id/bots/:channel`, hoặc `new`): nhìn từ phía bot. Bên dưới, mỗi câu lệnh vẫn là một tự động hóa.
+    - **① Bot:** chọn Discord/Telegram (khi tạo mới) hoặc xem trạng thái; cài đặt chung thu gọn; nút ⓘ mở hướng dẫn.
+    - **② Câu lệnh:** mỗi dòng bấm để mở ra phần hành động, agent, nội dung gửi/script và giới hạn của riêng nó. Phần này dùng lại `AutomationForm` ở chế độ `command`.
+      - `@bot <tin nhắn>` là lệnh cơ bản, luôn có, có thể chỉ nhận một số tin (từ khóa, chủ đề).
+      - Lệnh `/` custom thêm, xóa được.
+      - Các lệnh hệ thống (`/job`, `/create-conversation`, `/close-conversation`) có khóa.
+    - **Lưu:** lệnh đầu tiên mang theo bot (tạo hoặc sửa bot); các lệnh sau trỏ tới bot đó; lệnh bị xóa được xóa sau cùng.
+    - AI bên cạnh điền vào câu lệnh đang mở.
+  - Danh sách Tự động gom mỗi bot thành **một dòng** (tên bot, số lệnh, các lệnh `/`, lỗi, lần chạy gần nhất). Menu gồm Mở setup, Kết nối lại, Xóa bot (xóa mọi lệnh). Form tự động hóa chọn "Tin nhắn kênh" thì chuyển sang trang bot mới; trang sửa của một lệnh bot chuyển về trang bot.
 - **Nguồn:** `actor.Source(created_by)` trả về web, discord, telegram hoặc auto. DTO của cuộc chat và của Việc có trường `source`; danh sách chat (`?source=`, `all` gồm cả chat của bot) và danh sách Việc lọc được theo nguồn. Giao diện có ô lọc ở đầu hai danh sách, và biểu tượng nguồn trên từng dòng. Người không được phép mà dùng slash command thì nhận câu "chưa được phép", vì Discord luôn chờ một câu trả lời. Trạng thái lưu ở settings `channel_keep/<kênh>/<chat>` dưới dạng một mã thế hệ: mỗi lần create là hội thoại mới hẳn. Trong nhóm, cả nhóm dùng chung một hội thoại. Lượt này luôn **không có công cụ** và chỉ đọc. Prompt mặc định là `{{message}}`, tức chính câu hỏi; có thêm `{{user}}`.
   - `task`: gửi ngay "Đã nhận, đội đang xử lý". Xong Việc thì gửi `Result` (không có thì gửi `Detail`).
   - `script`: stdout (đã bỏ các dòng `@@agent:`) là câu trả lời. Nếu script gọi agent thì câu trả lời của agent được gửi tiếp sau.
