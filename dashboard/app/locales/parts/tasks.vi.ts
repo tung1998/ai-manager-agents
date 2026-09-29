@@ -128,6 +128,7 @@ export default {
   'chat.deleteConfirm': 'Xóa cuộc trò chuyện này?',
   'chat.delete': 'Xóa',
   'chat.removeAttachment': 'Bỏ {name}',
+  'chat.write': 'Viết tin nhắn',
   'chat.steerTask': 'Việc đang chạy. Nhắn {agent} để chỉ đạo đội: đổi hướng, bổ sung yêu cầu, hỏi tiến độ…',
   'chat.steerTaskHint': 'Tin nhắn được chuyển cho đội ở các bước tiếp theo. Muốn đổi hẳn mục tiêu thì dừng Việc rồi giao lại.',
   'task.steer': 'Chỉ đạo đội',

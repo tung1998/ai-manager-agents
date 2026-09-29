@@ -55,6 +55,7 @@ const detail = ref<Detail | null>(null)
 const listOpen = ref(false) // the list over the page on a phone
 const resultOpen = ref(false)
 const chatOpen = ref(false)
+const agentOf = (s: Step) => agentsData.value?.agents.find(a => a.id === s.agent_id || a.name === s.agent_name) ?? { name: s.agent_name }
 watch(() => detail.value?.task.id, () => { chatOpen.value = false }) // a task's result read in a big window
 const liveText = reactive<Record<string, string>>({})
 const liveTools = reactive<Record<string, ToolCall[]>>({})
@@ -362,7 +363,7 @@ onBeforeUnmount(() => source?.close())
 </script>
 
 <template>
-  <div class="flex min-h-[24rem] flex-1 overflow-hidden rounded-lg border border-(--ui-border) max-sm:-mx-4 max-sm:-mb-4 max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0">
+  <div class="flex min-h-[24rem] flex-1 overflow-hidden rounded-lg border border-(--ui-border) max-sm:-mx-3 max-sm:-mb-3 max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0">
     <aside class="hidden w-64 shrink-0 flex-col border-e border-(--ui-border) md:flex">
       <TaskList v-model:origin="origin" :tasks="tasks" :current-id="detail?.task.id" :menu="taskMenu" :badge="badge" @open="open" @new="showNew = true; detail = null" />
     </aside>
@@ -554,15 +555,17 @@ onBeforeUnmount(() => source?.close())
         <!-- the team's conversation -->
         <div v-if="view === 'chat'" class="space-y-4">
           <div v-for="s in detail.steps" :key="s.id" class="flex gap-3">
-            <AgentAvatar :agent="agentsData?.agents.find(a => a.id === s.agent_id || a.name === s.agent_name) ?? { name: s.agent_name }" size="md" />
+            <!-- a phone: the avatar goes in the header line, the message takes the full width -->
+            <AgentAvatar :agent="agentOf(s)" size="md" class="max-sm:hidden" />
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                <AgentAvatar :agent="agentOf(s)" size="xs" class="sm:hidden" />
                 <span class="text-sm font-medium">{{ s.agent_name }}</span>
                 <span class="flex items-center gap-1 text-(--ui-text-muted)"><UIcon :name="phaseIcon[s.phase]" class="size-3" />{{ phaseLabel[s.phase] }}</span>
                 <span v-if="s.started_at" class="text-(--ui-text-dimmed)">{{ when(s.started_at) }}</span>
                 <span v-if="s.cost_usd" class="text-(--ui-text-dimmed)">· ${{ s.cost_usd.toFixed(3) }}</span>
               </div>
-              <div class="break-anywhere mt-1 space-y-2 rounded-lg rounded-tl-none bg-(--ui-bg-elevated)/60 px-3 py-2 text-sm">
+              <div class="break-anywhere mt-1 space-y-2 rounded-lg bg-(--ui-bg-elevated)/60 px-3 py-2 text-sm sm:rounded-tl-none">
                 <p v-if="s.phase === 'work' && s.instruction" class="border-s-2 border-(--ui-border-accented) ps-2 text-xs text-(--ui-text-muted)">{{ t('task.gotAssigned', { instruction: s.instruction }) }}</p>
                 <template v-if="s.phase === 'vote' && s.data.vote">
                   <UBadge size="sm" variant="subtle" :color="s.data.vote === 'approve' ? 'success' : 'error'" :label="s.data.vote === 'approve' ? t('vote.approve') : t('vote.reject')" />

@@ -129,6 +129,7 @@ const en: Record<keyof typeof vi, string> = {
   'chat.deleteConfirm': 'Delete this conversation?',
   'chat.delete': 'Delete',
   'chat.removeAttachment': 'Remove {name}',
+  'chat.write': 'Write a message',
   'chat.steerTask': 'The task is running. Message {agent} to steer the team: change direction, add requirements, ask about progress…',
   'chat.steerTaskHint': 'Messages reach the team in the next steps. To change the goal entirely, stop the task and start a new one.',
   'task.steer': 'Steer the team',

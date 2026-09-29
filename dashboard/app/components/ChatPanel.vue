@@ -32,6 +32,10 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 const props = defineProps<{ projectId: string, taskId?: string, taskRunning?: boolean, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string, inline?: boolean }>()
 const emit = defineEmits<{ 'turn-done': [], 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string], 'close': [] }>()
 const single = computed(() => !!props.taskId || !!props.purpose)
+// the chat page on a phone: the input stays behind a button until asked for,
+// so the messages get the whole screen
+const page = computed(() => !props.inline && !props.compact && !single.value)
+const composeOpen = ref(false)
 const toast = useToast()
 const { t, dateLocale } = useLang()
 
@@ -61,7 +65,7 @@ watch([() => current.value?.id, agents], () => {
 const picked = computed(() => agents.value.find(a => a.id === pick.value))
 const agentItems = computed(() => agents.value.map(a => ({ label: `${a.name} · ${permOf(agentLevel(a.permissions)).label}`, value: a.id, icon: permOf(agentLevel(a.permissions)).icon })))
 const pickedLevel = computed(() => picked.value ? agentLevel(picked.value.permissions) : 'read')
-const prompt = ref<{ busy: boolean } | null>(null)
+const prompt = ref<{ busy: boolean, focus?: () => void } | null>(null)
 
 // filled by other tabs (e.g. "Hỏi agent" in Vận hành)
 // agentId opens a new chat with that agent, conversationId opens that chat (the agent page)
@@ -413,7 +417,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     :class="inline ? 'contents' : ['flex overflow-hidden rounded-lg border border-(--ui-border)', compact || purpose ? 'h-full min-h-0' : taskId ? 'h-[32rem]'
-      : 'min-h-[24rem] flex-1 max-sm:-mx-4 max-sm:-mb-4 max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0']"
+      : 'min-h-[24rem] flex-1 max-sm:-mx-3 max-sm:-mb-3 max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0']"
   >
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
@@ -430,7 +434,7 @@ onBeforeUnmount(() => {
     </USlideover>
 
     <!-- thread -->
-    <section :class="inline ? 'contents' : 'flex min-w-0 flex-1 flex-col'">
+    <section :class="inline ? 'contents' : 'relative flex min-w-0 flex-1 flex-col'">
       <!-- a phone: which chat this is, the drawer of chats, a new one -->
       <div v-if="!single && !compact" class="flex items-center gap-1 border-b border-(--ui-border) p-2 md:hidden">
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-panel-left" :aria-label="t('chat.threads')" @click="threadsOpen = true" />
@@ -541,7 +545,8 @@ onBeforeUnmount(() => {
         {{ t(taskRunning ? 'chat.steerTaskHint' : 'chat.taskPatchHint') }}
       </p>
       <form
-        :class="inline ? 'sticky bottom-0 z-10 rounded-xl border border-(--ui-border) bg-(--ui-bg) p-2 shadow-lg' : 'border-t border-(--ui-border) p-3 max-md:p-2'"
+        :class="inline ? 'sticky bottom-0 z-10 rounded-xl border border-(--ui-border) bg-(--ui-bg) p-2 shadow-lg'
+          : ['border-t border-(--ui-border) p-3 max-md:p-2', page && !composeOpen && 'max-sm:hidden']"
         @submit.prevent="send"
       >
         <PromptInput
@@ -559,10 +564,15 @@ onBeforeUnmount(() => {
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
             <UButton v-else size="sm" type="submit" icon="i-lucide-send" class="shrink-0" :disabled="!draft.trim() && !draftFiles.length" />
+            <UButton v-if="page" size="sm" color="neutral" variant="ghost" icon="i-lucide-x" class="shrink-0 sm:hidden" :aria-label="t('common.close')" @click="composeOpen = false" />
             <UButton v-if="inline" size="sm" color="neutral" variant="ghost" icon="i-lucide-x" class="shrink-0" :aria-label="t('common.close')" @click="emit('close')" />
           </template>
         </PromptInput>
       </form>
+      <UButton
+        v-if="page && !composeOpen" class="absolute bottom-3 end-3 z-10 rounded-full shadow-lg sm:hidden" size="lg" icon="i-lucide-message-circle"
+        :aria-label="t('chat.write')" @click="composeOpen = true; nextTick(() => prompt?.focus?.())"
+      />
     </section>
   </div>
 </template>
