@@ -127,3 +127,35 @@ func TestActivityHasBotChats(t *testing.T) {
 		t.Fatalf("activity = %v", titles)
 	}
 }
+
+// One row per place the agent took part in, however often it answered there;
+// its details are what it did in that place.
+func TestActivityByPlace(t *testing.T) {
+	ctx := context.Background()
+	st, org, project, a := setup(t)
+	svc := agentinfo.New(st, org, time.UTC)
+	own, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, AgentID: a.ID, Title: "của mình"})
+	for _, s := range []string{"trả lời 1", "trả lời 2", "trả lời 3"} {
+		st.Chat().AddMessage(ctx, storage.Message{ConversationID: own.ID, Role: "user", Content: "hỏi"})
+		st.Chat().AddMessage(ctx, storage.Message{ConversationID: own.ID, Role: "assistant", Author: a.Name, Content: s})
+	}
+	// someone else's chat it was pulled into
+	other, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, Title: "của người khác"})
+	st.Chat().UpsertMember(ctx, storage.ChatMember{ConversationID: other.ID, AgentID: a.ID, AgentName: a.Name})
+	st.Chat().AddMessage(ctx, storage.Message{ConversationID: other.ID, Role: "assistant", Author: a.Name, Content: "góp ý"})
+	items, err := svc.Activity(ctx, a, project.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answers := map[string]int{}
+	for _, it := range items {
+		answers[it.Title] = it.Answers
+	}
+	if len(items) != 2 || answers["của mình"] != 3 || answers["của người khác"] != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	d, err := svc.ActivityDetail(ctx, a, own.ID, "")
+	if err != nil || len(d) != 3 || d[0].Text != "trả lời 1" {
+		t.Fatalf("detail = %+v %v", d, err)
+	}
+}

@@ -272,6 +272,18 @@ type Item struct {
 	ConversationID string    `json:"conversation_id,omitempty"`
 	TaskID         string    `json:"task_id,omitempty"`
 	Source         string    `json:"source,omitempty"` // chat: web | discord | telegram | auto
+	Answers        int       `json:"answers,omitempty"` // chat: how many times it answered there
+}
+
+// Did is one thing the agent did in a place: an answer in a chat, a step of a task.
+type Did struct {
+	At      time.Time `json:"at"`
+	Text    string    `json:"text"`             // the answer, or the step's output (clipped)
+	Phase   string    `json:"phase,omitempty"`  // task: plan, work, review…
+	Task    string    `json:"task,omitempty"`   // task: what it was given
+	Status  string    `json:"status,omitempty"` // task step status
+	Tools   int       `json:"tools,omitempty"`
+	CostUSD float64   `json:"cost_usd,omitempty"`
 }
 
 // Activity lists the agent's chats and tasks, newest first.
@@ -283,9 +295,21 @@ func (s *Service) Activity(ctx context.Context, a storage.Agent, projectID strin
 		return nil, err
 	}
 	for _, c := range convs {
-		if c.AgentID == a.ID {
-			out = append(out, Item{Kind: "chat", At: c.UpdatedAt, Title: c.Title, ConversationID: c.ID, Source: chatSource(c)})
+		// a place it took part in: its own chat, or one it was pulled into (a member)
+		in := c.AgentID == a.ID
+		if !in {
+			if ms, err := s.store.Chat().Members(ctx, c.ID); err == nil {
+				in = slices.ContainsFunc(ms, func(m storage.ChatMember) bool { return m.AgentID == a.ID })
+			}
 		}
+		if !in {
+			continue
+		}
+		it := Item{Kind: "chat", At: c.UpdatedAt, Title: c.Title, ConversationID: c.ID, Source: chatSource(c)}
+		if said, err := s.answers(ctx, a, c.ID); err == nil {
+			it.Answers = len(said)
+		}
+		out = append(out, it)
 	}
 	tasks, err := s.store.Tasks().List(ctx, projectID, 100)
 	if err != nil {
@@ -541,4 +565,67 @@ func chatSource(c storage.Conversation) string {
 		return "auto"
 	}
 	return "web"
+}
+
+// answers are the agent's messages in a chat, oldest first.
+func (s *Service) answers(ctx context.Context, a storage.Agent, conversationID string) ([]storage.Message, error) {
+	msgs, err := s.store.Chat().ListMessages(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	var out []storage.Message
+	for _, m := range msgs {
+		if m.Role == "assistant" && m.Author == a.Name {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// ActivityDetail is what the agent did in one place: its answers in a chat
+// (conversationID) or its steps in a task (taskID), oldest first.
+func (s *Service) ActivityDetail(ctx context.Context, a storage.Agent, conversationID, taskID string) ([]Did, error) {
+	out := []Did{}
+	if conversationID != "" {
+		msgs, err := s.answers(ctx, a, conversationID)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range msgs {
+			out = append(out, Did{At: m.CreatedAt, Text: clip(m.Content, 600), Tools: len(m.Tools)})
+		}
+		return out, nil
+	}
+	steps, err := s.store.Tasks().ListSteps(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	for _, st := range steps {
+		if st.AgentID != a.ID {
+			continue
+		}
+		d := Did{At: st.StartedAt, Text: clip(firstOf(st.Error, st.Output), 600), Phase: st.Phase, Task: clip(st.Instruction, 300), Status: st.Status, Tools: len(st.Tools)}
+		if st.CostUSD != nil {
+			d.CostUSD = *st.CostUSD
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func firstOf(xs ...string) string {
+	for _, x := range xs {
+		if strings.TrimSpace(x) != "" {
+			return x
+		}
+	}
+	return ""
+}
+
+func clip(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
 }

@@ -81,6 +81,37 @@ func (s *server) agentActivity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+// agentActivityDetail is what the agent did in one chat or task of its project.
+func (s *server) agentActivityDetail(w http.ResponseWriter, r *http.Request) {
+	a, _, projectID, ok := s.agentOf(w, r)
+	if !ok {
+		return
+	}
+	convID, taskID := r.URL.Query().Get("conversation_id"), r.URL.Query().Get("task_id")
+	// only a place of the agent's own project
+	switch {
+	case convID != "":
+		if c, err := s.cfg.Store.Chat().GetConversation(r.Context(), convID); err != nil || c.ProjectID != projectID {
+			writeError(w, http.StatusNotFound, "không có cuộc chat này")
+			return
+		}
+	case taskID != "":
+		if t, err := s.cfg.Store.Tasks().Get(r.Context(), taskID); err != nil || t.ProjectID != projectID {
+			writeError(w, http.StatusNotFound, "không có Việc này")
+			return
+		}
+	default:
+		writeError(w, http.StatusBadRequest, "cần conversation_id hoặc task_id")
+		return
+	}
+	did, err := s.agentInfo().ActivityDetail(r.Context(), a, convID, taskID)
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": did})
+}
+
 func (s *server) agentHistory(w http.ResponseWriter, r *http.Request) {
 	a, _, _, ok := s.agentOf(w, r)
 	if !ok {
