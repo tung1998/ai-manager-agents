@@ -1346,3 +1346,4 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Các bước thiết lập ban đầu chỉ hiện khi còn bước chưa xong.
   - Việc gần đây.
   - Bỏ thẻ giám sát, vì đã nằm trong Sự cố.
+- **Sửa (theo yêu cầu):** gộp Sự cố vào **Tổng quan**. Tổng quan là nơi theo dõi chung duy nhất: hiện toàn bộ danh sách cần xử lý (làm mới mỗi 30 giây), badge đếm nằm trên mục Tổng quan, bỏ menu Sự cố, và link `/incidents` chuyển về Tổng quan. Job là nơi xem chi tiết.

@@ -61,10 +61,10 @@ const items = computed<NavigationMenuItem[][]>(() => {
   // office-wide pages: the day's work, then how office is set up
   const office: NavigationMenuItem[] = [
     { label: t('nav.work'), type: 'label' },
-    { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/' },
+    // one place to follow the office: what needs a person is counted here
+    { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/', badge: attention.value || undefined },
     { label: t('assistant.title'), icon: 'i-lucide-sparkles', to: '/assistant' },
-    { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' },
-    { label: t('nav.incidents'), icon: 'i-lucide-siren', to: '/incidents', badge: attention.value || undefined }
+    { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' }
   ]
   const settings: NavigationMenuItem[] = [
     { label: t('nav.settings'), type: 'label' },

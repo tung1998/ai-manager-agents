@@ -22,8 +22,13 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
 
 // what needs a person, and the last day in numbers
 interface Incident { kind: string, severity: 'error' | 'warning', project_name: string, title: string, detail: string, link: string }
-const { data: incData } = await useFetch<{ incidents: Incident[], count: number }>('/api/incidents')
-const incidents = computed(() => (incData.value?.incidents ?? []).slice(0, 5))
+const { data: incData, refresh: refreshInc } = await useFetch<{ incidents: Incident[], count: number }>('/api/incidents')
+let incTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => { incTimer = setInterval(() => refreshInc(), 30000) })
+onBeforeUnmount(() => clearInterval(incTimer))
+const incidents = computed(() => incData.value?.incidents ?? [])
+// the kind of each, as a word next to it
+const incKind = (k: string) => t(`incidents.kind.${k}` as 'incidents.kind.monitor')
 const { data: stats } = await useFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h')
 const incIcon: Record<string, string> = {
   monitor: 'i-lucide-activity', process: 'i-lucide-square-terminal', automation: 'i-lucide-alarm-clock-off',
@@ -84,7 +89,7 @@ const steps = computed(() => [
               {{ t('home.attention') }}
               <UBadge v-if="incData?.count" :label="String(incData.count)" color="error" variant="subtle" size="sm" />
             </p>
-            <UButton v-if="incData?.count" to="/incidents" size="xs" color="neutral" variant="ghost" trailing-icon="i-lucide-chevron-right" :label="t('home.seeAll')" />
+
           </div>
         </template>
         <p v-if="!incidents.length" class="flex items-center gap-2 p-4 text-sm text-(--ui-text-muted)">
@@ -94,7 +99,10 @@ const steps = computed(() => [
           <NuxtLink v-for="(x, i) in incidents" :key="i" :to="x.link" class="flex items-center gap-3 px-4 py-2.5 hover:bg-(--ui-bg-elevated)">
             <UIcon :name="incIcon[x.kind] ?? 'i-lucide-circle-alert'" class="size-4 shrink-0" :class="x.severity === 'error' ? 'text-(--ui-error)' : 'text-(--ui-warning)'" />
             <span class="min-w-0 flex-1">
-              <span class="block truncate text-sm font-medium">{{ x.title }}</span>
+              <span class="flex items-center gap-2">
+                <span class="truncate text-sm font-medium">{{ x.title }}</span>
+                <UBadge :label="incKind(x.kind)" color="neutral" variant="subtle" size="sm" />
+              </span>
               <span class="block truncate text-xs text-(--ui-text-muted)">{{ x.project_name }}<template v-if="x.detail"> · {{ x.detail }}</template></span>
             </span>
             <UIcon name="i-lucide-chevron-right" class="size-4 shrink-0 text-(--ui-text-dimmed)" />

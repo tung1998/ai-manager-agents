@@ -27,7 +27,6 @@ const en: Record<MessageKey, string> = {
   'nav.allProjects': 'View all projects',
   'nav.addProject': 'Add a project',
   'nav.providers': 'AI connections',
-  'nav.incidents': 'Incidents',
   'nav.costs': 'Costs',
   'nav.templates': 'Org models',
   'nav.library': 'Library',

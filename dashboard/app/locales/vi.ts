@@ -26,7 +26,6 @@ const vi = {
   'nav.allProjects': 'Xem tất cả project',
   'nav.addProject': 'Thêm project',
   'nav.providers': 'Kết nối AI',
-  'nav.incidents': 'Sự cố',
   'nav.costs': 'Chi phí',
   'nav.templates': 'Mô hình',
   'nav.library': 'Thư viện',
