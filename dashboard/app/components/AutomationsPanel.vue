@@ -19,10 +19,19 @@ const bots = computed(() => {
   return [...by.entries()].map(([id, cmds]) => {
     const st = cmds[0]!.bot_status
     const last = cmds.map(c => c.last_job).filter(Boolean).sort((x, y) => y!.created_at.localeCompare(x!.created_at))[0] ?? null
-    return { id, cmds, kind: st?.kind ?? cmds[0]!.source, name: st?.bot_name ? `@${st.bot_name}` : t('bot.title'), error: st?.last_error ?? '', last }
+    return { id, cmds, kind: st?.kind ?? cmds[0]!.source, name: st?.bot_name ? `@${st.bot_name}` : t('bot.title'), error: st?.last_error ?? '', last, enabled: st?.enabled ?? true }
   })
 })
 type BotRow = (typeof bots.value)[number]
+// on/off for the whole bot: off, it disconnects and hears nothing (its commands stay)
+async function toggleBot(b: BotRow, enabled: boolean) {
+  try {
+    await $fetch(`/api/channels/${b.id}`, { method: 'PATCH', body: { enabled } })
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
 async function removeBot(b: BotRow) {
   if (!confirm(t('bot.deleteConfirm', { name: b.name }))) return
   try {
@@ -121,6 +130,7 @@ async function runNow(a: Automation) {
           <JobStatusBadge v-if="b.last" :status="b.last.status" />
           {{ when(b.last?.created_at) }}
         </span>
+        <USwitch v-if="isAdmin" :model-value="b.enabled" size="sm" @update:model-value="(v: boolean) => toggleBot(b, v)" />
         <UDropdownMenu v-if="isAdmin" :items="botMenu(b)" :content="{ align: 'end' }">
           <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-ellipsis" :aria-label="t('chat.more')" />
         </UDropdownMenu>
