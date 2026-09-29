@@ -5,6 +5,7 @@ package channels
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,24 +16,40 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/chat"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
-	"bitbucket.org/senprints/agent-office/internal/usage"
+	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
 
 // Factory makes the adapter of a channel (Telegram/Discord with its token).
 type Factory func(ch storage.Channel) (Adapter, error)
 
+// Runner runs automations (trigger.Runner): a message a rule takes becomes
+// one of its jobs, with its limits, costs and escalation (ADR-049).
+type Runner interface {
+	Enqueue(ctx context.Context, a storage.Automation, trigger, payload, dedupe, debounce string) (storage.Job, string, error)
+	StartReady(ctx context.Context, now time.Time)
+}
+
 // Manager runs every enabled channel.
 type Manager struct {
 	store   storage.Store
 	engine  *chat.Engine
+	runner  Runner
 	factory Factory
 
-	mu      sync.Mutex
-	running map[string]context.CancelFunc
-	chats   map[string]*sync.Mutex // one answer at a time per outside chat
-	root    context.Context
-	pending Pending
+	mu       sync.Mutex
+	running  map[string]context.CancelFunc
+	adapters map[string]Adapter // by channel id: where answers go
+	waiting  map[string]waiter  // by job id: a message waiting for its answer
+	root     context.Context
+	pending  Pending
+	reload   sync.Mutex // one Reload at a time: never two bots for one channel
+}
+
+type waiter struct {
+	key    string
+	typing context.CancelFunc
 }
 
 // MaxPending is how many messages of one outside chat may wait at once.
@@ -67,9 +84,10 @@ func (p *Pending) Done(key string) {
 	}
 }
 
-// NewManager builds a Manager.
-func NewManager(store storage.Store, engine *chat.Engine, factory Factory) *Manager {
-	return &Manager{store: store, engine: engine, factory: factory, running: map[string]context.CancelFunc{}, chats: map[string]*sync.Mutex{}}
+// NewManager builds a Manager; wire the runner's answers to Reply.
+func NewManager(store storage.Store, engine *chat.Engine, runner Runner, factory Factory) *Manager {
+	return &Manager{store: store, engine: engine, runner: runner, factory: factory, running: map[string]context.CancelFunc{},
+		adapters: map[string]Adapter{}, waiting: map[string]waiter{}}
 }
 
 // Start runs the enabled channels until ctx ends.
@@ -91,6 +109,8 @@ func (m *Manager) Start(ctx context.Context) {
 
 // Reload restarts a channel after its settings changed (or stops it).
 func (m *Manager) Reload(id string) {
+	m.reload.Lock()
+	defer m.reload.Unlock()
 	m.mu.Lock()
 	if stop, ok := m.running[id]; ok {
 		stop()
@@ -123,6 +143,9 @@ func (m *Manager) run(ch storage.Channel) {
 			_ = m.store.Channels().SetStatus(context.Background(), ch.ID, ch.BotName, err.Error(), nil)
 			return
 		}
+		m.mu.Lock()
+		m.adapters[ch.ID] = ad
+		m.mu.Unlock()
 		bot := ch.BotName
 		err = ad.Run(ctx, func(name string) {
 			bot = name
@@ -134,18 +157,8 @@ func (m *Manager) run(ch storage.Channel) {
 	}()
 }
 
-func (m *Manager) chatLock(key string) *sync.Mutex {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	l, ok := m.chats[key]
-	if !ok {
-		l = &sync.Mutex{}
-		m.chats[key] = l
-	}
-	return l
-}
-
-// handle answers one message (or refuses it).
+// handle takes one message: the first rule (automation) of the channel that
+// matches gets it as a job; nothing matching gets the channel's refusal.
 func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in Incoming) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -163,134 +176,192 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	if !m.pending.Take(key) {
 		return // a flood from one chat: the rest is dropped
 	}
-	defer m.pending.Done(key)
-	lock := m.chatLock(key)
-	lock.Lock()
-	defer lock.Unlock()
+	held := true
+	defer func() {
+		if held {
+			m.pending.Done(key)
+		}
+	}()
 	now := time.Now().UTC()
 	_ = m.store.Channels().SetStatus(context.Background(), ch.ID, ch.BotName, "", &now)
-	who := in.UserName
-	if who == "" {
-		who = in.UserID
-	}
+	who := firstNonEmpty(in.UserName, in.UserID)
 	actx := actor.With(ctx, fmt.Sprintf("%s:%s", ch.Kind, who))
 	project, err := m.store.Repos().Get(ctx, ch.ProjectID)
 	if err != nil {
 		return
 	}
-	agent, err := m.agent(ctx, ch)
-	if err != nil {
-		_ = ad.Send(ctx, in.ChatID, "Bot chưa sẵn sàng: "+err.Error())
-		return
-	}
-	title := truncate(in.Text, 80)
-	if ch.FilterEnabled && strings.TrimSpace(ch.Scope) != "" && !m.inScope(actx, project, agent, ch.Scope, in.Text) {
-		refusal := strings.TrimSpace(ch.Refusal)
-		if refusal == "" {
-			refusal = "Xin lỗi, mình chỉ trả lời về: " + ch.Scope
+	rule, ok := m.pick(actx, project, ch, in.Text)
+	if !ok {
+		if refusal := strings.TrimSpace(ch.Refusal); refusal != "" {
+			_ = ad.Send(ctx, in.ChatID, refusal)
 		}
-		_ = ad.Send(ctx, in.ChatID, refusal)
 		_, _ = m.store.Jobs().Create(ctx, storage.Job{ProjectID: ch.ProjectID, Kind: "chat_turn", Origin: "user", OriginID: ch.ID, Trigger: ch.Kind,
-			CreatedBy: actor.From(actx), Title: title, Status: "skipped", ErrorCode: "out_of_scope", Error: "ngoài phạm vi trả lời"})
+			CreatedBy: actor.From(actx), Title: truncate(in.Text, 80), Status: "skipped", ErrorCode: "no_rule", Error: "không quy tắc nào nhận tin này"})
 		return
 	}
-	conv, err := m.thread(actx, ch, agent, in)
-	if err != nil {
-		_ = ad.Send(ctx, in.ChatID, "Không mở được cuộc trò chuyện: "+err.Error())
-		return
-	}
-	started := time.Now().UTC()
-	job, err := m.store.Jobs().Create(ctx, storage.Job{ProjectID: ch.ProjectID, Kind: "chat_turn", Origin: "user", OriginID: ch.ID, Trigger: ch.Kind,
-		CreatedBy: actor.From(actx), Title: title, Status: "running", StartedAt: &started})
-	if err != nil {
-		return
-	}
-	turn, _, err := m.engine.Send(usage.WithJob(actx, job.ID), conv, in.Text, nil)
-	if err != nil {
-		_, _ = m.store.Jobs().Finish(context.Background(), job.ID, "failed", "agent_error", err.Error(), time.Now().UTC())
-		_ = ad.Send(ctx, in.ChatID, "Chưa trả lời được: "+err.Error())
-		return
-	}
-	for turn != nil {
-		msg, next := m.wait(ctx, ad, in.ChatID, turn)
-		if msg != "" {
-			_ = ad.Send(ctx, in.ChatID, msg)
-		}
-		if next == "" {
+	p := trigger.ChannelPayload{Message: in.Text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID}
+	if rule.Action == "chat" {
+		agent, err := m.agent(ctx, ch.ProjectID, rule.AgentID)
+		if err != nil {
+			_ = ad.Send(ctx, in.ChatID, "Bot chưa sẵn sàng.")
 			return
 		}
-		turn, _ = m.engine.Turn(next)
+		if p.ConversationID, err = m.thread(actx, ch, rule, agent, in); err != nil {
+			slog.Error("channels: thread", "channel", ch.ID, "err", err)
+			_ = ad.Send(ctx, in.ChatID, "Bot chưa sẵn sàng.")
+			return
+		}
+	}
+	raw, _ := json.Marshal(p)
+	m.mu.Lock() // registered before the runner can answer
+	job, status, err := m.runner.Enqueue(actx, rule, ch.Kind, string(raw), "", "")
+	if err == nil && status == "queued" {
+		tctx, stop := context.WithCancel(m.root)
+		m.waiting[job.ID] = waiter{key: key, typing: stop}
+		held = false // Reply frees it
+		go typing(tctx, ad, in.ChatID)
+	}
+	m.mu.Unlock()
+	if err != nil {
+		slog.Error("channels: enqueue", "channel", ch.ID, "err", err)
+		_ = ad.Send(ctx, in.ChatID, "Xin lỗi, mình chưa nhận được tin này.")
+		return
+	}
+	if rule.Action == "task" && status == "queued" {
+		_ = ad.Send(ctx, in.ChatID, "Đã nhận, đội đang xử lý. Xong mình báo lại nhé.")
+	}
+	m.runner.StartReady(m.root, time.Now().UTC())
+}
+
+// Reply sends what a run answered back to the outside chat (the runner's OnReply).
+func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, err error, final bool) {
+	var p trigger.ChannelPayload
+	if json.Unmarshal([]byte(origin.Payload), &p) != nil || p.ChatID == "" {
+		return
+	}
+	m.mu.Lock()
+	ad := m.adapters[p.ChannelID]
+	w, waited := m.waiting[origin.ID]
+	if final && waited {
+		delete(m.waiting, origin.ID)
+	}
+	m.mu.Unlock()
+	if final && waited {
+		w.typing()
+		m.pending.Done(w.key)
+	}
+	if ad == nil {
+		return // the channel is off now
+	}
+	switch text = strings.TrimSpace(text); {
+	case text != "":
+		_ = ad.Send(ctx, p.ChatID, text)
+	case err != nil && !errors.Is(err, trigger.ErrNoAnswer) && final:
+		_ = ad.Send(ctx, p.ChatID, "Xin lỗi, mình chưa trả lời được lúc này.") // what went wrong stays in office
 	}
 }
 
-// wait follows a turn to its end (typing meanwhile): its final text and the
-// next agent's turn, if one follows.
-func (m *Manager) wait(ctx context.Context, ad Adapter, chatID string, turn *chat.Turn) (string, string) {
-	seq := 0
-	typing := time.NewTicker(4 * time.Second)
-	defer typing.Stop()
-	ad.Typing(ctx, chatID)
-	deadline := time.After(25 * time.Minute)
-	for {
-		evs, done, wake := turn.Since(seq)
-		seq += len(evs)
-		if done {
-			for i := len(evs) - 1; i >= 0; i-- {
-				if e := evs[i]; e.Type == "done" || e.Type == "error" {
-					text := e.Text
-					if e.Message != nil {
-						text = e.Message.Content
-					}
-					return text, e.NextTurnID
-				}
-			}
-			return "", ""
-		}
+func typing(ctx context.Context, ad Adapter, chatID string) {
+	t := time.NewTicker(4 * time.Second)
+	defer t.Stop()
+	for deadline := time.After(25 * time.Minute); ; {
+		ad.Typing(ctx, chatID)
 		select {
-		case <-wake:
-		case <-typing.C:
-			ad.Typing(ctx, chatID)
 		case <-ctx.Done():
-			return "", ""
+			return
 		case <-deadline:
-			return "", ""
+			return
+		case <-t.C:
 		}
 	}
 }
 
-// agent is the channel's agent (default: the project's lead).
-func (m *Manager) agent(ctx context.Context, ch storage.Channel) (storage.Agent, error) {
-	agents, err := m.engine.Agents(ctx, ch.ProjectID)
+// pick is the first enabled rule of the channel whose keywords (free) and
+// then scope (a cheap model) take the message.
+func (m *Manager) pick(ctx context.Context, project storage.Repo, ch storage.Channel, text string) (storage.Automation, bool) {
+	list, err := m.store.Automations().List(ctx, ch.ProjectID)
+	if err != nil {
+		return storage.Automation{}, false
+	}
+	lower := strings.ToLower(text)
+	for _, a := range list {
+		if !a.Enabled || a.Source != ch.Kind || a.Config.ChannelID != ch.ID {
+			continue
+		}
+		if len(a.Config.Keywords) > 0 && !slices.ContainsFunc(a.Config.Keywords, func(k string) bool { return strings.Contains(lower, strings.ToLower(k)) }) {
+			continue
+		}
+		if strings.TrimSpace(a.Config.Scope) != "" {
+			agent, err := m.agent(ctx, ch.ProjectID, a.AgentID)
+			if err != nil || !m.inScope(ctx, project, agent, a.Config.Scope, text) {
+				continue
+			}
+		}
+		return a, true
+	}
+	return storage.Automation{}, false
+}
+
+// agent is the rule's agent ("" = the project's lead).
+func (m *Manager) agent(ctx context.Context, projectID, agentID string) (storage.Agent, error) {
+	agents, err := m.engine.Agents(ctx, projectID)
 	if err != nil {
 		return storage.Agent{}, err
 	}
 	for _, a := range agents {
-		if (ch.AgentID != "" && a.ID == ch.AgentID) || (ch.AgentID == "" && a.Tier == storage.TierLead) {
+		if (agentID != "" && a.ID == agentID) || (agentID == "" && a.Tier == storage.TierLead) {
 			return a, nil
 		}
 	}
-	return storage.Agent{}, errors.New("không có agent cho kênh này")
+	return storage.Agent{}, errors.New("không có agent cho quy tắc này")
 }
 
-// thread is the conversation of an outside chat (made on its first message).
-func (m *Manager) thread(ctx context.Context, ch storage.Channel, agent storage.Agent, in Incoming) (string, error) {
-	id, err := m.store.Channels().Thread(ctx, ch.ID, in.ChatID)
+// thread is the conversation of an outside chat with a rule (made on its
+// first message): tool-less, read only, not in the project's chat list.
+func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.Automation, agent storage.Agent, in Incoming) (string, error) {
+	key := in.ChatID + "#" + rule.ID
+	id, err := m.store.Channels().Thread(ctx, ch.ID, key)
 	if err != nil {
 		return "", err
 	}
 	if id != "" {
-		if _, err := m.store.Chat().GetConversation(ctx, id); err == nil {
-			return id, m.engine.SetMode(ctx, id, firstNonEmpty(ch.Mode, "read"))
+		if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
+			return id, nil
 		}
 	}
-	conv, err := m.engine.StartConversationPurpose(ctx, ch.ProjectID, agent.ID, "channel") // tool-less, not in the project's chat list
+	conv, err := m.engine.StartConversationPurpose(ctx, ch.ProjectID, agent.ID, "channel")
 	if err != nil {
 		return "", err
 	}
-	if err := m.engine.SetMode(ctx, conv.ID, firstNonEmpty(ch.Mode, "read")); err != nil {
+	if err := m.engine.SetMode(ctx, conv.ID, perm.Read); err != nil {
 		return "", err
 	}
-	return conv.ID, m.store.Channels().SetThread(ctx, ch.ID, in.ChatID, conv.ID)
+	return conv.ID, m.store.Channels().SetThread(ctx, ch.ID, key, conv.ID)
+}
+
+// MigrateRules turns each channel set up before rules existed (ADR-048: its
+// own agent and scope) into a channel with one rule, once.
+func MigrateRules(ctx context.Context, store storage.Store) error {
+	const key = "channels_rules_v1"
+	var done bool
+	if ok, _ := store.Settings().Get(ctx, key, &done); ok && done {
+		return nil
+	}
+	list, err := store.Channels().List(ctx, "")
+	if err != nil {
+		return err
+	}
+	for _, ch := range list {
+		scope := ""
+		if ch.FilterEnabled {
+			scope = ch.Scope
+		}
+		if _, err := store.Automations().Create(ctx, storage.Automation{ProjectID: ch.ProjectID, Name: ch.Name + " — trả lời", Enabled: true,
+			Source: ch.Kind, Action: "chat", AgentID: ch.AgentID, Config: storage.AutomationConfig{ChannelID: ch.ID, Scope: scope}, CreatedBy: "system"}); err != nil {
+			return err
+		}
+	}
+	return store.Settings().Set(ctx, key, true)
 }
 
 // inScope asks a fast model whether a message is within the channel's scope.

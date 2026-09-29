@@ -17,6 +17,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
@@ -61,9 +62,38 @@ func (b *fakeBot) wait(t *testing.T, chatID string, n int) []string {
 	return nil
 }
 
-// ADR-048: an outside chat gets the agent's answer; the scope filter refuses
-// what is off-topic with a cheap model; the allow list keeps others out.
-func TestManagerAnswersFiltersAndAllows(t *testing.T) {
+// chatExec runs automation chats on the engine (as the office's executor does).
+type chatExec struct{ engine *chat.Engine }
+
+func (x chatExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
+	turn, _, err := x.engine.Send(ctx, conv, prompt, nil)
+	if err != nil {
+		return conv, "", err
+	}
+	for seq := 0; ; {
+		evs, done, wake := turn.Since(seq)
+		seq += len(evs)
+		for _, e := range evs {
+			if e.Type == "done" && e.Message != nil {
+				return conv, e.Message.Content, nil
+			}
+		}
+		if done {
+			return conv, "", nil
+		}
+		<-wake
+	}
+}
+func (chatExec) RunTask(context.Context, string, string, string, string) (string, error) {
+	return "", nil
+}
+func (chatExec) RunQueuedTask(context.Context, string, string) (string, error) { return "", nil }
+
+// ADR-049: a channel's messages go to the first automation (rule) that
+// matches: keywords for free, a scope asked of a cheap model; a script
+// answers without AI; nothing matching gets the channel's refusal; the allow
+// list keeps others out.
+func TestManagerRules(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
@@ -92,11 +122,19 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
 	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
 	engine := chat.NewEngine(st, provs, u)
+	runner := trigger.New(st, chatExec{engine})
 
 	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "telegram", Name: "Hỗ trợ", Enabled: true,
-		Allow: []string{"42", "43"}, Scope: "đơn hàng của cửa hàng", FilterEnabled: true, Refusal: "Mình chỉ trả lời về đơn hàng."})
-	m := channels.NewManager(st, engine, func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+		Allow: []string{"42", "43", "44"}, Refusal: "Mình chỉ trả lời về đơn hàng."})
+	// rule 1: "mã" → a script, no AI; rule 2: about orders → the agent answers
+	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Tra mã", Source: "telegram", Action: "script", Enabled: true,
+		Config: storage.AutomationConfig{ChannelID: ch.ID, Keywords: []string{"MÃ"}},
+		Script: storage.AutomationScript{Lang: "bash", Body: `echo "Mã của $(cat | sed 's/.*"user":"\([^"]*\)".*/\1/'): OK"`, TimeoutS: 10}})
+	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Trả lời", Source: "telegram", Action: "chat", Enabled: true,
+		Config: storage.AutomationConfig{ChannelID: ch.ID, Scope: "đơn hàng của cửa hàng"}})
+	m := channels.NewManager(st, engine, runner, func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runner.SetOnReply(m.Reply)
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	m.Start(runCtx)
@@ -104,6 +142,10 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "đơn 123 đâu rồi", Private: true}
 	if got := bot.wait(t, "42", 1); !strings.Contains(got[0], "đơn 123 đang giao") {
 		t.Fatalf("answer = %v", got)
+	}
+	bot.in <- channels.Incoming{ChatID: "44", UserID: "9", UserName: "binh", Text: "tra mã giúp", Private: true}
+	if got := bot.wait(t, "44", 1); got[0] != "Mã của binh: OK" {
+		t.Fatalf("script answer = %v", got)
 	}
 	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", Text: "thời tiết hôm nay", Private: true}
 	if got := bot.wait(t, "43", 1); got[0] != "Mình chỉ trả lời về đơn hàng." {
@@ -118,14 +160,17 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 		t.Fatalf("a chat not allowed got %v", outsider)
 	}
 	jobs, _ := st.Jobs().List(ctx, storage.JobFilter{ProjectID: project.ID})
-	skipped := 0
+	var skipped, answered int
 	for _, j := range jobs {
-		if j.Status == "skipped" && j.ErrorCode == "out_of_scope" && j.Trigger == "telegram" && j.OriginID == ch.ID {
+		if j.Status == "skipped" && j.ErrorCode == "no_rule" && j.Trigger == "telegram" && j.OriginID == ch.ID {
 			skipped++
 		}
+		if j.Origin == "automation" && j.Trigger == "telegram" && j.Status == "done" {
+			answered++
+		}
 	}
-	if skipped != 1 {
-		t.Fatalf("jobs = %+v", jobs)
+	if skipped != 1 || answered != 2 {
+		t.Fatalf("skipped %d answered %d: %+v", skipped, answered, jobs)
 	}
 	got, _ := st.Channels().Get(ctx, ch.ID)
 	if got.BotName != "shop_bot" || got.LastMessageAt == nil {
@@ -141,6 +186,28 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 		if !strings.Contains(line, "--tools  ") || strings.Contains(line, "--settings") || strings.Contains(line, "--mcp-config") || strings.Contains(line, "Read") {
 			t.Errorf("a channel run had tools: %s", line)
 		}
+	}
+}
+
+// A channel set up before rules existed keeps answering: its agent and scope
+// become its first rule, once.
+func TestLegacyChannelBecomesARule(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop"})
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Hỗ trợ", Enabled: true, AgentID: "agt_1",
+		Allow: []string{"*"}, Scope: "đơn hàng", FilterEnabled: true})
+	for range 2 {
+		if err := channels.MigrateRules(ctx, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list, _ := st.Automations().List(ctx, project.ID)
+	if len(list) != 1 || list[0].Source != "discord" || list[0].Action != "chat" || list[0].Config.ChannelID != ch.ID ||
+		list[0].Config.Scope != "đơn hàng" || list[0].AgentID != "agt_1" || !list[0].Enabled {
+		t.Fatalf("rules = %+v", list)
 	}
 }
 

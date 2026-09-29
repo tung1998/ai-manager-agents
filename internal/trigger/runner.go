@@ -236,7 +236,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		if cur, err := r.store.Jobs().Get(ctx, j.ID); err == nil && cur.Status == "pending" {
 			return // put back (busy): it runs again later
 		}
-		answer("", errNoAnswer, true)
+		answer("", ErrNoAnswer, true)
 	}()
 	if j.Origin == "user" && j.Kind == "task" { // queued by a person while the project was busy
 		_, err := r.exec.RunQueuedTask(actor.With(jctx, j.CreatedBy), j.ProjectID, j.Payload)
@@ -375,8 +375,8 @@ func (r *Runner) settle(ctx context.Context, j storage.Job, err error) {
 
 const defaultPrompt = "Tự động hóa {{automation}} ({{source}})."
 
-// errNoAnswer: a channel message's run ended without an answer (skipped, off…).
-var errNoAnswer = errors.New("không có câu trả lời")
+// ErrNoAnswer: a channel message's run ended without an answer (skipped, off…).
+var ErrNoAnswer = errors.New("không có câu trả lời")
 
 // ChannelPayload is what a message from a chat channel carries (ADR-049).
 type ChannelPayload struct {

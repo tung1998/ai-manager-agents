@@ -117,8 +117,11 @@ func serveCmd() *cobra.Command {
 			office.SetOffice(assistantID)
 			chatEngine.SetAssistant(assistantID)
 			acts.SetRunner(assistantRunner{store: a.store, tasks: taskSvc, trigger: runner})
-			// Telegram / Discord bots answered by the projects' agents (ADR-048)
-			bots := channels.NewManager(a.store, chatEngine, func(ch storage.Channel) (channels.Adapter, error) {
+			// Telegram / Discord bots: their messages are automations' triggers (ADR-048, ADR-049)
+			if err := channels.MigrateRules(ctx, a.store); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "office: không chuyển được kênh sang quy tắc: %v\n", err)
+			}
+			bots := channels.NewManager(a.store, chatEngine, runner, func(ch storage.Channel) (channels.Adapter, error) {
 				token, err := a.providers.Box().Open(ch.TokenEnc)
 				if err != nil {
 					return nil, fmt.Errorf("không mở được token: %w", err)
@@ -128,6 +131,7 @@ func serveCmd() *cobra.Command {
 				}
 				return &channels.Telegram{Token: token}, nil
 			})
+			runner.SetOnReply(bots.Reply)
 			bots.Start(ctx)
 
 			// self-update: only under the supervisor and when the source is here
