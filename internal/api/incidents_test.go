@@ -43,3 +43,49 @@ func TestIncidents(t *testing.T) {
 		t.Errorf("count = %v", b["count"])
 	}
 }
+
+// An incident can be let go (it comes back only when it happens again) and a
+// turned-off automation turned back on from the list.
+func TestIncidentActions(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	a, _ := e.st.Automations().Create(ctx, storage.Automation{ProjectID: pid, Name: "Báo cáo", Source: "webhook", Action: "script", DisabledCode: "failures", DisabledReason: "script lỗi"})
+	now := time.Now().UTC()
+	e.st.Jobs().Create(ctx, storage.Job{ProjectID: pid, Kind: "task", Origin: "user", Status: "failed", Error: "x", Title: "Sửa lỗi", FinishedAt: &now})
+	list := func() map[string]map[string]any {
+		_, b := do(t, admin, "GET", e.srv.URL+"/api/incidents", nil, nil)
+		out := map[string]map[string]any{}
+		for _, x := range b["incidents"].([]any) {
+			it := x.(map[string]any)
+			out[it["kind"].(string)] = it
+		}
+		return out
+	}
+	got := list()
+	if got["automation"]["id"] != a.ID || got["jobs"]["id"] == "" || got["jobs"]["key"] == "" {
+		t.Fatalf("incidents = %v", got)
+	}
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/incidents/dismiss", map[string]any{"key": got["jobs"]["key"]}, nil); resp.StatusCode != 204 {
+		t.Fatalf("dismiss = %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/incidents/retry", map[string]any{"kind": "automation", "id": a.ID}, nil); resp.StatusCode != 200 {
+		t.Fatalf("retry = %d", resp.StatusCode)
+	}
+	got = list()
+	if _, ok := got["jobs"]; ok {
+		t.Fatalf("a dismissed incident is back: %v", got["jobs"])
+	}
+	if _, ok := got["automation"]; ok {
+		t.Fatalf("the automation is still off: %v", got["automation"])
+	}
+	// it happens again: back in the list
+	later := time.Now().UTC().Add(time.Second)
+	e.st.Jobs().Create(ctx, storage.Job{ProjectID: pid, Kind: "task", Origin: "user", Status: "failed", Error: "y", Title: "Sửa lỗi 2", FinishedAt: &later, CreatedAt: later})
+	if _, ok := list()["jobs"]; !ok {
+		t.Fatal("a new failure after the dismissal is not shown")
+	}
+}

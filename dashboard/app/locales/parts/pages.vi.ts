@@ -1,5 +1,16 @@
 // Vietnamese strings for the "pages" area (source of truth for keys).
 export default {
+  'home.approve': 'Duyệt',
+  'home.reject': 'Từ chối',
+  'home.view': 'Xem',
+  'home.retry': 'Chạy lại',
+  'home.investigate': 'Điều tra',
+  'home.dismiss': 'Bỏ qua',
+  'home.done_approve': 'Đã duyệt',
+  'home.done_reject': 'Đã từ chối',
+  'home.done_retry': 'Đã chạy lại',
+  'home.done_dismiss': 'Đã bỏ qua: chỉ hiện lại khi xảy ra tiếp',
+  'home.investigatePrompt': 'Điều tra sự cố ({kind}): {title}. Chi tiết: {detail}. Hãy tìm nguyên nhân từ log, trạng thái và thay đổi gần đây, nêu dẫn chứng, rồi đề xuất cách sửa (chưa sửa khi tôi chưa đồng ý).',
   'home.attention': 'Cần xử lý',
   'home.allGood': 'Mọi thứ ổn: không có gì cần bạn xử lý.',
   'home.welcome': 'Xin chào',

@@ -24,7 +24,7 @@ const jobStatus = computed<Record<Job['status'], { label: string, color: 'info' 
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // what needs a person, and the last day in numbers
-interface Incident { kind: string, severity: 'error' | 'warning', project_name: string, title: string, detail: string, link: string }
+interface Incident { kind: string, severity: 'error' | 'warning', project_id: string, project_name: string, title: string, detail: string, link: string, id: string, key: string }
 const _f6 = useFetch<{ incidents: Incident[], count: number }>('/api/incidents')
 const { data: incData, refresh: refreshInc } = _f6
 let incTimer: ReturnType<typeof setInterval> | undefined
@@ -36,6 +36,32 @@ const incKind = (k: string) => t(`incidents.kind.${k}` as 'incidents.kind.monito
 const _f7 = useFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h')
 const { data: stats } = _f7
 await Promise.all([_f2, _f3, _f4, _f5, _f6, _f7]) // started together: one round trip, not 7 (a phone over a VPN)
+// what can be done from the list: decide a card; try again, let go or
+// investigate something that went wrong
+const toast = useToast()
+const acting = ref('')
+async function act(x: Incident, what: 'approve' | 'reject' | 'retry' | 'dismiss') {
+  acting.value = x.key + what
+  try {
+    if (what === 'approve' || what === 'reject') await $fetch(`/api/actions/${x.id}/${what}`, { method: 'POST', body: {} })
+    else if (what === 'dismiss') await $fetch('/api/incidents/dismiss', { method: 'POST', body: { key: x.key } })
+    else if (x.kind === 'jobs') await $fetch(`/api/jobs/${x.id}/retry`, { method: 'POST' })
+    else await $fetch('/api/incidents/retry', { method: 'POST', body: { kind: x.kind, id: x.id } })
+    toast.add({ title: t(`home.done_${what}`), color: 'success' })
+    await refreshInc()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    acting.value = ''
+  }
+}
+// Điều tra: the project's lead looks into it in a new chat
+const prefill = useState<{ text: string, files: [], send?: boolean } | null>('chat-prefill', () => null)
+function investigate(x: Incident) {
+  prefill.value = { text: t('home.investigatePrompt', { kind: incKind(x.kind), title: x.title, detail: x.detail || '—' }), files: [], send: true }
+  navigateTo({ path: `/projects/${x.project_id}`, query: { tab: 'chat' } })
+}
+const canRetry = (k: string) => ['monitor', 'process', 'automation', 'bot', 'jobs'].includes(k)
 const incIcon: Record<string, string> = {
   monitor: 'i-lucide-activity', process: 'i-lucide-square-terminal', automation: 'i-lucide-alarm-clock-off',
   bot: 'i-lucide-bot', jobs: 'i-lucide-circle-x', approval: 'i-lucide-stamp'
@@ -89,17 +115,31 @@ const steps = computed(() => [
           <UIcon name="i-lucide-circle-check" class="size-4 text-(--ui-success)" />{{ t('home.allGood') }}
         </p>
         <div v-else class="divide-y divide-(--ui-border)">
-          <NuxtLink v-for="(x, i) in incidents" :key="i" :to="x.link" class="flex items-center gap-3 px-4 py-2.5 hover:bg-(--ui-bg-elevated)">
-            <UIcon :name="incIcon[x.kind] ?? 'i-lucide-circle-alert'" class="size-4 shrink-0" :class="x.severity === 'error' ? 'text-(--ui-error)' : 'text-(--ui-warning)'" />
-            <span class="min-w-0 flex-1">
-              <span class="flex items-center gap-2">
-                <span class="truncate text-sm font-medium">{{ x.title }}</span>
-                <UBadge :label="incKind(x.kind)" color="neutral" variant="subtle" size="sm" />
+          <div v-for="(x, i) in incidents" :key="i" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
+            <NuxtLink :to="x.link" class="flex min-w-0 flex-1 basis-60 items-center gap-3">
+              <UIcon :name="incIcon[x.kind] ?? 'i-lucide-circle-alert'" class="size-4 shrink-0" :class="x.severity === 'error' ? 'text-(--ui-error)' : 'text-(--ui-warning)'" />
+              <span class="min-w-0 flex-1">
+                <span class="flex items-center gap-2">
+                  <span class="truncate text-sm font-medium hover:underline">{{ x.title }}</span>
+                  <UBadge :label="incKind(x.kind)" color="neutral" variant="subtle" size="sm" />
+                </span>
+                <span class="block truncate text-xs text-(--ui-text-muted)">{{ x.project_name }}<template v-if="x.detail"> · {{ x.detail }}</template></span>
               </span>
-              <span class="block truncate text-xs text-(--ui-text-muted)">{{ x.project_name }}<template v-if="x.detail"> · {{ x.detail }}</template></span>
-            </span>
-            <UIcon name="i-lucide-chevron-right" class="size-4 shrink-0 text-(--ui-text-dimmed)" />
-          </NuxtLink>
+            </NuxtLink>
+            <!-- what to do about it, right here -->
+            <div v-if="isAdmin" class="flex shrink-0 flex-wrap items-center gap-1 max-sm:w-full max-sm:ps-7">
+              <template v-if="x.kind === 'approval'">
+                <UButton size="xs" icon="i-lucide-check" :label="t('home.approve')" :loading="acting === x.key + 'approve'" @click="act(x, 'approve')" />
+                <UButton size="xs" color="neutral" variant="ghost" :label="t('home.reject')" :loading="acting === x.key + 'reject'" @click="act(x, 'reject')" />
+              </template>
+              <template v-else>
+                <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-eye" :label="t('home.view')" :to="x.link" />
+                <UButton v-if="canRetry(x.kind)" size="xs" color="neutral" variant="outline" icon="i-lucide-rotate-cw" :label="t('home.retry')" :loading="acting === x.key + 'retry'" @click="act(x, 'retry')" />
+                <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-search-check" :label="t('home.investigate')" @click="investigate(x)" />
+                <UButton size="xs" color="neutral" variant="ghost" :label="t('home.dismiss')" :loading="acting === x.key + 'dismiss'" @click="act(x, 'dismiss')" />
+              </template>
+            </div>
+          </div>
         </div>
       </UCard>
 

@@ -1,13 +1,16 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
 
 // incident is something across the office that needs a person, with where to
@@ -22,7 +25,11 @@ type incident struct {
 	Detail      string    `json:"detail"`
 	At          time.Time `json:"at"`
 	Link        string    `json:"link"`
+	ID          string    `json:"id"`  // what it is about: the monitor, process, automation, bot, latest failed job or action
+	Key         string    `json:"key"` // for Bỏ qua: kind and what it is about
 }
+
+func dismissKey(key string) string { return "incident_dismissed/" + key }
 
 func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -39,17 +46,22 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		base := "/projects/" + p.ID
-		add := func(kind, sev, title, detail string, at *time.Time, link string) {
-			it := incident{Kind: kind, Severity: sev, ProjectID: p.ID, ProjectName: p.Name, Title: title, Detail: detail, Link: link}
+		add := func(kind, sev, title, detail string, at *time.Time, link, id, key string) {
+			it := incident{Kind: kind, Severity: sev, ProjectID: p.ID, ProjectName: p.Name, Title: title, Detail: detail, Link: link, ID: id, Key: kind + ":" + key}
 			if at != nil {
 				it.At = *at
+			}
+			// let go (Bỏ qua): hidden until it happens again
+			var gone time.Time
+			if ok, _ := s.cfg.Store.Settings().Get(ctx, dismissKey(it.Key), &gone); ok && !it.At.After(gone) {
+				return
 			}
 			out = append(out, it)
 		}
 		if ms, err := s.cfg.Store.Monitors().List(ctx, p.ID); err == nil {
 			for _, m := range ms {
 				if m.Enabled && m.Status == "down" {
-					add("monitor", "error", m.Name, m.LastMessage, m.LastChangeAt, base+"?tab=ops")
+					add("monitor", "error", m.Name, m.LastMessage, m.LastChangeAt, base+"?tab=ops", m.ID, m.ID)
 				}
 			}
 		}
@@ -57,7 +69,7 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 			if ps, err := s.cfg.Store.Processes().List(ctx, p.ID); err == nil {
 				for _, x := range ps {
 					if st := s.cfg.Ops.State(x.ID); st.Status == "crashed" {
-						add("process", "error", x.Name, fmt.Sprintf("thoát, đã khởi động lại %d lần", st.Restarts), st.FinishedAt, base+"?tab=ops")
+						add("process", "error", x.Name, fmt.Sprintf("thoát, đã khởi động lại %d lần", st.Restarts), st.FinishedAt, base+"?tab=ops", x.ID, x.ID)
 					}
 				}
 			}
@@ -65,20 +77,31 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 		if as, err := s.cfg.Store.Automations().List(ctx, p.ID); err == nil {
 			for _, a := range as {
 				if a.DisabledCode != "" {
-					add("automation", "warning", a.Name, a.DisabledReason, &a.UpdatedAt, base+"/automations/"+a.ID)
+					add("automation", "warning", a.Name, a.DisabledReason, &a.UpdatedAt, base+"/automations/"+a.ID, a.ID, a.ID)
 				}
 			}
 		}
 		if cs, err := s.cfg.Store.Channels().List(ctx, p.ID); err == nil {
 			for _, c := range cs {
 				if c.Enabled && c.LastError != "" {
-					add("bot", "error", firstNonEmptyStr(c.BotName, c.Name), c.LastError, &c.UpdatedAt, base+"/bots/"+c.ID)
+					add("bot", "error", firstNonEmptyStr(c.BotName, c.Name), c.LastError, &c.UpdatedAt, base+"/bots/"+c.ID, c.ID, c.ID)
 				}
 			}
 		}
 		if failed, err := s.cfg.Store.Jobs().List(ctx, storage.JobFilter{ProjectID: p.ID, Status: "failed", Since: day, Limit: 200}); err == nil && len(failed) > 0 {
-			last := failed[0]
-			add("jobs", "warning", fmt.Sprintf("%d job lỗi trong 24 giờ", len(failed)), last.Title+": "+last.Error, &last.CreatedAt, "/jobs?project="+p.ID)
+			// counted since it was last let go
+			var gone time.Time
+			_, _ = s.cfg.Store.Settings().Get(ctx, dismissKey("jobs:"+p.ID), &gone)
+			fresh := failed[:0:0]
+			for _, j := range failed {
+				if j.CreatedAt.After(gone) {
+					fresh = append(fresh, j)
+				}
+			}
+			if len(fresh) > 0 {
+				last := fresh[0]
+				add("jobs", "warning", fmt.Sprintf("%d job lỗi trong 24 giờ", len(fresh)), last.Title+": "+last.Error, &last.CreatedAt, "/jobs?project="+p.ID, last.ID, p.ID)
+			}
 		}
 	}
 	if userFrom(r).Role == storage.RoleAdmin { // cards waiting for a person
@@ -97,7 +120,7 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 					link = "/assistant"
 				}
 				out = append(out, incident{Kind: "approval", Severity: "warning", ProjectID: a.ProjectID, ProjectName: name,
-					Title: firstNonEmptyStr(a.Target, a.Kind), Detail: a.Reason, At: a.CreatedAt, Link: link})
+					Title: firstNonEmptyStr(a.Target, a.Kind), Detail: a.Reason, At: a.CreatedAt, Link: link, ID: a.ID, Key: "approval:" + a.ID})
 			}
 		}
 	}
@@ -108,4 +131,82 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 		return out[i].At.After(out[j].At)
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"incidents": out, "count": len(out)})
+}
+
+// dismissIncident lets an incident go (Bỏ qua): it shows again only when it
+// happens again.
+func (s *server) dismissIncident(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Key string `json:"key"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Key == "" || strings.HasPrefix(in.Key, "approval:") { // a card is decided, not let go
+		writeError(w, http.StatusBadRequest, "không bỏ qua được mục này")
+		return
+	}
+	if err := s.cfg.Store.Settings().Set(r.Context(), dismissKey(in.Key), time.Now().UTC()); err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	s.auditAction(r, "incident.dismiss", in.Key, nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// retryIncident tries again what an incident is about: checks a monitor now,
+// restarts a process, turns an automation back on, reconnects a bot. (A
+// failed job is retried through /api/jobs/{id}/retry.)
+func (s *server) retryIncident(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Kind string `json:"kind"`
+		ID   string `json:"id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	ctx := r.Context()
+	var err error
+	switch in.Kind {
+	case "monitor":
+		if s.cfg.Monitors == nil {
+			err = errors.New("chưa bật theo dõi")
+		} else {
+			_, err = s.cfg.Monitors.CheckNow(ctx, in.ID)
+		}
+	case "process":
+		if s.cfg.Ops == nil {
+			err = errors.New("chưa bật vận hành")
+		} else {
+			err = s.cfg.Ops.Restart(ctx, in.ID)
+		}
+	case "automation":
+		var a storage.Automation
+		if a, err = s.cfg.Store.Automations().Get(ctx, in.ID); err == nil {
+			a.Enabled, a.Failures, a.DisabledCode, a.DisabledReason = true, 0, "", "" // turned back on
+			if a.Source == "schedule" {
+				if next, nerr := trigger.Next(a.Config, time.Now().UTC()); nerr == nil {
+					a.NextRunAt = &next
+				}
+			}
+			if err = s.cfg.Store.Automations().Update(ctx, a); err == nil {
+				s.reloadBot(a)
+			}
+		}
+	case "bot":
+		if s.cfg.Channels == nil {
+			err = errors.New("chưa bật bot")
+		} else if _, err = s.cfg.Store.Channels().Get(ctx, in.ID); err == nil {
+			s.cfg.Channels.Reload(in.ID)
+		}
+	default:
+		writeError(w, http.StatusBadRequest, "không chạy lại được mục này")
+		return
+	}
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	s.auditAction(r, "incident.retry", in.Kind+":"+in.ID, nil)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
