@@ -270,7 +270,39 @@ async function testRun() {
                 <UIcon :name="k === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" class="size-4" />{{ k === 'discord' ? 'Discord' : 'Telegram' }}
               </button>
             </div>
-            <!-- tab: this automation -->
+          </template>
+          <UFormField :label="t('channels.token')" :help="form.source === 'discord' ? t('channels.tokenHelpDiscord') : t('channels.tokenHelpTelegram')" :required="!form.config.channel_id">
+            <UInput
+              v-model="form.bot.token" type="password" name="bot-token" autocomplete="new-password" class="w-full font-mono"
+              :placeholder="form.config.channel_id ? t('channels.tokenKept') : (form.source === 'discord' ? 'MTI3…' : '123456789:AAF…')"
+            />
+          </UFormField>
+          <UFormField :label="t('channels.allow')" :help="form.source === 'discord' ? t('channels.allowHelpDiscord') : t('channels.allowHelpTelegram')" required>
+            <UTextarea v-model="allowText" :rows="2" autoresize class="w-full font-mono text-xs" :placeholder="form.source === 'discord' ? '123456789012345678' : '123456789'" />
+          </UFormField>
+          <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')">
+            <UInput v-model="form.bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />
+          </UFormField>
+          <!-- the bot's commands: its own (fixed) and the custom ones -->
+          <div class="space-y-1.5">
+            <p class="text-xs font-medium text-(--ui-text-muted)">{{ t('auto.botCommands') }}</p>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="c in builtinCommands" :key="c.name" :title="c.desc"
+                class="inline-flex items-center gap-1 rounded-md bg-(--ui-bg-elevated) px-2 py-0.5 font-mono text-xs text-(--ui-text-muted)"
+              >
+                <UIcon name="i-lucide-lock" class="size-3" />{{ c.name === '@' ? `@${bot?.bot_name || 'bot'}` : `/${cmdLabel(c.name)}` }}<span v-if="c.arg" class="text-(--ui-text-dimmed)">&lt;{{ c.arg }}&gt;</span>
+              </span>
+              <NuxtLink
+                v-for="c in customCommands" :key="c.id" :to="`/projects/${projectId}/automations/${c.id}`" :title="c.desc"
+                class="inline-flex items-center gap-1 rounded-md border border-(--ui-border) px-2 py-0.5 font-mono text-xs hover:border-primary"
+              >
+                /{{ cmdLabel(c.name) }}<span v-if="c.arg" class="text-(--ui-text-dimmed)">&lt;{{ c.arg }}&gt;</span>
+              </NuxtLink>
+            </div>
+          </div>
+        </div>
+        <!-- tab: this automation -->
         <div v-show="chTab === 'rule'" class="space-y-3">
           <div class="flex rounded-lg bg-(--ui-bg-elevated) p-0.5 text-sm">
             <button
@@ -323,38 +355,6 @@ async function testRun() {
           <p class="text-xs text-(--ui-text-muted)">{{ t('auto.agentPerRule') }}</p>
         </div>
 
-      </template>
-          <UFormField :label="t('channels.token')" :help="form.source === 'discord' ? t('channels.tokenHelpDiscord') : t('channels.tokenHelpTelegram')" :required="!form.config.channel_id">
-            <UInput
-              v-model="form.bot.token" type="password" name="bot-token" autocomplete="new-password" class="w-full font-mono"
-              :placeholder="form.config.channel_id ? t('channels.tokenKept') : (form.source === 'discord' ? 'MTI3…' : '123456789:AAF…')"
-            />
-          </UFormField>
-          <UFormField :label="t('channels.allow')" :help="form.source === 'discord' ? t('channels.allowHelpDiscord') : t('channels.allowHelpTelegram')" required>
-            <UTextarea v-model="allowText" :rows="2" autoresize class="w-full font-mono text-xs" :placeholder="form.source === 'discord' ? '123456789012345678' : '123456789'" />
-          </UFormField>
-          <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')">
-            <UInput v-model="form.bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />
-          </UFormField>
-          <!-- the bot's commands: its own (fixed) and the custom ones -->
-          <div class="space-y-1.5">
-            <p class="text-xs font-medium text-(--ui-text-muted)">{{ t('auto.botCommands') }}</p>
-            <div class="flex flex-wrap gap-1.5">
-              <span
-                v-for="c in builtinCommands" :key="c.name" :title="c.desc"
-                class="inline-flex items-center gap-1 rounded-md bg-(--ui-bg-elevated) px-2 py-0.5 font-mono text-xs text-(--ui-text-muted)"
-              >
-                <UIcon name="i-lucide-lock" class="size-3" />{{ c.name === '@' ? `@${bot?.bot_name || 'bot'}` : `/${cmdLabel(c.name)}` }}<span v-if="c.arg" class="text-(--ui-text-dimmed)">&lt;{{ c.arg }}&gt;</span>
-              </span>
-              <NuxtLink
-                v-for="c in customCommands" :key="c.id" :to="`/projects/${projectId}/automations/${c.id}`" :title="c.desc"
-                class="inline-flex items-center gap-1 rounded-md border border-(--ui-border) px-2 py-0.5 font-mono text-xs hover:border-primary"
-              >
-                /{{ cmdLabel(c.name) }}<span v-if="c.arg" class="text-(--ui-text-dimmed)">&lt;{{ c.arg }}&gt;</span>
-              </NuxtLink>
-            </div>
-          </div>
-        </div>
       </template>
       <template v-else>
         <div class="grid gap-3 @lg:grid-cols-2">
