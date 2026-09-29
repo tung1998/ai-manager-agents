@@ -41,6 +41,7 @@ export default {
   'chat.older': 'Xem tin cũ hơn',
   'filter.title': 'Lọc',
   'task.readResult': 'Đọc kết quả',
+  'task.showMore': 'Xem thêm',
   'chat.more': 'Thêm',
   'task.copyLink': 'Sao chép liên kết',
   'task.copyId': 'Sao chép ID',
