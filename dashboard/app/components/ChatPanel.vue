@@ -418,7 +418,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     :class="inline ? 'contents' : ['flex overflow-hidden rounded-lg border border-(--ui-border)', compact || purpose ? 'h-full min-h-0' : taskId ? 'h-[32rem]'
-      : 'min-h-[24rem] flex-1 max-sm:-mx-3 max-sm:-mb-3 max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0']"
+      : 'min-h-[24rem] flex-1 max-sm:-m-3 max-sm:rounded-none max-sm:border-0']"
   >
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">

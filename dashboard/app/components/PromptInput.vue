@@ -258,8 +258,9 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
       </div>
     </div>
 
+    <!-- a phone: two lines tall at least, so the placeholder never scrolls inside it -->
     <UTextarea
-      ref="box" v-model="text" :rows="rows" autoresize :maxrows="maxrows" variant="none" class="w-full max-sm:[&_textarea]:!text-sm"
+      ref="box" v-model="text" :rows="rows" autoresize :maxrows="maxrows" variant="none" class="w-full max-sm:[&_textarea]:!text-sm max-sm:[&_textarea]:min-h-13"
       :placeholder="placeholder" @keydown="onKey" @paste="onPaste" @keyup="syncCaret" @click="syncCaret" @input="syncCaret"
     />
 

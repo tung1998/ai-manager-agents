@@ -361,7 +361,7 @@ onBeforeUnmount(() => source?.close())
 </script>
 
 <template>
-  <div class="flex min-h-[24rem] flex-1 overflow-hidden rounded-lg border border-(--ui-border) max-sm:-mx-3 max-sm:-mb-3 max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0">
+  <div class="flex min-h-[24rem] flex-1 overflow-hidden rounded-lg border border-(--ui-border) max-sm:-m-3 max-sm:rounded-none max-sm:border-0">
     <aside class="hidden w-64 shrink-0 flex-col border-e border-(--ui-border) md:flex">
       <TaskList v-model:origin="origin" :tasks="tasks" :current-id="detail?.task.id" :menu="taskMenu" :badge="badge" @open="open" @new="showNew = true; detail = null" />
     </aside>
