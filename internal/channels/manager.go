@@ -49,8 +49,9 @@ type Manager struct {
 }
 
 type waiter struct {
-	key    string
-	typing context.CancelFunc
+	key     string
+	typing  context.CancelFunc
+	respond func(ctx context.Context, text string) error // a slash command's reply ("" = send a message)
 }
 
 // MaxPending is how many messages of one outside chat may wait at once.
@@ -151,6 +152,7 @@ func (m *Manager) run(ch storage.Channel) {
 		err = ad.Run(ctx, func(name string) {
 			bot = name
 			_ = m.store.Channels().SetStatus(context.Background(), ch.ID, name, "", nil)
+			go ad.SetCommands(ctx, m.commands(ctx, ch)) // its own and its automations' commands
 		}, func(in Incoming) { go m.handle(ctx, ch.ID, ad, in) })
 		if err != nil && ctx.Err() == nil {
 			_ = m.store.Channels().SetStatus(context.Background(), ch.ID, bot, err.Error(), nil)
@@ -211,7 +213,18 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	}
 	var rule storage.Automation
 	var ok bool
-	if cmd == "job" { // /job <what>: a task, through the bot's automation (its agent, limits, costs)
+	custom := false
+	if name, rest, isSlash := commandName(in.Text); isSlash && !isCmd { // a custom command?
+		if rule, custom = m.commandRule(ctx, ch, name); custom {
+			if rule.Config.CommandArg != "" && rest == "" {
+				say("Hãy nhập " + rule.Config.CommandArg + " sau lệnh, ví dụ: /" + name + " …")
+				return
+			}
+			in.Text, ok = firstNonEmpty(rest, "/"+name), true
+		}
+	}
+	if custom {
+	} else if cmd == "job" { // /job <what>: a task, through the bot's automation (its agent, limits, costs)
 		if arg == "" {
 			say("Hãy ghi việc cần làm sau lệnh, ví dụ: /job sửa lỗi thanh toán đơn 123")
 			return
@@ -252,7 +265,11 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	job, status, err := m.runner.Enqueue(actx, rule, ch.Kind, string(raw), "", "")
 	if err == nil && status == "queued" {
 		tctx, stop := context.WithCancel(m.root)
-		m.waiting[job.ID] = waiter{key: key, typing: stop}
+		w := waiter{key: key, typing: stop}
+		if custom && rule.Action != "task" {
+			w.respond = in.Respond // the answer edits the slash command's "thinking…"
+		}
+		m.waiting[job.ID] = w
 		held = false // Reply frees it
 		go typing(tctx, ad, in.ChatID)
 	}
@@ -277,6 +294,11 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 	m.mu.Lock()
 	ad := m.adapters[p.ChannelID]
 	w, waited := m.waiting[origin.ID]
+	respond := w.respond
+	if waited {
+		w.respond = nil // once: what follows is a message of its own
+		m.waiting[origin.ID] = w
+	}
 	if final && waited {
 		delete(m.waiting, origin.ID)
 	}
@@ -288,7 +310,20 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 	if ad == nil {
 		return // the channel is off now
 	}
-	switch text = strings.TrimSpace(text); {
+	text = strings.TrimSpace(text)
+	if respond != nil {
+		reply := text
+		if reply == "" && err != nil && final && !errors.Is(err, trigger.ErrNoAnswer) {
+			reply = "Xin lỗi, mình chưa trả lời được lúc này."
+		}
+		if reply == "" {
+			reply = "Xong."
+		}
+		if len(reply) <= 1900 && respond(ctx, reply) == nil {
+			return
+		}
+	}
+	switch {
 	case text != "":
 		ids, _ := ad.Send(ctx, p.ChatID, text)
 		if p.ConversationID != "" { // a reply to any part of it goes on in this conversation
@@ -325,7 +360,7 @@ func (m *Manager) pick(ctx context.Context, project storage.Repo, ch storage.Cha
 	}
 	lower := strings.ToLower(text)
 	for _, a := range list {
-		if !a.Enabled || a.Source != ch.Kind || a.Config.ChannelID != ch.ID {
+		if !a.Enabled || a.Source != ch.Kind || a.Config.ChannelID != ch.ID || a.Config.Command != "" { // a command runs only as one
 			continue
 		}
 		if len(a.Config.Keywords) > 0 && !slices.ContainsFunc(a.Config.Keywords, func(k string) bool { return strings.Contains(lower, strings.ToLower(k)) }) {
@@ -351,7 +386,7 @@ func (m *Manager) jobRule(ctx context.Context, ch storage.Channel) (storage.Auto
 	}
 	var first *storage.Automation
 	for i, a := range list {
-		if !a.Enabled || a.Source != ch.Kind || a.Config.ChannelID != ch.ID {
+		if !a.Enabled || a.Source != ch.Kind || a.Config.ChannelID != ch.ID || a.Config.Command != "" {
 			continue
 		}
 		if a.Action == "task" {
@@ -414,16 +449,12 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 	return conv.ID, m.store.Channels().SetThread(ctx, ch.ID, key, conv.ID)
 }
 
-// command reads the bot's commands (any case, "_" for "-", "conversion" for
-// "conversation", Telegram's /cmd@bot): create, close, or job with its text.
+// command reads the bot's own commands: create, close, or job with its text.
 func command(text string) (cmd, arg string, ok bool) {
-	s := strings.TrimSpace(text)
-	if !strings.HasPrefix(s, "/") {
+	name, rest, ok := commandName(text)
+	if !ok {
 		return "", "", false
 	}
-	name, rest, _ := strings.Cut(strings.TrimPrefix(s, "/"), " ")
-	name, _, _ = strings.Cut(strings.ToLower(name), "@")
-	name, rest = strings.ReplaceAll(name, "_", "-"), strings.TrimSpace(rest)
 	switch name {
 	case "create-conversation", "create-conversion":
 		return "create", "", rest == ""
@@ -433,6 +464,29 @@ func command(text string) (cmd, arg string, ok bool) {
 		return "job", rest, true
 	}
 	return "", "", false
+}
+
+// commands are a bot's menu: its own, then its automations' custom ones.
+func (m *Manager) commands(ctx context.Context, ch storage.Channel) []Command {
+	out := Builtins()
+	list, _ := m.store.Automations().List(ctx, ch.ProjectID)
+	for _, a := range list {
+		if a.Enabled && a.Source == ch.Kind && a.Config.ChannelID == ch.ID && a.Config.Command != "" {
+			out = append(out, Command{Name: a.Config.Command, Description: firstNonEmpty(a.Config.CommandDescription, a.Name), Arg: a.Config.CommandArg})
+		}
+	}
+	return out
+}
+
+// commandRule is the enabled automation of the bot whose command is name.
+func (m *Manager) commandRule(ctx context.Context, ch storage.Channel, name string) (storage.Automation, bool) {
+	list, _ := m.store.Automations().List(ctx, ch.ProjectID)
+	for _, a := range list {
+		if a.Enabled && a.Source == ch.Kind && a.Config.ChannelID == ch.ID && a.Config.Command == name {
+			return a, true
+		}
+	}
+	return storage.Automation{}, false
 }
 
 func keepKey(channelID, chatID string) string { return "channel_keep/" + channelID + "/" + chatID }

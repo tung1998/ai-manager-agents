@@ -166,3 +166,36 @@ func TestChannelAutomationDoesNotRunByHand(t *testing.T) {
 		t.Fatalf("run = %d %v", resp.StatusCode, b)
 	}
 }
+
+// A custom command is an automation of the bot: its name made safe for the
+// "/" menus, unique on the bot, not one of the bot's own.
+func TestChannelCustomCommandAPI(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	create := func(cfg map[string]any, bot map[string]any) (int, map[string]any) {
+		b := map[string]any{"name": "Tra đơn", "source": "discord", "action": "script", "script": map[string]any{"lang": "bash", "body": "cat"}, "config": cfg}
+		if bot != nil {
+			b["bot"] = bot
+		}
+		resp, out := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", b, nil)
+		return resp.StatusCode, out
+	}
+	code, b := create(map[string]any{"command": "/Đơn Hàng", "command_description": "Tra trạng thái đơn", "command_arg": "mã đơn", "keywords": []string{"x"}}, map[string]any{"token": "tok", "allow": []string{"*"}})
+	if code != 201 {
+		t.Fatalf("create = %d %v", code, b)
+	}
+	cfg := b["automation"].(map[string]any)["config"].(map[string]any)
+	if cfg["command"] != "don-hang" || cfg["command_description"] != "Tra trạng thái đơn" || cfg["command_arg"] != "mã đơn" || mustJSON(cfg["keywords"]) != `[]` {
+		t.Fatalf("config = %v", cfg)
+	}
+	chID := cfg["channel_id"].(string)
+	if code, b := create(map[string]any{"channel_id": chID, "command": "don-hang"}, nil); code != 400 {
+		t.Fatalf("a second /don-hang = %d %v", code, b)
+	}
+	if code, b := create(map[string]any{"channel_id": chID, "command": "job"}, nil); code != 400 {
+		t.Fatalf("/job taken = %d %v", code, b)
+	}
+}

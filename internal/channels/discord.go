@@ -22,6 +22,7 @@ type Discord struct {
 	client     http.Client
 	botID      string
 	appID      string // the application: its commands, its interactions' replies
+	menu       menu
 }
 
 // intents: guild messages, direct messages, message content
@@ -166,7 +167,6 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 				_ = json.Unmarshal(p.D, &r)
 				d.botID, d.appID = r.User.ID, r.Application.ID
 				ready = true
-				go d.registerCommands(ctx)
 				onReady(r.User.Username)
 			case "INTERACTION_CREATE":
 				if m, ok := d.interaction(ctx, p.D); ok {
@@ -218,7 +218,7 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	}
 	// every message comes up: Addressed = for the bot (a DM, a tag, a reply to
 	// it, a command typed without a tag); a kept conversation hears the rest
-	in.Addressed = in.Private || tagged || replied || isCommand(m.Content)
+	in.Addressed = in.Private || tagged || replied || d.menu.has(m.Content)
 	text := m.Content
 	if d.botID != "" {
 		text = strings.NewReplacer("<@"+d.botID+">", "", "<@!"+d.botID+">", "").Replace(text)
@@ -227,16 +227,18 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	return in, in.Text != ""
 }
 
-// registerCommands puts the bot's slash commands in Discord's "/" menu.
-func (d *Discord) registerCommands(ctx context.Context) {
+// SetCommands puts the bot's slash commands in Discord's "/" menu (after
+// READY: it needs the application's id).
+func (d *Discord) SetCommands(ctx context.Context, cmds []Command) {
+	d.menu.set(cmds)
 	if d.appID == "" {
 		return
 	}
 	var list []map[string]any
-	for _, c := range Commands {
-		cmd := map[string]any{"name": c.Name, "description": c.Description, "type": 1, "contexts": []int{0, 1, 2}}
-		if c.Option != "" { // the text after the command (a string, required)
-			cmd["options"] = []map[string]any{{"type": 3, "name": c.Option, "description": c.Description, "required": true}}
+	for _, c := range cmds {
+		cmd := map[string]any{"name": c.Name, "description": firstNonEmpty(c.Description, c.Name), "type": 1, "contexts": []int{0, 1, 2}}
+		if c.Arg != "" { // the text after the command (a string, required)
+			cmd["options"] = []map[string]any{{"type": 3, "name": argName(c.Arg), "description": c.Arg, "required": true}}
 		}
 		list = append(list, cmd)
 	}

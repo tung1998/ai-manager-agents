@@ -2,9 +2,11 @@ package api
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/audit"
+	"bitbucket.org/senprints/agent-office/internal/channels"
 	"errors"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -72,7 +74,8 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 		if keywords == nil {
 			keywords = []string{}
 		}
-		cfg = map[string]any{"channel_id": c.ChannelID, "keywords": keywords, "scope": c.Scope}
+		cfg = map[string]any{"channel_id": c.ChannelID, "keywords": keywords, "scope": c.Scope,
+			"command": c.Command, "command_description": c.CommandDescription, "command_arg": c.CommandArg}
 	}
 	d := automationDTO{ID: a.ID, ProjectID: a.ProjectID, Name: a.Name, Enabled: a.Enabled, Source: a.Source, Config: cfg, Action: a.Action,
 		AgentID: a.AgentID, Prompt: a.Prompt, EditMode: a.EditMode, ModelTier: a.ModelTier, KeepContext: a.KeepContext, Limits: a.Limits, Script: a.Script, Escalate: a.Escalate, Failures: a.Failures,
@@ -162,6 +165,24 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 			if k = strings.TrimSpace(k); k != "" {
 				cfg.Keywords = append(cfg.Keywords, k)
 			}
+		}
+		if strings.TrimSpace(in.Config.Command) != "" { // a custom command: it runs only as one
+			name := channels.CommandName(in.Config.Command)
+			if name == "" {
+				return errors.New("tên lệnh cần có chữ hoặc số")
+			}
+			if slices.Contains(channels.Reserved, name) {
+				return errors.New("/" + name + " là lệnh có sẵn của bot, hãy đặt tên khác")
+			}
+			others, _ := s.cfg.Store.Automations().List(r.Context(), a.ProjectID)
+			for _, o := range others {
+				if o.ID != a.ID && o.Config.ChannelID == ch.ID && o.Config.Command == name {
+					return errors.New("bot đã có lệnh /" + name + " (tự động hóa \"" + o.Name + "\")")
+				}
+			}
+			cfg.Command, cfg.Keywords, cfg.Scope = name, nil, ""
+			cfg.CommandDescription = strings.TrimSpace(in.Config.CommandDescription)
+			cfg.CommandArg = strings.TrimSpace(in.Config.CommandArg)
 		}
 	} else {
 		cfg.Auth, cfg.AuthName = in.Config.Auth, strings.TrimSpace(in.Config.AuthName)

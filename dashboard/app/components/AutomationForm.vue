@@ -30,6 +30,30 @@ const botPick = computed({
 const bot = computed(() => bots.value.find(b => b.id === form.config.channel_id))
 const allowText = computed({ get: () => form.bot.allow.join('\n'), set: (v: string) => { form.bot.allow = v.split(/[\n,]/).map(s => s.trim()).filter(Boolean) } })
 const botOpen = ref(false) // an existing bot's settings, folded
+// which messages: by keyword/topic, or a custom slash command
+const listenBy = ref<'message' | 'command'>(form.config.command ? 'command' : 'message')
+watch(listenBy, (v) => {
+  if (v === 'message') Object.assign(form.config, { command: '', command_description: '', command_arg: '' })
+  else Object.assign(form.config, { keywords: [], scope: '' })
+})
+// a name as the "/" menus take it (the server makes it safe the same way)
+const commandName = (s: string) => s.replace(/^\/+/, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd') // i18n-ignore: the letter đ, not text
+  .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32)
+const takesText = computed({
+  get: () => !!form.config.command_arg,
+  set: (v: boolean) => { form.config.command_arg = v ? (form.config.command_arg || t('auto.cmdArgDefault')) : '' }
+})
+// the bot's menu: its own commands (fixed) and the custom ones of its automations
+const { data: autosData } = useFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`, { lazy: true })
+const builtinCommands = computed(() => [
+  { name: 'job', arg: t('cmd.jobArg'), desc: t('cmd.job') },
+  { name: 'create-conversation', arg: '', desc: t('cmd.create') },
+  { name: 'close-conversation', arg: '', desc: t('cmd.close') }
+])
+const customCommands = computed(() => (autosData.value?.automations ?? [])
+  .filter(a => isChannelSource(a.source) && a.config.command && a.config.channel_id && a.config.channel_id === form.config.channel_id)
+  .map(a => ({ id: a.id, name: a.config.command!, arg: a.config.command_arg ?? '', desc: a.config.command_description || a.name })))
+const cmdLabel = (name: string) => form.source === 'telegram' ? name.replace(/-/g, '_') : name
 function useChannel() {
   form.source = bot.value?.kind ?? bots.value[0]?.kind ?? 'telegram'
   if (!form.config.channel_id && bots.value[0]) botPick.value = bots.value[0].id
@@ -225,17 +249,76 @@ async function testRun() {
             <UInput v-model="form.bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />
           </UFormField>
         </div>
-        <USeparator />
-        <p class="text-sm font-medium">{{ t('auto.whichMessages') }}</p>
-        <div class="grid gap-3 @lg:grid-cols-2">
-          <UFormField :label="t('auto.keywords')" :help="t('auto.keywordsHelp')">
-            <UInput v-model="keywords" class="w-full" :placeholder="t('auto.keywordsPlaceholder')" />
-          </UFormField>
-          <UFormField :label="t('auto.scope')" :help="t('auto.scopeHelp')">
-            <UInput v-model="form.config.scope" class="w-full" :placeholder="t('auto.scopePlaceholder')" />
-          </UFormField>
+        <!-- the bot's commands: its own (fixed) and the custom ones -->
+        <div class="space-y-1.5">
+          <p class="text-xs font-medium text-(--ui-text-muted)">{{ t('auto.botCommands') }}</p>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="c in builtinCommands" :key="c.name" :title="c.desc"
+              class="inline-flex items-center gap-1 rounded-md bg-(--ui-bg-elevated) px-2 py-0.5 font-mono text-xs text-(--ui-text-muted)"
+            >
+              <UIcon name="i-lucide-lock" class="size-3" />/{{ cmdLabel(c.name) }}<span v-if="c.arg" class="text-(--ui-text-dimmed)">&lt;{{ c.arg }}&gt;</span>
+            </span>
+            <NuxtLink
+              v-for="c in customCommands" :key="c.id" :to="`/projects/${projectId}/automations/${c.id}`" :title="c.desc"
+              class="inline-flex items-center gap-1 rounded-md border border-(--ui-border) px-2 py-0.5 font-mono text-xs hover:border-primary"
+            >
+              /{{ cmdLabel(c.name) }}<span v-if="c.arg" class="text-(--ui-text-dimmed)">&lt;{{ c.arg }}&gt;</span>
+            </NuxtLink>
+          </div>
         </div>
-        <p class="text-xs text-(--ui-text-muted)">{{ t('auto.ruleOrder') }}</p>
+        <USeparator />
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="text-sm font-medium">{{ t('auto.whichMessages') }}</p>
+          <div class="flex rounded-lg bg-(--ui-bg-elevated) p-0.5 text-sm">
+            <button
+              v-for="k in (['message', 'command'] as const)" :key="k" type="button" class="flex items-center gap-1.5 rounded-md px-3 py-1"
+              :class="listenBy === k ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted)'" @click="listenBy = k"
+            >
+              <UIcon :name="k === 'command' ? 'i-lucide-square-slash' : 'i-lucide-message-circle'" class="size-4" />{{ k === 'command' ? t('auto.byCommand') : t('auto.byMessage') }}
+            </button>
+          </div>
+        </div>
+        <template v-if="listenBy === 'message'">
+          <div class="grid gap-3 @lg:grid-cols-2">
+            <UFormField :label="t('auto.keywords')" :help="t('auto.keywordsHelp')">
+              <UInput v-model="keywords" class="w-full" :placeholder="t('auto.keywordsPlaceholder')" />
+            </UFormField>
+            <UFormField :label="t('auto.scope')" :help="t('auto.scopeHelp')">
+              <UInput v-model="form.config.scope" class="w-full" :placeholder="t('auto.scopePlaceholder')" />
+            </UFormField>
+          </div>
+          <p class="text-xs text-(--ui-text-muted)">{{ t('auto.ruleOrder') }}</p>
+        </template>
+        <template v-else>
+          <div class="grid gap-3 @lg:grid-cols-2">
+            <UFormField :label="t('auto.cmdName')" :help="t('auto.cmdNameHelp')" required>
+              <UInput
+                :model-value="form.config.command" class="w-full font-mono" placeholder="don-hang"
+                @update:model-value="(v: string | number) => { form.config.command = commandName(String(v)) }"
+              >
+                <template #leading><span class="font-mono text-(--ui-text-muted)">/</span></template>
+              </UInput>
+            </UFormField>
+            <UFormField :label="t('auto.cmdDescription')">
+              <UInput v-model="form.config.command_description" class="w-full" :placeholder="t('auto.cmdDescriptionPlaceholder')" />
+            </UFormField>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <UCheckbox v-model="takesText" :label="t('auto.cmdTakesText')" />
+            <UInput v-if="takesText" v-model="form.config.command_arg" size="sm" class="w-48" :placeholder="t('auto.cmdArgDefault')" />
+          </div>
+          <!-- how it looks in the "/" menu -->
+          <div v-if="form.config.command" class="rounded-lg border border-(--ui-border) bg-(--ui-bg-elevated)/40 p-3">
+            <p class="mb-1 text-xs text-(--ui-text-muted)">{{ t('auto.cmdPreview', { app: form.source === 'discord' ? 'Discord' : 'Telegram' }) }}</p>
+            <p class="font-mono text-sm">
+              /{{ cmdLabel(form.config.command) }}
+              <span v-if="form.config.command_arg" class="ms-1 rounded bg-(--ui-bg-accented) px-1.5 py-0.5 text-xs">{{ form.config.command_arg }}</span>
+            </p>
+            <p class="text-xs text-(--ui-text-muted)">{{ form.config.command_description || form.name }} · {{ bot?.bot_name ? `@${bot.bot_name}` : t('auto.bot') }}</p>
+            <p v-if="form.config.command_arg" class="mt-2 text-xs text-(--ui-text-muted)">{{ t('auto.cmdArgHint') }}</p>
+          </div>
+        </template>
       </template>
       <template v-else>
         <div class="grid gap-3 @lg:grid-cols-2">
@@ -312,7 +395,6 @@ async function testRun() {
         <div class="flex flex-wrap items-end gap-3">
           <UFormField :label="t('channels.agent')"><USelect v-model="chatAgent" :items="replyAgentOptions" class="min-w-56" /></UFormField>
         </div>
-        <p class="text-xs text-(--ui-text-muted)">{{ t('auto.replyMemory') }}</p>
         <p class="text-xs text-(--ui-text-muted)">{{ t('auto.replyNoTools') }}</p>
       </div>
       <div v-else class="flex flex-wrap items-end gap-3">

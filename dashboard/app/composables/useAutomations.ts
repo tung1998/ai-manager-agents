@@ -37,6 +37,8 @@ export interface AutomationConfig {
   every_minutes?: number, cron?: string, timezone?: string, auth?: string, auth_name?: string
   // telegram | discord (ADR-049): the channel, which messages (a keyword; none = any), within a scope
   channel_id?: string, keywords?: string[], scope?: string
+  // …or a custom slash command of the bot, and the text typed after it ("" = none)
+  command?: string, command_description?: string, command_arg?: string
 }
 export interface AutomationLimits {
   max_runs_per_hour?: number
@@ -101,7 +103,8 @@ export function scheduleText(a: Pick<Automation, 'source' | 'config' | 'webhook_
   if (a.source === 'webhook') return a.webhook_url ?? t('auto.sourceWebhook')
   if (isChannelSource(a.source)) {
     const bot = a.bot_status?.bot_name ? `@${a.bot_status.bot_name}` : t('auto.sourceChannel')
-    return `${bot} · ${a.source === 'discord' ? 'Discord' : 'Telegram'}${a.config.keywords?.length ? ` · "${a.config.keywords.join('", "')}"` : ''}`
+    const which = a.config.command ? ` · /${a.config.command}` : a.config.keywords?.length ? ` · "${a.config.keywords.join('", "')}"` : ''
+    return `${bot} · ${a.source === 'discord' ? 'Discord' : 'Telegram'}${which}`
   }
   if (a.config.cron) return `${a.config.cron}${a.config.timezone ? ` (${a.config.timezone})` : ''}`
   return t('auto.every', { n: a.config.every_minutes ?? 0 })
@@ -126,7 +129,7 @@ export type AutomationDraft = Omit<Automation, 'id' | 'project_id' | 'failures' 
 export function emptyDraft(): AutomationDraft {
   return {
     name: '', enabled: true, source: 'schedule',
-    config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '', channel_id: '', keywords: [], scope: '' },
+    config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '', channel_id: '', keywords: [], scope: '', command: '', command_description: '', command_arg: '' },
     bot: { token: '', allow: [], refusal: '' },
     action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', model_tier: '', keep_context: false,
     script: { lang: 'bash', body: '', timeout_s: 300 },

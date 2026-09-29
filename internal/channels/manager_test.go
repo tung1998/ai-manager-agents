@@ -46,7 +46,8 @@ func (b *fakeBot) Send(_ context.Context, chatID, text string) ([]string, error)
 	b.sent[chatID] = append(b.sent[chatID], text)
 	return []string{fmt.Sprintf("%s-%d", chatID, len(b.sent[chatID]))}, nil // the message's id: chat-n
 }
-func (b *fakeBot) Typing(context.Context, string) {}
+func (b *fakeBot) Typing(context.Context, string)                  {}
+func (b *fakeBot) SetCommands(context.Context, []channels.Command) {}
 func (b *fakeBot) wait(t *testing.T, chatID string, n int) []string {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -192,6 +193,29 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 		t.Fatalf("a reply: %d resumes, want 3", n)
 	}
 
+	// a custom command: /tra-don <mã> runs its script; the answer edits the slash reply
+	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Tra đơn", Source: "telegram", Action: "script", Enabled: true,
+		Config: storage.AutomationConfig{ChannelID: ch.ID, Command: "tra-don", CommandArg: "mã đơn"},
+		Script: storage.AutomationScript{Lang: "bash", Body: `echo "Đơn $(cat | sed 's/.*"message":"\([^"]*\)".*/\1/'): đang giao"`, TimeoutS: 10}})
+	responded := make(chan string, 2)
+	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", Text: "/tra-don 777", Addressed: true,
+		Respond: func(_ context.Context, text string) error { responded <- text; return nil }}
+	select {
+	case got := <-responded:
+		if got != "Đơn 777: đang giao" {
+			t.Fatalf("command answer = %q", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the command got no answer")
+	}
+	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", Text: "/tra-don", Addressed: true}
+	if got := bot.wait(t, "43", 1); !strings.Contains(got[0], "mã đơn") {
+		t.Fatalf("a command without its text = %v", got)
+	}
+	bot.mu.Lock()
+	bot.sent["43"] = nil
+	bot.mu.Unlock()
+
 	// /job gives work to the team through the bot's automation
 	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", UserName: "cuong", Text: "/job sửa lỗi thanh toán", Addressed: true}
 	if got := bot.wait(t, "43", 1); !strings.Contains(got[0], "Đã nhận việc") {
@@ -238,7 +262,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 			answered++
 		}
 	}
-	if skipped != 1 || answered != 8 {
+	if skipped != 1 || answered != 9 {
 		t.Fatalf("skipped %d answered %d: %+v", skipped, answered, jobs)
 	}
 	got, _ := st.Channels().Get(ctx, ch.ID)

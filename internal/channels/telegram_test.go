@@ -63,7 +63,7 @@ func TestTelegram(t *testing.T) {
 	defer cancel()
 	got := make(chan Incoming, 10)
 	bot := ""
-	go tg.Run(ctx, func(name string) { bot = name }, func(m Incoming) { got <- m })
+	go tg.Run(ctx, func(name string) { bot = name; tg.SetCommands(ctx, Builtins()) }, func(m Incoming) { got <- m })
 	var msgs []Incoming
 	for len(msgs) < 5 {
 		select {

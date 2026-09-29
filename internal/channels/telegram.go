@@ -31,19 +31,6 @@ type Incoming struct {
 	Respond func(ctx context.Context, text string) error
 }
 
-// Commands are the bot's own: every channel offers them in its menu.
-var Commands = []struct{ Name, Description, Option string }{
-	{"job", "Giao việc cho đội: /job <việc cần làm>", "viec"},
-	{"create-conversation", "Bắt đầu hội thoại: bot nhớ những gì bạn nói ở đây", ""},
-	{"close-conversation", "Kết thúc hội thoại: mỗi tin được trả lời riêng", ""},
-}
-
-// isCommand: one of the bot's commands, however typed (see command in manager.go).
-func isCommand(text string) bool {
-	_, _, ok := command(text)
-	return ok
-}
-
 // Adapter connects one bot.
 type Adapter interface {
 	// Run delivers messages addressed to the bot until ctx ends (onReady gets
@@ -51,6 +38,8 @@ type Adapter interface {
 	Run(ctx context.Context, onReady func(bot string), onMessage func(Incoming)) error
 	// Send posts text (in parts if long) and returns the ids of what it posted.
 	Send(ctx context.Context, chatID, text string) ([]string, error)
+	// SetCommands puts cmds in the platform's command menu.
+	SetCommands(ctx context.Context, cmds []Command)
 	Typing(ctx context.Context, chatID string)
 }
 
@@ -61,6 +50,7 @@ type Telegram struct {
 	client  http.Client
 	bot     string
 	retry   time.Duration // wait before retrying a failed call (0 = 5s)
+	menu    menu
 }
 
 func (t *Telegram) call(ctx context.Context, method string, body any, out any) error {
@@ -145,11 +135,6 @@ func (t *Telegram) Run(ctx context.Context, onReady func(string), onMessage func
 		}
 	}
 	t.bot = me.Username
-	var menu []map[string]string // Telegram commands: a-z, 0-9 and _ only
-	for _, c := range Commands {
-		menu = append(menu, map[string]string{"command": strings.ReplaceAll(c.Name, "-", "_"), "description": c.Description})
-	}
-	_ = t.call(ctx, "setMyCommands", map[string]any{"commands": menu}, nil)
 	onReady(me.Username)
 	offset := int64(0)
 	for ctx.Err() == nil {
@@ -200,7 +185,7 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 		in.ReplyTo = strconv.FormatInt(m.ReplyTo.MessageID, 10)
 	}
 	switch {
-	case in.Private, isCommand(text): // "/create_conversation" in a group needs no tag
+	case in.Private, t.menu.has(text): // "/create_conversation" in a group needs no tag
 	case t.bot != "" && removeTag(&text, "@"+t.bot):
 		in.Text = strings.TrimSpace(text)
 	case m.ReplyTo != nil && strings.EqualFold(m.ReplyTo.From.Username, t.bot):
@@ -226,6 +211,19 @@ func (t *Telegram) Send(ctx context.Context, chatID, text string) ([]string, err
 		ids = append(ids, strconv.FormatInt(sent.MessageID, 10))
 	}
 	return ids, nil
+}
+
+func (t *Telegram) SetCommands(ctx context.Context, cmds []Command) {
+	t.menu.set(cmds)
+	var list []map[string]string // Telegram commands: a-z, 0-9 and _ only
+	for _, c := range cmds {
+		desc := c.Description
+		if c.Arg != "" {
+			desc += " (" + c.Arg + ")"
+		}
+		list = append(list, map[string]string{"command": strings.ReplaceAll(c.Name, "-", "_"), "description": desc})
+	}
+	_ = t.call(ctx, "setMyCommands", map[string]any{"commands": list}, nil)
 }
 
 func (t *Telegram) Typing(ctx context.Context, chatID string) {

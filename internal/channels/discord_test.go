@@ -143,7 +143,9 @@ func TestDiscordSlashCommands(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	got := make(chan Incoming, 10)
-	go d.Run(ctx, func(string) {}, func(m Incoming) { got <- m })
+	go d.Run(ctx, func(string) {
+		d.SetCommands(ctx, append(Builtins(), Command{Name: "tra-don", Description: "Tra đơn", Arg: "mã đơn"}))
+	}, func(m Incoming) { got <- m })
 	var msgs []Incoming
 	for len(msgs) < 3 {
 		select {
@@ -168,7 +170,7 @@ func TestDiscordSlashCommands(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	all := strings.Join(calls, "\n")
-	for _, want := range []string{"PUT /applications/app1/commands", "create-conversation", `"name":"job"`, `"required":true`, "POST /interactions/int1/itok/callback", `"type":5`,
+	for _, want := range []string{"PUT /applications/app1/commands", "create-conversation", `"name":"job"`, `"required":true`, `"name":"tra-don"`, `"description":"mã đơn"`, "POST /interactions/int1/itok/callback", `"type":5`,
 		"PATCH /webhooks/app1/itok/messages/@original", "Đã bắt đầu"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("no %q in:\n%s", want, all)

@@ -137,6 +137,11 @@ type AutomationConfig struct {
 	ChannelID string   `json:"channel_id,omitempty"`
 	Keywords  []string `json:"keywords,omitempty"`
 	Scope     string   `json:"scope,omitempty"`
+	// Command: a custom slash command of the bot ("" = messages by keyword).
+	// CommandArg names the text typed after it ("" = none).
+	Command            string `json:"command,omitempty"`
+	CommandDescription string `json:"command_description,omitempty"`
+	CommandArg         string `json:"command_arg,omitempty"`
 }
 
 // AutomationLimits guard unattended runs.
