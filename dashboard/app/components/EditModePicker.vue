@@ -19,10 +19,12 @@ const items = computed(() => [options.value.map(o => ({
 </script>
 
 <template>
-  <UDropdownMenu :items="items" :content="{ align: 'end', side: 'top' }" :ui="{ content: 'w-80' }">
+  <UDropdownMenu :items="items" :content="{ align: 'end', side: 'top' }" :ui="{ content: 'w-80' }" class="min-w-0">
+    <!-- the label is cut (…) when the row is narrow; on a phone only the icon -->
     <UButton
-      size="xs" :color="mode === 'direct' ? 'warning' : 'neutral'" variant="soft"
-      :icon="current.icon" :label="current.label" trailing-icon="i-lucide-chevron-up" :title="current.description"
+      size="xs" :color="mode === 'direct' ? 'warning' : 'neutral'" variant="soft" class="min-w-0 max-w-full"
+      :icon="current.icon" :title="`${current.label}: ${current.description}`" :aria-label="current.label"
+      :ui="{ label: 'hidden truncate sm:inline' }" :label="current.label" trailing-icon="i-lucide-chevron-up"
     />
   </UDropdownMenu>
 </template>
