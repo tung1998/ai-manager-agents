@@ -382,7 +382,7 @@ onBeforeUnmount(() => source?.close())
         <p class="min-w-0 flex-1 truncate text-sm font-medium">{{ (!showNew && detail?.task.title) || t('task.newTitle') }}</p>
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" :aria-label="t('task.new')" @click="showNew = true; detail = null" />
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto p-4">
+      <div class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4">
       <!-- new task -->
       <div v-if="showNew || !detail" class="mx-auto max-w-2xl space-y-4">
         <div>
