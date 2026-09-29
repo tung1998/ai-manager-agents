@@ -28,3 +28,8 @@
 /* a table keeps its words whole and scrolls inside its box on a narrow screen */
 .markdown table { overflow-wrap: normal; word-break: normal; }
 .markdown th, .markdown td { min-width: 6rem; max-width: 22rem; vertical-align: top; }
+
+/* plain text bubbles (a person's message, an agent's brief): a long path or
+   link breaks instead of pushing the page sideways */
+.whitespace-pre-wrap, .break-anywhere { overflow-wrap: anywhere; min-width: 0; }
+
