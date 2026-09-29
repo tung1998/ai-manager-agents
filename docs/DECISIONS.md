@@ -1347,3 +1347,10 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Việc gần đây.
   - Bỏ thẻ giám sát, vì đã nằm trong Sự cố.
 - **Sửa (theo yêu cầu):** gộp Sự cố vào **Tổng quan**. Tổng quan là nơi theo dõi chung duy nhất: hiện toàn bộ danh sách cần xử lý (làm mới mỗi 30 giây), badge đếm nằm trên mục Tổng quan, bỏ menu Sự cố, và link `/incidents` chuyển về Tổng quan. Job là nơi xem chi tiết.
+
+### ADR-049: quyền của cuộc chat từ bot (29/09, theo yêu cầu)
+- **Quyền đi theo agent:** cuộc chat từ bot chạy bằng **đúng quyền của agent được chọn trả lời** (công cụ, office, MCP theo cài đặt của agent), như trên web, và không còn bị ép "không công cụ". Người quản lý bot kiểm soát ai được dùng qua ô "Ai được nhắn bot". Trang setup bot hiện cảnh báo đỏ khi ô này có `*`.
+- Agent do script của bot gọi vào cũng chạy theo quyền của nó; bỏ cơ chế "không tin cậy" ở C2.
+- Web gửi tiếp được vào cuộc chat của bot.
+- **Vẫn giữ:** lời người dùng không vào system prompt (I3); `/tên` chỉ nạp skill của lệnh (I1); `/job` cần tự động hóa Giao Việc (I2).
+- **Lượt chạy không công cụ** (hiện chỉ còn bước lọc chủ đề YES/NO) có thêm `--strict-mcp-config`. Trước đây MCP trong cấu hình cá nhân (Jira…) vẫn được nạp dù đã đặt `--tools ""`.

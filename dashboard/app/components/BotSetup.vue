@@ -205,6 +205,11 @@ async function save() {
             <UFormField :label="t('channels.allow')" :help="bot.kind === 'discord' ? t('channels.allowHelpDiscord') : t('channels.allowHelpTelegram')" required>
               <UTextarea v-model="bot.allow" :rows="2" autoresize class="w-full font-mono text-xs" :placeholder="bot.kind === 'discord' ? '123456789012345678' : '123456789'" />
             </UFormField>
+            <!-- the agents answer with their own rights: "*" gives those to anyone -->
+            <UAlert
+              v-if="bot.allow.split(/[\n,]/).some(s => s.trim() === '*')" color="error" variant="subtle" icon="i-lucide-shield-alert"
+              :title="t('bot.anyoneTitle')" :description="t('bot.anyoneDesc')"
+            />
             <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')">
               <UInput v-model="bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />
             </UFormField>

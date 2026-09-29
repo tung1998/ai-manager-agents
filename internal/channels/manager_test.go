@@ -351,16 +351,10 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	if got.BotName != "shop_bot" || got.LastMessageAt == nil {
 		t.Fatalf("status = %+v", got)
 	}
-	// review C2/C3: outside people drive these runs: no file, MCP or office tools
-	raw, _ := os.ReadFile(argsLog)
-	for _, call := range strings.Split(strings.TrimSpace(string(raw)), "\n===") {
-		line, _, _ := strings.Cut(call, "--append-system-prompt")
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		if !strings.Contains(line, "--tools  ") || strings.Contains(line, "--settings") || strings.Contains(line, "--mcp-config") || strings.Contains(line, "Read") {
-			t.Errorf("a channel run had tools: %s", line)
-		}
+	// a bot's chats run with the agent's own rights (the person chose it): the
+	// /chao reply above was not a tool-less run
+	if strings.Contains(sys, "--tools  ") || strings.Contains(sys, "--strict-mcp-config") {
+		t.Errorf("a bot's reply ran tool-less: %.300s", sys)
 	}
 }
 

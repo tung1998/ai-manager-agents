@@ -10,24 +10,6 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
 
-// Review C2: an agent a bot's script calls in runs untrusted (no tools, read
-// only), and as a chat even when the escalation says task: outsiders drove it.
-func TestChannelEscalationIsUntrusted(t *testing.T) {
-	for _, action := range []string{"chat", "task"} {
-		st, p := openStore(t)
-		ex := &recExec{reply: "ok"}
-		r := trigger.New(st, ex)
-		a, _ := st.Automations().Create(context.Background(), storage.Automation{ProjectID: p.ID, Name: "Tra", Source: "telegram", Action: "script", Enabled: true,
-			Config:   storage.AutomationConfig{ChannelID: "chn_1"},
-			Script:   storage.AutomationScript{Lang: "bash", Body: "echo '@@agent: xem giúp'", TimeoutS: 10},
-			Escalate: storage.AutomationEscalate{When: "signal", Action: action}})
-		runChannel(t, r, st, a, channelPayload(""))
-		if len(ex.untrusted) != 1 || !ex.untrusted[0] {
-			t.Fatalf("escalate %s: chats %d untrusted %v", action, len(ex.untrusted), ex.untrusted)
-		}
-	}
-}
-
 // Review I3: the person's words never reach the system prompt, even through
 // {{message}}/{{user}} in the admin's prompt; they stay the message.
 func TestChannelMessageStaysOutOfInstructions(t *testing.T) {

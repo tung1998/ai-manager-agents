@@ -285,9 +285,6 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	action, agentID, prompt := a.Action, a.AgentID, promptFor(a, j, now, loc)
 	if j.ParentJobID != "" { // an agent called in by a script (ADR-041)
 		action, agentID, prompt = firstNonEmpty(a.Escalate.Action, "chat"), a.Escalate.AgentID, escalationPrompt(a, j, now, loc)
-		if fromChannel { // outsiders drove the script: a read only, tool-less chat, never a task (review C2)
-			action = "chat"
-		}
 	}
 	who := "auto:" + a.Name
 	if fromChannel { // the person who wrote to the bot, as the channel names them
@@ -299,9 +296,6 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		}
 	}
 	actx := WithModelTier(actor.With(jctx, who), a.ModelTier)
-	if fromChannel && j.ParentJobID != "" {
-		actx = WithUntrusted(actx)
-	}
 	if fromChannel && action == "chat" && j.ParentJobID == "" { // a reply: the admin's words go to the system prompt
 		var instr string
 		prompt, instr = replyPrompt(a, j, now, loc)

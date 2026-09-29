@@ -216,6 +216,8 @@ export default {
   'bot.skillBadge': 'skill',
   'bot.callsSkill': 'Gọi skill {skill} với nội dung người dùng nhập',
   'job.search': 'Tìm theo tiêu đề…',
+  'bot.anyoneTitle': 'Ai cũng nhắn được bot',
+  'bot.anyoneDesc': 'Với *, bất kỳ ai nhắn bot cũng dùng được quyền của agent trả lời: đọc code, công cụ, MCP của bạn (Jira…). Nên thay bằng User ID của những người tin cậy.',
   'auto.sourceChannel': 'Tin nhắn kênh',
   'auto.bot': 'Bot',
   'auto.botNew': '+ Bot mới',
@@ -230,6 +232,6 @@ export default {
   'auto.cardReply': 'Trả lời trong chat',
   'auto.cardReplyDesc': 'Agent trả lời ngay trong cuộc chat đó',
   'auto.cardScriptChannelDesc': 'Output của script là câu trả lời, không tốn token',
-  'auto.replyNoTools': 'Agent trả lời không dùng công cụ, vì người ngoài nhắn vào. Cần tra dữ liệu thì dùng script.',
+  'auto.replyNoTools': 'Agent trả lời bằng quyền của chính nó (đọc code, công cụ, MCP… theo cài đặt agent). Ai trong danh sách được nhắn bot đều dùng được quyền đó.',
   'auto.promptChannelPlaceholder': 'Trống = gửi nguyên tin nhắn cho agent. VD: Khách {{user}} hỏi: {{message}}. Trả lời ngắn gọn, thân thiện.'
 } as const

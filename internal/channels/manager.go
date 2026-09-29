@@ -474,7 +474,7 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 	if err != nil {
 		return "", err
 	}
-	if err := m.engine.SetMode(ctx, conv.ID, perm.Read); err != nil {
+	if err := m.engine.SetMode(ctx, conv.ID, perm.Operate); err != nil { // no extra ceiling: the agent's own rights apply
 		return "", err
 	}
 	if keep == "" {

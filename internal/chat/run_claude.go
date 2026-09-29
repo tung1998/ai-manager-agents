@@ -34,7 +34,8 @@ const userMCPSettings = `{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{
 func (claudeRunner) args(req RunRequest, resume bool) []string {
 	if req.NoTools { // answered from the conversation only
 		a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "dontAsk",
-			"--setting-sources", "user,project,local", "--tools", ""}
+			"--setting-sources", "user,project,local", "--tools", "",
+			"--strict-mcp-config"} // and no MCP: the person's own servers (their Jira…) would load from their settings
 		if req.Model != "" {
 			a = append(a, "--model", req.Model)
 		}

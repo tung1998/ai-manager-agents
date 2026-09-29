@@ -217,6 +217,8 @@ const en: Record<keyof typeof vi, string> = {
   'bot.skillBadge': 'skill',
   'bot.callsSkill': 'Calls the skill {skill} with the text typed',
   'job.search': 'Search titles…',
+  'bot.anyoneTitle': 'Anyone can message the bot',
+  'bot.anyoneDesc': 'With *, anyone messaging the bot uses the answering agent\'s rights: your code, tools, MCP (Jira…). Put the User IDs of people you trust instead.',
   'auto.sourceChannel': 'Channel message',
   'auto.bot': 'Bot',
   'auto.botNew': '+ New bot',
@@ -231,7 +233,7 @@ const en: Record<keyof typeof vi, string> = {
   'auto.cardReply': 'Reply in the chat',
   'auto.cardReplyDesc': 'An agent answers right in that chat',
   'auto.cardScriptChannelDesc': "The script's output is the reply, no tokens",
-  'auto.replyNoTools': 'The agent answers without tools, as outsiders write here. Use a script to look data up.',
+  'auto.replyNoTools': 'The agent answers with its own rights (code, tools, MCP… as the agent is set). Everyone allowed to message the bot uses them.',
   'auto.promptChannelPlaceholder': 'Empty = the message as it is. e.g. {{user}} asks: {{message}}. Answer briefly and kindly.'
 }
 
