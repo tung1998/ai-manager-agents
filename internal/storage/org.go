@@ -381,23 +381,26 @@ type ChatRepo interface {
 
 // Task is a goal given to a project's whole org model.
 type Task struct {
-	ID          string
-	ProjectID   string
-	Title       string
-	Goal        string
-	Mode        string // single | hierarchy | council
-	Status      string // running | done | failed | cancelled | rejected
-	Result      string
-	Detail      string
-	BudgetUSD   float64
-	CostUSD     float64
-	ModeLevel   string // permission mode (internal/perm level), a ceiling for this task
-	EditMode    string // where it changes code: perm.EditWorktree (default) or perm.EditDirect
-	AssigneeID  string // one agent does it alone ("" = the team, by the org model)
-	Attachments []Attachment
-	CreatedBy   string
-	CreatedAt   time.Time
-	FinishedAt  *time.Time
+	ID         string
+	ProjectID  string
+	Title      string
+	Goal       string
+	Mode       string // single | hierarchy | council
+	Status     string // running | done | failed | cancelled | rejected
+	Result     string
+	Detail     string
+	BudgetUSD  float64
+	CostUSD    float64
+	ModeLevel  string // permission mode (internal/perm level), a ceiling for this task
+	EditMode   string // where it changes code: perm.EditWorktree (default) or perm.EditDirect
+	AssigneeID string // one agent does it alone ("" = the team, by the org model)
+	// ConversationID: the chat it was started in as a job ("" = on its own);
+	// that chat steers it and gets its result
+	ConversationID string
+	Attachments    []Attachment
+	CreatedBy      string
+	CreatedAt      time.Time
+	FinishedAt     *time.Time
 }
 
 // TaskStep is one agent's turn inside a task.
@@ -427,6 +430,8 @@ type TaskRepo interface {
 	Update(ctx context.Context, t Task) error
 	Get(ctx context.Context, id string) (Task, error)
 	List(ctx context.Context, projectID string, limit int) ([]Task, error) // "" = all projects
+	// ForConversation lists the jobs started in a chat, oldest first.
+	ForConversation(ctx context.Context, conversationID string) ([]Task, error)
 	Delete(ctx context.Context, id string) error
 	AddStep(ctx context.Context, s TaskStep) (TaskStep, error)
 	UpdateStep(ctx context.Context, s TaskStep) error

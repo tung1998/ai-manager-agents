@@ -644,6 +644,10 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			write = false
 		}
 	}
+	job := e.lastJob(ctx, conv.ID) // the chat's latest job (ADR-055), if any
+	if job.Status == "running" {
+		write = false // the same: the team is at work
+	}
 	pl, err := e.placeFor(ctx, project, policy, acc, e.chatTree(ctx, conv, agent), write, conv.EditMode)
 	if err != nil {
 		fail(err)
@@ -672,6 +676,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	if conv.TaskID != "" {
 		req.System += e.taskBrief(ctx, conv.TaskID)
+	} else if job.ID != "" {
+		req.System += e.taskBrief(ctx, job.ID)
 	}
 	if conv.Purpose == "automation" {
 		req.System += automationGuide

@@ -1394,3 +1394,17 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Cuộc chat mới dùng chế độ đặt trong trang cài bot.
 - Những mục **luôn hỏi**, kể cả khi làm thẳng: push, dừng tiến trình/container, đổi cài đặt, sửa tự động hóa, và lệnh có `rm`, `git reset --hard`, `git clean`, `drop`, `delete`.
 - Quyền của agent và chính sách Quyền của project vẫn áp dụng như cũ.
+
+## ADR-055: Job ngay trong chat (bước 1 của việc gộp Chat và Việc)
+
+**Bối cảnh.** Chat và Việc là hai nơi riêng. Cả hai đều có cách để đội cùng làm, nhưng ngữ cảnh, cách duyệt và cách chỉ đạo khác nhau.
+
+**Quyết định.**
+- Ô nhập của chat có nút **Chat ↔ Job**. Ở chế độ Job, tin nhắn thành một Việc gắn với cuộc chat (`tasks.conversation_id`), do lead điều phối theo mô hình tổ chức.
+- Đội nhận **bối cảnh**: 12 tin gần nhất của cuộc chat, gửi kèm như dữ liệu tham khảo, tối đa 6000 ký tự.
+- Tin người dùng nhắn vào cuộc chat khi Job đang chạy là **chỉ đạo**, đưa vào các bước sau (ADR-052).
+- Lượt chat trong lúc Job chạy không có quyền ghi. Lead biết Job đang chạy qua taskBrief.
+- Job xong thì kết quả thành **tin trả lời của lead** trong cuộc chat. Hỏi tiếp sau đó thì lead có brief của Job gần nhất.
+- Chat hiện **thẻ Job** ngay dưới tin giao việc: trạng thái, số bước, ai đang làm, chi phí, nút Dừng và link mở chi tiết. Thẻ tự cập nhật mỗi 3 giây khi Job đang chạy.
+- Project đang chạy một Việc khác thì Job bị từ chối (409), chưa xếp hàng.
+- Tab Việc giữ nguyên. Các bước sau sẽ đưa duyệt, chạy lại và commit vào thẻ, rồi mới bỏ tab.

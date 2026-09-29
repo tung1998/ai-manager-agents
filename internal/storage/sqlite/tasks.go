@@ -12,7 +12,7 @@ import (
 
 type taskRepo struct{ db dbtx }
 
-const taskCols = `id, project_id, title, goal, mode, status, result, detail, budget_usd, cost_usd, mode_level, attachments, created_by, created_at, finished_at, edit_mode, assignee_id`
+const taskCols = `id, project_id, title, goal, mode, status, result, detail, budget_usd, cost_usd, mode_level, attachments, created_by, created_at, finished_at, edit_mode, assignee_id, conversation_id`
 
 func scanTask(row scanner) (storage.Task, error) {
 	var (
@@ -21,7 +21,7 @@ func scanTask(row scanner) (storage.Task, error) {
 		finished      sql.NullString
 	)
 	if err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Goal, &t.Mode, &t.Status, &t.Result, &t.Detail, &t.BudgetUSD, &t.CostUSD,
-		&t.ModeLevel, &atts, &t.CreatedBy, &created, &finished, &t.EditMode, &t.AssigneeID); err != nil {
+		&t.ModeLevel, &atts, &t.CreatedBy, &created, &finished, &t.EditMode, &t.AssigneeID, &t.ConversationID); err != nil {
 		return t, notFound(err)
 	}
 	if err := json.Unmarshal([]byte(atts), &t.Attachments); err != nil {
@@ -62,8 +62,8 @@ func (r taskRepo) Create(ctx context.Context, t storage.Task) (storage.Task, err
 	if t.EditMode == "" {
 		t.EditMode = "worktree"
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO tasks (`+taskCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.ProjectID, t.Title, t.Goal, t.Mode, t.Status, t.Result, t.Detail, t.BudgetUSD, t.CostUSD, t.ModeLevel, toJSON(t.Attachments), t.CreatedBy, fmtTime(t.CreatedAt), optTime(t.FinishedAt), t.EditMode, t.AssigneeID)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO tasks (`+taskCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.ProjectID, t.Title, t.Goal, t.Mode, t.Status, t.Result, t.Detail, t.BudgetUSD, t.CostUSD, t.ModeLevel, toJSON(t.Attachments), t.CreatedBy, fmtTime(t.CreatedAt), optTime(t.FinishedAt), t.EditMode, t.AssigneeID, t.ConversationID)
 	return t, err
 }
 
@@ -74,6 +74,23 @@ func (r taskRepo) Update(ctx context.Context, t storage.Task) error {
 
 func (r taskRepo) Get(ctx context.Context, id string) (storage.Task, error) {
 	return scanTask(r.db.QueryRowContext(ctx, `SELECT `+taskCols+` FROM tasks WHERE id=?`, id))
+}
+
+func (r taskRepo) ForConversation(ctx context.Context, conversationID string) ([]storage.Task, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+taskCols+` FROM tasks WHERE conversation_id=? ORDER BY created_at`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []storage.Task{}
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 func (r taskRepo) List(ctx context.Context, projectID string, limit int) ([]storage.Task, error) {

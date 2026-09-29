@@ -545,3 +545,58 @@ func TestGuidanceWhileRunning(t *testing.T) {
 		t.Fatalf("guidance not given to the steps after it: %q", fm.prompts)
 	}
 }
+
+// A job started in a chat: it knows what was said there, the chat steers it,
+// and its result is answered in the chat.
+func TestJobInChat(t *testing.T) {
+	requireGit(t)
+	fm := &fakeModel{}
+	f := setup(t, fm, "team")
+	ctx := context.Background()
+	c, err := f.engine.StartConversationFor(ctx, f.project.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, _ := f.st.Chat().CreateConversation(ctx, c)
+	f.st.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "user", Content: "file cần sửa là a.txt ở gốc repo"})
+	var once sync.Once
+	fm.onPlan = func() {
+		once.Do(func() {
+			f.st.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "user", Content: "nhớ giữ nguyên dòng cuối"})
+		})
+	}
+	task, err := f.svc.StartInChat(ctx, conv.ID, "Đổi one thành ONE trong a.txt", nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.ConversationID != conv.ID {
+		t.Fatalf("task conversation = %q", task.ConversationID)
+	}
+	d := wait(t, f.svc, task.ID)
+	if d.Task.Status != "done" {
+		t.Fatalf("status=%s detail=%s", d.Task.Status, d.Task.Detail)
+	}
+	fm.mu.Lock()
+	var planSaw, guided bool
+	for _, p := range fm.prompts {
+		if strings.Contains(p, "Lập kế hoạch:") && strings.Contains(p, "file cần sửa là a.txt") {
+			planSaw = true
+		}
+		if strings.Contains(p, "giao cho bạn một việc") && strings.Contains(p, "nhớ giữ nguyên dòng cuối") {
+			guided = true
+		}
+	}
+	fm.mu.Unlock()
+	if !planSaw || !guided {
+		t.Fatalf("plan saw the chat: %v, guided: %v", planSaw, guided)
+	}
+	msgs, _ := f.st.Chat().ListMessages(ctx, conv.ID)
+	var asked, answered bool
+	for _, m := range msgs {
+		asked = asked || m.Role == "user" && m.Content == "Đổi one thành ONE trong a.txt"
+		answered = answered || m.Role == "assistant" && strings.Contains(m.Content, "Kết luận")
+	}
+	if !asked || !answered {
+		t.Fatalf("chat = %+v", msgs)
+	}
+}
