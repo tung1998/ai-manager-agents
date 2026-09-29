@@ -20,6 +20,9 @@ type Incoming struct {
 	UserName string
 	Text     string // without the bot's @mention
 	Private  bool
+	// Addressed: for the bot (private, tagged, a reply to it, a command).
+	// Others come up too: a kept conversation hears its whole chat.
+	Addressed bool
 	// Respond answers a slash command (Discord shows "thinking…" until it
 	// does); nil for a message, which is answered with Send.
 	Respond func(ctx context.Context, text string) error
@@ -186,19 +189,14 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 	if text == "" {
 		return in, false
 	}
-	if in.Private {
-		in.Text = text
-		return in, true
-	}
+	in.Text, in.Addressed = text, true
 	switch {
-	case isCommand(text): // "/create_conversation" in a group needs no tag
-		in.Text = text
+	case in.Private, isCommand(text): // "/create_conversation" in a group needs no tag
 	case t.bot != "" && removeTag(&text, "@"+t.bot):
 		in.Text = strings.TrimSpace(text)
 	case m.ReplyTo != nil && strings.EqualFold(m.ReplyTo.From.Username, t.bot):
-		in.Text = text
 	default:
-		return in, false
+		in.Addressed = false
 	}
 	return in, in.Text != ""
 }

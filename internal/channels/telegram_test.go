@@ -65,7 +65,7 @@ func TestTelegram(t *testing.T) {
 	bot := ""
 	go tg.Run(ctx, func(name string) { bot = name }, func(m Incoming) { got <- m })
 	var msgs []Incoming
-	for len(msgs) < 4 {
+	for len(msgs) < 5 {
 		select {
 		case m := <-got:
 			msgs = append(msgs, m)
@@ -73,7 +73,13 @@ func TestTelegram(t *testing.T) {
 			t.Fatalf("got %+v", msgs)
 		}
 	}
-	if bot != "shop_bot" || msgs[0].ChatID != "42" || !msgs[0].Private || msgs[1].Text != "đơn 123 đâu" || msgs[2].Text != "còn đơn 456?" || msgs[1].UserName != "binh" || msgs[3].Text != "/create_conversation" {
+	// every message comes up; Addressed = for the bot (private, tagged, a reply to it, a command)
+	for i, want := range []bool{true, false, true, true, true} {
+		if msgs[i].Addressed != want {
+			t.Fatalf("msg %d addressed = %v: %+v", i, msgs[i].Addressed, msgs[i])
+		}
+	}
+	if bot != "shop_bot" || msgs[0].ChatID != "42" || !msgs[0].Private || msgs[1].Text != "nói chuyện riêng" || msgs[2].Text != "đơn 123 đâu" || msgs[3].Text != "còn đơn 456?" || msgs[2].UserName != "binh" || msgs[4].Text != "/create_conversation" {
 		t.Fatalf("bot %q msgs %+v", bot, msgs)
 	}
 	if err := tg.Send(ctx, "42", strings.Repeat("a", 5000)); err != nil {

@@ -139,7 +139,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	defer cancel()
 	m.Start(runCtx)
 
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "đơn 123 đâu rồi", Private: true}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "đơn 123 đâu rồi", Private: true, Addressed: true}
 	if got := bot.wait(t, "42", 1); !strings.Contains(got[0], "đơn 123 đang giao") {
 		t.Fatalf("answer = %v", got)
 	}
@@ -148,41 +148,52 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 		raw, _ := os.ReadFile(argsLog)
 		return strings.Count(string(raw), "--resume")
 	}
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "đơn 123 còn không", Private: true}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "đơn 123 còn không", Private: true, Addressed: true}
 	bot.wait(t, "42", 2)
 	if n := resumes(); n != 0 {
 		t.Fatalf("a second message went on the first conversation (%d resumes)", n)
 	}
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "/create-conversation", Private: true}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "/create-conversation", Private: true, Addressed: true}
 	if got := bot.wait(t, "42", 3); !strings.Contains(got[2], "/close-conversation") {
 		t.Fatalf("create = %v", got)
 	}
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 đâu rồi", Private: true}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 đâu rồi", Private: true, Addressed: true}
 	bot.wait(t, "42", 4)
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 thì sao", Private: true}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 thì sao", Private: true, Addressed: true}
 	bot.wait(t, "42", 5)
 	if n := resumes(); n != 1 {
 		t.Fatalf("kept conversation: %d resumes, want 1", n)
 	}
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "/close_conversion", Private: true} // any spelling
-	if got := bot.wait(t, "42", 6); !strings.Contains(got[5], "/create-conversation") {
+	// a kept conversation hears its chat without a tag; others are not heard
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 nữa không tag"}
+	bot.wait(t, "42", 6)
+	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", Text: "đơn 123 chuyện riêng"}
+	time.Sleep(300 * time.Millisecond)
+	bot.mu.Lock()
+	heard := len(bot.sent["43"])
+	bot.mu.Unlock()
+	if heard != 0 {
+		t.Fatalf("an untagged message outside a kept conversation got an answer")
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "/close_conversion", Addressed: true, Private: true} // any spelling
+	if got := bot.wait(t, "42", 7); !strings.Contains(got[6], "/create-conversation") {
 		t.Fatalf("close = %v", got)
 	}
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 nữa", Private: true}
-	bot.wait(t, "42", 7)
-	if n := resumes(); n != 1 {
-		t.Fatalf("after close: %d resumes, want 1", n)
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 nữa", Addressed: true, Private: true}
+	bot.wait(t, "42", 8)
+	if n := resumes(); n != 2 {
+		t.Fatalf("after close: %d resumes, want 2", n)
 	}
 
-	bot.in <- channels.Incoming{ChatID: "44", UserID: "9", UserName: "binh", Text: "tra mã giúp", Private: true}
+	bot.in <- channels.Incoming{ChatID: "44", UserID: "9", UserName: "binh", Text: "tra mã giúp", Private: true, Addressed: true}
 	if got := bot.wait(t, "44", 1); got[0] != "Mã của binh: OK" {
 		t.Fatalf("script answer = %v", got)
 	}
-	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", Text: "thời tiết hôm nay", Private: true}
+	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", Text: "thời tiết hôm nay", Private: true, Addressed: true}
 	if got := bot.wait(t, "43", 1); got[0] != "Mình chỉ trả lời về đơn hàng." {
 		t.Fatalf("refusal = %v", got)
 	}
-	bot.in <- channels.Incoming{ChatID: "99", UserID: "9", Text: "đơn 123 đâu rồi", Private: true}
+	bot.in <- channels.Incoming{ChatID: "99", UserID: "9", Text: "đơn 123 đâu rồi", Private: true, Addressed: true}
 	time.Sleep(500 * time.Millisecond)
 	bot.mu.Lock()
 	outsider := bot.sent["99"]
@@ -200,7 +211,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 			answered++
 		}
 	}
-	if skipped != 1 || answered != 6 {
+	if skipped != 1 || answered != 7 {
 		t.Fatalf("skipped %d answered %d: %+v", skipped, answered, jobs)
 	}
 	got, _ := st.Channels().Get(ctx, ch.ID)

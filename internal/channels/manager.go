@@ -170,6 +170,9 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	if err != nil || !ch.Enabled {
 		return
 	}
+	if !in.Addressed && m.keep(ctx, ch.ID, in.ChatID) == "" {
+		return // not for the bot, and no kept conversation listening to this chat
+	}
 	if !slices.Contains(ch.Allow, "*") && !slices.Contains(ch.Allow, in.ChatID) && !slices.Contains(ch.Allow, in.UserID) {
 		if in.Respond != nil { // a slash command waits for an answer
 			_ = in.Respond(ctx, "Bạn chưa được phép dùng bot này.")

@@ -195,24 +195,26 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 		Mentions []struct {
 			ID string `json:"id"`
 		} `json:"mentions"`
+		Replied *struct {
+			Author struct {
+				ID string `json:"id"`
+			} `json:"author"`
+		} `json:"referenced_message"`
 	}
 	if json.Unmarshal(raw, &m) != nil || m.Author.Bot || m.Author.ID == d.botID {
 		return Incoming{}, false
 	}
 	in := Incoming{ChatID: m.ChannelID, UserID: m.Author.ID, UserName: m.Author.Username, Private: m.GuildID == ""}
-	if isCommand(m.Content) { // typed without tagging the bot
-		in.Text = strings.TrimSpace(m.Content)
-		return in, true
-	}
 	tagged := false
 	for _, x := range m.Mentions {
 		if x.ID == d.botID && d.botID != "" {
 			tagged = true
 		}
 	}
-	if !in.Private && !tagged {
-		return in, false
-	}
+	replied := m.Replied != nil && d.botID != "" && m.Replied.Author.ID == d.botID
+	// every message comes up: Addressed = for the bot (a DM, a tag, a reply to
+	// it, a command typed without a tag); a kept conversation hears the rest
+	in.Addressed = in.Private || tagged || replied || isCommand(m.Content)
 	text := m.Content
 	if d.botID != "" {
 		text = strings.NewReplacer("<@"+d.botID+">", "", "<@!"+d.botID+">", "").Replace(text)
@@ -262,7 +264,7 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 	if err := d.do(ctx, "POST", "/interactions/"+x.ID+"/"+x.Token+"/callback", map[string]any{"type": 5}); err != nil {
 		return Incoming{}, false
 	}
-	in := Incoming{ChatID: x.ChannelID, Text: "/" + x.Data.Name, Private: x.GuildID == ""}
+	in := Incoming{ChatID: x.ChannelID, Text: "/" + x.Data.Name, Private: x.GuildID == "", Addressed: true}
 	if x.Member != nil {
 		in.UserID, in.UserName = x.Member.User.ID, x.Member.User.Username
 	} else if x.User != nil {

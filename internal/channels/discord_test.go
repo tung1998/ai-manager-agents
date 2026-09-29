@@ -32,6 +32,7 @@ func TestDiscord(t *testing.T) {
 		send(`{"op":0,"s":3,"t":"MESSAGE_CREATE","d":{"channel_id":"c2","guild_id":"g","content":"chuyện riêng","author":{"id":"8"},"mentions":[]}}`)
 		send(`{"op":0,"s":4,"t":"MESSAGE_CREATE","d":{"channel_id":"c2","guild_id":"g","content":"<@99> đơn 123","author":{"id":"8","username":"binh"},"mentions":[{"id":"99"}]}}`)
 		send(`{"op":0,"s":5,"t":"MESSAGE_CREATE","d":{"channel_id":"c2","guild_id":"g","content":"<@99> bot","author":{"id":"5","bot":true},"mentions":[{"id":"99"}]}}`)
+		send(`{"op":0,"s":6,"t":"MESSAGE_CREATE","d":{"channel_id":"c2","guild_id":"g","content":"còn đơn 456?","author":{"id":"8","username":"binh"},"mentions":[],"referenced_message":{"author":{"id":"99"}}}}`)
 	})
 	defer gw.Close()
 	var mu sync.Mutex
@@ -58,7 +59,7 @@ func TestDiscord(t *testing.T) {
 	bot := make(chan string, 1)
 	go d.Run(ctx, func(name string) { bot <- name }, func(m Incoming) { got <- m })
 	var msgs []Incoming
-	for len(msgs) < 2 {
+	for len(msgs) < 4 {
 		select {
 		case m := <-got:
 			msgs = append(msgs, m)
@@ -66,12 +67,23 @@ func TestDiscord(t *testing.T) {
 			t.Fatalf("got %+v", msgs)
 		}
 	}
-	if <-bot != "shopbot" || !msgs[0].Private || msgs[0].ChatID != "c1" || msgs[1].Text != "đơn 123" || msgs[1].UserName != "binh" {
-		t.Fatalf("msgs = %+v", msgs)
+	// every message comes up; Addressed says whether it is for the bot (a
+	// kept conversation listens to the rest of its chat, ADR-049)
+	if <-bot != "shopbot" || !msgs[0].Private || !msgs[0].Addressed || msgs[0].ChatID != "c1" {
+		t.Fatalf("dm = %+v", msgs[0])
+	}
+	if msgs[1].Text != "chuyện riêng" || msgs[1].Addressed {
+		t.Fatalf("untagged = %+v", msgs[1])
+	}
+	if msgs[2].Text != "đơn 123" || !msgs[2].Addressed || msgs[2].UserName != "binh" {
+		t.Fatalf("tagged = %+v", msgs[2])
+	}
+	if msgs[3].Text != "còn đơn 456?" || !msgs[3].Addressed {
+		t.Fatalf("a reply to the bot = %+v", msgs[3])
 	}
 	select {
 	case m := <-got:
-		t.Fatalf("a message not for the bot: %+v", m)
+		t.Fatalf("a bot's own message came up: %+v", m)
 	case <-time.After(200 * time.Millisecond):
 	}
 	if err := d.Send(ctx, "c2", strings.Repeat("b", 2500)); err != nil {
@@ -140,7 +152,7 @@ func TestDiscordSlashCommands(t *testing.T) {
 			t.Fatalf("got %+v", msgs)
 		}
 	}
-	if msgs[0].Text != "/create-conversation" || msgs[0].ChatID != "c2" || msgs[0].UserID != "8" || msgs[0].Respond == nil {
+	if msgs[0].Text != "/create-conversation" || msgs[0].ChatID != "c2" || msgs[0].UserID != "8" || msgs[0].Respond == nil || !msgs[0].Addressed {
 		t.Fatalf("command = %+v", msgs[0])
 	}
 	if msgs[1].Text != "/close-conversation" { // typed without tagging the bot
