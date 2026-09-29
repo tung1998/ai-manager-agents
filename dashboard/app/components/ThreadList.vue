@@ -4,7 +4,7 @@ import type { DropdownMenuItem } from '@nuxt/ui'
 // The chats of a project, newest first: the chat's side column on a wide
 // screen, a drawer on a phone.
 interface Thread { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, source?: Source }
-defineProps<{ conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, menu: (c: Thread) => DropdownMenuItem[][] }>()
+defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, menu: (c: Thread) => DropdownMenuItem[][] }>()
 const origin = defineModel<'all' | Source>('origin', { default: 'all' })
 const emit = defineEmits<{ open: [Thread], new: [] }>()
 const { t, dateLocale } = useLang()
@@ -18,7 +18,8 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
       <SourceFilter v-model="origin" />
     </div>
     <div class="flex-1 overflow-y-auto p-1">
-      <p v-if="!conversations.length" class="p-3 text-xs text-(--ui-text-muted)">{{ t('chat.none') }}</p>
+      <LoadingRows v-if="loading && !conversations.length" :n="6" />
+      <p v-else-if="!conversations.length" class="p-3 text-xs text-(--ui-text-muted)">{{ t('chat.none') }}</p>
       <div
         v-for="c in conversations" :key="c.id"
         class="group flex cursor-pointer items-start gap-1 rounded-md px-2 py-1.5 text-sm"

@@ -36,10 +36,10 @@ const { isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
 const toast = useToast()
 const days = ref(30)
-const _f1 = useFetch<Summary>('/api/usage/summary', { query: { days } })
+const _f1 = useFetch<Summary>('/api/usage/summary', { query: { days }, lazy: true })
 const { data: sum, refresh } = _f1
 const RUNS_PAGE = 20 // a page of runs at a time (a phone over a VPN)
-const _f2 = useFetch<{ runs: Run[], next_before?: string }>('/api/usage/runs', { query: { days, limit: RUNS_PAGE } })
+const _f2 = useFetch<{ runs: Run[], next_before?: string }>('/api/usage/runs', { query: { days, limit: RUNS_PAGE }, lazy: true })
 const { data: runsData, refresh: refreshRuns } = _f2
 const moreRuns = ref<Run[]>([]) // the pages loaded after the first
 const runsBefore = ref('')
@@ -58,9 +58,9 @@ async function loadMoreRuns() {
     loadingRuns.value = false
   }
 }
-const _f3 = useFetch<{ projects: Project[] }>('/api/projects')
+const _f3 = useFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
 const { data: projData } = _f3
-await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
+// not awaited: the page shows at once with skeletons (a phone over a VPN); all three start together
 
 const usd = (v: number) => v >= 100 ? `$${v.toFixed(0)}` : v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(3)}`
 const tokens = (v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : `${v}`
@@ -246,7 +246,8 @@ const statusMeta = computed<Record<string, { label: string, color: 'success' | '
       <!-- recent runs -->
       <UCard>
         <template #header><p class="font-medium">{{ t('costs.recentRuns') }}</p></template>
-        <p v-if="!runs.length" class="text-sm text-(--ui-text-muted)">{{ t('costs.noRuns') }}</p>
+        <LoadingRows v-if="!runsData" :n="5" :icon="false" />
+        <p v-else-if="!runs.length" class="text-sm text-(--ui-text-muted)">{{ t('costs.noRuns') }}</p>
         <div v-else class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead class="text-left text-xs text-(--ui-text-muted)">
@@ -280,6 +281,14 @@ const statusMeta = computed<Record<string, { label: string, color: 'success' | '
           <p class="mt-2 text-xs text-(--ui-text-muted)">{{ t('costs.estimateHint') }}</p>
         </div>
       </UCard>
+    </div>
+    <!-- the numbers on their way -->
+    <div v-else class="space-y-6" aria-busy="true">
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <UCard v-for="i in 4" :key="i"><USkeleton class="h-3 w-20" /><USkeleton class="mt-2 h-7 w-24" /></UCard>
+      </div>
+      <UCard><USkeleton class="h-40 w-full" /></UCard>
+      <UCard :ui="{ body: 'p-0 sm:p-0' }"><LoadingRows :n="5" :icon="false" /></UCard>
     </div>
 
     <UModal v-model:open="settingsOpen" :title="t('costs.settingsModal')" :ui="{ content: 'max-w-xl' }">

@@ -130,7 +130,8 @@ function open(g: Group) {
     </div>
 
     <UCard :ui="{ body: 'p-0 sm:p-0' }">
-      <p v-if="!groups.length && !loading" class="p-4 text-sm text-(--ui-text-muted)">{{ t('job.empty') }}</p>
+      <LoadingRows v-if="loading && !groups.length" :n="6" />
+      <p v-else-if="!groups.length" class="p-4 text-sm text-(--ui-text-muted)">{{ t('job.empty') }}</p>
       <div v-else class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="border-b border-(--ui-border) text-left text-xs text-(--ui-text-muted)">

@@ -347,7 +347,8 @@ async function restore(e: Entry) {
 
       <!-- activity -->
       <UCard v-else-if="tab === 'activity'" :ui="{ body: 'p-0 sm:p-0' }">
-        <p v-if="activity && !activity.length" class="p-4 text-sm text-(--ui-text-muted)">{{ t('agentPage.noActivity') }}</p>
+        <LoadingRows v-if="!activity" :n="5" />
+        <p v-else-if="!activity.length" class="p-4 text-sm text-(--ui-text-muted)">{{ t('agentPage.noActivity') }}</p>
         <!-- one row per place it took part in -->
         <div v-for="it in activity ?? []" :key="(it.conversation_id ?? '') + (it.task_id ?? '')" class="border-b border-(--ui-border) last:border-0">
           <div class="flex items-center gap-3 px-4 py-2.5">
@@ -371,7 +372,8 @@ async function restore(e: Entry) {
 
       <!-- history -->
       <div v-else class="max-w-4xl space-y-3">
-        <p v-if="history && !history.length" class="text-sm text-(--ui-text-muted)">{{ t('agentPage.noHistory') }}</p>
+        <UCard v-if="!history" :ui="{ body: 'p-0 sm:p-0' }"><LoadingRows :n="3" :icon="false" /></UCard>
+        <p v-else-if="!history.length" class="text-sm text-(--ui-text-muted)">{{ t('agentPage.noHistory') }}</p>
         <UCard v-for="e in history ?? []" :key="e.revision_id" :ui="{ body: 'space-y-2 sm:p-4' }">
           <div class="flex flex-wrap items-center gap-2 text-sm">
             <UIcon :name="e.created ? 'i-lucide-circle-plus' : 'i-lucide-pencil'" class="size-4 text-(--ui-text-muted)" />

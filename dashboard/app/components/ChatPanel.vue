@@ -36,13 +36,13 @@ const composeOpen = ref(false)
 const toast = useToast()
 const { t, dateLocale } = useLang()
 
-const _f1 = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`)
+const _f1 = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const { data: agentsData } = _f1
 // where the chats started: the dashboard, a bot, an automation
 const origin = ref<'all' | Source>('all')
-const _f2 = useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value })
-const { data: convData, refresh: refreshConvs } = _f2
-await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
+const _f2 = useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value, lazy: true })
+const { data: convData, refresh: refreshConvs, pending: convsLoading } = _f2
+// not awaited: the chat shows at once with its skeletons (a phone over a VPN)
 // every agent of the project: the person picks who answers, by its rights
 const agents = computed(() => agentsData.value?.agents ?? [])
 const conversations = computed(() => convData.value?.conversations ?? [])
@@ -223,13 +223,21 @@ async function showMessage(id: string) {
   setTimeout(() => { if (marked.value === id) marked.value = '' }, 2500)
 }
 
+const loadingMsgs = ref(false) // a chat's messages on their way: its skeleton shows
 async function open(c: Conversation, messageId?: string) {
   stopStream()
+  if (current.value?.id !== c.id) messages.value = [] // another chat: not the last one's messages meanwhile
   current.value = c
   if (ownsUrl.value && route.query.c !== c.id) router.replace({ query: { ...route.query, c: c.id, m: undefined } })
   stopBackground()
   // the last page (a phone over a VPN); a link to one message loads it all to find it
-  const res = await $fetch<{ conversation: Conversation, messages: Message[], has_more?: boolean, members?: Member[], running?: RunningTurn[] }>(`/api/conversations/${c.id}${messageId ? '' : `?limit=${PAGE}`}`)
+  loadingMsgs.value = true
+  let res: { conversation: Conversation, messages: Message[], has_more?: boolean, members?: Member[], running?: RunningTurn[] }
+  try {
+    res = await $fetch(`/api/conversations/${c.id}${messageId ? '' : `?limit=${PAGE}`}`)
+  } finally {
+    loadingMsgs.value = false
+  }
   messages.value = res.messages
   hasOlder.value = !!res.has_more
   current.value = res.conversation
@@ -390,7 +398,14 @@ onMounted(() => {
     draft.value = route.query.draft
     router.replace({ query: { ...route.query, draft: undefined, c: undefined } })
   } else if (ownsUrl.value && typeof route.query.c === 'string' && !tookPrefill) open({ id: route.query.c } as Conversation, typeof route.query.m === 'string' ? route.query.m : undefined)
-  else if (conversations.value[0] && !tookPrefill) open(conversations.value[0])
+  else if (!tookPrefill) openFirst.value = true
+})
+// the latest chat opens once the list is there
+const openFirst = ref(false)
+watch([openFirst, convData], () => {
+  if (!openFirst.value || !convData.value) return
+  openFirst.value = false
+  if (!current.value && conversations.value[0] && !tookPrefill) open(conversations.value[0])
 })
 onBeforeUnmount(() => {
   stopStream()
@@ -405,13 +420,13 @@ onBeforeUnmount(() => {
   >
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
-      <ThreadList v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :menu="threadMenu" @open="open" @new="newConversation(pick)" />
+      <ThreadList :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :menu="threadMenu" @open="open" @new="newConversation(pick)" />
     </aside>
     <!-- a phone: the chats in a drawer -->
     <USlideover v-if="!single && !compact" v-model:open="threadsOpen" side="left" :title="t('chat.threads')" :ui="{ content: 'max-w-xs', body: 'p-0 sm:p-0 flex flex-col' }">
       <template #body>
         <ThreadList
-          v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :menu="threadMenu"
+          :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :menu="threadMenu"
           @open="(c) => { threadsOpen = false; open(c) }" @new="threadsOpen = false; newConversation(pick)"
         />
       </template>
@@ -448,7 +463,17 @@ onBeforeUnmount(() => {
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
         </div>
-        <div v-if="!messages.length && !streaming" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
+        <!-- the messages on their way -->
+        <div v-if="loadingMsgs && !messages.length" class="space-y-5" aria-busy="true">
+          <div v-for="i in 3" :key="i" class="space-y-4">
+            <div class="flex justify-end"><USkeleton class="h-9 rounded-2xl" :style="{ width: `${30 + i * 10}%` }" /></div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2"><USkeleton class="size-5 rounded-full" /><USkeleton class="h-3 w-24" /></div>
+              <USkeleton class="h-3.5 w-11/12" /><USkeleton class="h-3.5 w-4/5" /><USkeleton class="h-3.5 w-2/3" />
+            </div>
+          </div>
+        </div>
+        <div v-else-if="!messages.length && !streaming" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
           <UIcon name="i-lucide-messages-square" class="size-8" />
           <template v-if="purpose === 'automation'">
             <p class="text-sm">{{ t('chat.askAboutAutomation') }}</p>

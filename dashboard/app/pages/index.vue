@@ -2,23 +2,23 @@
 const { user, isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
 
-const _f2 = useFetch<{ providers: Provider[] }>('/api/providers')
+const _f2 = useFetch<{ providers: Provider[] }>('/api/providers', { lazy: true })
 const { data: prov } = _f2
-const _f3 = useFetch<{ projects: Project[] }>('/api/projects')
+const _f3 = useFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
 const { data: proj } = _f3
-const _f4 = useFetch<{ templates: OrgModel[] }>('/api/templates')
+const _f4 = useFetch<{ templates: OrgModel[] }>('/api/templates', { lazy: true })
 const { data: tpl } = _f4
 
 // the latest chats across projects (bots' too): where the work happens now
 interface RecentChat { id: string, project_id: string, title: string, agent_name: string, source?: Source, updated_at: string, active_turn?: string }
-const _f5 = useFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 6 } })
+const _f5 = useFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 6 }, lazy: true })
 const { data: chatData } = _f5
 const recentChats = computed(() => chatData.value?.conversations ?? [])
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // what needs a person, and the last day in numbers
 interface Incident { kind: string, severity: 'error' | 'warning', project_id: string, project_name: string, title: string, detail: string, link: string, id: string, key: string }
-const _f6 = useFetch<{ incidents: Incident[], count: number }>('/api/incidents')
+const _f6 = useFetch<{ incidents: Incident[], count: number }>('/api/incidents', { lazy: true })
 const { data: incData, refresh: refreshInc } = _f6
 let incTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => { incTimer = setInterval(() => refreshInc(), 30000) })
@@ -26,9 +26,10 @@ onBeforeUnmount(() => clearInterval(incTimer))
 const incidents = computed(() => incData.value?.incidents ?? [])
 // the kind of each, as a word next to it
 const incKind = (k: string) => t(`incidents.kind.${k}` as 'incidents.kind.monitor')
-const _f7 = useFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h')
+const _f7 = useFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h', { lazy: true })
 const { data: stats } = _f7
-await Promise.all([_f2, _f3, _f4, _f5, _f6, _f7]) // started together: one round trip, not 7 (a phone over a VPN)
+// none is awaited: the page shows at once (a phone over a VPN), each block
+// with its skeleton until its data comes (they all start together)
 // what can be done from the list: decide a card; try again, let go or
 // investigate something that went wrong
 const toast = useToast()
@@ -105,7 +106,8 @@ const steps = computed(() => [
 
           </div>
         </template>
-        <p v-if="!incidents.length" class="flex items-center gap-2 p-4 text-sm text-(--ui-text-muted)">
+        <LoadingRows v-if="!incData" :n="2" />
+        <p v-else-if="!incidents.length" class="flex items-center gap-2 p-4 text-sm text-(--ui-text-muted)">
           <UIcon name="i-lucide-circle-check" class="size-4 text-(--ui-success)" />{{ t('home.allGood') }}
         </p>
         <div v-else class="divide-y divide-(--ui-border)">
@@ -141,25 +143,25 @@ const steps = computed(() => [
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         <UCard :ui="{ body: 'p-3 sm:p-4' }">
           <p class="text-xs text-(--ui-text-muted)">{{ t('job.running') }}</p>
-          <p class="text-xl font-semibold tabular-nums sm:text-2xl">{{ (stats?.totals.running ?? 0) + (stats?.totals.pending ?? 0) }}</p>
+          <div class="text-xl font-semibold tabular-nums sm:text-2xl"><USkeleton v-if="!stats" class="mt-1 h-7 w-12" /><template v-else>{{ (stats?.totals.running ?? 0) + (stats?.totals.pending ?? 0) }}</template></div>
         </UCard>
         <UCard :ui="{ body: 'p-3 sm:p-4' }">
           <p class="text-xs text-(--ui-text-muted)">{{ t('job.failed24') }}</p>
-          <p class="text-xl font-semibold tabular-nums sm:text-2xl" :class="stats?.totals.failed_24h ? 'text-(--ui-error)' : ''">{{ stats?.totals.failed_24h ?? 0 }}</p>
+          <div class="text-xl font-semibold tabular-nums sm:text-2xl" :class="stats?.totals.failed_24h ? 'text-(--ui-error)' : ''"><USkeleton v-if="!stats" class="mt-1 h-7 w-12" /><template v-else>{{ stats?.totals.failed_24h ?? 0 }}</template></div>
         </UCard>
         <UCard :ui="{ body: 'p-3 sm:p-4' }">
           <p class="text-xs text-(--ui-text-muted)">{{ t('job.cost24') }}</p>
-          <p class="text-xl font-semibold tabular-nums sm:text-2xl">${{ (stats?.totals.cost_24h ?? 0).toFixed(2) }}</p>
+          <div class="text-xl font-semibold tabular-nums sm:text-2xl"><USkeleton v-if="!stats" class="mt-1 h-7 w-12" /><template v-else>${{ (stats?.totals.cost_24h ?? 0).toFixed(2) }}</template></div>
         </UCard>
         <NuxtLink to="/projects">
           <UCard :ui="{ body: 'p-3 sm:p-4' }" class="h-full hover:bg-(--ui-bg-elevated)/40">
             <p class="text-xs text-(--ui-text-muted)">{{ t('home.project') }}</p>
-            <p class="text-xl font-semibold tabular-nums sm:text-2xl">{{ projects.length }}</p>
+            <div class="text-xl font-semibold tabular-nums sm:text-2xl"><USkeleton v-if="!proj" class="mt-1 h-7 w-12" /><template v-else>{{ projects.length }}</template></div>
           </UCard>
         </NuxtLink>
       </div>
 
-      <UCard v-if="!setupDone">
+      <UCard v-if="prov && proj && tpl && !setupDone">
         <template #header>
           <p class="font-medium">{{ t('home.setupTitle') }}</p>
           <p class="text-sm text-(--ui-text-muted)">{{ t('home.setupDesc') }}</p>
@@ -185,10 +187,11 @@ const steps = computed(() => [
         </ol>
       </UCard>
 
-      <UCard v-if="recentChats.length" :ui="{ body: 'p-0 sm:p-0' }">
+      <UCard v-if="!chatData || recentChats.length" :ui="{ body: 'p-0 sm:p-0' }">
         <template #header>
           <p class="font-semibold">{{ t('home.recentChats') }}</p>
         </template>
+        <LoadingRows v-if="!chatData" :n="4" />
         <div class="divide-y divide-(--ui-border)">
           <NuxtLink
             v-for="c in recentChats" :key="c.id" :to="`/projects/${c.project_id}?tab=chat&c=${c.id}`"

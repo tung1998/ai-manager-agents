@@ -6,11 +6,11 @@ const { isAdmin } = useAuth()
 const { t } = useLang()
 const id = computed(() => route.params.id as string)
 
-const _f1 = useFetch<{ project: Project }>(() => `/api/projects/${id.value}`)
-const { data, refresh } = _f1
-const _f2 = useFetch<{ templates: OrgModel[] }>('/api/templates')
+const _f1 = useFetch<{ project: Project }>(() => `/api/projects/${id.value}`, { lazy: true })
+const { data, refresh, error: loadError } = _f1
+const _f2 = useFetch<{ templates: OrgModel[] }>('/api/templates', { lazy: true })
 const { data: tplData } = _f2
-await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
+// not awaited: the page shows at once with a skeleton (a phone over a VPN)
 const project = computed(() => data.value?.project)
 const templates = computed(() => tplData.value?.templates ?? [])
 
@@ -155,6 +155,14 @@ async function saveAsTemplate() {
         <ChatPanel :project-id="project.id" />
       </template>
       <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
+    </div>
+    <UAlert v-else-if="loadError" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="apiError(loadError)" />
+    <!-- the project on its way -->
+    <div v-else class="flex min-h-0 flex-1 gap-4" aria-busy="true">
+      <div class="hidden w-60 shrink-0 rounded-lg border border-(--ui-border) md:block"><LoadingRows :n="6" /></div>
+      <div class="flex-1 space-y-3 rounded-lg border border-(--ui-border) p-4">
+        <USkeleton class="h-4 w-1/3" /><USkeleton class="h-4 w-2/3" /><USkeleton class="h-4 w-1/2" />
+      </div>
     </div>
 
     <UModal v-model:open="applyOpen" :title="project?.model ? t('project.changeModel') : t('project.chooseModel')" :ui="{ content: 'max-w-xl' }">
