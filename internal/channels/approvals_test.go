@@ -71,6 +71,15 @@ func TestApprovalsFromChat(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	m.Start(runCtx)
+	// the bot is up (its adapter is where answers go) before anything is sent
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if c, _ := st.Channels().Get(ctx, ch.ID); c.BotName != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
 
 	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
 	act, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm lint", Status: "pending"})
