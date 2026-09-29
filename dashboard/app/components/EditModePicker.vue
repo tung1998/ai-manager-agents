@@ -24,7 +24,7 @@ const items = computed(() => [options.value.map(o => ({
     <UButton
       size="xs" :color="mode === 'direct' ? 'warning' : 'neutral'" variant="soft" class="min-w-0 max-w-full"
       :icon="current.icon" :title="`${current.label}: ${current.description}`" :aria-label="current.label"
-      :ui="{ label: 'hidden truncate sm:inline' }" :label="current.label" trailing-icon="i-lucide-chevron-up"
+      :ui="{ label: 'hidden truncate sm:inline', trailingIcon: 'hidden sm:inline-flex' }" :label="current.label" trailing-icon="i-lucide-chevron-up"
     />
   </UDropdownMenu>
 </template>

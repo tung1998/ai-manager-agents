@@ -25,3 +25,6 @@
 .markdown a { color: var(--ui-primary); text-decoration: underline; }
 .markdown table { border-collapse: collapse; margin: 0.5rem 0; font-size: 0.85em; }
 .markdown th, .markdown td { border: 1px solid var(--ui-border); padding: 0.25rem 0.5rem; }
+/* a table keeps its words whole and scrolls inside its box on a narrow screen */
+.markdown table { overflow-wrap: normal; word-break: normal; }
+.markdown th, .markdown td { min-width: 6rem; max-width: 22rem; vertical-align: top; }

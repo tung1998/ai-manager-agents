@@ -427,7 +427,7 @@ onBeforeUnmount(() => source?.close())
               · ${{ detail.task.cost_usd.toFixed(3) }}<template v-if="detail.task.budget_usd"> / ${{ detail.task.budget_usd }}</template>
             </p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2"> <!-- the buttons wrap on a phone -->
             <!-- diffs waiting: the action itself replaces the pending-approval label, right at the top -->
             <UButton
               v-if="isAdmin && detail.task.status === 'done' && pendingPatches.length" size="sm" icon="i-lucide-check-check"
