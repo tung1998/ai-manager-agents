@@ -12,7 +12,13 @@ const form = props.form
 
 const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 // the project's chat channels: a rule takes the messages of one (ADR-049)
-const { data: channelsData } = useFetch<{ channels: { id: string, kind: 'telegram' | 'discord', name: string }[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true })
+const { data: channelsData, refresh: refreshChannels } = useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true })
+// "+ Kết nối bot": connect one here; it is picked when saved
+const connecting = ref(false)
+async function connected(c: Channel) {
+  await refreshChannels()
+  channelId.value = c.id
+}
 const channels = computed(() => channelsData.value?.channels ?? [])
 const fromChannel = computed(() => isChannelSource(form.source))
 const channelId = computed({
@@ -193,11 +199,17 @@ async function testRun() {
         </div>
       </template>
       <template v-else-if="fromChannel">
-        <p v-if="!channels.length" class="text-sm text-(--ui-text-muted)">{{ t('auto.noChannels') }}</p>
+        <div v-if="!channels.length" class="flex flex-wrap items-center gap-2 rounded-lg bg-(--ui-bg-elevated)/50 p-3">
+          <p class="min-w-0 flex-1 text-sm text-(--ui-text-muted)">{{ t('auto.noChannels') }}</p>
+          <UButton v-if="isAdmin" size="sm" icon="i-lucide-plus" :label="t('channels.connect')" @click="connecting = true" />
+        </div>
         <template v-else>
           <div class="grid gap-3 @lg:grid-cols-2">
             <UFormField :label="t('auto.channel')" required>
-              <USelect v-model="channelId" :items="channels.map(c => ({ label: `${c.name} (${c.kind === 'discord' ? 'Discord' : 'Telegram'})`, value: c.id }))" class="w-full" />
+              <div class="flex gap-2">
+                <USelect v-model="channelId" :items="channels.map(c => ({ label: `${c.name} (${c.kind === 'discord' ? 'Discord' : 'Telegram'})`, value: c.id }))" class="min-w-0 flex-1" />
+                <UButton v-if="isAdmin" color="neutral" variant="outline" icon="i-lucide-plus" :label="t('channels.connect')" @click="connecting = true" />
+              </div>
             </UFormField>
             <UFormField :label="t('auto.keywords')" :help="t('auto.keywordsHelp')">
               <UInput v-model="keywords" class="w-full" :placeholder="t('auto.keywordsPlaceholder')" />
@@ -221,6 +233,8 @@ async function testRun() {
         <p class="text-xs text-(--ui-text-muted)">{{ t('auto.tunnelHint') }}</p>
       </template>
     </section>
+
+    <ChannelForm v-model:open="connecting" :project-id="projectId" @saved="connected" />
 
     <!-- 2. action -->
     <section class="space-y-4 rounded-xl border border-(--ui-border) p-4" :class="hl('action') || hl('escalate')">

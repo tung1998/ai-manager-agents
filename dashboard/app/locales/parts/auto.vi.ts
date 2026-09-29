@@ -165,7 +165,7 @@ export default {
   'floating.open': 'Hỏi agent của project',
   'floating.title': 'Chat của project',
   'auto.sourceChannel': 'Tin nhắn kênh',
-  'auto.noChannels': 'Project chưa có kênh chat. Thêm bot ở tab Kênh chat trước.',
+  'auto.noChannels': 'Chưa có bot nào. Kết nối bot Telegram hoặc Discord trước, xong quay lại đây là chọn được.',
   'auto.channel': 'Kênh',
   'auto.keywords': 'Chứa từ khóa',
   'auto.keywordsHelp': 'Cách nhau bằng dấu phẩy; tin chứa một trong các từ là khớp. Trống = mọi tin',

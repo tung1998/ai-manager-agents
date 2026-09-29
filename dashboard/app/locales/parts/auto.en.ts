@@ -166,7 +166,7 @@ const en: Record<keyof typeof vi, string> = {
   'floating.open': 'Ask the project agent',
   'floating.title': 'Project chat',
   'auto.sourceChannel': 'Channel message',
-  'auto.noChannels': 'This project has no chat channel. Add a bot in the Chat channels tab first.',
+  'auto.noChannels': 'No bot yet. Connect a Telegram or Discord bot first; it is picked here when done.',
   'auto.channel': 'Channel',
   'auto.keywords': 'Contains a keyword',
   'auto.keywordsHelp': 'Comma separated; a message with any of them matches. Empty = every message',

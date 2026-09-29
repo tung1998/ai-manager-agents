@@ -1276,5 +1276,5 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - **Giao diện:**
   - Form tự động hóa có thêm nguồn "Tin nhắn kênh": chọn kênh, nhập từ khóa và chủ đề.
   - Hành động "Trả lời trong chat" chỉ có với nguồn này.
-  - Tab Kênh chat hiện danh sách quy tắc của từng kênh, có nút "Thêm quy tắc". Tạo kênh xong thì mở luôn trang tạo quy tắc.
+  - Không có tab Kênh chat riêng: đầu trang Tự động có dải "Bot đã kết nối" (trạng thái, bật/tắt, sửa). Form tự động hóa có nút "+ Kết nối bot"; kết nối xong thì bot được chọn luôn. Kết nối từ dải bot xong thì mở trang tạo quy tắc. Link cũ `?tab=channels` chuyển về tab Tự động.
 - **Để sau:** agent đề xuất tự động hóa (`trigger.Spec`) vẫn chỉ tạo được lịch chạy và webhook.

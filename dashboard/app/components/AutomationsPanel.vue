@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// A project's automations: schedules and webhooks that start a chat turn or a
-// task as a job (ADR-040).
+// A project's automations: schedules, webhooks and chat bots' messages that
+// start a chat turn, a task or a script as a job (ADR-040, ADR-049). The bots
+// connected sit on top: each is a source for the rules below.
 const props = defineProps<{ projectId: string }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
@@ -34,6 +35,7 @@ async function runNow(a: Automation) {
 
 <template>
   <div class="max-w-5xl space-y-3">
+    <ChannelsStrip v-if="isAdmin" :project-id="projectId" />
     <div class="flex items-center justify-between gap-2">
       <p class="text-sm text-(--ui-text-muted)">{{ list.length ? '' : t('auto.empty') }}</p>
       <UButton v-if="isAdmin" icon="i-lucide-plus" size="sm" :label="t('auto.new')" :to="`/projects/${projectId}/automations/new`" />
