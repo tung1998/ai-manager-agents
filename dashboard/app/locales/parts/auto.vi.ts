@@ -215,6 +215,7 @@ export default {
   'bot.addN': 'Thêm {n} lệnh',
   'bot.skillBadge': 'skill',
   'bot.callsSkill': 'Gọi skill {skill} với nội dung người dùng nhập',
+  'job.search': 'Tìm theo tiêu đề…',
   'auto.sourceChannel': 'Tin nhắn kênh',
   'auto.bot': 'Bot',
   'auto.botNew': '+ Bot mới',

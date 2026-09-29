@@ -103,3 +103,33 @@ func TestSkillChatPurpose(t *testing.T) {
 		t.Fatalf("a skill chat is in the list: %v", b)
 	}
 }
+
+// The Jobs page filters by where a job came from and finds them by title.
+func TestJobsBySourceAndTitle(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	for _, j := range []storage.Job{
+		{ProjectID: pid, Kind: "chat_turn", Origin: "user", Trigger: "ui", Title: "hỏi về đơn", Status: "done"},
+		{ProjectID: pid, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Title: "đơn 123 đâu", Status: "done"},
+		{ProjectID: pid, Kind: "script", Origin: "automation", Trigger: "schedule", Title: "báo cáo sáng", Status: "done"},
+	} {
+		e.st.Jobs().Create(ctx, j)
+	}
+	titles := func(q string) []string {
+		_, b := do(t, admin, "GET", e.srv.URL+"/api/jobs?"+q, nil, nil)
+		var out []string
+		for _, x := range b["jobs"].([]any) {
+			out = append(out, x.(map[string]any)["title"].(string))
+		}
+		return out
+	}
+	for q, want := range map[string]string{"source=discord": "đơn 123 đâu", "source=web": "hỏi về đơn", "source=auto": "báo cáo sáng", "q=b%C3%A1o": "báo cáo sáng"} {
+		if got := titles(q); len(got) != 1 || got[0] != want {
+			t.Errorf("%s = %v, want [%s]", q, got, want)
+		}
+	}
+}

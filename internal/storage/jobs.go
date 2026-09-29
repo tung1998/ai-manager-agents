@@ -48,6 +48,9 @@ type JobFilter struct {
 	Origin    string
 	OriginID  string
 	OriginIDs []string // any of these (a bot: its commands, and itself)
+	TaskID    string
+	Source    string // web | discord | telegram | auto (where it came from)
+	Query     string // in the title
 	Status    string
 	AgentID   string
 	Since     time.Time

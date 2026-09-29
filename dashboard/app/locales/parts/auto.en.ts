@@ -216,6 +216,7 @@ const en: Record<keyof typeof vi, string> = {
   'bot.addN': 'Add {n} commands',
   'bot.skillBadge': 'skill',
   'bot.callsSkill': 'Calls the skill {skill} with the text typed',
+  'job.search': 'Search titles…',
   'auto.sourceChannel': 'Channel message',
   'auto.bot': 'Bot',
   'auto.botNew': '+ New bot',

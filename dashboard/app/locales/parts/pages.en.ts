@@ -1,6 +1,9 @@
 import type vi from './pages.vi'
 
 const en: Record<keyof typeof vi, string> = {
+  'home.attention': 'Needs you',
+  'home.seeAll': 'See all',
+  'home.allGood': 'All good: nothing needs you.',
   'home.welcome': 'Hello',
   'home.apiConnected': 'API {version}',
   'home.apiDisconnected': 'API disconnected',
@@ -87,10 +90,16 @@ const en: Record<keyof typeof vi, string> = {
   'costs.defaultPrices': 'Built-in prices',
   'costs.saved': 'Budget saved',
 
+  'incidents.none': 'Nothing needs you.',
+  'incidents.refresh': 'Refresh',
+  'incidents.kind.monitor': 'monitor',
+  'incidents.kind.process': 'process',
+  'incidents.kind.automation': 'automation',
+  'incidents.kind.bot': 'bot',
+  'incidents.kind.jobs': 'failed jobs',
+  'incidents.kind.approval': 'waiting',
   'incidents.title': 'Incidents',
-  'incidents.desc': 'Findings, evidence, proposed fixes, and Approve/Reject buttons.',
-  'blackboard.title': 'Blackboard',
-  'blackboard.desc': 'Findings feed and discussion between agents, like an internal chat channel.',
+  'incidents.desc': 'What needs a person across projects: monitors down, crashed processes, automations turned off, bots cut off, failed jobs, cards waiting. Click to go fix it.',
 
   'projects.title': 'Projects',
   'projects.add': 'Add project',

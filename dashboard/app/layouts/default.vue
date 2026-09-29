@@ -50,18 +50,28 @@ function withParent(parent: string | undefined, items: NavigationMenuItem[]): Na
   return items.map(x => (x.to as { query?: { tab?: string } })?.query?.tab === parent ? { ...x, active: true } : x)
 }
 
+// what needs a person across the office: its count on "Sự cố"
+const { data: incData, refresh: refreshInc } = useFetch<{ count: number }>('/api/incidents', { lazy: true })
+const attention = computed(() => incData.value?.count ?? 0)
+let incTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => { incTimer = setInterval(() => refreshInc(), 60000) })
+onBeforeUnmount(() => clearInterval(incTimer))
+
 const items = computed<NavigationMenuItem[][]>(() => {
-  // office-wide pages
+  // office-wide pages: the day's work, then how office is set up
   const office: NavigationMenuItem[] = [
+    { label: t('nav.work'), type: 'label' },
     { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/' },
     { label: t('assistant.title'), icon: 'i-lucide-sparkles', to: '/assistant' },
     { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' },
+    { label: t('nav.incidents'), icon: 'i-lucide-siren', to: '/incidents', badge: attention.value || undefined }
+  ]
+  const settings: NavigationMenuItem[] = [
+    { label: t('nav.settings'), type: 'label' },
     { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' },
-    { label: t('nav.blackboard'), icon: 'i-lucide-messages-square', to: '/blackboard', badge: 'M4' },
-    { label: t('nav.incidents'), icon: 'i-lucide-siren', to: '/incidents', badge: 'M4' },
-    { label: t('nav.costs'), icon: 'i-lucide-wallet', to: '/costs' },
     { label: t('nav.templates'), icon: 'i-lucide-network', to: '/templates' },
-    ...(isAdmin.value ? [{ label: t('nav.library'), icon: 'i-lucide-library', to: '/library' }] : [])
+    ...(isAdmin.value ? [{ label: t('nav.library'), icon: 'i-lucide-library', to: '/library' }] : []),
+    { label: t('nav.costs'), icon: 'i-lucide-wallet', to: '/costs' }
   ]
   const admin: NavigationMenuItem[] = isAdmin.value
     ? [
@@ -87,7 +97,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
       ? { label: t('nav.allProjects'), icon: 'i-lucide-list', to: '/projects', exact: true }
       : { label: t('nav.addProject'), icon: 'i-lucide-plus', to: '/projects', exact: true }
   ]
-  return [projects, office, admin]
+  return [projects, office, settings, admin]
 })
 
 const userMenu = computed<DropdownMenuItem[][]>(() => [

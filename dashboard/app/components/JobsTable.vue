@@ -7,7 +7,14 @@ const { isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
 
 const kind = ref(props.filter?.kind ?? '')
-const origin = ref('')
+const origin = ref<'all' | Source>('all') // where it came from: web, a bot, an automation
+const search = ref('')
+const searchQ = ref('') // the search, once typing pauses
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+watch(search, (v) => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => { searchQ.value = v.trim() }, 300)
+})
 const status = ref('')
 const project = ref(props.filter?.project ?? '')
 const since = ref('168h')
@@ -22,7 +29,8 @@ function query(before = '') {
   set('origin_id', props.filter?.origin_id)
   set('origin_ids', props.filter?.origin_ids?.join(','))
   set('kind', kind.value)
-  set('origin', origin.value)
+  set('source', origin.value === 'all' ? '' : origin.value)
+  set('q', searchQ.value)
   set('status', status.value)
   set('since', since.value)
   set('before', before)
@@ -40,7 +48,7 @@ async function load(more = false) {
     loading.value = false
   }
 }
-watch([kind, origin, status, project, since, () => props.filter?.origin_id], () => load(), { immediate: true })
+watch([kind, origin, searchQ, status, project, since, () => props.filter?.origin_id], () => load(), { immediate: true })
 
 // follow running and waiting jobs
 let timer: ReturnType<typeof setInterval> | undefined
@@ -53,7 +61,6 @@ onBeforeUnmount(() => clearInterval(timer))
 
 const selectItems = computed(() => ({
   kind: [{ label: t('job.kindAll'), value: '' }, ...(['chat_turn', 'task', 'script'] as const).map(v => ({ label: t(`job.kind.${v}`), value: v }))],
-  origin: [{ label: t('job.originAll'), value: '' }, ...(['user', 'automation'] as const).map(v => ({ label: t(`job.origin.${v}`), value: v }))],
   status: [{ label: t('job.statusAll'), value: '' }, ...(['running', 'pending', 'done', 'failed', 'needs_input', 'cancelled', 'skipped'] as const).map(v => ({ label: t(`job.status.${v}`), value: v }))],
   since: [{ label: t('job.range24h'), value: '24h' }, { label: t('job.range7d'), value: '168h' }, { label: t('job.range30d'), value: '720h' }],
   project: [{ label: t('job.projectAll'), value: '' }, ...(props.projects ?? []).map(p => ({ label: p.name, value: p.id }))]
@@ -62,7 +69,6 @@ const selectItems = computed(() => ({
 const ALL = '__all'
 const bind = (r: Ref<string>) => computed({ get: () => r.value || ALL, set: (v: string) => { r.value = v === ALL ? '' : v } })
 const kindSel = bind(kind)
-const originSel = bind(origin)
 const statusSel = bind(status)
 const projectSel = bind(project)
 const withAll = (items: { label: string, value: string }[]) => items.map(i => ({ ...i, value: i.value || ALL }))
@@ -70,6 +76,8 @@ const withAll = (items: { label: string, value: string }[]) => items.map(i => ({
 const usd = (v: number) => v >= 1 ? `$${v.toFixed(2)}` : v > 0 ? `$${v.toFixed(3)}` : '—'
 const secs = (ms: number) => !ms ? '—' : ms >= 60000 ? `${(ms / 60000).toFixed(1)}m` : `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s`
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+// where a job came from, as the source filter names it
+const sourceOf = (j: Job): Source => j.trigger === 'discord' || j.trigger === 'telegram' ? j.trigger : j.origin === 'automation' ? 'auto' : 'web'
 const source = (j: Job) => j.origin === 'automation'
   ? `${j.automation_name || t('job.origin.automation')} · ${t(`job.trigger.${j.trigger}` as 'job.trigger.ui')}`
   : j.created_by || t('job.origin.user')
@@ -101,9 +109,10 @@ defineExpose({ reload: () => load() })
 
 <template>
   <div class="space-y-3">
-    <div v-if="showFilters" class="flex flex-wrap gap-2">
+    <div v-if="showFilters" class="flex flex-wrap items-center gap-2">
+      <UInput v-model="search" size="sm" icon="i-lucide-search" class="w-56" :placeholder="t('job.search')" />
+      <SourceFilter v-model="origin" class="w-40" />
       <USelect v-model="kindSel" size="sm" :items="withAll(selectItems.kind)" class="w-32" />
-      <USelect v-model="originSel" size="sm" :items="withAll(selectItems.origin)" class="w-32" />
       <USelect v-model="statusSel" size="sm" :items="withAll(selectItems.status)" class="w-40" />
       <USelect v-if="projects?.length" v-model="projectSel" size="sm" :items="withAll(selectItems.project)" class="w-44" />
       <USelect v-model="since" size="sm" :items="selectItems.since" class="w-28" />
@@ -136,7 +145,12 @@ defineExpose({ reload: () => load() })
                 <span v-if="j.error" class="block truncate text-xs text-(--ui-error)" :title="j.error">{{ j.error }}</span>
                 <span v-if="!filter?.project && j.project_name" class="block truncate text-xs text-(--ui-text-muted)">{{ j.project_name }}</span>
               </td>
-              <td class="max-w-48 truncate px-2 py-2 text-xs text-(--ui-text-muted)">{{ source(j) }}</td>
+              <td class="max-w-48 px-2 py-2 text-xs text-(--ui-text-muted)">
+                <span class="flex items-center gap-1.5">
+                  <UIcon :name="sourceIcon[sourceOf(j)]" class="size-3.5 shrink-0" :title="t(`source.${sourceOf(j)}`)" />
+                  <span class="truncate">{{ source(j) }}</span>
+                </span>
+              </td>
               <td class="max-w-36 truncate px-2 py-2 text-xs">{{ j.agent_name || '—' }}</td>
               <td class="px-2 py-2 text-right text-xs tabular-nums">{{ usd(j.cost_usd) }}</td>
               <td class="px-2 py-2 text-right text-xs tabular-nums">{{ secs(j.duration_ms) }}</td>

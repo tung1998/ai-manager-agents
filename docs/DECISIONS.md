@@ -1328,3 +1328,21 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - **I6:** đọc và ghi `SKILL.md` qua `utils/skillMd.ts`: đọc được mô tả kiểu `|` hoặc `>`, file CRLF, chuỗi có nháy; các khóa khác giữ nguyên thứ tự; ghi lại nhiều lần vẫn cho cùng một kết quả.
 - **Lỗi nhỏ:** lệnh slash không được nhận vẫn có câu trả lời, thay vì treo "đang suy nghĩ…"; menu tối đa 100 lệnh, lệnh có sẵn đứng đầu; bot đã dừng thì không gửi tin nữa.
 - **Để sau:** dọn các dòng thread và keep tồn đọng; kiểm tra `/cmd@botkhác` trong nhóm Telegram; lưu bot bị lỗi giữa chừng ở BotSetup (bot mới và lệnh thứ hai lỗi); audit `channel.create` không có dòng xóa tương ứng.
+
+## ADR-051: Dashboard — Job, Sự cố, sidebar
+
+**Quyết định.**
+- **Job:**
+  - Mỗi lần khởi động, các Việc có từ trước khi có job được bù job (`tasks.BackfillJobs`), mang đúng ngày giờ, trạng thái và chi phí của Việc. Nhờ vậy trang Job thấy đủ lịch sử. Trước đây trang Job chỉ thấy từ 28/09, nên nhìn như bộ lọc bị sai.
+  - Bộ lọc mới: tìm theo tiêu đề (`q`) và nguồn (`source` = web, discord, telegram, auto) thay cho ô "Nguồn" cũ. Cột Nguồn có icon.
+- **Sự cố** (`GET /api/incidents`, trang `/incidents`) thay cho trang giữ chỗ Incidents. Trang gom những gì cần người xử lý trên mọi project, trừ project Office: giám sát đang báo lỗi, tiến trình chết, tự động hóa office đã tắt, bot mất kết nối, job lỗi trong 24 giờ, và thẻ chờ duyệt (chỉ admin thấy). Mỗi mục có link tới chỗ xử lý; mục lỗi xếp trước, mới trước cũ.
+- **Bỏ Blackboard:** việc các agent trao đổi đã có ở chat nhóm (tag, `delegate`) và trao đổi trong Việc.
+- **Sidebar** chia hai nhóm:
+  - **Làm việc:** Tổng quan, Trợ lý office, Job, Sự cố (có badge đếm, làm mới mỗi phút).
+  - **Cài đặt:** Kết nối AI, Mô hình, Thư viện, Chi phí.
+- **Tổng quan:**
+  - Thẻ "Cần xử lý" (5 sự cố đầu tiên).
+  - Số liệu 24 giờ: đang chạy, lỗi, chi phí, số project.
+  - Các bước thiết lập ban đầu chỉ hiện khi còn bước chưa xong.
+  - Việc gần đây.
+  - Bỏ thẻ giám sát, vì đã nằm trong Sự cố.

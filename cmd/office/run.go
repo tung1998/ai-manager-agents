@@ -109,6 +109,10 @@ func serveCmd() *cobra.Command {
 			// schedules and webhooks start chats and tasks as jobs (ADR-040)
 			runner := trigger.New(a.store, officeExecutor{chat: chatEngine, tasks: taskSvc})
 			go runner.Run(ctx)
+			// tasks from before jobs existed get theirs: the Jobs page shows the whole history
+			if err := tasks.BackfillJobs(ctx, a.store); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "office: không bù được job cho Việc cũ: %v\n", err)
+			}
 			// the office assistant: a hidden project whose chats span projects (ADR-046)
 			if _, err := assistant.Ensure(ctx, a.store, a.org, filepath.Join(h.Dir, "assistant")); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "office: không dựng được trợ lý office: %v\n", err)

@@ -20,15 +20,22 @@ const jobStatus = computed<Record<Job['status'], { label: string, color: 'info' 
 }))
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
-// health checks across projects
-const { data: monData } = await useFetch<{ monitors: { id: string, name: string, project_id: string, status: string, last_message: string }[], summary: Record<string, number> }>('/api/monitors')
-const downMonitors = computed(() => (monData.value?.monitors ?? []).filter(m => m.status === 'down'))
+// what needs a person, and the last day in numbers
+interface Incident { kind: string, severity: 'error' | 'warning', project_name: string, title: string, detail: string, link: string }
+const { data: incData } = await useFetch<{ incidents: Incident[], count: number }>('/api/incidents')
+const incidents = computed(() => (incData.value?.incidents ?? []).slice(0, 5))
+const { data: stats } = await useFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h')
+const incIcon: Record<string, string> = {
+  monitor: 'i-lucide-activity', process: 'i-lucide-square-terminal', automation: 'i-lucide-alarm-clock-off',
+  bot: 'i-lucide-bot', jobs: 'i-lucide-circle-x', approval: 'i-lucide-stamp'
+}
 
 const providers = computed(() => prov.value?.providers ?? [])
 const projects = computed(() => proj.value?.projects ?? [])
 const okProviders = computed(() => providers.value.filter(p => p.status === 'ok').length)
 const withModel = computed(() => projects.value.filter(p => p.model).length)
 
+const setupDone = computed(() => steps.value.every(s => s.done))
 const steps = computed(() => [
   {
     done: okProviders.value > 0,
@@ -68,7 +75,56 @@ const steps = computed(() => [
         </div>
       </UCard>
 
-      <UCard>
+      <!-- what needs a person now -->
+      <UCard :ui="{ body: 'p-0 sm:p-0' }">
+        <template #header>
+          <div class="flex items-center justify-between gap-2">
+            <p class="flex items-center gap-2 font-semibold">
+              <UIcon name="i-lucide-siren" class="size-5" :class="incData?.count ? 'text-(--ui-error)' : 'text-(--ui-success)'" />
+              {{ t('home.attention') }}
+              <UBadge v-if="incData?.count" :label="String(incData.count)" color="error" variant="subtle" size="sm" />
+            </p>
+            <UButton v-if="incData?.count" to="/incidents" size="xs" color="neutral" variant="ghost" trailing-icon="i-lucide-chevron-right" :label="t('home.seeAll')" />
+          </div>
+        </template>
+        <p v-if="!incidents.length" class="flex items-center gap-2 p-4 text-sm text-(--ui-text-muted)">
+          <UIcon name="i-lucide-circle-check" class="size-4 text-(--ui-success)" />{{ t('home.allGood') }}
+        </p>
+        <div v-else class="divide-y divide-(--ui-border)">
+          <NuxtLink v-for="(x, i) in incidents" :key="i" :to="x.link" class="flex items-center gap-3 px-4 py-2.5 hover:bg-(--ui-bg-elevated)">
+            <UIcon :name="incIcon[x.kind] ?? 'i-lucide-circle-alert'" class="size-4 shrink-0" :class="x.severity === 'error' ? 'text-(--ui-error)' : 'text-(--ui-warning)'" />
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-sm font-medium">{{ x.title }}</span>
+              <span class="block truncate text-xs text-(--ui-text-muted)">{{ x.project_name }}<template v-if="x.detail"> · {{ x.detail }}</template></span>
+            </span>
+            <UIcon name="i-lucide-chevron-right" class="size-4 shrink-0 text-(--ui-text-dimmed)" />
+          </NuxtLink>
+        </div>
+      </UCard>
+
+      <!-- the last day -->
+      <div class="grid gap-3 sm:grid-cols-4">
+        <UCard :ui="{ body: 'p-3 sm:p-4' }">
+          <p class="text-xs text-(--ui-text-muted)">{{ t('job.running') }}</p>
+          <p class="text-2xl font-semibold tabular-nums">{{ (stats?.totals.running ?? 0) + (stats?.totals.pending ?? 0) }}</p>
+        </UCard>
+        <UCard :ui="{ body: 'p-3 sm:p-4' }">
+          <p class="text-xs text-(--ui-text-muted)">{{ t('job.failed24') }}</p>
+          <p class="text-2xl font-semibold tabular-nums" :class="stats?.totals.failed_24h ? 'text-(--ui-error)' : ''">{{ stats?.totals.failed_24h ?? 0 }}</p>
+        </UCard>
+        <UCard :ui="{ body: 'p-3 sm:p-4' }">
+          <p class="text-xs text-(--ui-text-muted)">{{ t('job.cost24') }}</p>
+          <p class="text-2xl font-semibold tabular-nums">${{ (stats?.totals.cost_24h ?? 0).toFixed(2) }}</p>
+        </UCard>
+        <NuxtLink to="/projects">
+          <UCard :ui="{ body: 'p-3 sm:p-4' }" class="h-full hover:bg-(--ui-bg-elevated)/40">
+            <p class="text-xs text-(--ui-text-muted)">{{ t('home.project') }}</p>
+            <p class="text-2xl font-semibold tabular-nums">{{ projects.length }}</p>
+          </UCard>
+        </NuxtLink>
+      </div>
+
+      <UCard v-if="!setupDone">
         <template #header>
           <p class="font-medium">{{ t('home.setupTitle') }}</p>
           <p class="text-sm text-(--ui-text-muted)">{{ t('home.setupDesc') }}</p>
@@ -92,43 +148,6 @@ const steps = computed(() => [
             </NuxtLink>
           </li>
         </ol>
-      </UCard>
-
-      <div class="grid gap-4 sm:grid-cols-3">
-        <UCard>
-          <p class="text-sm text-(--ui-text-muted)">{{ t('home.project') }}</p>
-          <p class="text-2xl font-semibold">{{ projects.length }}</p>
-        </UCard>
-        <UCard>
-          <p class="text-sm text-(--ui-text-muted)">{{ t('home.connections') }}</p>
-          <p class="text-2xl font-semibold">{{ providers.length }}</p>
-        </UCard>
-        <UCard>
-          <p class="text-sm text-(--ui-text-muted)">{{ t('home.models') }}</p>
-          <p class="text-2xl font-semibold">{{ tpl?.templates.length ?? 0 }}</p>
-        </UCard>
-      </div>
-
-      <UCard v-if="monData?.monitors.length">
-        <div class="flex flex-wrap items-center gap-4">
-          <div class="flex items-center gap-2">
-            <UIcon name="i-lucide-heart-pulse" class="size-5 text-primary" />
-            <p class="font-semibold">{{ t('home.monitoring') }}</p>
-          </div>
-          <p class="font-mono text-lg"><span class="text-(--ui-success)">{{ monData.summary.up }}</span> / {{ monData.monitors.length }} {{ t('home.monitorUp') }}</p>
-          <UBadge v-if="monData.summary.down" color="error" variant="subtle" :label="t('home.monitorDown', { n: monData.summary.down })" />
-          <UBadge v-if="monData.summary.pending" color="neutral" variant="subtle" :label="t('home.monitorPending', { n: monData.summary.pending })" />
-        </div>
-        <div v-if="downMonitors.length" class="mt-3 divide-y divide-(--ui-border) rounded-md border border-(--ui-border)">
-          <NuxtLink
-            v-for="m in downMonitors" :key="m.id" :to="`/projects/${m.project_id}?tab=ops&section=monitors`"
-            class="flex items-center gap-2 px-3 py-2 text-sm hover:bg-(--ui-bg-elevated)"
-          >
-            <UBadge color="error" variant="subtle" size="sm" label="Down" />
-            <span class="font-medium">{{ m.name }}</span>
-            <span class="truncate text-(--ui-text-muted)">{{ m.last_message }}</span>
-          </NuxtLink>
-        </div>
       </UCard>
 
       <UCard v-if="recentJobs.length" :ui="{ body: 'p-0 sm:p-0' }">

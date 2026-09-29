@@ -181,6 +181,20 @@ func (r jobRepo) where(f storage.JobFilter) (string, []any) {
 	add("kind", f.Kind)
 	add("origin", f.Origin)
 	add("origin_id", f.OriginID)
+	add("task_id", f.TaskID)
+	switch f.Source { // a bot's trigger names it; web = a person on the dashboard
+	case "discord", "telegram":
+		conds = append(conds, "trigger=?")
+		args = append(args, f.Source)
+	case "web":
+		conds = append(conds, "origin<>'automation' AND trigger NOT IN ('discord','telegram')")
+	case "auto":
+		conds = append(conds, "origin='automation' AND trigger NOT IN ('discord','telegram')")
+	}
+	if q := strings.TrimSpace(f.Query); q != "" {
+		conds = append(conds, "title LIKE ? ESCAPE '\\'")
+		args = append(args, "%"+strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(q)+"%")
+	}
 	if len(f.OriginIDs) > 0 {
 		conds = append(conds, "origin_id IN (?"+strings.Repeat(",?", len(f.OriginIDs)-1)+")")
 		for _, id := range f.OriginIDs {

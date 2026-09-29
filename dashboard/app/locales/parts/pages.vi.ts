@@ -1,5 +1,8 @@
 // Vietnamese strings for the "pages" area (source of truth for keys).
 export default {
+  'home.attention': 'Cần xử lý',
+  'home.seeAll': 'Xem tất cả',
+  'home.allGood': 'Mọi thứ ổn: không có gì cần bạn xử lý.',
   'home.welcome': 'Xin chào',
   'home.apiConnected': 'API {version}',
   'home.apiDisconnected': 'Mất kết nối API',
@@ -86,10 +89,16 @@ export default {
   'costs.defaultPrices': 'Giá có sẵn',
   'costs.saved': 'Đã lưu ngân sách',
 
-  'incidents.title': 'Incidents',
-  'incidents.desc': 'Kết luận, evidence, phương án và nút Duyệt/Từ chối.',
-  'blackboard.title': 'Blackboard',
-  'blackboard.desc': 'Feed finding và tranh luận giữa các agent, dạng kênh chat nội bộ.',
+  'incidents.none': 'Không có gì cần xử lý.',
+  'incidents.refresh': 'Làm mới',
+  'incidents.kind.monitor': 'giám sát',
+  'incidents.kind.process': 'tiến trình',
+  'incidents.kind.automation': 'tự động hóa',
+  'incidents.kind.bot': 'bot',
+  'incidents.kind.jobs': 'job lỗi',
+  'incidents.kind.approval': 'chờ duyệt',
+  'incidents.title': 'Sự cố',
+  'incidents.desc': 'Những gì cần người xử lý trên mọi project: giám sát báo lỗi, tiến trình chết, tự động hóa bị tắt, bot mất kết nối, job lỗi, thẻ chờ duyệt. Bấm để tới chỗ xử lý.',
 
   'projects.title': 'Project',
   'projects.add': 'Thêm project',

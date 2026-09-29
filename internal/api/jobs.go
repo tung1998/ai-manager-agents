@@ -92,7 +92,7 @@ func (s *server) toJobDTO(r *http.Request, j storage.Job, n *names) jobDTO {
 func jobFilter(r *http.Request) storage.JobFilter {
 	q := r.URL.Query()
 	f := storage.JobFilter{ProjectID: q.Get("project"), Kind: q.Get("kind"), Origin: q.Get("origin"), OriginID: q.Get("origin_id"),
-		Status: q.Get("status"), AgentID: q.Get("agent"), Before: q.Get("before")}
+		Status: q.Get("status"), AgentID: q.Get("agent"), Before: q.Get("before"), Source: q.Get("source"), Query: q.Get("q")}
 	if ids := q.Get("origin_ids"); ids != "" { // comma separated
 		f.OriginIDs = strings.Split(ids, ",")
 	}
