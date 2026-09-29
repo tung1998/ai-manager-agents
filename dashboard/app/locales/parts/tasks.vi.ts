@@ -41,6 +41,8 @@ export default {
   'task.list': 'Danh sách Việc',
   'chat.older': 'Xem tin cũ hơn',
   'filter.title': 'Lọc',
+  'task.readResult': 'Đọc kết quả',
+  'task.showLess': 'Thu gọn',
   'chat.more': 'Thêm',
   'task.copyLink': 'Sao chép liên kết',
   'task.copyId': 'Sao chép ID',
