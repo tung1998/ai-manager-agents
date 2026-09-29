@@ -557,7 +557,7 @@ onBeforeUnmount(() => source?.close())
                 <span v-if="s.started_at" class="text-(--ui-text-dimmed)">{{ when(s.started_at) }}</span>
                 <span v-if="s.cost_usd" class="text-(--ui-text-dimmed)">· ${{ s.cost_usd.toFixed(3) }}</span>
               </div>
-              <div class="mt-1 space-y-2 rounded-lg rounded-tl-none bg-(--ui-bg-elevated)/60 px-3 py-2 text-sm">
+              <div class="break-anywhere mt-1 space-y-2 rounded-lg rounded-tl-none bg-(--ui-bg-elevated)/60 px-3 py-2 text-sm">
                 <p v-if="s.phase === 'work' && s.instruction" class="border-s-2 border-(--ui-border-accented) ps-2 text-xs text-(--ui-text-muted)">{{ t('task.gotAssigned', { instruction: s.instruction }) }}</p>
                 <template v-if="s.phase === 'vote' && s.data.vote">
                   <UBadge size="sm" variant="subtle" :color="s.data.vote === 'approve' ? 'success' : 'error'" :label="s.data.vote === 'approve' ? t('vote.approve') : t('vote.reject')" />
