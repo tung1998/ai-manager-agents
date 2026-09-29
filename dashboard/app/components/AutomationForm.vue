@@ -29,6 +29,14 @@ const botPick = computed({
 })
 const bot = computed(() => bots.value.find(b => b.id === form.config.channel_id))
 const allowText = computed({ get: () => form.bot.allow.join('\n'), set: (v: string) => { form.bot.allow = v.split(/[\n,]/).map(s => s.trim()).filter(Boolean) } })
+// the three sources, as cards
+const sourceCards = computed(() => [
+  { value: 'schedule', icon: 'i-lucide-alarm-clock', title: t('auto.sourceSchedule'), desc: t('auto.sourceScheduleDesc'), active: form.source === 'schedule',
+    pick: () => { form.source = 'schedule'; if (form.action === 'chat') form.action = 'task' } },
+  { value: 'webhook', icon: 'i-lucide-webhook', title: t('auto.sourceWebhook'), desc: t('auto.sourceWebhookDesc'), active: form.source === 'webhook',
+    pick: () => { form.source = 'webhook'; if (form.action === 'chat') form.action = 'task' } },
+  { value: 'channel', icon: 'i-lucide-messages-square', title: t('auto.sourceChannel'), desc: t('auto.sourceChannelDesc'), active: fromChannel.value, pick: useChannel }
+])
 // two tabs: this automation's trigger, and the bot's shared settings (a new
 // bot starts on the bot's tab: it needs its token first)
 const chTab = ref<'rule' | 'bot'>(form.config.channel_id ? 'rule' : 'bot')
@@ -166,28 +174,24 @@ async function testRun() {
 
     <!-- 1. trigger -->
     <section class="space-y-4 rounded-xl border border-(--ui-border) p-4" :class="hl('source') || hl('config')">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <p class="flex items-center gap-2 text-sm font-semibold">
-          <span class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">1</span>{{ t('auto.stepSource') }}
-        </p>
-        <div class="flex rounded-lg bg-(--ui-bg-elevated) p-0.5">
-          <button
-            v-for="s in (['schedule', 'webhook'] as const)" :key="s" type="button"
-            class="flex items-center gap-1.5 rounded-md px-3 py-1 text-sm"
-            :class="form.source === s ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted) hover:text-(--ui-text)'"
-            @click="form.source = s; if (form.action === 'chat') form.action = 'task'"
-          >
-            <UIcon :name="s === 'schedule' ? 'i-lucide-alarm-clock' : 'i-lucide-webhook'" class="size-4" />
-            {{ s === 'schedule' ? t('auto.sourceSchedule') : t('auto.sourceWebhook') }}
-          </button>
-          <button
-            type="button" class="flex items-center gap-1.5 rounded-md px-3 py-1 text-sm"
-            :class="fromChannel ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted) hover:text-(--ui-text)'"
-            @click="useChannel"
-          >
-            <UIcon name="i-lucide-messages-square" class="size-4" />{{ t('auto.sourceChannel') }}
-          </button>
-        </div>
+      <p class="flex items-center gap-2 text-sm font-semibold">
+        <span class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">1</span>{{ t('auto.stepSource') }}
+        <span class="font-normal text-(--ui-text-muted)">· {{ t('auto.stepSourceHint') }}</span>
+      </p>
+      <!-- where it starts: the first choice, so big -->
+      <div class="grid gap-2 @md:grid-cols-3">
+        <button
+          v-for="s in sourceCards" :key="s.value" type="button"
+          class="flex items-center gap-2.5 rounded-lg border px-3 py-3 text-left transition"
+          :class="s.active ? 'border-primary bg-primary/5' : 'border-(--ui-border) hover:border-(--ui-border-accented)'"
+          @click="s.pick()"
+        >
+          <UIcon :name="s.icon" class="size-5 shrink-0" :class="s.active ? 'text-primary' : 'text-(--ui-text-muted)'" />
+          <span class="min-w-0 flex-1 font-medium">{{ s.title }}</span>
+          <UTooltip :text="s.desc">
+            <UIcon name="i-lucide-info" class="size-4 shrink-0 text-(--ui-text-dimmed) hover:text-(--ui-text)" @click.stop />
+          </UTooltip>
+        </button>
       </div>
 
       <template v-if="form.source === 'schedule'">
