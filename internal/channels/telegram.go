@@ -186,6 +186,9 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 		in.ReplyTo = strconv.FormatInt(m.ReplyTo.MessageID, 10)
 	}
 	switch {
+	case !in.Private && t.forOtherBot(text): // "/cmd@other_bot" in a group: another bot's, never ours
+		in.Addressed = false
+		return in, false
 	case in.Private, t.menu.has(text): // "/create_conversation" in a group needs no tag
 	case t.bot != "" && removeTag(&text, "@"+t.bot):
 		in.Text = strings.TrimSpace(text)
@@ -194,6 +197,16 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 		in.Addressed = false
 	}
 	return in, in.Text != ""
+}
+
+// forOtherBot: a command addressed to another bot ("/cmd@other_bot").
+func (t *Telegram) forOtherBot(text string) bool {
+	if !strings.HasPrefix(text, "/") {
+		return false
+	}
+	head, _, _ := strings.Cut(text, " ")
+	_, bot, tagged := strings.Cut(head, "@")
+	return tagged && bot != "" && !strings.EqualFold(bot, t.bot)
 }
 
 func (t *Telegram) Send(ctx context.Context, chatID, text string) ([]string, error) {

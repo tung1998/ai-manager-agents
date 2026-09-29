@@ -152,3 +152,17 @@ func TestTelegramRetriesGetMe(t *testing.T) {
 		t.Fatal("a failed getMe was not retried")
 	}
 }
+
+// In a group, "/cmd@other_bot" is for another bot; "/cmd@shop_bot" and "/cmd" are ours.
+func TestTelegramCommandForAnotherBot(t *testing.T) {
+	tg := &Telegram{bot: "shop_bot"}
+	tg.menu.set([]Command{{Name: "pending"}})
+	for text, want := range map[string]bool{"/pending@other_bot": false, "/pending@Shop_Bot": true, "/pending": true} {
+		m := &tgMessage{Text: text}
+		m.Chat.Type = "group"
+		in, ok := tg.addressed(m)
+		if in.Addressed != want || ok != want {
+			t.Errorf("%q addressed = %v, want %v", text, in.Addressed, want)
+		}
+	}
+}
