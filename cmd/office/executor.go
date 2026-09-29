@@ -21,14 +21,22 @@ type officeExecutor struct {
 
 func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (string, string, error) {
 	ctx = chat.WithModelTier(ctx, trigger.ModelTierOf(ctx)) // the automation's model choice
-	ctx = chat.WithInstructions(ctx, trigger.InstructionsOf(ctx))
+	ctx = chat.WithSkill(chat.WithInstructions(ctx, trigger.InstructionsOf(ctx)), trigger.SkillOf(ctx))
+	untrusted := trigger.UntrustedOf(ctx)
+	if untrusted { // outsiders drove it (a bot's escalation): no tools, read only
+		ctx = chat.WithNoTools(ctx)
+	}
 	if conversationID == "" {
-		conv, err := x.chat.StartConversation(ctx, projectID, agentID)
+		purpose, mode := "", perm.Operate
+		if untrusted {
+			purpose, mode = "channel", perm.Read
+		}
+		conv, err := x.chat.StartConversationPurpose(ctx, projectID, agentID, purpose)
 		if err != nil {
 			return "", "", err
 		}
 		conversationID = conv.ID
-		if err := x.chat.SetMode(ctx, conv.ID, perm.Operate); err != nil {
+		if err := x.chat.SetMode(ctx, conv.ID, mode); err != nil {
 			return conversationID, "", err
 		}
 		if editMode != "" {

@@ -230,6 +230,7 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 // SetCommands puts the bot's slash commands in Discord's "/" menu (after
 // READY: it needs the application's id).
 func (d *Discord) SetCommands(ctx context.Context, cmds []Command) {
+	cmds = capped(cmds)
 	d.menu.set(cmds)
 	if d.appID == "" {
 		return

@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -200,5 +201,27 @@ func TestDiscordLongDescription(t *testing.T) {
 	}
 	if n := len([]rune(cmds[0].Description)); n > 100 || n == 0 || len([]rune(cmds[0].Options[0].Description)) > 100 {
 		t.Fatalf("description %d runes", n)
+	}
+}
+
+// Discord takes at most 100 commands: more would lose them all, the office's own first.
+func TestDiscordCommandCap(t *testing.T) {
+	var body string
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.Write([]byte(`[]`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", APIBase: rest.URL, appID: "app1"}
+	cmds := Builtins()
+	for i := range 150 {
+		cmds = append(cmds, Command{Name: fmt.Sprintf("s%d", i), Description: "x"})
+	}
+	d.SetCommands(context.Background(), cmds)
+	var got []struct{ Name string }
+	json.Unmarshal([]byte(body), &got)
+	if len(got) != 100 || got[0].Name != "job" {
+		t.Fatalf("registered %d, first %v", len(got), got[:1])
 	}
 }

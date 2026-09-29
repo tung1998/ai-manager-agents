@@ -1,6 +1,7 @@
 package channels
 
 import (
+	"log/slog"
 	"strings"
 	"sync"
 	"unicode"
@@ -110,4 +111,16 @@ func clip(s string, n int) string {
 		return string(r[:n-1]) + "…"
 	}
 	return s
+}
+
+// MaxCommands is what Discord and Telegram take; more and the menu fails whole.
+const MaxCommands = 100
+
+// capped keeps the first MaxCommands (the office's own come first).
+func capped(cmds []Command) []Command {
+	if len(cmds) > MaxCommands {
+		slog.Warn("channels: too many commands for the menu", "have", len(cmds), "kept", MaxCommands)
+		return cmds[:MaxCommands]
+	}
+	return cmds
 }

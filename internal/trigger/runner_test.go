@@ -39,6 +39,7 @@ type fakeExec struct {
 	fail   bool
 	taskID string   // what RunTask returns ("" = tsk_x)
 	actors []string // who each task was asked by
+	goals  []string // each task's goal
 }
 
 func (f *fakeExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
@@ -60,6 +61,7 @@ func (f *fakeExec) RunTask(ctx context.Context, projectID, agentID, goal, edit s
 	f.tasks = append(f.tasks, agentID+"|"+goal)
 	f.tiers = append(f.tiers, trigger.ModelTierOf(ctx))
 	f.actors = append(f.actors, actor.From(ctx))
+	f.goals = append(f.goals, goal)
 	if f.taskID != "" {
 		return f.taskID, nil
 	}

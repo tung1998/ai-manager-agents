@@ -215,6 +215,7 @@ func (t *Telegram) Send(ctx context.Context, chatID, text string) ([]string, err
 }
 
 func (t *Telegram) SetCommands(ctx context.Context, cmds []Command) {
+	cmds = capped(cmds)
 	t.menu.set(cmds)
 	var list []map[string]string // Telegram commands: a-z, 0-9 and _ only
 	for _, c := range cmds {

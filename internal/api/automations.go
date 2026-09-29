@@ -243,7 +243,7 @@ func (s *server) createAutomation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := storage.Automation{ProjectID: p.ID, Enabled: true, CreatedBy: userFrom(r).Email}
-	newBot, err := s.saveBot(r, &in, p.ID)
+	newBot, commitBot, err := s.saveBot(r, &in, p.ID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -261,6 +261,10 @@ func (s *server) createAutomation(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.dropBot(r, newBot)
 		s.audit(r, audit.Change{Action: "automation.create", ProjectID: p.ID, After: a, Err: err})
+		s.internal(w, r, err)
+		return
+	}
+	if err := commitBot(); err != nil {
 		s.internal(w, r, err)
 		return
 	}
@@ -296,7 +300,7 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 	}
 	old := a
 	wasWebhook := a.Source == "webhook"
-	newBot, err := s.saveBot(r, &in, a.ProjectID)
+	newBot, commitBot, err := s.saveBot(r, &in, a.ProjectID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -318,6 +322,10 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 	if err := s.cfg.Store.Automations().Update(r.Context(), a); err != nil {
 		change.Err = err
 		s.audit(r, change)
+		s.internal(w, r, err)
+		return
+	}
+	if err := commitBot(); err != nil { // the bot changes only once the automation is saved
 		s.internal(w, r, err)
 		return
 	}

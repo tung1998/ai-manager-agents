@@ -27,11 +27,13 @@ type recExec struct {
 	returnCnv string
 	reply     string
 	instrs    []string // the instructions each chat was run with
+	untrusted []bool   // whether each chat was run as untrusted (no tools, read only)
 }
 
 func (f *recExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
 	f.mu.Lock()
 	f.convs, f.prompts, f.instrs = append(f.convs, conv), append(f.prompts, prompt), append(f.instrs, trigger.InstructionsOf(ctx))
+	f.untrusted = append(f.untrusted, trigger.UntrustedOf(ctx))
 	if f.running == nil {
 		f.running = map[string]int{}
 	}

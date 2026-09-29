@@ -495,7 +495,13 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	}
 	// "/skill request": the agent gets the skill's instructions; the
 	// conversation keeps what the person typed
-	prompt, _, err := automation.ExpandSkillCall(userHome(), project.Path, text)
+	prompt, err := text, error(nil)
+	if name, _, isCall := automation.ParseSkillCall(text); !isCall || conv.Purpose != "channel" || name == skillOf(ctx) {
+		// a bot's conversation (outsiders write it) expands only the skill its command names
+		prompt, _, err = automation.ExpandSkillCall(userHome(), project.Path, text)
+	} else {
+		prompt = "Tin nhắn: " + text // not a skill call
+	}
 	if err != nil {
 		return nil, storage.Message{}, err
 	}

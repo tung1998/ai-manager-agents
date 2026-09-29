@@ -9,25 +9,10 @@ const editing = computed(() => !!props.name)
 const scope = computed(() => props.scope ?? 'project')
 
 const form = reactive({ name: props.name ?? '', description: '', body: '' })
-const extraMeta = ref<string[]>([]) // frontmatter lines office does not edit (kept as they are)
+const parsed = ref<SkillMd | null>(null) // the saved SKILL.md: its other frontmatter kept as it is
 const otherFiles = ref<Record<string, string>>({}) // the skill's other files, kept
 const loaded = ref(!editing.value)
-
-// "---\nname: x\ndescription: y\n---\nbody"
-function parse(md: string) {
-  const m = md.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
-  if (!m) return { meta: {} as Record<string, string>, extra: [] as string[], body: md }
-  const meta: Record<string, string> = {}
-  const extra: string[] = []
-  for (const line of m[1]!.split('\n')) {
-    const kv = line.match(/^(name|description):\s*(.*)$/)
-    if (kv) meta[kv[1]!] = kv[2]!.replace(/^["']|["']$/g, '')
-    else if (line.trim()) extra.push(line)
-  }
-  return { meta, extra, body: m[2]!.replace(/^\n+/, '') }
-}
-const quote = (s: string) => /[:#\n]|^\s|\s$/.test(s) ? JSON.stringify(s) : s
-const skillMd = () => ['---', `name: ${form.name}`, `description: ${quote(form.description.trim())}`, ...extraMeta.value, '---', '', form.body.trim(), ''].join('\n')
+const skillMd = () => writeSkillMd({ name: form.name, description: form.description, body: form.body, entries: parsed.value?.entries })
 
 onMounted(async () => {
   if (!editing.value) return
@@ -38,12 +23,12 @@ onMounted(async () => {
     if (!item) throw new Error(t('skill.notFound'))
     const it = await $fetch<LibraryItem>('/api/automation/content', { method: 'POST', body: refOf(item) })
     const files = { ...(it.files ?? {}) }
-    const p = parse(files['SKILL.md'] ?? '')
+    const p = parseSkillMd(files['SKILL.md'] ?? '')
     delete files['SKILL.md']
     otherFiles.value = files
-    form.description = p.meta.description ?? item.description
+    parsed.value = p
+    form.description = p.description || item.description
     form.body = p.body
-    extraMeta.value = p.extra
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {

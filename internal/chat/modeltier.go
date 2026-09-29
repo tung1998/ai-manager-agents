@@ -49,6 +49,19 @@ func instructionsOf(ctx context.Context) string {
 	return s
 }
 
+type skillKey struct{}
+
+// WithSkill lets a bot's conversation expand this one skill (a command made
+// from it); a bot's conversation expands no other "/name" (review I1).
+func WithSkill(ctx context.Context, name string) context.Context {
+	if name == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, skillKey{}, name)
+}
+
+func skillOf(ctx context.Context) string { s, _ := ctx.Value(skillKey{}).(string); return s }
+
 type noToolsKey struct{}
 
 // WithNoTools makes the runs of ctx tool-less (untrusted text drives them,

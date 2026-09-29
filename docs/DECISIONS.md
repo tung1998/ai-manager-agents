@@ -1316,3 +1316,15 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - **Lưu:** gọi `POST /api/automation/install` với `files` gửi thẳng lên (trường mới của `InstallRequest`), qua cùng bước kiểm tra an toàn như khi cài từ thư viện: có cảnh báo thì hỏi lại, có nội dung bị từ chối thì báo lỗi. Sửa là ghi đè; bản cũ được đưa vào thùng rác.
 - **AI:** loại chat `skill` (không nằm trong danh sách chat của project) dùng hướng dẫn `skillGuide`. AI trả về khối ```` ```skill {name, description, body} ```` và trình soạn lấy nội dung đó điền vào, nhưng không đổi tên khi đang sửa. AI không tự ghi file; người dùng xem lại rồi bấm Lưu.
 - Bỏ thông báo "Đây là mã nguồn của chính office" ở đầu project: đây là thông báo cố định, không báo có cập nhật, nên chỉ gây nhiễu.
+
+### ADR-049/050: sửa sau review (29/09)
+- **C1:** mapping reply (`msg:` và `channel_rule/`) gắn theo từng chat, vì Telegram đánh số tin riêng cho mỗi chat. Nếu không, reply vào tin của mình có thể nối vào hội thoại của người khác.
+- **C2:** agent do script của bot gọi vào (escalate) chạy ở chế độ không tin cậy: không công cụ, chỉ đọc, conversation `purpose=channel`, và luôn là chat (không bao giờ là Việc).
+- **I1:** trong hội thoại của bot, `/tên` chỉ nạp skill mà lệnh đó đã chọn (`WithSkill`); các `/…` khác được gửi như tin thường. Mục tiêu Việc sinh từ tin của bot không bao giờ bắt đầu bằng `/`.
+- **I2:** `/job` chỉ chạy qua một tự động hóa có hành động Giao Việc của bot; bot không có tự động hóa như vậy thì trả lời "chưa bật giao việc".
+- **I3:** chỉ dẫn trong system prompt không bao giờ chứa lời của người dùng: `{{message}}` và `{{user}}` được thay bằng nhãn, còn lời người dùng chỉ nằm trong tin nhắn.
+- **I4:** khi script gọi agent, job con được tạo trước; tạo không được thì câu trả lời của script là câu cuối, nên chat không bị treo.
+- **I5:** thay đổi của bot có sẵn chỉ được ghi sau khi tự động hóa đã được lưu.
+- **I6:** đọc và ghi `SKILL.md` qua `utils/skillMd.ts`: đọc được mô tả kiểu `|` hoặc `>`, file CRLF, chuỗi có nháy; các khóa khác giữ nguyên thứ tự; ghi lại nhiều lần vẫn cho cùng một kết quả.
+- **Lỗi nhỏ:** lệnh slash không được nhận vẫn có câu trả lời, thay vì treo "đang suy nghĩ…"; menu tối đa 100 lệnh, lệnh có sẵn đứng đầu; bot đã dừng thì không gửi tin nữa.
+- **Để sau:** dọn các dòng thread và keep tồn đọng; kiểm tra `/cmd@botkhác` trong nhóm Telegram; lưu bot bị lỗi giữa chừng ở BotSetup (bot mới và lệnh thứ hai lỗi); audit `channel.create` không có dòng xóa tương ứng.

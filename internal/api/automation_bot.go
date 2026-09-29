@@ -37,47 +37,52 @@ type automationBotStatus struct {
 	Shared        int        `json:"shared"` // automations using this bot
 }
 
-// saveBot creates the automation's bot (no channel yet) or updates it, and
-// names it in in.Config. It returns the id of a bot it created, to remove if
-// the automation is then refused.
-func (s *server) saveBot(r *http.Request, in *automationInput, projectID string) (created string, err error) {
+// saveBot creates the automation's bot (no channel yet) at once, and names it
+// in in.Config (the automation is checked against it); it returns the id of
+// a bot it created, to remove if the automation is then refused. A change to
+// a bot it has is checked now but written by commit, once the automation is
+// saved (review I5: a refused change changes nothing).
+func (s *server) saveBot(r *http.Request, in *automationInput, projectID string) (created string, commit func() error, err error) {
+	commit = func() error { return nil }
 	if !trigger.IsChannel(in.Source) {
-		return "", nil
+		return "", commit, nil
 	}
 	b := in.Bot
 	if in.Config.ChannelID == "" {
 		if b == nil || b.Token == nil || *b.Token == "" {
-			return "", errors.New("hãy dán token của bot")
+			return "", commit, errors.New("hãy dán token của bot")
 		}
 		name := in.Name
 		c := storage.Channel{ProjectID: projectID, Kind: in.Source, Mode: "read", Enabled: true}
 		if err := s.applyChannel(channelInput{Name: &name, Token: b.Token, Allow: b.Allow, Refusal: b.Refusal}, &c); err != nil {
-			return "", err
+			return "", commit, err
 		}
 		if c, err = s.cfg.Store.Channels().Create(r.Context(), c); err != nil {
-			return "", err
+			return "", commit, err
 		}
 		s.audit(r, audit.Change{Action: "channel.create", ResourceID: c.ID, ProjectID: projectID, After: toChannelDTO(c)})
 		in.Config.ChannelID = c.ID
-		return c.ID, nil
+		return c.ID, commit, nil
 	}
 	if b == nil || (b.Token == nil && b.Allow == nil && b.Refusal == nil) {
-		return "", nil
+		return "", commit, nil
 	}
 	c, err := s.cfg.Store.Channels().Get(r.Context(), in.Config.ChannelID)
 	if err != nil || c.ProjectID != projectID {
-		return "", errors.New("hãy chọn bot của project này")
+		return "", commit, errors.New("hãy chọn bot của project này")
 	}
 	old := c
 	if err := s.applyChannel(channelInput{Token: b.Token, Allow: b.Allow, Refusal: b.Refusal}, &c); err != nil {
-		return "", err
+		return "", commit, err
 	}
-	if err := s.cfg.Store.Channels().Update(r.Context(), c); err != nil {
-		return "", err
-	}
-	s.audit(r, audit.Change{Action: "channel.update", ResourceID: c.ID, ProjectID: projectID, Before: toChannelDTO(old), After: toChannelDTO(c),
-		Detail: map[string]any{"token_changed": b.Token != nil && *b.Token != ""}})
-	return "", nil
+	return "", func() error {
+		if err := s.cfg.Store.Channels().Update(r.Context(), c); err != nil {
+			return err
+		}
+		s.audit(r, audit.Change{Action: "channel.update", ResourceID: c.ID, ProjectID: projectID, Before: toChannelDTO(old), After: toChannelDTO(c),
+			Detail: map[string]any{"token_changed": b.Token != nil && *b.Token != ""}})
+		return nil
+	}, nil
 }
 
 // dropBot removes a bot this request created for an automation it then refused.

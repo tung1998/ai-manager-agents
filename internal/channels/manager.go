@@ -157,6 +157,11 @@ func (m *Manager) run(ch storage.Channel) {
 		if err != nil && ctx.Err() == nil {
 			_ = m.store.Channels().SetStatus(context.Background(), ch.ID, bot, err.Error(), nil)
 		}
+		m.mu.Lock() // stopped: answers still on the way are not posted through it
+		if m.adapters[ch.ID] == ad {
+			delete(m.adapters, ch.ID)
+		}
+		m.mu.Unlock()
 	}()
 }
 
@@ -230,7 +235,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 			return
 		}
 		if rule, ok = m.jobRule(ctx, ch); !ok {
-			say("Bot này chưa có tự động hóa nào đang bật để nhận việc.")
+			say("Bot này chưa bật giao việc: cần một lệnh có hành động Giao Việc.")
 			return
 		}
 		in.Text = arg
@@ -241,7 +246,9 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	}
 	if !ok {
 		if refusal := strings.TrimSpace(ch.Refusal); refusal != "" {
-			_, _ = ad.Send(ctx, in.ChatID, refusal)
+			say(refusal)
+		} else if in.Respond != nil {
+			say("Bot không xử lý lệnh này.") // a slash command waits for an answer
 		}
 		_, _ = m.store.Jobs().Create(ctx, storage.Job{ProjectID: ch.ProjectID, Kind: "chat_turn", Origin: "user", OriginID: ch.ID, Trigger: ch.Kind,
 			CreatedBy: actor.From(actx), Title: truncate(in.Text, 80), Status: "skipped", ErrorCode: "no_rule", Error: "không quy tắc nào nhận tin này"})
@@ -253,12 +260,12 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	} else if rule.Action == "chat" {
 		agent, err := m.agent(ctx, ch.ProjectID, rule.AgentID)
 		if err != nil {
-			_, _ = ad.Send(ctx, in.ChatID, "Bot chưa sẵn sàng.")
+			say("Bot chưa sẵn sàng.")
 			return
 		}
 		if p.ConversationID, err = m.thread(actx, ch, rule, agent, in); err != nil {
 			slog.Error("channels: thread", "channel", ch.ID, "err", err)
-			_, _ = ad.Send(ctx, in.ChatID, "Bot chưa sẵn sàng.")
+			say("Bot chưa sẵn sàng.")
 			return
 		}
 	}
@@ -278,7 +285,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	m.mu.Unlock()
 	if err != nil {
 		slog.Error("channels: enqueue", "channel", ch.ID, "err", err)
-		_, _ = ad.Send(ctx, in.ChatID, "Xin lỗi, mình chưa nhận được tin này.")
+		say("Xin lỗi, mình chưa nhận được tin này.")
 		return
 	}
 	if (rule.Action == "task" || cmd == "job") && status == "queued" {
@@ -318,6 +325,9 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 		if reply == "" && err != nil && final && !errors.Is(err, trigger.ErrNoAnswer) {
 			reply = "Xin lỗi, mình chưa trả lời được lúc này."
 		}
+		if reply == "" && errors.Is(err, trigger.ErrNoAnswer) {
+			reply = "Lệnh chưa chạy được lúc này (đang tắt, vượt giới hạn hoặc trần chi phí)."
+		}
 		if reply == "" {
 			reply = "Xong."
 		}
@@ -344,9 +354,10 @@ func (m *Manager) remember(ctx context.Context, p trigger.ChannelPayload, origin
 		if id == "" {
 			continue
 		}
-		_ = m.store.Settings().Set(ctx, "channel_rule/"+p.ChannelID+"/"+id, origin.OriginID) // threads hold conversations only
+		// keyed by the chat too: Telegram numbers messages per chat (review C1)
+		_ = m.store.Settings().Set(ctx, "channel_rule/"+p.ChannelID+"/"+p.ChatID+"/"+id, origin.OriginID) // threads hold conversations only
 		if p.ConversationID != "" {
-			_ = m.store.Channels().SetThread(ctx, p.ChannelID, "msg:"+id, p.ConversationID)
+			_ = m.store.Channels().SetThread(ctx, p.ChannelID, "msg:"+p.ChatID+":"+id, p.ConversationID)
 		}
 	}
 }
@@ -358,7 +369,7 @@ func (m *Manager) repliedRule(ctx context.Context, ch storage.Channel, in Incomi
 		return storage.Automation{}, false
 	}
 	var id string
-	if ok, _ := m.store.Settings().Get(ctx, "channel_rule/"+ch.ID+"/"+in.ReplyTo, &id); !ok || id == "" {
+	if ok, _ := m.store.Settings().Get(ctx, "channel_rule/"+ch.ID+"/"+in.ChatID+"/"+in.ReplyTo, &id); !ok || id == "" {
 		return storage.Automation{}, false
 	}
 	a, err := m.store.Automations().Get(ctx, id)
@@ -410,28 +421,19 @@ func (m *Manager) pick(ctx context.Context, project storage.Repo, ch storage.Cha
 }
 
 // jobRule is the automation /job goes through: the bot's first enabled one
-// that gives tasks, else its first enabled one (run as a task).
+// that gives tasks. None: /job is off for this bot, so a Q&A bot never starts
+// team tasks (review I2).
 func (m *Manager) jobRule(ctx context.Context, ch storage.Channel) (storage.Automation, bool) {
 	list, err := m.store.Automations().List(ctx, ch.ProjectID)
 	if err != nil {
 		return storage.Automation{}, false
 	}
-	var first *storage.Automation
-	for i, a := range list {
-		if !a.Enabled || a.Source != ch.Kind || a.Config.ChannelID != ch.ID || a.Config.Command != "" {
-			continue
-		}
-		if a.Action == "task" {
+	for _, a := range list {
+		if a.Enabled && a.Source == ch.Kind && a.Config.ChannelID == ch.ID && a.Action == "task" {
 			return a, true
 		}
-		if first == nil {
-			first = &list[i]
-		}
 	}
-	if first == nil {
-		return storage.Automation{}, false
-	}
-	return *first, true
+	return storage.Automation{}, false
 }
 
 // agent is the rule's agent ("" = the project's lead).
@@ -453,7 +455,7 @@ func (m *Manager) agent(ctx context.Context, projectID, agentID string) (storage
 // agent. Tool-less, read only, not in the project's chat list.
 func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.Automation, agent storage.Agent, in Incoming) (string, error) {
 	if in.ReplyTo != "" { // a reply to one of the bot's answers: that answer's conversation
-		if id, err := m.store.Channels().Thread(ctx, ch.ID, "msg:"+in.ReplyTo); err == nil && id != "" {
+		if id, err := m.store.Channels().Thread(ctx, ch.ID, "msg:"+in.ChatID+":"+in.ReplyTo); err == nil && id != "" {
 			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
 				return id, nil
 			}

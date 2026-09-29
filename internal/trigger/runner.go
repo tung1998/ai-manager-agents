@@ -285,6 +285,9 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	action, agentID, prompt := a.Action, a.AgentID, promptFor(a, j, now, loc)
 	if j.ParentJobID != "" { // an agent called in by a script (ADR-041)
 		action, agentID, prompt = firstNonEmpty(a.Escalate.Action, "chat"), a.Escalate.AgentID, escalationPrompt(a, j, now, loc)
+		if fromChannel { // outsiders drove the script: a read only, tool-less chat, never a task (review C2)
+			action = "chat"
+		}
 	}
 	who := "auto:" + a.Name
 	if fromChannel { // the person who wrote to the bot, as the channel names them
@@ -296,10 +299,13 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		}
 	}
 	actx := WithModelTier(actor.With(jctx, who), a.ModelTier)
+	if fromChannel && j.ParentJobID != "" {
+		actx = WithUntrusted(actx)
+	}
 	if fromChannel && action == "chat" && j.ParentJobID == "" { // a reply: the admin's words go to the system prompt
 		var instr string
 		prompt, instr = replyPrompt(a, j, now, loc)
-		actx = WithInstructions(actx, instr)
+		actx = WithSkill(WithInstructions(actx, instr), a.Config.Skill)
 	}
 	keptConv, text := "", ""
 	if action == "task" {
@@ -445,9 +451,11 @@ func replyPrompt(a storage.Automation, j storage.Job, now time.Time, loc *time.L
 	}
 	var payload any
 	_ = json.Unmarshal([]byte(j.Payload), &payload)
-	instructions = Render(a.Prompt, Vars{Payload: payload, RawPayload: j.Payload, Message: text, User: who, Source: j.Trigger, Automation: a.Name, Now: now, Loc: loc})
+	// the person's words stay in the message, never in the system prompt (review I3)
+	instructions = Render(a.Prompt, Vars{Message: "(tin nhắn của người dùng, bên dưới)", User: "(người dùng)", Source: j.Trigger, Automation: a.Name, Now: now, Loc: loc})
+	_ = payload
 	if a.Config.Command != "" {
-		instructions += "\n(" + who + " vừa gọi lệnh /" + a.Config.Command + ")"
+		instructions += "\n(Người dùng vừa gọi lệnh /" + a.Config.Command + ")"
 	}
 	return prompt, instructions
 }
@@ -467,8 +475,9 @@ func promptFor(a storage.Automation, j storage.Job, now time.Time, loc *time.Loc
 		if c := a.Config.Command; c != "" && strings.TrimSpace(text) == "/"+c {
 			text = "" // the command alone: nothing typed after it
 		}
-		if strings.TrimSpace(tpl) == "" { // no instruction: the message is the question, asked as it is
-			return firstNonEmpty(text, "/"+a.Config.Command)
+		if strings.TrimSpace(tpl) == "" { // no instruction: the message is the question
+			// never a leading "/": a task reads it as a skill call (review I1)
+			return who + ": " + firstNonEmpty(text, "(gọi lệnh /"+a.Config.Command+")")
 		}
 		// the rule's prompt is its admin's instruction; what the person wrote comes apart
 		instr := Render(tpl, Vars{Payload: payload, RawPayload: j.Payload, Message: text, User: who, Source: j.Trigger, Automation: a.Name, Now: now, Loc: loc})
@@ -546,6 +555,34 @@ func WithInstructions(ctx context.Context, s string) context.Context {
 func InstructionsOf(ctx context.Context) string {
 	s, _ := ctx.Value(instructionsKey{}).(string)
 	return s
+}
+
+type skillKey struct{}
+
+// WithSkill names the skill a bot's command calls; SkillOf reads it.
+func WithSkill(ctx context.Context, name string) context.Context {
+	if name == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, skillKey{}, name)
+}
+
+func SkillOf(ctx context.Context) string {
+	s, _ := ctx.Value(skillKey{}).(string)
+	return s
+}
+
+type untrustedKey struct{}
+
+// WithUntrusted marks a run outsiders drove (a bot's escalation): the executor
+// runs it read only, without tools.
+func WithUntrusted(ctx context.Context) context.Context {
+	return context.WithValue(ctx, untrustedKey{}, true)
+}
+
+func UntrustedOf(ctx context.Context) bool {
+	v, _ := ctx.Value(untrustedKey{}).(bool)
+	return v
 }
 
 func ModelTierOf(ctx context.Context) string {

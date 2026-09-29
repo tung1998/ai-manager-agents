@@ -199,3 +199,25 @@ func TestChannelCustomCommandAPI(t *testing.T) {
 		t.Fatalf("/job taken = %d %v", code, b)
 	}
 }
+
+// Review I5: a refused automation change changes nothing of its bot either.
+func TestRefusedAutomationLeavesItsBot(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	_, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Trả lời", "source": "discord", "action": "chat",
+		"bot": map[string]any{"token": "tok", "allow": []string{"42"}}}, nil)
+	a := b["automation"].(map[string]any)
+	chID := a["config"].(map[string]any)["channel_id"].(string)
+	resp, _ := do(t, admin, "PATCH", e.srv.URL+"/api/automations/"+a["id"].(string), map[string]any{"name": "Trả lời", "source": "discord", "action": "chat",
+		"config": map[string]any{"channel_id": chID, "command": "job"}, "bot": map[string]any{"allow": []string{"*"}}}, nil)
+	if resp.StatusCode != 400 {
+		t.Fatalf("a reserved command = %d", resp.StatusCode)
+	}
+	if ch, _ := e.st.Channels().Get(ctx, chID); len(ch.Allow) != 1 || ch.Allow[0] != "42" {
+		t.Fatalf("the refused change opened the bot: %v", ch.Allow)
+	}
+}

@@ -51,14 +51,16 @@ func (r *Runner) runScriptJob(ctx context.Context, a storage.Automation, j stora
 	if status == "failed" {
 		failed = errors.New(msg)
 	}
-	answer(withoutSignals(out), failed, !escalate) // what it printed is the answer; an agent it calls in answers after
 	if escalate {
 		raw, _ := json.Marshal(escalation{Output: out, ExitCode: code, Messages: signals, Payload: j.Payload})
 		t := r.now().UTC()
-		_, _ = r.store.Jobs().Create(ctx, storage.Job{ProjectID: a.ProjectID, Kind: kindOf(firstNonEmpty(a.Escalate.Action, "chat")), Origin: "automation",
+		if _, err := r.store.Jobs().Create(ctx, storage.Job{ProjectID: a.ProjectID, Kind: kindOf(firstNonEmpty(a.Escalate.Action, "chat")), Origin: "automation",
 			OriginID: a.ID, Trigger: "escalate", Status: "pending", Payload: truncateBytes(string(raw), maxPayload), NextAttemptAt: &t,
-			Title: a.Name, AgentID: a.Escalate.AgentID, ParentJobID: j.ID})
+			Title: a.Name, AgentID: a.Escalate.AgentID, ParentJobID: j.ID}); err != nil {
+			escalate = false // no agent follows: this answer is the last (review I4: the chat never waits for one)
+		}
 	}
+	answer(withoutSignals(out), failed, !escalate) // what it printed is the answer; an agent it calls in answers after
 
 	if a, err := r.store.Automations().Get(ctx, a.ID); err == nil {
 		t := r.now().UTC()

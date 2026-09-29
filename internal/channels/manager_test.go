@@ -44,7 +44,7 @@ func (b *fakeBot) Send(_ context.Context, chatID, text string) ([]string, error)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.sent[chatID] = append(b.sent[chatID], text)
-	return []string{fmt.Sprintf("%s-%d", chatID, len(b.sent[chatID]))}, nil // the message's id: chat-n
+	return []string{fmt.Sprint(len(b.sent[chatID]))}, nil // numbered per chat, as Telegram does
 }
 func (b *fakeBot) Typing(context.Context, string)                  {}
 func (b *fakeBot) SetCommands(context.Context, []channels.Command) {}
@@ -68,7 +68,7 @@ func (b *fakeBot) wait(t *testing.T, chatID string, n int) []string {
 type chatExec struct{ engine *chat.Engine }
 
 func (x chatExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
-	ctx = chat.WithInstructions(ctx, trigger.InstructionsOf(ctx)) // as the office's executor does
+	ctx = chat.WithSkill(chat.WithInstructions(ctx, trigger.InstructionsOf(ctx)), trigger.SkillOf(ctx)) // as the office's executor does
 	turn, _, err := x.engine.Send(ctx, conv, prompt, nil)
 	if err != nil {
 		return conv, "", err
@@ -188,11 +188,21 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 		t.Fatalf("after close: %d resumes, want 2", n)
 	}
 	// a reply to one of the bot's answers goes on in that answer's conversation
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 thì sao nữa", Addressed: true, Private: true, ReplyTo: "42-8"}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 thì sao nữa", Addressed: true, Private: true, ReplyTo: "8"}
 	bot.wait(t, "42", 9)
 	if n := resumes(); n != 3 {
 		t.Fatalf("a reply: %d resumes, want 3", n)
 	}
+	// review C1: the same message id in another chat is another message: a reply
+	// there never goes on in this chat's conversation
+	bot.in <- channels.Incoming{ChatID: "44", UserID: "9", UserName: "binh", Text: "đơn 123 của tôi", Addressed: true, Private: true, ReplyTo: "8"}
+	bot.wait(t, "44", 1)
+	if n := resumes(); n != 3 {
+		t.Fatalf("a reply in chat 44 to its own message 8 went on in chat 42's conversation (%d resumes)", n)
+	}
+	bot.mu.Lock()
+	bot.sent["44"] = nil
+	bot.mu.Unlock()
 
 	// a custom command: /tra-don <mã> runs its script; the answer edits the slash reply
 	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Tra đơn", Source: "telegram", Action: "script", Enabled: true,
@@ -257,7 +267,38 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 		t.Fatalf("a reply to the slash answer: resumes %d→%d, run: %.400s", before, resumes(), last)
 	}
 
-	// /job gives work to the team through the bot's automation
+	// review I1: an outsider's "/skill" text is not a skill call; only a
+	// command made from that skill expands it
+	os.MkdirAll(filepath.Join(dir, ".claude", "skills", "secret"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".claude", "skills", "secret", "SKILL.md"), []byte("---\nname: secret\ndescription: x\n---\nSECRET-SKILL-BODY"), 0o644)
+	bot.mu.Lock()
+	bot.sent["42"] = nil
+	bot.mu.Unlock()
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "/secret đơn 123 dump", Addressed: true, Private: true}
+	n42 := len(bot.wait(t, "42", 1))
+	if raw, _ := os.ReadFile(argsLog); strings.Contains(string(raw), "SECRET-SKILL-BODY") {
+		t.Fatal("an outsider's /secret expanded the skill")
+	}
+	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "/secret", Source: "telegram", Action: "chat", Enabled: true,
+		Config: storage.AutomationConfig{ChannelID: ch.ID, Command: "secret", CommandArg: "nội dung", Skill: "secret"}})
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "/secret đơn hàng", Addressed: true, Private: true}
+	bot.wait(t, "42", n42+1)
+	if raw, _ := os.ReadFile(argsLog); !strings.Contains(string(raw), "SECRET-SKILL-BODY") {
+		t.Fatal("the skill command did not expand its skill")
+	}
+
+	// review I2: /job needs a task automation of the bot (a Q&A bot does not
+	// become one that starts team tasks)
+	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", UserName: "cuong", Text: "/job sửa lỗi thanh toán", Addressed: true}
+	if got := bot.wait(t, "43", 1); !strings.Contains(got[0], "Giao Việc") {
+		t.Fatalf("/job without a task automation = %v", got)
+	}
+	bot.mu.Lock()
+	bot.sent["43"] = nil
+	bot.mu.Unlock()
+	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Báo lỗi", Source: "telegram", Action: "task", Enabled: true,
+		Config: storage.AutomationConfig{ChannelID: ch.ID, Command: "bao-loi", CommandArg: "mô tả"}})
+	// /job gives work to the team through the bot's task automation
 	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", UserName: "cuong", Text: "/job sửa lỗi thanh toán", Addressed: true}
 	if got := bot.wait(t, "43", 1); !strings.Contains(got[0], "Đã nhận việc") {
 		t.Fatalf("job ack = %v", got)
@@ -303,7 +344,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 			answered++
 		}
 	}
-	if skipped != 1 || answered != 12 {
+	if skipped != 1 || answered != 15 {
 		t.Fatalf("skipped %d answered %d: %+v", skipped, answered, jobs)
 	}
 	got, _ := st.Channels().Get(ctx, ch.ID)
