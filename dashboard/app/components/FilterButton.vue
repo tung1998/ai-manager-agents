@@ -6,10 +6,10 @@ const { t } = useLang()
 
 <template>
   <UPopover :content="{ align: 'end' }">
-    <UButton
-      size="sm" color="neutral" :variant="active ? 'soft' : 'ghost'" icon="i-lucide-list-filter" :aria-label="t('filter.title')"
-      :label="active ? String(active) : undefined" class="shrink-0"
-    />
+    <!-- how many filters are on: a badge on the icon -->
+    <UChip :text="active" :show="!!active" size="3xl" color="primary" inset class="shrink-0">
+      <UButton size="sm" color="neutral" :variant="active ? 'soft' : 'ghost'" icon="i-lucide-list-filter" :aria-label="t('filter.title')" />
+    </UChip>
     <template #content>
       <div class="w-64 space-y-2 p-3">
         <p class="text-xs font-medium text-(--ui-text-muted)">{{ t('filter.title') }}</p>
