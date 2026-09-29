@@ -9,8 +9,11 @@ const next = computed(() => {
   return typeof n === 'string' && n.startsWith('/') && !n.startsWith('//') ? n : ''
 })
 
-const { data, refresh } = await useFetch<{ providers: Provider[] }>('/api/providers')
-const { data: kindsData } = await useFetch<{ kinds: ProviderKind[], presets: ProviderPreset[] }>('/api/provider-kinds')
+const _f1 = useFetch<{ providers: Provider[] }>('/api/providers')
+const { data, refresh } = _f1
+const _f2 = useFetch<{ kinds: ProviderKind[], presets: ProviderPreset[] }>('/api/provider-kinds')
+const { data: kindsData } = _f2
+await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
 const { data: statsData, refresh: refreshStats } = useFetch<{ days: number, providers: ProviderStat[], today: { calls: number, errors: number, tokens: number, cost_usd: number } }>('/api/providers/stats', { query: { days: 7 }, lazy: true })
 const providers = computed(() => data.value?.providers ?? [])
 const kinds = computed(() => kindsData.value?.kinds ?? [])

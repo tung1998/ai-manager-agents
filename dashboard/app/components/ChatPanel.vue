@@ -33,10 +33,13 @@ const single = computed(() => !!props.taskId || !!props.purpose)
 const toast = useToast()
 const { t, dateLocale } = useLang()
 
-const { data: agentsData } = await useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`)
+const _f1 = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`)
+const { data: agentsData } = _f1
 // where the chats started: the dashboard, a bot, an automation
 const origin = ref<'all' | Source>('all')
-const { data: convData, refresh: refreshConvs } = await useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value })
+const _f2 = useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value })
+const { data: convData, refresh: refreshConvs } = _f2
+await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
 // every agent of the project: the person picks who answers, by its rights
 const agents = computed(() => agentsData.value?.agents ?? [])
 const conversations = computed(() => convData.value?.conversations ?? [])

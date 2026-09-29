@@ -55,9 +55,13 @@ const { t } = useLang()
 const id = computed(() => route.params.id as string)
 const here = computed(() => `/projects/${id.value}/setup`)
 
-const { data: projData } = await useFetch<{ project: Project }>(() => `/api/projects/${id.value}`)
-const { data: provData } = await useFetch<{ providers: Provider[] }>('/api/providers')
-const { data: tplData } = await useFetch<{ templates: OrgModel[] }>('/api/templates')
+const _f1 = useFetch<{ project: Project }>(() => `/api/projects/${id.value}`)
+const { data: projData } = _f1
+const _f2 = useFetch<{ providers: Provider[] }>('/api/providers')
+const { data: provData } = _f2
+const _f3 = useFetch<{ templates: OrgModel[] }>('/api/templates')
+const { data: tplData } = _f3
+await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
 const project = computed(() => projData.value?.project)
 const templates = computed(() => tplData.value?.templates ?? [])
 const readyProvider = computed(() => provData.value?.providers.find(p => p.is_default && p.status === 'ok')

@@ -8,8 +8,11 @@ const toast = useToast()
 const { t } = useLang()
 const isNew = computed(() => props.botId === 'new')
 
-const { data: chData } = await useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`)
-const { data: autoData } = await useFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`)
+const _f1 = useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`)
+const { data: chData } = _f1
+const _f2 = useFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`)
+const { data: autoData } = _f2
+await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
 const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const channel = computed(() => chData.value?.channels.find(c => c.id === props.botId))
 

@@ -2,13 +2,18 @@
 const { user, isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
 
-const { data: health } = await useFetch<{ status: string, version: string }>('/api/health')
-const { data: prov } = await useFetch<{ providers: Provider[] }>('/api/providers')
-const { data: proj } = await useFetch<{ projects: Project[] }>('/api/projects')
-const { data: tpl } = await useFetch<{ templates: OrgModel[] }>('/api/templates')
+const _f1 = useFetch<{ status: string, version: string }>('/api/health')
+const { data: health } = _f1
+const _f2 = useFetch<{ providers: Provider[] }>('/api/providers')
+const { data: prov } = _f2
+const _f3 = useFetch<{ projects: Project[] }>('/api/projects')
+const { data: proj } = _f3
+const _f4 = useFetch<{ templates: OrgModel[] }>('/api/templates')
+const { data: tpl } = _f4
 
 interface Job { id: string, project_id: string, title: string, goal: string, pending_patches?: number, status: 'running' | 'done' | 'failed' | 'cancelled' | 'rejected' | 'needs_input', cost_usd: number, created_at: string }
-const { data: jobData } = await useFetch<{ tasks: Job[], projects: Record<string, string> }>('/api/tasks/recent')
+const _f5 = useFetch<{ tasks: Job[], projects: Record<string, string> }>('/api/tasks/recent')
+const { data: jobData } = _f5
 const recentJobs = computed(() => (jobData.value?.tasks ?? []).slice(0, 6))
 const jobStatus = computed<Record<Job['status'], { label: string, color: 'info' | 'success' | 'error' | 'neutral' | 'warning', icon: string }>>(() => ({
   running: { label: t('home.jobRunning'), color: 'info', icon: 'i-lucide-loader' },
@@ -22,14 +27,17 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
 
 // what needs a person, and the last day in numbers
 interface Incident { kind: string, severity: 'error' | 'warning', project_name: string, title: string, detail: string, link: string }
-const { data: incData, refresh: refreshInc } = await useFetch<{ incidents: Incident[], count: number }>('/api/incidents')
+const _f6 = useFetch<{ incidents: Incident[], count: number }>('/api/incidents')
+const { data: incData, refresh: refreshInc } = _f6
 let incTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => { incTimer = setInterval(() => refreshInc(), 30000) })
 onBeforeUnmount(() => clearInterval(incTimer))
 const incidents = computed(() => incData.value?.incidents ?? [])
 // the kind of each, as a word next to it
 const incKind = (k: string) => t(`incidents.kind.${k}` as 'incidents.kind.monitor')
-const { data: stats } = await useFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h')
+const _f7 = useFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h')
+const { data: stats } = _f7
+await Promise.all([_f1, _f2, _f3, _f4, _f5, _f6, _f7]) // started together: one round trip, not 7 (a phone over a VPN)
 const incIcon: Record<string, string> = {
   monitor: 'i-lucide-activity', process: 'i-lucide-square-terminal', automation: 'i-lucide-alarm-clock-off',
   bot: 'i-lucide-bot', jobs: 'i-lucide-circle-x', approval: 'i-lucide-stamp'

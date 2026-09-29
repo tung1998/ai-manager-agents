@@ -6,8 +6,11 @@ const { isAdmin } = useAuth()
 const { t } = useLang()
 const id = computed(() => route.params.id as string)
 
-const { data, refresh } = await useFetch<{ project: Project }>(() => `/api/projects/${id.value}`)
-const { data: tplData } = await useFetch<{ templates: OrgModel[] }>('/api/templates')
+const _f1 = useFetch<{ project: Project }>(() => `/api/projects/${id.value}`)
+const { data, refresh } = _f1
+const _f2 = useFetch<{ templates: OrgModel[] }>('/api/templates')
+const { data: tplData } = _f2
+await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
 const project = computed(() => data.value?.project)
 const templates = computed(() => tplData.value?.templates ?? [])
 

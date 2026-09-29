@@ -141,7 +141,7 @@ func New(cfg Config) http.Handler {
 		s.triggerRoutes(mux)
 	}
 
-	return s.securityHeaders(s.csrf(mux))
+	return gzipJSON(s.securityHeaders(s.csrf(mux)))
 }
 
 // ---- middleware ----

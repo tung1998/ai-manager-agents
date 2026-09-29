@@ -36,9 +36,13 @@ const { isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
 const toast = useToast()
 const days = ref(30)
-const { data: sum, refresh } = await useFetch<Summary>('/api/usage/summary', { query: { days } })
-const { data: runsData, refresh: refreshRuns } = await useFetch<{ runs: Run[] }>('/api/usage/runs', { query: { days, limit: 100 } })
-const { data: projData } = await useFetch<{ projects: Project[] }>('/api/projects')
+const _f1 = useFetch<Summary>('/api/usage/summary', { query: { days } })
+const { data: sum, refresh } = _f1
+const _f2 = useFetch<{ runs: Run[] }>('/api/usage/runs', { query: { days, limit: 100 } })
+const { data: runsData, refresh: refreshRuns } = _f2
+const _f3 = useFetch<{ projects: Project[] }>('/api/projects')
+const { data: projData } = _f3
+await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
 
 const usd = (v: number) => v >= 100 ? `$${v.toFixed(0)}` : v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(3)}`
 const tokens = (v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : `${v}`

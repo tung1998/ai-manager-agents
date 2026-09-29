@@ -4,8 +4,11 @@
 definePageMeta({ admin: true })
 
 const { t } = useLang()
-const { data: projData } = await useFetch<{ projects: { id: string, name: string }[] }>('/api/projects')
-const { data: stats, refresh: refreshStats } = await useFetch<{ rows: { key: string, count: number, failed: number }[] }>('/api/audit/stats', { query: { by: 'kind', since: '168h' } })
+const _f1 = useFetch<{ projects: { id: string, name: string }[] }>('/api/projects')
+const { data: projData } = _f1
+const _f2 = useFetch<{ rows: { key: string, count: number, failed: number }[] }>('/api/audit/stats', { query: { by: 'kind', since: '168h' } })
+const { data: stats, refresh: refreshStats } = _f2
+await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
 const log = ref<{ reload: () => void } | null>(null)
 
 const tiles = computed(() => {

@@ -24,5 +24,9 @@ export default defineNuxtConfig({
   },
   devServer: { port: 2704 },
   // "Cập nhật office" builds into a side folder, then swaps it in
-  nitro: { output: { dir: (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.OFFICE_UI_OUT_DIR || '.output' } }
+  nitro: {
+    output: { dir: (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.OFFICE_UI_OUT_DIR || '.output' },
+    // gzip and brotli copies of the bundles: a phone over a VPN downloads a quarter of them
+    compressPublicAssets: { gzip: true, brotli: true }
+  }
 })

@@ -22,9 +22,13 @@ const { t, dateLocale } = useLang()
 const projectId = computed(() => route.params.id as string)
 const agentId = computed(() => route.params.agentId as string)
 
-const { data, refresh } = await useFetch<{ agent: Agent, model: { id: string, name: string, kind: string, repo_id: string }, project?: { id: string, name: string } }>(() => `/api/agents/${agentId.value}`)
-const { data: provData } = await useFetch<{ providers: Provider[] }>('/api/providers')
-const { data: modelData } = await useFetch<{ model: OrgModel }>(() => `/api/org-models/${data.value?.model.id}`, { immediate: !!data.value })
+const _f1 = useFetch<{ agent: Agent, model: { id: string, name: string, kind: string, repo_id: string }, project?: { id: string, name: string } }>(() => `/api/agents/${agentId.value}`)
+const { data, refresh } = _f1
+const _f2 = useFetch<{ providers: Provider[] }>('/api/providers')
+const { data: provData } = _f2
+const _f3 = useFetch<{ model: OrgModel }>(() => `/api/org-models/${data.value?.model.id}`, { immediate: !!data.value })
+const { data: modelData } = _f3
+await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
 const agent = computed(() => data.value?.agent)
 const providers = computed(() => provData.value?.providers ?? [])
 const defaultProvider = computed(() => providers.value.find(p => p.is_default))

@@ -7,8 +7,11 @@ const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
 
-const { data, refresh } = await useFetch<{ model: OrgModel }>(() => `/api/org-models/${props.modelId}`)
-const { data: provData } = await useFetch<{ providers: Provider[] }>('/api/providers')
+const _f1 = useFetch<{ model: OrgModel }>(() => `/api/org-models/${props.modelId}`)
+const { data, refresh } = _f1
+const _f2 = useFetch<{ providers: Provider[] }>('/api/providers')
+const { data: provData } = _f2
+await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
 const model = computed(() => data.value?.model)
 const agents = computed(() => model.value?.agents ?? [])
 const providers = computed(() => provData.value?.providers ?? [])
