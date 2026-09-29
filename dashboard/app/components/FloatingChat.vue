@@ -17,7 +17,8 @@ const hidden = computed(() => {
   const p = route.path
   if (p.startsWith('/assistant') || p === '/login') return true // the assistant's own page
   if (inProject.value) {
-    if (p === `/projects/${projectId.value}` && (!route.query.tab || route.query.tab === 'chat')) return true // the Chat tab itself
+    if (p === `/projects/${projectId.value}` && (!route.query.tab || route.query.tab === 'chat' || route.query.tab === 'tasks')) return true // the Chat tab itself; Tasks has its own talk
+    if (p.includes('/bots/') || p.endsWith('/skills/edit')) return true // a page with its own chat
     if (p.endsWith('/automations/new') || p.endsWith('/edit')) return true // the builder has its own chat
     return false
   }
