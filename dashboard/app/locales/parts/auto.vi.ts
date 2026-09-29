@@ -19,6 +19,7 @@ export default {
   'auto.runNowHelp': 'Chạy thử ngay một lần, không đợi lịch hay webhook',
   'auto.ran': 'Đã xếp hàng chạy',
   'auto.disabledBy': 'Đã tự tắt: {reason}',
+  'auto.detail': 'Xem chi tiết',
   'auto.edit': 'Sửa',
   'auto.delete': 'Xóa',
   'auto.deleteConfirm': 'Xóa tự động hóa "{name}"? Lịch sử job vẫn giữ.',

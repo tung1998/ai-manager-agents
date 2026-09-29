@@ -31,6 +31,30 @@ async function reconnect(a: Automation) {
     toast.add({ title: apiError(e), color: 'error' })
   }
 }
+async function remove(a: Automation) {
+  if (!confirm(t('auto.deleteConfirm', { name: a.name }))) return
+  try {
+    await $fetch(`/api/automations/${a.id}`, { method: 'DELETE' })
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+// the row's ⋯ menu: what fits this automation (a test run is for schedules and
+// webhooks; a bot's automation runs on a message, its bot may need a reconnect)
+function rowMenu(a: Automation) {
+  const link = `/projects/${props.projectId}/automations/${a.id}`
+  return [
+    [
+      { label: t('auto.detail'), icon: 'i-lucide-eye', to: link },
+      { label: t('auto.edit'), icon: 'i-lucide-pencil', to: `${link}/edit` },
+      ...(isChannelSource(a.source)
+        ? [{ label: t('auto.reconnect'), icon: 'i-lucide-refresh-cw', onSelect: () => reconnect(a) }]
+        : [{ label: t('auto.runNow'), icon: 'i-lucide-play', onSelect: () => runNow(a) }])
+    ],
+    [{ label: t('auto.delete'), icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => remove(a) }]
+  ]
+}
 async function runNow(a: Automation) {
   try {
     await $fetch(`/api/automations/${a.id}/run`, { method: 'POST', body: {} })
@@ -60,17 +84,15 @@ async function runNow(a: Automation) {
           </span>
         </NuxtLink>
         <UBadge v-if="a.disabled_code" color="error" variant="subtle" size="sm" icon="i-lucide-circle-alert" :label="t('auto.disabledBy', { reason: a.disabled_reason })" class="max-w-64 truncate" />
-        <template v-else-if="a.bot_status?.last_error">
-          <UBadge color="error" variant="subtle" size="sm" icon="i-lucide-bot" :label="a.bot_status.last_error" :title="a.bot_status.last_error" class="max-w-64 truncate" />
-          <UButton v-if="isAdmin" size="xs" color="neutral" variant="outline" icon="i-lucide-refresh-cw" :label="t('auto.reconnect')" @click="reconnect(a)" />
-        </template>
+        <UBadge v-else-if="a.bot_status?.last_error" color="error" variant="subtle" size="sm" icon="i-lucide-bot" :label="a.bot_status.last_error" :title="a.bot_status.last_error" class="max-w-64 truncate" />
         <span v-else class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
           <JobStatusBadge v-if="a.last_job" :status="a.last_job.status" />
           {{ when(a.last_job?.created_at) }}
         </span>
         <USwitch v-if="isAdmin" :model-value="a.enabled" size="sm" @update:model-value="(v: boolean) => toggle(a, v)" />
-        <!-- a test run is for schedules and webhooks; a bot's automation runs on a message -->
-        <UButton v-if="isAdmin && !isChannelSource(a.source)" size="xs" color="neutral" variant="ghost" icon="i-lucide-play" :aria-label="t('auto.runNow')" :title="t('auto.runNowHelp')" @click="runNow(a)" />
+        <UDropdownMenu v-if="isAdmin" :items="rowMenu(a)" :content="{ align: 'end' }">
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-ellipsis" :aria-label="t('chat.more')" />
+        </UDropdownMenu>
       </div>
     </UCard>
 

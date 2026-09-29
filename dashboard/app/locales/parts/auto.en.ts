@@ -20,6 +20,7 @@ const en: Record<keyof typeof vi, string> = {
   'auto.runNowHelp': 'Run it once now, without waiting for the schedule or the webhook',
   'auto.ran': 'Queued to run',
   'auto.disabledBy': 'Turned off: {reason}',
+  'auto.detail': 'Details',
   'auto.edit': 'Edit',
   'auto.delete': 'Delete',
   'auto.deleteConfirm': 'Delete automation "{name}"? Its job history stays.',
