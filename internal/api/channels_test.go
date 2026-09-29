@@ -90,3 +90,64 @@ func TestChannelAutomationAPI(t *testing.T) {
 		t.Fatalf("a channel automation got a webhook secret: %v", b["secret"])
 	}
 }
+
+// A bot is the trigger's own settings: saved with the automation, shared by
+// the automations that name it, gone with the last of them.
+func TestAutomationCarriesItsBot(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	post := func(b map[string]any) (int, map[string]any) {
+		resp, out := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", b, nil)
+		return resp.StatusCode, out
+	}
+	// no one allowed: refused, and no bot left behind
+	if code, b := post(map[string]any{"name": "Trả lời", "source": "discord", "action": "chat", "bot": map[string]any{"token": "tok-1"}}); code != 400 {
+		t.Fatalf("no allow list = %d %v", code, b)
+	}
+	if list, _ := e.st.Channels().List(ctx, pid); len(list) != 0 {
+		t.Fatalf("a failed save left a bot: %+v", list)
+	}
+	code, b := post(map[string]any{"name": "Trả lời", "source": "discord", "action": "chat",
+		"bot": map[string]any{"token": "secret-discord-token", "allow": []string{"42"}, "refusal": "Chỉ hỗ trợ đơn hàng"}})
+	if code != 201 || strings.Contains(mustJSON(b), "secret-discord-token") {
+		t.Fatalf("create = %d %v", code, b)
+	}
+	a := b["automation"].(map[string]any)
+	bot := a["bot"].(map[string]any)
+	chID := a["config"].(map[string]any)["channel_id"].(string)
+	if chID == "" || bot["has_token"] != true || mustJSON(bot["allow"]) != `["42"]` || bot["refusal"] != "Chỉ hỗ trợ đơn hàng" {
+		t.Fatalf("automation = %v", a)
+	}
+	ch, err := e.st.Channels().Get(ctx, chID)
+	if err != nil || ch.Kind != "discord" || !ch.Enabled || ch.TokenEnc == "" || strings.Contains(ch.TokenEnc, "secret") {
+		t.Fatalf("bot = %+v %v", ch, err)
+	}
+	// edit the bot from the automation; the token stays
+	id := a["id"].(string)
+	resp, b := do(t, admin, "PATCH", e.srv.URL+"/api/automations/"+id, map[string]any{"name": "Trả lời", "source": "discord", "action": "chat",
+		"config": map[string]any{"channel_id": chID}, "bot": map[string]any{"allow": []string{"42", "43"}}}, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("patch = %d %v", resp.StatusCode, b)
+	}
+	if again, _ := e.st.Channels().Get(ctx, chID); len(again.Allow) != 2 || again.TokenEnc != ch.TokenEnc {
+		t.Fatalf("bot after patch = %+v", again)
+	}
+	// a second rule on the same bot; the bot goes with the last one
+	code, b = post(map[string]any{"name": "Tra mã", "source": "discord", "action": "chat", "config": map[string]any{"channel_id": chID, "keywords": []string{"mã"}}})
+	if code != 201 || b["automation"].(map[string]any)["bot_status"].(map[string]any)["shared"] != float64(2) {
+		t.Fatalf("second = %d %v", code, b)
+	}
+	second := b["automation"].(map[string]any)["id"].(string)
+	do(t, admin, "DELETE", e.srv.URL+"/api/automations/"+id, nil, nil)
+	if _, err := e.st.Channels().Get(ctx, chID); err != nil {
+		t.Fatal("the bot went while a rule still uses it")
+	}
+	do(t, admin, "DELETE", e.srv.URL+"/api/automations/"+second, nil, nil)
+	if _, err := e.st.Channels().Get(ctx, chID); err == nil {
+		t.Fatal("the bot stayed after its last rule")
+	}
+}

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // A project's automations: schedules, webhooks and chat bots' messages that
-// start a chat turn, a task or a script as a job (ADR-040, ADR-049). The bots
-// connected sit on top: each is a source for the rules below.
+// start a chat turn, a task or a script as a job (ADR-040, ADR-049).
 const props = defineProps<{ projectId: string }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
@@ -35,7 +34,6 @@ async function runNow(a: Automation) {
 
 <template>
   <div class="max-w-5xl space-y-3">
-    <ChannelsStrip v-if="isAdmin" :project-id="projectId" />
     <div class="flex items-center justify-between gap-2">
       <p class="text-sm text-(--ui-text-muted)">{{ list.length ? '' : t('auto.empty') }}</p>
       <UButton v-if="isAdmin" icon="i-lucide-plus" size="sm" :label="t('auto.new')" :to="`/projects/${projectId}/automations/new`" />
@@ -52,6 +50,7 @@ async function runNow(a: Automation) {
           </span>
         </NuxtLink>
         <UBadge v-if="a.disabled_code" color="error" variant="subtle" size="sm" icon="i-lucide-circle-alert" :label="t('auto.disabledBy', { reason: a.disabled_reason })" class="max-w-64 truncate" />
+        <UBadge v-else-if="a.bot_status?.last_error" color="error" variant="subtle" size="sm" icon="i-lucide-bot" :label="a.bot_status.last_error" class="max-w-64 truncate" />
         <span v-else class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
           <JobStatusBadge v-if="a.last_job" :status="a.last_job.status" />
           {{ when(a.last_job?.created_at) }}

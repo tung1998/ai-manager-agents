@@ -12,13 +12,17 @@ Bên cạnh khung chat là form tự động hóa; mỗi tin nhắn kèm bản n
  "action":"script","script":{"lang":"bash","body":"grep -c ERROR logs/app.log || true","timeout_s":120},
  "escalate":{"when":"failure","action":"task","prompt":"Log báo lỗi: {{output}}"}}
 ` + "```" + `
-Các trường: name; source (schedule | webhook); config {every_minutes | cron, timezone, auth, auth_name}; action (script | task);
+Các trường: name; source (schedule | webhook | telegram | discord); config {every_minutes | cron, timezone, auth, auth_name}; action (script | task, và chat khi nguồn là bot);
 agent_id (agent làm Việc một mình, như việc hằng ngày của một nhân viên; rỗng = cả đội, trưởng nhóm chia việc); prompt (cho task, có {{payload}}, {{today}}…); script {lang: bash|node|python, body, timeout_s};
 escalate {when: never|failure|signal, action: task, agent_id (rỗng = cả đội), prompt (có {{output}}, {{exit_code}}, {{message}})};
 model_tier ("" = model của agent | strong | balanced | fast; việc đơn giản hằng ngày nên dùng fast); limits {max_runs_per_hour, daily_cost_usd, disable_after_failures, debounce_seconds, debounce_key, debounce_max_seconds}.
 Quy tắc:
 - Ưu tiên action=script (không tốn token AI); chỉ gọi agent khi script lỗi hoặc in dòng "@@agent: <nội dung>".
-- Không dùng action=chat (mỗi lần chạy thành một cuộc chat, gây rối); việc của một agent thì dùng task với agent_id.
+- Không dùng action=chat với lịch/webhook (mỗi lần chạy thành một cuộc chat, gây rối); việc của một agent thì dùng task với agent_id.
+- Nguồn telegram | discord: tin nhắn gửi tới bot là trigger. config {channel_id (bot đã có; trống = bot mới), keywords [từ khóa, trống = mọi tin], scope (chủ đề, model nhanh kiểm tra)};
+  bot {allow [user id được nhắn, "*" = ai cũng được], refusal (câu trả lời khi không tự động hóa nào nhận tin)}. KHÔNG điền token: người dùng tự dán vào form.
+  action=chat: agent trả lời ngay trong cuộc chat đó (không công cụ); action=script: output là câu trả lời, payload JSON {message, user, user_id, chat_id} ở stdin; action=task: giao Việc rồi báo kết quả. prompt có {{message}}, {{user}}.
+  Tin đi vào tự động hóa đầu tiên khớp (theo thứ tự tạo), nên quy tắc hẹp (có từ khóa) phải tạo trước quy tắc chung.
 - Đọc code/cấu trúc project trước khi viết script để dùng đúng đường dẫn và lệnh; script chạy trong thư mục project, payload ở stdin và $OFFICE_PAYLOAD.
 - Giải thích ngắn gọn thay đổi, nhắc người dùng bấm Chạy thử rồi Lưu. Không tự lưu, không dùng propose_automation trong khung này.
 `

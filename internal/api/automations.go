@@ -58,6 +58,8 @@ type automationDTO struct {
 	LastRunAt      *time.Time                 `json:"last_run_at"`
 	NextRunAt      *time.Time                 `json:"next_run_at"`
 	WebhookURL     string                     `json:"webhook_url,omitempty"`
+	Bot            *automationBot             `json:"bot,omitempty"`        // telegram | discord: the bot it listens to
+	BotStatus      *automationBotStatus       `json:"bot_status,omitempty"` // …and how that bot is doing
 	LastJob        *jobDTO                    `json:"last_job"`
 	CreatedAt      time.Time                  `json:"created_at"`
 }
@@ -77,6 +79,9 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 		DisabledCode: a.DisabledCode, DisabledReason: a.DisabledReason, LastRunAt: a.LastRunAt, NextRunAt: a.NextRunAt, CreatedAt: a.CreatedAt}
 	if a.Source == "webhook" {
 		d.WebhookURL = "/hooks/" + a.ID
+	}
+	if trigger.IsChannel(a.Source) {
+		d.Bot, d.BotStatus = s.botOf(r, a)
 	}
 	if jobs, err := s.cfg.Store.Jobs().List(r.Context(), storage.JobFilter{Origin: "automation", OriginID: a.ID, Limit: 1}); err == nil && len(jobs) > 0 {
 		j := s.toJobDTO(r, jobs[0], nil)
@@ -101,6 +106,8 @@ type automationInput struct {
 	Escalate    storage.AutomationEscalate `json:"escalate"`
 	// ConversationID ties the chat that built it (ADR-042)
 	ConversationID string `json:"conversation_id"`
+	// Bot: telegram | discord, the bot's own settings (a new one without channel_id)
+	Bot *botInput `json:"bot"`
 }
 
 // apply validates in and puts it on a (the secret hash and state stay).
@@ -214,7 +221,13 @@ func (s *server) createAutomation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := storage.Automation{ProjectID: p.ID, Enabled: true, CreatedBy: userFrom(r).Email}
+	newBot, err := s.saveBot(r, &in, p.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := s.applyAutomation(r, in, &a); err != nil {
+		s.dropBot(r, newBot)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -224,10 +237,12 @@ func (s *server) createAutomation(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err = s.cfg.Store.Automations().Create(r.Context(), a)
 	if err != nil {
+		s.dropBot(r, newBot)
 		s.audit(r, audit.Change{Action: "automation.create", ProjectID: p.ID, After: a, Err: err})
 		s.internal(w, r, err)
 		return
 	}
+	s.reloadBot(a)
 	s.linkBuilder(r, a, in.ConversationID)
 	s.audit(r, audit.Change{Action: "automation.create", ResourceID: a.ID, ProjectID: p.ID, After: s.toAutomationDTO(r, a),
 		Detail: map[string]any{"name": a.Name, "source": a.Source}})
@@ -259,7 +274,13 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 	}
 	old := a
 	wasWebhook := a.Source == "webhook"
+	newBot, err := s.saveBot(r, &in, a.ProjectID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := s.applyAutomation(r, in, &a); err != nil {
+		s.dropBot(r, newBot)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -280,6 +301,10 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 	}
 	s.linkBuilder(r, a, in.ConversationID)
 	s.audit(r, change)
+	s.reloadBot(a)
+	if old.Config.ChannelID != a.Config.ChannelID {
+		s.releaseBot(r, old) // it moved to another bot, or off bots
+	}
 	out := map[string]any{"automation": s.toAutomationDTO(r, a)}
 	if secret != "" {
 		out["secret"] = secret
@@ -298,6 +323,7 @@ func (s *server) deleteAutomation(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	s.releaseBot(r, old)
 	s.audit(r, audit.Change{Action: "automation.delete", ResourceID: id, ProjectID: old.ProjectID, Before: s.toAutomationDTO(r, old)})
 	w.WriteHeader(http.StatusNoContent)
 }

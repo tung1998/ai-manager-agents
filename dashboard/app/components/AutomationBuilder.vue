@@ -22,6 +22,7 @@ const lastTest = ref<{ output: string, exit_code: number, timed_out: boolean } |
 // the last test run first, and a long script cut, so both fit the 8KB the server keeps
 const pageContext = () => {
   const draft = automationBody(form)
+  if (draft.bot) draft.bot = { ...draft.bot, token: undefined } // the bot's token never goes to the chat
   const body = draft.script.body
   if (body.length > 4000) draft.script = { ...draft.script, body: `${body.slice(0, 4000)}\n… (${body.length - 4000} ký tự nữa, xem trong form)` } // i18n-ignore: sent to the agent
   return JSON.stringify({

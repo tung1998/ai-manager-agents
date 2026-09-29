@@ -1273,8 +1273,12 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - `script`: stdout (đã bỏ các dòng `@@agent:`) là câu trả lời. Nếu script gọi agent thì câu trả lời của agent được gửi tiếp sau.
 - **Gửi lại:** `Runner.SetOnReply(func(ctx, origin, reply, err, final))`. `origin` là job mang payload của kênh; với agent do script gọi thì là job của script. `Executor.RunChat` trả thêm câu trả lời cuối. Lỗi chỉ được báo cho người ngoài bằng một câu chung; chi tiết nằm ở job. Mỗi chat vẫn giới hạn 3 tin chờ, nhả ra khi có câu trả lời cuối. Trạng thái "đang gõ" được gửi đều đặn tới khi xong.
 - **Kênh cũ:** khi khởi động, mỗi kênh có sẵn được tạo một quy tắc "Trả lời" từ agent và phạm vi cũ. Việc này chỉ làm một lần (settings `channels_rules_v1`). Ngữ cảnh của các cuộc chat cũ không được mang sang.
-- **Giao diện:**
-  - Form tự động hóa có thêm nguồn "Tin nhắn kênh": chọn kênh, nhập từ khóa và chủ đề.
-  - Hành động "Trả lời trong chat" chỉ có với nguồn này.
-  - Không có tab Kênh chat riêng: đầu trang Tự động có dải "Bot đã kết nối" (trạng thái, bật/tắt, sửa). Form tự động hóa có nút "+ Kết nối bot"; kết nối xong thì bot được chọn luôn. Kết nối từ dải bot xong thì mở trang tạo quy tắc. Link cũ `?tab=channels` chuyển về tab Tự động.
+- **Bot là cấu hình của trigger, không phải một thứ riêng.** Lịch chạy, webhook hay bot đều là trigger, nên chỉ có một danh sách và một form (có AI hỗ trợ).
+  - API tự động hóa nhận `bot {token, allow, refusal}`. Chưa có `channel_id` thì tạo bot mới (cần token); có rồi thì sửa bot đó. Tự động hóa bị từ chối thì bot vừa tạo bị xóa theo.
+  - DTO có `bot` (các trường sửa được: `has_token`, `allow`, `refusal`) và `bot_status` (tên bot, lỗi, tin gần nhất, số tự động hóa dùng chung). `bot_status` tách riêng để một tin mới không làm đề xuất bị cũ.
+  - Nhiều tự động hóa dùng chung một bot. Xóa tự động hóa cuối cùng dùng bot thì bot cũng bị xóa và dừng.
+  - Token không bao giờ đi qua chat: `mergeDraft` bỏ qua `bot.token`, ngữ cảnh gửi AI bỏ token, còn `propose_change` từ chối `bot.token`.
+  - Form: bước Nguồn có "Tin nhắn kênh", gồm chọn bot hoặc "+ Bot mới" (Telegram/Discord, các bước hướng dẫn đánh số, token, người được nhắn, câu trả lời mặc định), rồi từ khóa và chủ đề. Cài đặt của bot có sẵn được thu gọn, kèm cảnh báo là dùng chung.
+  - Danh sách tự động hóa hiện `@tên_bot · Discord · "từ khóa"`, và báo lỗi bot ngay trên dòng. Không còn tab hay dải bot riêng; link cũ `?tab=channels` chuyển về tab Tự động.
+  - AI dựng tự động hóa biết nguồn telegram/discord, `action=chat` (chỉ dùng cho bot) và thứ tự quy tắc.
 - **Để sau:** agent đề xuất tự động hóa (`trigger.Spec`) vẫn chỉ tạo được lịch chạy và webhook.

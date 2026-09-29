@@ -253,6 +253,9 @@ func (s *server) CheckChange(ctx context.Context, projectID string, office bool,
 		if f == "api_key" || f == "api_key_env" {
 			return "", errors.New("không đưa API key qua đề xuất; người dùng tự dán key trên thẻ duyệt")
 		}
+		if bot, ok := patch["bot"].(map[string]any); ok && f == "bot" && bot["token"] != nil {
+			return "", errors.New("không đưa token của bot qua đề xuất; người dùng tự dán token trong form tự động hóa")
+		}
 		if !slices.Contains(fields, f) {
 			return "", fmt.Errorf("trường %q không sửa được (%s có: %s)", f, k.title, strings.Join(fields, ", "))
 		}

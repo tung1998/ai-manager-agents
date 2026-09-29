@@ -70,22 +70,39 @@ export interface Automation {
   last_run_at: string | null
   next_run_at: string | null
   webhook_url?: string
+  // telegram | discord: the bot it listens to (ADR-049), and how that bot is doing
+  bot?: { has_token: boolean, allow: string[], refusal: string }
+  bot_status?: { kind: 'telegram' | 'discord', bot_name: string, enabled: boolean, last_error: string, last_message_at: string | null, shared: number }
   last_job: Job | null
   created_at: string
 }
 
-// automationBody is what PATCH/POST take (the fields a person edits).
-export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'model_tier' | 'keep_context' | 'limits' | 'script' | 'escalate'>) {
-  return {
+// A bot's settings as a form edits them (the token only when a new one is pasted).
+export interface BotDraft { token?: string, allow: string[], refusal: string }
+
+// AutomationBody is what PATCH/POST take.
+export interface AutomationBody {
+  name: string, enabled: boolean, source: Automation['source'], action: Automation['action'], agent_id: string, prompt: string,
+  edit_mode: Automation['edit_mode'], model_tier: NonNullable<Automation['model_tier']>, keep_context: boolean,
+  config: AutomationConfig, limits: AutomationLimits, script: AutomationScript, escalate: AutomationEscalate, bot?: BotDraft
+}
+
+export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'model_tier' | 'keep_context' | 'limits' | 'script' | 'escalate'> & { bot?: BotDraft }): AutomationBody {
+  const body: AutomationBody = {
     name: a.name, enabled: a.enabled, source: a.source, action: a.action, agent_id: a.agent_id, prompt: a.prompt,
     edit_mode: a.edit_mode, model_tier: a.model_tier ?? '', keep_context: a.keep_context, config: a.config, limits: a.limits, script: a.script, escalate: a.escalate
   }
+  if (isChannelSource(a.source) && a.bot) body.bot = { allow: a.bot.allow, refusal: a.bot.refusal, ...(a.bot.token ? { token: a.bot.token } : {}) }
+  return body
 }
 
 // scheduleText describes when an automation runs.
-export function scheduleText(a: Pick<Automation, 'source' | 'config' | 'webhook_url'>, t: (k: 'auto.every' | 'auto.sourceWebhook' | 'auto.sourceChannel', p?: Record<string, string | number>) => string) {
+export function scheduleText(a: Pick<Automation, 'source' | 'config' | 'webhook_url' | 'bot_status'>, t: (k: 'auto.every' | 'auto.sourceWebhook' | 'auto.sourceChannel', p?: Record<string, string | number>) => string) {
   if (a.source === 'webhook') return a.webhook_url ?? t('auto.sourceWebhook')
-  if (isChannelSource(a.source)) return `${t('auto.sourceChannel')} · ${a.source === 'discord' ? 'Discord' : 'Telegram'}${a.config.keywords?.length ? ` · ${a.config.keywords.join(', ')}` : ''}`
+  if (isChannelSource(a.source)) {
+    const bot = a.bot_status?.bot_name ? `@${a.bot_status.bot_name}` : t('auto.sourceChannel')
+    return `${bot} · ${a.source === 'discord' ? 'Discord' : 'Telegram'}${a.config.keywords?.length ? ` · "${a.config.keywords.join('", "')}"` : ''}`
+  }
   if (a.config.cron) return `${a.config.cron}${a.config.timezone ? ` (${a.config.timezone})` : ''}`
   return t('auto.every', { n: a.config.every_minutes ?? 0 })
 }
@@ -104,12 +121,13 @@ export const jobStatusMeta: Record<JobStatus, { color: 'info' | 'neutral' | 'suc
 export const isChannelSource = (s: string) => s === 'telegram' || s === 'discord'
 
 // ---- the draft the builder page edits (ADR-042) ----
-export type AutomationDraft = Omit<Automation, 'id' | 'project_id' | 'failures' | 'disabled_code' | 'disabled_reason' | 'last_run_at' | 'next_run_at' | 'last_job' | 'created_at' | 'webhook_url'>
+export type AutomationDraft = Omit<Automation, 'id' | 'project_id' | 'failures' | 'disabled_code' | 'disabled_reason' | 'last_run_at' | 'next_run_at' | 'last_job' | 'created_at' | 'webhook_url' | 'bot' | 'bot_status'> & { bot: BotDraft }
 
 export function emptyDraft(): AutomationDraft {
   return {
     name: '', enabled: true, source: 'schedule',
-    config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '' },
+    config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '', channel_id: '', keywords: [], scope: '' },
+    bot: { token: '', allow: [], refusal: '' },
     action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', model_tier: '', keep_context: false,
     script: { lang: 'bash', body: '', timeout_s: 300 },
     escalate: { when: 'failure', action: 'task', agent_id: '', prompt: '' },
@@ -122,6 +140,7 @@ export function draftFrom(a: Automation): AutomationDraft {
   const b = JSON.parse(JSON.stringify(automationBody(a))) as AutomationDraft
   const d: AutomationDraft = {
     ...e, ...b, config: { ...e.config, ...b.config }, limits: { ...e.limits, ...b.limits },
+    bot: { token: '', allow: [...(a.bot?.allow ?? [])], refusal: a.bot?.refusal ?? '' },
     script: { ...e.script, ...(b.script?.lang ? b.script : {}) }, escalate: { ...e.escalate, ...(b.escalate?.when ? b.escalate : {}) }
   }
   // "message an agent" is gone: it opens as a task for the same agent (a
@@ -131,10 +150,10 @@ export function draftFrom(a: Automation): AutomationDraft {
   return d
 }
 
-const draftObjects = ['config', 'limits', 'script', 'escalate'] as const
+const draftObjects = ['config', 'limits', 'script', 'escalate', 'bot'] as const
 const draftScalars = ['name', 'enabled', 'source', 'action', 'agent_id', 'prompt', 'edit_mode', 'model_tier', 'keep_context'] as const
 const allowed: Record<string, readonly string[]> = {
-  source: ['schedule', 'webhook'], action: ['script', 'task'], edit_mode: ['worktree', 'direct'], model_tier: ['', 'strong', 'balanced', 'fast'],
+  source: ['schedule', 'webhook', 'telegram', 'discord'], action: ['script', 'task', 'chat'], edit_mode: ['worktree', 'direct'], model_tier: ['', 'strong', 'balanced', 'fast'],
   'script.lang': ['bash', 'node', 'python'], 'escalate.when': ['never', 'failure', 'signal'], 'escalate.action': ['task'],
   'config.auth': ['bearer', 'header', 'query']
 }
@@ -150,6 +169,7 @@ export function mergeDraft(d: AutomationDraft, patch: Record<string, unknown>): 
   for (const k of draftScalars) {
     const v = patch[k]
     if (v === undefined || typeof v !== typeof d[k] || !fits(k, v)) continue
+    if (k === 'action' && v === 'chat' && !isChannelSource(typeof patch.source === 'string' ? patch.source : d.source)) continue // replying is for a bot's messages
     ;(d as Record<string, unknown>)[k] = v
     changed.push(k)
   }
@@ -160,6 +180,7 @@ export function mergeDraft(d: AutomationDraft, patch: Record<string, unknown>): 
     let any = false
     for (const [f, x] of Object.entries(v as Record<string, unknown>)) {
       if (!(f in target) || x === null || typeof x !== typeof target[f] || !fits(`${k}.${f}`, x)) continue
+      if (k === 'bot' && f === 'token') continue // a person pastes it; never from the chat
       target[f] = x
       any = true
     }

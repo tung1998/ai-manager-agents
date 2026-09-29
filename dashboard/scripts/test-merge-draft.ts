@@ -1,6 +1,6 @@
 // Tests for mergeDraft (ADR-042): run with node --experimental-strip-types.
 import assert from 'node:assert/strict'
-import { draftFrom, emptyDraft, mergeDraft } from '../app/composables/useAutomations.ts'
+import { automationBody, draftFrom, emptyDraft, mergeDraft } from '../app/composables/useAutomations.ts'
 
 // nested fields: known keys of the right type only
 {
@@ -44,5 +44,18 @@ import { draftFrom, emptyDraft, mergeDraft } from '../app/composables/useAutomat
   assert.equal(conv.agent_id, 'agt_1', 'for the same agent')
   assert.equal(conv.escalate.action, 'task', 'its escalation too')
   assert.equal(conv.escalate.agent_id, 'agt_2')
+}
+// a bot's messages (ADR-049): the agent replies in the chat; the token is never filled from the chat
+{
+  const d = emptyDraft()
+  mergeDraft(d, { source: 'discord', action: 'chat', config: { keywords: ['mã đơn'], scope: 'đơn hàng' }, bot: { token: 'leaked', allow: ['42'], refusal: 'Chỉ hỗ trợ đơn hàng' } })
+  assert.equal(d.source, 'discord')
+  assert.equal(d.action, 'chat', 'a bot rule may reply in the chat')
+  assert.deepEqual(d.config.keywords, ['mã đơn'])
+  assert.deepEqual(d.bot.allow, ['42'])
+  assert.equal(d.bot.token, '', 'the token never comes from the chat')
+  const body = automationBody({ ...d, bot: { ...d.bot, token: 'pasted' } })
+  assert.equal(body.bot?.token, 'pasted', 'a pasted token is sent')
+  assert.equal(automationBody({ ...emptyDraft(), bot: { token: 'x', allow: [], refusal: '' } }).bot, undefined, 'no bot for a schedule')
 }
 console.log('mergeDraft: ok')

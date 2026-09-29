@@ -11,37 +11,30 @@ const { t, dateLocale } = useLang()
 const form = props.form
 
 const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
-// the project's chat channels: a rule takes the messages of one (ADR-049)
-const { data: channelsData, refresh: refreshChannels } = useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true })
-// "+ Kết nối bot": connect one here; it is picked when saved
-const connecting = ref(false)
-async function connected(c: Channel) {
-  await refreshChannels()
-  channelId.value = c.id
-}
-const channels = computed(() => channelsData.value?.channels ?? [])
+// the bot whose messages start it (ADR-049): one the project has, or a new one
+// made on Save ("" = new); its settings are edited right here
+const { data: channelsData } = useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true, immediate: isAdmin.value })
+const bots = computed(() => channelsData.value?.channels ?? [])
 const fromChannel = computed(() => isChannelSource(form.source))
-const channelId = computed({
-  get: () => form.config.channel_id ?? '',
+const NEW_BOT = '__new'
+const botName = (c: Channel) => `${c.bot_name ? `@${c.bot_name}` : c.name} · ${c.kind === 'discord' ? 'Discord' : 'Telegram'}`
+const botPick = computed({
+  get: () => form.config.channel_id || NEW_BOT,
   set: (id: string) => {
-    form.config.channel_id = id
-    const ch = channels.value.find(c => c.id === id)
-    if (ch) form.source = ch.kind
+    const c = bots.value.find(b => b.id === id)
+    form.config.channel_id = c?.id ?? ''
+    form.bot = c ? { token: '', allow: [...c.allow], refusal: c.refusal } : { token: '', allow: [], refusal: '' }
+    if (c) form.source = c.kind
   }
 })
+const bot = computed(() => bots.value.find(b => b.id === form.config.channel_id))
+const allowText = computed({ get: () => form.bot.allow.join('\n'), set: (v: string) => { form.bot.allow = v.split(/[\n,]/).map(s => s.trim()).filter(Boolean) } })
+const botOpen = ref(false) // an existing bot's settings, folded
 function useChannel() {
-  form.source = channels.value.find(c => c.id === form.config.channel_id)?.kind ?? channels.value[0]?.kind ?? 'telegram'
-  if (!form.config.channel_id) form.config.channel_id = channels.value[0]?.id ?? ''
+  form.source = bot.value?.kind ?? bots.value[0]?.kind ?? 'telegram'
+  if (!form.config.channel_id && bots.value[0]) botPick.value = bots.value[0].id
   if (form.action === 'task' && !form.prompt) form.action = 'chat'
 }
-// a new rule from the Channels tab: ?channel=…
-const route = useRoute()
-if (route.query.channel && !form.config.channel_id) {
-  form.config.channel_id = String(route.query.channel)
-  form.source = 'telegram'
-  form.action = 'chat'
-}
-watch(channels, () => { if (fromChannel.value && form.config.channel_id) channelId.value = form.config.channel_id })
 const keywords = computed({ get: () => (form.config.keywords ?? []).join(', '), set: (v: string) => { form.config.keywords = v.split(/[,\n]/).map(s => s.trim()).filter(Boolean) } })
 // a Select item cannot have "" as its value: "the lead" is a sentinel
 const LEAD = '__lead'
@@ -199,27 +192,53 @@ async function testRun() {
         </div>
       </template>
       <template v-else-if="fromChannel">
-        <div v-if="!channels.length" class="flex flex-wrap items-center gap-2 rounded-lg bg-(--ui-bg-elevated)/50 p-3">
-          <p class="min-w-0 flex-1 text-sm text-(--ui-text-muted)">{{ t('auto.noChannels') }}</p>
-          <UButton v-if="isAdmin" size="sm" icon="i-lucide-plus" :label="t('channels.connect')" @click="connecting = true" />
-        </div>
-        <template v-else>
-          <div class="grid gap-3 @lg:grid-cols-2">
-            <UFormField :label="t('auto.channel')" required>
-              <div class="flex gap-2">
-                <USelect v-model="channelId" :items="channels.map(c => ({ label: `${c.name} (${c.kind === 'discord' ? 'Discord' : 'Telegram'})`, value: c.id }))" class="min-w-0 flex-1" />
-                <UButton v-if="isAdmin" color="neutral" variant="outline" icon="i-lucide-plus" :label="t('channels.connect')" @click="connecting = true" />
-              </div>
-            </UFormField>
-            <UFormField :label="t('auto.keywords')" :help="t('auto.keywordsHelp')">
-              <UInput v-model="keywords" class="w-full" :placeholder="t('auto.keywordsPlaceholder')" />
-            </UFormField>
+        <UFormField :label="t('auto.bot')" required>
+          <USelect v-model="botPick" :items="[...bots.map(c => ({ label: botName(c), value: c.id })), { label: t('auto.botNew'), value: NEW_BOT }]" class="w-full" />
+        </UFormField>
+        <!-- a new bot: which kind and how to make it -->
+        <div v-if="!form.config.channel_id" class="space-y-3 rounded-lg border border-dashed border-(--ui-border) p-3">
+          <div class="flex rounded-lg bg-(--ui-bg-elevated) p-0.5 text-sm">
+            <button
+              v-for="k in (['telegram', 'discord'] as const)" :key="k" type="button" class="flex flex-1 items-center justify-center gap-1.5 rounded-md py-1"
+              :class="form.source === k ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted)'" @click="form.source = k"
+            >
+              <UIcon :name="k === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" class="size-4" />{{ k === 'discord' ? 'Discord' : 'Telegram' }}
+            </button>
           </div>
-          <UFormField :label="t('auto.scope')" :help="t('auto.scopeHelp')">
-            <UTextarea v-model="form.config.scope" :rows="2" autoresize class="w-full" :placeholder="t('auto.scopePlaceholder')" />
+          <BotGuide :kind="form.source === 'discord' ? 'discord' : 'telegram'" open />
+        </div>
+        <!-- an existing bot: how it is doing; its settings folded -->
+        <div v-else-if="bot" class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="size-1.5 rounded-full" :class="bot.last_error ? 'bg-(--ui-error)' : bot.bot_name ? 'bg-(--ui-success)' : 'bg-(--ui-warning)'" />
+          <span :class="bot.last_error ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">{{ bot.last_error || (bot.bot_name ? t('auto.botRunning') : t('channels.connecting')) }}</span>
+          <UButton size="xs" color="neutral" variant="link" :icon="botOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" :label="t('auto.botSettings')" @click="botOpen = !botOpen" />
+        </div>
+        <div v-if="!form.config.channel_id || botOpen" class="space-y-3" :class="hl('bot')">
+          <p v-if="form.config.channel_id" class="text-xs text-(--ui-warning)">{{ t('auto.botShared') }}</p>
+          <UFormField :label="t('channels.token')" :help="form.source === 'discord' ? t('channels.tokenHelpDiscord') : t('channels.tokenHelpTelegram')" :required="!form.config.channel_id">
+            <UInput
+              v-model="form.bot.token" type="password" name="bot-token" autocomplete="new-password" class="w-full font-mono"
+              :placeholder="form.config.channel_id ? t('channels.tokenKept') : (form.source === 'discord' ? 'MTI3…' : '123456789:AAF…')"
+            />
           </UFormField>
-          <p class="text-xs text-(--ui-text-muted)">{{ t('auto.ruleOrder') }}</p>
-        </template>
+          <UFormField :label="t('channels.allow')" :help="form.source === 'discord' ? t('channels.allowHelpDiscord') : t('channels.allowHelpTelegram')" required>
+            <UTextarea v-model="allowText" :rows="2" autoresize class="w-full font-mono text-xs" :placeholder="form.source === 'discord' ? '123456789012345678' : '123456789'" />
+          </UFormField>
+          <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')">
+            <UInput v-model="form.bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />
+          </UFormField>
+        </div>
+        <USeparator />
+        <p class="text-sm font-medium">{{ t('auto.whichMessages') }}</p>
+        <div class="grid gap-3 @lg:grid-cols-2">
+          <UFormField :label="t('auto.keywords')" :help="t('auto.keywordsHelp')">
+            <UInput v-model="keywords" class="w-full" :placeholder="t('auto.keywordsPlaceholder')" />
+          </UFormField>
+          <UFormField :label="t('auto.scope')" :help="t('auto.scopeHelp')">
+            <UInput v-model="form.config.scope" class="w-full" :placeholder="t('auto.scopePlaceholder')" />
+          </UFormField>
+        </div>
+        <p class="text-xs text-(--ui-text-muted)">{{ t('auto.ruleOrder') }}</p>
       </template>
       <template v-else>
         <div class="grid gap-3 @lg:grid-cols-2">
@@ -233,8 +252,6 @@ async function testRun() {
         <p class="text-xs text-(--ui-text-muted)">{{ t('auto.tunnelHint') }}</p>
       </template>
     </section>
-
-    <ChannelForm v-model:open="connecting" :project-id="projectId" @saved="connected" />
 
     <!-- 2. action -->
     <section class="space-y-4 rounded-xl border border-(--ui-border) p-4" :class="hl('action') || hl('escalate')">
