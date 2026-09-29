@@ -1,13 +1,15 @@
 package main
 
 import (
-	"bitbucket.org/senprints/agent-office/internal/storage"
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/perm"
+	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/tasks"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
@@ -52,7 +54,7 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 	if err != nil {
 		return conversationID, "", err
 	}
-	reply := ""
+	reply, replyID, author := "", "", ""
 	for seq := 0; ; {
 		evs, done, wake := turn.Since(seq)
 		seq += len(evs)
@@ -61,10 +63,13 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 				return conversationID, "", errors.New(e.Text)
 			}
 			if e.Type == "done" && e.Message != nil {
-				reply = e.Message.Content
+				reply, replyID, author = e.Message.Content, e.Message.ID, e.Message.Author
 			}
 		}
 		if done {
+			if fn := trigger.FollowUpOf(ctx); fn != nil && replyID != "" {
+				go x.followUps(conversationID, replyID, author, fn)
+			}
 			return conversationID, reply, nil
 		}
 		select {
@@ -148,4 +153,49 @@ func (r assistantRunner) RunAutomation(ctx context.Context, automationID string)
 	}
 	j, _, err := r.trigger.Enqueue(ctx, a, "manual", "", "", "")
 	return j.ID, err
+}
+
+// followUps sends on what the answering agent says after its answer, once the
+// agents it gave work to are done (its reports), until the chat is quiet.
+func (x officeExecutor) followUps(convID, afterID, author string, send func(string)) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	seen := map[string]bool{}
+	past := false // messages up to the answer were sent already
+	quiet := 0
+	for quiet < 2 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(3 * time.Second):
+		}
+		if len(x.chat.Running(convID)) == 0 {
+			quiet++
+		} else {
+			quiet = 0
+		}
+		msgs, err := x.chat.History(ctx, convID)
+		if err != nil {
+			return
+		}
+		past = false
+		for _, m := range msgs {
+			if m.ID == afterID {
+				past = true
+				continue
+			}
+			if !past || seen[m.ID] {
+				continue
+			}
+			if (m.Role == "assistant" && m.Author == author) || m.Role == "error" {
+				seen[m.ID] = true
+				if strings.TrimSpace(m.Content) != "" {
+					send(m.Content)
+				}
+			}
+			if m.Role == "user" { // the person wrote again: that turn answers on its own
+				return
+			}
+		}
+	}
 }

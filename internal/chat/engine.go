@@ -679,7 +679,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if conv.Purpose == "skill" {
 		req.System += skillGuide
 	}
-	if conv.TaskID == "" && conv.Purpose == "" {
+	if teamChat(conv) { // the team and how to give it work
 		req.System += e.groupBrief(ctx, conv, agent)
 	}
 	if s := instructionsOf(ctx); s != "" {

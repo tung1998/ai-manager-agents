@@ -37,7 +37,7 @@ func (e *Engine) Delegate(ctx context.Context, sc officetools.Scope, agentName, 
 		return "", errors.New("chỉ giao việc được trong Chat")
 	}
 	conv, err := e.store.Chat().GetConversation(ctx, sc.ConversationID)
-	if err != nil || conv.Purpose != "" || conv.TaskID != "" {
+	if err != nil || !teamChat(conv) {
 		return "", errors.New("chỉ giao việc được trong Chat")
 	}
 	if task == "" {
@@ -64,6 +64,12 @@ func (e *Engine) Delegate(ctx context.Context, sc officetools.Scope, agentName, 
 	e.mu.Unlock()
 	return fmt.Sprintf("Đã giao cho %s; %s bắt đầu khi bạn trả lời xong lượt này và làm ở nền. Trả lời người dùng ngay, đừng chờ; khi %s xong bạn sẽ được gọi lại để báo kết quả.",
 		agents[i].Name, agents[i].Name, agents[i].Name), nil
+}
+
+// teamChat: a chat where agents give each other work — the project's chats
+// and a bot's (Discord/Telegram, whose follow-ups go back to the channel).
+func teamChat(c storage.Conversation) bool {
+	return c.TaskID == "" && (c.Purpose == "" || c.Purpose == "channel")
 }
 
 // queued is an agent still to answer, and who tagged it.
@@ -202,7 +208,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 	given := e.handed[prev.ID]
 	delete(e.handed, prev.ID)
 	e.mu.Unlock()
-	if conv.TaskID == "" && conv.Purpose == "" {
+	if teamChat(conv) {
 		var notes []string
 		for _, d := range given {
 			if hops >= maxHops {

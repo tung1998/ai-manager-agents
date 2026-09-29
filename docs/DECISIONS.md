@@ -1365,3 +1365,12 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Trong lúc Việc chạy, quản lý trả lời ngắn (xác nhận chỉ đạo, báo tiến độ) và **không sửa code**: lượt chat không có quyền ghi. Đội mới là người sửa. Muốn đổi hẳn mục tiêu thì dừng Việc rồi giao lại.
 
 **Hệ quả.** Bước đang chạy dở không nhận chỉ đạo mới, chỉ các bước bắt đầu sau đó.
+
+## ADR-053: Bot giao việc cho đội
+
+**Bối cảnh.** Cuộc chat từ Discord/Telegram không giao được việc cho agent khác ("chỉ giao việc được trong Chat"), nên trưởng nhóm, vốn không tự sửa code, không làm được gì. Các cuộc chat bot tạo trước ADR-049 vẫn giữ trần "Chỉ đọc".
+
+**Quyết định.**
+- Chat của bot (`purpose = channel`) là chat của đội: có công cụ `delegate` và phần giới thiệu đội như chat trên web.
+- Báo cáo của đội sau câu trả lời được gửi tiếp vào kênh. Đó là các tin của agent trả lời khi được gọi lại, kèm lỗi nếu có. Việc gửi tiếp dừng khi cuộc chat im lặng, khi người dùng nhắn tiếp, hoặc sau 1 giờ.
+- Migration 00035 nâng các cuộc chat bot đang ở `read` lên `operate`, để chúng chạy theo quyền của agent.

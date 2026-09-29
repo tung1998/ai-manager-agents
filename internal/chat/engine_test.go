@@ -775,3 +775,20 @@ func TestFailedTurnKeepsWhatWasSeen(t *testing.T) {
 		t.Fatalf("members = %+v", members)
 	}
 }
+
+// A bot's chat (Discord/Telegram) gives work to the team as a web chat does.
+func TestDelegateInChannelChat(t *testing.T) {
+	g := newGroup(t)
+	conv, err := g.engine.StartConversationPurpose(g.context, g.f.project.ID, "", "channel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := officetools.Scope{ProjectID: g.f.project.ID, ConversationID: conv.ID, RunRef: "r1", Agent: g.leadNm}
+	if _, err := g.engine.Delegate(g.context, sc, "Dev", "sửa lỗi"); err != nil {
+		t.Fatalf("delegate from a bot chat: %v", err)
+	}
+	auto, _ := g.engine.StartConversationPurpose(g.context, g.f.project.ID, "", "automation")
+	if _, err := g.engine.Delegate(g.context, officetools.Scope{ProjectID: g.f.project.ID, ConversationID: auto.ID, RunRef: "r2", Agent: g.leadNm}, "Dev", "x"); err == nil {
+		t.Fatal("delegate from an automation-building chat was accepted")
+	}
+}

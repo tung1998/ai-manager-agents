@@ -316,6 +316,9 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		if fromChannel && j.ParentJobID == "" {
 			conv = channelPayloadOf(origin).ConversationID // the outside chat's own conversation
 		}
+		if fromChannel && r.onReply != nil { // the team's reports, after the answer, go to the chat too
+			actx = WithFollowUp(actx, func(t string) { r.onReply(context.WithoutCancel(ctx), origin, t, nil, true) })
+		}
 		var got string
 		got, text, err = r.exec.RunChat(actx, a.ProjectID, agentID, conv, prompt, a.EditMode)
 		if a.KeepContext && !fromChannel && got != "" && got != a.Config.ConversationID {
@@ -567,6 +570,19 @@ func SkillOf(ctx context.Context) string {
 }
 
 type untrustedKey struct{}
+
+type followUpKey struct{}
+
+// WithFollowUp gives a chat run where to send what comes after its answer:
+// the reports of the agents it gave work to (a bot's chat: back to the channel).
+func WithFollowUp(ctx context.Context, fn func(text string)) context.Context {
+	return context.WithValue(ctx, followUpKey{}, fn)
+}
+
+func FollowUpOf(ctx context.Context) func(text string) {
+	fn, _ := ctx.Value(followUpKey{}).(func(text string))
+	return fn
+}
 
 // WithUntrusted marks a run outsiders drove (a bot's escalation): the executor
 // runs it read only, without tools.

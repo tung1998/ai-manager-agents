@@ -34,7 +34,7 @@ type fakeModel struct {
 	planFor string   // council plan assignee
 	reviews []string // successive auditor verdict JSONs (after these: the default fail)
 	reviewN int
-	edit    bool // workers edit files with tools (worktree) instead of writing diffs
+	edit    bool     // workers edit files with tools (worktree) instead of writing diffs
 	onPlan  func()   // called when the plan is asked for (before it is answered)
 	prompts []string // every prompt asked, in order
 }
