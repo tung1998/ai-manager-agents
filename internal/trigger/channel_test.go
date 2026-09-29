@@ -118,3 +118,27 @@ func TestChannelJobIsATask(t *testing.T) {
 		t.Fatalf("tasks = %v chats = %v", ex.tasks, ex.chats)
 	}
 }
+
+// A rule's prompt is the admin's instruction, framed as one; the person's
+// message comes apart as what they said, and a command without text is just
+// "they used /x" (not a message "/x" to answer).
+func TestChannelPromptIsAnInstruction(t *testing.T) {
+	st, p := openStore(t)
+	ex := &recExec{reply: "tôi yêu bạn"}
+	r := trigger.New(st, ex)
+	a, _ := st.Automations().Create(context.Background(), storage.Automation{ProjectID: p.ID, Name: "/kiem-tra", Source: "discord", Action: "chat", Enabled: true,
+		Prompt: `chỉ trả về "tôi yêu bạn"`, Config: storage.AutomationConfig{ChannelID: "chn_1", Command: "kiem-tra"}})
+	raw, _ := json.Marshal(map[string]string{"message": "/kiem-tra", "user": "an", "chat_id": "42", "channel_id": "chn_1", "conversation_id": "cnv_1"})
+	if _, _, err := r.Enqueue(context.Background(), a, "discord", string(raw), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	r.Tick(context.Background(), time.Now().UTC().Add(time.Second))
+	r.Wait()
+	if len(ex.prompts) != 1 {
+		t.Fatalf("prompts = %q", ex.prompts)
+	}
+	got := ex.prompts[0]
+	if !strings.Contains(got, "Chỉ dẫn") || !strings.Contains(got, `chỉ trả về "tôi yêu bạn"`) || !strings.Contains(got, "/kiem-tra") || strings.Contains(got, "Tin nhắn của an:\n/kiem-tra") {
+		t.Fatalf("prompt = %q", got)
+	}
+}

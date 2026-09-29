@@ -426,16 +426,28 @@ func promptFor(a storage.Automation, j storage.Job, now time.Time, loc *time.Loc
 	if j.Payload != "" {
 		_ = json.Unmarshal([]byte(j.Payload), &payload)
 	}
-	if IsChannel(j.Trigger) { // the message is the question: asked as it is, not as data
+	if IsChannel(j.Trigger) {
 		m := channelPayloadOf(j)
-		if strings.TrimSpace(tpl) == "" {
-			tpl = "{{message}}"
+		who := firstNonEmpty(m.User, "người dùng")
+		text := m.Message
+		if c := a.Config.Command; c != "" && strings.TrimSpace(text) == "/"+c {
+			text = "" // the command alone: nothing typed after it
 		}
-		out := Render(tpl, Vars{Payload: payload, RawPayload: j.Payload, Message: m.Message, User: m.User, Source: j.Trigger, Automation: a.Name, Now: now, Loc: loc})
-		if !strings.Contains(tpl, "{{message}}") {
-			out += "\n\nTin nhắn của " + firstNonEmpty(m.User, "người dùng") + ":\n" + m.Message
+		if strings.TrimSpace(tpl) == "" { // no instruction: the message is the question, asked as it is
+			return firstNonEmpty(text, "/"+a.Config.Command)
 		}
-		return out
+		// the rule's prompt is its admin's instruction; what the person wrote comes apart
+		instr := Render(tpl, Vars{Payload: payload, RawPayload: j.Payload, Message: text, User: who, Source: j.Trigger, Automation: a.Name, Now: now, Loc: loc})
+		out := "Chỉ dẫn của người quản trị cho tự động hóa này (làm đúng theo):\n" + instr + "\n\n"
+		switch {
+		case a.Config.Command != "" && text == "":
+			out += who + " gọi lệnh /" + a.Config.Command + ", không kèm nội dung."
+		case a.Config.Command != "":
+			out += who + " gọi lệnh /" + a.Config.Command + " với nội dung:\n" + text
+		case !strings.Contains(tpl, "{{message}}"):
+			out += "Tin nhắn của " + who + ":\n" + text
+		}
+		return strings.TrimSpace(out) // with {{message}} in it, the instruction already carries the message
 	}
 	if tpl == "" {
 		tpl = defaultPrompt
