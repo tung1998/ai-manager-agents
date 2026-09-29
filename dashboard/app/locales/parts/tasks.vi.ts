@@ -40,6 +40,7 @@ export default {
   'chat.threads': 'Hội thoại',
   'task.list': 'Danh sách Việc',
   'chat.older': 'Xem tin cũ hơn',
+  'filter.title': 'Lọc',
   'chat.more': 'Thêm',
   'task.copyLink': 'Sao chép liên kết',
   'task.copyId': 'Sao chép ID',

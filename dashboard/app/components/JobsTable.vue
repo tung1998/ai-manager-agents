@@ -68,6 +68,8 @@ const selectItems = computed(() => ({
 // USelect cannot hold "" as a value: use a sentinel for "all"
 const ALL = '__all'
 const bind = (r: Ref<string>) => computed({ get: () => r.value || ALL, set: (v: string) => { r.value = v === ALL ? '' : v } })
+// how many filters differ from the default (shown on the filter icon)
+const activeFilters = computed(() => [origin.value !== 'all', !!kind.value, !!status.value, !!project.value && !props.filter?.project, since.value !== '168h'].filter(Boolean).length)
 const kindSel = bind(kind)
 const statusSel = bind(status)
 const projectSel = bind(project)
@@ -109,13 +111,15 @@ defineExpose({ reload: () => load() })
 
 <template>
   <div class="space-y-3">
-    <div v-if="showFilters" class="flex flex-wrap items-center gap-2">
-      <UInput v-model="search" size="sm" icon="i-lucide-search" class="w-56" :placeholder="t('job.search')" />
-      <SourceFilter v-model="origin" class="w-40" />
-      <USelect v-model="kindSel" size="sm" :items="withAll(selectItems.kind)" class="w-32" />
-      <USelect v-model="statusSel" size="sm" :items="withAll(selectItems.status)" class="w-40" />
-      <USelect v-if="projects?.length" v-model="projectSel" size="sm" :items="withAll(selectItems.project)" class="w-44" />
-      <USelect v-model="since" size="sm" :items="selectItems.since" class="w-28" />
+    <div v-if="showFilters" class="flex items-center gap-2">
+      <UInput v-model="search" size="sm" icon="i-lucide-search" class="min-w-0 flex-1 sm:max-w-72" :placeholder="t('job.search')" />
+      <FilterButton :active="activeFilters">
+        <SourceFilter v-model="origin" />
+        <USelect v-model="kindSel" size="sm" :items="withAll(selectItems.kind)" class="w-full" />
+        <USelect v-model="statusSel" size="sm" :items="withAll(selectItems.status)" class="w-full" />
+        <USelect v-if="projects?.length" v-model="projectSel" size="sm" :items="withAll(selectItems.project)" class="w-full" />
+        <USelect v-model="since" size="sm" :items="selectItems.since" class="w-full" />
+      </FilterButton>
     </div>
 
     <UCard :ui="{ body: 'p-0 sm:p-0' }">

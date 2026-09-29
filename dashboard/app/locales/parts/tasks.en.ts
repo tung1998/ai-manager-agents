@@ -41,6 +41,7 @@ const en: Record<keyof typeof vi, string> = {
   'chat.threads': 'Chats',
   'task.list': 'Tasks',
   'chat.older': 'Older messages',
+  'filter.title': 'Filter',
   'chat.more': 'More',
   'task.copyLink': 'Copy link',
   'task.copyId': 'Copy ID',

@@ -85,17 +85,21 @@ function openJob(j: Job) {
   }
   if (j.task_id) return navigateTo({ path: `/projects/${j.project_id}`, query: { tab: 'tasks', task: j.task_id } })
 }
+// how many filters differ from the default (shown on the filter icon)
+const activeFilters = computed(() => [!!kind.value, !!via.value, !!resource.value && !props.filter?.resource, !!project.value && !props.filter?.project, since.value !== '168h'].filter(Boolean).length)
 defineExpose({ reload: () => load() })
 </script>
 
 <template>
   <div class="space-y-3">
-    <div v-if="showFilters" class="flex flex-wrap gap-2">
-      <USelect v-model="kindSel" size="sm" :items="selectItems.kind" class="w-40" />
-      <USelect v-model="viaSel" size="sm" :items="selectItems.via" class="w-32" />
-      <USelect v-model="resourceSel" size="sm" :items="selectItems.resource" class="w-44" />
-      <USelect v-if="projects?.length" v-model="projectSel" size="sm" :items="selectItems.project" class="w-44" />
-      <USelect v-model="since" size="sm" :items="selectItems.since" class="w-28" />
+    <div v-if="showFilters" class="flex justify-end">
+      <FilterButton :active="activeFilters">
+        <USelect v-model="kindSel" size="sm" :items="selectItems.kind" class="w-full" />
+        <USelect v-model="viaSel" size="sm" :items="selectItems.via" class="w-full" />
+        <USelect v-model="resourceSel" size="sm" :items="selectItems.resource" class="w-full" />
+        <USelect v-if="projects?.length" v-model="projectSel" size="sm" :items="selectItems.project" class="w-full" />
+        <USelect v-model="since" size="sm" :items="selectItems.since" class="w-full" />
+      </FilterButton>
     </div>
 
     <UCard :ui="{ body: 'p-0 sm:p-0' }">
