@@ -171,7 +171,10 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		return
 	}
 	if !slices.Contains(ch.Allow, "*") && !slices.Contains(ch.Allow, in.ChatID) && !slices.Contains(ch.Allow, in.UserID) {
-		return // not allowed (an empty list allows no one): no answer at all
+		if in.Respond != nil { // a slash command waits for an answer
+			_ = in.Respond(ctx, "Bạn chưa được phép dùng bot này.")
+		}
+		return // not allowed (an empty list allows no one): no answer to a message
 	}
 	key := ch.ID + "/" + in.ChatID
 	if !m.pending.Take(key) {
@@ -192,7 +195,12 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		return
 	}
 	if cmd, ok := command(in.Text); ok { // /create-conversation, /close-conversation
-		_ = ad.Send(ctx, in.ChatID, m.setKeep(ctx, ch.ID, in.ChatID, cmd == "create"))
+		reply := m.setKeep(ctx, ch.ID, in.ChatID, cmd == "create")
+		if in.Respond != nil {
+			_ = in.Respond(ctx, reply)
+		} else {
+			_ = ad.Send(ctx, in.ChatID, reply)
+		}
 		return
 	}
 	rule, ok := m.pick(actx, project, ch, in.Text)

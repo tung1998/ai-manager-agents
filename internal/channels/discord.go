@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -20,6 +21,7 @@ type Discord struct {
 	APIBase    string // "" = https://discord.com/api/v10
 	client     http.Client
 	botID      string
+	appID      string // the application: its commands, its interactions' replies
 }
 
 // intents: guild messages, direct messages, message content
@@ -157,10 +159,19 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 						ID       string `json:"id"`
 						Username string `json:"username"`
 					} `json:"user"`
+					Application struct {
+						ID string `json:"id"`
+					} `json:"application"`
 				}
 				_ = json.Unmarshal(p.D, &r)
-				d.botID = r.User.ID
+				d.botID, d.appID = r.User.ID, r.Application.ID
+				ready = true
+				go d.registerCommands(ctx)
 				onReady(r.User.Username)
+			case "INTERACTION_CREATE":
+				if m, ok := d.interaction(ctx, p.D); ok {
+					onMessage(m)
+				}
 			case "MESSAGE_CREATE":
 				if m, ok := d.addressed(p.D); ok {
 					onMessage(m)
@@ -189,6 +200,10 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 		return Incoming{}, false
 	}
 	in := Incoming{ChatID: m.ChannelID, UserID: m.Author.ID, UserName: m.Author.Username, Private: m.GuildID == ""}
+	if isCommand(m.Content) { // typed without tagging the bot
+		in.Text = strings.TrimSpace(m.Content)
+		return in, true
+	}
 	tagged := false
 	for _, x := range m.Mentions {
 		if x.ID == d.botID && d.botID != "" {
@@ -206,13 +221,71 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	return in, in.Text != ""
 }
 
+// registerCommands puts the bot's slash commands in Discord's "/" menu.
+func (d *Discord) registerCommands(ctx context.Context) {
+	if d.appID == "" {
+		return
+	}
+	var list []map[string]any
+	for _, c := range Commands {
+		list = append(list, map[string]any{"name": c.Name, "description": c.Description, "type": 1, "contexts": []int{0, 1, 2}})
+	}
+	if err := d.do(ctx, "PUT", "/applications/"+d.appID+"/commands", list); err != nil {
+		slog.Warn("discord: slash commands not registered", "err", err)
+	}
+}
+
+// interaction is a slash command: acknowledged at once ("thinking…"), its
+// answer edits that reply.
+func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incoming, bool) {
+	type user struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+	}
+	var x struct {
+		ID        string `json:"id"`
+		Token     string `json:"token"`
+		Type      int    `json:"type"`
+		ChannelID string `json:"channel_id"`
+		GuildID   string `json:"guild_id"`
+		Data      struct {
+			Name string `json:"name"`
+		} `json:"data"`
+		Member *struct {
+			User user `json:"user"`
+		} `json:"member"`
+		User *user `json:"user"`
+	}
+	if json.Unmarshal(raw, &x) != nil || x.Type != 2 || x.Token == "" {
+		return Incoming{}, false
+	}
+	if err := d.do(ctx, "POST", "/interactions/"+x.ID+"/"+x.Token+"/callback", map[string]any{"type": 5}); err != nil {
+		return Incoming{}, false
+	}
+	in := Incoming{ChatID: x.ChannelID, Text: "/" + x.Data.Name, Private: x.GuildID == ""}
+	if x.Member != nil {
+		in.UserID, in.UserName = x.Member.User.ID, x.Member.User.Username
+	} else if x.User != nil {
+		in.UserID, in.UserName = x.User.ID, x.User.Username
+	}
+	app, token := d.appID, x.Token
+	in.Respond = func(ctx context.Context, text string) error {
+		return d.do(ctx, "PATCH", "/webhooks/"+app+"/"+token+"/messages/@original", map[string]string{"content": text})
+	}
+	return in, true
+}
+
 func (d *Discord) rest(ctx context.Context, path string, body any) error {
+	return d.do(ctx, "POST", path, body)
+}
+
+func (d *Discord) do(ctx context.Context, method, path string, body any) error {
 	base := d.APIBase
 	if base == "" {
 		base = "https://discord.com/api/v10"
 	}
 	raw, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, "POST", base+path, bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(raw))
 	if err != nil {
 		return err
 	}

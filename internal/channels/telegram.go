@@ -20,6 +20,21 @@ type Incoming struct {
 	UserName string
 	Text     string // without the bot's @mention
 	Private  bool
+	// Respond answers a slash command (Discord shows "thinking…" until it
+	// does); nil for a message, which is answered with Send.
+	Respond func(ctx context.Context, text string) error
+}
+
+// Commands are the bot's own: every channel offers them in its menu.
+var Commands = []struct{ Name, Description string }{
+	{"create-conversation", "Bắt đầu hội thoại: bot nhớ những gì bạn nói ở đây"},
+	{"close-conversation", "Kết thúc hội thoại: mỗi tin được trả lời riêng"},
+}
+
+// isCommand: one of the bot's commands, however typed (see command in manager.go).
+func isCommand(text string) bool {
+	_, ok := command(text)
+	return ok
 }
 
 // Adapter connects one bot.
@@ -121,6 +136,11 @@ func (t *Telegram) Run(ctx context.Context, onReady func(string), onMessage func
 		}
 	}
 	t.bot = me.Username
+	var menu []map[string]string // Telegram commands: a-z, 0-9 and _ only
+	for _, c := range Commands {
+		menu = append(menu, map[string]string{"command": strings.ReplaceAll(c.Name, "-", "_"), "description": c.Description})
+	}
+	_ = t.call(ctx, "setMyCommands", map[string]any{"commands": menu}, nil)
 	onReady(me.Username)
 	offset := int64(0)
 	for ctx.Err() == nil {
@@ -171,6 +191,8 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 		return in, true
 	}
 	switch {
+	case isCommand(text): // "/create_conversation" in a group needs no tag
+		in.Text = text
 	case t.bot != "" && removeTag(&text, "@"+t.bot):
 		in.Text = strings.TrimSpace(text)
 	case m.ReplyTo != nil && strings.EqualFold(m.ReplyTo.From.Username, t.bot):

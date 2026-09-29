@@ -15,6 +15,7 @@ func TestTelegram(t *testing.T) {
 	var mu sync.Mutex
 	var sent []string
 	calls := 0
+	commands := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/botTOK/") {
 			http.NotFound(w, r)
@@ -37,8 +38,14 @@ func TestTelegram(t *testing.T) {
 				{"update_id":1,"message":{"text":"xin chào","chat":{"id":42,"type":"private"},"from":{"id":7,"username":"an"}}},
 				{"update_id":2,"message":{"text":"nói chuyện riêng","chat":{"id":-5,"type":"group"},"from":{"id":8}}},
 				{"update_id":3,"message":{"text":"@shop_bot đơn 123 đâu","chat":{"id":-5,"type":"group"},"from":{"id":8,"username":"binh"}}},
-				{"update_id":4,"message":{"text":"còn đơn 456?","chat":{"id":-5,"type":"supergroup"},"from":{"id":9},"reply_to_message":{"from":{"username":"shop_bot"}}}}
+				{"update_id":4,"message":{"text":"còn đơn 456?","chat":{"id":-5,"type":"supergroup"},"from":{"id":9},"reply_to_message":{"from":{"username":"shop_bot"}}}},
+				{"update_id":5,"message":{"text":"/create_conversation","chat":{"id":-5,"type":"group"},"from":{"id":9}}}
 			]}`))
+		case "setMyCommands":
+			mu.Lock()
+			commands = true
+			mu.Unlock()
+			w.Write([]byte(`{"ok":true,"result":true}`))
 		case "sendMessage", "sendChatAction":
 			var body map[string]any
 			json.NewDecoder(r.Body).Decode(&body)
@@ -58,7 +65,7 @@ func TestTelegram(t *testing.T) {
 	bot := ""
 	go tg.Run(ctx, func(name string) { bot = name }, func(m Incoming) { got <- m })
 	var msgs []Incoming
-	for len(msgs) < 3 {
+	for len(msgs) < 4 {
 		select {
 		case m := <-got:
 			msgs = append(msgs, m)
@@ -66,7 +73,7 @@ func TestTelegram(t *testing.T) {
 			t.Fatalf("got %+v", msgs)
 		}
 	}
-	if bot != "shop_bot" || msgs[0].ChatID != "42" || !msgs[0].Private || msgs[1].Text != "đơn 123 đâu" || msgs[2].Text != "còn đơn 456?" || msgs[1].UserName != "binh" {
+	if bot != "shop_bot" || msgs[0].ChatID != "42" || !msgs[0].Private || msgs[1].Text != "đơn 123 đâu" || msgs[2].Text != "còn đơn 456?" || msgs[1].UserName != "binh" || msgs[3].Text != "/create_conversation" {
 		t.Fatalf("bot %q msgs %+v", bot, msgs)
 	}
 	if err := tg.Send(ctx, "42", strings.Repeat("a", 5000)); err != nil {
@@ -74,6 +81,9 @@ func TestTelegram(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
+	if !commands {
+		t.Fatal("the commands menu was not set")
+	}
 	if len(sent) != 2 || len(sent[0]) > 4096 {
 		t.Fatalf("sent %d parts", len(sent))
 	}
