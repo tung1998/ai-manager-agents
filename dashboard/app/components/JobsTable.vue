@@ -34,6 +34,7 @@ function query(before = '') {
   set('status', status.value)
   set('since', since.value)
   set('before', before)
+  set('limit', '20') // a page: the rest comes with "Xem thêm"
   return q.toString()
 }
 async function load(more = false) {

@@ -122,7 +122,11 @@ func (s *server) listJobs(w http.ResponseWriter, r *http.Request) {
 		out = append(out, s.toJobDTO(r, j, n))
 	}
 	next := ""
-	if limit := max(f.Limit, 50); len(jobs) >= min(limit, 200) {
+	limit := f.Limit // the page asked for (the store's default when none)
+	if limit <= 0 {
+		limit = 50
+	}
+	if len(jobs) >= min(limit, 200) {
 		next = jobs[len(jobs)-1].ID
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": out, "next_before": next})

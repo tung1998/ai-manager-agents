@@ -170,3 +170,20 @@ func TestConversationMessagesPaged(t *testing.T) {
 		t.Fatalf("all = %v", got)
 	}
 }
+
+// Jobs come a page at a time: a small page says there is more.
+func TestJobsSmallPage(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	for range 3 {
+		e.st.Jobs().Create(ctx, storage.Job{ProjectID: pid, Kind: "chat_turn", Origin: "user", Status: "done", Title: "x"})
+	}
+	_, b := do(t, admin, "GET", e.srv.URL+"/api/jobs?limit=2", nil, nil)
+	if len(b["jobs"].([]any)) != 2 || b["next_before"] == "" {
+		t.Fatalf("page = %d next %q", len(b["jobs"].([]any)), b["next_before"])
+	}
+}

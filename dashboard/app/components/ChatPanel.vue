@@ -100,7 +100,7 @@ let source: EventSource | null = null
 let turnId = ''
 
 // older messages, a page at a time, the reading place kept
-const PAGE = 50
+const PAGE = 20
 const hasOlder = ref(false)
 const loadingOlder = ref(false)
 async function loadOlder() {
