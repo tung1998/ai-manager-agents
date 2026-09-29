@@ -30,32 +30,36 @@ func openStore(t *testing.T) (storage.Store, storage.Repo) {
 }
 
 type fakeExec struct {
-	mu    sync.Mutex
-	chats []string
-	tasks []string // "agent|goal"
-	tiers []string // model tier each run was asked to use
-	busy  int      // return ErrBusy this many times first
-	fail  bool
+	mu     sync.Mutex
+	chats  []string
+	tasks  []string // "agent|goal"
+	tiers  []string // model tier each run was asked to use
+	busy   int      // return ErrBusy this many times first
+	fail   bool
+	taskID string // what RunTask returns ("" = tsk_x)
 }
 
-func (f *fakeExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, error) {
+func (f *fakeExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.busy > 0 {
 		f.busy--
-		return "", trigger.ErrBusy
+		return "", "", trigger.ErrBusy
 	}
 	f.chats = append(f.chats, prompt)
 	if f.fail {
-		return "cnv_x", errors.New("HTTP 529")
+		return "cnv_x", "", errors.New("HTTP 529")
 	}
-	return "cnv_x", nil
+	return "cnv_x", "", nil
 }
 func (f *fakeExec) RunTask(ctx context.Context, projectID, agentID, goal, edit string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.tasks = append(f.tasks, agentID+"|"+goal)
 	f.tiers = append(f.tiers, trigger.ModelTierOf(ctx))
+	if f.taskID != "" {
+		return f.taskID, nil
+	}
 	return "tsk_x", nil
 }
 func (f *fakeExec) RunQueuedTask(ctx context.Context, projectID, payload string) (string, error) {

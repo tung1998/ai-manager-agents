@@ -3,6 +3,7 @@ package trigger
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -24,7 +25,7 @@ type escalation struct {
 // and hands the result to an agent when the automation says so (ADR-041).
 // A script that exits non-zero reports a result, not a breakdown: only a
 // script that cannot run or runs out of time counts toward auto-disable.
-func (r *Runner) runScriptJob(ctx context.Context, a storage.Automation, j storage.Job, now time.Time) {
+func (r *Runner) runScriptJob(ctx context.Context, a storage.Automation, j storage.Job, now time.Time, answer func(string, error, bool)) {
 	dir, _ := os.UserHomeDir()
 	if p, err := r.store.Repos().Get(ctx, a.ProjectID); err == nil && p.Path != "" {
 		dir = p.Path
@@ -45,7 +46,13 @@ func (r *Runner) runScriptJob(ctx context.Context, a storage.Automation, j stora
 
 	signals := Signals(out)
 	when := firstNonEmpty(a.Escalate.When, "failure")
-	if when == "failure" && status == "failed" || when == "signal" && len(signals) > 0 {
+	escalate := when == "failure" && status == "failed" || when == "signal" && len(signals) > 0
+	var failed error
+	if status == "failed" {
+		failed = errors.New(msg)
+	}
+	answer(withoutSignals(out), failed, !escalate) // what it printed is the answer; an agent it calls in answers after
+	if escalate {
 		raw, _ := json.Marshal(escalation{Output: out, ExitCode: code, Messages: signals, Payload: j.Payload})
 		t := r.now().UTC()
 		_, _ = r.store.Jobs().Create(ctx, storage.Job{ProjectID: a.ProjectID, Kind: kindOf(firstNonEmpty(a.Escalate.Action, "chat")), Origin: "automation",
@@ -70,6 +77,17 @@ func (r *Runner) runScriptJob(ctx context.Context, a storage.Automation, j stora
 		}
 		_ = r.store.Automations().Update(ctx, a)
 	}
+}
+
+// withoutSignals is a script's output without its @@agent lines.
+func withoutSignals(out string) string {
+	var keep []string
+	for _, l := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(l), "@@agent:") {
+			keep = append(keep, l)
+		}
+	}
+	return strings.TrimSpace(strings.Join(keep, "\n"))
 }
 
 const defaultEscalation = "Tự động hóa {{automation}} cần bạn xem kết quả script (mã thoát {{exit_code}}).\n{{message}}"

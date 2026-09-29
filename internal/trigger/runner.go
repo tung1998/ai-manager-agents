@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -27,8 +28,9 @@ const (
 // Executor starts the content of a job: a chat turn or a task. It runs under
 // the job in ctx (usage.JobFrom) and returns when that content is finished.
 type Executor interface {
-	// RunChat sends prompt to agentID (conversationID "" = a new chat).
-	RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (string, error)
+	// RunChat sends prompt to agentID (conversationID "" = a new chat); it
+	// returns the conversation and the agent's final answer.
+	RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (conv, reply string, err error)
 	// RunTask gives goal to the project's team, or to one agent (agentID).
 	RunTask(ctx context.Context, projectID, agentID, goal, editMode string) (string, error)
 	// RunQueuedTask starts a task a person queued while the project was busy.
@@ -46,7 +48,15 @@ type Runner struct {
 	busy    map[string]bool // origin ids with a job running now
 	wg      sync.WaitGroup
 	now     func() time.Time
+	onReply OnReply
 }
+
+// OnReply gets what a run from a chat channel answers (ADR-049): origin is
+// the job carrying the channel's payload; final = nothing more follows.
+type OnReply func(ctx context.Context, origin storage.Job, reply string, err error, final bool)
+
+// SetOnReply sets where answers to channel messages go.
+func (r *Runner) SetOnReply(fn OnReply) { r.onReply = fn }
 
 // New builds a Runner.
 func New(store storage.Store, exec Executor) *Runner {
@@ -213,6 +223,21 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		_, _ = r.store.Jobs().Finish(ctx, j.ID, status, code, msg, r.now().UTC())
 	}
 	jctx := usage.WithJob(ctx, j.ID)
+	// a message from a chat channel gets an answer, whatever happens (ADR-049)
+	origin, fromChannel := r.channelOrigin(ctx, j)
+	spoke := false // this run answered (a script may answer, then an agent it calls in)
+	answer := func(text string, err error, final bool) {
+		if fromChannel && r.onReply != nil && !spoke {
+			spoke = true
+			r.onReply(ctx, origin, text, err, final)
+		}
+	}
+	defer func() {
+		if cur, err := r.store.Jobs().Get(ctx, j.ID); err == nil && cur.Status == "pending" {
+			return // put back (busy): it runs again later
+		}
+		answer("", errNoAnswer, true)
+	}()
 	if j.Origin == "user" && j.Kind == "task" { // queued by a person while the project was busy
 		_, err := r.exec.RunQueuedTask(actor.With(jctx, j.CreatedBy), j.ProjectID, j.Payload)
 		r.settle(ctx, j, err)
@@ -254,7 +279,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		}
 	}
 	if a.Action == "script" && j.ParentJobID == "" {
-		r.runScriptJob(ctx, a, j, now)
+		r.runScriptJob(ctx, a, j, now, answer)
 		return
 	}
 	action, agentID, prompt := a.Action, a.AgentID, promptFor(a, j, now, loc)
@@ -262,17 +287,24 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		action, agentID, prompt = firstNonEmpty(a.Escalate.Action, "chat"), a.Escalate.AgentID, escalationPrompt(a, j, now, loc)
 	}
 	actx := WithModelTier(actor.With(jctx, "auto:"+a.Name), a.ModelTier)
-	keptConv := ""
+	keptConv, text := "", ""
 	if action == "task" {
-		_, err = r.exec.RunTask(actx, a.ProjectID, agentID, prompt, a.EditMode)
+		var id string
+		id, err = r.exec.RunTask(actx, a.ProjectID, agentID, prompt, a.EditMode)
+		if task, gerr := r.store.Tasks().Get(ctx, id); gerr == nil && id != "" {
+			text = firstNonEmpty(task.Result, task.Detail)
+		}
 	} else {
 		conv := ""
 		if a.KeepContext {
 			conv = a.Config.ConversationID
 		}
+		if fromChannel && j.ParentJobID == "" {
+			conv = channelPayloadOf(origin).ConversationID // the outside chat's own conversation
+		}
 		var got string
-		got, err = r.exec.RunChat(actx, a.ProjectID, agentID, conv, prompt, a.EditMode)
-		if a.KeepContext && got != "" && got != a.Config.ConversationID {
+		got, text, err = r.exec.RunChat(actx, a.ProjectID, agentID, conv, prompt, a.EditMode)
+		if a.KeepContext && !fromChannel && got != "" && got != a.Config.ConversationID {
 			keptConv = got
 		}
 	}
@@ -280,6 +312,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	if errors.Is(err, ErrBusy) {
 		return
 	}
+	answer(text, err, true)
 	if j.ParentJobID != "" {
 		return // the script's run already counted; the agent it called in does not reset or add to it
 	}
@@ -342,16 +375,60 @@ func (r *Runner) settle(ctx context.Context, j storage.Job, err error) {
 
 const defaultPrompt = "Tự động hóa {{automation}} ({{source}})."
 
+// errNoAnswer: a channel message's run ended without an answer (skipped, off…).
+var errNoAnswer = errors.New("không có câu trả lời")
+
+// ChannelPayload is what a message from a chat channel carries (ADR-049).
+type ChannelPayload struct {
+	Message        string `json:"message"`
+	User           string `json:"user"`
+	UserID         string `json:"user_id"`
+	ChatID         string `json:"chat_id"`
+	ChannelID      string `json:"channel_id"`
+	ConversationID string `json:"conversation_id,omitempty"` // action chat: the outside chat's conversation
+}
+
+// IsChannel says whether a job's trigger is a chat channel.
+func IsChannel(trigger string) bool { return trigger == "telegram" || trigger == "discord" }
+
+func channelPayloadOf(j storage.Job) ChannelPayload {
+	var p ChannelPayload
+	_ = json.Unmarshal([]byte(j.Payload), &p)
+	return p
+}
+
+// channelOrigin is the job carrying a channel message: j, or for an agent a
+// script called in, the script's job.
+func (r *Runner) channelOrigin(ctx context.Context, j storage.Job) (storage.Job, bool) {
+	if j.ParentJobID != "" {
+		if parent, err := r.store.Jobs().Get(ctx, j.ParentJobID); err == nil {
+			j = parent
+		}
+	}
+	return j, IsChannel(j.Trigger)
+}
+
 // promptFor fills the automation's template; a payload the template does not
 // show is appended, marked as data.
 func promptFor(a storage.Automation, j storage.Job, now time.Time, loc *time.Location) string {
 	tpl := a.Prompt
-	if tpl == "" {
-		tpl = defaultPrompt
-	}
 	var payload any
 	if j.Payload != "" {
 		_ = json.Unmarshal([]byte(j.Payload), &payload)
+	}
+	if IsChannel(j.Trigger) { // the message is the question: asked as it is, not as data
+		m := channelPayloadOf(j)
+		if strings.TrimSpace(tpl) == "" {
+			tpl = "{{message}}"
+		}
+		out := Render(tpl, Vars{Payload: payload, RawPayload: j.Payload, Message: m.Message, User: m.User, Source: j.Trigger, Automation: a.Name, Now: now, Loc: loc})
+		if !strings.Contains(tpl, "{{message}}") {
+			out += "\n\nTin nhắn của " + firstNonEmpty(m.User, "người dùng") + ":\n" + m.Message
+		}
+		return out
+	}
+	if tpl == "" {
+		tpl = defaultPrompt
 	}
 	out := Render(tpl, Vars{Payload: payload, RawPayload: j.Payload, Source: j.Trigger, Automation: a.Name, Now: now, Loc: loc})
 	switch {

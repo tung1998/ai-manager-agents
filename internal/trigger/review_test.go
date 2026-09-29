@@ -25,9 +25,10 @@ type recExec struct {
 	release   chan struct{}
 	err       error
 	returnCnv string
+	reply     string
 }
 
-func (f *recExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, error) {
+func (f *recExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
 	f.mu.Lock()
 	f.convs, f.prompts = append(f.convs, conv), append(f.prompts, prompt)
 	if f.running == nil {
@@ -45,7 +46,7 @@ func (f *recExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt,
 	f.running[projectID]--
 	f.total--
 	f.mu.Unlock()
-	return f.returnCnv, f.err
+	return f.returnCnv, f.reply, f.err
 }
 func (f *recExec) RunTask(ctx context.Context, projectID, agentID, goal, edit string) (string, error) {
 	return "", f.err

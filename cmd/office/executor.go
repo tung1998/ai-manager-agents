@@ -19,46 +19,50 @@ type officeExecutor struct {
 	tasks *tasks.Service
 }
 
-func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (string, error) {
+func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (string, string, error) {
 	ctx = chat.WithModelTier(ctx, trigger.ModelTierOf(ctx)) // the automation's model choice
 	if conversationID == "" {
 		conv, err := x.chat.StartConversation(ctx, projectID, agentID)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		conversationID = conv.ID
 		if err := x.chat.SetMode(ctx, conv.ID, perm.Operate); err != nil {
-			return conversationID, err
+			return conversationID, "", err
 		}
 		if editMode != "" {
 			if err := x.chat.SetEditMode(ctx, conv.ID, editMode); err != nil {
-				return conversationID, err
+				return conversationID, "", err
 			}
 		}
 	}
 	turn, _, err := x.chat.Send(ctx, conversationID, prompt, nil)
 	if errors.Is(err, chat.ErrBusy) {
-		return conversationID, trigger.ErrBusy
+		return conversationID, "", trigger.ErrBusy
 	}
 	if err != nil {
-		return conversationID, err
+		return conversationID, "", err
 	}
+	reply := ""
 	for seq := 0; ; {
 		evs, done, wake := turn.Since(seq)
 		seq += len(evs)
 		for _, e := range evs {
 			if e.Type == "error" {
-				return conversationID, errors.New(e.Text)
+				return conversationID, "", errors.New(e.Text)
+			}
+			if e.Type == "done" && e.Message != nil {
+				reply = e.Message.Content
 			}
 		}
 		if done {
-			return conversationID, nil
+			return conversationID, reply, nil
 		}
 		select {
 		case <-wake:
 		case <-ctx.Done():
 			turn.Cancel()
-			return conversationID, ctx.Err()
+			return conversationID, "", ctx.Err()
 		}
 	}
 }

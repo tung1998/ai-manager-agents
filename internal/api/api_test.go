@@ -43,8 +43,8 @@ type env struct {
 // idleExec is an automation executor that does nothing (API tests only queue).
 type idleExec struct{}
 
-func (idleExec) RunChat(context.Context, string, string, string, string, string) (string, error) {
-	return "", nil
+func (idleExec) RunChat(context.Context, string, string, string, string, string) (string, string, error) {
+	return "", "", nil
 }
 func (idleExec) RunTask(context.Context, string, string, string, string) (string, error) {
 	return "", nil

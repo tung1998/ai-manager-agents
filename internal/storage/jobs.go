@@ -132,6 +132,11 @@ type AutomationConfig struct {
 	AuthName       string `json:"auth_name,omitempty"`
 	SecretHash     string `json:"secret_hash,omitempty"`
 	ConversationID string `json:"conversation_id,omitempty"` // keep_context: the chat reused
+	// telegram | discord (ADR-049): the channel whose messages it handles, and
+	// which: one of the keywords (none = any), within scope (a fast model decides)
+	ChannelID string   `json:"channel_id,omitempty"`
+	Keywords  []string `json:"keywords,omitempty"`
+	Scope     string   `json:"scope,omitempty"`
 }
 
 // AutomationLimits guard unattended runs.
