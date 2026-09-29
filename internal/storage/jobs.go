@@ -47,6 +47,7 @@ type JobFilter struct {
 	Kind      string
 	Origin    string
 	OriginID  string
+	OriginIDs []string // any of these (a bot: its commands, and itself)
 	Status    string
 	AgentID   string
 	Since     time.Time

@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -92,6 +93,9 @@ func jobFilter(r *http.Request) storage.JobFilter {
 	q := r.URL.Query()
 	f := storage.JobFilter{ProjectID: q.Get("project"), Kind: q.Get("kind"), Origin: q.Get("origin"), OriginID: q.Get("origin_id"),
 		Status: q.Get("status"), AgentID: q.Get("agent"), Before: q.Get("before")}
+	if ids := q.Get("origin_ids"); ids != "" { // comma separated
+		f.OriginIDs = strings.Split(ids, ",")
+	}
 	f.Limit, _ = strconv.Atoi(q.Get("limit"))
 	if d, err := time.ParseDuration(q.Get("since")); err == nil && d > 0 {
 		f.Since = time.Now().UTC().Add(-d)

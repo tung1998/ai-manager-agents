@@ -44,7 +44,8 @@ async function removeBot(b: BotRow) {
 function botMenu(b: BotRow) {
   return [
     [
-      { label: t('bot.open'), icon: 'i-lucide-settings-2', to: `/projects/${props.projectId}/bots/${b.id}` },
+      { label: t('auto.detail'), icon: 'i-lucide-eye', to: `/projects/${props.projectId}/bots/${b.id}` },
+      { label: t('auto.edit'), icon: 'i-lucide-pencil', to: `/projects/${props.projectId}/bots/${b.id}/edit` },
       { label: t('auto.reconnect'), icon: 'i-lucide-refresh-cw', onSelect: () => reconnect(b.cmds[0]!) }
     ],
     [{ label: t('auto.delete'), icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => removeBot(b) }]

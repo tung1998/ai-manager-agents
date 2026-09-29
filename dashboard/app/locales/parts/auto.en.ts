@@ -209,7 +209,6 @@ const en: Record<keyof typeof vi, string> = {
   'bot.openOneFirst': 'Open a command first for the AI to fill it',
   'bot.commands': '{n} commands',
   'bot.deleteConfirm': 'Delete the bot {name} and all its commands?',
-  'bot.open': 'Open setup',
   'auto.sourceChannel': 'Channel message',
   'auto.bot': 'Bot',
   'auto.botNew': '+ New bot',

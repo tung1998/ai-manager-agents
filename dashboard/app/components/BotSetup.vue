@@ -112,7 +112,7 @@ async function save() {
     }
     for (const id of removed.splice(0)) await $fetch(`/api/automations/${id}`, { method: 'DELETE' })
     toast.add({ title: t('auto.saved'), color: 'success' })
-    if (isNew.value) await navigateTo(`/projects/${props.projectId}/bots/${channelId}`, { replace: true })
+    await navigateTo(`/projects/${props.projectId}/bots/${channelId}`) // its detail: how it runs
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {

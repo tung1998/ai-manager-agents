@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Jobs (every chat answer, task and automation run) with filters, and
 // actions: open the chat or task, stop, run again (ADR-040).
-const props = defineProps<{ filter?: { project?: string, origin_id?: string, kind?: string }, showFilters?: boolean, projects?: { id: string, name: string }[] }>()
+const props = defineProps<{ filter?: { project?: string, origin_id?: string, origin_ids?: string[], kind?: string }, showFilters?: boolean, projects?: { id: string, name: string }[] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
@@ -20,6 +20,7 @@ function query(before = '') {
   const set = (k: string, v?: string) => { if (v) q.set(k, v) }
   set('project', project.value)
   set('origin_id', props.filter?.origin_id)
+  set('origin_ids', props.filter?.origin_ids?.join(','))
   set('kind', kind.value)
   set('origin', origin.value)
   set('status', status.value)

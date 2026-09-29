@@ -208,7 +208,6 @@ export default {
   'bot.openOneFirst': 'Mở một câu lệnh trước để AI điền vào',
   'bot.commands': '{n} lệnh',
   'bot.deleteConfirm': 'Xóa bot {name} và mọi câu lệnh của nó?',
-  'bot.open': 'Mở setup',
   'auto.sourceChannel': 'Tin nhắn kênh',
   'auto.bot': 'Bot',
   'auto.botNew': '+ Bot mới',

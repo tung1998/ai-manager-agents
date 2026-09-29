@@ -190,3 +190,22 @@ func TestOneBuildingChatPerAutomation(t *testing.T) { // review I2
 		t.Fatalf("second chat linked: %v", err)
 	}
 }
+
+// A bot's jobs are those of all its commands (and the messages none took).
+func TestJobsByOriginIDs(t *testing.T) {
+	ctx := context.Background()
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	st.Migrate(ctx)
+	p, _ := st.Repos().Create(ctx, storage.Repo{Name: "p"})
+	for _, o := range []string{"aut_1", "aut_2", "chn_1", "aut_3"} {
+		st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: o, Trigger: "discord", Status: "done"})
+	}
+	list, err := st.Jobs().List(ctx, storage.JobFilter{OriginIDs: []string{"aut_1", "aut_2", "chn_1"}})
+	if err != nil || len(list) != 3 {
+		t.Fatalf("list = %d %v", len(list), err)
+	}
+}

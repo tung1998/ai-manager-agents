@@ -181,6 +181,12 @@ func (r jobRepo) where(f storage.JobFilter) (string, []any) {
 	add("kind", f.Kind)
 	add("origin", f.Origin)
 	add("origin_id", f.OriginID)
+	if len(f.OriginIDs) > 0 {
+		conds = append(conds, "origin_id IN (?"+strings.Repeat(",?", len(f.OriginIDs)-1)+")")
+		for _, id := range f.OriginIDs {
+			args = append(args, id)
+		}
+	}
 	add("status", f.Status)
 	add("agent_id", f.AgentID)
 	if !f.Since.IsZero() {
