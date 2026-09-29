@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/perm"
@@ -114,6 +115,20 @@ func TestGitActions(t *testing.T) {
 	}
 	if a, err := svc.Propose(ctx, sc, "git_branch", "", "nhánh", storage.ActionArgs{Branch: "feat/x"}); err != nil || a.Status != "done" {
 		t.Fatalf("operate creates branches: %v %+v", err, a)
+	}
+
+	// a chat in its own worktree: git waits while its changes are not merged
+	// into the project, then works on the project once they are
+	conv, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: proj.ID})
+	wt := Scope{ProjectID: proj.ID, ConversationID: conv.ID, RunRef: "g4", Agent: "a", Level: perm.Operate, Access: at(perm.Operate), Dir: t.TempDir()}
+	p, _ := st.Chat().AddPatch(ctx, storage.Patch{ConversationID: conv.ID, Diff: "x", Files: []string{"c.txt"}, Status: "pending", Origin: "worktree"})
+	if _, err := svc.Propose(ctx, wt, "git_branch", "", "nhánh", storage.ActionArgs{Branch: "feat/y"}); err == nil || !strings.Contains(err.Error(), "gộp") {
+		t.Fatalf("git with unmerged changes = %v", err)
+	}
+	st.Chat().DecidePatch(ctx, p.ID, "applied", "", "human:a", time.Now())
+	wt.RunRef = "g5"
+	if a, err := svc.Propose(ctx, wt, "git_branch", "", "nhánh", storage.ActionArgs{Branch: "feat/y"}); err != nil || a.Status != "done" {
+		t.Fatalf("git after the merge = %v %+v", err, a)
 	}
 }
 

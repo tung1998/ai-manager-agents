@@ -143,8 +143,10 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 			a.TargetID = spec.AutomationID
 		}
 	} else if isGit(kind) {
-		if sc.Dir != "" {
-			return a, errors.New("bạn đang làm trong worktree riêng: commit, tạo nhánh và push làm sau khi người dùng gộp thay đổi vào project")
+		// a run in its own worktree: git works on the project, once what the
+		// worktree changed is merged into it (its diffs decided)
+		if sc.Dir != "" && s.unmerged(ctx, sc.ConversationID) {
+			return a, errors.New("thay đổi trong worktree riêng của cuộc chat chưa được gộp vào project: nhờ người dùng duyệt diff đang chờ (trên Discord/Telegram: /pending rồi /approve <số>; hoặc Tổng quan → Cần xử lý), rồi đề xuất lại commit/nhánh/push")
 		}
 		if err := s.checkGit(ctx, &a); err != nil {
 			return a, err
@@ -442,4 +444,22 @@ func (s *Service) checkRun(ctx context.Context, a *storage.Action) error {
 	}
 	a.Target, a.TargetID = au.Name, au.ID
 	return nil
+}
+
+// unmerged: the conversation (a chat in its own worktree) has diffs still
+// waiting to be merged into the project. No conversation: nothing to check.
+func (s *Service) unmerged(ctx context.Context, conversationID string) bool {
+	if conversationID == "" {
+		return true // a run in a worktree of its own with nothing to show for it: keep git away
+	}
+	ps, err := s.store.Chat().ListPatches(ctx, conversationID)
+	if err != nil {
+		return true
+	}
+	for _, p := range ps {
+		if p.Status == "pending" {
+			return true
+		}
+	}
+	return false
 }

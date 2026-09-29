@@ -1432,3 +1432,4 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Gỡ package `internal/tasks`, các API `/api/tasks/*`, trang Việc (TaskPanel, TaskList) và mọi link tới Việc. Link cũ `?tab=tasks` mở Chat.
 - Dữ liệu Việc cũ (bảng tasks, job kind `task`) vẫn giữ. Trang Job hiện Việc cũ như một dòng, bấm vào mở chi tiết job.
 - Trang Job: mỗi lần chạy tự động hóa là một dòng riêng. Lượt chat gom theo cuộc chat.
+- (bổ sung) Chat ở chế độ **Worktree riêng** giờ commit, tạo nhánh và push được **sau khi diff của worktree đã được gộp** vào project (không còn diff chờ duyệt). Git chạy trên thư mục project. Trước đây mọi lệnh git từ worktree đều bị từ chối, nên agent không bao giờ commit được. Khi còn diff chờ gộp, agent được dặn nhờ người dùng `/pending` rồi `/approve`, hoặc duyệt ở Tổng quan.
