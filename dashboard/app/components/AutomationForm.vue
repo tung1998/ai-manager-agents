@@ -192,7 +192,8 @@ async function testRun() {
         </div>
       </template>
       <template v-else-if="fromChannel">
-        <UFormField :label="t('auto.bot')" required>
+        <!-- a bot the project has, or a new one; with none yet, just the new one's fields -->
+        <UFormField v-if="bots.length" :label="t('auto.bot')" required>
           <USelect v-model="botPick" :items="[...bots.map(c => ({ label: botName(c), value: c.id })), { label: t('auto.botNew'), value: NEW_BOT }]" class="w-full" />
         </UFormField>
         <!-- a new bot: which kind and how to make it -->
