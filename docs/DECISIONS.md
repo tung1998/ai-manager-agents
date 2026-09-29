@@ -1395,7 +1395,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Những mục **luôn hỏi**, kể cả khi làm thẳng: push, dừng tiến trình/container, đổi cài đặt, sửa tự động hóa, và lệnh có `rm`, `git reset --hard`, `git clean`, `drop`, `delete`.
 - Quyền của agent và chính sách Quyền của project vẫn áp dụng như cũ.
 
-## ADR-055: Job ngay trong chat (bước 1 của việc gộp Chat và Việc)
+## ADR-055: Job ngay trong chat (đã bỏ, xem ADR-056)
 
 **Bối cảnh.** Chat và Việc là hai nơi riêng. Cả hai đều có cách để đội cùng làm, nhưng ngữ cảnh, cách duyệt và cách chỉ đạo khác nhau.
 
@@ -1408,3 +1408,12 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Chat hiện **thẻ Job** ngay dưới tin giao việc: trạng thái, số bước, ai đang làm, chi phí, nút Dừng và link mở chi tiết. Thẻ tự cập nhật mỗi 3 giây khi Job đang chạy.
 - Nhiều Việc/Job chạy song song được, mỗi cái có worktree riêng. Chỉ Việc **sửa thẳng** vào thư mục project mới phải chạy một mình: có một Việc như vậy đang chạy thì Việc mới bị từ chối, và ngược lại.
 - Tab Việc giữ nguyên. Các bước sau sẽ đưa duyệt, chạy lại và commit vào thẻ, rồi mới bỏ tab.
+
+## ADR-056: Bỏ chế độ Job trong chat, ẩn tab Việc
+
+**Bối cảnh.** Sau khi dùng thử ADR-055, người dùng thấy chế độ Job không cần thiết: trong chat, lead đã giao việc được cho đội (delegate), kể cả từ bot.
+
+**Quyết định.**
+- Bỏ nút Chat ↔ Job, thẻ Job và API `/api/conversations/{id}/jobs`. Migration 00038 xóa cột `tasks.conversation_id`. ADR-055 hết hiệu lực.
+- Sidebar project không còn tab **Việc**. Việc vẫn được tạo từ tự động hóa, `/job` và trợ lý. Trang chi tiết Việc (`?tab=tasks&task=…`) vẫn mở được qua link từ Tổng quan, trang Job và thông báo. Dữ liệu Việc cũ giữ nguyên.
+- Vẫn giữ: nhiều Việc chạy song song trong worktree riêng, chỉ Việc sửa thẳng mới chạy một mình.

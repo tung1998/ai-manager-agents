@@ -69,14 +69,6 @@ func (e *Engine) StartConversationPurpose(ctx context.Context, projectID, agentI
 	return e.store.Chat().CreateConversation(ctx, c)
 }
 
-// lastJob is the latest job started in a chat (none: an empty task).
-func (e *Engine) lastJob(ctx context.Context, conversationID string) storage.Task {
-	if jobs, err := e.store.Tasks().ForConversation(ctx, conversationID); err == nil && len(jobs) > 0 {
-		return jobs[len(jobs)-1]
-	}
-	return storage.Task{}
-}
-
 // taskIntro tells the lead what the talk is for: while the task runs, the
 // person watches and steers it (what they write reaches the next steps);
 // after, they follow up on the result.

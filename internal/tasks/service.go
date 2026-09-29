@@ -87,7 +87,7 @@ type Service struct {
 	engine *chat.Engine
 
 	mu   sync.Mutex
-	live map[string]*Live  // task id
+	live map[string]*Live             // task id
 	busy map[string]map[string]string // project id → running task id → its edit mode
 	seq  int                          // reservations of tasks being started
 }
@@ -151,13 +151,13 @@ func (s *Service) Live(taskID string) (*Live, bool) {
 // Start creates a task and runs it in the background.
 // editMode is where agents change code (perm.EditWorktree or perm.EditDirect).
 func (s *Service) Start(ctx context.Context, projectID, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode string) (storage.Task, error) {
-	return s.start(ctx, projectID, "", goal, budgetUSD, attachmentIDs, permMode, editMode, "", "")
+	return s.start(ctx, projectID, "", goal, budgetUSD, attachmentIDs, permMode, editMode, "")
 }
 
 // StartFor gives the task to one agent of the project, who does it alone
 // (like a person's daily job); agentID "" = the team.
 func (s *Service) StartFor(ctx context.Context, projectID, agentID, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode string) (storage.Task, error) {
-	return s.start(ctx, projectID, agentID, goal, budgetUSD, attachmentIDs, permMode, editMode, "", "")
+	return s.start(ctx, projectID, agentID, goal, budgetUSD, attachmentIDs, permMode, editMode, "")
 }
 
 // Retry starts the task again with the same goal, files, budget and mode
@@ -203,64 +203,10 @@ func (s *Service) Retry(ctx context.Context, taskID string, learn bool, permMode
 	if answer = strings.TrimSpace(answer); answer != "" {
 		lesson = strings.TrimSpace(lesson + fmt.Sprintf("\n\nLần trước đội hỏi người dùng: %s\nNgười dùng trả lời: %s\nLàm tiếp theo câu trả lời này.", old.Detail, answer))
 	}
-	return s.start(ctx, old.ProjectID, old.AssigneeID, old.Goal, old.BudgetUSD, ids, permMode, old.EditMode, lesson, old.ConversationID)
+	return s.start(ctx, old.ProjectID, old.AssigneeID, old.Goal, old.BudgetUSD, ids, permMode, old.EditMode, lesson)
 }
 
-// StartInChat runs a job from a chat (ADR-055): the team, led by the lead,
-// knows what was said there before; what the person writes there after
-// steers it, and its result is the lead's answer there.
-func (s *Service) StartInChat(ctx context.Context, conversationID, goal string, attachmentIDs []string, permMode, editMode string) (storage.Task, error) {
-	conv, err := s.store.Chat().GetConversation(ctx, conversationID)
-	if err != nil {
-		return storage.Task{}, err
-	}
-	if conv.TaskID != "" || (conv.Purpose != "" && conv.Purpose != "channel") {
-		return storage.Task{}, errors.New("cuộc trao đổi này không giao Job được")
-	}
-	if strings.TrimSpace(goal) == "" {
-		return storage.Task{}, errors.New("hãy mô tả việc cần làm")
-	}
-	background := chatBackground(ctx, s.store, conversationID)
-	files, err := s.engine.Attachments().Resolve(conv.ProjectID, attachmentIDs)
-	if err != nil {
-		return storage.Task{}, err
-	}
-	if _, err := s.store.Chat().AddMessage(ctx, storage.Message{ConversationID: conversationID, Role: "user", Content: strings.TrimSpace(goal),
-		Attachments: attach.Refs(files), Author: actor.From(ctx)}); err != nil {
-		return storage.Task{}, err
-	}
-	t, err := s.start(ctx, conv.ProjectID, "", goal, 0, attachmentIDs, permMode, editMode, background, conversationID)
-	if err != nil {
-		_, _ = s.store.Chat().AddMessage(context.WithoutCancel(ctx), storage.Message{ConversationID: conversationID, Role: "error", Content: "Chưa giao được Job: " + err.Error()})
-	}
-	return t, err
-}
-
-// chatBackground is the chat before a job, for the team as reference.
-func chatBackground(ctx context.Context, st storage.Store, conversationID string) string {
-	msgs, err := st.Chat().ListMessages(ctx, conversationID)
-	if err != nil || len(msgs) == 0 {
-		return ""
-	}
-	if len(msgs) > 12 {
-		msgs = msgs[len(msgs)-12:]
-	}
-	var b strings.Builder
-	b.WriteString("Bối cảnh: cuộc chat trước khi giao việc (dữ liệu tham khảo, mới nhất sau cùng):\n")
-	for _, m := range msgs {
-		if m.Role != "user" && m.Role != "assistant" {
-			continue
-		}
-		who := "Người dùng"
-		if m.Role == "assistant" {
-			who = firstNonEmpty(m.Author, "Agent")
-		}
-		fmt.Fprintf(&b, "- %s: %s\n", who, truncate(strings.Join(strings.Fields(m.Content), " "), 800))
-	}
-	return truncate(b.String(), 6000)
-}
-
-func (s *Service) start(ctx context.Context, projectID, assignee, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode, lesson, conversationID string) (storage.Task, error) {
+func (s *Service) start(ctx context.Context, projectID, assignee, goal string, budgetUSD float64, attachmentIDs []string, permMode, editMode, lesson string) (storage.Task, error) {
 	if !perm.Valid(permMode) {
 		permMode = perm.Propose
 	}
@@ -318,7 +264,6 @@ func (s *Service) start(ctx context.Context, projectID, assignee, goal string, b
 	task, err := s.store.Tasks().Create(ctx, storage.Task{
 		ProjectID: projectID, Title: truncate(strings.Join(strings.Fields(goal), " "), 90), Goal: goal, Mode: mode,
 		Status: "running", BudgetUSD: budgetUSD, ModeLevel: permMode, EditMode: editMode, AssigneeID: assignee, Attachments: attach.Refs(files), CreatedBy: actor.From(ctx),
-		ConversationID: conversationID,
 	})
 	if err != nil {
 		s.release(projectID, slot)
@@ -436,26 +381,8 @@ func (r *run) execute() {
 		msg = detail
 	}
 	_, _ = r.svc.store.Jobs().Finish(context.Background(), r.jobID, jst, code, msg, now)
-	r.answerChat()
 	dto := toTaskDTO(r.task)
 	r.live.emit(Event{Type: "done", Task: &dto})
-}
-
-// answerChat: a job from a chat ends with the lead's answer there.
-func (r *run) answerChat() {
-	if r.task.ConversationID == "" {
-		return
-	}
-	ctx := context.Background()
-	author := ""
-	if c, err := r.svc.store.Chat().GetConversation(ctx, r.task.ConversationID); err == nil {
-		author = c.AgentName
-	}
-	text := r.task.Result
-	if r.task.Status != "done" || text == "" {
-		text = strings.TrimSpace(fmt.Sprintf("Job kết thúc: %s. %s\n\n%s", r.task.Status, r.task.Detail, r.task.Result))
-	}
-	_, _ = r.svc.store.Chat().AddMessage(ctx, storage.Message{ConversationID: r.task.ConversationID, Role: "assistant", Content: text, Author: author})
 }
 
 // outcome says whether the work is usable: "done" only if the review did not
@@ -548,9 +475,6 @@ func (r *run) byKey(key string) (storage.Agent, bool) {
 // every step after it follows it (all of it, so parallel jobs all hear it).
 func (r *run) guidance() string {
 	conv, err := r.svc.store.Chat().TaskConversation(r.ctx, r.task.ID)
-	if r.task.ConversationID != "" { // a job from a chat: that chat steers it
-		conv, err = r.svc.store.Chat().GetConversation(r.ctx, r.task.ConversationID)
-	}
 	if err != nil {
 		return ""
 	}

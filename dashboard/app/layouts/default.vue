@@ -28,7 +28,7 @@ function projectSections(id: string): NavigationMenuItem[] {
   const parent = child ? childSection[child] : undefined
   return withParent(parent, [
     { label: t('nav.chat'), icon: 'i-lucide-messages-square', to: to('chat'), exactQuery: 'partial' },
-    { label: t('nav.tasks'), icon: 'i-lucide-list-todo', to: to('tasks'), exactQuery: 'partial' },
+    // Việc has no tab (ADR-056): the team works through the chat; a task's page stays for its links
     { label: t('nav.automations'), icon: 'i-lucide-alarm-clock', to: to('automations'), exactQuery: 'partial' },
     { label: t('nav.ops'), icon: 'i-lucide-activity', to: to('ops'), exactQuery: 'partial' },
     { label: t('project.sectionModel'), icon: 'i-lucide-users', to: to('model'), exactQuery: 'partial' },

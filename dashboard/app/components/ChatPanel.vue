@@ -2,7 +2,6 @@
 import type { Patch } from './PatchCard.vue'
 import type { ProposedAction } from './ActionCard.vue'
 import type { Attachment } from './PromptInput.vue'
-import type { ChatJob } from './ChatJobCard.vue'
 
 interface ToolCall { name: string, summary: string, error?: boolean }
 interface Message {
@@ -240,8 +239,6 @@ async function open(c: Conversation, messageId?: string) {
   hasOlder.value = !!res.has_more
   current.value = res.conversation
   applyGroup(res.members, res.running)
-  jobs.value = []
-  loadJobs()
   if (res.conversation.active_turn && !streaming.value) follow(res.conversation.active_turn)
   if (messageId) showMessage(messageId)
   else scrollDown()
@@ -268,65 +265,11 @@ async function openTask() {
   }
 }
 
-// ---- Job mode (ADR-055): the message is a job the lead leads the team on ----
-const jobMode = ref(false)
-const jobs = ref<ChatJob[]>([])
-let jobTimer: ReturnType<typeof setInterval> | null = null
-async function loadJobs() {
-  const c = current.value
-  if (!c || single.value) return
-  try {
-    const was = jobs.value.filter(j => j.status === 'running').map(j => j.id)
-    jobs.value = (await $fetch<{ jobs: ChatJob[] }>(`/api/conversations/${c.id}/jobs`)).jobs
-    // one just ended: its result is the lead's answer in the chat
-    if (was.some(id => jobs.value.find(j => j.id === id)?.status !== 'running')) await reloadMessages()
-  } catch { /* the cards stay as they were */ }
-  const running = jobs.value.some(j => j.status === 'running')
-  if (running && !jobTimer) jobTimer = setInterval(loadJobs, 3000)
-  if (!running && jobTimer) {
-    clearInterval(jobTimer)
-    jobTimer = null
-  }
-}
-async function reloadMessages() {
-  const c = current.value
-  if (!c) return
-  const res = await $fetch<{ messages: Message[], has_more?: boolean }>(`/api/conversations/${c.id}?limit=${PAGE}`)
-  messages.value = res.messages
-  hasOlder.value = !!res.has_more
-  scrollDown()
-}
-// a job shows under the message that asked for it
-const jobsAfter = computed(() => {
-  const out: Record<string, ChatJob[]> = {}
-  for (const j of jobs.value) {
-    const at = new Date(j.created_at).getTime()
-    const m = [...messages.value].reverse().find(x => x.role === 'user' && new Date(x.created_at).getTime() <= at + 1000)
-    if (m) (out[m.id] ??= []).push(j)
-  }
-  return out
-})
-async function sendJob(text: string) {
-  if (!current.value) return
-  try {
-    await $fetch(`/api/conversations/${current.value.id}/jobs`, { method: 'POST', body: { goal: text, attachments: draftFiles.value.map(a => a.id), mode: 'operate', edit_mode: editMode.value } })
-    draft.value = ''
-    draftFiles.value = []
-    await reloadMessages()
-    await loadJobs()
-    refreshConvs()
-  } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
-    await reloadMessages()
-  }
-}
-
 async function send() {
   const text = draft.value.trim()
   if ((!text && !draftFiles.value.length) || streaming.value || prompt.value?.busy) return
   if (!current.value) await newConversation(pick.value)
   if (!current.value) return
-  if (jobMode.value && !single.value) return sendJob(text)
   const switching = !single.value && pick.value && pick.value !== current.value.agent_id ? pick.value : ''
   try {
     // mode operate: the agent's own rights are the limit (members are capped server-side)
@@ -467,7 +410,6 @@ onMounted(() => {
   else if (conversations.value[0] && !tookPrefill) open(conversations.value[0])
 })
 onBeforeUnmount(() => {
-  if (jobTimer) clearInterval(jobTimer)
   stopStream()
   stopBackground()
 })
@@ -544,8 +486,7 @@ onBeforeUnmount(() => {
         </div>
 
         <template v-for="m in messages" :key="m.id">
-          <template v-if="m.role === 'user'">
-          <div :id="`m-${m.id}`" class="group/msg flex flex-col items-end gap-1.5 rounded-lg transition" :class="marked === m.id && 'ring-2 ring-primary/60 ring-offset-4 ring-offset-(--ui-bg)'">
+          <div v-if="m.role === 'user'" :id="`m-${m.id}`" class="group/msg flex flex-col items-end gap-1.5 rounded-lg transition" :class="marked === m.id && 'ring-2 ring-primary/60 ring-offset-4 ring-offset-(--ui-bg)'">
             <AttachmentList :items="m.attachments ?? []" align="end" />
             <div class="flex max-w-[80%] items-start gap-1">
               <UDropdownMenu :items="messageMenu(m)" :content="{ align: 'end' }">
@@ -556,8 +497,6 @@ onBeforeUnmount(() => {
               <div v-if="m.content" class="min-w-0 whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--ui-primary) px-3.5 py-2 text-sm text-white"><template v-for="(p, i) in tagged(m.content)" :key="i"><span v-if="p.tag" class="rounded bg-white/20 px-0.5 font-medium">{{ p.text }}</span><template v-else>{{ p.text }}</template></template></div>
             </div>
           </div>
-          <ChatJobCard v-for="j in jobsAfter[m.id] ?? []" :key="j.id" :job="j" :project-id="projectId" @changed="loadJobs" />
-          </template>
           <div v-else-if="m.role === 'error'" class="flex items-start gap-2 text-sm text-(--ui-error)">
             <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0" />
             <span>{{ m.content }}</span>
@@ -612,20 +551,14 @@ onBeforeUnmount(() => {
       >
         <PromptInput
           ref="prompt" v-model="draft" v-model:attachments="draftFiles" :project-id="projectId"
-          :placeholder="jobMode ? t('chat.placeholderJob') : picked ? t('chat.placeholderWithAgent', { agent: picked.name }) : t('chat.placeholderNoAgent')"
+          :placeholder="picked ? t('chat.placeholderWithAgent', { agent: picked.name }) : t('chat.placeholderNoAgent')"
           :mentions="single ? [] : agents.map(a => ({ name: a.name, label: permOf(agentLevel(a.permissions)).label, icon: permOf(agentLevel(a.permissions)).icon }))"
           @submit="send"
         >
           <template #actions>
             <ContextMeter :tokens="current?.context_tokens" :window="current?.context_window" />
-            <!-- Chat: an agent answers; Job: the lead leads the team on it until it is done -->
-            <UButton
-              v-if="!single" size="sm" :color="jobMode ? 'primary' : 'neutral'" :variant="jobMode ? 'soft' : 'ghost'" class="shrink-0"
-              :icon="jobMode ? 'i-lucide-workflow' : 'i-lucide-message-circle'" :label="jobMode ? t('chat.modeJob') : t('chat.modeChat')"
-              :title="jobMode ? t('chat.modeJobHint') : t('chat.modeChatHint')" :ui="{ label: 'max-sm:hidden' }" @click="jobMode = !jobMode"
-            />
             <USelect
-              v-if="!single && !jobMode && agents.length" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink"
+              v-if="!single && agents.length" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink"
               :icon="permOf(pickedLevel).icon" :title="permOf(pickedLevel).description" :aria-label="t('chat.pickAgent')"
             />
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />

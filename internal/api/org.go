@@ -97,8 +97,6 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("GET /api/tasks/{id}", auth(s.getTask))
 		mux.Handle("POST /api/tasks/{id}/retry", auth(s.retryTask))
 		mux.Handle("POST /api/tasks/{id}/conversation", auth(s.taskConversation))
-		mux.Handle("GET /api/conversations/{id}/jobs", auth(s.ownChat(s.chatJobs)))
-		mux.Handle("POST /api/conversations/{id}/jobs", auth(s.ownChat(s.startChatJob)))
 		mux.Handle("POST /api/tasks/{id}/patches/approve-all", admin(s.approveAllPatches))
 		mux.Handle("POST /api/tasks/{id}/patches/revert-all", admin(s.revertAllPatches))
 		mux.Handle("DELETE /api/tasks/{id}", admin(s.deleteTask))
