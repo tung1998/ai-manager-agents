@@ -106,7 +106,7 @@ func mustAsk(p proposal) bool {
 }
 
 // announce tells the chat what its answer left waiting: approved at once in
-// direct mode, else numbered for /duyet and /tu-choi.
+// direct mode, else numbered for /approve and /reject.
 func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, chatID, conversationID string) {
 	if m.decider == nil || conversationID == "" {
 		return
@@ -154,7 +154,7 @@ func (m *Manager) pendingText(ctx context.Context, ch storage.Channel, list []pr
 	if len(lines) == 0 {
 		return "Không có gì chờ duyệt."
 	}
-	how := "Gõ /duyet 1 (hoặc /duyet all) để duyệt, /tu-choi 1 để từ chối."
+	how := "Gõ /approve 1 (hoặc /approve all) để duyệt, /reject 1 để từ chối."
 	if len(ch.Approvers) == 0 {
 		how = "Bot này chưa có ai được duyệt qua chat: duyệt trên dashboard (Tổng quan → Cần xử lý)."
 	}
@@ -184,7 +184,7 @@ func MayDecide(ch storage.Channel, userID string) bool {
 	return slices.Contains(ch.Approvers, "*") || slices.Contains(ch.Approvers, userID)
 }
 
-// approvals answers /cho-duyet, /duyet, /tu-choi and /mode from a chat.
+// approvals answers /pending, /approve, /reject and /mode from a chat.
 func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming, cmd, arg, who string) string {
 	if m.decider == nil {
 		return "Office này chưa bật duyệt qua chat."
@@ -201,15 +201,15 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 		switch CommandName(arg) {
 		case "thang", "lam-thang", "direct":
 			_ = m.store.Settings().Set(ctx, modeKey(ch.ID, in.ChatID), approvalMode{Mode: "direct", By: by})
-			return "Đã chuyển sang làm thẳng: những gì agent đề xuất ở đây được duyệt ngay, đứng tên " + who + ". Push, dừng dịch vụ, đổi cài đặt và lệnh xóa vẫn hỏi. Gõ /mode duyet để quay lại."
+			return "Đã chuyển sang làm thẳng: những gì agent đề xuất ở đây được duyệt ngay, đứng tên " + who + ". Push, dừng dịch vụ, đổi cài đặt và lệnh xóa vẫn hỏi. Gõ /mode ask để quay lại."
 		case "duyet", "ask":
 			_ = m.store.Settings().Set(ctx, modeKey(ch.ID, in.ChatID), approvalMode{Mode: "ask"})
-			return "Đã chuyển sang duyệt: mỗi đề xuất chờ /duyet."
+			return "Đã chuyển sang hỏi trước: mỗi đề xuất chờ /approve."
 		}
 		if m.mode(ctx, ch, in.ChatID).Mode == "direct" {
-			return "Đang làm thẳng. Gõ /mode duyet để hỏi trước mỗi đề xuất."
+			return "Đang làm thẳng. Gõ /mode ask để hỏi trước mỗi đề xuất."
 		}
-		return "Đang duyệt từng đề xuất. Gõ /mode thang để làm thẳng."
+		return "Đang hỏi trước từng đề xuất. Gõ /mode direct để làm thẳng."
 	}
 	approve := cmd == "approve"
 	var picked []proposal
@@ -229,7 +229,7 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 		picked = list
 	}
 	if len(picked) == 0 {
-		return "Hãy ghi số đề xuất, ví dụ /duyet 1 hoặc /duyet all.\n" + m.pendingText(ctx, ch, list)
+		return "Hãy ghi số đề xuất, ví dụ /approve 1 hoặc /approve all.\n" + m.pendingText(ctx, ch, list)
 	}
 	var lines []string
 	for _, p := range picked {

@@ -45,7 +45,7 @@ func (d *fakeDecider) list() []string {
 }
 
 // Proposals are decided from the chat by commands, by the people allowed to;
-// /mode thang approves what comes next, except what must always be asked.
+// /mode direct approves what comes next, except what must always be asked.
 func TestApprovalsFromChat(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
@@ -78,22 +78,22 @@ func TestApprovalsFromChat(t *testing.T) {
 	origin := storage.Job{ID: "job_1", Payload: string(payload)}
 	m.Reply(ctx, origin, "Đã xem xong", nil, true)
 	got := bot.wait(t, "42", 2)
-	if !strings.Contains(got[1], "pnpm lint") || !strings.Contains(got[1], "/duyet 1") {
+	if !strings.Contains(got[1], "pnpm lint") || !strings.Contains(got[1], "/approve 1") {
 		t.Fatalf("pending list = %q", got[1])
 	}
 	// not an approver: refused
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "8", UserName: "binh", Text: "/duyet 1", Addressed: true}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "8", UserName: "binh", Text: "/approve 1", Addressed: true}
 	got = bot.wait(t, "42", 3)
 	if len(dec.list()) != 0 || !strings.Contains(got[2], "không được duyệt") {
 		t.Fatalf("an outsider decided: %v %q", dec.list(), got[2])
 	}
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/duyet 1", Addressed: true}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve 1", Addressed: true}
 	got = bot.wait(t, "42", 4)
 	if d := dec.list(); len(d) != 1 || d[0] != "approve:action:"+act.ID+":discord:an" || !strings.Contains(got[3], "Đã duyệt") {
 		t.Fatalf("approve = %v %q", d, got[3])
 	}
 	// direct: what comes next is approved, a push is still asked
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/mode thang", Addressed: true}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/mode direct", Addressed: true}
 	bot.wait(t, "42", 5)
 	a2, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm test", Status: "pending"})
 	push, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "git_push", Target: "origin fix", Status: "pending"})

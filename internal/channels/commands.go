@@ -22,15 +22,15 @@ func Builtins() []Command {
 	return []Command{
 		{"create-conversation", "Bắt đầu hội thoại: bot nhớ những gì bạn nói ở đây", ""},
 		{"close-conversation", "Kết thúc hội thoại: mỗi tin được trả lời riêng", ""},
-		{"cho-duyet", "Xem những gì agent đề xuất đang chờ duyệt", ""},
-		{"duyet", "Duyệt đề xuất theo số (hoặc all)", "số"},
-		{"tu-choi", "Từ chối đề xuất theo số (hoặc all)", "số"},
-		{"mode", "Chế độ: duyet (hỏi trước) hoặc thang (làm thẳng)", "duyet hoặc thang"},
+		{"pending", "Xem những gì agent đề xuất đang chờ duyệt", ""},
+		{"approve", "Duyệt đề xuất theo số (hoặc all)", "number"},
+		{"reject", "Từ chối đề xuất theo số (hoặc all)", "number"},
+		{"mode", "Chế độ: ask (hỏi trước) hoặc direct (làm thẳng)", "ask or direct"},
 	}
 }
 
 // Reserved are names a custom command may not take.
-var Reserved = []string{"job", "create-conversation", "close-conversation", "create-conversion", "close-conversion", "start", "help", "cho-duyet", "duyet", "tu-choi", "mode"}
+var Reserved = []string{"job", "create-conversation", "close-conversation", "create-conversion", "close-conversion", "start", "help", "pending", "approve", "reject", "mode", "cho-duyet", "duyet", "tu-choi"}
 
 // CommandName makes a name safe for Discord and Telegram menus: lower case,
 // no accents, words joined by "-", at most 32 characters ("" = nothing left).

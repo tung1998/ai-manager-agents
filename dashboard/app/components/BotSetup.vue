@@ -101,10 +101,10 @@ function summary(c: Cmd) {
 const systemCommands = computed(() => [
   { name: 'create-conversation', arg: '', desc: t('cmd.create') },
   { name: 'close-conversation', arg: '', desc: t('cmd.close') },
-  { name: 'cho-duyet', arg: '', desc: t('cmd.pending') },
-  { name: 'duyet', arg: t('cmd.numberArg'), desc: t('cmd.approve') },
-  { name: 'tu-choi', arg: t('cmd.numberArg'), desc: t('cmd.reject') },
-  { name: 'mode', arg: 'duyet | thang', desc: t('cmd.mode') }
+  { name: 'pending', arg: '', desc: t('cmd.pending') },
+  { name: 'approve', arg: t('cmd.numberArg'), desc: t('cmd.approve') },
+  { name: 'reject', arg: t('cmd.numberArg'), desc: t('cmd.reject') },
+  { name: 'mode', arg: 'ask | direct', desc: t('cmd.mode') }
 ])
 const keywordsText = (c: Cmd) => (c.draft.config.keywords ?? []).join(', ')
 const setKeywords = (c: Cmd, v: string) => { c.draft.config.keywords = v.split(/[,\n]/).map(s => s.trim()).filter(Boolean) }

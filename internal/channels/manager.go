@@ -478,11 +478,11 @@ func command(text string) (cmd, arg string, ok bool) {
 		return "create", "", rest == ""
 	case "close-conversation", "close-conversion":
 		return "close", "", rest == ""
-	case "cho-duyet":
+	case "pending", "cho-duyet": // the Vietnamese names still work
 		return "pending", "", true
-	case "duyet":
+	case "approve", "duyet":
 		return "approve", rest, true
-	case "tu-choi":
+	case "reject", "tu-choi":
 		return "reject", rest, true
 	case "mode":
 		return "mode", rest, true

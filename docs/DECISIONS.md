@@ -1382,10 +1382,11 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 **Quyết định.**
 - Sau mỗi câu trả lời, bot liệt kê những gì còn chờ duyệt trong cuộc chat đó, đánh số. Số giữ nguyên cho tới khi mọi mục được quyết.
 - Có 4 lệnh:
-  - `/cho-duyet`: xem lại danh sách.
-  - `/duyet <số|all>`: duyệt.
-  - `/tu-choi <số|all>`: từ chối.
-  - `/mode duyet|thang`: đổi chế độ.
+  - `/pending`: xem lại danh sách.
+  - `/approve <số|all>`: duyệt.
+  - `/reject <số|all>`: từ chối.
+  - `/mode ask|direct`: đổi chế độ.
+  - Tên lệnh bằng tiếng Anh. Tên cũ (`/cho-duyet`, `/duyet`, `/tu-choi`, `duyet|thang`) vẫn gõ được.
 - Chỉ người trong ô **"Ai được duyệt"** của bot mới quyết và đổi chế độ được. Ô này nhận ID, hoặc `*` là ai được nhắn bot cũng duyệt được (trang cài bot hiện cảnh báo). Để trống thì chỉ duyệt trên dashboard.
 - Quyết định đi qua đúng đường của dashboard: DecidePatch và actions.Decide. Audit ghi đây là thay đổi của agent, người duyệt là `discord:<tên>`.
 - Có 2 chế độ, lưu theo từng chat:
