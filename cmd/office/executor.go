@@ -67,8 +67,20 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 			}
 		}
 		if done {
+			// the agents tagged in the message answer after it, each on its own
+			// message, named so the chat sees who says what
+			names := map[string]bool{author: true}
+			if agents, err := x.chat.Agents(ctx, projectID); err == nil {
+				for _, a := range chat.Mentions(prompt, agents) {
+					names[a.Name] = true
+				}
+			}
+			named := len(names) > 1
+			if named && reply != "" {
+				reply = signed(author, reply)
+			}
 			if fn := trigger.FollowUpOf(ctx); fn != nil && replyID != "" {
-				go x.followUps(conversationID, replyID, author, fn)
+				go x.followUps(conversationID, replyID, names, named, fn)
 			}
 			return conversationID, reply, nil
 		}
@@ -155,9 +167,13 @@ func (r assistantRunner) RunAutomation(ctx context.Context, automationID string)
 	return j.ID, err
 }
 
-// followUps sends on what the answering agent says after its answer, once the
-// agents it gave work to are done (its reports), until the chat is quiet.
-func (x officeExecutor) followUps(convID, afterID, author string, send func(string)) {
+// signed puts who answers at the top of a message sent to a chat.
+func signed(author, text string) string { return author + ":\n" + text }
+
+// followUps sends on what the agents of the message say after its answer —
+// the others tagged, and the answering one's reports once the agents it gave
+// work to are done — until the chat is quiet.
+func (x officeExecutor) followUps(convID, afterID string, names map[string]bool, named bool, send func(string)) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
 	seen := map[string]bool{}
@@ -187,9 +203,14 @@ func (x officeExecutor) followUps(convID, afterID, author string, send func(stri
 			if !past || seen[m.ID] {
 				continue
 			}
-			if (m.Role == "assistant" && m.Author == author) || m.Role == "error" {
+			if (m.Role == "assistant" && names[m.Author]) || m.Role == "error" {
 				seen[m.ID] = true
-				if strings.TrimSpace(m.Content) != "" {
+				if strings.TrimSpace(m.Content) == "" {
+					continue
+				}
+				if named && m.Role == "assistant" {
+					send(signed(m.Author, m.Content))
+				} else {
 					send(m.Content)
 				}
 			}

@@ -1417,3 +1417,4 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Bỏ nút Chat ↔ Job, thẻ Job và API `/api/conversations/{id}/jobs`. Migration 00038 xóa cột `tasks.conversation_id`. ADR-055 hết hiệu lực.
 - Sidebar project không còn tab **Việc**. Việc vẫn được tạo từ tự động hóa, `/job` và trợ lý. Trang chi tiết Việc (`?tab=tasks&task=…`) vẫn mở được qua link từ Tổng quan, trang Job và thông báo. Dữ liệu Việc cũ giữ nguyên.
 - Vẫn giữ: nhiều Việc chạy song song trong worktree riêng, chỉ Việc sửa thẳng mới chạy một mình.
+- (bổ sung) Chat từ bot cũng nhận **@tag**, như chat trên web (ADR-044). Mỗi agent được tag trả lời thành một tin riêng gửi về kênh. Khi tin nhắn có nhiều agent trả lời, mỗi tin mở đầu bằng `Tên agent:` để người đọc biết ai đang nói.

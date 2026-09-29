@@ -483,7 +483,7 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	}
 	// @tags pull agents in (ADR-044): the first tagged answers, then the others
 	var queue []queued
-	if conv.TaskID == "" && conv.Purpose == "" {
+	if teamChat(conv) { // the web's chats and bots'
 		if agents, err := e.Agents(ctx, conv.ProjectID); err == nil {
 			if tagged := Mentions(text, agents); len(tagged) > 0 {
 				agent = tagged[0]

@@ -792,3 +792,16 @@ func TestDelegateInChannelChat(t *testing.T) {
 		t.Fatal("delegate from an automation-building chat was accepted")
 	}
 }
+
+// In a bot's chat (Discord/Telegram) @tags pull agents in as on the web.
+func TestMentionInChannelChat(t *testing.T) {
+	g := newGroup(t)
+	conv, err := g.engine.StartConversationPurpose(g.context, g.f.project.ID, "", "channel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.conv = conv
+	if got := g.sendAll(t, "@"+g.leadNm+" @Dev xem lỗi này"); len(got) != 2 || got[0] != g.leadNm || got[1] != "Dev" {
+		t.Fatalf("authors = %v", got)
+	}
+}
