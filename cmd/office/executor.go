@@ -21,6 +21,7 @@ type officeExecutor struct {
 
 func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (string, string, error) {
 	ctx = chat.WithModelTier(ctx, trigger.ModelTierOf(ctx)) // the automation's model choice
+	ctx = chat.WithInstructions(ctx, trigger.InstructionsOf(ctx))
 	if conversationID == "" {
 		conv, err := x.chat.StartConversation(ctx, projectID, agentID)
 		if err != nil {

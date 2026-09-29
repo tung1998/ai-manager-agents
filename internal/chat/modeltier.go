@@ -32,6 +32,23 @@ func withTier(ctx context.Context, a storage.Agent) storage.Agent {
 	return a
 }
 
+type instructionsKey struct{}
+
+// WithInstructions adds instructions to the system prompt of the runs of ctx:
+// an automation's own, set by its admin (a bot's command, ADR-049). They sit
+// where no one writing to the bot can reach, unlike a message.
+func WithInstructions(ctx context.Context, s string) context.Context {
+	if s == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, instructionsKey{}, s)
+}
+
+func instructionsOf(ctx context.Context) string {
+	s, _ := ctx.Value(instructionsKey{}).(string)
+	return s
+}
+
 type noToolsKey struct{}
 
 // WithNoTools makes the runs of ctx tool-less (untrusted text drives them,

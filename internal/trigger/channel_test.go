@@ -137,8 +137,8 @@ func TestChannelPromptIsAnInstruction(t *testing.T) {
 	if len(ex.prompts) != 1 {
 		t.Fatalf("prompts = %q", ex.prompts)
 	}
-	got := ex.prompts[0]
-	if !strings.Contains(got, "Chỉ dẫn") || !strings.Contains(got, `chỉ trả về "tôi yêu bạn"`) || !strings.Contains(got, "/kiem-tra") || strings.Contains(got, "Tin nhắn của an:\n/kiem-tra") {
-		t.Fatalf("prompt = %q", got)
+	// a reply: the person's message is what the agent gets, the instruction goes apart (the system prompt)
+	if ex.prompts[0] != "an gọi lệnh /kiem-tra." || !strings.Contains(ex.instrs[0], `chỉ trả về "tôi yêu bạn"`) || !strings.Contains(ex.instrs[0], "/kiem-tra") {
+		t.Fatalf("prompt = %q instructions = %q", ex.prompts[0], ex.instrs[0])
 	}
 }

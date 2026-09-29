@@ -68,6 +68,7 @@ func (b *fakeBot) wait(t *testing.T, chatID string, n int) []string {
 type chatExec struct{ engine *chat.Engine }
 
 func (x chatExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
+	ctx = chat.WithInstructions(ctx, trigger.InstructionsOf(ctx)) // as the office's executor does
 	turn, _, err := x.engine.Send(ctx, conv, prompt, nil)
 	if err != nil {
 		return conv, "", err
@@ -111,8 +112,8 @@ func TestManagerRules(t *testing.T) {
 	// the filter call gets "YES/NO" questions; an answer otherwise
 	argsLog := filepath.Join(tmp, "args.log")
 	os.WriteFile(bin, []byte(`#!/bin/sh
-printf '%s\n===\n' "$*" >> `+argsLog+`
 in=$(cat)
+printf '%s\nSTDIN:%s\n===\n' "$*" "$in" >> `+argsLog+`
 out="đơn 123 đang giao"
 case "$in" in *"YES hoặc NO"*) out=NO; case "$in" in *"đơn hàng"*"đơn 123"*) out=YES;; esac;; esac
 echo '{"type":"system","subtype":"init","session_id":"s1"}'
@@ -128,7 +129,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 
 	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "telegram", Name: "Hỗ trợ", Enabled: true,
-		Allow: []string{"42", "43", "44"}, Refusal: "Mình chỉ trả lời về đơn hàng."})
+		Allow: []string{"42", "43", "44", "45"}, Refusal: "Mình chỉ trả lời về đơn hàng."})
 	// rule 1: "mã" → a script, no AI; rule 2: about orders → the agent answers
 	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Tra mã", Source: "telegram", Action: "script", Enabled: true,
 		Config: storage.AutomationConfig{ChannelID: ch.ID, Keywords: []string{"MÃ"}},
@@ -216,6 +217,26 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	bot.sent["43"] = nil
 	bot.mu.Unlock()
 
+	// a command's prompt is the admin's instruction: it goes in the system
+	// prompt (no one writing to the bot can reach it); the agent is sent only
+	// what the person sent
+	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "/chao", Source: "telegram", Action: "chat", Enabled: true,
+		Prompt: "INSTR-XYZ: trả lời đúng một câu chào", Config: storage.AutomationConfig{ChannelID: ch.ID, Command: "chao"}})
+	bot.in <- channels.Incoming{ChatID: "45", UserID: "8", Text: "/chao", Addressed: true}
+	bot.wait(t, "45", 1)
+	raw0, _ := os.ReadFile(argsLog)
+
+	var call string
+	for _, c := range strings.Split(string(raw0), "\n===") {
+		if strings.Contains(c, "INSTR-XYZ") {
+			call = c
+		}
+	}
+	sys, stdin, _ := strings.Cut(call, "STDIN:")
+	if !strings.Contains(sys, "--append-system-prompt") || !strings.Contains(sys, "INSTR-XYZ") || strings.Contains(stdin, "INSTR-XYZ") || !strings.Contains(stdin, "/chao") {
+		t.Fatalf("the instruction is not in the system prompt:\nargs: %.300s\nstdin: %.300s", sys, stdin)
+	}
+
 	// /job gives work to the team through the bot's automation
 	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", UserName: "cuong", Text: "/job sửa lỗi thanh toán", Addressed: true}
 	if got := bot.wait(t, "43", 1); !strings.Contains(got[0], "Đã nhận việc") {
@@ -262,7 +283,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 			answered++
 		}
 	}
-	if skipped != 1 || answered != 9 {
+	if skipped != 1 || answered != 10 {
 		t.Fatalf("skipped %d answered %d: %+v", skipped, answered, jobs)
 	}
 	got, _ := st.Channels().Get(ctx, ch.ID)

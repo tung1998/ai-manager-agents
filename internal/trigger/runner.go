@@ -296,6 +296,11 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		}
 	}
 	actx := WithModelTier(actor.With(jctx, who), a.ModelTier)
+	if fromChannel && action == "chat" && j.ParentJobID == "" { // a reply: the admin's words go to the system prompt
+		var instr string
+		prompt, instr = replyPrompt(a, j, now, loc)
+		actx = WithInstructions(actx, instr)
+	}
 	keptConv, text := "", ""
 	if action == "task" {
 		var id string
@@ -418,6 +423,32 @@ func (r *Runner) channelOrigin(ctx context.Context, j storage.Job) (storage.Job,
 	return j, IsChannel(j.Trigger)
 }
 
+// replyPrompt splits a bot's reply into what the agent is sent (the person's
+// message, or "/cmd" alone) and the automation's instructions (its prompt,
+// with {{message}} and {{user}} filled, and who used which command).
+func replyPrompt(a storage.Automation, j storage.Job, now time.Time, loc *time.Location) (prompt, instructions string) {
+	m := channelPayloadOf(j)
+	who := firstNonEmpty(m.User, "người dùng")
+	text := m.Message
+	if c := a.Config.Command; c != "" && strings.TrimSpace(text) == "/"+c {
+		text = ""
+	}
+	prompt = text
+	if a.Config.Command != "" && text == "" { // not "/cmd": a chat reads a leading "/" as a skill
+		prompt = who + " gọi lệnh /" + a.Config.Command + "."
+	}
+	if strings.TrimSpace(a.Prompt) == "" {
+		return prompt, ""
+	}
+	var payload any
+	_ = json.Unmarshal([]byte(j.Payload), &payload)
+	instructions = Render(a.Prompt, Vars{Payload: payload, RawPayload: j.Payload, Message: text, User: who, Source: j.Trigger, Automation: a.Name, Now: now, Loc: loc})
+	if a.Config.Command != "" {
+		instructions += "\n(" + who + " vừa gọi lệnh /" + a.Config.Command + ")"
+	}
+	return prompt, instructions
+}
+
 // promptFor fills the automation's template; a payload the template does not
 // show is appended, marked as data.
 func promptFor(a storage.Automation, j storage.Job, now time.Time, loc *time.Location) string {
@@ -498,6 +529,22 @@ func WithModelTier(ctx context.Context, tier string) context.Context {
 }
 
 // ModelTierOf is the tier ctx asks for.
+type instructionsKey struct{}
+
+// WithInstructions carries an automation's instructions to the executor (the
+// system prompt of a chat); InstructionsOf reads them.
+func WithInstructions(ctx context.Context, s string) context.Context {
+	if s == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, instructionsKey{}, s)
+}
+
+func InstructionsOf(ctx context.Context) string {
+	s, _ := ctx.Value(instructionsKey{}).(string)
+	return s
+}
+
 func ModelTierOf(ctx context.Context) string {
 	s, _ := ctx.Value(modelTierKey{}).(string)
 	return s
