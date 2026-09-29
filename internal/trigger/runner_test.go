@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
@@ -36,7 +37,8 @@ type fakeExec struct {
 	tiers  []string // model tier each run was asked to use
 	busy   int      // return ErrBusy this many times first
 	fail   bool
-	taskID string // what RunTask returns ("" = tsk_x)
+	taskID string   // what RunTask returns ("" = tsk_x)
+	actors []string // who each task was asked by
 }
 
 func (f *fakeExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
@@ -57,6 +59,7 @@ func (f *fakeExec) RunTask(ctx context.Context, projectID, agentID, goal, edit s
 	defer f.mu.Unlock()
 	f.tasks = append(f.tasks, agentID+"|"+goal)
 	f.tiers = append(f.tiers, trigger.ModelTierOf(ctx))
+	f.actors = append(f.actors, actor.From(ctx))
 	if f.taskID != "" {
 		return f.taskID, nil
 	}

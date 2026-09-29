@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/actor"
 	"context"
 	"time"
 
@@ -27,6 +28,7 @@ type TaskDTO struct {
 	PendingPatches int        `json:"pending_patches"`
 	AppliedPatches int        `json:"applied_patches"`
 	CreatedBy      string     `json:"created_by"`
+	Source         string     `json:"source"` // where it came from: web | discord | telegram | auto
 	CreatedAt      time.Time  `json:"created_at"`
 	FinishedAt     *time.Time `json:"finished_at"`
 }
@@ -52,7 +54,7 @@ type StepDTO struct {
 
 func toTaskDTO(t storage.Task) TaskDTO {
 	return TaskDTO{ID: t.ID, ProjectID: t.ProjectID, Title: t.Title, Goal: t.Goal, Mode: t.Mode, Status: t.Status, Result: t.Result,
-		Detail: t.Detail, BudgetUSD: t.BudgetUSD, CostUSD: t.CostUSD, Attachments: atts(t.Attachments), EditMode: t.EditMode, AssigneeID: t.AssigneeID, CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt, FinishedAt: t.FinishedAt}
+		Detail: t.Detail, BudgetUSD: t.BudgetUSD, CostUSD: t.CostUSD, Attachments: atts(t.Attachments), EditMode: t.EditMode, AssigneeID: t.AssigneeID, CreatedBy: t.CreatedBy, Source: actor.Source(t.CreatedBy), CreatedAt: t.CreatedAt, FinishedAt: t.FinishedAt}
 }
 
 func toStepDTO(s storage.TaskStep) StepDTO {

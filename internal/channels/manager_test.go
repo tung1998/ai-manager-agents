@@ -2,6 +2,7 @@ package channels_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,11 +40,11 @@ func (b *fakeBot) Run(ctx context.Context, onReady func(string), onMessage func(
 		}
 	}
 }
-func (b *fakeBot) Send(_ context.Context, chatID, text string) error {
+func (b *fakeBot) Send(_ context.Context, chatID, text string) ([]string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.sent[chatID] = append(b.sent[chatID], text)
-	return nil
+	return []string{fmt.Sprintf("%s-%d", chatID, len(b.sent[chatID]))}, nil // the message's id: chat-n
 }
 func (b *fakeBot) Typing(context.Context, string) {}
 func (b *fakeBot) wait(t *testing.T, chatID string, n int) []string {
@@ -184,6 +185,32 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	if n := resumes(); n != 2 {
 		t.Fatalf("after close: %d resumes, want 2", n)
 	}
+	// a reply to one of the bot's answers goes on in that answer's conversation
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 thì sao nữa", Addressed: true, Private: true, ReplyTo: "42-8"}
+	bot.wait(t, "42", 9)
+	if n := resumes(); n != 3 {
+		t.Fatalf("a reply: %d resumes, want 3", n)
+	}
+
+	// /job gives work to the team through the bot's automation
+	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", UserName: "cuong", Text: "/job sửa lỗi thanh toán", Addressed: true}
+	if got := bot.wait(t, "43", 1); !strings.Contains(got[0], "Đã nhận việc") {
+		t.Fatalf("job ack = %v", got)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		tasks, _ := st.Jobs().List(ctx, storage.JobFilter{ProjectID: project.ID, Kind: "task"})
+		if len(tasks) == 1 && tasks[0].Trigger == "telegram" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no task job: %+v", tasks)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	bot.mu.Lock()
+	bot.sent["43"] = nil
+	bot.mu.Unlock()
 
 	bot.in <- channels.Incoming{ChatID: "44", UserID: "9", UserName: "binh", Text: "tra mã giúp", Private: true, Addressed: true}
 	if got := bot.wait(t, "44", 1); got[0] != "Mã của binh: OK" {
@@ -207,11 +234,11 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 		if j.Status == "skipped" && j.ErrorCode == "no_rule" && j.Trigger == "telegram" && j.OriginID == ch.ID {
 			skipped++
 		}
-		if j.Origin == "automation" && j.Trigger == "telegram" && j.Status == "done" {
+		if j.Origin == "automation" && j.Trigger == "telegram" && j.Status == "done" && j.Kind != "task" {
 			answered++
 		}
 	}
-	if skipped != 1 || answered != 7 {
+	if skipped != 1 || answered != 8 {
 		t.Fatalf("skipped %d answered %d: %+v", skipped, answered, jobs)
 	}
 	got, _ := st.Channels().Get(ctx, ch.ID)

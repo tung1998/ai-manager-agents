@@ -16,7 +16,7 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
+interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message, next_turn_id?: string }
 // the agents in a chat and the answers in progress (ADR-044)
 interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
@@ -34,7 +34,9 @@ const toast = useToast()
 const { t, dateLocale } = useLang()
 
 const { data: agentsData } = await useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`)
-const { data: convData, refresh: refreshConvs } = await useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations`, { immediate: !single.value })
+// where the chats started: the dashboard, a bot, an automation
+const origin = ref<'all' | Source>('all')
+const { data: convData, refresh: refreshConvs } = await useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value })
 // every agent of the project: the person picks who answers, by its rights
 const agents = computed(() => agentsData.value?.agents ?? [])
 const conversations = computed(() => convData.value?.conversations ?? [])
@@ -379,7 +381,8 @@ onBeforeUnmount(() => {
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
       <div class="flex items-center gap-1 border-b border-(--ui-border) p-2">
-        <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" class="flex-1 justify-start" @click="newConversation(pick)" />
+        <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" class="min-w-0 flex-1 justify-start" @click="newConversation(pick)" />
+        <SourceFilter v-model="origin" />
       </div>
       <div class="flex-1 overflow-y-auto p-1">
         <p v-if="!conversations.length" class="p-3 text-xs text-(--ui-text-muted)">{{ t('chat.none') }}</p>
@@ -392,7 +395,10 @@ onBeforeUnmount(() => {
           <AgentAvatar :agent="agents.find(a => a.id === c.agent_id) ?? { id: c.agent_id, name: c.agent_name }" size="xs" class="mt-0.5" />
           <div class="min-w-0 flex-1">
             <p class="truncate">{{ c.title || t('chat.newThreadTitle') }}</p>
-            <p class="truncate text-xs text-(--ui-text-muted)">{{ c.agent_name }} · {{ when(c.updated_at) }}</p>
+            <p class="flex items-center gap-1 truncate text-xs text-(--ui-text-muted)">
+              <UIcon v-if="c.source && c.source !== 'web'" :name="sourceIcon[c.source]" class="size-3 shrink-0" :title="t(`source.${c.source}`)" />
+              <span class="truncate">{{ c.agent_name }} · {{ when(c.updated_at) }}</span>
+            </p>
           </div>
           <UIcon v-if="c.active_turn" name="i-lucide-loader-circle" class="mt-1 size-3.5 animate-spin text-(--ui-text-muted)" />
           <UDropdownMenu :items="threadMenu(c)" :content="{ align: 'end' }">

@@ -352,6 +352,9 @@ type ChatRepo interface {
 	GetConversation(ctx context.Context, id string) (Conversation, error)
 	// ListConversations lists a project's own chats (not the talks about tasks).
 	ListConversations(ctx context.Context, projectID string, limit int) ([]Conversation, error)
+	// ListConversationsFrom lists them by where they started: web, discord,
+	// telegram, auto, or all (with the bots' chats).
+	ListConversationsFrom(ctx context.Context, projectID, source string, limit int) ([]Conversation, error)
 	TaskConversation(ctx context.Context, taskID string) (Conversation, error)
 	// AutomationConversation is the chat that builds an automation.
 	AutomationConversation(ctx context.Context, automationID string) (Conversation, error)

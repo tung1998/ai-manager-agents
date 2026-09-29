@@ -3,6 +3,7 @@ package trigger_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -98,5 +99,22 @@ func TestChannelTaskReplies(t *testing.T) {
 	runChannel(t, r, st, a, channelPayload(""))
 	if len(rs.got) != 1 || rs.got[0].text != "Đã sửa lỗi thanh toán" || !rs.got[0].final {
 		t.Fatalf("replies = %+v", rs.got)
+	}
+	if len(ex.actors) != 1 || ex.actors[0] != "telegram:an" { // the person who wrote, not the automation
+		t.Fatalf("task asked by %v", ex.actors)
+	}
+}
+
+// /job: a message forced to be a task, whatever the rule's own action.
+func TestChannelJobIsATask(t *testing.T) {
+	st, p := openStore(t)
+	ex := &fakeExec{}
+	r := trigger.New(st, ex)
+	a, _ := st.Automations().Create(context.Background(), storage.Automation{ProjectID: p.ID, Name: "Trả lời", Source: "telegram", Action: "chat", Enabled: true,
+		Config: storage.AutomationConfig{ChannelID: "chn_1"}})
+	raw, _ := json.Marshal(map[string]string{"message": "sửa lỗi thanh toán", "user": "an", "chat_id": "42", "channel_id": "chn_1", "action": "task"})
+	runChannel(t, r, st, a, string(raw))
+	if len(ex.tasks) != 1 || len(ex.chats) != 0 || !strings.Contains(ex.tasks[0], "sửa lỗi thanh toán") {
+		t.Fatalf("tasks = %v chats = %v", ex.tasks, ex.chats)
 	}
 }

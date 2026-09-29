@@ -278,7 +278,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 			}
 		}
 	}
-	if a.Action == "script" && j.ParentJobID == "" {
+	if a.Action == "script" && j.ParentJobID == "" && !(fromChannel && channelPayloadOf(origin).Action == "task") {
 		r.runScriptJob(ctx, a, j, now, answer)
 		return
 	}
@@ -286,7 +286,16 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	if j.ParentJobID != "" { // an agent called in by a script (ADR-041)
 		action, agentID, prompt = firstNonEmpty(a.Escalate.Action, "chat"), a.Escalate.AgentID, escalationPrompt(a, j, now, loc)
 	}
-	actx := WithModelTier(actor.With(jctx, "auto:"+a.Name), a.ModelTier)
+	who := "auto:" + a.Name
+	if fromChannel { // the person who wrote to the bot, as the channel names them
+		if p := channelPayloadOf(origin); p.User != "" {
+			who = origin.Trigger + ":" + p.User
+		}
+		if channelPayloadOf(origin).Action == "task" && j.ParentJobID == "" {
+			action = "task"
+		}
+	}
+	actx := WithModelTier(actor.With(jctx, who), a.ModelTier)
 	keptConv, text := "", ""
 	if action == "task" {
 		var id string
@@ -386,6 +395,7 @@ type ChannelPayload struct {
 	ChatID         string `json:"chat_id"`
 	ChannelID      string `json:"channel_id"`
 	ConversationID string `json:"conversation_id,omitempty"` // action chat: the outside chat's conversation
+	Action         string `json:"action,omitempty"`          // "task": /job, whatever the rule's own action
 }
 
 // IsChannel says whether a job's trigger is a chat channel.

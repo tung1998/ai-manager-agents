@@ -196,6 +196,7 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 			ID string `json:"id"`
 		} `json:"mentions"`
 		Replied *struct {
+			ID     string `json:"id"`
 			Author struct {
 				ID string `json:"id"`
 			} `json:"author"`
@@ -212,6 +213,9 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 		}
 	}
 	replied := m.Replied != nil && d.botID != "" && m.Replied.Author.ID == d.botID
+	if replied {
+		in.ReplyTo = m.Replied.ID
+	}
 	// every message comes up: Addressed = for the bot (a DM, a tag, a reply to
 	// it, a command typed without a tag); a kept conversation hears the rest
 	in.Addressed = in.Private || tagged || replied || isCommand(m.Content)
@@ -230,7 +234,11 @@ func (d *Discord) registerCommands(ctx context.Context) {
 	}
 	var list []map[string]any
 	for _, c := range Commands {
-		list = append(list, map[string]any{"name": c.Name, "description": c.Description, "type": 1, "contexts": []int{0, 1, 2}})
+		cmd := map[string]any{"name": c.Name, "description": c.Description, "type": 1, "contexts": []int{0, 1, 2}}
+		if c.Option != "" { // the text after the command (a string, required)
+			cmd["options"] = []map[string]any{{"type": 3, "name": c.Option, "description": c.Description, "required": true}}
+		}
+		list = append(list, cmd)
 	}
 	if err := d.do(ctx, "PUT", "/applications/"+d.appID+"/commands", list); err != nil {
 		slog.Warn("discord: slash commands not registered", "err", err)
@@ -251,7 +259,10 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 		ChannelID string `json:"channel_id"`
 		GuildID   string `json:"guild_id"`
 		Data      struct {
-			Name string `json:"name"`
+			Name    string `json:"name"`
+			Options []struct {
+				Value any `json:"value"`
+			} `json:"options"`
 		} `json:"data"`
 		Member *struct {
 			User user `json:"user"`
@@ -265,6 +276,11 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 		return Incoming{}, false
 	}
 	in := Incoming{ChatID: x.ChannelID, Text: "/" + x.Data.Name, Private: x.GuildID == "", Addressed: true}
+	for _, o := range x.Data.Options {
+		if s, ok := o.Value.(string); ok {
+			in.Text += " " + s
+		}
+	}
 	if x.Member != nil {
 		in.UserID, in.UserName = x.Member.User.ID, x.Member.User.Username
 	} else if x.User != nil {
@@ -278,10 +294,10 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 }
 
 func (d *Discord) rest(ctx context.Context, path string, body any) error {
-	return d.do(ctx, "POST", path, body)
+	return d.do(ctx, "POST", path, body, nil)
 }
 
-func (d *Discord) do(ctx context.Context, method, path string, body any) error {
+func (d *Discord) do(ctx context.Context, method, path string, body any, out ...any) error {
 	base := d.APIBase
 	if base == "" {
 		base = "https://discord.com/api/v10"
@@ -297,20 +313,28 @@ func (d *Discord) do(ctx context.Context, method, path string, body any) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("discord %s: %s", path, resp.Status)
+	}
+	if len(out) > 0 && out[0] != nil {
+		_ = json.NewDecoder(resp.Body).Decode(out[0])
 	}
 	return nil
 }
 
-func (d *Discord) Send(ctx context.Context, chatID, text string) error {
+func (d *Discord) Send(ctx context.Context, chatID, text string) ([]string, error) {
+	var ids []string
 	for _, part := range chunks(text, 1900) {
-		if err := d.rest(ctx, "/channels/"+chatID+"/messages", map[string]string{"content": part}); err != nil {
-			return err
+		var sent struct {
+			ID string `json:"id"`
 		}
+		if err := d.do(ctx, "POST", "/channels/"+chatID+"/messages", map[string]string{"content": part}, &sent); err != nil {
+			return ids, err
+		}
+		ids = append(ids, sent.ID)
 	}
-	return nil
+	return ids, nil
 }
 
 func (d *Discord) Typing(ctx context.Context, chatID string) {

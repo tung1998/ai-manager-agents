@@ -86,7 +86,7 @@ func TestDiscord(t *testing.T) {
 		t.Fatalf("a bot's own message came up: %+v", m)
 	case <-time.After(200 * time.Millisecond):
 	}
-	if err := d.Send(ctx, "c2", strings.Repeat("b", 2500)); err != nil {
+	if _, err := d.Send(ctx, "c2", strings.Repeat("b", 2500)); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -126,6 +126,7 @@ func TestDiscordSlashCommands(t *testing.T) {
 		send(`{"op":0,"s":1,"t":"READY","d":{"user":{"id":"99","username":"shopbot"},"application":{"id":"app1"}}}`)
 		send(`{"op":0,"s":2,"t":"INTERACTION_CREATE","d":{"id":"int1","token":"itok","type":2,"channel_id":"c2","guild_id":"g","data":{"name":"create-conversation"},"member":{"user":{"id":"8","username":"binh"}}}}`)
 		send(`{"op":0,"s":3,"t":"MESSAGE_CREATE","d":{"channel_id":"c2","guild_id":"g","content":"/close-conversation","author":{"id":"8","username":"binh"},"mentions":[]}}`)
+		send(`{"op":0,"s":4,"t":"INTERACTION_CREATE","d":{"id":"int2","token":"itok2","type":2,"channel_id":"c2","guild_id":"g","data":{"name":"job","options":[{"name":"viec","type":3,"value":"sửa lỗi thanh toán"}]},"member":{"user":{"id":"8","username":"binh"}}}}`)
 	})
 	defer gw.Close()
 	var mu sync.Mutex
@@ -144,13 +145,16 @@ func TestDiscordSlashCommands(t *testing.T) {
 	got := make(chan Incoming, 10)
 	go d.Run(ctx, func(string) {}, func(m Incoming) { got <- m })
 	var msgs []Incoming
-	for len(msgs) < 2 {
+	for len(msgs) < 3 {
 		select {
 		case m := <-got:
 			msgs = append(msgs, m)
 		case <-ctx.Done():
 			t.Fatalf("got %+v", msgs)
 		}
+	}
+	if msgs[2].Text != "/job sửa lỗi thanh toán" {
+		t.Fatalf("job command = %+v", msgs[2])
 	}
 	if msgs[0].Text != "/create-conversation" || msgs[0].ChatID != "c2" || msgs[0].UserID != "8" || msgs[0].Respond == nil || !msgs[0].Addressed {
 		t.Fatalf("command = %+v", msgs[0])
@@ -164,7 +168,7 @@ func TestDiscordSlashCommands(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	all := strings.Join(calls, "\n")
-	for _, want := range []string{"PUT /applications/app1/commands", "create-conversation", "POST /interactions/int1/itok/callback", `"type":5`,
+	for _, want := range []string{"PUT /applications/app1/commands", "create-conversation", `"name":"job"`, `"required":true`, "POST /interactions/int1/itok/callback", `"type":5`,
 		"PATCH /webhooks/app1/itok/messages/@original", "Đã bắt đầu"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("no %q in:\n%s", want, all)

@@ -22,6 +22,15 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
+	if src := r.URL.Query().Get("source"); src != "" && src != "all" { // web | discord | telegram | auto
+		kept := list[:0]
+		for _, t := range list {
+			if t.Source == src {
+				kept = append(kept, t)
+			}
+		}
+		list = kept
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": list})
 }
 

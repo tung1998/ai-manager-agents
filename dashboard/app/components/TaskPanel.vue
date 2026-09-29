@@ -5,6 +5,7 @@ import type { ProposedAction } from './ActionCard.vue'
 
 interface ToolCall { name: string, summary: string, error?: boolean }
 interface Task {
+  source?: Source
   id: string
   title: string
   goal: string
@@ -45,7 +46,9 @@ const toast = useToast()
 const { isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
 
-const { data: listData, refresh: refreshList } = await useFetch<{ tasks: Task[] }>(() => `/api/projects/${props.projectId}/tasks`)
+// where the tasks came from: the dashboard, a bot (/job), an automation
+const origin = ref<'all' | Source>('all')
+const { data: listData, refresh: refreshList } = await useFetch<{ tasks: Task[] }>(() => `/api/projects/${props.projectId}/tasks?source=${origin.value}`)
 const tasks = computed(() => listData.value?.tasks ?? [])
 
 const detail = ref<Detail | null>(null)
@@ -359,8 +362,9 @@ onBeforeUnmount(() => source?.close())
 <template>
   <div class="flex h-[calc(100vh-13rem)] min-h-[28rem] overflow-hidden rounded-lg border border-(--ui-border)">
     <aside class="hidden w-64 shrink-0 flex-col border-e border-(--ui-border) md:flex">
-      <div class="border-b border-(--ui-border) p-2">
-        <UButton icon="i-lucide-plus" :label="t('task.new')" size="sm" color="neutral" variant="ghost" block class="justify-start" @click="showNew = true; detail = null" />
+      <div class="flex items-center gap-1 border-b border-(--ui-border) p-2">
+        <UButton icon="i-lucide-plus" :label="t('task.new')" size="sm" color="neutral" variant="ghost" class="min-w-0 flex-1 justify-start" @click="showNew = true; detail = null" />
+        <SourceFilter v-model="origin" />
       </div>
       <div class="flex-1 overflow-y-auto p-1">
         <p v-if="!tasks.length" class="p-3 text-xs text-(--ui-text-muted)">{{ t('task.none') }}</p>
@@ -371,6 +375,7 @@ onBeforeUnmount(() => source?.close())
           @click="open(t.id)"
         >
           <div class="flex items-start gap-1">
+            <UIcon v-if="t.source && t.source !== 'web'" :name="sourceIcon[t.source]" class="mt-0.5 size-3.5 shrink-0 text-(--ui-text-muted)" />
             <p class="min-w-0 flex-1 truncate">{{ t.title }}</p>
             <UDropdownMenu :items="taskMenu(t)" :content="{ align: 'end' }">
               <button type="button" class="invisible -me-1 rounded px-0.5 text-(--ui-text-dimmed) hover:text-(--ui-text) group-hover:visible data-[state=open]:visible" :aria-label="moreLabel" @click.stop>

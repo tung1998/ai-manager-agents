@@ -82,7 +82,7 @@ func TestTelegram(t *testing.T) {
 	if bot != "shop_bot" || msgs[0].ChatID != "42" || !msgs[0].Private || msgs[1].Text != "nói chuyện riêng" || msgs[2].Text != "đơn 123 đâu" || msgs[3].Text != "còn đơn 456?" || msgs[2].UserName != "binh" || msgs[4].Text != "/create_conversation" {
 		t.Fatalf("bot %q msgs %+v", bot, msgs)
 	}
-	if err := tg.Send(ctx, "42", strings.Repeat("a", 5000)); err != nil {
+	if _, err := tg.Send(ctx, "42", strings.Repeat("a", 5000)); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()

@@ -2,7 +2,10 @@
 // audit, revisions and usage records.
 package actor
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 type key struct{}
 
@@ -17,4 +20,15 @@ func From(ctx context.Context) string {
 		return a
 	}
 	return "system"
+}
+
+// Source is where something an actor started came from: web (a person on
+// the dashboard), discord, telegram or auto (an automation).
+func Source(actor string) string {
+	kind, _, _ := strings.Cut(actor, ":")
+	switch kind {
+	case "discord", "telegram", "auto":
+		return kind
+	}
+	return "web"
 }

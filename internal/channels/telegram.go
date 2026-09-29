@@ -20,6 +20,9 @@ type Incoming struct {
 	UserName string
 	Text     string // without the bot's @mention
 	Private  bool
+	// ReplyTo: the bot's message this one replies to ("" = none): its
+	// conversation goes on.
+	ReplyTo string
 	// Addressed: for the bot (private, tagged, a reply to it, a command).
 	// Others come up too: a kept conversation hears its whole chat.
 	Addressed bool
@@ -29,14 +32,15 @@ type Incoming struct {
 }
 
 // Commands are the bot's own: every channel offers them in its menu.
-var Commands = []struct{ Name, Description string }{
-	{"create-conversation", "Bắt đầu hội thoại: bot nhớ những gì bạn nói ở đây"},
-	{"close-conversation", "Kết thúc hội thoại: mỗi tin được trả lời riêng"},
+var Commands = []struct{ Name, Description, Option string }{
+	{"job", "Giao việc cho đội: /job <việc cần làm>", "viec"},
+	{"create-conversation", "Bắt đầu hội thoại: bot nhớ những gì bạn nói ở đây", ""},
+	{"close-conversation", "Kết thúc hội thoại: mỗi tin được trả lời riêng", ""},
 }
 
 // isCommand: one of the bot's commands, however typed (see command in manager.go).
 func isCommand(text string) bool {
-	_, ok := command(text)
+	_, _, ok := command(text)
 	return ok
 }
 
@@ -45,7 +49,8 @@ type Adapter interface {
 	// Run delivers messages addressed to the bot until ctx ends (onReady gets
 	// the bot's name once connected).
 	Run(ctx context.Context, onReady func(bot string), onMessage func(Incoming)) error
-	Send(ctx context.Context, chatID, text string) error
+	// Send posts text (in parts if long) and returns the ids of what it posted.
+	Send(ctx context.Context, chatID, text string) ([]string, error)
 	Typing(ctx context.Context, chatID string)
 }
 
@@ -107,7 +112,8 @@ type tgMessage struct {
 		Username string `json:"username"`
 	} `json:"from"`
 	ReplyTo *struct {
-		From struct {
+		MessageID int64 `json:"message_id"`
+		From      struct {
 			Username string `json:"username"`
 		} `json:"from"`
 	} `json:"reply_to_message"`
@@ -190,6 +196,9 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 		return in, false
 	}
 	in.Text, in.Addressed = text, true
+	if m.ReplyTo != nil && t.bot != "" && strings.EqualFold(m.ReplyTo.From.Username, t.bot) {
+		in.ReplyTo = strconv.FormatInt(m.ReplyTo.MessageID, 10)
+	}
 	switch {
 	case in.Private, isCommand(text): // "/create_conversation" in a group needs no tag
 	case t.bot != "" && removeTag(&text, "@"+t.bot):
@@ -201,17 +210,22 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 	return in, in.Text != ""
 }
 
-func (t *Telegram) Send(ctx context.Context, chatID, text string) error {
+func (t *Telegram) Send(ctx context.Context, chatID, text string) ([]string, error) {
 	id, err := strconv.ParseInt(chatID, 10, 64)
 	if err != nil {
-		return errors.New("telegram: chat id không hợp lệ")
+		return nil, errors.New("telegram: chat id không hợp lệ")
 	}
+	var ids []string
 	for _, part := range chunks(text, 4000) {
-		if err := t.call(ctx, "sendMessage", map[string]any{"chat_id": id, "text": part}, nil); err != nil {
-			return err
+		var sent struct {
+			MessageID int64 `json:"message_id"`
 		}
+		if err := t.call(ctx, "sendMessage", map[string]any{"chat_id": id, "text": part}, &sent); err != nil {
+			return ids, err
+		}
+		ids = append(ids, strconv.FormatInt(sent.MessageID, 10))
 	}
-	return nil
+	return ids, nil
 }
 
 func (t *Telegram) Typing(ctx context.Context, chatID string) {

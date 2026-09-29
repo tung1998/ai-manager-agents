@@ -64,10 +64,25 @@ func (r chatRepo) TaskConversation(ctx context.Context, taskID string) (storage.
 }
 
 func (r chatRepo) ListConversations(ctx context.Context, projectID string, limit int) ([]storage.Conversation, error) {
+	return r.ListConversationsFrom(ctx, projectID, "", limit)
+}
+
+func (r chatRepo) ListConversationsFrom(ctx context.Context, projectID, source string, limit int) ([]storage.Conversation, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+convCols+` FROM conversations WHERE project_id=? AND task_id IS NULL AND purpose='' ORDER BY updated_at DESC LIMIT ?`, projectID, limit)
+	where := `purpose=''` // the project's own chats (web, automations)
+	switch source {
+	case "all":
+		where = `purpose IN ('','channel')`
+	case "web":
+		where = `purpose='' AND created_by LIKE 'human:%'`
+	case "auto":
+		where = `purpose='' AND created_by LIKE 'auto:%'`
+	case "discord", "telegram":
+		where = `purpose='channel' AND created_by LIKE '` + source + `:%'`
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT `+convCols+` FROM conversations WHERE project_id=? AND task_id IS NULL AND `+where+` ORDER BY updated_at DESC LIMIT ?`, projectID, limit)
 	if err != nil {
 		return nil, err
 	}

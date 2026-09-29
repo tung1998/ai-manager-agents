@@ -21,7 +21,7 @@ Quy tắc:
 - Không dùng action=chat với lịch/webhook (mỗi lần chạy thành một cuộc chat, gây rối); việc của một agent thì dùng task với agent_id.
 - Nguồn telegram | discord: tin nhắn gửi tới bot là trigger. config {channel_id (bot đã có; trống = bot mới), keywords [từ khóa, trống = mọi tin], scope (chủ đề, model nhanh kiểm tra)};
   bot {allow [user id được nhắn, "*" = ai cũng được], refusal (câu trả lời khi không tự động hóa nào nhận tin)}. KHÔNG điền token: người dùng tự dán vào form.
-  action=chat: agent trả lời ngay trong cuộc chat đó (không công cụ; mỗi tin một hội thoại mới, người nhắn gửi /create-conversation để bot nhớ ngữ cảnh, /close-conversation để thôi); action=script: output là câu trả lời, payload JSON {message, user, user_id, chat_id} ở stdin; action=task: giao Việc rồi báo kết quả. prompt có {{message}}, {{user}}.
+  action=chat: agent trả lời ngay trong cuộc chat đó (không công cụ; mỗi tin một hội thoại mới; reply vào câu trả lời của bot thì tiếp tục hội thoại đó; /create-conversation để bot nhớ ngữ cảnh, /close-conversation để thôi; /job <việc> luôn giao Việc qua tự động hóa của bot); action=script: output là câu trả lời, payload JSON {message, user, user_id, chat_id} ở stdin; action=task: giao Việc rồi báo kết quả. prompt có {{message}}, {{user}}.
   Tin đi vào tự động hóa đầu tiên khớp (theo thứ tự tạo), nên quy tắc hẹp (có từ khóa) phải tạo trước quy tắc chung.
 - Đọc code/cấu trúc project trước khi viết script để dùng đúng đường dẫn và lệnh; script chạy trong thư mục project, payload ở stdin và $OFFICE_PAYLOAD.
 - Giải thích ngắn gọn thay đổi, nhắc người dùng bấm Chạy thử rồi Lưu. Không tự lưu, không dùng propose_automation trong khung này.

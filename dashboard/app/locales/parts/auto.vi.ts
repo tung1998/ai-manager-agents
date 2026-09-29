@@ -180,7 +180,7 @@ export default {
   'auto.cardReply': 'Trả lời trong chat',
   'auto.cardReplyDesc': 'Agent trả lời ngay trong cuộc chat đó',
   'auto.cardScriptChannelDesc': 'Output của script là câu trả lời, không tốn token',
-  'auto.replyMemory': 'Mỗi tin là một hội thoại mới, agent không nhớ tin trước. Người nhắn gửi /create-conversation để bot nhớ ngữ cảnh, /close-conversation để quay lại như cũ.',
+  'auto.replyMemory': 'Mỗi tin là một hội thoại mới. Reply vào câu trả lời của bot thì tiếp tục đúng hội thoại đó. /create-conversation để bot nhớ mọi tin trong cuộc chat (không cần tag), /close-conversation để thôi. /job <việc> để giao Việc cho đội.',
   'auto.replyNoTools': 'Người ngoài nhắn nên agent trả lời không dùng công cụ (không đọc file, không MCP). Cần tra dữ liệu thì dùng script.',
   'auto.promptChannelPlaceholder': 'Trống = gửi nguyên tin nhắn cho agent. VD: Khách {{user}} hỏi: {{message}}. Trả lời ngắn gọn, thân thiện.'
 } as const

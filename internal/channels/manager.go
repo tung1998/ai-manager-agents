@@ -197,34 +197,53 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	if err != nil {
 		return
 	}
-	if cmd, ok := command(in.Text); ok { // /create-conversation, /close-conversation
-		reply := m.setKeep(ctx, ch.ID, in.ChatID, cmd == "create")
+	say := func(text string) { // a slash command waits for its answer; a message gets a new one
 		if in.Respond != nil {
-			_ = in.Respond(ctx, reply)
+			_ = in.Respond(ctx, text)
 		} else {
-			_ = ad.Send(ctx, in.ChatID, reply)
+			_, _ = ad.Send(ctx, in.ChatID, text)
 		}
+	}
+	cmd, arg, isCmd := command(in.Text)
+	if isCmd && cmd != "job" { // /create-conversation, /close-conversation
+		say(m.setKeep(ctx, ch.ID, in.ChatID, cmd == "create"))
 		return
 	}
-	rule, ok := m.pick(actx, project, ch, in.Text)
+	var rule storage.Automation
+	var ok bool
+	if cmd == "job" { // /job <what>: a task, through the bot's automation (its agent, limits, costs)
+		if arg == "" {
+			say("Hãy ghi việc cần làm sau lệnh, ví dụ: /job sửa lỗi thanh toán đơn 123")
+			return
+		}
+		if rule, ok = m.jobRule(ctx, ch); !ok {
+			say("Bot này chưa có tự động hóa nào đang bật để nhận việc.")
+			return
+		}
+		in.Text = arg
+	} else {
+		rule, ok = m.pick(actx, project, ch, in.Text)
+	}
 	if !ok {
 		if refusal := strings.TrimSpace(ch.Refusal); refusal != "" {
-			_ = ad.Send(ctx, in.ChatID, refusal)
+			_, _ = ad.Send(ctx, in.ChatID, refusal)
 		}
 		_, _ = m.store.Jobs().Create(ctx, storage.Job{ProjectID: ch.ProjectID, Kind: "chat_turn", Origin: "user", OriginID: ch.ID, Trigger: ch.Kind,
 			CreatedBy: actor.From(actx), Title: truncate(in.Text, 80), Status: "skipped", ErrorCode: "no_rule", Error: "không quy tắc nào nhận tin này"})
 		return
 	}
 	p := trigger.ChannelPayload{Message: in.Text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID}
-	if rule.Action == "chat" {
+	if cmd == "job" {
+		p.Action, rule.Action = "task", "task" // the job is a task (rule is a copy; the runner reads Action from the payload)
+	} else if rule.Action == "chat" {
 		agent, err := m.agent(ctx, ch.ProjectID, rule.AgentID)
 		if err != nil {
-			_ = ad.Send(ctx, in.ChatID, "Bot chưa sẵn sàng.")
+			_, _ = ad.Send(ctx, in.ChatID, "Bot chưa sẵn sàng.")
 			return
 		}
 		if p.ConversationID, err = m.thread(actx, ch, rule, agent, in); err != nil {
 			slog.Error("channels: thread", "channel", ch.ID, "err", err)
-			_ = ad.Send(ctx, in.ChatID, "Bot chưa sẵn sàng.")
+			_, _ = ad.Send(ctx, in.ChatID, "Bot chưa sẵn sàng.")
 			return
 		}
 	}
@@ -240,11 +259,11 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	m.mu.Unlock()
 	if err != nil {
 		slog.Error("channels: enqueue", "channel", ch.ID, "err", err)
-		_ = ad.Send(ctx, in.ChatID, "Xin lỗi, mình chưa nhận được tin này.")
+		_, _ = ad.Send(ctx, in.ChatID, "Xin lỗi, mình chưa nhận được tin này.")
 		return
 	}
-	if rule.Action == "task" && status == "queued" {
-		_ = ad.Send(ctx, in.ChatID, "Đã nhận, đội đang xử lý. Xong mình báo lại nhé.")
+	if (rule.Action == "task" || cmd == "job") && status == "queued" {
+		say("Đã nhận việc: " + truncate(in.Text, 200) + "\nĐội đang xử lý, xong mình báo lại nhé.")
 	}
 	m.runner.StartReady(m.root, time.Now().UTC())
 }
@@ -271,9 +290,14 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 	}
 	switch text = strings.TrimSpace(text); {
 	case text != "":
-		_ = ad.Send(ctx, p.ChatID, text)
+		ids, _ := ad.Send(ctx, p.ChatID, text)
+		if p.ConversationID != "" { // a reply to any part of it goes on in this conversation
+			for _, id := range ids {
+				_ = m.store.Channels().SetThread(ctx, p.ChannelID, "msg:"+id, p.ConversationID)
+			}
+		}
 	case err != nil && !errors.Is(err, trigger.ErrNoAnswer) && final:
-		_ = ad.Send(ctx, p.ChatID, "Xin lỗi, mình chưa trả lời được lúc này.") // what went wrong stays in office
+		_, _ = ad.Send(ctx, p.ChatID, "Xin lỗi, mình chưa trả lời được lúc này.") // what went wrong stays in office
 	}
 }
 
@@ -318,6 +342,31 @@ func (m *Manager) pick(ctx context.Context, project storage.Repo, ch storage.Cha
 	return storage.Automation{}, false
 }
 
+// jobRule is the automation /job goes through: the bot's first enabled one
+// that gives tasks, else its first enabled one (run as a task).
+func (m *Manager) jobRule(ctx context.Context, ch storage.Channel) (storage.Automation, bool) {
+	list, err := m.store.Automations().List(ctx, ch.ProjectID)
+	if err != nil {
+		return storage.Automation{}, false
+	}
+	var first *storage.Automation
+	for i, a := range list {
+		if !a.Enabled || a.Source != ch.Kind || a.Config.ChannelID != ch.ID {
+			continue
+		}
+		if a.Action == "task" {
+			return a, true
+		}
+		if first == nil {
+			first = &list[i]
+		}
+	}
+	if first == nil {
+		return storage.Automation{}, false
+	}
+	return *first, true
+}
+
 // agent is the rule's agent ("" = the project's lead).
 func (m *Manager) agent(ctx context.Context, projectID, agentID string) (storage.Agent, error) {
 	agents, err := m.engine.Agents(ctx, projectID)
@@ -336,6 +385,13 @@ func (m *Manager) agent(ctx context.Context, projectID, agentID string) (storage
 // or while the chat keeps one (/create-conversation) the chat's own with that
 // agent. Tool-less, read only, not in the project's chat list.
 func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.Automation, agent storage.Agent, in Incoming) (string, error) {
+	if in.ReplyTo != "" { // a reply to one of the bot's answers: that answer's conversation
+		if id, err := m.store.Channels().Thread(ctx, ch.ID, "msg:"+in.ReplyTo); err == nil && id != "" {
+			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
+				return id, nil
+			}
+		}
+	}
 	keep := m.keep(ctx, ch.ID, in.ChatID)
 	key := in.ChatID + "#" + agent.ID + "#" + keep
 	if keep != "" {
@@ -358,22 +414,25 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 	return conv.ID, m.store.Channels().SetThread(ctx, ch.ID, key, conv.ID)
 }
 
-// command reads /create-conversation and /close-conversation (any case,
-// "_" for "-", "conversion" for "conversation", Telegram's /cmd@bot).
-func command(text string) (string, bool) {
-	s := strings.ToLower(strings.TrimSpace(text))
-	if !strings.HasPrefix(s, "/") || strings.ContainsAny(s, " \n") {
-		return "", false
+// command reads the bot's commands (any case, "_" for "-", "conversion" for
+// "conversation", Telegram's /cmd@bot): create, close, or job with its text.
+func command(text string) (cmd, arg string, ok bool) {
+	s := strings.TrimSpace(text)
+	if !strings.HasPrefix(s, "/") {
+		return "", "", false
 	}
-	s, _, _ = strings.Cut(strings.TrimPrefix(s, "/"), "@")
-	s = strings.ReplaceAll(s, "_", "-")
-	switch s {
+	name, rest, _ := strings.Cut(strings.TrimPrefix(s, "/"), " ")
+	name, _, _ = strings.Cut(strings.ToLower(name), "@")
+	name, rest = strings.ReplaceAll(name, "_", "-"), strings.TrimSpace(rest)
+	switch name {
 	case "create-conversation", "create-conversion":
-		return "create", true
+		return "create", "", rest == ""
 	case "close-conversation", "close-conversion":
-		return "close", true
+		return "close", "", rest == ""
+	case "job":
+		return "job", rest, true
 	}
-	return "", false
+	return "", "", false
 }
 
 func keepKey(channelID, chatID string) string { return "channel_keep/" + channelID + "/" + chatID }

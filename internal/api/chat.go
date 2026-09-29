@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/audit"
@@ -30,6 +31,7 @@ type conversationDTO struct {
 	Mode         string    `json:"mode"`
 	EditMode     string    `json:"edit_mode"`
 	Purpose      string    `json:"purpose"`
+	Source       string    `json:"source"` // where it started: web | discord | telegram | auto
 	AutomationID string    `json:"automation_id"`
 	// how full the model's context was after the last answer (0 = unknown)
 	ContextTokens int `json:"context_tokens"`
@@ -38,7 +40,7 @@ type conversationDTO struct {
 
 func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
 	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode, Purpose: c.Purpose, AutomationID: c.AutomationID,
-		ContextTokens: c.ContextTokens, ContextWindow: c.ContextWindow}
+		ContextTokens: c.ContextTokens, ContextWindow: c.ContextWindow, Source: actor.Source(c.CreatedBy)}
 	if t, ok := s.cfg.Chat.Active(c.ID); ok {
 		d.ActiveTurn = t.ID
 	}
@@ -83,7 +85,7 @@ func (s *server) chatAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
-	list, err := s.cfg.Store.Chat().ListConversations(r.Context(), r.PathValue("id"), 100)
+	list, err := s.cfg.Store.Chat().ListConversationsFrom(r.Context(), r.PathValue("id"), r.URL.Query().Get("source"), 100)
 	if err != nil {
 		s.internal(w, r, err)
 		return
