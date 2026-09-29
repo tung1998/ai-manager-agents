@@ -230,28 +230,6 @@ func (e *Engine) officeAccess(sc officetools.Scope) (*OfficeAccess, func()) {
 	return &OfficeAccess{MCPURL: e.mcpURL, Token: token, Scope: sc, Tools: e.office}, revoke
 }
 
-type taskKey struct{}
-
-type taskCtx struct {
-	id, mode string
-	edit     string // where it changes code (perm.EditWorktree / perm.EditDirect)
-	write    bool   // this step may edit files (work steps)
-}
-
-// WithTask marks ctx as running for a task (proposals attach to it) with the
-// task's permission mode as a ceiling ("" = ask first).
-func WithTask(ctx context.Context, taskID, mode, editMode string) context.Context {
-	return context.WithValue(ctx, taskKey{}, taskCtx{id: taskID, mode: mode, edit: editMode})
-}
-
-// WithWrite marks a task step that may edit files (its work, not planning,
-// voting or reviewing).
-func WithWrite(ctx context.Context) context.Context {
-	tc, _ := ctx.Value(taskKey{}).(taskCtx)
-	tc.write = true
-	return context.WithValue(ctx, taskKey{}, tc)
-}
-
 // Level is what agent may do under mode in project (see internal/perm).
 func (e *Engine) Level(ctx context.Context, projectID string, agent storage.Agent, mode string) string {
 	return e.Access(ctx, projectID, agent, mode).Level
@@ -638,13 +616,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	policy := perm.LoadPolicy(ctx, e.store, project.ID)
 	acc := perm.Resolve(agent, conv.Mode, policy)
 	level := acc.Level
-	write := true
-	if conv.TaskID != "" { // a task still running is the team's to edit; its chat only steers it
-		if t, err := e.store.Tasks().Get(ctx, conv.TaskID); err == nil && t.Status == "running" {
-			write = false
-		}
-	}
-	pl, err := e.placeFor(ctx, project, policy, acc, e.chatTree(ctx, conv, agent), write, conv.EditMode)
+	pl, err := e.placeFor(ctx, project, policy, acc, e.chatTree(ctx, conv, agent), true, conv.EditMode)
 	if err != nil {
 		fail(err)
 		return
@@ -669,9 +641,6 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: text,
 		System: systemPrompt(project, agent, e.office != nil, acc, pl), History: HistoryFor(history, agent.Name), Attachments: files,
 		Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP),
-	}
-	if conv.TaskID != "" {
-		req.System += e.taskBrief(ctx, conv.TaskID)
 	}
 	if conv.Purpose == "automation" {
 		req.System += automationGuide
@@ -1012,14 +981,9 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	if err != nil {
 		return InvokeResult{}, err
 	}
-	tc, _ := ctx.Value(taskKey{}).(taskCtx)
 	policy := perm.LoadPolicy(ctx, e.store, project.ID)
-	acc := perm.Resolve(agent, tc.mode, policy)
-	tree := ""
-	if tc.id != "" {
-		tree = TaskTree(tc.id)
-	}
-	pl, err := e.placeFor(ctx, project, policy, acc, tree, tc.write, tc.edit)
+	acc := perm.Resolve(agent, "", policy)
+	pl, err := e.placeFor(ctx, project, policy, acc, "", false, "") // one read-only turn in the project
 	if err != nil {
 		return InvokeResult{}, err
 	}
@@ -1029,7 +993,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	if noTools(ctx) { // untrusted text (a channel's scope filter): a plain answer
 		req.NoTools, req.UserMCP, req.Write = true, false, false
 	} else {
-		office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, TaskID: tc.id, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), JobID: usage.JobFrom(ctx), Agent: agent.Name, Level: acc.Level, Access: acc, Dir: treeDir(pl)})
+		office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), JobID: usage.JobFrom(ctx), Agent: agent.Name, Level: acc.Level, Access: acc, Dir: treeDir(pl)})
 		defer revoke()
 		req.Office = office
 	}
@@ -1087,100 +1051,6 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 		out = append(out, d)
 	}
 	return out, nil
-}
-
-// ApproveTaskPatches applies every pending diff of a task as one batch: all
-// or nothing. When the batch does not apply, nothing changes and the error
-// names the diffs that fail on their own.
-func (e *Engine) ApproveTaskPatches(ctx context.Context, taskID string) ([]PatchDTO, error) {
-	root, patches, err := e.taskPatches(ctx, taskID, "pending")
-	if err != nil {
-		return nil, err
-	}
-	if len(patches) == 0 {
-		return nil, errors.New("không có diff nào đang chờ duyệt")
-	}
-	diffs := make([]string, len(patches))
-	for i, p := range patches {
-		diffs[i] = p.Diff
-	}
-	if err := ApplyBatch(ctx, root, diffs); err != nil {
-		var bad []string
-		for _, p := range patches {
-			if cerr := CheckPatch(ctx, root, p.Diff); cerr != nil {
-				bad = append(bad, strings.Join(p.Files, ", "))
-			}
-		}
-		if len(bad) > 0 {
-			return nil, fmt.Errorf("chưa áp gì: diff cho %s không áp được vào code hiện tại", strings.Join(bad, "; "))
-		}
-		return nil, fmt.Errorf("chưa áp gì: các diff xung đột nhau (%v)", err)
-	}
-	for _, p := range patches {
-		if dir := e.treeOf(projectOfTask(ctx, e, taskID), p); dir != "" {
-			_ = worktree.Accept(ctx, dir, p.Diff)
-		}
-	}
-	now, who := time.Now().UTC(), actor.From(ctx)
-	detail := fmt.Sprintf("Đã áp cùng lô %d diff", len(patches))
-	out := make([]PatchDTO, 0, len(patches))
-	for _, p := range patches {
-		_ = e.store.Chat().DecidePatch(ctx, p.ID, "applied", detail, who, now)
-		p.Status, p.Detail, p.DecidedBy, p.DecidedAt = "applied", detail, who, &now
-		out = append(out, toPatchDTO(p))
-	}
-	return out, nil
-}
-
-// RevertTaskPatches takes back every applied diff of a task, all or nothing.
-func (e *Engine) RevertTaskPatches(ctx context.Context, taskID string) ([]PatchDTO, error) {
-	root, patches, err := e.taskPatches(ctx, taskID, "applied")
-	if err != nil {
-		return nil, err
-	}
-	if len(patches) == 0 {
-		return nil, errors.New("không có diff nào đã áp")
-	}
-	diffs := make([]string, len(patches))
-	for i, p := range patches {
-		diffs[i] = p.Diff
-	}
-	if err := RevertBatch(ctx, root, diffs); err != nil {
-		return nil, err
-	}
-	now, who := time.Now().UTC(), actor.From(ctx)
-	out := make([]PatchDTO, 0, len(patches))
-	for _, p := range patches {
-		_ = e.store.Chat().DecidePatch(ctx, p.ID, "rejected", "Đã hoàn tác cả lô", who, now)
-		p.Status, p.Detail, p.DecidedBy, p.DecidedAt = "rejected", "Đã hoàn tác cả lô", who, &now
-		out = append(out, toPatchDTO(p))
-	}
-	return out, nil
-}
-
-func (e *Engine) taskPatches(ctx context.Context, taskID, status string) (string, []storage.Patch, error) {
-	t, err := e.store.Tasks().Get(ctx, taskID)
-	if err != nil {
-		return "", nil, err
-	}
-	project, err := e.store.Repos().Get(ctx, t.ProjectID)
-	if err != nil {
-		return "", nil, err
-	}
-	if project.Path == "" {
-		return "", nil, ErrNoFolder
-	}
-	all, err := e.store.Tasks().ListPatches(ctx, taskID)
-	if err != nil {
-		return "", nil, err
-	}
-	var out []storage.Patch
-	for _, p := range all {
-		if p.Status == status {
-			out = append(out, p)
-		}
-	}
-	return project.Path, out, nil
 }
 
 // DecidePatch applies (approve) or rejects a proposed change.

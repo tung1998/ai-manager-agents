@@ -22,20 +22,16 @@ interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 
 interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
 interface RunningTurn { turn_id: string, agent_name: string, background: boolean }
 
-// taskId: the follow-up talk about one task (a single thread, no thread list)
 // purpose "automation": the chat that builds one automation (ADR-042), made on
 // first send or opened by automationId; its answers may fill the form.
-// inline: no box of its own; the messages flow in the page around it, and
-// the input goes to composerTo (the page's footer), docked as the chat page's.
 // compact: no thread column (a picker instead), fills its container.
 // pageContext: what the person is looking at, sent with each message.
-const props = defineProps<{ projectId: string, taskId?: string, taskRunning?: boolean, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string, inline?: boolean, composerTo?: string }>()
-const emit = defineEmits<{ 'turn-done': [], 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string] }>()
-const single = computed(() => !!props.taskId || !!props.purpose)
+const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string }>()
+const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string] }>()
+const single = computed(() => !!props.purpose)
 // the chat page on a phone: the input stays behind a button until asked for,
 // so the messages get the whole screen
-const page = computed(() => !props.inline && !props.compact && !single.value)
-const docked = computed(() => page.value || !!props.composerTo) // the chat page's input: behind a button on a phone
+const page = computed(() => !props.compact && !single.value)
 const composeOpen = ref(false)
 const toast = useToast()
 const { t, dateLocale } = useLang()
@@ -132,8 +128,7 @@ async function loadOlder() {
 
 async function scrollDown() {
   await nextTick()
-  if (props.inline) listEl.value?.lastElementChild?.scrollIntoView({ block: 'end', behavior: 'smooth' })
-  else listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
+  listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
 }
 
 // after an answer: the conversation's context and the connection's usage changed
@@ -245,20 +240,10 @@ async function open(c: Conversation, messageId?: string) {
 }
 
 async function newConversation(agentId = '') {
-  if (props.taskId) return openTask()
   try {
     const res = await $fetch<{ conversation: Conversation }>(`/api/projects/${props.projectId}/conversations`, { method: 'POST', body: { agent_id: agentId, purpose: props.purpose ?? '' } })
     if (props.purpose) emit('conversation', res.conversation.id)
     else await refreshConvs()
-    await open(res.conversation)
-  } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
-  }
-}
-
-async function openTask() {
-  try {
-    const res = await $fetch<{ conversation: Conversation }>(`/api/tasks/${props.taskId}/conversation`, { method: 'POST' })
     await open(res.conversation)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -320,8 +305,7 @@ function follow(id: string) {
         }
         finishStream()
         afterTurn()
-        if (props.taskId) emit('turn-done')
-        else if (!single.value) refreshConvs()
+        if (!single.value) refreshConvs()
         scrollDown()
         break
     }
@@ -400,8 +384,7 @@ const threadPick = computed({
 })
 
 onMounted(() => {
-  if (props.taskId) openTask()
-  else if (props.purpose === 'automation') openAutomation()
+  if (props.purpose === 'automation') openAutomation()
   else if (ownsUrl.value && typeof route.query.draft === 'string' && !tookPrefill) {
     // handed over by the office assistant: a new chat with the message ready to send
     draft.value = route.query.draft
@@ -417,8 +400,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div
-    :class="inline ? 'contents' : ['flex overflow-hidden rounded-lg border border-(--ui-border)', compact || purpose ? 'h-full min-h-0' : taskId ? 'h-[32rem]'
-      : 'min-h-[24rem] flex-1 max-sm:-m-3 max-sm:rounded-none max-sm:border-0']"
+    class="flex overflow-hidden rounded-lg border border-(--ui-border)"
+    :class="compact || purpose ? 'h-full min-h-0' : 'min-h-[24rem] flex-1 max-sm:-m-3 max-sm:rounded-none max-sm:border-0'"
   >
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
@@ -435,7 +418,7 @@ onBeforeUnmount(() => {
     </USlideover>
 
     <!-- thread -->
-    <section :class="inline ? 'contents' : 'relative flex min-w-0 flex-1 flex-col'">
+    <section class="relative flex min-w-0 flex-1 flex-col">
       <!-- a phone: which chat this is, the drawer of chats, a new one -->
       <div v-if="!single && !compact" class="flex items-center gap-1 border-b border-(--ui-border) p-2 md:hidden">
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-panel-left" :aria-label="t('chat.threads')" @click="threadsOpen = true" />
@@ -461,17 +444,13 @@ onBeforeUnmount(() => {
           </button>
         </span>
       </div>
-      <div ref="listEl" class="min-w-0 space-y-4" :class="inline ? 'max-sm:pb-32' : ['flex-1 overflow-y-auto overflow-x-hidden p-4 max-md:px-3', page && 'max-sm:pb-32' /* room for the floating input, open or not: nothing jumps */]">
+      <div ref="listEl" class="min-w-0 space-y-4" :class="['flex-1 overflow-y-auto overflow-x-hidden p-4 max-md:px-3', page && 'max-sm:pb-32' /* room for the floating input, open or not: nothing jumps */]">
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
         </div>
-        <div v-if="!messages.length && !streaming && !inline" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
+        <div v-if="!messages.length && !streaming" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
           <UIcon name="i-lucide-messages-square" class="size-8" />
-          <template v-if="taskId">
-            <p class="text-sm">{{ t(taskRunning ? 'chat.steerTask' : 'chat.askAboutTask', { agent: current?.agent_name || t('chat.sendManager') }) }}</p>
-            <p class="text-xs">{{ t(taskRunning ? 'chat.steerTaskHint' : 'chat.taskPatchHint') }}</p>
-          </template>
-          <template v-else-if="purpose === 'automation'">
+          <template v-if="purpose === 'automation'">
             <p class="text-sm">{{ t('chat.askAboutAutomation') }}</p>
             <p class="text-xs">{{ t('chat.automationHint') }}</p>
           </template>
@@ -542,9 +521,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <Teleport :to="composerTo || 'body'" :disabled="!composerTo" defer>
       <form
-        :class="['border-t border-(--ui-border) p-3 max-md:p-2', docked && (composeOpen
+        :class="['border-t border-(--ui-border) p-3 max-md:p-2', page && (composeOpen
           ? 'max-sm:absolute max-sm:inset-x-3 max-sm:bottom-3 max-sm:z-10 max-sm:border-0 max-sm:p-0 max-sm:[&>*]:shadow-lg'
           : 'max-sm:hidden')]"
         @submit.prevent="send"
@@ -564,15 +542,14 @@ onBeforeUnmount(() => {
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
             <UButton v-else size="sm" type="submit" icon="i-lucide-send" class="shrink-0" :disabled="!draft.trim() && !draftFiles.length" />
-            <UButton v-if="docked" size="sm" color="neutral" variant="ghost" icon="i-lucide-x" :class="'shrink-0 sm:hidden'" :aria-label="t('common.close')" @click="composeOpen = false" />
+            <UButton v-if="page" size="sm" color="neutral" variant="ghost" icon="i-lucide-x" :class="'shrink-0 sm:hidden'" :aria-label="t('common.close')" @click="composeOpen = false" />
           </template>
         </PromptInput>
       </form>
       <UButton
-        v-if="docked && !composeOpen" class="absolute bottom-3 end-3 z-10 rounded-full shadow-lg sm:hidden" size="lg" icon="i-lucide-message-circle"
+        v-if="page && !composeOpen" class="absolute bottom-3 end-3 z-10 rounded-full shadow-lg sm:hidden" size="lg" icon="i-lucide-message-circle"
         :aria-label="t('chat.write')" @click="composeOpen = true; nextTick(() => prompt?.focus?.())"
       />
-      </Teleport>
     </section>
   </div>
 </template>

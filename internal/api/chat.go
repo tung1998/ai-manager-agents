@@ -127,16 +127,6 @@ func (s *server) createConversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"conversation": s.toConvDTO(c)})
 }
 
-// taskConversation opens (or returns) the follow-up talk about a task.
-func (s *server) taskConversation(w http.ResponseWriter, r *http.Request) {
-	c, err := s.cfg.Chat.TaskConversation(r.Context(), r.PathValue("id"))
-	if err != nil {
-		s.chatError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c)})
-}
-
 func (s *server) getConversation(w http.ResponseWriter, r *http.Request) {
 	c, err := s.cfg.Store.Chat().GetConversation(r.Context(), r.PathValue("id"))
 	if err != nil {
