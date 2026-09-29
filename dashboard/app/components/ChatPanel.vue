@@ -130,6 +130,22 @@ async function scrollDown() {
   await nextTick()
   listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
 }
+// a chat just opened shows its last message at once (no scrolling down from
+// the top); it stays there while what it shows settles (markdown, images)
+async function jumpToEnd() {
+  await nextTick()
+  const el = listEl.value
+  if (!el) return
+  const pin = () => { el.scrollTop = el.scrollHeight }
+  pin()
+  requestAnimationFrame(pin)
+  const ro = new ResizeObserver(pin)
+  for (const child of Array.from(el.children)) ro.observe(child)
+  const stop = () => ro.disconnect()
+  el.addEventListener('wheel', stop, { once: true, passive: true }) // the person scrolls: leave them there
+  el.addEventListener('touchstart', stop, { once: true, passive: true })
+  setTimeout(stop, 1500)
+}
 
 // after an answer: the conversation's context and the connection's usage changed
 const { refresh: refreshLimits } = useLimits()
@@ -244,7 +260,7 @@ async function open(c: Conversation, messageId?: string) {
   applyGroup(res.members, res.running)
   if (res.conversation.active_turn && !streaming.value) follow(res.conversation.active_turn)
   if (messageId) showMessage(messageId)
-  else scrollDown()
+  else jumpToEnd()
 }
 
 async function newConversation(agentId = '') {
