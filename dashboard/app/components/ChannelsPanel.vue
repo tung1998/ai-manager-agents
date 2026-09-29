@@ -58,6 +58,20 @@ async function remove(c: Channel) {
   await $fetch(`/api/channels/${c.id}`, { method: 'DELETE' }).catch(e => toast.add({ title: apiError(e), color: 'error' }))
   await refresh()
 }
+// the steps to make a bot and find the ids, for the kind being added
+const guide = computed<{ text: string, link?: { label: string, url: string } }[]>(() => form.kind === 'discord'
+  ? [
+      { text: t('channels.gd1'), link: { label: 'Discord Developer Portal', url: 'https://discord.com/developers/applications' } },
+      { text: t('channels.gd2') },
+      { text: t('channels.gd3') },
+      { text: t('channels.gd4') }
+    ]
+  : [
+      { text: t('channels.gt1'), link: { label: '@BotFather', url: 'https://t.me/BotFather' } },
+      { text: t('channels.gt2') },
+      { text: t('channels.gt3'), link: { label: '@userinfobot', url: 'https://t.me/userinfobot' } },
+      { text: t('channels.gt4') }
+    ])
 const when = (d: string | null) => d ? new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : t('channels.noMessage')
 // the status every few seconds while one is connecting
 let timer: ReturnType<typeof setInterval> | undefined
@@ -115,13 +129,35 @@ onBeforeUnmount(() => clearInterval(timer))
               <UIcon :name="k === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" class="size-4" />{{ k === 'discord' ? 'Discord' : 'Telegram' }}
             </button>
           </div>
-          <p class="text-xs text-(--ui-text-muted)">{{ form.kind === 'discord' ? t('channels.howDiscord') : t('channels.howTelegram') }}</p>
-          <UFormField :label="t('channels.name')" required><UInput v-model="form.name" class="w-full" /></UFormField>
-          <UFormField :label="t('channels.token')" :required="!editing">
-            <UInput v-model="form.token" type="password" class="w-full font-mono" :placeholder="editing?.has_token ? t('channels.tokenKept') : ''" />
+          <!-- how to make the bot: numbered steps, open while adding one -->
+          <details class="group rounded-lg border border-(--ui-border) bg-(--ui-bg-elevated)/40 p-3" :open="!editing">
+            <summary class="flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+              <UIcon name="i-lucide-chevron-right" class="size-4 transition group-open:rotate-90" />
+              {{ form.kind === 'discord' ? t('channels.guideDiscord') : t('channels.guideTelegram') }}
+            </summary>
+            <ol class="mt-3 space-y-2.5">
+              <li v-for="(s, i) in guide" :key="i" class="flex gap-2.5 text-sm">
+                <span class="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-medium text-primary">{{ i + 1 }}</span>
+                <span class="min-w-0">
+                  {{ s.text }}
+                  <a v-if="s.link" :href="s.link.url" target="_blank" rel="noopener" class="ms-1 inline-flex items-center gap-0.5 text-primary hover:underline">
+                    {{ s.link.label }}<UIcon name="i-lucide-external-link" class="size-3" />
+                  </a>
+                </span>
+              </li>
+            </ol>
+          </details>
+          <UFormField :label="t('channels.name')" :help="t('channels.nameHelp')" required>
+            <UInput v-model="form.name" name="channel-name" autocomplete="off" class="w-full" :placeholder="t('channels.namePlaceholder')" />
           </UFormField>
-          <UFormField :label="t('channels.allow')" :help="t('channels.allowHelp')">
-            <UTextarea v-model="form.allow" :rows="2" autoresize class="w-full font-mono text-xs" />
+          <UFormField :label="t('channels.token')" :help="form.kind === 'discord' ? t('channels.tokenHelpDiscord') : t('channels.tokenHelpTelegram')" :required="!editing">
+            <UInput
+              v-model="form.token" type="password" name="bot-token" autocomplete="new-password" class="w-full font-mono"
+              :placeholder="editing?.has_token ? t('channels.tokenKept') : (form.kind === 'discord' ? 'MTI3…' : '123456789:AAF…')"
+            />
+          </UFormField>
+          <UFormField :label="t('channels.allow')" :help="form.kind === 'discord' ? t('channels.allowHelpDiscord') : t('channels.allowHelpTelegram')" required>
+            <UTextarea v-model="form.allow" :rows="2" autoresize class="w-full font-mono text-xs" :placeholder="form.kind === 'discord' ? '123456789012345678' : '123456789'" />
           </UFormField>
           <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')"><UInput v-model="form.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" /></UFormField>
           <USwitch v-model="form.enabled" :label="t('channels.enabled')" />
