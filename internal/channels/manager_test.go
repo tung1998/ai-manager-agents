@@ -143,6 +143,37 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	if got := bot.wait(t, "42", 1); !strings.Contains(got[0], "đơn 123 đang giao") {
 		t.Fatalf("answer = %v", got)
 	}
+	// each message is a conversation of its own, until /create-conversation
+	resumes := func() int {
+		raw, _ := os.ReadFile(argsLog)
+		return strings.Count(string(raw), "--resume")
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "đơn 123 còn không", Private: true}
+	bot.wait(t, "42", 2)
+	if n := resumes(); n != 0 {
+		t.Fatalf("a second message went on the first conversation (%d resumes)", n)
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "/create-conversation", Private: true}
+	if got := bot.wait(t, "42", 3); !strings.Contains(got[2], "/close-conversation") {
+		t.Fatalf("create = %v", got)
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 đâu rồi", Private: true}
+	bot.wait(t, "42", 4)
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 thì sao", Private: true}
+	bot.wait(t, "42", 5)
+	if n := resumes(); n != 1 {
+		t.Fatalf("kept conversation: %d resumes, want 1", n)
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "/close_conversion", Private: true} // any spelling
+	if got := bot.wait(t, "42", 6); !strings.Contains(got[5], "/create-conversation") {
+		t.Fatalf("close = %v", got)
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 nữa", Private: true}
+	bot.wait(t, "42", 7)
+	if n := resumes(); n != 1 {
+		t.Fatalf("after close: %d resumes, want 1", n)
+	}
+
 	bot.in <- channels.Incoming{ChatID: "44", UserID: "9", UserName: "binh", Text: "tra mã giúp", Private: true}
 	if got := bot.wait(t, "44", 1); got[0] != "Mã của binh: OK" {
 		t.Fatalf("script answer = %v", got)
@@ -169,7 +200,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 			answered++
 		}
 	}
-	if skipped != 1 || answered != 2 {
+	if skipped != 1 || answered != 6 {
 		t.Fatalf("skipped %d answered %d: %+v", skipped, answered, jobs)
 	}
 	got, _ := st.Channels().Get(ctx, ch.ID)

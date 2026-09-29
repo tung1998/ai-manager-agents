@@ -179,6 +179,7 @@ const en: Record<keyof typeof vi, string> = {
   'auto.cardReply': 'Reply in the chat',
   'auto.cardReplyDesc': 'An agent answers right in that chat',
   'auto.cardScriptChannelDesc': "The script's output is the reply, no tokens",
+  'auto.replyMemory': 'Each message is a new conversation; the agent does not remember the last one. People send /create-conversation for the bot to remember, /close-conversation to go back.',
   'auto.replyNoTools': 'Outsiders write here, so the agent answers without tools (no files, no MCP). Use a script to look data up.',
   'auto.promptChannelPlaceholder': 'Empty = the message as it is. e.g. {{user}} asks: {{message}}. Answer briefly and kindly.'
 }

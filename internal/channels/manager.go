@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -190,6 +191,10 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	if err != nil {
 		return
 	}
+	if cmd, ok := command(in.Text); ok { // /create-conversation, /close-conversation
+		_ = ad.Send(ctx, in.ChatID, m.setKeep(ctx, ch.ID, in.ChatID, cmd == "create"))
+		return
+	}
 	rule, ok := m.pick(actx, project, ch, in.Text)
 	if !ok {
 		if refusal := strings.TrimSpace(ch.Refusal); refusal != "" {
@@ -316,17 +321,17 @@ func (m *Manager) agent(ctx context.Context, projectID, agentID string) (storage
 	return storage.Agent{}, errors.New("không có agent cho quy tắc này")
 }
 
-// thread is the conversation of an outside chat with a rule (made on its
-// first message): tool-less, read only, not in the project's chat list.
+// thread is the conversation a message is answered in: a new one each time,
+// or while the chat keeps one (/create-conversation) the chat's own with that
+// agent. Tool-less, read only, not in the project's chat list.
 func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.Automation, agent storage.Agent, in Incoming) (string, error) {
-	key := in.ChatID + "#" + rule.ID
-	id, err := m.store.Channels().Thread(ctx, ch.ID, key)
-	if err != nil {
-		return "", err
-	}
-	if id != "" {
-		if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
-			return id, nil
+	keep := m.keep(ctx, ch.ID, in.ChatID)
+	key := in.ChatID + "#" + agent.ID + "#" + keep
+	if keep != "" {
+		if id, err := m.store.Channels().Thread(ctx, ch.ID, key); err == nil && id != "" {
+			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
+				return id, nil
+			}
 		}
 	}
 	conv, err := m.engine.StartConversationPurpose(ctx, ch.ProjectID, agent.ID, "channel")
@@ -336,7 +341,52 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 	if err := m.engine.SetMode(ctx, conv.ID, perm.Read); err != nil {
 		return "", err
 	}
+	if keep == "" {
+		return conv.ID, nil
+	}
 	return conv.ID, m.store.Channels().SetThread(ctx, ch.ID, key, conv.ID)
+}
+
+// command reads /create-conversation and /close-conversation (any case,
+// "_" for "-", "conversion" for "conversation", Telegram's /cmd@bot).
+func command(text string) (string, bool) {
+	s := strings.ToLower(strings.TrimSpace(text))
+	if !strings.HasPrefix(s, "/") || strings.ContainsAny(s, " \n") {
+		return "", false
+	}
+	s, _, _ = strings.Cut(strings.TrimPrefix(s, "/"), "@")
+	s = strings.ReplaceAll(s, "_", "-")
+	switch s {
+	case "create-conversation", "create-conversion":
+		return "create", true
+	case "close-conversation", "close-conversion":
+		return "close", true
+	}
+	return "", false
+}
+
+func keepKey(channelID, chatID string) string { return "channel_keep/" + channelID + "/" + chatID }
+
+// keep is the current kept conversation of a chat ("" = each message alone).
+func (m *Manager) keep(ctx context.Context, channelID, chatID string) string {
+	var v string
+	_, _ = m.store.Settings().Get(ctx, keepKey(channelID, chatID), &v)
+	return v
+}
+
+// setKeep starts a kept conversation (a fresh one) or ends it; the reply says how it is now.
+func (m *Manager) setKeep(ctx context.Context, channelID, chatID string, on bool) string {
+	v := ""
+	if on {
+		v = strconv.FormatInt(time.Now().UnixNano(), 36) // a new generation: fresh conversations
+	}
+	if err := m.store.Settings().Set(ctx, keepKey(channelID, chatID), v); err != nil {
+		return "Xin lỗi, mình chưa đổi được chế độ lúc này."
+	}
+	if on {
+		return "Đã bắt đầu một hội thoại: mình sẽ nhớ những gì bạn nói ở đây. Gửi /close-conversation để kết thúc."
+	}
+	return "Đã kết thúc hội thoại. Từ giờ mỗi tin được trả lời riêng, mình không nhớ tin trước. Gửi /create-conversation để bắt đầu hội thoại mới."
 }
 
 // MigrateRules turns each channel set up before rules existed (ADR-048: its

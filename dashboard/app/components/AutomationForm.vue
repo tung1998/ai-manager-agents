@@ -312,6 +312,7 @@ async function testRun() {
         <div class="flex flex-wrap items-end gap-3">
           <UFormField :label="t('channels.agent')"><USelect v-model="chatAgent" :items="replyAgentOptions" class="min-w-56" /></UFormField>
         </div>
+        <p class="text-xs text-(--ui-text-muted)">{{ t('auto.replyMemory') }}</p>
         <p class="text-xs text-(--ui-text-muted)">{{ t('auto.replyNoTools') }}</p>
       </div>
       <div v-else class="flex flex-wrap items-end gap-3">
