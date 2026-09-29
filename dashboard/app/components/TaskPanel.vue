@@ -54,7 +54,6 @@ const tasks = computed(() => listData.value?.tasks ?? [])
 const detail = ref<Detail | null>(null)
 const listOpen = ref(false) // the list over the page on a phone
 const resultOpen = ref(false) // a task's result read in a big window
-const phone = usePhone() // a phone: the chat behind a button, its input floating
 const agentOf = (s: Step) => agentsData.value?.agents.find(a => a.id === s.agent_id || a.name === s.agent_name) ?? { name: s.agent_name }
 const liveText = reactive<Record<string, string>>({})
 const liveTools = reactive<Record<string, ToolCall[]>>({})
@@ -661,9 +660,9 @@ onBeforeUnmount(() => source?.close())
           </li>
         </ol>
 
-        <!-- the talk with the manager, last as in a chat; a phone: in the page, its input floating behind a button (as the chat page) -->
+        <!-- the talk with the manager: its messages in the page, its input floating at the bottom (as the chat page) -->
         <ChatPanel
-          :key="detail.task.id" :inline="phone" :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'"
+          :key="detail.task.id" inline :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'"
           @turn-done="reloadDetail"
         />
       </div>
