@@ -53,7 +53,9 @@ const tasks = computed(() => listData.value?.tasks ?? [])
 
 const detail = ref<Detail | null>(null)
 const listOpen = ref(false) // the list over the page on a phone
-const resultOpen = ref(false) // a task's result read in a big window
+const resultOpen = ref(false)
+const chatOpen = ref(false)
+watch(() => detail.value?.task.id, () => { chatOpen.value = false }) // a task's result read in a big window
 const liveText = reactive<Record<string, string>>({})
 const liveTools = reactive<Record<string, ToolCall[]>>({})
 const statusLine = ref('')
@@ -360,7 +362,7 @@ onBeforeUnmount(() => source?.close())
 </script>
 
 <template>
-  <div class="flex min-h-[24rem] flex-1 overflow-hidden rounded-lg border border-(--ui-border)">
+  <div class="flex min-h-[24rem] flex-1 overflow-hidden rounded-lg border border-(--ui-border) max-sm:-mx-4 max-sm:-mb-4 max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0">
     <aside class="hidden w-64 shrink-0 flex-col border-e border-(--ui-border) md:flex">
       <TaskList v-model:origin="origin" :tasks="tasks" :current-id="detail?.task.id" :menu="taskMenu" :badge="badge" @open="open" @new="showNew = true; detail = null" />
     </aside>
@@ -381,7 +383,7 @@ onBeforeUnmount(() => source?.close())
         <p class="min-w-0 flex-1 truncate text-sm font-medium">{{ (!showNew && detail?.task.title) || t('task.newTitle') }}</p>
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" :aria-label="t('task.new')" @click="showNew = true; detail = null" />
       </div>
-      <div class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4">
+      <div class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 max-sm:p-3">
       <!-- new task -->
       <div v-if="showNew || !detail" class="mx-auto max-w-2xl space-y-4">
         <div>
@@ -495,14 +497,6 @@ onBeforeUnmount(() => source?.close())
             <div class="markdown mx-auto max-w-3xl text-sm" v-html="renderMarkdown(detail.task.result)" />
           </template>
         </UModal>
-
-        <div class="space-y-2">
-          <div>
-            <p class="text-sm font-medium">{{ detail.task.status === 'running' ? t('task.steer') : t('task.talkWithManager') }}</p>
-            <p v-if="detail.task.status === 'running'" class="text-xs text-(--ui-text-muted)">{{ t('task.steerHint') }}</p>
-          </div>
-          <ChatPanel :key="detail.task.id" :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'" @turn-done="reloadDetail" />
-        </div>
 
         <div v-if="detail.actions?.length" class="space-y-2">
           <p class="text-sm font-medium">{{ t('task.proposedActions') }}</p>
@@ -664,6 +658,22 @@ onBeforeUnmount(() => source?.close())
             </details>
           </li>
         </ol>
+
+        <!-- the talk with the manager: its messages in the page, only the input floats -->
+        <template v-if="chatOpen">
+          <p class="border-t border-(--ui-border) pt-4 text-sm font-medium">{{ detail.task.status === 'running' ? t('task.steer') : t('task.talkWithManager') }}</p>
+          <ChatPanel
+            :key="detail.task.id" inline :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'"
+            @turn-done="reloadDetail" @close="chatOpen = false"
+          />
+        </template>
+        <div v-else class="pointer-events-none sticky bottom-0 flex justify-end">
+          <UButton
+            class="pointer-events-auto rounded-full shadow-lg" size="lg" icon="i-lucide-message-circle"
+            :aria-label="detail.task.status === 'running' ? t('task.steer') : t('task.talkWithManager')"
+            :title="detail.task.status === 'running' ? t('task.steerHint') : t('task.talkWithManager')" @click="chatOpen = true"
+          />
+        </div>
       </div>
       </div>
     </section>

@@ -25,10 +25,12 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 // taskId: the follow-up talk about one task (a single thread, no thread list)
 // purpose "automation": the chat that builds one automation (ADR-042), made on
 // first send or opened by automationId; its answers may fill the form.
+// inline: no box of its own; the messages flow in the page around it and only
+// the input floats at the bottom of the page (the page's own scroll).
 // compact: no thread column (a picker instead), fills its container.
 // pageContext: what the person is looking at, sent with each message.
-const props = defineProps<{ projectId: string, taskId?: string, taskRunning?: boolean, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string }>()
-const emit = defineEmits<{ 'turn-done': [], 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string] }>()
+const props = defineProps<{ projectId: string, taskId?: string, taskRunning?: boolean, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string, inline?: boolean }>()
+const emit = defineEmits<{ 'turn-done': [], 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string], 'close': [] }>()
 const single = computed(() => !!props.taskId || !!props.purpose)
 const toast = useToast()
 const { t, dateLocale } = useLang()
@@ -125,7 +127,8 @@ async function loadOlder() {
 
 async function scrollDown() {
   await nextTick()
-  listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
+  if (props.inline) listEl.value?.lastElementChild?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+  else listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
 }
 
 // after an answer: the conversation's context and the connection's usage changed
@@ -408,7 +411,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex overflow-hidden rounded-lg border border-(--ui-border)" :class="compact || purpose ? 'h-full min-h-0' : taskId ? 'h-[32rem]' : 'min-h-[24rem] flex-1'">
+  <div
+    :class="inline ? 'contents' : ['flex overflow-hidden rounded-lg border border-(--ui-border)', compact || purpose ? 'h-full min-h-0' : taskId ? 'h-[32rem]'
+      : 'min-h-[24rem] flex-1 max-sm:-mx-4 max-sm:-mb-4 max-sm:rounded-none max-sm:border-x-0 max-sm:border-b-0']"
+  >
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
       <ThreadList v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :menu="threadMenu" @open="open" @new="newConversation(pick)" />
@@ -424,7 +430,7 @@ onBeforeUnmount(() => {
     </USlideover>
 
     <!-- thread -->
-    <section class="flex min-w-0 flex-1 flex-col">
+    <section :class="inline ? 'contents' : 'flex min-w-0 flex-1 flex-col'">
       <!-- a phone: which chat this is, the drawer of chats, a new one -->
       <div v-if="!single && !compact" class="flex items-center gap-1 border-b border-(--ui-border) p-2 md:hidden">
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-panel-left" :aria-label="t('chat.threads')" @click="threadsOpen = true" />
@@ -450,11 +456,11 @@ onBeforeUnmount(() => {
           </button>
         </span>
       </div>
-      <div ref="listEl" class="min-w-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-4">
+      <div ref="listEl" class="min-w-0 space-y-4" :class="inline ? 'pb-2' : 'flex-1 overflow-y-auto overflow-x-hidden p-4 max-md:px-3'">
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
         </div>
-        <div v-if="!messages.length && !streaming" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
+        <div v-if="!messages.length && !streaming && !inline" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
           <UIcon name="i-lucide-messages-square" class="size-8" />
           <template v-if="taskId">
             <p class="text-sm">{{ t(taskRunning ? 'chat.steerTask' : 'chat.askAboutTask', { agent: current?.agent_name || t('chat.sendManager') }) }}</p>
@@ -531,7 +537,13 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <form class="border-t border-(--ui-border) p-3" @submit.prevent="send">
+      <p v-if="inline && !messages.length && !streaming" class="text-xs text-(--ui-text-muted)">
+        {{ t(taskRunning ? 'chat.steerTaskHint' : 'chat.taskPatchHint') }}
+      </p>
+      <form
+        :class="inline ? 'sticky bottom-0 z-10 rounded-xl border border-(--ui-border) bg-(--ui-bg) p-2 shadow-lg' : 'border-t border-(--ui-border) p-3 max-md:p-2'"
+        @submit.prevent="send"
+      >
         <PromptInput
           ref="prompt" v-model="draft" v-model:attachments="draftFiles" :project-id="projectId"
           :placeholder="picked ? t('chat.placeholderWithAgent', { agent: picked.name }) : t('chat.placeholderNoAgent')"
@@ -547,6 +559,7 @@ onBeforeUnmount(() => {
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
             <UButton v-else size="sm" type="submit" icon="i-lucide-send" class="shrink-0" :disabled="!draft.trim() && !draftFiles.length" />
+            <UButton v-if="inline" size="sm" color="neutral" variant="ghost" icon="i-lucide-x" class="shrink-0" :aria-label="t('common.close')" @click="emit('close')" />
           </template>
         </PromptInput>
       </form>
