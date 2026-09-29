@@ -664,6 +664,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if conv.Purpose == "automation" {
 		req.System += automationGuide
 	}
+	if conv.Purpose == "skill" {
+		req.System += skillGuide
+	}
 	if conv.TaskID == "" && conv.Purpose == "" {
 		req.System += e.groupBrief(ctx, conv, agent)
 	}

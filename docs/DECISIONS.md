@@ -1307,3 +1307,12 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Danh sách tự động hóa hiện `@tên_bot · Discord · "từ khóa"`, và báo lỗi bot ngay trên dòng. Không còn tab hay dải bot riêng; link cũ `?tab=channels` chuyển về tab Tự động.
   - AI dựng tự động hóa biết nguồn telegram/discord, `action=chat` (chỉ dùng cho bot) và thứ tự quy tắc.
 - **Để sau:** agent đề xuất tự động hóa (`trigger.Spec`) vẫn chỉ tạo được lịch chạy và webhook.
+
+## ADR-050: Soạn skill trong office, có AI
+
+**Quyết định.**
+- Tab Skill của project có nút **Tạo skill**, và menu của mỗi skill (của project hoặc của máy, loại sửa được) có mục **Sửa**. Cả hai mở `/projects/:id/skills/edit` (`?name=&scope=project|user`).
+- **Trình soạn:** gồm tên (cũng là lệnh `/tên`; khi sửa thì không đổi được, vì tên là tên thư mục), mô tả (skill làm gì và khi nào dùng) và nội dung SKILL.md (Markdown). Các dòng frontmatter khác và các file khác của skill được giữ nguyên.
+- **Lưu:** gọi `POST /api/automation/install` với `files` gửi thẳng lên (trường mới của `InstallRequest`), qua cùng bước kiểm tra an toàn như khi cài từ thư viện: có cảnh báo thì hỏi lại, có nội dung bị từ chối thì báo lỗi. Sửa là ghi đè; bản cũ được đưa vào thùng rác.
+- **AI:** loại chat `skill` (không nằm trong danh sách chat của project) dùng hướng dẫn `skillGuide`. AI trả về khối ```` ```skill {name, description, body} ```` và trình soạn lấy nội dung đó điền vào, nhưng không đổi tên khi đang sửa. AI không tự ghi file; người dùng xem lại rồi bấm Lưu.
+- Bỏ thông báo "Đây là mã nguồn của chính office" ở đầu project: đây là thông báo cố định, không báo có cập nhật, nên chỉ gây nhiễu.

@@ -114,7 +114,7 @@ func (s *server) createConversation(w http.ResponseWriter, r *http.Request) {
 		c   storage.Conversation
 		err error
 	)
-	if in.Purpose == "automation" {
+	if in.Purpose == "automation" || in.Purpose == "skill" { // a chat that builds one automation, or writes one skill
 		c, err = s.cfg.Chat.StartConversationPurpose(r.Context(), r.PathValue("id"), in.AgentID, in.Purpose)
 	} else {
 		c, err = s.cfg.Chat.StartConversation(r.Context(), r.PathValue("id"), in.AgentID)

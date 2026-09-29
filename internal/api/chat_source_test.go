@@ -78,3 +78,28 @@ func TestTaskListBySource(t *testing.T) {
 		t.Fatalf("discord = %d %q", n, src)
 	}
 }
+
+// A chat that helps write a skill (its answers fill the editor): its own
+// purpose, out of the project's chat list.
+func TestSkillChatPurpose(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
+	solo := ""
+	for _, x := range body["templates"].([]any) {
+		if m := x.(map[string]any); m["key"] == "solo" {
+			solo = m["id"].(string)
+		}
+	}
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	resp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{"purpose": "skill"}, nil)
+	if resp.StatusCode != 201 || b["conversation"].(map[string]any)["purpose"] != "skill" {
+		t.Fatalf("create = %d %v", resp.StatusCode, b)
+	}
+	_, b = do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/conversations?source=all", nil, nil)
+	if len(b["conversations"].([]any)) != 0 {
+		t.Fatalf("a skill chat is in the list: %v", b)
+	}
+}

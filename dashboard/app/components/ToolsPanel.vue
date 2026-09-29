@@ -5,7 +5,7 @@ import type { InstallSource } from './InstallModal.vue'
 // Without `projectPath` the panel manages everything on the machine (Thư viện
 // page). With it ('' = machine-wide helper project) it shows what that project
 // gets and installs only there.
-const props = defineProps<{ kind: ItemKind, projectPath?: string }>()
+const props = defineProps<{ kind: ItemKind, projectPath?: string, projectId?: string }>()
 const scoped = computed(() => props.projectPath !== undefined)
 const fixedTarget = computed(() => (scoped.value ? (props.projectPath || '__user') : undefined))
 const toast = useToast()
@@ -59,6 +59,10 @@ const groups = computed(() => {
 function itemMenu(i: AutoItem): DropdownMenuItem[][] {
   const main: DropdownMenuItem[] = [
     { label: t('tools.menuView'), icon: 'i-lucide-eye', onSelect: () => view(i) },
+    // a skill of this project or of the machine: edited in office's editor (with its AI)
+    ...(i.kind === 'skill' && props.projectId && i.location.editable && (i.location.type === 'project' || i.location.type === 'user')
+      ? [{ label: t('skill.edit'), icon: 'i-lucide-pencil', to: `/projects/${props.projectId}/skills/edit?name=${encodeURIComponent(i.name)}&scope=${i.location.type}` }]
+      : []),
     { label: scoped.value ? t('tools.menuCopyToProject') : t('tools.menuCopyElsewhere'), icon: 'i-lucide-copy', disabled: !canCopy(i), onSelect: () => startInstall({ kind: i.kind, name: i.name, from: i }) },
     { label: t('tools.menuSaveToLibrary'), icon: 'i-lucide-library', disabled: i.location.type === 'codex', onSelect: () => saveToLibrary(i) }
   ]
@@ -262,6 +266,7 @@ const summary = (tpl: MCPTemplate) => {
         <UTabs v-model="tab" :items="tabs" :content="false" size="sm" variant="link" />
         <div class="ms-auto flex gap-2">
           <UButton v-if="tab === 'library' && !scoped" size="sm" icon="i-lucide-plus" :label="t('tools.createNew')" @click="openEdit()" />
+          <UButton v-if="kind === 'skill' && projectId && tab === 'installed'" size="sm" icon="i-lucide-plus" :label="t('skill.new')" :to="`/projects/${projectId}/skills/edit`" />
           <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-scan-search" :label="t('tools.rescan')" :loading="loading" @click="scan" />
         </div>
       </div>

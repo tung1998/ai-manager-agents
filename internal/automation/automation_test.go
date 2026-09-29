@@ -261,3 +261,31 @@ func TestSkillCall(t *testing.T) {
 		t.Fatal(p)
 	}
 }
+
+// A skill written in office's editor: its files come with the request; saving
+// it again (edit) replaces it, the old one kept in the trash.
+func TestInstallSkillFromFiles(t *testing.T) {
+	ctx := context.Background()
+	home, proj := fixture(t)
+	s := svc(t, home, proj)
+	md := "---\nname: tra-don\ndescription: Tra trạng thái đơn\n---\n\nTra đơn theo mã."
+	req := InstallRequest{Kind: "skill", Name: "tra-don", Target: Target{Scope: "project", ProjectPath: proj}, Files: map[string]string{"SKILL.md": md}}
+	if _, err := s.Install(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(proj, ".claude/skills/tra-don/SKILL.md"))
+	if string(got) != md {
+		t.Fatalf("SKILL.md = %q", got)
+	}
+	req.Files = map[string]string{"SKILL.md": md + "\nThêm bước kiểm tra."}
+	if _, err := s.Install(ctx, req); !errors.Is(err, ErrExists) {
+		t.Fatalf("an edit without overwrite = %v", err)
+	}
+	req.Overwrite = true
+	if _, err := s.Install(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(proj, ".claude/skills/tra-don/SKILL.md")); !strings.Contains(string(got), "Thêm bước kiểm tra.") {
+		t.Fatalf("edited = %q", got)
+	}
+}

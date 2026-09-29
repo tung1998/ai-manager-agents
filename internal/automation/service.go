@@ -122,6 +122,7 @@ type InstallRequest struct {
 	From      *Ref              `json:"from,omitempty"`     // copy an installed item
 	Template  *MCPTemplate      `json:"template,omitempty"` // catalog/registry template
 	Values    map[string]string `json:"values,omitempty"`   // template inputs
+	Files     map[string]string `json:"files,omitempty"`    // a skill written in office's editor (path → content)
 	Overwrite bool              `json:"overwrite"`
 	Accept    bool              `json:"accept"` // accept safety warnings
 }
@@ -161,6 +162,8 @@ func (s *Service) Install(ctx context.Context, req InstallRequest) (InstallResul
 		if err != nil {
 			return res, err
 		}
+	case req.Files != nil && req.Kind == "skill":
+		files = req.Files
 	case req.Template != nil && req.Kind == "mcp":
 		var err error
 		if mcp, err = Render(*req.Template, req.Values); err != nil {

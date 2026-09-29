@@ -27,9 +27,9 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 // first send or opened by automationId; its answers may fill the form.
 // compact: no thread column (a picker instead), fills its container.
 // pageContext: what the person is looking at, sent with each message.
-const props = defineProps<{ projectId: string, taskId?: string, purpose?: 'automation', automationId?: string, compact?: boolean, pageContext?: () => string }>()
-const emit = defineEmits<{ 'turn-done': [], 'automation-patch': [Record<string, unknown>], 'conversation': [string] }>()
-const single = computed(() => !!props.taskId || props.purpose === 'automation')
+const props = defineProps<{ projectId: string, taskId?: string, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string }>()
+const emit = defineEmits<{ 'turn-done': [], 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string] }>()
+const single = computed(() => !!props.taskId || !!props.purpose)
 const toast = useToast()
 const { t, dateLocale } = useLang()
 
@@ -272,7 +272,8 @@ function follow(id: string) {
       case 'error':
         if (ev.message) {
           messages.value.push(ev.message)
-          if (props.purpose === 'automation' && ev.type === 'done') automationBlocks(ev.message.content).forEach(p => emit('automation-patch', p))
+          if (props.purpose === 'automation' && ev.type === 'done') fencedBlocks(ev.message.content, 'automation').forEach(p => emit('automation-patch', p))
+          if (props.purpose === 'skill' && ev.type === 'done') fencedBlocks(ev.message.content, 'skill').forEach(p => emit('skill-patch', p))
         }
         if (ev.next_turn_id) { // the next agent tagged answers now
           follow(ev.next_turn_id)
@@ -332,10 +333,10 @@ function onPatchUpdated(msg: Message, p: Patch) {
 
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
-// ```automation {…}``` blocks of an answer: form changes (bad JSON is skipped)
-function automationBlocks(text: string): Record<string, unknown>[] {
+// ```automation {…}``` (or ```skill```) blocks of an answer: form changes (bad JSON is skipped)
+function fencedBlocks(text: string, lang: string): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = []
-  for (const m of text.matchAll(/```automation\s*\n([\s\S]*?)```/g)) {
+  for (const m of text.matchAll(new RegExp('```' + lang + '\\s*\\n([\\s\\S]*?)```', 'g'))) {
     try {
       const v = JSON.parse(m[1]!)
       if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v)
@@ -441,6 +442,10 @@ onBeforeUnmount(() => {
           <template v-else-if="purpose === 'automation'">
             <p class="text-sm">{{ t('chat.askAboutAutomation') }}</p>
             <p class="text-xs">{{ t('chat.automationHint') }}</p>
+          </template>
+          <template v-else-if="purpose === 'skill'">
+            <p class="text-sm">{{ t('skill.askAI') }}</p>
+            <p class="text-xs">{{ t('skill.askAIHint') }}</p>
           </template>
           <template v-else>
             <p class="text-sm">{{ t('chat.askAboutProject') }}</p>

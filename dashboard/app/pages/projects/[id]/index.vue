@@ -15,9 +15,6 @@ const templates = computed(() => tplData.value?.templates ?? [])
 // (older links: tab=config&section=…, tab=tools, tab=channels: bots live in Automations now)
 type Tab = 'chat' | 'tasks' | 'automations' | 'ops' | 'model' | 'perm' | 'skill' | 'mcp' | 'info' | 'log'
 const tabs: Tab[] = ['chat', 'tasks', 'automations', 'ops', 'model', 'perm', 'skill', 'mcp', 'info', 'log']
-// office's own source: approved changes take effect after "Cập nhật office"
-const { data: updData } = useFetch<{ source?: { root: string } }>('/api/system/update', { lazy: true, immediate: isAdmin.value })
-const isOfficeSource = computed(() => !!project.value?.path && updData.value?.source?.root === project.value.path)
 
 // "Hỏi agent" from Vận hành: open Chat with the log attached
 // send=true ("Sửa lỗi") starts a new conversation and sends right away
@@ -126,12 +123,6 @@ async function saveAsTemplate() {
     <div v-if="project" :class="tab === 'chat' && project.model ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4'">
       <UAlert v-if="!project.exists" color="error" variant="subtle" icon="i-lucide-folder-x" :title="t('project.notFound')" />
 
-      <UAlert
-        v-if="isOfficeSource" color="info" variant="subtle" icon="i-lucide-package" :title="t('project.officeSourceTitle')"
-        :description="t('project.officeSourceDesc')"
-        :actions="[{ label: t('project.goToUpdate'), to: '/admin/update', icon: 'i-lucide-refresh-cw', color: 'info', variant: 'outline' }]"
-      />
-
 
       <AutomationsPanel v-if="tab === 'automations'" :project-id="project.id" />
       <AuditLog v-else-if="tab === 'log' && isAdmin" :key="project.id" class="max-w-6xl" :filter="{ project: project.id }" show-filters />
@@ -152,7 +143,7 @@ async function saveAsTemplate() {
           <UButton v-if="isAdmin" size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('project.rename')" @click="openEdit" />
         </UCard>
         <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" />
-        <ToolsPanel v-else-if="tab === 'skill' || tab === 'mcp'" :key="tab" :kind="tab" :project-path="project.path" />
+        <ToolsPanel v-else-if="tab === 'skill' || tab === 'mcp'" :key="tab" :kind="tab" :project-path="project.path" :project-id="project.id" />
         <OrgModelEditor v-else-if="project.model" :key="project.model.id" :model-id="project.model.id" agents-first @changed="refresh()" />
         <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
       </template>
