@@ -53,8 +53,7 @@ const tasks = computed(() => listData.value?.tasks ?? [])
 
 const detail = ref<Detail | null>(null)
 const listOpen = ref(false) // the list over the page on a phone
-const resultFolded = ref(true) // a task's result: a preview first
-const resultOpen = ref(false) // …or read in a big window
+const resultOpen = ref(false) // a task's result read in a big window
 const liveText = reactive<Record<string, string>>({})
 const liveTools = reactive<Record<string, ToolCall[]>>({})
 const statusLine = ref('')
@@ -478,30 +477,21 @@ onBeforeUnmount(() => source?.close())
 
         <UAlert v-if="detail.task.detail && detail.task.status !== 'done' && detail.task.status !== 'needs_input'" :color="detail.task.status === 'rejected' ? 'warning' : 'error'" variant="subtle" :description="detail.task.detail" />
 
-        <!-- the result: folded to a preview, opened in place or read in a big window -->
-        <UCard v-if="detail.task.result" :ui="{ header: 'py-2 sm:py-2.5' }">
+        <!-- the result: a preview; a click reads it all in a big window -->
+        <UCard v-if="detail.task.result" :ui="{ header: 'py-2 sm:py-2.5' }" class="cursor-pointer transition hover:ring-1 hover:ring-(--ui-border-accented)" @click="resultOpen = true">
           <template #header>
             <div class="flex items-center gap-1">
               <p class="min-w-0 flex-1 font-medium">{{ t('task.result') }}</p>
-              <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-maximize-2" :aria-label="t('task.readResult')" :title="t('task.readResult')" @click="resultOpen = true" />
-              <UButton
-                size="xs" color="neutral" variant="ghost" :icon="resultFolded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'"
-                :aria-label="resultFolded ? t('task.showMore') : t('task.showLess')" @click="resultFolded = !resultFolded"
-              />
+              <UIcon name="i-lucide-maximize-2" class="size-4 text-(--ui-text-muted)" :title="t('task.readResult')" />
             </div>
           </template>
-          <div class="relative" :class="resultFolded ? 'max-h-48 overflow-hidden' : ''">
+          <div class="relative max-h-48 overflow-hidden">
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div class="markdown text-sm" v-html="renderMarkdown(detail.task.result)" />
-            <button
-              v-if="resultFolded" type="button" class="absolute inset-x-0 bottom-0 flex h-16 items-end justify-center bg-linear-to-t from-(--ui-bg) to-transparent pb-1 text-xs text-primary"
-              @click="resultFolded = false"
-            >
-              {{ t('task.showMore') }}
-            </button>
+            <div class="absolute inset-x-0 bottom-0 flex h-16 items-end justify-center bg-linear-to-t from-(--ui-bg) to-transparent pb-1 text-xs text-primary">{{ t('task.readResult') }}</div>
           </div>
         </UCard>
-        <UModal v-model:open="resultOpen" :title="detail.task.title" fullscreen>
+        <UModal v-model:open="resultOpen" :title="t('task.result')" :description="detail.task.title" fullscreen :ui="{ description: 'line-clamp-1' }">
           <template #body>
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div class="markdown mx-auto max-w-3xl text-sm" v-html="renderMarkdown(detail.task.result)" />
