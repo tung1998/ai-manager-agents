@@ -460,7 +460,7 @@ onBeforeUnmount(() => {
           </button>
         </span>
       </div>
-      <div ref="listEl" class="min-w-0 space-y-4" :class="inline ? 'pb-2' : 'flex-1 overflow-y-auto overflow-x-hidden p-4 max-md:px-3'">
+      <div ref="listEl" class="min-w-0 space-y-4" :class="inline ? 'pb-2' : ['flex-1 overflow-y-auto overflow-x-hidden p-4 max-md:px-3', page && 'max-sm:pb-20', page && composeOpen && 'max-sm:pb-32']">
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
         </div>
@@ -545,8 +545,10 @@ onBeforeUnmount(() => {
         {{ t(taskRunning ? 'chat.steerTaskHint' : 'chat.taskPatchHint') }}
       </p>
       <form
-        :class="inline ? 'sticky bottom-0 z-10 rounded-xl border border-(--ui-border) bg-(--ui-bg) p-2 shadow-lg'
-          : ['border-t border-(--ui-border) p-3 max-md:p-2', page && !composeOpen && 'max-sm:hidden']"
+        :class="inline ? 'sticky bottom-0 z-10 rounded-lg shadow-lg'
+          : ['border-t border-(--ui-border) p-3 max-md:p-2', page && (composeOpen
+            ? 'max-sm:absolute max-sm:inset-x-2 max-sm:bottom-2 max-sm:z-10 max-sm:rounded-lg max-sm:border-0 max-sm:p-0 max-sm:shadow-lg'
+            : 'max-sm:hidden')]"
         @submit.prevent="send"
       >
         <PromptInput
