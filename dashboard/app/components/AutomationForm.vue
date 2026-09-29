@@ -19,22 +19,18 @@ const fromChannel = computed(() => isChannelSource(form.source))
 // the three sources, as cards (a bot opens the bot's setup page)
 const sourceCards = computed(() => [
   { value: 'schedule', icon: 'i-lucide-alarm-clock', title: t('auto.sourceSchedule'), desc: t('auto.sourceScheduleDesc'), active: form.source === 'schedule',
-    pick: () => { form.source = 'schedule'; if (form.action === 'chat') form.action = 'task' } },
+    pick: () => { form.source = 'schedule' } },
   { value: 'webhook', icon: 'i-lucide-webhook', title: t('auto.sourceWebhook'), desc: t('auto.sourceWebhookDesc'), active: form.source === 'webhook',
-    pick: () => { form.source = 'webhook'; if (form.action === 'chat') form.action = 'task' } },
+    pick: () => { form.source = 'webhook' } },
   { value: 'channel', icon: 'i-lucide-messages-square', title: t('auto.sourceChannel'), desc: t('auto.sourceChannelDesc'), active: fromChannel.value,
     pick: () => navigateTo(`/projects/${props.projectId}/bots/new`) }
 ])
 // a Select item cannot have "" as its value: "the lead" is a sentinel
 const LEAD = '__lead'
-// a task goes to the team (the lead splits it) or to one agent, like a person's daily job
-const agentOptions = computed(() => [{ label: t('auto.assignTeam'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
 const chatAgent = computed({ get: () => form.agent_id || LEAD, set: (v: string) => { form.agent_id = v === LEAD ? '' : v } })
 // who answers in a chat: one agent ("" = the lead)
 const replyAgentOptions = computed(() => [{ label: t('channels.agentLead'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
-const escalateAgent = computed({ get: () => form.escalate.agent_id || LEAD, set: (v: string) => { form.escalate.agent_id = v === LEAD ? '' : v } })
 const langOptions = [{ label: 'bash', value: 'bash' }, { label: 'node', value: 'node' }, { label: 'python', value: 'python' }]
-const whenOptions = computed(() => (['failure', 'signal', 'never'] as const).map(v => ({ label: t(`auto.escalate.${v}`), value: v })))
 
 const presets = computed(() => [
   { label: t('auto.presetEvery5'), every: 5, cron: '' },
@@ -65,10 +61,12 @@ const timezones = (Intl as unknown as { supportedValuesOf?: (k: string) => strin
 const tz = computed({ get: () => form.config.timezone || 'Asia/Ho_Chi_Minh', set: (v: string) => { form.config.timezone = v } })
 // the saved zone stays pickable even if this runtime spells it differently
 const tzItems = computed(() => timezones.includes(tz.value) ? timezones : [tz.value, ...timezones])
+// an agent answers (a bot's chat) or is sent the message (a schedule, a webhook), or a script runs
 const actions = computed(() => [
-  ...(fromChannel.value ? [{ value: 'chat' as const, icon: 'i-lucide-message-circle-reply', title: t('auto.cardReply'), desc: t('auto.cardReplyDesc') }] : []),
-  { value: 'script' as const, icon: 'i-lucide-square-terminal', title: t('auto.cardScript'), desc: fromChannel.value ? t('auto.cardScriptChannelDesc') : t('auto.cardScriptDesc') },
-  { value: 'task' as const, icon: 'i-lucide-list-todo', title: t('auto.cardTask'), desc: t('auto.cardTaskDesc') }
+  fromChannel.value
+    ? { value: 'chat' as const, icon: 'i-lucide-message-circle-reply', title: t('auto.cardReply'), desc: t('auto.cardReplyDesc') }
+    : { value: 'chat' as const, icon: 'i-lucide-send', title: t('auto.cardAgent'), desc: t('auto.cardAgentDesc') },
+  { value: 'script' as const, icon: 'i-lucide-square-terminal', title: t('auto.cardScript'), desc: fromChannel.value ? t('auto.cardScriptChannelDesc') : t('auto.cardScriptDesc') }
 ])
 
 // next runs, asked from the server (same parser as the scheduler)
@@ -96,6 +94,8 @@ function insert(p: string) {
   form.prompt = form.prompt.slice(0, at) + p + form.prompt.slice(at)
 }
 
+// a section's box: its own on the automation page; none inside the bot page (it has one)
+const box = computed(() => props.command ? '' : 'rounded-xl border border-(--ui-border) p-4')
 const hl = (key: string) => props.highlight?.includes(key) ? 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition' : ''
 
 // "Chạy thử": the script runs now, not saved
@@ -128,18 +128,18 @@ async function testRun() {
         <span class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">1</span>{{ t('auto.stepSource') }}
         <span class="font-normal text-(--ui-text-muted)">· {{ t('auto.stepSourceHint') }}</span>
       </p>
-      <!-- where it starts: the first choice, so big -->
-      <div class="grid gap-2 @md:grid-cols-3">
+      <!-- where it starts: three small choices in a row -->
+      <div class="flex flex-wrap gap-2">
         <button
           v-for="s in sourceCards" :key="s.value" type="button"
-          class="flex items-center gap-2.5 rounded-lg border px-3 py-3 text-left transition"
+          class="flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-sm transition"
           :class="s.active ? 'border-primary bg-primary/5' : 'border-(--ui-border) hover:border-(--ui-border-accented)'"
           @click="s.pick()"
         >
-          <UIcon :name="s.icon" class="size-5 shrink-0" :class="s.active ? 'text-primary' : 'text-(--ui-text-muted)'" />
-          <span class="min-w-0 flex-1 font-medium">{{ s.title }}</span>
+          <UIcon :name="s.icon" class="size-4 shrink-0" :class="s.active ? 'text-primary' : 'text-(--ui-text-muted)'" />
+          <span class="font-medium whitespace-nowrap">{{ s.title }}</span>
           <UTooltip :text="s.desc">
-            <UIcon name="i-lucide-info" class="size-4 shrink-0 text-(--ui-text-dimmed) hover:text-(--ui-text)" @click.stop />
+            <UIcon name="i-lucide-info" class="size-3.5 shrink-0 text-(--ui-text-dimmed) hover:text-(--ui-text) max-sm:hidden" @click.stop />
           </UTooltip>
         </button>
       </div>
@@ -186,7 +186,7 @@ async function testRun() {
     </section>
 
     <!-- 2. action -->
-    <section class="space-y-4 rounded-xl border border-(--ui-border) p-4" :class="hl('action') || hl('escalate')">
+    <section class="space-y-4" :class="[box, hl('action')]">
       <p class="flex items-center gap-2 text-sm font-semibold">
         <span v-if="!command" class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">2</span>{{ t('auto.stepAction') }}
       </p>
@@ -230,18 +230,6 @@ async function testRun() {
             <pre class="max-h-60 overflow-auto rounded bg-(--ui-bg) p-2 font-mono text-xs">{{ tested.output || t('job.noOutput') }}</pre>
           </template>
         </div>
-        <div class="space-y-3 rounded-lg border border-dashed border-(--ui-border) p-3">
-          <p class="flex items-center gap-1.5 text-sm font-medium">
-            <UIcon name="i-lucide-sparkles" class="size-4 text-primary" />{{ t('auto.escalateTitle') }}
-          </p>
-          <div class="grid gap-3 @lg:grid-cols-3">
-            <UFormField :label="t('auto.escalateWhen')"><USelect v-model="form.escalate.when" :items="whenOptions" class="w-full" /></UFormField>
-            <UFormField v-if="form.escalate.when !== 'never'" :label="t('auto.assignTo')"><USelect v-model="escalateAgent" :items="agentOptions" class="w-full" /></UFormField>
-          </div>
-          <UFormField v-if="form.escalate.when !== 'never'" :label="t('auto.escalatePrompt')">
-            <UTextarea v-model="form.escalate.prompt" :rows="3" autoresize class="w-full" :placeholder="t('auto.escalatePromptPlaceholder')" />
-          </UFormField>
-        </div>
       </template>
       <div v-else-if="form.action === 'chat'" class="space-y-2">
         <div class="flex flex-wrap items-end gap-3">
@@ -249,14 +237,10 @@ async function testRun() {
         </div>
         <p class="text-xs text-(--ui-text-muted)">{{ t('auto.replyNoTools') }}</p>
       </div>
-      <div v-else class="flex flex-wrap items-end gap-3">
-        <UFormField :label="t('auto.assignTo')"><USelect v-model="chatAgent" :items="agentOptions" class="min-w-56" /></UFormField>
-        <EditModePicker v-model="form.edit_mode" />
-      </div>
     </section>
 
     <!-- 3. content -->
-    <section v-if="form.action !== 'script'" class="space-y-3 rounded-xl border border-(--ui-border) p-4" :class="hl('prompt')">
+    <section v-if="form.action !== 'script'" class="space-y-3" :class="[box, hl('prompt')]">
       <p class="flex items-center gap-2 text-sm font-semibold">
         <span v-if="!command" class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">3</span>{{ t('auto.stepPrompt') }}
       </p>
@@ -268,7 +252,7 @@ async function testRun() {
     </section>
 
     <!-- limits -->
-    <details class="group rounded-xl border border-(--ui-border) p-4">
+    <details class="group" :class="box">
       <summary class="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
         <UIcon name="i-lucide-chevron-right" class="size-4 transition group-open:rotate-90" />{{ t('auto.stepLimits') }}
       </summary>

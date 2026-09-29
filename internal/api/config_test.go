@@ -22,7 +22,7 @@ func TestConfigChangeProposeApprove(t *testing.T) {
 	pid := body["project"].(map[string]any)["id"].(string)
 	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "other"}, nil)
 	other := body["project"].(map[string]any)["id"].(string)
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Hook", "source": "webhook", "action": "task", "prompt": "x"}, nil)
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Hook", "source": "webhook", "action": "chat", "prompt": "x"}, nil)
 	aid := body["automation"].(map[string]any)["id"].(string)
 
 	acts := e.acts // wired to the API's registry by api.New
@@ -49,7 +49,7 @@ func TestConfigChangeProposeApprove(t *testing.T) {
 
 	// stale: changed since the proposal
 	a, _ = propose("automation", "update", aid, map[string]any{"name": "A"})
-	do(t, admin, "PATCH", e.srv.URL+"/api/automations/"+aid, map[string]any{"name": "B", "source": "webhook", "action": "task", "prompt": "x", "enabled": true}, nil)
+	do(t, admin, "PATCH", e.srv.URL+"/api/automations/"+aid, map[string]any{"name": "B", "source": "webhook", "action": "chat", "prompt": "x", "enabled": true}, nil)
 	_, b := do(t, admin, "POST", e.srv.URL+"/api/actions/"+a.ID+"/approve", map[string]any{}, nil)
 	if got, _ := e.st.Automations().Get(ctx, aid); got.Name != "B" {
 		t.Fatalf("a stale change was applied: %q (%v)", got.Name, b)

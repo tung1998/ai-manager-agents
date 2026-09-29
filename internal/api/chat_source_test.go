@@ -49,36 +49,6 @@ func TestChatListBySource(t *testing.T) {
 	}
 }
 
-// The task list filters by where a task came from, the same way.
-func TestTaskListBySource(t *testing.T) {
-	e := setup(t)
-	admin := e.client(t)
-	login(t, e, admin, "admin@x.io", "admin-password")
-	ctx := context.Background()
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
-	pid := body["project"].(map[string]any)["id"].(string)
-	for _, by := range []string{"human:admin@x.io", "discord:binh", "auto:Báo cáo"} {
-		if _, err := e.st.Tasks().Create(ctx, storage.Task{ProjectID: pid, Title: by, Goal: by, Status: "done", CreatedBy: by}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	count := func(q string) (int, string) {
-		_, b := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/tasks"+q, nil, nil)
-		list := b["tasks"].([]any)
-		src := ""
-		if len(list) > 0 {
-			src, _ = list[0].(map[string]any)["source"].(string)
-		}
-		return len(list), src
-	}
-	if n, _ := count(""); n != 3 {
-		t.Fatalf("all = %d", n)
-	}
-	if n, src := count("?source=discord"); n != 1 || src != "discord" {
-		t.Fatalf("discord = %d %q", n, src)
-	}
-}
-
 // A chat that helps write a skill (its answers fill the editor): its own
 // purpose, out of the project's chat list.
 func TestSkillChatPurpose(t *testing.T) {

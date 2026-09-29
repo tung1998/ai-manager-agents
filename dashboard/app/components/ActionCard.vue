@@ -122,7 +122,7 @@ async function decide(approve: boolean) {
       <div v-if="spec" class="mt-1 space-y-1 text-xs">
         <p class="text-(--ui-text-muted)">
           <UIcon name="i-lucide-clock" class="me-1 inline size-3.5 align-[-2px]" />{{ when }}
-          · {{ spec.action === 'script' ? t('auto.actionScript') : spec.action === 'task' ? t('auto.actionTask') : t('auto.actionChat') }}
+          · {{ spec.action === 'script' ? t('auto.actionScript') : t('auto.actionChat') }}
           <template v-if="spec.action === 'script'"> · {{ t(`auto.escalate.${spec.escalate?.when || 'failure'}` as MessageKey) }}</template>
         </p>
         <pre v-if="spec.script?.body" class="max-h-64 overflow-auto rounded bg-(--ui-bg-elevated) px-2 py-1 font-mono">{{ spec.script.lang }} ·

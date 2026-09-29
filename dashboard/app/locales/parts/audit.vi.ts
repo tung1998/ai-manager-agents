@@ -20,7 +20,6 @@ export default {
   'audit.colAfter': 'Sau',
   'audit.openChat': 'Mở chat',
   'audit.openJob': 'Xem job',
-  'audit.openTask': 'Mở việc',
   'audit.statTotal': 'Thay đổi (7 ngày)',
   'audit.statHuman': 'Do người',
   'audit.statAgent': 'Do agent',

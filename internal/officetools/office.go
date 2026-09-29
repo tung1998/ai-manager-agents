@@ -18,16 +18,13 @@ func (t *Toolbox) officeTools() []Tool {
 	project := map[string]any{"type": "string", "description": "Project: id hoặc tên (xem projects)"}
 	return []Tool{
 		{Name: "projects", Description: "Các project của office: id, tên, mô tả, thư mục. Gọi đầu tiên để biết việc thuộc project nào.", Schema: obj(map[string]any{})},
-		{Name: "jobs_query", Description: "Các lần chạy gần đây (chat, Việc, tự động hóa, script): trạng thái, chi phí, thời gian. Lọc theo project và trạng thái.",
+		{Name: "jobs_query", Description: "Các lần chạy gần đây (chat, tự động hóa, script): trạng thái, chi phí, thời gian. Lọc theo project và trạng thái.",
 			Schema: obj(map[string]any{"project": project, "status": map[string]any{"type": "string", "enum": []string{"running", "pending", "done", "failed", "cancelled"}},
 				"days": map[string]any{"type": "integer"}, "limit": map[string]any{"type": "integer"}})},
 		{Name: "usage_summary", Description: "Chi phí và token theo ngày, project hoặc model trong N ngày gần đây.",
 			Schema: obj(map[string]any{"days": map[string]any{"type": "integer", "description": "Mặc định 7"}, "by": map[string]any{"type": "string", "enum": []string{"day", "project", "model"}}})},
 		{Name: "handoff", Description: "Chuyển việc cần làm trong code sang Chat của một project: trả về liên kết mở Chat đó với tin nhắn soạn sẵn để người dùng gửi. Bạn không tự sửa code.",
 			Schema: obj(map[string]any{"project": project, "message": map[string]any{"type": "string", "description": "Tin nhắn cho trưởng nhóm của project"}}, "project", "message")},
-		{Name: "start_task", Description: "ĐỀ XUẤT giao một Việc cho một project (cả đội, hoặc một agent): người dùng duyệt trên thẻ rồi Việc mới bắt đầu.",
-			Schema: obj(map[string]any{"project": project, "goal": map[string]any{"type": "string"}, "agent": map[string]any{"type": "string", "description": "Tên agent (trống = cả đội)"},
-				"reason": map[string]any{"type": "string"}}, "project", "goal")},
 		{Name: "run_automation", Description: "ĐỀ XUẤT chạy ngay một tự động hóa (xem list resource=automation): người dùng duyệt trên thẻ.",
 			Schema: obj(map[string]any{"project": project, "id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"}}, "project", "id")},
 	}
@@ -160,7 +157,7 @@ func (t *Toolbox) officeCall(ctx context.Context, sc Scope, name string, raw jso
 			out = fmt.Sprintf("Liên kết mở Chat của %s với tin nhắn soạn sẵn (người dùng bấm vào rồi gửi): /projects/%s?tab=chat&draft=%s",
 				p.Name, p.ID, url.QueryEscape(in.Message))
 		}
-	case "start_task", "run_automation":
+	case "run_automation":
 		if t.actions == nil {
 			return "Không đề xuất được ở đây", true, true
 		}
@@ -171,11 +168,7 @@ func (t *Toolbox) officeCall(ctx context.Context, sc Scope, name string, raw jso
 		psc := sc
 		psc.ProjectID = p.ID
 		var a storage.Action
-		if name == "start_task" {
-			a, err = t.actions.Propose(ctx, psc, "start_task", in.Agent, in.Reason, storage.ActionArgs{Message: in.Goal})
-		} else {
-			a, err = t.actions.Propose(ctx, psc, "run_automation", in.ID, in.Reason)
-		}
+		a, err = t.actions.Propose(ctx, psc, "run_automation", in.ID, in.Reason)
 		if err == nil {
 			out = "Đã tạo thẻ duyệt: " + a.Target + " (" + p.Name + "). Người dùng duyệt thì mới chạy."
 		}

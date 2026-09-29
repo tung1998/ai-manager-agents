@@ -29,7 +29,6 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
-	"bitbucket.org/senprints/agent-office/internal/tasks"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
@@ -57,7 +56,6 @@ type Config struct {
 	Usage      *usage.Service
 	CLITools   *clitools.Manager // nil: installing/signing in CLIs from the dashboard is off
 	Chat       *chat.Engine
-	Tasks      *tasks.Service
 	Automation *automation.Service // nil: skills/agents/MCP management is off
 	Ops        *ops.Manager        // nil: running project processes is off
 	Monitors   *monitor.Service    // nil: health checks are off

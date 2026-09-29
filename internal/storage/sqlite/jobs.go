@@ -360,9 +360,9 @@ func (r jobRepo) FailRunning(ctx context.Context, errCode, errMsg string, at tim
 }
 
 // jobGroupKey names the work a job belongs to: its chat, else its task, else
-// its automation, else itself.
+// itself (each run of an automation is a piece of work of its own).
 const jobGroupKey = `CASE WHEN COALESCE(conversation_id,'')<>'' THEN 'c:'||conversation_id WHEN COALESCE(task_id,'')<>'' THEN 't:'||task_id
-	WHEN origin='automation' THEN 'a:'||origin_id ELSE 'j:'||id END`
+	ELSE 'j:'||id END`
 
 func (r jobRepo) Groups(ctx context.Context, f storage.JobFilter) ([]storage.JobGroup, error) {
 	if f.Limit <= 0 {
@@ -378,7 +378,7 @@ func (r jobRepo) Groups(ctx context.Context, f storage.JobFilter) ([]storage.Job
 	}
 	args = append(args, f.Limit)
 	// SQLite: the bare columns come from the row of MAX(created_at), the latest job
-	q := `SELECT g, project_id, kind, origin, COALESCE(origin_id,''), COALESCE(trigger,''), COALESCE(created_by,''), COALESCE(conversation_id,''), COALESCE(task_id,''), COALESCE(agent_id,''), COALESCE(title,''), status,
+	q := `SELECT g, id, project_id, kind, origin, COALESCE(origin_id,''), COALESCE(trigger,''), COALESCE(created_by,''), COALESCE(conversation_id,''), COALESCE(task_id,''), COALESCE(agent_id,''), COALESCE(title,''), status,
 		COUNT(*), SUM(status='failed'), SUM(status IN ('pending','running')), COALESCE(SUM(cost_usd),0), MAX(created_at)
 		FROM (SELECT *, ` + jobGroupKey + ` AS g FROM jobs` + w + `) GROUP BY g` + having + ` ORDER BY MAX(created_at) DESC, g DESC LIMIT ?`
 	rows, err := r.db.QueryContext(ctx, q, args...)
@@ -390,7 +390,7 @@ func (r jobRepo) Groups(ctx context.Context, f storage.JobFilter) ([]storage.Job
 	for rows.Next() {
 		var g storage.JobGroup
 		var last string
-		if err := rows.Scan(&g.Key, &g.ProjectID, &g.Kind, &g.Origin, &g.OriginID, &g.Trigger, &g.CreatedBy, &g.ConversationID, &g.TaskID, &g.AgentID,
+		if err := rows.Scan(&g.Key, &g.LatestID, &g.ProjectID, &g.Kind, &g.Origin, &g.OriginID, &g.Trigger, &g.CreatedBy, &g.ConversationID, &g.TaskID, &g.AgentID,
 			&g.Title, &g.Status, &g.Runs, &g.Failed, &g.Active, &g.CostUSD, &last); err != nil {
 			return nil, err
 		}

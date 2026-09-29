@@ -25,16 +25,12 @@ const (
 	dedupeTTL   = 10 * time.Minute
 )
 
-// Executor starts the content of a job: a chat turn or a task. It runs under
+// Executor starts the content of a job: a chat turn. It runs under
 // the job in ctx (usage.JobFrom) and returns when that content is finished.
 type Executor interface {
 	// RunChat sends prompt to agentID (conversationID "" = a new chat); it
 	// returns the conversation and the agent's final answer.
 	RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (conv, reply string, err error)
-	// RunTask gives goal to the project's team, or to one agent (agentID).
-	RunTask(ctx context.Context, projectID, agentID, goal, editMode string) (string, error)
-	// RunQueuedTask starts a task a person queued while the project was busy.
-	RunQueuedTask(ctx context.Context, projectID, payload string) (string, error)
 }
 
 // Runner schedules automations and runs queued jobs: two at a time office
@@ -150,7 +146,7 @@ reserve:
 
 func kindOf(action string) string {
 	switch action {
-	case "task", "script":
+	case "script":
 		return action
 	}
 	return "chat_turn"
@@ -238,11 +234,6 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		}
 		answer("", ErrNoAnswer, true)
 	}()
-	if j.Origin == "user" && j.Kind == "task" { // queued by a person while the project was busy
-		_, err := r.exec.RunQueuedTask(actor.With(jctx, j.CreatedBy), j.ProjectID, j.Payload)
-		r.settle(ctx, j, err)
-		return
-	}
 	a, err := r.store.Automations().Get(ctx, j.OriginID)
 	if err != nil {
 		finish("failed", "agent_missing", "tự động hóa không còn")
@@ -278,52 +269,38 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 			}
 		}
 	}
-	if a.Action == "script" && j.ParentJobID == "" && !(fromChannel && channelPayloadOf(origin).Action == "task") {
+	if a.Action == "script" {
 		r.runScriptJob(ctx, a, j, now, answer)
 		return
 	}
-	action, agentID, prompt := a.Action, a.AgentID, promptFor(a, j, now, loc)
-	if j.ParentJobID != "" { // an agent called in by a script (ADR-041)
-		action, agentID, prompt = firstNonEmpty(a.Escalate.Action, "chat"), a.Escalate.AgentID, escalationPrompt(a, j, now, loc)
-	}
+	agentID, prompt := a.AgentID, promptFor(a, j, now, loc)
 	who := "auto:" + a.Name
 	if fromChannel { // the person who wrote to the bot, as the channel names them
 		if p := channelPayloadOf(origin); p.User != "" {
 			who = origin.Trigger + ":" + p.User
 		}
-		if channelPayloadOf(origin).Action == "task" && j.ParentJobID == "" {
-			action = "task"
-		}
 	}
 	actx := WithModelTier(actor.With(jctx, who), a.ModelTier)
-	if fromChannel && action == "chat" && j.ParentJobID == "" { // a reply: the admin's words go to the system prompt
+	if fromChannel { // a reply: the admin's words go to the system prompt
 		var instr string
 		prompt, instr = replyPrompt(a, j, now, loc)
 		actx = WithSkill(WithInstructions(actx, instr), a.Config.Skill)
 	}
 	keptConv, text := "", ""
-	if action == "task" {
-		var id string
-		id, err = r.exec.RunTask(actx, a.ProjectID, agentID, prompt, a.EditMode)
-		if task, gerr := r.store.Tasks().Get(ctx, id); gerr == nil && id != "" {
-			text = firstNonEmpty(task.Result, task.Detail)
-		}
-	} else {
-		conv := ""
-		if a.KeepContext {
-			conv = a.Config.ConversationID
-		}
-		if fromChannel && j.ParentJobID == "" {
-			conv = channelPayloadOf(origin).ConversationID // the outside chat's own conversation
-		}
-		if fromChannel && r.onReply != nil { // the team's reports, after the answer, go to the chat too
-			actx = WithFollowUp(actx, func(t string) { r.onReply(context.WithoutCancel(ctx), origin, t, nil, true) })
-		}
-		var got string
-		got, text, err = r.exec.RunChat(actx, a.ProjectID, agentID, conv, prompt, a.EditMode)
-		if a.KeepContext && !fromChannel && got != "" && got != a.Config.ConversationID {
-			keptConv = got
-		}
+	conv := ""
+	if a.KeepContext {
+		conv = a.Config.ConversationID
+	}
+	if fromChannel {
+		conv = channelPayloadOf(origin).ConversationID // the outside chat's own conversation
+	}
+	if fromChannel && r.onReply != nil { // the team's reports, after the answer, go to the chat too
+		actx = WithFollowUp(actx, func(t string) { r.onReply(context.WithoutCancel(ctx), origin, t, nil, true) })
+	}
+	var got string
+	got, text, err = r.exec.RunChat(actx, a.ProjectID, agentID, conv, prompt, a.EditMode)
+	if a.KeepContext && !fromChannel && got != "" && got != a.Config.ConversationID {
+		keptConv = got
 	}
 	r.settle(ctx, j, err)
 	if errors.Is(err, ErrBusy) {
@@ -403,7 +380,6 @@ type ChannelPayload struct {
 	ChatID         string `json:"chat_id"`
 	ChannelID      string `json:"channel_id"`
 	ConversationID string `json:"conversation_id,omitempty"` // action chat: the outside chat's conversation
-	Action         string `json:"action,omitempty"`          // "task": /job, whatever the rule's own action
 }
 
 // IsChannel says whether a job's trigger is a chat channel.

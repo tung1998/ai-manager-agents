@@ -1418,3 +1418,16 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Sidebar project không còn tab **Việc**. Việc vẫn được tạo từ tự động hóa, `/job` và trợ lý. Trang chi tiết Việc (`?tab=tasks&task=…`) vẫn mở được qua link từ Tổng quan, trang Job và thông báo. Dữ liệu Việc cũ giữ nguyên.
 - Vẫn giữ: nhiều Việc chạy song song trong worktree riêng, chỉ Việc sửa thẳng mới chạy một mình.
 - (bổ sung) Chat từ bot cũng nhận **@tag**, như chat trên web (ADR-044). Mỗi agent được tag trả lời thành một tin riêng gửi về kênh. Khi tin nhắn có nhiều agent trả lời, mỗi tin mở đầu bằng `Tên agent:` để người đọc biết ai đang nói.
+
+## ADR-057: Bỏ hẳn Việc
+
+**Bối cảnh.** Sau ADR-056, các lối còn lại vào Việc (hành động "Giao Việc", nhờ đội khi script lỗi, `/job`, `start_task` của trợ lý) chỉ gây rối. Người dùng muốn mọi việc đi qua chat.
+
+**Quyết định.**
+- Tự động hóa chỉ còn 2 hành động:
+  - **Chat:** với bot là agent trả lời; với lịch và webhook là "Gửi cho agent", agent làm theo quyền của nó và có thể giao việc cho đội bằng delegate.
+  - **Script.**
+- Script không còn gọi agent nào (bỏ escalate). Bỏ `/job`. Bỏ `start_task` của trợ lý.
+- Gỡ package `internal/tasks`, các API `/api/tasks/*`, trang Việc (TaskPanel, TaskList) và mọi link tới Việc. Link cũ `?tab=tasks` mở Chat.
+- Dữ liệu Việc cũ (bảng tasks, job kind `task`) vẫn giữ. Trang Job hiện Việc cũ như một dòng, bấm vào mở chi tiết job.
+- Trang Job: mỗi lần chạy tự động hóa là một dòng riêng. Lượt chat gom theo cuộc chat.

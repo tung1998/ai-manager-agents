@@ -287,37 +287,6 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 		t.Fatal("the skill command did not expand its skill")
 	}
 
-	// review I2: /job needs a task automation of the bot (a Q&A bot does not
-	// become one that starts team tasks)
-	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", UserName: "cuong", Text: "/job sửa lỗi thanh toán", Addressed: true}
-	if got := bot.wait(t, "43", 1); !strings.Contains(got[0], "Giao Việc") {
-		t.Fatalf("/job without a task automation = %v", got)
-	}
-	bot.mu.Lock()
-	bot.sent["43"] = nil
-	bot.mu.Unlock()
-	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Báo lỗi", Source: "telegram", Action: "task", Enabled: true,
-		Config: storage.AutomationConfig{ChannelID: ch.ID, Command: "bao-loi", CommandArg: "mô tả"}})
-	// /job gives work to the team through the bot's task automation
-	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", UserName: "cuong", Text: "/job sửa lỗi thanh toán", Addressed: true}
-	if got := bot.wait(t, "43", 1); !strings.Contains(got[0], "Đã nhận việc") {
-		t.Fatalf("job ack = %v", got)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		tasks, _ := st.Jobs().List(ctx, storage.JobFilter{ProjectID: project.ID, Kind: "task"})
-		if len(tasks) == 1 && tasks[0].Trigger == "telegram" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("no task job: %+v", tasks)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	bot.mu.Lock()
-	bot.sent["43"] = nil
-	bot.mu.Unlock()
-
 	bot.in <- channels.Incoming{ChatID: "44", UserID: "9", UserName: "binh", Text: "tra mã giúp", Private: true, Addressed: true}
 	if got := bot.wait(t, "44", 1); got[0] != "Mã của binh: OK" {
 		t.Fatalf("script answer = %v", got)

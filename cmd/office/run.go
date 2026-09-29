@@ -35,7 +35,6 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
-	"bitbucket.org/senprints/agent-office/internal/tasks"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 )
 
@@ -105,14 +104,9 @@ func serveCmd() *cobra.Command {
 			mcp := mcpserver.New(office, version)
 			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")
 			monitors := monitor.New(a.store, procs, chatEngine)
-			taskSvc := tasks.New(a.store, chatEngine)
-			// schedules and webhooks start chats and tasks as jobs (ADR-040)
-			runner := trigger.New(a.store, officeExecutor{chat: chatEngine, tasks: taskSvc})
+			// schedules and webhooks start chats as jobs (ADR-040)
+			runner := trigger.New(a.store, officeExecutor{chat: chatEngine})
 			go runner.Run(ctx)
-			// tasks from before jobs existed get theirs: the Jobs page shows the whole history
-			if err := tasks.BackfillJobs(ctx, a.store); err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "office: không bù được job cho Việc cũ: %v\n", err)
-			}
 			// the office assistant: a hidden project whose chats span projects (ADR-046)
 			if _, err := assistant.Ensure(ctx, a.store, a.org, filepath.Join(h.Dir, "assistant")); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "office: không dựng được trợ lý office: %v\n", err)
@@ -120,7 +114,7 @@ func serveCmd() *cobra.Command {
 			assistantID := func(ctx context.Context) string { return assistant.ID(ctx, a.store) }
 			office.SetOffice(assistantID)
 			chatEngine.SetAssistant(assistantID)
-			acts.SetRunner(assistantRunner{store: a.store, tasks: taskSvc, trigger: runner})
+			acts.SetRunner(assistantRunner{store: a.store, trigger: runner})
 			// Telegram / Discord bots: their messages are automations' triggers (ADR-048, ADR-049)
 			if err := channels.MigrateRules(ctx, a.store); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "office: không chuyển được kênh sang quy tắc: %v\n", err)
@@ -168,7 +162,6 @@ func serveCmd() *cobra.Command {
 				Usage:      a.usage,
 				CLITools:   cliTools,
 				Chat:       chatEngine,
-				Tasks:      taskSvc,
 				Trigger:    runner,
 				Automation: newAutomation(a, h),
 				Ops:        procs,

@@ -83,7 +83,6 @@ function openJob(j: Job) {
     prefill.value = { text: '', files: [], conversationId: j.conversation_id }
     return navigateTo({ path: `/projects/${j.project_id}`, query: { tab: 'chat' } })
   }
-  if (j.task_id) return navigateTo({ path: `/projects/${j.project_id}`, query: { tab: 'tasks', task: j.task_id } })
 }
 // how many filters differ from the default (shown on the filter icon)
 const activeFilters = computed(() => [!!kind.value, !!via.value, !!resource.value && !props.filter?.resource, !!project.value && !props.filter?.project, since.value !== '168h'].filter(Boolean).length)
@@ -141,7 +140,6 @@ defineExpose({ reload: () => load() })
                   <span class="mr-1 text-xs text-(--ui-text-muted)">{{ label('audit.via.', e.via) }}</span>
                   <UButton v-if="e.conversation_id && e.project_id" size="xs" color="neutral" variant="ghost" icon="i-lucide-messages-square" :title="t('audit.openChat')" :aria-label="t('audit.openChat')" @click="openChat(e)" />
                   <UButton v-if="e.job_id" size="xs" color="neutral" variant="ghost" icon="i-lucide-list-checks" :title="t('audit.openJob')" :aria-label="t('audit.openJob')" @click="jobId = e.job_id" />
-                  <UButton v-if="e.task_id && e.project_id" size="xs" color="neutral" variant="ghost" icon="i-lucide-list-todo" :title="t('audit.openTask')" :aria-label="t('audit.openTask')" :to="{ path: `/projects/${e.project_id}`, query: { tab: 'tasks', task: e.task_id } }" />
                 </td>
               </tr>
               <tr v-if="open === e.id" class="border-b border-(--ui-border) bg-(--ui-bg-elevated)/30">

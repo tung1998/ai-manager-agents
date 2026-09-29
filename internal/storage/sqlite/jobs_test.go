@@ -232,20 +232,21 @@ func TestJobGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(gs) != 3 {
+	if len(gs) != 4 {
 		t.Fatalf("groups = %+v", gs)
 	}
 	if gs[0].TaskID != "tsk_1" || gs[0].Active != 1 {
 		t.Fatalf("newest = %+v", gs[0])
 	}
-	if gs[1].OriginID != "aut_1" || gs[1].Runs != 2 || gs[1].Title != "chạy 2" {
-		t.Fatalf("automation = %+v", gs[1])
+	// each automation run is its own
+	if gs[1].OriginID != "aut_1" || gs[1].Runs != 1 || gs[1].Title != "chạy 2" || gs[2].Title != "chạy 1" {
+		t.Fatalf("automation runs = %+v %+v", gs[1], gs[2])
 	}
-	if gs[2].ConversationID != "cnv_1" || gs[2].Runs != 2 || gs[2].Failed != 1 || gs[2].Status != "failed" {
-		t.Fatalf("chat = %+v", gs[2])
+	if gs[3].ConversationID != "cnv_1" || gs[3].Runs != 2 || gs[3].Failed != 1 || gs[3].Status != "failed" {
+		t.Fatalf("chat = %+v", gs[3])
 	}
 	// the next page starts after the last one shown
-	more, err := st.Jobs().Groups(ctx, storage.JobFilter{ProjectID: p.ID, Limit: 10, Before: gs[1].Key})
+	more, err := st.Jobs().Groups(ctx, storage.JobFilter{ProjectID: p.ID, Limit: 10, Before: gs[2].Key})
 	if err != nil || len(more) != 1 || more[0].ConversationID != "cnv_1" {
 		t.Fatalf("next page = %+v %v", more, err)
 	}

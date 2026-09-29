@@ -50,25 +50,12 @@ func (f *fakeExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt
 		return "", "", trigger.ErrBusy
 	}
 	f.chats = append(f.chats, prompt)
+	f.tiers = append(f.tiers, trigger.ModelTierOf(ctx))
+	f.actors = append(f.actors, actor.From(ctx))
 	if f.fail {
 		return "cnv_x", "", errors.New("HTTP 529")
 	}
 	return "cnv_x", "", nil
-}
-func (f *fakeExec) RunTask(ctx context.Context, projectID, agentID, goal, edit string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.tasks = append(f.tasks, agentID+"|"+goal)
-	f.tiers = append(f.tiers, trigger.ModelTierOf(ctx))
-	f.actors = append(f.actors, actor.From(ctx))
-	f.goals = append(f.goals, goal)
-	if f.taskID != "" {
-		return f.taskID, nil
-	}
-	return "tsk_x", nil
-}
-func (f *fakeExec) RunQueuedTask(ctx context.Context, projectID, payload string) (string, error) {
-	return "tsk_q", nil
 }
 
 func TestScheduleRunsOnceAndNoOverlap(t *testing.T) {
@@ -140,24 +127,6 @@ func TestRestartedJobDoesNotRunAgain(t *testing.T) {
 	}
 }
 
-// A task automation can go to one agent (its daily job) instead of the team.
-func TestTaskAutomationForOneAgent(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	ex := &fakeExec{}
-	r := trigger.New(st, ex)
-	past := time.Now().UTC().Add(-time.Minute)
-	st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "daily", Source: "schedule", Action: "task", AgentID: "agt_1", Enabled: true,
-		Prompt: "báo cáo", Config: storage.AutomationConfig{EveryMinutes: 60}, NextRunAt: &past})
-	r.Tick(ctx, time.Now().UTC())
-	r.Wait()
-	ex.mu.Lock()
-	defer ex.mu.Unlock()
-	if len(ex.tasks) != 1 || ex.tasks[0] != "agt_1|báo cáo" {
-		t.Fatalf("tasks = %v", ex.tasks)
-	}
-}
-
 // An automation can ask for a cheaper model tier for its runs.
 func TestAutomationModelTier(t *testing.T) {
 	ctx := context.Background()
@@ -165,7 +134,7 @@ func TestAutomationModelTier(t *testing.T) {
 	ex := &fakeExec{}
 	r := trigger.New(st, ex)
 	past := time.Now().UTC().Add(-time.Minute)
-	st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "daily", Source: "schedule", Action: "task", Enabled: true, ModelTier: "fast",
+	st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "daily", Source: "schedule", Action: "chat", Enabled: true, ModelTier: "fast",
 		Prompt: "báo cáo", Config: storage.AutomationConfig{EveryMinutes: 60}, NextRunAt: &past})
 	r.Tick(ctx, time.Now().UTC())
 	r.Wait()

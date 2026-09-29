@@ -35,8 +35,8 @@ func (s *Spec) Check() error {
 		return errors.New("tự động hóa cần tên")
 	case s.Source != "schedule" && s.Source != "webhook":
 		return errors.New("nguồn phải là schedule hoặc webhook")
-	case s.Action != "script" && s.Action != "chat" && s.Action != "task":
-		return errors.New("hành động phải là script, chat hoặc task")
+	case s.Action != "script" && s.Action != "chat":
+		return errors.New("hành động phải là script hoặc chat")
 	}
 	if s.Source == "schedule" {
 		if err := Validate(s.config()); err != nil {
@@ -52,16 +52,6 @@ func (s *Spec) Check() error {
 		}
 		if s.Script.TimeoutS < 0 || time.Duration(s.Script.TimeoutS)*time.Second > MaxScriptTimeout {
 			return errors.New("timeout của script từ 1 tới 3600 giây")
-		}
-		switch s.Escalate.When {
-		case "", "never", "failure", "signal":
-		default:
-			return errors.New("escalate.when phải là never, failure hoặc signal")
-		}
-		switch s.Escalate.Action {
-		case "", "chat", "task":
-		default:
-			return errors.New("escalate.action phải là chat hoặc task")
 		}
 	}
 	return nil
@@ -84,10 +74,7 @@ func (s Spec) Apply(a *storage.Automation, now time.Time) {
 		cfg.Auth = "bearer"
 	}
 	a.Name, a.Source, a.Action, a.AgentID, a.Prompt, a.Config = s.Name, s.Source, s.Action, s.AgentID, s.Prompt, cfg
-	a.Script, a.Escalate = s.Script, s.Escalate
-	if a.Escalate.When == "" && a.Action == "script" {
-		a.Escalate.When = "failure"
-	}
+	a.Script, a.Escalate = s.Script, storage.AutomationEscalate{} // a script calls no agent in (ADR-057)
 	a.NextRunAt = nil
 	if a.Source == "schedule" {
 		if next, err := Next(a.Config, now); err == nil {

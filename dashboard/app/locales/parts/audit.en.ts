@@ -21,7 +21,6 @@ const en: Record<keyof typeof vi, string> = {
   'audit.colAfter': 'After',
   'audit.openChat': 'Open chat',
   'audit.openJob': 'View job',
-  'audit.openTask': 'Open task',
   'audit.statTotal': 'Changes (7 days)',
   'audit.statHuman': 'By people',
   'audit.statAgent': 'By agents',

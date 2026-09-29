@@ -91,8 +91,8 @@ type JobRepo interface {
 	Debounce(ctx context.Context, id, payload string, next time.Time) (bool, error)
 	// ClearDedupe frees a dedupe key whose window has passed.
 	ClearDedupe(ctx context.Context, originID, key string) error
-	// Groups gathers jobs by the work they belong to (a chat, a task, an
-	// automation's runs), the latest active first; f.Before is a group's key.
+	// Groups gathers jobs by the work they belong to (a chat's turns, a task;
+	// an automation run is one of its own), the latest active first; f.Before is a group's key.
 	Groups(ctx context.Context, f JobFilter) ([]JobGroup, error)
 	// Stats groups jobs by day, kind, origin, agent or status.
 	Stats(ctx context.Context, f JobFilter, by string) ([]JobStats, error)
@@ -192,7 +192,8 @@ type AutomationRepo interface {
 // JobGroup is the jobs of one piece of work: a chat's turns, a task, an
 // automation's runs (the latest job's fields describe it).
 type JobGroup struct {
-	Key            string // c:<conversation> | t:<task> | a:<automation> | j:<job>
+	Key            string // c:<conversation> | t:<task> | j:<job>
+	LatestID       string // the latest job's id
 	ProjectID      string
 	Kind           string
 	Origin         string

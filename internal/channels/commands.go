@@ -20,7 +20,6 @@ type Command struct {
 // Builtins are the commands every bot has.
 func Builtins() []Command {
 	return []Command{
-		{"job", "Giao việc cho đội", "việc cần làm"},
 		{"create-conversation", "Bắt đầu hội thoại: bot nhớ những gì bạn nói ở đây", ""},
 		{"close-conversation", "Kết thúc hội thoại: mỗi tin được trả lời riêng", ""},
 		{"cho-duyet", "Xem những gì agent đề xuất đang chờ duyệt", ""},

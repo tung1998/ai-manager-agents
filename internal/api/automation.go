@@ -228,19 +228,3 @@ func (s *server) mcpRegistry(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": list})
 }
-
-// jobs lists tasks of every project (the Jobs page).
-func (s *server) jobs(w http.ResponseWriter, r *http.Request) {
-	list, err := s.cfg.Tasks.List(r.Context(), "")
-	if err != nil {
-		s.internal(w, r, err)
-		return
-	}
-	names := map[string]string{}
-	if repos, err := s.cfg.Store.Repos().List(r.Context()); err == nil {
-		for _, p := range repos {
-			names[p.ID] = p.Name
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": list, "projects": names})
-}

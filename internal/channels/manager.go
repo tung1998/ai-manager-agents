@@ -220,7 +220,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 			return
 		}
 	}
-	if isCmd && cmd != "job" { // /create-conversation, /close-conversation
+	if isCmd { // /create-conversation, /close-conversation
 		say(m.setKeep(ctx, ch.ID, in.ChatID, cmd == "create"))
 		return
 	}
@@ -237,16 +237,6 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		}
 	}
 	if custom {
-	} else if cmd == "job" { // /job <what>: a task, through the bot's automation (its agent, limits, costs)
-		if arg == "" {
-			say("Hãy ghi việc cần làm sau lệnh, ví dụ: /job sửa lỗi thanh toán đơn 123")
-			return
-		}
-		if rule, ok = m.jobRule(ctx, ch); !ok {
-			say("Bot này chưa bật giao việc: cần một lệnh có hành động Giao Việc.")
-			return
-		}
-		in.Text = arg
 	} else if r, replied := m.repliedRule(ctx, ch, in); replied { // a reply goes on with what it replies to
 		rule, ok = r, true
 	} else {
@@ -263,9 +253,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		return
 	}
 	p := trigger.ChannelPayload{Message: in.Text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID}
-	if cmd == "job" {
-		p.Action, rule.Action = "task", "task" // the job is a task (rule is a copy; the runner reads Action from the payload)
-	} else if rule.Action == "chat" {
+	if rule.Action == "chat" {
 		agent, err := m.agent(ctx, ch.ProjectID, rule.AgentID)
 		if err != nil {
 			say("Bot chưa sẵn sàng.")
@@ -283,7 +271,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	if err == nil && status == "queued" {
 		tctx, stop := context.WithCancel(m.root)
 		w := waiter{key: key, typing: stop}
-		if custom && rule.Action != "task" {
+		if custom {
 			w.respond = in.Respond // the answer edits the slash command's "thinking…"
 		}
 		m.waiting[job.ID] = w
@@ -295,9 +283,6 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		slog.Error("channels: enqueue", "channel", ch.ID, "err", err)
 		say("Xin lỗi, mình chưa nhận được tin này.")
 		return
-	}
-	if (rule.Action == "task" || cmd == "job") && status == "queued" {
-		say("Đã nhận việc: " + truncate(in.Text, 200) + "\nĐội đang xử lý, xong mình báo lại nhé.")
 	}
 	m.runner.StartReady(m.root, time.Now().UTC())
 }
@@ -435,22 +420,6 @@ func (m *Manager) pick(ctx context.Context, project storage.Repo, ch storage.Cha
 	return storage.Automation{}, false
 }
 
-// jobRule is the automation /job goes through: the bot's first enabled one
-// that gives tasks. None: /job is off for this bot, so a Q&A bot never starts
-// team tasks (review I2).
-func (m *Manager) jobRule(ctx context.Context, ch storage.Channel) (storage.Automation, bool) {
-	list, err := m.store.Automations().List(ctx, ch.ProjectID)
-	if err != nil {
-		return storage.Automation{}, false
-	}
-	for _, a := range list {
-		if a.Enabled && a.Source == ch.Kind && a.Config.ChannelID == ch.ID && a.Action == "task" {
-			return a, true
-		}
-	}
-	return storage.Automation{}, false
-}
-
 // agent is the rule's agent ("" = the project's lead).
 func (m *Manager) agent(ctx context.Context, projectID, agentID string) (storage.Agent, error) {
 	agents, err := m.engine.Agents(ctx, projectID)
@@ -509,8 +478,6 @@ func command(text string) (cmd, arg string, ok bool) {
 		return "create", "", rest == ""
 	case "close-conversation", "close-conversion":
 		return "close", "", rest == ""
-	case "job":
-		return "job", rest, true
 	case "cho-duyet":
 		return "pending", "", true
 	case "duyet":

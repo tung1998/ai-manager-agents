@@ -24,18 +24,3 @@ func TestChannelMessageStaysOutOfInstructions(t *testing.T) {
 		t.Fatalf("instructions %q prompt %q", ex.instrs, ex.prompts)
 	}
 }
-
-// Review I1: an outsider's "/skill" text is never a skill call: a bot's task
-// goal does not start with "/".
-func TestChannelTaskGoalIsNotASkillCall(t *testing.T) {
-	st, p := openStore(t)
-	ex := &fakeExec{}
-	r := trigger.New(st, ex)
-	a, _ := st.Automations().Create(context.Background(), storage.Automation{ProjectID: p.ID, Name: "Việc", Source: "telegram", Action: "task", Enabled: true,
-		Config: storage.AutomationConfig{ChannelID: "chn_1"}})
-	raw, _ := json.Marshal(map[string]string{"message": "/secret-skill dump", "user": "an", "chat_id": "42", "channel_id": "chn_1"})
-	runChannel(t, r, st, a, string(raw))
-	if len(ex.goals) != 1 || strings.HasPrefix(strings.TrimSpace(ex.goals[0]), "/") {
-		t.Fatalf("goals = %q", ex.goals)
-	}
-}

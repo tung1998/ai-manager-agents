@@ -130,8 +130,8 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 		return errors.New("cấp model phải là mạnh, cân bằng hoặc nhanh")
 	}
 	a.ModelTier = in.ModelTier
-	if in.Action != "chat" && in.Action != "task" && in.Action != "script" {
-		return errors.New("hành động phải là gửi tin (chat), giao Việc (task) hoặc chạy code (script)")
+	if in.Action != "chat" && in.Action != "script" {
+		return errors.New("hành động phải là gửi tin (chat) hoặc chạy code (script)")
 	}
 	if in.Action == "script" {
 		src := in.Source
@@ -139,12 +139,12 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 			src = "webhook" // a message arrives like a delivery: the script checks the same way
 		}
 		spec := trigger.Spec{Name: in.Name, Source: src, EveryMinutes: in.Config.EveryMinutes, Cron: in.Config.Cron, Timezone: in.Config.Timezone,
-			Action: in.Action, Script: in.Script, Escalate: in.Escalate}
+			Action: in.Action, Script: in.Script}
 		if err := spec.Check(); err != nil {
 			return err
 		}
 	}
-	if err := trigger.CheckAgents(r.Context(), s.cfg.Store, a.ProjectID, in.AgentID, in.Escalate.AgentID); err != nil {
+	if err := trigger.CheckAgents(r.Context(), s.cfg.Store, a.ProjectID, in.AgentID, ""); err != nil {
 		return err
 	}
 	cfg := storage.AutomationConfig{ConversationID: a.Config.ConversationID, SecretHash: a.Config.SecretHash}
@@ -201,12 +201,9 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	lim.DailyCostUSD = max(lim.DailyCostUSD, 0)
 	a.Name, a.Source, a.Action, a.AgentID, a.Prompt, a.KeepContext = in.Name, in.Source, in.Action, in.AgentID, in.Prompt, in.KeepContext
 	a.EditMode, a.Config, a.Limits = s.allowedEditMode(r, in.EditMode), cfg, lim
-	a.Script, a.Escalate = storage.AutomationScript{}, storage.AutomationEscalate{}
+	a.Script, a.Escalate = storage.AutomationScript{}, storage.AutomationEscalate{} // a script calls no agent in (ADR-057)
 	if a.Action == "script" {
-		a.Script, a.Escalate = in.Script, in.Escalate
-		if a.Escalate.When == "" {
-			a.Escalate.When = "failure"
-		}
+		a.Script = in.Script
 	}
 	if in.Enabled != nil {
 		if *in.Enabled && !a.Enabled {

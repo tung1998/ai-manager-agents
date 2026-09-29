@@ -96,13 +96,15 @@ const agentName = (id: string) => agentsData.value?.agents.find(a => a.id === id
 function summary(c: Cmd) {
   const d = c.draft
   if (d.action === 'script') return t('bot.doScript')
-  if (d.action === 'task') return t('bot.doTask', { agent: d.agent_id ? agentName(d.agent_id) : t('auto.assignTeam') })
   return t('bot.doReply', { agent: agentName(d.agent_id) })
 }
 const systemCommands = computed(() => [
-  { name: 'job', arg: t('cmd.jobArg'), desc: t('cmd.job') },
   { name: 'create-conversation', arg: '', desc: t('cmd.create') },
-  { name: 'close-conversation', arg: '', desc: t('cmd.close') }
+  { name: 'close-conversation', arg: '', desc: t('cmd.close') },
+  { name: 'cho-duyet', arg: '', desc: t('cmd.pending') },
+  { name: 'duyet', arg: t('cmd.numberArg'), desc: t('cmd.approve') },
+  { name: 'tu-choi', arg: t('cmd.numberArg'), desc: t('cmd.reject') },
+  { name: 'mode', arg: 'duyet | thang', desc: t('cmd.mode') }
 ])
 const keywordsText = (c: Cmd) => (c.draft.config.keywords ?? []).join(', ')
 const setKeywords = (c: Cmd, v: string) => { c.draft.config.keywords = v.split(/[,\n]/).map(s => s.trim()).filter(Boolean) }

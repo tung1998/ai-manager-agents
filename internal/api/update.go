@@ -58,9 +58,6 @@ func (s *server) busyWork() map[string]int {
 	if s.cfg.Chat != nil {
 		b["chats"] = s.cfg.Chat.ActiveTurns()
 	}
-	if s.cfg.Tasks != nil {
-		b["tasks"] = s.cfg.Tasks.Running()
-	}
 	return b
 }
 

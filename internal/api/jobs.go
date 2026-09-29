@@ -204,10 +204,6 @@ func (s *server) cancelJob(w http.ResponseWriter, r *http.Request) {
 		if t, ok := s.cfg.Chat.TurnByJob(j.ID); ok { // a hand-off in the background has its own job
 			t.Cancel()
 		}
-	case j.Status == "running" && j.Kind == "task" && j.TaskID != "":
-		if l, ok := s.cfg.Tasks.Live(j.TaskID); ok {
-			l.Cancel()
-		}
 	default:
 		writeError(w, http.StatusConflict, "job này không còn chạy")
 		return
@@ -249,14 +245,6 @@ func (s *server) retryJob(w http.ResponseWriter, r *http.Request) {
 		s.cfg.Trigger.StartReady(detached(r), time.Now().UTC())
 		s.auditAction(r, "job.retry", j.ID, map[string]any{"job": nj.ID})
 		writeJSON(w, http.StatusAccepted, map[string]any{"job": s.toJobDTO(r, nj, nil)})
-	case j.Kind == "task" && j.TaskID != "":
-		t, err := s.cfg.Tasks.Retry(r.Context(), j.TaskID, true, "", "")
-		if err != nil {
-			s.writeDomainError(w, r, err)
-			return
-		}
-		s.auditAction(r, "job.retry", j.ID, map[string]any{"task": t.ID})
-		writeJSON(w, http.StatusAccepted, map[string]any{"task_id": t.ID})
 	default:
 		writeError(w, http.StatusBadRequest, "job này chạy lại từ cuộc Chat")
 	}
@@ -311,19 +299,20 @@ func (s *server) jobGroups(w http.ResponseWriter, r *http.Request) {
 			if c, err := s.cfg.Store.Chat().GetConversation(ctx, g.ConversationID); err == nil && c.Title != "" {
 				d.Title = c.Title
 			}
-		case "t:":
-			d.Kind, d.Link = "task", base+"?tab=tasks&task="+g.TaskID
+		case "t:": // a task from before Việc was dropped (ADR-057): its latest job
+			d.Kind, d.JobID = "task", g.LatestID
 			if t, err := s.cfg.Store.Tasks().Get(ctx, g.TaskID); err == nil {
 				d.Title = t.Title
 			}
-		case "a:":
-			d.Kind, d.Link = "automation", base+"/automations/"+g.OriginID
-			d.Title = firstNonEmptyStr(look(n.automations, g.OriginID, func() (string, error) {
-				a, err := s.cfg.Store.Automations().Get(ctx, g.OriginID)
-				return a.Name, err
-			}), g.Title)
-		default:
+		default: // one run: an automation's (named after it) or a job of its own
 			d.Kind, d.JobID = "job", strings.TrimPrefix(g.Key, "j:")
+			if g.Origin == "automation" {
+				d.Kind = "automation"
+				d.Title = firstNonEmptyStr(look(n.automations, g.OriginID, func() (string, error) {
+					a, err := s.cfg.Store.Automations().Get(ctx, g.OriginID)
+					return a.Name, err
+				}), g.Title)
+			}
 		}
 		d.ProjectName = look(n.projects, g.ProjectID, func() (string, error) {
 			p, err := s.cfg.Store.Repos().Get(ctx, g.ProjectID)

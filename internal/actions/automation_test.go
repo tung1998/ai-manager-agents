@@ -43,7 +43,7 @@ func TestProposeAutomation(t *testing.T) { // ADR-041
 		t.Fatalf("decide = %+v %v", done, err)
 	}
 	list, _ := st.Automations().List(ctx, proj.ID)
-	if len(list) != 1 || !list[0].Enabled || list[0].NextRunAt == nil || list[0].Script.Lang != "bash" || list[0].Escalate.When != "signal" || list[0].CreatedBy != "human:a@b.c" {
+	if len(list) != 1 || !list[0].Enabled || list[0].NextRunAt == nil || list[0].Script.Lang != "bash" || list[0].Escalate.When != "" || list[0].CreatedBy != "human:a@b.c" {
 		t.Fatalf("automations = %+v", list)
 	}
 	// update: the script changes, the rest stays

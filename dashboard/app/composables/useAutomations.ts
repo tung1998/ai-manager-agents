@@ -50,7 +50,7 @@ export interface AutomationLimits {
   debounce_max_seconds?: number
 }
 export interface AutomationScript { lang: 'bash' | 'node' | 'python', body: string, timeout_s?: number }
-export interface AutomationEscalate { when: 'never' | 'failure' | 'signal', action: 'chat' | 'task', agent_id: string, prompt: string }
+export interface AutomationEscalate { when: 'never' | 'failure' | 'signal', action: 'chat' | 'task', agent_id: string, prompt: string } // kept for old ones: never runs (ADR-057)
 export interface Automation {
   id: string
   project_id: string
@@ -58,7 +58,7 @@ export interface Automation {
   enabled: boolean
   source: 'schedule' | 'webhook' | 'telegram' | 'discord'
   config: AutomationConfig
-  action: 'chat' | 'task' | 'script'
+  action: 'chat' | 'script'
   agent_id: string
   prompt: string
   edit_mode: 'worktree' | 'direct'
@@ -134,7 +134,7 @@ export function emptyDraft(): AutomationDraft {
     bot: { token: '', allow: [], refusal: '' },
     action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', model_tier: '', keep_context: false,
     script: { lang: 'bash', body: '', timeout_s: 300 },
-    escalate: { when: 'failure', action: 'task', agent_id: '', prompt: '' },
+    escalate: { when: 'never', action: 'chat', agent_id: '', prompt: '' }, // a script calls no agent in (ADR-057)
     limits: { max_runs_per_hour: 0, daily_cost_usd: 0, disable_after_failures: 5, debounce_seconds: 0, debounce_key: '', debounce_max_seconds: 0 }
   }
 }
@@ -147,18 +147,15 @@ export function draftFrom(a: Automation): AutomationDraft {
     bot: { token: '', allow: [...(a.bot?.allow ?? [])], refusal: a.bot?.refusal ?? '' },
     script: { ...e.script, ...(b.script?.lang ? b.script : {}) }, escalate: { ...e.escalate, ...(b.escalate?.when ? b.escalate : {}) }
   }
-  // "message an agent" is gone: it opens as a task for the same agent (a
-  // channel's rule keeps it: the agent answers in the outside chat)
-  if (d.action === 'chat' && !isChannelSource(d.source)) d.action = 'task'
-  if (d.escalate.action === 'chat') d.escalate.action = 'task'
+  if ((d.action as string) === 'task') d.action = 'chat' // Giao Việc is gone (ADR-057): the agent gets the message
   return d
 }
 
 const draftObjects = ['config', 'limits', 'script', 'escalate', 'bot'] as const
 const draftScalars = ['name', 'enabled', 'source', 'action', 'agent_id', 'prompt', 'edit_mode', 'keep_context'] as const
 const allowed: Record<string, readonly string[]> = {
-  source: ['schedule', 'webhook', 'telegram', 'discord'], action: ['script', 'task', 'chat'], edit_mode: ['worktree', 'direct'], model_tier: ['', 'strong', 'balanced', 'fast'],
-  'script.lang': ['bash', 'node', 'python'], 'escalate.when': ['never', 'failure', 'signal'], 'escalate.action': ['task'],
+  source: ['schedule', 'webhook', 'telegram', 'discord'], action: ['script', 'chat'], edit_mode: ['worktree', 'direct'], model_tier: ['', 'strong', 'balanced', 'fast'],
+  'script.lang': ['bash', 'node', 'python'], 'escalate.when': ['never'],
   'config.auth': ['bearer', 'header', 'query']
 }
 const fits = (key: string, v: unknown) => !allowed[key] || allowed[key]!.includes(v as string)
@@ -173,7 +170,6 @@ export function mergeDraft(d: AutomationDraft, patch: Record<string, unknown>): 
   for (const k of draftScalars) {
     const v = patch[k]
     if (v === undefined || typeof v !== typeof d[k] || !fits(k, v)) continue
-    if (k === 'action' && v === 'chat' && !isChannelSource(typeof patch.source === 'string' ? patch.source : d.source)) continue // replying is for a bot's messages
     ;(d as Record<string, unknown>)[k] = v
     changed.push(k)
   }

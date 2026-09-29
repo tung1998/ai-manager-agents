@@ -36,17 +36,15 @@ var Kinds = map[string]string{
 	"create_automation": "Tạo tự động hóa",
 	"update_automation": "Sửa tự động hóa",
 	"config_change":     "Đổi cài đặt",
-	"start_task":        "Giao Việc",
 	"run_automation":    "Chạy tự động hóa",
 }
 
 // Runner starts work the office assistant proposed (ADR-046).
 type Runner interface {
-	StartTask(ctx context.Context, projectID, agentID, goal string) (string, error)
 	RunAutomation(ctx context.Context, automationID string) (string, error)
 }
 
-// SetRunner turns on start_task and run_automation proposals.
+// SetRunner turns on run_automation proposals.
 func (s *Service) SetRunner(r Runner) { s.runner = r }
 
 // ConfigApplier checks and applies settings changes (the config registry of
@@ -119,7 +117,7 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 	if len(args) > 0 {
 		a.Args = args[0]
 	}
-	if kind == "start_task" || kind == "run_automation" { // costs tokens: a person always decides
+	if kind == "run_automation" { // costs tokens: a person always decides
 		if s.runner == nil {
 			return a, errors.New("không giao việc được ở đây")
 		}
@@ -227,7 +225,7 @@ func (s *Service) auditAuto(ctx context.Context, sc Scope, a storage.Action, err
 // lists (processes, containers, commands). Push always needs a person.
 func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Access) bool {
 	switch a.Kind {
-	case "create_automation", "update_automation", "config_change", "start_task", "run_automation":
+	case "create_automation", "update_automation", "config_change", "run_automation":
 		return false // code that runs unattended, or settings: a person always decides
 	case "git_commit":
 		return acc.Can(perm.CapCommit)
@@ -384,16 +382,11 @@ func firstNonEmpty(a, b string) string {
 }
 
 func (s *Service) run(ctx context.Context, a storage.Action) error {
-	if a.Kind == "start_task" || a.Kind == "run_automation" {
+	if a.Kind == "run_automation" {
 		if s.runner == nil {
-			return errors.New("không giao việc được ở đây")
+			return errors.New("không chạy tự động hóa được ở đây")
 		}
-		var err error
-		if a.Kind == "start_task" {
-			_, err = s.runner.StartTask(ctx, a.ProjectID, a.TargetID, a.Args.Message)
-		} else {
-			_, err = s.runner.RunAutomation(ctx, a.TargetID)
-		}
+		_, err := s.runner.RunAutomation(ctx, a.TargetID)
 		return err
 	}
 	if a.Kind == "config_change" {
@@ -441,41 +434,12 @@ func (s *Service) run(ctx context.Context, a storage.Action) error {
 	return ErrKind
 }
 
-// checkRun checks a start_task (Target = the agent's name, "" = the team;
-// Args.Message = the goal) or run_automation (Target = its id) proposal.
+// checkRun checks a run_automation proposal (Target = its id).
 func (s *Service) checkRun(ctx context.Context, a *storage.Action) error {
-	if a.Kind == "run_automation" {
-		au, err := s.store.Automations().Get(ctx, a.Target)
-		if err != nil || au.ProjectID != a.ProjectID {
-			return errors.New("không có tự động hóa này trong project")
-		}
-		a.Target, a.TargetID = au.Name, au.ID
-		return nil
+	au, err := s.store.Automations().Get(ctx, a.Target)
+	if err != nil || au.ProjectID != a.ProjectID {
+		return errors.New("không có tự động hóa này trong project")
 	}
-	goal := strings.TrimSpace(a.Args.Message)
-	if goal == "" {
-		return errors.New("hãy ghi rõ việc cần làm")
-	}
-	agent := strings.TrimSpace(a.Target)
-	a.TargetID = ""
-	if agent != "" {
-		m, err := s.store.OrgModels().GetForRepo(ctx, a.ProjectID)
-		if err != nil {
-			return errors.New("project chưa có agent")
-		}
-		list, _ := s.store.Agents().List(ctx, m.ID)
-		for _, x := range list {
-			if strings.EqualFold(x.Name, agent) || strings.EqualFold(x.Key, agent) {
-				a.TargetID = x.ID
-			}
-		}
-		if a.TargetID == "" {
-			return fmt.Errorf("không có agent %q trong project", agent)
-		}
-	}
-	a.Target = goal
-	if r := []rune(goal); len(r) > 80 {
-		a.Target = string(r[:80]) + "…"
-	}
+	a.Target, a.TargetID = au.Name, au.ID
 	return nil
 }

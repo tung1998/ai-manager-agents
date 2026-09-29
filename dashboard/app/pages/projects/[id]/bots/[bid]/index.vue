@@ -20,7 +20,6 @@ const name = computed(() => bot.value?.bot_name ? `@${bot.value.bot_name}` : t('
 const agentName = (id: string) => agentsData.value?.agents.find(a => a.id === id)?.name ?? t('channels.agentLead')
 function summary(a: Automation) {
   if (a.action === 'script') return t('bot.doScript')
-  if (a.action === 'task') return t('bot.doTask', { agent: a.agent_id ? agentName(a.agent_id) : t('auto.assignTeam') })
   return t('bot.doReply', { agent: agentName(a.agent_id) })
 }
 const cmdLabel = (a: Automation) => a.config.command ? `/${bot.value?.kind === 'telegram' ? a.config.command.replace(/-/g, '_') : a.config.command}` : name.value

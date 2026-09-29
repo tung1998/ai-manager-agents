@@ -91,18 +91,6 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/patches/{id}/approve", admin(s.approvePatch))
 		mux.Handle("POST /api/patches/{id}/reject", admin(s.rejectPatch))
 	}
-	if s.cfg.Tasks != nil {
-		mux.Handle("GET /api/projects/{id}/tasks", auth(s.listTasks))
-		mux.Handle("POST /api/projects/{id}/tasks", auth(s.createTask))
-		mux.Handle("GET /api/tasks/{id}", auth(s.getTask))
-		mux.Handle("POST /api/tasks/{id}/retry", auth(s.retryTask))
-		mux.Handle("POST /api/tasks/{id}/conversation", auth(s.taskConversation))
-		mux.Handle("POST /api/tasks/{id}/patches/approve-all", admin(s.approveAllPatches))
-		mux.Handle("POST /api/tasks/{id}/patches/revert-all", admin(s.revertAllPatches))
-		mux.Handle("DELETE /api/tasks/{id}", admin(s.deleteTask))
-		mux.Handle("GET /api/tasks/{id}/stream", auth(s.streamTask))
-		mux.Handle("POST /api/tasks/{id}/cancel", auth(s.cancelTask))
-	}
 	if s.cfg.Automation != nil {
 		s.automationRoutes(mux, admin)
 	}

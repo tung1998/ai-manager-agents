@@ -151,8 +151,8 @@ async function saveAsTemplate() {
         <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
       </template>
       <template v-else-if="project.model">
-        <ChatPanel v-if="tab === 'chat'" :project-id="project.id" />
-        <TaskPanel v-else :project-id="project.id" :model-kind="project.model.kind" :governance="project.model.governance.mode" />
+        <!-- Việc is gone (ADR-057): an old link to it opens the chat -->
+        <ChatPanel :project-id="project.id" />
       </template>
       <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
     </div>

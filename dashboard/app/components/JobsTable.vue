@@ -96,7 +96,7 @@ function openJob(j: Job) {
     prefill.value = { text: '', files: [], conversationId: j.conversation_id }
     return navigateTo({ path: `/projects/${j.project_id}`, query: { tab: 'chat' } })
   }
-  if (j.task_id) return navigateTo({ path: `/projects/${j.project_id}`, query: { tab: 'tasks', task: j.task_id } })
+  detail.value = j.id // a task from before Việc was dropped: its job
 }
 async function act(j: Job, what: 'cancel' | 'retry') {
   try {

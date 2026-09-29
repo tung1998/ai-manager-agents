@@ -27,7 +27,6 @@ import (
 	officesetup "bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
-	"bitbucket.org/senprints/agent-office/internal/tasks"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/usage"
@@ -83,7 +82,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	office := officetools.New(st, nil, acts)
 	office.SetOffice(func(ctx context.Context) string { return assistant.ID(ctx, st) })
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
-		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chatEng, Tasks: tasks.New(st, chatEng),
+		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chatEng,
 		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcpserver.New(office, "test")})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)

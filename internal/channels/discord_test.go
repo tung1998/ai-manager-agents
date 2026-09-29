@@ -171,7 +171,7 @@ func TestDiscordSlashCommands(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	all := strings.Join(calls, "\n")
-	for _, want := range []string{"PUT /applications/app1/commands", "create-conversation", `"name":"job"`, `"required":true`, `"name":"tra-don"`, `"description":"mã đơn"`, "POST /interactions/int1/itok/callback", `"type":5`,
+	for _, want := range []string{"PUT /applications/app1/commands", "create-conversation", `"required":true`, `"name":"tra-don"`, `"description":"mã đơn"`, "POST /interactions/int1/itok/callback", `"type":5`,
 		"PATCH /webhooks/app1/itok/messages/@original", "Đã bắt đầu"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("no %q in:\n%s", want, all)
@@ -221,7 +221,7 @@ func TestDiscordCommandCap(t *testing.T) {
 	d.SetCommands(context.Background(), cmds)
 	var got []struct{ Name string }
 	json.Unmarshal([]byte(body), &got)
-	if len(got) != 100 || got[0].Name != "job" {
+	if len(got) != 100 || got[0].Name != "create-conversation" {
 		t.Fatalf("registered %d, first %v", len(got), got[:1])
 	}
 }

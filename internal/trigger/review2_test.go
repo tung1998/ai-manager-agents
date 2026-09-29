@@ -51,21 +51,3 @@ func TestEscalationDoesNotResetScriptFailures(t *testing.T) { // I2
 		t.Fatalf("failures after a timeout and a good escalation = %d, want 1", a.Failures)
 	}
 }
-
-func TestEscalationIsNotRateLimited(t *testing.T) { // I3
-	ctx := context.Background()
-	st, p := openStore(t)
-	ex := &recExec{}
-	r := trigger.New(st, ex)
-	a := scriptAutomation(t, st, p, "exit 1", "failure")
-	a.Limits.MaxRunsPerHour = 1
-	st.Automations().Update(ctx, a)
-	if _, _, err := r.Enqueue(ctx, a, "schedule", "", "", ""); err != nil { // not manual: limits apply
-		t.Fatal(err)
-	}
-	r.StartReady(ctx, time.Now().UTC())
-	r.Wait()
-	if len(ex.prompts) != 1 {
-		t.Fatalf("escalation ran %d times (rate limit applied to it?)", len(ex.prompts))
-	}
-}

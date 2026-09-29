@@ -275,7 +275,7 @@ type Item struct {
 	Answers        int       `json:"answers,omitempty"` // chat: how many times it answered there
 }
 
-// Activity lists the agent's chats and tasks, newest first.
+// Activity lists the chats the agent took part in, newest first.
 func (s *Service) Activity(ctx context.Context, a storage.Agent, projectID string, limit int) ([]Item, error) {
 	limit = min(max(limit, 1), 100)
 	out := []Item{}
@@ -299,35 +299,6 @@ func (s *Service) Activity(ctx context.Context, a storage.Agent, projectID strin
 			it.Answers = len(said)
 		}
 		out = append(out, it)
-	}
-	tasks, err := s.store.Tasks().List(ctx, projectID, 100)
-	if err != nil {
-		return nil, err
-	}
-	for _, t := range tasks {
-		steps, err := s.store.Tasks().ListSteps(ctx, t.ID)
-		if err != nil {
-			return nil, err
-		}
-		it := Item{Kind: "task", At: t.CreatedAt, Title: t.Title, Status: t.Status, TaskID: t.ID}
-		for _, st := range steps {
-			if st.AgentID != a.ID {
-				continue
-			}
-			it.Steps++
-			if !slices.Contains(it.Phases, st.Phase) {
-				it.Phases = append(it.Phases, st.Phase)
-			}
-			if st.CostUSD != nil {
-				it.CostUSD += *st.CostUSD
-			}
-			if st.StartedAt.After(it.At) {
-				it.At = st.StartedAt
-			}
-		}
-		if it.Steps > 0 {
-			out = append(out, it)
-		}
 	}
 	slices.SortFunc(out, func(x, y Item) int { return y.At.Compare(x.At) })
 	if len(out) > limit {

@@ -139,9 +139,7 @@ watch(tab, async (v) => {
     toast.add({ title: apiError(e), color: 'error' })
   }
 }, { immediate: true })
-const openItem = (it: Item) => it.kind === 'chat'
-  ? chat(it.conversation_id)
-  : navigateTo({ path: `/projects/${projectId.value}`, query: { tab: 'tasks', task: it.task_id } })
+const openItem = (it: Item) => chat(it.conversation_id)
 const phaseName = (p: string) => ({ plan: t('phase.plan'), revise: t('phase.revise'), vote: t('phase.vote'), work: t('phase.work'), review: t('phase.review'), synthesize: t('phase.synthesize') } as Record<string, string>)[p] ?? p
 const statusColor = (s: string) => s === 'done' ? 'success' : s === 'running' ? 'info' : s === 'needs_input' ? 'warning' : s === 'failed' || s === 'rejected' ? 'error' : 'neutral'
 

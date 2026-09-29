@@ -35,7 +35,7 @@ func TestOfficeScopeTools(t *testing.T) {
 	for _, tl := range box.ToolsFor(sc) {
 		names[tl.Name] = true
 	}
-	for _, n := range []string{"projects", "jobs_query", "usage_summary", "handoff", "start_task", "run_automation"} {
+	for _, n := range []string{"projects", "jobs_query", "usage_summary", "handoff", "run_automation"} {
 		if !names[n] {
 			t.Errorf("office scope lacks %s", n)
 		}
@@ -69,17 +69,10 @@ func TestOfficeScopeTools(t *testing.T) {
 	if _, isErr := call("read_link", map[string]any{"url": "http://x/projects/" + office.ID + "?tab=chat&c=" + private.ID}); !isErr {
 		t.Fatal("read_link read another person's assistant chat")
 	}
-	out, isErr := call("start_task", map[string]any{"project": "Storefront", "goal": "báo cáo lỗi tuần này"})
-	if isErr || !strings.Contains(out, "thẻ") {
-		t.Fatalf("start_task = %v %s", isErr, out)
-	}
 }
 
 type fakeRunner struct{}
 
-func (fakeRunner) StartTask(context.Context, string, string, string) (string, error) {
-	return "tsk_x", nil
-}
 func (fakeRunner) RunAutomation(context.Context, string) (string, error) { return "job_x", nil }
 
 type fakeConfig struct{}
