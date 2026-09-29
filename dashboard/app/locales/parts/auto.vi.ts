@@ -163,5 +163,20 @@ export default {
   'auto.testPayload': 'Payload thử (tùy chọn)',
   'auto.testTimeout': 'Quá thời gian',
   'floating.open': 'Hỏi agent của project',
-  'floating.title': 'Chat của project'
+  'floating.title': 'Chat của project',
+  'auto.sourceChannel': 'Tin nhắn kênh',
+  'auto.noChannels': 'Project chưa có kênh chat. Thêm bot ở tab Kênh chat trước.',
+  'auto.channel': 'Kênh',
+  'auto.keywords': 'Chứa từ khóa',
+  'auto.keywordsHelp': 'Cách nhau bằng dấu phẩy; tin chứa một trong các từ là khớp. Trống = mọi tin',
+  'auto.keywordsPlaceholder': 'VD: mã đơn, tracking',
+  'auto.scope': 'Chỉ nhận tin thuộc chủ đề',
+  'auto.scopeHelp': 'Có nội dung thì model nhanh kiểm tra tin trước (tốn một ít token); trống = không kiểm tra',
+  'auto.scopePlaceholder': 'VD: đơn hàng, giao hàng, đổi trả của cửa hàng',
+  'auto.ruleOrder': 'Mỗi tin chỉ đi vào quy tắc đầu tiên khớp (theo thứ tự tạo). Không quy tắc nào khớp thì bot gửi câu trả lời mặc định của kênh.',
+  'auto.cardReply': 'Trả lời trong chat',
+  'auto.cardReplyDesc': 'Agent trả lời ngay trong cuộc chat đó',
+  'auto.cardScriptChannelDesc': 'Output của script là câu trả lời, không tốn token',
+  'auto.replyNoTools': 'Người ngoài nhắn nên agent trả lời không dùng công cụ (không đọc file, không MCP). Cần tra dữ liệu thì dùng script.',
+  'auto.promptChannelPlaceholder': 'Trống = gửi nguyên tin nhắn cho agent. VD: Khách {{user}} hỏi: {{message}}. Trả lời ngắn gọn, thân thiện.'
 } as const

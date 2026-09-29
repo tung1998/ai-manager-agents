@@ -1,40 +1,46 @@
 <script setup lang="ts">
-// Telegram / Discord bots of the project (ADR-048): outside people message
-// the bot, an agent answers in the same chat; scope filter and allow list.
+// Telegram / Discord bots of the project (ADR-048): the connection (token,
+// who may write). What a message does is a rule: an automation whose source
+// is the channel (ADR-049).
 interface Channel {
-  id: string, kind: 'telegram' | 'discord', name: string, has_token: boolean, agent_id: string, mode: PermLevel, enabled: boolean,
-  allow: string[], scope: string, filter_enabled: boolean, refusal: string, bot_name: string, last_error: string, last_message_at: string | null
+  id: string, kind: 'telegram' | 'discord', name: string, has_token: boolean, enabled: boolean,
+  allow: string[], refusal: string, bot_name: string, last_error: string, last_message_at: string | null
 }
 const props = defineProps<{ projectId: string }>()
 const { t, dateLocale } = useLang()
 const toast = useToast()
 const { data, refresh } = await useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`)
-const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
-const LEAD = '__lead'
-const agentItems = computed(() => [{ label: t('channels.agentLead'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
-const modeItems = computed(() => permLevels.map(l => ({ label: l.label, value: l.level })))
+const { data: autos } = useFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`, { lazy: true })
+const rulesOf = (c: Channel) => (autos.value?.automations ?? []).filter(a => isChannelSource(a.source) && a.config.channel_id === c.id)
+const newRule = (c: Channel) => `/projects/${props.projectId}/automations/new?channel=${c.id}`
+const ruleLink = (a: Automation) => `/projects/${props.projectId}/automations/${a.id}`
+const actionIcon: Record<Automation['action'], string> = { chat: 'i-lucide-message-circle-reply', script: 'i-lucide-square-terminal', task: 'i-lucide-list-todo' }
 
 const open = ref(false)
 const editing = ref<Channel | null>(null)
-const form = reactive({ kind: 'telegram' as Channel['kind'], name: '', token: '', agent: LEAD, mode: 'read' as PermLevel, enabled: true, allow: '', scope: '', filter_enabled: false, refusal: '' })
+const form = reactive({ kind: 'telegram' as Channel['kind'], name: '', token: '', enabled: true, allow: '', refusal: '' })
 function edit(c?: Channel) {
   editing.value = c ?? null
   Object.assign(form, c
-    ? { kind: c.kind, name: c.name, token: '', agent: c.agent_id || LEAD, mode: c.mode, enabled: c.enabled, allow: c.allow.join('\n'), scope: c.scope, filter_enabled: c.filter_enabled, refusal: c.refusal }
-    : { kind: 'telegram', name: '', token: '', agent: LEAD, mode: 'read', enabled: true, allow: '', scope: '', filter_enabled: false, refusal: '' })
+    ? { kind: c.kind, name: c.name, token: '', enabled: c.enabled, allow: c.allow.join('\n'), refusal: c.refusal }
+    : { kind: 'telegram', name: '', token: '', enabled: true, allow: '', refusal: '' })
   open.value = true
 }
 const saving = ref(false)
 async function save() {
   saving.value = true
   const body: Record<string, unknown> = {
-    name: form.name, agent_id: form.agent === LEAD ? '' : form.agent, mode: form.mode, enabled: form.enabled,
-    allow: form.allow.split(/[\n,]/).map(s => s.trim()).filter(Boolean), scope: form.scope, filter_enabled: form.filter_enabled, refusal: form.refusal
+    name: form.name, enabled: form.enabled, allow: form.allow.split(/[\n,]/).map(s => s.trim()).filter(Boolean), refusal: form.refusal
   }
   if (form.token) body.token = form.token
   try {
     if (editing.value) await $fetch(`/api/channels/${editing.value.id}`, { method: 'PATCH', body })
-    else await $fetch(`/api/projects/${props.projectId}/channels`, { method: 'POST', body: { ...body, kind: form.kind } })
+    else {
+      const res = await $fetch<{ channel: Channel }>(`/api/projects/${props.projectId}/channels`, { method: 'POST', body: { ...body, kind: form.kind } })
+      open.value = false
+      await navigateTo(newRule(res.channel)) // a bot does nothing until a rule takes its messages
+      return
+    }
     open.value = false
     await refresh()
   } catch (e) {
@@ -66,18 +72,34 @@ onBeforeUnmount(() => clearInterval(timer))
       <UButton icon="i-lucide-plus" size="sm" :label="t('channels.new')" @click="edit()" />
     </div>
     <UCard v-if="data?.channels.length" :ui="{ body: 'p-0 sm:p-0' }">
-      <div v-for="c in data.channels" :key="c.id" class="flex flex-wrap items-center gap-3 border-b border-(--ui-border) px-4 py-3 last:border-0">
-        <UIcon :name="c.kind === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" class="size-5 shrink-0 text-(--ui-text-muted)" />
-        <button type="button" class="min-w-0 flex-1 text-left" @click="edit(c)">
-          <span class="block truncate font-medium">{{ c.name }}<span v-if="c.bot_name" class="ms-1 font-normal text-(--ui-text-muted)">@{{ c.bot_name }}</span></span>
-          <span class="block truncate text-xs" :class="c.last_error ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">
-            {{ c.last_error || (c.enabled ? t('channels.lastMessage', { when: when(c.last_message_at) }) : t('channels.off')) }}
-            <template v-if="c.filter_enabled"> · {{ t('channels.filtered') }}</template>
-          </span>
-        </button>
-        <UBadge :label="permOf(c.mode).label" color="neutral" variant="outline" size="sm" />
-        <USwitch :model-value="c.enabled" size="sm" @update:model-value="(v: boolean) => toggle(c, v)" />
-        <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-trash-2" :aria-label="t('common.delete')" @click="remove(c)" />
+      <div v-for="c in data.channels" :key="c.id" class="border-b border-(--ui-border) px-4 py-3 last:border-0">
+        <div class="flex flex-wrap items-center gap-3">
+          <UIcon :name="c.kind === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" class="size-5 shrink-0 text-(--ui-text-muted)" />
+          <button type="button" class="min-w-0 flex-1 text-left" @click="edit(c)">
+            <span class="block truncate font-medium">{{ c.name }}<span v-if="c.bot_name" class="ms-1 font-normal text-(--ui-text-muted)">@{{ c.bot_name }}</span></span>
+            <span class="block truncate text-xs" :class="c.last_error ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">
+              {{ c.last_error || (c.enabled ? t('channels.lastMessage', { when: when(c.last_message_at) }) : t('channels.off')) }}
+            </span>
+          </button>
+          <USwitch :model-value="c.enabled" size="sm" @update:model-value="(v: boolean) => toggle(c, v)" />
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-trash-2" :aria-label="t('common.delete')" @click="remove(c)" />
+        </div>
+        <!-- what its messages do: the rules, first match wins -->
+        <div class="mt-2 ms-8 space-y-1">
+          <p class="text-xs font-medium text-(--ui-text-muted)">{{ t('channels.rules') }}</p>
+          <NuxtLink
+            v-for="(a, i) in rulesOf(c)" :key="a.id" :to="ruleLink(a)"
+            class="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-(--ui-bg-elevated)" :class="a.enabled ? '' : 'opacity-60'"
+          >
+            <span class="w-4 text-xs tabular-nums text-(--ui-text-dimmed)">{{ i + 1 }}</span>
+            <UIcon :name="actionIcon[a.action]" class="size-4 shrink-0 text-(--ui-text-muted)" />
+            <span class="min-w-0 flex-1 truncate">{{ a.name }}</span>
+            <span v-if="a.config.keywords?.length" class="truncate text-xs text-(--ui-text-muted)">{{ a.config.keywords.join(', ') }}</span>
+            <UBadge v-if="a.config.scope" :label="t('channels.scoped')" color="neutral" variant="outline" size="sm" />
+          </NuxtLink>
+          <p v-if="!rulesOf(c).length" class="px-2 text-xs text-(--ui-warning)">{{ t('channels.noRules') }}</p>
+          <UButton :to="newRule(c)" size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" :label="t('channels.addRule')" />
+        </div>
       </div>
     </UCard>
     <p v-else class="text-sm text-(--ui-text-muted)">{{ t('channels.empty') }}</p>
@@ -98,18 +120,10 @@ onBeforeUnmount(() => clearInterval(timer))
           <UFormField :label="t('channels.token')" :required="!editing">
             <UInput v-model="form.token" type="password" class="w-full font-mono" :placeholder="editing?.has_token ? t('channels.tokenKept') : ''" />
           </UFormField>
-          <div class="grid gap-3 sm:grid-cols-2">
-            <UFormField :label="t('channels.agent')"><USelect v-model="form.agent" :items="agentItems" class="w-full" /></UFormField>
-            <UFormField :label="t('channels.mode')" :help="t('channels.modeHelp')"><USelect v-model="form.mode" :items="modeItems" class="w-full" /></UFormField>
-          </div>
           <UFormField :label="t('channels.allow')" :help="t('channels.allowHelp')">
             <UTextarea v-model="form.allow" :rows="2" autoresize class="w-full font-mono text-xs" />
           </UFormField>
-          <UFormField :label="t('channels.scope')" :help="t('channels.scopeHelp')">
-            <UTextarea v-model="form.scope" :rows="2" autoresize class="w-full" />
-          </UFormField>
-          <USwitch v-model="form.filter_enabled" :label="t('channels.filter')" :description="t('channels.filterHelp')" />
-          <UFormField v-if="form.filter_enabled" :label="t('channels.refusal')"><UInput v-model="form.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" /></UFormField>
+          <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')"><UInput v-model="form.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" /></UFormField>
           <USwitch v-model="form.enabled" :label="t('channels.enabled')" />
         </div>
       </template>

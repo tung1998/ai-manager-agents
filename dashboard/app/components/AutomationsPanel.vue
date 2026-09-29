@@ -41,7 +41,7 @@ async function runNow(a: Automation) {
 
     <UCard v-if="list.length" :ui="{ body: 'p-0 sm:p-0' }">
       <div v-for="a in list" :key="a.id" class="flex flex-wrap items-center gap-3 border-b border-(--ui-border) px-4 py-3 last:border-0">
-        <UIcon :name="a.source === 'schedule' ? 'i-lucide-alarm-clock' : 'i-lucide-webhook'" class="size-5 shrink-0 text-(--ui-text-muted)" />
+        <UIcon :name="a.source === 'schedule' ? 'i-lucide-alarm-clock' : isChannelSource(a.source) ? 'i-lucide-messages-square' : 'i-lucide-webhook'" class="size-5 shrink-0 text-(--ui-text-muted)" />
         <NuxtLink :to="`/projects/${projectId}/automations/${a.id}`" class="min-w-0 flex-1 hover:underline">
           <span class="block truncate font-medium">{{ a.name }}</span>
           <span class="block truncate text-xs text-(--ui-text-muted)">

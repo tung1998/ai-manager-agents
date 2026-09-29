@@ -11,11 +11,39 @@ const { t, dateLocale } = useLang()
 const form = props.form
 
 const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
+// the project's chat channels: a rule takes the messages of one (ADR-049)
+const { data: channelsData } = useFetch<{ channels: { id: string, kind: 'telegram' | 'discord', name: string }[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true })
+const channels = computed(() => channelsData.value?.channels ?? [])
+const fromChannel = computed(() => isChannelSource(form.source))
+const channelId = computed({
+  get: () => form.config.channel_id ?? '',
+  set: (id: string) => {
+    form.config.channel_id = id
+    const ch = channels.value.find(c => c.id === id)
+    if (ch) form.source = ch.kind
+  }
+})
+function useChannel() {
+  form.source = channels.value.find(c => c.id === form.config.channel_id)?.kind ?? channels.value[0]?.kind ?? 'telegram'
+  if (!form.config.channel_id) form.config.channel_id = channels.value[0]?.id ?? ''
+  if (form.action === 'task' && !form.prompt) form.action = 'chat'
+}
+// a new rule from the Channels tab: ?channel=…
+const route = useRoute()
+if (route.query.channel && !form.config.channel_id) {
+  form.config.channel_id = String(route.query.channel)
+  form.source = 'telegram'
+  form.action = 'chat'
+}
+watch(channels, () => { if (fromChannel.value && form.config.channel_id) channelId.value = form.config.channel_id })
+const keywords = computed({ get: () => (form.config.keywords ?? []).join(', '), set: (v: string) => { form.config.keywords = v.split(/[,\n]/).map(s => s.trim()).filter(Boolean) } })
 // a Select item cannot have "" as its value: "the lead" is a sentinel
 const LEAD = '__lead'
 // a task goes to the team (the lead splits it) or to one agent, like a person's daily job
 const agentOptions = computed(() => [{ label: t('auto.assignTeam'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
 const chatAgent = computed({ get: () => form.agent_id || LEAD, set: (v: string) => { form.agent_id = v === LEAD ? '' : v } })
+// who answers in a chat: one agent ("" = the lead)
+const replyAgentOptions = computed(() => [{ label: t('channels.agentLead'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
 const escalateAgent = computed({ get: () => form.escalate.agent_id || LEAD, set: (v: string) => { form.escalate.agent_id = v === LEAD ? '' : v } })
 const langOptions = [{ label: 'bash', value: 'bash' }, { label: 'node', value: 'node' }, { label: 'python', value: 'python' }]
 // the model its runs use: the agent's own, or a cheaper one for simple daily jobs
@@ -54,7 +82,8 @@ const tz = computed({ get: () => form.config.timezone || 'Asia/Ho_Chi_Minh', set
 // the saved zone stays pickable even if this runtime spells it differently
 const tzItems = computed(() => timezones.includes(tz.value) ? timezones : [tz.value, ...timezones])
 const actions = computed(() => [
-  { value: 'script' as const, icon: 'i-lucide-square-terminal', title: t('auto.cardScript'), desc: t('auto.cardScriptDesc') },
+  ...(fromChannel.value ? [{ value: 'chat' as const, icon: 'i-lucide-message-circle-reply', title: t('auto.cardReply'), desc: t('auto.cardReplyDesc') }] : []),
+  { value: 'script' as const, icon: 'i-lucide-square-terminal', title: t('auto.cardScript'), desc: fromChannel.value ? t('auto.cardScriptChannelDesc') : t('auto.cardScriptDesc') },
   { value: 'task' as const, icon: 'i-lucide-list-todo', title: t('auto.cardTask'), desc: t('auto.cardTaskDesc') }
 ])
 
@@ -73,7 +102,9 @@ watch(() => [form.source, form.config.every_minutes, form.config.cron, form.conf
 }, { immediate: true })
 const fmt = (d: string) => new Date(d).toLocaleString(dateLocale.value, { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
-const placeholders = ['{{payload}}', '{{payload.x}}', '{{now}}', '{{today}}', '{{yesterday}}', '{{source}}', '{{automation}}']
+const placeholders = computed(() => fromChannel.value
+  ? ['{{message}}', '{{user}}', '{{now}}', '{{today}}', '{{automation}}']
+  : ['{{payload}}', '{{payload.x}}', '{{now}}', '{{today}}', '{{yesterday}}', '{{source}}', '{{automation}}'])
 const promptEl = ref<{ textareaRef?: HTMLTextAreaElement } | null>(null)
 function insert(p: string) {
   const el = promptEl.value?.textareaRef
@@ -118,10 +149,17 @@ async function testRun() {
             v-for="s in (['schedule', 'webhook'] as const)" :key="s" type="button"
             class="flex items-center gap-1.5 rounded-md px-3 py-1 text-sm"
             :class="form.source === s ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted) hover:text-(--ui-text)'"
-            @click="form.source = s"
+            @click="form.source = s; if (form.action === 'chat') form.action = 'task'"
           >
             <UIcon :name="s === 'schedule' ? 'i-lucide-alarm-clock' : 'i-lucide-webhook'" class="size-4" />
             {{ s === 'schedule' ? t('auto.sourceSchedule') : t('auto.sourceWebhook') }}
+          </button>
+          <button
+            type="button" class="flex items-center gap-1.5 rounded-md px-3 py-1 text-sm"
+            :class="fromChannel ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted) hover:text-(--ui-text)'"
+            @click="useChannel"
+          >
+            <UIcon name="i-lucide-messages-square" class="size-4" />{{ t('auto.sourceChannel') }}
           </button>
         </div>
       </div>
@@ -153,6 +191,23 @@ async function testRun() {
           <span v-if="preview.error" class="text-(--ui-error)">{{ preview.error }}</span>
           <span v-for="n in preview.next" v-else :key="n" class="rounded-md bg-(--ui-bg-elevated) px-2 py-0.5 tabular-nums">{{ fmt(n) }}</span>
         </div>
+      </template>
+      <template v-else-if="fromChannel">
+        <p v-if="!channels.length" class="text-sm text-(--ui-text-muted)">{{ t('auto.noChannels') }}</p>
+        <template v-else>
+          <div class="grid gap-3 @lg:grid-cols-2">
+            <UFormField :label="t('auto.channel')" required>
+              <USelect v-model="channelId" :items="channels.map(c => ({ label: `${c.name} (${c.kind === 'discord' ? 'Discord' : 'Telegram'})`, value: c.id }))" class="w-full" />
+            </UFormField>
+            <UFormField :label="t('auto.keywords')" :help="t('auto.keywordsHelp')">
+              <UInput v-model="keywords" class="w-full" :placeholder="t('auto.keywordsPlaceholder')" />
+            </UFormField>
+          </div>
+          <UFormField :label="t('auto.scope')" :help="t('auto.scopeHelp')">
+            <UTextarea v-model="form.config.scope" :rows="2" autoresize class="w-full" :placeholder="t('auto.scopePlaceholder')" />
+          </UFormField>
+          <p class="text-xs text-(--ui-text-muted)">{{ t('auto.ruleOrder') }}</p>
+        </template>
       </template>
       <template v-else>
         <div class="grid gap-3 @lg:grid-cols-2">
@@ -226,6 +281,13 @@ async function testRun() {
           </UFormField>
         </div>
       </template>
+      <div v-else-if="form.action === 'chat'" class="space-y-2">
+        <div class="flex flex-wrap items-end gap-3">
+          <UFormField :label="t('channels.agent')"><USelect v-model="chatAgent" :items="replyAgentOptions" class="min-w-56" /></UFormField>
+          <UFormField :label="t('auto.model')" :help="t('auto.modelHelp')"><USelect v-model="tier" :items="tierOptions" class="min-w-44" /></UFormField>
+        </div>
+        <p class="text-xs text-(--ui-text-muted)">{{ t('auto.replyNoTools') }}</p>
+      </div>
       <div v-else class="flex flex-wrap items-end gap-3">
         <UFormField :label="t('auto.assignTo')"><USelect v-model="chatAgent" :items="agentOptions" class="min-w-56" /></UFormField>
         <UFormField :label="t('auto.model')" :help="t('auto.modelHelp')"><USelect v-model="tier" :items="tierOptions" class="min-w-44" /></UFormField>
@@ -238,7 +300,7 @@ async function testRun() {
       <p class="flex items-center gap-2 text-sm font-semibold">
         <span class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">3</span>{{ t('auto.stepPrompt') }}
       </p>
-      <UTextarea ref="promptEl" v-model="form.prompt" :rows="5" autoresize class="w-full" :placeholder="t('auto.promptPlaceholder')" />
+      <UTextarea ref="promptEl" v-model="form.prompt" :rows="5" autoresize class="w-full" :placeholder="fromChannel ? t('auto.promptChannelPlaceholder') : t('auto.promptPlaceholder')" />
       <div class="flex flex-wrap items-center gap-1 text-xs text-(--ui-text-muted)">
         {{ t('auto.insert') }}
         <button v-for="p in placeholders" :key="p" type="button" class="rounded bg-(--ui-bg-elevated) px-1.5 py-0.5 font-mono hover:text-(--ui-text)" @click="insert(p)">{{ p }}</button>

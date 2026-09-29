@@ -33,7 +33,11 @@ export interface Job {
   payload?: string
 }
 
-export interface AutomationConfig { every_minutes?: number, cron?: string, timezone?: string, auth?: string, auth_name?: string }
+export interface AutomationConfig {
+  every_minutes?: number, cron?: string, timezone?: string, auth?: string, auth_name?: string
+  // telegram | discord (ADR-049): the channel, which messages (a keyword; none = any), within a scope
+  channel_id?: string, keywords?: string[], scope?: string
+}
 export interface AutomationLimits {
   max_runs_per_hour?: number
   daily_cost_usd?: number
@@ -49,7 +53,7 @@ export interface Automation {
   project_id: string
   name: string
   enabled: boolean
-  source: 'schedule' | 'webhook'
+  source: 'schedule' | 'webhook' | 'telegram' | 'discord'
   config: AutomationConfig
   action: 'chat' | 'task' | 'script'
   agent_id: string
@@ -79,8 +83,9 @@ export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source'
 }
 
 // scheduleText describes when an automation runs.
-export function scheduleText(a: Pick<Automation, 'source' | 'config' | 'webhook_url'>, t: (k: 'auto.every' | 'auto.sourceWebhook', p?: Record<string, string | number>) => string) {
+export function scheduleText(a: Pick<Automation, 'source' | 'config' | 'webhook_url'>, t: (k: 'auto.every' | 'auto.sourceWebhook' | 'auto.sourceChannel', p?: Record<string, string | number>) => string) {
   if (a.source === 'webhook') return a.webhook_url ?? t('auto.sourceWebhook')
+  if (isChannelSource(a.source)) return `${t('auto.sourceChannel')} · ${a.source === 'discord' ? 'Discord' : 'Telegram'}${a.config.keywords?.length ? ` · ${a.config.keywords.join(', ')}` : ''}`
   if (a.config.cron) return `${a.config.cron}${a.config.timezone ? ` (${a.config.timezone})` : ''}`
   return t('auto.every', { n: a.config.every_minutes ?? 0 })
 }
@@ -94,6 +99,9 @@ export const jobStatusMeta: Record<JobStatus, { color: 'info' | 'neutral' | 'suc
   skipped: { color: 'neutral', icon: 'i-lucide-skip-forward' },
   needs_input: { color: 'warning', icon: 'i-lucide-message-circle-question' }
 }
+
+// isChannelSource: messages of a Telegram/Discord channel start it (ADR-049).
+export const isChannelSource = (s: string) => s === 'telegram' || s === 'discord'
 
 // ---- the draft the builder page edits (ADR-042) ----
 export type AutomationDraft = Omit<Automation, 'id' | 'project_id' | 'failures' | 'disabled_code' | 'disabled_reason' | 'last_run_at' | 'next_run_at' | 'last_job' | 'created_at' | 'webhook_url'>
@@ -116,8 +124,9 @@ export function draftFrom(a: Automation): AutomationDraft {
     ...e, ...b, config: { ...e.config, ...b.config }, limits: { ...e.limits, ...b.limits },
     script: { ...e.script, ...(b.script?.lang ? b.script : {}) }, escalate: { ...e.escalate, ...(b.escalate?.when ? b.escalate : {}) }
   }
-  // "message an agent" is gone: it opens as a task for the same agent
-  if (d.action === 'chat') d.action = 'task'
+  // "message an agent" is gone: it opens as a task for the same agent (a
+  // channel's rule keeps it: the agent answers in the outside chat)
+  if (d.action === 'chat' && !isChannelSource(d.source)) d.action = 'task'
   if (d.escalate.action === 'chat') d.escalate.action = 'task'
   return d
 }

@@ -1257,3 +1257,24 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Lỗi không để lộ token.
   - Telegram thử lại `getMe` khi lỗi mạng, chỉ dừng khi token sai.
   - Discord dừng và báo lý do với các mã đóng không tự khỏi được (4004, 4010–4014; 4014 là chưa bật Message Content Intent). Sau một phiên chạy tốt, thời gian chờ nối lại quay về 1 giây.
+
+## ADR-049: Tin nhắn kênh là nguồn của tự động hóa
+
+**Bối cảnh.** Theo ADR-048, mỗi kênh có đúng một cách trả lời: một agent trả lời, kèm bộ lọc phạm vi. Nhưng tin từ kênh cũng là một sự kiện như webhook. Người dùng cần một bot làm được nhiều việc: tra dữ liệu bằng script (không tốn token), giao Việc cho đội, hoặc để agent trả lời.
+
+**Quyết định.**
+- **Kênh chỉ còn là kết nối:** token, trạng thái, danh sách được phép, và câu trả lời khi không quy tắc nào khớp (trống thì im lặng). Các cột agent, mode, scope, filter cũ vẫn để trong bảng nhưng không dùng nữa.
+- **Quy tắc** là một tự động hóa có nguồn `telegram` hoặc `discord`. Config gồm `channel_id` (kênh cùng project, đúng loại), `keywords` (tin chứa một trong các từ, không phân biệt hoa thường; trống = mọi tin) và `scope` (có thì model nhanh hỏi YES/NO).
+- **Chọn quy tắc:** xét các quy tắc đang bật của kênh theo thứ tự tạo, quy tắc đầu tiên khớp sẽ nhận tin. Từ khóa được xét trước vì không tốn gì; phạm vi AI chỉ được hỏi khi từ khóa đã khớp. Không quy tắc nào khớp thì bot gửi câu trả lời mặc định và ghi một job `skipped` mã `no_rule`.
+- **Chạy:** `trigger.Runner.Enqueue`, dùng chung số lượt mỗi giờ, trần chi phí, tự tắt khi lỗi liên tục và escalate của tự động hóa. Payload là `{message, user, user_id, chat_id, channel_id, conversation_id}`.
+- **Hành động:**
+  - `chat` ("Trả lời trong chat"): mỗi cặp (chat bên ngoài, quy tắc) có một conversation, khóa thread `chatID#automationID`, purpose `channel`. Lượt này luôn **không có công cụ** và chỉ đọc. Prompt mặc định là `{{message}}`, tức chính câu hỏi; có thêm `{{user}}`.
+  - `task`: gửi ngay "Đã nhận, đội đang xử lý". Xong Việc thì gửi `Result` (không có thì gửi `Detail`).
+  - `script`: stdout (đã bỏ các dòng `@@agent:`) là câu trả lời. Nếu script gọi agent thì câu trả lời của agent được gửi tiếp sau.
+- **Gửi lại:** `Runner.SetOnReply(func(ctx, origin, reply, err, final))`. `origin` là job mang payload của kênh; với agent do script gọi thì là job của script. `Executor.RunChat` trả thêm câu trả lời cuối. Lỗi chỉ được báo cho người ngoài bằng một câu chung; chi tiết nằm ở job. Mỗi chat vẫn giới hạn 3 tin chờ, nhả ra khi có câu trả lời cuối. Trạng thái "đang gõ" được gửi đều đặn tới khi xong.
+- **Kênh cũ:** khi khởi động, mỗi kênh có sẵn được tạo một quy tắc "Trả lời" từ agent và phạm vi cũ. Việc này chỉ làm một lần (settings `channels_rules_v1`). Ngữ cảnh của các cuộc chat cũ không được mang sang.
+- **Giao diện:**
+  - Form tự động hóa có thêm nguồn "Tin nhắn kênh": chọn kênh, nhập từ khóa và chủ đề.
+  - Hành động "Trả lời trong chat" chỉ có với nguồn này.
+  - Tab Kênh chat hiện danh sách quy tắc của từng kênh, có nút "Thêm quy tắc". Tạo kênh xong thì mở luôn trang tạo quy tắc.
+- **Để sau:** agent đề xuất tự động hóa (`trigger.Spec`) vẫn chỉ tạo được lịch chạy và webhook.

@@ -164,7 +164,22 @@ const en: Record<keyof typeof vi, string> = {
   'auto.testPayload': 'Test payload (optional)',
   'auto.testTimeout': 'Timed out',
   'floating.open': 'Ask the project agent',
-  'floating.title': 'Project chat'
+  'floating.title': 'Project chat',
+  'auto.sourceChannel': 'Channel message',
+  'auto.noChannels': 'This project has no chat channel. Add a bot in the Chat channels tab first.',
+  'auto.channel': 'Channel',
+  'auto.keywords': 'Contains a keyword',
+  'auto.keywordsHelp': 'Comma separated; a message with any of them matches. Empty = every message',
+  'auto.keywordsPlaceholder': 'e.g. order id, tracking',
+  'auto.scope': 'Only messages about',
+  'auto.scopeHelp': 'When set, a fast model checks the message first (a few tokens); empty = no check',
+  'auto.scopePlaceholder': "e.g. the shop's orders, shipping, returns",
+  'auto.ruleOrder': "Each message goes to the first rule that matches (in creation order). If none does, the bot sends the channel's default reply.",
+  'auto.cardReply': 'Reply in the chat',
+  'auto.cardReplyDesc': 'An agent answers right in that chat',
+  'auto.cardScriptChannelDesc': "The script's output is the reply, no tokens",
+  'auto.replyNoTools': 'Outsiders write here, so the agent answers without tools (no files, no MCP). Use a script to look data up.',
+  'auto.promptChannelPlaceholder': 'Empty = the message as it is. e.g. {{user}} asks: {{message}}. Answer briefly and kindly.'
 }
 
 export default en
