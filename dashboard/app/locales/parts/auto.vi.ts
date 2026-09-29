@@ -226,6 +226,7 @@ export default {
   'bot.callsSkill': 'Gọi skill {skill} với nội dung người dùng nhập',
   'job.search': 'Tìm theo tiêu đề…',
   'bot.anyoneTitle': 'Ai cũng nhắn được bot',
+  'bot.savedPartly': 'Đã lưu {n}/{total} lệnh, chưa lưu được {cmd}: sửa rồi bấm Lưu lại',
   'bot.approvers': 'Ai được duyệt qua chat',
   'bot.approversHelp': 'ID của người được duyệt đề xuất của agent bằng /approve, /reject và đổi /mode, mỗi dòng một người. Gõ * nếu ai nhắn được bot cũng duyệt được. Để trống thì chỉ duyệt trên dashboard.',
   'bot.anyoneApproveTitle': 'Ai nhắn được bot cũng duyệt được',

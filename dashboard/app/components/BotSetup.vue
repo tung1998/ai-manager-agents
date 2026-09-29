@@ -135,8 +135,13 @@ async function save() {
   if (bad) return toast.add({ title: t('bot.needName'), color: 'error' })
   saving.value = true
   let channelId = isNew.value ? '' : props.botId
+  // one command at a time: when one fails, the ones before it are saved (their
+  // ids kept, so Save again goes on from there) and the person is told which
+  let saved = 0
+  let at: Cmd | undefined
   try {
     for (const [i, c] of cmds.value.entries()) {
+      at = c
       const d = c.draft
       d.source = bot.kind
       d.config.channel_id = channelId
@@ -149,12 +154,20 @@ async function save() {
         : await $fetch<{ automation: Automation }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body })
       c.id = res.automation.id
       channelId = res.automation.config.channel_id ?? channelId
+      saved++
     }
+    at = undefined
     for (const id of removed.splice(0)) await $fetch(`/api/automations/${id}`, { method: 'DELETE' })
     toast.add({ title: t('auto.saved'), color: 'success' })
     await navigateTo(`/projects/${props.projectId}/bots/${channelId}`) // its detail: how it runs
   } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
+    if (at && saved > 0) {
+      at.open = true // the command that failed, opened to fix it
+      toast.add({ title: t('bot.savedPartly', { n: saved, total: cmds.value.length, cmd: at.draft.name || at.draft.config.command || '' }), description: apiError(e), color: 'warning' })
+    } else {
+      if (at) at.open = true
+      toast.add({ title: apiError(e), color: 'error' })
+    }
   } finally {
     saving.value = false
   }

@@ -227,6 +227,7 @@ const en: Record<keyof typeof vi, string> = {
   'bot.callsSkill': 'Calls the skill {skill} with the text typed',
   'job.search': 'Search titles…',
   'bot.anyoneTitle': 'Anyone can message the bot',
+  'bot.savedPartly': 'Saved {n} of {total} commands; {cmd} was not: fix it and Save again',
   'bot.approvers': 'Who may approve from the chat',
   'bot.approversHelp': 'IDs of the people who may decide what agents propose with /approve, /reject and switch /mode, one per line. Type * to let anyone who may message the bot decide. Empty: only on the dashboard.',
   'bot.anyoneApproveTitle': 'Anyone who may message the bot can approve',
