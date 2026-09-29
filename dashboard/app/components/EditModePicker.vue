@@ -22,7 +22,7 @@ const items = computed(() => [options.value.map(o => ({
   <UDropdownMenu :items="items" :content="{ align: 'end', side: 'top' }" :ui="{ content: 'w-80' }" class="min-w-0">
     <!-- the label is cut (…) when the row is narrow; on a phone only the icon -->
     <UButton
-      size="xs" :color="mode === 'direct' ? 'warning' : 'neutral'" variant="soft" class="min-w-0 max-w-full"
+      size="sm" :color="mode === 'direct' ? 'warning' : 'neutral'" :variant="mode === 'direct' ? 'soft' : 'ghost'" class="min-w-0 max-w-full"
       :icon="current.icon" :title="`${current.label}: ${current.description}`" :aria-label="current.label"
       :ui="{ label: 'hidden truncate sm:inline', trailingIcon: 'hidden sm:inline-flex' }" :label="current.label" trailing-icon="i-lucide-chevron-up"
     />

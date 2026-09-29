@@ -259,11 +259,12 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
     </div>
 
     <UTextarea
-      ref="box" v-model="text" :rows="rows" autoresize :maxrows="maxrows" variant="none" class="w-full"
+      ref="box" v-model="text" :rows="rows" autoresize :maxrows="maxrows" variant="none" class="w-full max-sm:[&_textarea]:!text-sm"
       :placeholder="placeholder" @keydown="onKey" @paste="onPaste" @keyup="syncCaret" @click="syncCaret" @input="syncCaret"
     />
 
-    <div class="@container flex items-center gap-2 px-2 pb-2">
+    <!-- a phone: a size smaller (icons, labels), tighter, all the same height -->
+    <div class="@container flex items-center gap-2 px-2 pb-2 max-sm:gap-0.5 max-sm:[&_.iconify]:!size-4 max-sm:[&_button]:!text-xs max-sm:[&_button]:!py-1">
       <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-paperclip" :aria-label="t('prompt.attach')" @click="input?.click()" />
       <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-slash" :aria-label="t('prompt.pickSkill')" :disabled="!skills.length" @click="text = '/'; box?.textareaRef?.focus()" />
       <UBadge v-if="activeSkill" color="primary" variant="subtle" size="sm" icon="i-lucide-sparkles" :label="activeSkill.name" />
