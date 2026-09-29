@@ -1354,3 +1354,14 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Web gửi tiếp được vào cuộc chat của bot.
 - **Vẫn giữ:** lời người dùng không vào system prompt (I3); `/tên` chỉ nạp skill của lệnh (I1); `/job` cần tự động hóa Giao Việc (I2).
 - **Lượt chạy không công cụ** (hiện chỉ còn bước lọc chủ đề YES/NO) có thêm `--strict-mcp-config`. Trước đây MCP trong cấu hình cá nhân (Jira…) vẫn được nạp dù đã đặt `--tools ""`.
+
+## ADR-052: Chỉ đạo Việc đang chạy qua chat
+
+**Bối cảnh.** Việc chạy nhiều bước, người dùng chỉ xem được mà không can thiệp; chat với quản lý chỉ mở sau khi Việc xong.
+
+**Quyết định.**
+- Cuộc trao đổi của Việc luôn hiện trong trang Việc, kể cả khi đang chạy.
+- Tin nhắn người dùng gửi vào đó từ lúc Việc bắt đầu được đưa vào **mọi bước sau** (lập kế hoạch lại, worker, giám sát, tổng hợp), dưới mục "Chỉ đạo của người dùng trong lúc Việc chạy". Chỉ đạo được ưu tiên hơn kế hoạch nếu mâu thuẫn. Mỗi bước nhận toàn bộ chỉ đạo (tối đa 10 tin gần nhất), để các việc chạy song song đều biết.
+- Trong lúc Việc chạy, quản lý trả lời ngắn (xác nhận chỉ đạo, báo tiến độ) và **không sửa code**: lượt chat không có quyền ghi. Đội mới là người sửa. Muốn đổi hẳn mục tiêu thì dừng Việc rồi giao lại.
+
+**Hệ quả.** Bước đang chạy dở không nhận chỉ đạo mới, chỉ các bước bắt đầu sau đó.

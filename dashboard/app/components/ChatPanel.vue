@@ -27,7 +27,7 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 // first send or opened by automationId; its answers may fill the form.
 // compact: no thread column (a picker instead), fills its container.
 // pageContext: what the person is looking at, sent with each message.
-const props = defineProps<{ projectId: string, taskId?: string, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string }>()
+const props = defineProps<{ projectId: string, taskId?: string, taskRunning?: boolean, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string }>()
 const emit = defineEmits<{ 'turn-done': [], 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string] }>()
 const single = computed(() => !!props.taskId || !!props.purpose)
 const toast = useToast()
@@ -457,8 +457,8 @@ onBeforeUnmount(() => {
         <div v-if="!messages.length && !streaming" class="flex h-full flex-col items-center justify-center gap-2 text-center text-(--ui-text-muted)">
           <UIcon name="i-lucide-messages-square" class="size-8" />
           <template v-if="taskId">
-            <p class="text-sm">{{ t('chat.askAboutTask', { agent: current?.agent_name || t('chat.sendManager') }) }}</p>
-            <p class="text-xs">{{ t('chat.taskPatchHint') }}</p>
+            <p class="text-sm">{{ t(taskRunning ? 'chat.steerTask' : 'chat.askAboutTask', { agent: current?.agent_name || t('chat.sendManager') }) }}</p>
+            <p class="text-xs">{{ t(taskRunning ? 'chat.steerTaskHint' : 'chat.taskPatchHint') }}</p>
           </template>
           <template v-else-if="purpose === 'automation'">
             <p class="text-sm">{{ t('chat.askAboutAutomation') }}</p>

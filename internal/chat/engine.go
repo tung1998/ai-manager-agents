@@ -638,7 +638,13 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	policy := perm.LoadPolicy(ctx, e.store, project.ID)
 	acc := perm.Resolve(agent, conv.Mode, policy)
 	level := acc.Level
-	pl, err := e.placeFor(ctx, project, policy, acc, e.chatTree(ctx, conv, agent), true, conv.EditMode)
+	write := true
+	if conv.TaskID != "" { // a task still running is the team's to edit; its chat only steers it
+		if t, err := e.store.Tasks().Get(ctx, conv.TaskID); err == nil && t.Status == "running" {
+			write = false
+		}
+	}
+	pl, err := e.placeFor(ctx, project, policy, acc, e.chatTree(ctx, conv, agent), write, conv.EditMode)
 	if err != nil {
 		fail(err)
 		return

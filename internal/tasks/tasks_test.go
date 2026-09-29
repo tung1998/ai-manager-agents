@@ -35,6 +35,8 @@ type fakeModel struct {
 	reviews []string // successive auditor verdict JSONs (after these: the default fail)
 	reviewN int
 	edit    bool // workers edit files with tools (worktree) instead of writing diffs
+	onPlan  func()   // called when the plan is asked for (before it is answered)
+	prompts []string // every prompt asked, in order
 }
 
 func (f *fakeModel) handler(t *testing.T) http.HandlerFunc {
@@ -48,6 +50,12 @@ func (f *fakeModel) handler(t *testing.T) http.HandlerFunc {
 		json.NewDecoder(r.Body).Decode(&body)
 		var prompt string
 		isToolResult := json.Unmarshal(body.Messages[len(body.Messages)-1].Content, &prompt) != nil
+		f.mu.Lock()
+		f.prompts = append(f.prompts, prompt)
+		f.mu.Unlock()
+		if f.onPlan != nil && strings.Contains(prompt, "Lập kế hoạch:") {
+			f.onPlan()
+		}
 		var text string
 		switch {
 		case isToolResult:
@@ -488,5 +496,52 @@ func TestTaskForOneAgent(t *testing.T) {
 	}
 	if d := wait(t, f.svc, again.ID); d.Task.AssigneeID != worker.ID || d.Steps[0].AgentID != worker.ID {
 		t.Fatalf("retry lost the assignee: %+v", d.Task)
+	}
+}
+
+// A person writing in the task's chat while it runs steers the steps after.
+func TestGuidanceWhileRunning(t *testing.T) {
+	requireGit(t)
+	fm := &fakeModel{}
+	f := setup(t, fm, "team")
+	ids := make(chan string, 1)
+	var once sync.Once
+	fm.onPlan = func() {
+		once.Do(func() {
+			id := <-ids
+			conv, err := f.engine.TaskConversation(context.Background(), id)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			f.st.Chat().AddMessage(context.Background(), storage.Message{ConversationID: conv.ID, Role: "user", Content: "nhớ giữ nguyên dòng cuối"})
+		})
+	}
+	task, err := f.svc.Start(context.Background(), f.project.ID, "Đổi one thành ONE trong a.txt", 0, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids <- task.ID
+	d := wait(t, f.svc, task.ID)
+	if d.Task.Status != "done" {
+		t.Fatalf("status=%s detail=%s", d.Task.Status, d.Task.Detail)
+	}
+	fm.mu.Lock()
+	defer fm.mu.Unlock()
+	var plan, after bool
+	for _, p := range fm.prompts {
+		if strings.Contains(p, "Lập kế hoạch:") {
+			plan = true
+			if strings.Contains(p, "nhớ giữ nguyên dòng cuối") {
+				t.Fatalf("guidance in the plan prompt it was sent during: %q", p)
+			}
+			continue
+		}
+		if plan && strings.Contains(p, "giao cho bạn một việc") && strings.Contains(p, "nhớ giữ nguyên dòng cuối") {
+			after = true
+		}
+	}
+	if !after {
+		t.Fatalf("guidance not given to the steps after it: %q", fm.prompts)
 	}
 }

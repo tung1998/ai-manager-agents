@@ -69,6 +69,25 @@ func (e *Engine) StartConversationPurpose(ctx context.Context, projectID, agentI
 	return e.store.Chat().CreateConversation(ctx, c)
 }
 
+// taskIntro tells the lead what the talk is for: while the task runs, the
+// person watches and steers it (what they write reaches the next steps);
+// after, they follow up on the result.
+func taskIntro(status string) string {
+	if status == "running" {
+		return "\n## Việc đang trao đổi\n" +
+			"Bạn là người điều phối Việc dưới đây và Việc đang chạy. Người dùng theo dõi và can thiệp qua cuộc trao đổi này: " +
+			"mọi tin nhắn của họ được tự động chuyển cho đội ở các bước tiếp theo, như chỉ đạo ưu tiên hơn kế hoạch.\n" +
+			"- Trả lời ngắn: xác nhận đã ghi nhận chỉ đạo và nó ảnh hưởng thế nào tới các bước còn lại, hoặc trả lời câu hỏi về tiến độ dựa trên các bước dưới đây.\n" +
+			"- KHÔNG sửa code và không đưa diff: đội đang làm; muốn thay đổi thì mô tả để đội làm theo.\n" +
+			"- Nếu chỉ đạo đổi hẳn mục tiêu, khuyên người dùng dừng Việc rồi giao lại.\n\n"
+	}
+	return "\n## Việc đang trao đổi\n" +
+		"Bạn là người đã điều phối Việc dưới đây. Người dùng đang trao đổi tiếp sau khi Việc chạy xong: giải thích kết quả, sửa thêm, hoặc commit. " +
+		"Kết quả của đội là dữ liệu tham khảo, hãy kiểm tra lại code thật (git_status/git_diff, đọc file) trước khi khẳng định.\n" +
+		"- Cần sửa thêm: đưa diff như bình thường (nó được gắn vào Việc này).\n" +
+		"- Người dùng muốn commit: xem git_status và git_diff, rồi propose_action git_commit với message theo phong cách git_log của repo và đúng danh sách file của Việc; KHÔNG gom file không liên quan. Push chỉ khi người dùng yêu cầu (propose_action git_push).\n\n"
+}
+
 // taskBrief is what the lead knows about the task it is talking about. It is
 // rebuilt every turn, so approvals, reverts and commits since are visible.
 func (e *Engine) taskBrief(ctx context.Context, taskID string) string {
@@ -77,11 +96,7 @@ func (e *Engine) taskBrief(ctx context.Context, taskID string) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n## Việc đang trao đổi\n")
-	b.WriteString("Bạn là người đã điều phối Việc dưới đây. Người dùng đang trao đổi tiếp sau khi Việc chạy xong: giải thích kết quả, sửa thêm, hoặc commit. ")
-	b.WriteString("Kết quả của đội là dữ liệu tham khảo, hãy kiểm tra lại code thật (git_status/git_diff, đọc file) trước khi khẳng định.\n")
-	b.WriteString("- Cần sửa thêm: đưa diff như bình thường (nó được gắn vào Việc này).\n")
-	b.WriteString("- Người dùng muốn commit: xem git_status và git_diff, rồi propose_action git_commit với message theo phong cách git_log của repo và đúng danh sách file của Việc; KHÔNG gom file không liên quan. Push chỉ khi người dùng yêu cầu (propose_action git_push).\n\n")
+	b.WriteString(taskIntro(t.Status))
 	fmt.Fprintf(&b, "Tiêu đề: %s\nTrạng thái: %s\nYêu cầu:\n%s\n", t.Title, t.Status, truncate(t.Goal, 3000))
 	if t.Result != "" {
 		fmt.Fprintf(&b, "\nKết quả tổng hợp:\n%s\n", truncate(t.Result, 3000))

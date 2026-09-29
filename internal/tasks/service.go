@@ -256,7 +256,7 @@ func (s *Service) start(ctx context.Context, projectID, assignee, goal string, b
 	if lesson != "" {
 		prompt += "\n\n" + lesson
 	}
-	r := &run{svc: s, ctx: runCtx, jobID: job.ID, task: task, goal: prompt, files: files, project: project, model: model, agents: agents, live: live}
+	r := &run{svc: s, ctx: runCtx, jobID: job.ID, task: task, goal: prompt, files: files, project: project, model: model, agents: agents, live: live, started: time.Now()}
 	go r.execute()
 	return task, nil
 }
@@ -273,6 +273,7 @@ type run struct {
 	model   storage.OrgModel
 	agents  []storage.Agent
 	live    *Live
+	started time.Time // messages in the task's chat from then on steer the steps
 
 	mu      sync.Mutex
 	seq     int
@@ -440,6 +441,32 @@ func (r *run) byKey(key string) (storage.Agent, bool) {
 	return storage.Agent{}, false
 }
 
+// guidance is what the person wrote in the task's chat since it started:
+// every step after it follows it (all of it, so parallel jobs all hear it).
+func (r *run) guidance() string {
+	conv, err := r.svc.store.Chat().TaskConversation(r.ctx, r.task.ID)
+	if err != nil {
+		return ""
+	}
+	msgs, err := r.svc.store.Chat().ListMessages(r.ctx, conv.ID)
+	if err != nil {
+		return ""
+	}
+	var said []string
+	for _, m := range msgs {
+		if m.Role == "user" && !m.CreatedAt.Before(r.started) && strings.TrimSpace(m.Content) != "" {
+			said = append(said, "- "+truncate(strings.TrimSpace(m.Content), 1500))
+		}
+	}
+	if len(said) == 0 {
+		return ""
+	}
+	if len(said) > 10 {
+		said = said[len(said)-10:]
+	}
+	return "\n\n## Chỉ đạo của người dùng trong lúc Việc chạy (mới nhất sau cùng; ưu tiên hơn kế hoạch nếu mâu thuẫn)\n" + strings.Join(said, "\n")
+}
+
 // step runs one agent turn and records it.
 func (r *run) step(phase string, agent storage.Agent, instruction, prompt string) (storage.TaskStep, error) {
 	return r.scopedStep(phase, agent, instruction, prompt, nil)
@@ -473,6 +500,7 @@ func (r *run) scopedStep(phase string, agent storage.Agent, instruction, prompt 
 		ctx = chat.WithWrite(ctx)
 		before = r.unclaimedChanges()
 	}
+	prompt += r.guidance()
 	res, runErr := r.svc.engine.Invoke(ctx, r.project, agent, prompt, r.files, "task", func(e chat.Event) {
 		switch e.Type {
 		case "text":

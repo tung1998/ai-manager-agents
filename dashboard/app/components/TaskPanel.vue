@@ -175,8 +175,6 @@ async function start() {
 }
 
 // ---- follow-up talk with the lead, and committing the task's changes ----
-const talkOpen = ref(false)
-watch(() => detail.value?.task.id, () => { talkOpen.value = false })
 async function reloadDetail() {
   if (!detail.value) return
   const d = await $fetch<Detail>(`/api/tasks/${detail.value.task.id}`).catch(() => null)
@@ -498,15 +496,12 @@ onBeforeUnmount(() => source?.close())
           </template>
         </UModal>
 
-        <div v-if="detail.task.status !== 'running'" class="space-y-2">
-          <UButton
-            v-if="!talkOpen" icon="i-lucide-messages-square" :label="t('task.talkWithManager')" size="sm" color="neutral" variant="outline"
-            @click="talkOpen = true"
-          />
-          <template v-else>
-            <p class="text-sm font-medium">{{ t('task.talkWithManager') }}</p>
-            <ChatPanel :key="detail.task.id" :project-id="projectId" :task-id="detail.task.id" @turn-done="reloadDetail" />
-          </template>
+        <div class="space-y-2">
+          <div>
+            <p class="text-sm font-medium">{{ detail.task.status === 'running' ? t('task.steer') : t('task.talkWithManager') }}</p>
+            <p v-if="detail.task.status === 'running'" class="text-xs text-(--ui-text-muted)">{{ t('task.steerHint') }}</p>
+          </div>
+          <ChatPanel :key="detail.task.id" :project-id="projectId" :task-id="detail.task.id" :task-running="detail.task.status === 'running'" @turn-done="reloadDetail" />
         </div>
 
         <div v-if="detail.actions?.length" class="space-y-2">
