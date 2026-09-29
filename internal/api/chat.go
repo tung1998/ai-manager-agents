@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -399,4 +400,43 @@ func (s *server) ownTurn(h http.HandlerFunc) http.HandlerFunc {
 		}
 		h(w, r)
 	}
+}
+
+// recentConversations: the latest chats across the office's projects (the
+// overview), bots' included; the office assistant's are each person's own.
+func (s *server) recentConversations(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 50 {
+		limit = 6
+	}
+	projects, err := s.cfg.Store.Repos().List(ctx)
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	hidden := assistant.ID(ctx, s.cfg.Store)
+	names := map[string]string{}
+	var all []storage.Conversation
+	for _, p := range projects {
+		if p.ID == hidden {
+			continue
+		}
+		names[p.ID] = p.Name
+		list, err := s.cfg.Store.Chat().ListConversationsFrom(ctx, p.ID, "all", limit)
+		if err != nil {
+			s.internal(w, r, err)
+			return
+		}
+		all = append(all, list...)
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].UpdatedAt.After(all[j].UpdatedAt) })
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	out := make([]conversationDTO, 0, len(all))
+	for _, c := range all {
+		out = append(out, s.toConvDTO(c))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"conversations": out, "projects": names})
 }

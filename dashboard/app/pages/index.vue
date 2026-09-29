@@ -9,18 +9,11 @@ const { data: proj } = _f3
 const _f4 = useFetch<{ templates: OrgModel[] }>('/api/templates')
 const { data: tpl } = _f4
 
-interface Job { id: string, project_id: string, title: string, goal: string, pending_patches?: number, status: 'running' | 'done' | 'failed' | 'cancelled' | 'rejected' | 'needs_input', cost_usd: number, created_at: string }
-const _f5 = useFetch<{ tasks: Job[], projects: Record<string, string> }>('/api/tasks/recent')
-const { data: jobData } = _f5
-const recentJobs = computed(() => (jobData.value?.tasks ?? []).slice(0, 6))
-const jobStatus = computed<Record<Job['status'], { label: string, color: 'info' | 'success' | 'error' | 'neutral' | 'warning', icon: string }>>(() => ({
-  running: { label: t('home.jobRunning'), color: 'info', icon: 'i-lucide-loader' },
-  done: { label: t('home.jobDone'), color: 'success', icon: 'i-lucide-circle-check' },
-  failed: { label: t('home.jobFailed'), color: 'error', icon: 'i-lucide-circle-x' },
-  cancelled: { label: t('home.jobCancelled'), color: 'neutral', icon: 'i-lucide-circle-slash' },
-  rejected: { label: t('home.jobRejected'), color: 'warning', icon: 'i-lucide-thumbs-down' },
-  needs_input: { label: t('home.jobNeedsInput'), color: 'warning', icon: 'i-lucide-message-circle-question' }
-}))
+// the latest chats across projects (bots' too): where the work happens now
+interface RecentChat { id: string, project_id: string, title: string, agent_name: string, source?: Source, updated_at: string, active_turn?: string }
+const _f5 = useFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 6 } })
+const { data: chatData } = _f5
+const recentChats = computed(() => chatData.value?.conversations ?? [])
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // what needs a person, and the last day in numbers
@@ -191,25 +184,23 @@ const steps = computed(() => [
         </ol>
       </UCard>
 
-      <UCard v-if="recentJobs.length" :ui="{ body: 'p-0 sm:p-0' }">
+      <UCard v-if="recentChats.length" :ui="{ body: 'p-0 sm:p-0' }">
         <template #header>
-          <p class="font-semibold">{{ t('home.recentJobs') }}</p>
+          <p class="font-semibold">{{ t('home.recentChats') }}</p>
         </template>
         <div class="divide-y divide-(--ui-border)">
           <NuxtLink
-            v-for="j in recentJobs" :key="j.id" :to="`/projects/${j.project_id}?tab=tasks&task=${j.id}`"
+            v-for="c in recentChats" :key="c.id" :to="`/projects/${c.project_id}?tab=chat&c=${c.id}`"
             class="flex items-center gap-3 px-4 py-2.5 transition hover:bg-(--ui-bg-elevated)"
           >
-            <UIcon :name="jobStatus[j.status].icon" class="size-4 shrink-0" :class="{ 'animate-spin': j.status === 'running' }" />
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-medium">{{ j.title || j.goal }}</p>
-              <p class="truncate text-xs text-(--ui-text-muted)">{{ jobData?.projects[j.project_id] ?? j.project_id }} · {{ when(j.created_at) }}</p>
-            </div>
-            <span class="text-xs tabular-nums text-(--ui-text-muted)">${{ j.cost_usd.toFixed(3) }}</span>
-            <UBadge
-              :color="j.status === 'done' && j.pending_patches ? 'warning' : jobStatus[j.status].color" variant="subtle" size="sm"
-              :label="j.status === 'done' && j.pending_patches ? t('home.pendingApproval', { n: j.pending_patches }) : jobStatus[j.status].label"
+            <UIcon
+              :name="c.active_turn ? 'i-lucide-loader-circle' : c.source && c.source !== 'web' ? sourceIcon[c.source] : 'i-lucide-messages-square'"
+              class="size-4 shrink-0 text-(--ui-text-muted)" :class="{ 'animate-spin text-primary': c.active_turn }"
             />
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium">{{ c.title || t('chat.newThreadTitle') }}</p>
+              <p class="truncate text-xs text-(--ui-text-muted)">{{ chatData?.projects[c.project_id] ?? c.project_id }} · {{ c.agent_name }} · {{ when(c.updated_at) }}</p>
+            </div>
           </NuxtLink>
         </div>
       </UCard>

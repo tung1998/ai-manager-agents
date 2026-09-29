@@ -89,3 +89,25 @@ func TestIncidentActions(t *testing.T) {
 		t.Fatal("a new failure after the dismissal is not shown")
 	}
 }
+
+// The overview's recent chats: across projects, the latest first, bots' too.
+func TestRecentConversations(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "cũ"})
+	time.Sleep(5 * time.Millisecond)
+	e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "từ discord", Purpose: "channel", CreatedBy: "discord:an"})
+	e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "xây tự động hóa", Purpose: "automation"})
+	_, b := do(t, admin, "GET", e.srv.URL+"/api/conversations/recent?limit=5", nil, nil)
+	list, _ := b["conversations"].([]any)
+	if len(list) != 2 || list[0].(map[string]any)["title"] != "từ discord" || list[0].(map[string]any)["source"] != "discord" {
+		t.Fatalf("recent = %v", b)
+	}
+	if b["projects"].(map[string]any)[pid] != "shop" {
+		t.Fatalf("projects = %v", b["projects"])
+	}
+}

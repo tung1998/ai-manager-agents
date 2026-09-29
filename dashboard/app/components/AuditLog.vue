@@ -45,7 +45,7 @@ async function load(more = false) {
 }
 watch([kind, via, resource, project, since, () => props.filter?.resource_id], () => load(), { immediate: true })
 
-const resources = ['automation', 'agent', 'monitor', 'process', 'project', 'policy', 'provider', 'org_model', 'usage_settings', 'action', 'patch', 'task', 'job'] as const
+const resources = ['automation', 'agent', 'monitor', 'process', 'project', 'policy', 'provider', 'org_model', 'usage_settings', 'action', 'patch', 'job'] as const
 // USelect cannot hold "" as a value: use a sentinel for "all"
 const ALL = '__all'
 const bind = (r: Ref<string>) => computed({ get: () => r.value || ALL, set: (v: string) => { r.value = v === ALL ? '' : v } })
@@ -55,7 +55,7 @@ const resourceSel = bind(resource)
 const projectSel = bind(project)
 const selectItems = computed(() => ({
   kind: [{ label: t('audit.kindAll'), value: ALL }, ...(['human', 'agent', 'automation', 'system'] as const).map(v => ({ label: t(`audit.kind.${v}`), value: v }))],
-  via: [{ label: t('audit.viaAll'), value: ALL }, ...(['ui', 'chat', 'task', 'assistant', 'mcp', 'automation', 'api'] as const).map(v => ({ label: t(`audit.via.${v}`), value: v }))],
+  via: [{ label: t('audit.viaAll'), value: ALL }, ...(['ui', 'chat', 'assistant', 'mcp', 'automation', 'api'] as const).map(v => ({ label: t(`audit.via.${v}`), value: v }))],
   resource: [{ label: t('audit.resourceAll'), value: ALL }, ...resources.map(v => ({ label: t(`audit.resource.${v}`), value: v }))],
   project: [{ label: t('job.projectAll'), value: ALL }, ...(props.projects ?? []).map(p => ({ label: p.name, value: p.id }))],
   since: [{ label: t('job.range24h'), value: '24h' }, { label: t('job.range7d'), value: '168h' }, { label: t('job.range30d'), value: '720h' }]

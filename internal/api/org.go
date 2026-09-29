@@ -77,6 +77,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	if s.cfg.Chat != nil {
 		mux.Handle("GET /api/projects/{id}/chat/agents", auth(s.chatAgents))
 		mux.Handle("GET /api/projects/{id}/conversations", auth(s.listConversations))
+		mux.Handle("GET /api/conversations/recent", auth(s.recentConversations)) // the overview
 		mux.Handle("POST /api/projects/{id}/conversations", auth(s.createConversation))
 		mux.Handle("GET /api/projects/{id}/skills", auth(s.chatSkills))
 		mux.Handle("POST /api/projects/{id}/attachments", auth(s.uploadAttachment))
@@ -91,7 +92,6 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/patches/{id}/reject", admin(s.rejectPatch))
 	}
 	if s.cfg.Tasks != nil {
-		mux.Handle("GET /api/tasks/recent", auth(s.jobs)) // the home page's recent tasks
 		mux.Handle("GET /api/projects/{id}/tasks", auth(s.listTasks))
 		mux.Handle("POST /api/projects/{id}/tasks", auth(s.createTask))
 		mux.Handle("GET /api/tasks/{id}", auth(s.getTask))

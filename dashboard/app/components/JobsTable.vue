@@ -61,7 +61,7 @@ onMounted(() => {
 onBeforeUnmount(() => clearInterval(timer))
 
 const selectItems = computed(() => ({
-  kind: [{ label: t('job.kindAll'), value: '' }, ...(['chat_turn', 'task', 'script'] as const).map(v => ({ label: t(`job.kind.${v}`), value: v }))],
+  kind: [{ label: t('job.kindAll'), value: '' }, ...(['chat_turn', 'script'] as const).map(v => ({ label: t(`job.kind.${v}`), value: v }))],
   status: [{ label: t('job.statusAll'), value: '' }, ...(['running', 'pending', 'done', 'failed', 'needs_input', 'cancelled', 'skipped'] as const).map(v => ({ label: t(`job.status.${v}`), value: v }))],
   since: [{ label: t('job.range24h'), value: '24h' }, { label: t('job.range7d'), value: '168h' }, { label: t('job.range30d'), value: '720h' }],
   project: [{ label: t('job.projectAll'), value: '' }, ...(props.projects ?? []).map(p => ({ label: p.name, value: p.id }))]
