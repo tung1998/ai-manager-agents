@@ -554,15 +554,3 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
-<style scoped>
-.markdown :deep(p) { margin: 0.4rem 0; }
-.markdown :deep(ul) { list-style: disc; padding-inline-start: 1.25rem; margin: 0.4rem 0; }
-.markdown :deep(ol) { list-style: decimal; padding-inline-start: 1.25rem; margin: 0.4rem 0; }
-.markdown :deep(code) { font-family: ui-monospace, monospace; font-size: 0.85em; background: var(--ui-bg-muted); padding: 0.1rem 0.3rem; border-radius: 0.25rem; }
-.markdown :deep(pre) { background: var(--ui-bg-muted); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.5rem 0; }
-.markdown :deep(pre code) { background: none; padding: 0; }
-.markdown :deep(h1), .markdown :deep(h2), .markdown :deep(h3) { font-weight: 600; margin: 0.75rem 0 0.25rem; }
-.markdown :deep(a) { color: var(--ui-primary); text-decoration: underline; }
-.markdown :deep(table) { border-collapse: collapse; margin: 0.5rem 0; font-size: 0.85em; }
-.markdown :deep(th), .markdown :deep(td) { border: 1px solid var(--ui-border); padding: 0.25rem 0.5rem; }
-</style>

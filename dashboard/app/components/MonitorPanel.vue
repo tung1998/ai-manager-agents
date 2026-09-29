@@ -461,10 +461,3 @@ async function addSuggested() {
   </div>
 </template>
 
-<style scoped>
-.markdown :deep(p) { margin: 0.3rem 0; }
-.markdown :deep(ul) { list-style: disc; padding-inline-start: 1.1rem; }
-.markdown :deep(ol) { list-style: decimal; padding-inline-start: 1.1rem; }
-.markdown :deep(code) { font-family: ui-monospace, monospace; font-size: 0.9em; }
-.markdown :deep(pre) { overflow-x: auto; background: var(--ui-bg-muted); padding: 0.5rem; border-radius: 0.375rem; }
-</style>
