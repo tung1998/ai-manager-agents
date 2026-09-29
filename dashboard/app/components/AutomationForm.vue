@@ -34,6 +34,7 @@ const allowText = computed({ get: () => form.bot.allow.join('\n'), set: (v: stri
 const chTab = ref<'rule' | 'bot'>(form.config.channel_id ? 'rule' : 'bot')
 const ruleMissing = computed(() => listenBy.value === 'command' && !form.config.command)
 const botMissing = computed(() => (!form.config.channel_id && !form.bot.token) || !form.bot.allow.length)
+const guideOpen = ref(false)
 const sharedBy = computed(() => bot.value ? (autosData.value?.automations ?? []).filter(a => a.config.channel_id === bot.value!.id).length : 0)
 // which messages: by keyword/topic, or a custom slash command
 const listenBy = ref<'message' | 'command'>(form.config.command ? 'command' : 'message')
@@ -51,6 +52,7 @@ const takesText = computed({
 // the bot's menu: its own commands (fixed) and the custom ones of its automations
 const { data: autosData } = useFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`, { lazy: true })
 const builtinCommands = computed(() => [
+  { name: '@', arg: t('cmd.tagArg'), desc: t('cmd.tag') },
   { name: 'job', arg: t('cmd.jobArg'), desc: t('cmd.job') },
   { name: 'create-conversation', arg: '', desc: t('cmd.create') },
   { name: 'close-conversation', arg: '', desc: t('cmd.close') }
@@ -231,25 +233,47 @@ async function testRun() {
         <!-- two tabs: what this automation takes, and the bot shared by all its automations -->
         <div class="flex border-b border-(--ui-border) text-sm">
           <button
-            v-for="k in (['rule', 'bot'] as const)" :key="k" type="button"
+            v-for="k in (['bot', 'rule'] as const)" :key="k" type="button"
             class="-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2"
             :class="chTab === k ? 'border-primary font-medium text-(--ui-text)' : 'border-transparent text-(--ui-text-muted) hover:text-(--ui-text)'"
             @click="chTab = k"
           >
-            <UIcon :name="k === 'rule' ? 'i-lucide-filter' : 'i-lucide-bot'" class="size-4" />
+            <UIcon :name="k === 'rule' ? 'i-lucide-square-slash' : 'i-lucide-bot'" class="size-4" />
             {{ k === 'rule' ? t('auto.tabRule') : t('auto.tabBot') }}
             <span v-if="(k === 'rule' ? ruleMissing : botMissing)" class="size-1.5 rounded-full bg-(--ui-error)" />
           </button>
+          <!-- how to make the bot and find the ids: on demand -->
+          <UButton
+            class="ms-auto self-center" size="xs" color="neutral" variant="ghost" icon="i-lucide-info"
+            :label="form.source === 'discord' ? t('channels.guideDiscord') : t('channels.guideTelegram')" @click="guideOpen = true"
+          />
         </div>
+        <UModal v-model:open="guideOpen" :title="form.source === 'discord' ? t('channels.guideDiscord') : t('channels.guideTelegram')">
+          <template #body><BotGuide :kind="form.source === 'discord' ? 'discord' : 'telegram'" plain /></template>
+        </UModal>
 
-        <!-- tab: this automation -->
+        <!-- tab: the bot, shared -->
+        <div v-show="chTab === 'bot'" class="space-y-3" :class="hl('bot')">
+          <p v-if="form.config.channel_id && (bot?.id && sharedBy > 1)" class="flex items-center gap-1.5 text-xs text-(--ui-warning)">
+            <UIcon name="i-lucide-triangle-alert" class="size-3.5" />{{ t('auto.botSharedN', { n: sharedBy }) }}
+          </p>
+          <template v-if="!form.config.channel_id">
+            <div class="flex rounded-lg bg-(--ui-bg-elevated) p-0.5 text-sm">
+              <button
+                v-for="k in (['telegram', 'discord'] as const)" :key="k" type="button" class="flex flex-1 items-center justify-center gap-1.5 rounded-md py-1"
+                :class="form.source === k ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted)'" @click="form.source = k"
+              >
+                <UIcon :name="k === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" class="size-4" />{{ k === 'discord' ? 'Discord' : 'Telegram' }}
+              </button>
+            </div>
+            <!-- tab: this automation -->
         <div v-show="chTab === 'rule'" class="space-y-3">
           <div class="flex rounded-lg bg-(--ui-bg-elevated) p-0.5 text-sm">
             <button
               v-for="k in (['message', 'command'] as const)" :key="k" type="button" class="flex flex-1 items-center justify-center gap-1.5 rounded-md py-1"
               :class="listenBy === k ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted)'" @click="listenBy = k"
             >
-              <UIcon :name="k === 'command' ? 'i-lucide-square-slash' : 'i-lucide-message-circle'" class="size-4" />{{ k === 'command' ? t('auto.byCommand') : t('auto.byMessage') }}
+              <UIcon :name="k === 'command' ? 'i-lucide-square-slash' : 'i-lucide-at-sign'" class="size-4" />{{ k === 'command' ? t('auto.byCommand') : t('auto.byMessage') }}
             </button>
           </div>
           <template v-if="listenBy === 'message'">
@@ -295,22 +319,7 @@ async function testRun() {
           <p class="text-xs text-(--ui-text-muted)">{{ t('auto.agentPerRule') }}</p>
         </div>
 
-        <!-- tab: the bot, shared -->
-        <div v-show="chTab === 'bot'" class="space-y-3" :class="hl('bot')">
-          <p v-if="form.config.channel_id && (bot?.id && sharedBy > 1)" class="flex items-center gap-1.5 text-xs text-(--ui-warning)">
-            <UIcon name="i-lucide-triangle-alert" class="size-3.5" />{{ t('auto.botSharedN', { n: sharedBy }) }}
-          </p>
-          <template v-if="!form.config.channel_id">
-            <div class="flex rounded-lg bg-(--ui-bg-elevated) p-0.5 text-sm">
-              <button
-                v-for="k in (['telegram', 'discord'] as const)" :key="k" type="button" class="flex flex-1 items-center justify-center gap-1.5 rounded-md py-1"
-                :class="form.source === k ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted)'" @click="form.source = k"
-              >
-                <UIcon :name="k === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" class="size-4" />{{ k === 'discord' ? 'Discord' : 'Telegram' }}
-              </button>
-            </div>
-            <BotGuide :kind="form.source === 'discord' ? 'discord' : 'telegram'" open />
-          </template>
+      </template>
           <UFormField :label="t('channels.token')" :help="form.source === 'discord' ? t('channels.tokenHelpDiscord') : t('channels.tokenHelpTelegram')" :required="!form.config.channel_id">
             <UInput
               v-model="form.bot.token" type="password" name="bot-token" autocomplete="new-password" class="w-full font-mono"
@@ -331,7 +340,7 @@ async function testRun() {
                 v-for="c in builtinCommands" :key="c.name" :title="c.desc"
                 class="inline-flex items-center gap-1 rounded-md bg-(--ui-bg-elevated) px-2 py-0.5 font-mono text-xs text-(--ui-text-muted)"
               >
-                <UIcon name="i-lucide-lock" class="size-3" />/{{ cmdLabel(c.name) }}<span v-if="c.arg" class="text-(--ui-text-dimmed)">&lt;{{ c.arg }}&gt;</span>
+                <UIcon name="i-lucide-lock" class="size-3" />{{ c.name === '@' ? `@${bot?.bot_name || 'bot'}` : `/${cmdLabel(c.name)}` }}<span v-if="c.arg" class="text-(--ui-text-dimmed)">&lt;{{ c.arg }}&gt;</span>
               </span>
               <NuxtLink
                 v-for="c in customCommands" :key="c.id" :to="`/projects/${projectId}/automations/${c.id}`" :title="c.desc"
@@ -341,7 +350,6 @@ async function testRun() {
               </NuxtLink>
             </div>
           </div>
-          <BotGuide v-if="form.config.channel_id" :kind="form.source === 'discord' ? 'discord' : 'telegram'" />
         </div>
       </template>
       <template v-else>
