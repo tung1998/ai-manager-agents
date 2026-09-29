@@ -57,3 +57,36 @@ func TestChannelsAPI(t *testing.T) {
 		t.Fatalf("delete = %d", resp.StatusCode)
 	}
 }
+
+// ADR-049: a channel's messages are handled by automations whose source is
+// the channel; each names the channel, keywords and a scope.
+func TestChannelAutomationAPI(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/channels", map[string]any{"kind": "telegram", "name": "Hỗ trợ", "token": "1:t", "allow": []string{"*"}}, nil)
+	chID := body["channel"].(map[string]any)["id"].(string)
+	create := func(source string, cfg map[string]any) (int, map[string]any) {
+		resp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Tra đơn", "source": source, "action": "chat", "config": cfg}, nil)
+		return resp.StatusCode, b
+	}
+	if code, b := create("telegram", map[string]any{}); code != 400 {
+		t.Fatalf("no channel = %d %v", code, b)
+	}
+	if code, b := create("discord", map[string]any{"channel_id": chID}); code != 400 {
+		t.Fatalf("a telegram channel for a discord source = %d %v", code, b)
+	}
+	code, b := create("telegram", map[string]any{"channel_id": chID, "keywords": []string{" đơn ", ""}, "scope": "đơn hàng"})
+	if code != 201 {
+		t.Fatalf("create = %d %v", code, b)
+	}
+	cfg := b["automation"].(map[string]any)["config"].(map[string]any)
+	if cfg["channel_id"] != chID || cfg["scope"] != "đơn hàng" || mustJSON(cfg["keywords"]) != `["đơn"]` {
+		t.Fatalf("config = %v", cfg)
+	}
+	if _, has := b["secret"]; has && b["secret"] != "" {
+		t.Fatalf("a channel automation got a webhook secret: %v", b["secret"])
+	}
+}

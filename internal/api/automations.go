@@ -65,6 +65,13 @@ type automationDTO struct {
 func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automationDTO {
 	c := a.Config
 	cfg := map[string]any{"every_minutes": c.EveryMinutes, "cron": c.Cron, "timezone": c.Timezone, "auth": c.Auth, "auth_name": c.AuthName}
+	if trigger.IsChannel(a.Source) {
+		keywords := c.Keywords
+		if keywords == nil {
+			keywords = []string{}
+		}
+		cfg = map[string]any{"channel_id": c.ChannelID, "keywords": keywords, "scope": c.Scope}
+	}
 	d := automationDTO{ID: a.ID, ProjectID: a.ProjectID, Name: a.Name, Enabled: a.Enabled, Source: a.Source, Config: cfg, Action: a.Action,
 		AgentID: a.AgentID, Prompt: a.Prompt, EditMode: a.EditMode, ModelTier: a.ModelTier, KeepContext: a.KeepContext, Limits: a.Limits, Script: a.Script, Escalate: a.Escalate, Failures: a.Failures,
 		DisabledCode: a.DisabledCode, DisabledReason: a.DisabledReason, LastRunAt: a.LastRunAt, NextRunAt: a.NextRunAt, CreatedAt: a.CreatedAt}
@@ -102,8 +109,8 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	if in.Name == "" {
 		return errors.New("hãy đặt tên cho tự động hóa")
 	}
-	if in.Source != "schedule" && in.Source != "webhook" {
-		return errors.New("nguồn phải là lịch chạy hoặc webhook")
+	if in.Source != "schedule" && in.Source != "webhook" && !trigger.IsChannel(in.Source) {
+		return errors.New("nguồn phải là lịch chạy, webhook hoặc tin nhắn kênh (telegram, discord)")
 	}
 	if in.ModelTier != "" && !storage.ValidTier(in.ModelTier) {
 		return errors.New("cấp model phải là mạnh, cân bằng hoặc nhanh")
@@ -113,7 +120,11 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 		return errors.New("hành động phải là gửi tin (chat), giao Việc (task) hoặc chạy code (script)")
 	}
 	if in.Action == "script" {
-		spec := trigger.Spec{Name: in.Name, Source: in.Source, EveryMinutes: in.Config.EveryMinutes, Cron: in.Config.Cron, Timezone: in.Config.Timezone,
+		src := in.Source
+		if trigger.IsChannel(src) {
+			src = "webhook" // a message arrives like a delivery: the script checks the same way
+		}
+		spec := trigger.Spec{Name: in.Name, Source: src, EveryMinutes: in.Config.EveryMinutes, Cron: in.Config.Cron, Timezone: in.Config.Timezone,
 			Action: in.Action, Script: in.Script, Escalate: in.Escalate}
 		if err := spec.Check(); err != nil {
 			return err
@@ -130,6 +141,20 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 		}
 		if err := trigger.Validate(cfg); err != nil {
 			return err
+		}
+	} else if trigger.IsChannel(in.Source) { // ADR-049
+		ch, err := s.cfg.Store.Channels().Get(r.Context(), in.Config.ChannelID)
+		if err != nil || ch.ProjectID != a.ProjectID {
+			return errors.New("hãy chọn kênh chat của project này")
+		}
+		if ch.Kind != in.Source {
+			return errors.New("kênh đã chọn là " + ch.Kind + ", không phải " + in.Source)
+		}
+		cfg.ChannelID, cfg.Scope = ch.ID, strings.TrimSpace(in.Config.Scope)
+		for _, k := range in.Config.Keywords {
+			if k = strings.TrimSpace(k); k != "" {
+				cfg.Keywords = append(cfg.Keywords, k)
+			}
 		}
 	} else {
 		cfg.Auth, cfg.AuthName = in.Config.Auth, strings.TrimSpace(in.Config.AuthName)
