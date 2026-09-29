@@ -69,7 +69,8 @@ async function runNow(a: Automation) {
           {{ when(a.last_job?.created_at) }}
         </span>
         <USwitch v-if="isAdmin" :model-value="a.enabled" size="sm" @update:model-value="(v: boolean) => toggle(a, v)" />
-        <UButton v-if="isAdmin" size="xs" color="neutral" variant="ghost" icon="i-lucide-play" :aria-label="t('auto.runNow')" :title="t('auto.runNow')" @click="runNow(a)" />
+        <!-- a test run is for schedules and webhooks; a bot's automation runs on a message -->
+        <UButton v-if="isAdmin && !isChannelSource(a.source)" size="xs" color="neutral" variant="ghost" icon="i-lucide-play" :aria-label="t('auto.runNow')" :title="t('auto.runNowHelp')" @click="runNow(a)" />
       </div>
     </UCard>
 

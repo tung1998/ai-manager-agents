@@ -134,6 +134,9 @@ func (r assistantRunner) RunAutomation(ctx context.Context, automationID string)
 	if err != nil {
 		return "", err
 	}
+	if trigger.IsChannel(a.Source) {
+		return "", errors.New("tự động hóa này chạy khi có tin nhắn tới bot, không chạy tay được")
+	}
 	j, _, err := r.trigger.Enqueue(ctx, a, "manual", "", "", "")
 	return j.ID, err
 }

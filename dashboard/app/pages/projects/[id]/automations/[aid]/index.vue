@@ -40,7 +40,7 @@ async function remove() {
   <PageShell :title="a?.name ?? ''">
     <template #actions>
       <template v-if="a && isAdmin">
-        <UButton size="sm" icon="i-lucide-play" :label="t('auto.runNow')" @click="runNow" />
+        <UButton v-if="!isChannelSource(a.source)" size="sm" icon="i-lucide-play" :label="t('auto.runNow')" :title="t('auto.runNowHelp')" @click="runNow" />
         <UDropdownMenu
           :content="{ align: 'end' }"
           :items="[[

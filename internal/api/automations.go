@@ -338,6 +338,10 @@ func (s *server) runAutomation(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	if trigger.IsChannel(a.Source) {
+		writeError(w, http.StatusBadRequest, "tự động hóa này chạy khi có tin nhắn tới bot, không chạy tay được")
+		return
+	}
 	j, _, err := s.cfg.Trigger.Enqueue(r.Context(), a, "manual", "", "", "")
 	if err != nil {
 		s.internal(w, r, err)

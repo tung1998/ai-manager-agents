@@ -151,3 +151,18 @@ func TestAutomationCarriesItsBot(t *testing.T) {
 		t.Fatal("the bot stayed after its last rule")
 	}
 }
+
+// A bot's automation runs on a message: "run now" has nothing to run.
+func TestChannelAutomationDoesNotRunByHand(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	_, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Trả lời", "source": "discord", "action": "chat",
+		"bot": map[string]any{"token": "tok", "allow": []string{"42"}}}, nil)
+	id := b["automation"].(map[string]any)["id"].(string)
+	if resp, b := do(t, admin, "POST", e.srv.URL+"/api/automations/"+id+"/run", map[string]any{}, nil); resp.StatusCode != 400 {
+		t.Fatalf("run = %d %v", resp.StatusCode, b)
+	}
+}
