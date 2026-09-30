@@ -13,10 +13,12 @@ const open = computed({ get: () => !!props.jobId, set: (v: boolean) => { if (!v)
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit' })
 const secs = (ms: number) => !ms ? '—' : ms >= 60000 ? `${(ms / 60000).toFixed(1)}m` : `${(ms / 1000).toFixed(1)}s`
 const kindName = (k: string) => t(`job.kind.${k}` as 'job.kind.script')
-// where it belongs: its chat, its automation
+// where it belongs: its chat (the assistant's on its own page), its automation
+const { data: asst } = useFetch<{ project_id: string }>('/api/assistant', { key: 'assistant', lazy: true })
 const link = computed(() => {
   const j = data.value?.job
   if (!j) return null
+  if (j.conversation_id && j.project_id === asst.value?.project_id) return { to: `/assistant?c=${j.conversation_id}`, label: t('job.openChat'), icon: 'i-lucide-messages-square' }
   if (j.conversation_id) return { to: `/projects/${j.project_id}?tab=chat&c=${j.conversation_id}${j.message_id ? `&m=${j.message_id}` : ''}`, label: t('job.openChat'), icon: 'i-lucide-messages-square' }
   if (j.origin === 'automation' && j.origin_id) return { to: `/projects/${j.project_id}/automations/${j.origin_id}`, label: t('job.openAutomation'), icon: 'i-lucide-alarm-clock' }
   return null

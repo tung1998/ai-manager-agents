@@ -297,8 +297,16 @@ func (s *server) jobGroups(w http.ResponseWriter, r *http.Request) {
 		switch g.Key[:2] {
 		case "c:":
 			d.Kind, d.Link, d.ConversationID = "chat", base+"?tab=chat&c="+g.ConversationID, g.ConversationID
-			if c, err := s.cfg.Store.Chat().GetConversation(ctx, g.ConversationID); err == nil && c.Title != "" {
-				d.Title = c.Title
+			if g.ProjectID == own { // the assistant's chats live on its own page
+				d.Link = "/assistant?c=" + g.ConversationID
+			}
+			if c, err := s.cfg.Store.Chat().GetConversation(ctx, g.ConversationID); err == nil {
+				if c.Title != "" {
+					d.Title = c.Title
+				}
+				if c.Purpose == "automation" && c.AutomationID != "" { // the builder chat opens with its automation
+					d.Link = base + "/automations/" + c.AutomationID
+				}
 			}
 		case "t:": // a task from before Việc was dropped (ADR-057): its latest job
 			d.Kind, d.JobID = "task", g.LatestID

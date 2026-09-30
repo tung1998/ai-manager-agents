@@ -1,6 +1,8 @@
 package api_test
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/assistant"
+	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"context"
 	"testing"
 	"time"
@@ -132,6 +134,30 @@ func TestJobGroupsAPI(t *testing.T) {
 	g := gs[0].(map[string]any)
 	if g["title"] != "Sửa lỗi thanh toán" || g["runs"] != float64(3) || g["source"] != "discord" || g["link"] == "" || g["project_name"] != "shop" {
 		t.Fatalf("group = %v", g)
+	}
+}
+
+// A job group opens where its chat lives: the assistant's page, an automation builder's automation.
+func TestJobGroupLinks(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	aid, _ := assistant.Ensure(ctx, e.st, orgmodel.NewService(e.st), t.TempDir())
+	ac, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: aid, Title: "Báo cáo", CreatedBy: "human:admin@x.io"})
+	e.st.Jobs().Create(ctx, storage.Job{ProjectID: aid, Kind: "chat_turn", Origin: "user", CreatedBy: "human:admin@x.io", ConversationID: ac.ID, Status: "done"})
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	bc, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "Tạo automation", Purpose: "automation", AutomationID: "aut_1"})
+	e.st.Jobs().Create(ctx, storage.Job{ProjectID: pid, Kind: "chat_turn", Origin: "user", ConversationID: bc.ID, Status: "done"})
+	_, b := do(t, admin, "GET", e.srv.URL+"/api/jobs/groups", nil, nil)
+	links := map[string]string{}
+	for _, x := range b["groups"].([]any) {
+		g := x.(map[string]any)
+		links[g["conversation_id"].(string)] = g["link"].(string)
+	}
+	if links[ac.ID] != "/assistant?c="+ac.ID || links[bc.ID] != "/projects/"+pid+"/automations/aut_1" {
+		t.Fatalf("links = %v", links)
 	}
 }
 
