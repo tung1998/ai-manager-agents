@@ -605,3 +605,35 @@ func TestDiscordButtons(t *testing.T) {
 		}
 	}
 }
+
+// 👀 on a message, a status message edited then removed: the REST calls.
+func TestLiveMarks(t *testing.T) {
+	var mu sync.Mutex
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.EscapedPath()+" "+string(raw))
+		mu.Unlock()
+		w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	d := &Discord{Token: "TOK", APIBase: srv.URL}
+	d.React(ctx, "c2", "m1", "👀", true)
+	d.React(ctx, "c2", "m1", "👀", false)
+	d.Edit(ctx, "c2", "m9", "⏳ bước 2")
+	d.Delete(ctx, "c2", "m9")
+	tg := &Telegram{Token: "TOK", BaseURL: srv.URL}
+	tg.React(ctx, "42", "5", "👀", true)
+	tg.Delete(ctx, "42", "6")
+	mu.Lock()
+	defer mu.Unlock()
+	all := strings.Join(calls, "\n")
+	for _, want := range []string{"PUT /channels/c2/messages/m1/reactions/%F0%9F%91%80/@me", "DELETE /channels/c2/messages/m1/reactions/%F0%9F%91%80/@me",
+		"PATCH /channels/c2/messages/m9", "DELETE /channels/c2/messages/m9", `setMessageReaction {"chat_id":42,"message_id":5,"reaction":[{"emoji":"👀","type":"emoji"}]}`, "deleteMessage"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("no %q in\n%s", want, all)
+		}
+	}
+}

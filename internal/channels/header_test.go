@@ -2,6 +2,8 @@ package channels_test
 
 import (
 	"context"
+	"sync"
+	"fmt"
 	"os"
 	"encoding/json"
 	"os/exec"
@@ -589,5 +591,99 @@ func TestPendingButtons(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("no buttons")
+	}
+}
+
+// liveBot reacts, edits and deletes, as Discord and Telegram do.
+type liveBot struct {
+	fakeBot
+	mu2    sync.Mutex
+	events []string
+}
+
+func (b *liveBot) note(s string) { b.mu2.Lock(); b.events = append(b.events, s); b.mu2.Unlock() }
+func (b *liveBot) React(_ context.Context, chatID, msgID, emoji string, on bool) error {
+	b.note(fmt.Sprintf("react %s %s %v", msgID, emoji, on))
+	return nil
+}
+func (b *liveBot) Edit(_ context.Context, chatID, msgID, text string) error {
+	b.note("edit " + msgID + " " + text)
+	return nil
+}
+func (b *liveBot) Delete(_ context.Context, chatID, msgID string) error {
+	b.note("delete " + msgID)
+	return nil
+}
+func (b *liveBot) seen() string { b.mu2.Lock(); defer b.mu2.Unlock(); return strings.Join(b.events, "\n") }
+
+// A message the bot takes gets 👀; a long run shows its steps in one status
+// message, edited as it goes and gone with the answer.
+func TestProgress(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	provs := provider.NewService(st, box, llm.Options{})
+	u := usage.New(st, time.UTC)
+	provs.SetUsage(u)
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	bin := filepath.Join(tmp, "claude")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+cat >/dev/null
+sleep 1
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"xong rồi","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	engine := chat.NewEngine(st, provs, u)
+	runner := trigger.New(st, chatExec{engine})
+	bot := &liveBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
+	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Trả lời", Source: "discord", Action: "chat", Enabled: true,
+		Config: storage.AutomationConfig{ChannelID: ch.ID}})
+	m := channels.NewManager(st, engine, runner, func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	m.ProgressAfter = 0
+	runner.SetOnReply(m.Reply)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	bot.in <- channels.Incoming{ChatID: "c2", UserID: "8", Addressed: true, MessageID: "u1", Text: "làm giúp"}
+	for deadline := time.Now().Add(3 * time.Second); !strings.Contains(bot.seen(), "react u1 👀 true"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no 👀: %s", bot.seen())
+		}
+	}
+	var job storage.Job
+	for deadline := time.Now().Add(3 * time.Second); job.ID == ""; time.Sleep(10 * time.Millisecond) {
+		jobs, _ := st.Jobs().List(ctx, storage.JobFilter{ProjectID: project.ID})
+		for _, j := range jobs {
+			if j.Trigger == "discord" {
+				job = j
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no job")
+		}
+	}
+	m.Progress(ctx, job, "Đọc a.go")
+	m.Progress(ctx, job, "Chạy test")
+	if got := bot.wait(t, "c2", 2); got[len(got)-1] != "xong rồi" {
+		t.Fatalf("sent = %q", got)
+	}
+	time.Sleep(100 * time.Millisecond)
+	seen := bot.seen()
+	for _, want := range []string{"edit ", "Chạy test", "delete ", "react u1 👀 false"} {
+		if !strings.Contains(seen, want) {
+			t.Errorf("no %q in\n%s\nsent %v", want, seen, bot.sent["c2"])
+		}
+	}
+	if !strings.Contains(bot.sent["c2"][0], "Đọc a.go") {
+		t.Errorf("the status message = %q", bot.sent["c2"][0])
 	}
 }

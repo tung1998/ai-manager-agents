@@ -1530,3 +1530,8 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Nút chỉ hiện khi bot có người được duyệt. Bấm nút tương đương gõ lệnh (`/approve n`, `/reject n`), nên vẫn kiểm tra quyền duyệt như lệnh.
   - Discord: component, `custom_id` là `office:<lệnh>`.
   - Telegram: inline keyboard, `callback_data` là lệnh; bot trả `answerCallbackQuery`.
+
+## ADR-067: Bot báo đang làm
+- Nhận tin (đã vào hàng chạy) thì bot thả 👀 lên tin, và gỡ khi đã trả lời. Discord dùng reactions (cần quyền Add Reactions), Telegram dùng `setMessageReaction`.
+- Chạy quá 10 giây (`Manager.ProgressAfter`) thì bot gửi một tin trạng thái "⏳ Đang làm… (n bước)" kèm bước đang làm, lấy từ tóm tắt công cụ agent dùng (`trigger.WithProgress` → `Runner.SetOnProgress` → `Manager.Progress`).
+  - Tin này được sửa tại chỗ, tối đa 4 giây một lần, và bị xóa khi có câu trả lời.

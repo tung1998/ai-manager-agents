@@ -340,6 +340,40 @@ func (t *Telegram) Send(ctx context.Context, chatID, text string) ([]string, err
 	return ids, nil
 }
 
+// React puts an emoji on a message (on) or clears the bot's.
+func (t *Telegram) React(ctx context.Context, chatID, msgID, emoji string, on bool) error {
+	chat, err1 := strconv.ParseInt(chatID, 10, 64)
+	msg, err2 := strconv.ParseInt(msgID, 10, 64)
+	if err1 != nil || err2 != nil {
+		return errors.New("telegram: id không hợp lệ")
+	}
+	reaction := []map[string]string{}
+	if on {
+		reaction = append(reaction, map[string]string{"type": "emoji", "emoji": emoji})
+	}
+	return t.call(ctx, "setMessageReaction", map[string]any{"chat_id": chat, "message_id": msg, "reaction": reaction}, nil)
+}
+
+// Edit changes one of the bot's messages.
+func (t *Telegram) Edit(ctx context.Context, chatID, msgID, text string) error {
+	chat, err1 := strconv.ParseInt(chatID, 10, 64)
+	msg, err2 := strconv.ParseInt(msgID, 10, 64)
+	if err1 != nil || err2 != nil {
+		return errors.New("telegram: id không hợp lệ")
+	}
+	return t.call(ctx, "editMessageText", map[string]any{"chat_id": chat, "message_id": msg, "text": text}, nil)
+}
+
+// Delete removes one of the bot's messages.
+func (t *Telegram) Delete(ctx context.Context, chatID, msgID string) error {
+	chat, err1 := strconv.ParseInt(chatID, 10, 64)
+	msg, err2 := strconv.ParseInt(msgID, 10, 64)
+	if err1 != nil || err2 != nil {
+		return errors.New("telegram: id không hợp lệ")
+	}
+	return t.call(ctx, "deleteMessage", map[string]any{"chat_id": chat, "message_id": msg}, nil)
+}
+
 // SendButtons posts text with inline buttons (their data: at most 64 bytes).
 func (t *Telegram) SendButtons(ctx context.Context, chatID, text string, rows [][]Button) ([]string, error) {
 	id, err := strconv.ParseInt(chatID, 10, 64)

@@ -36,15 +36,16 @@ type Executor interface {
 // Runner schedules automations and runs queued jobs: two at a time office
 // wide, one per automation.
 type Runner struct {
-	store   storage.Store
-	exec    Executor
-	slots   chan struct{}
-	startMu sync.Mutex // one StartReady at a time: busy snapshot, claim and marking stay together
-	mu      sync.Mutex
-	busy    map[string]bool // origin ids with a job running now
-	wg      sync.WaitGroup
-	now     func() time.Time
-	onReply OnReply
+	store      storage.Store
+	exec       Executor
+	slots      chan struct{}
+	startMu    sync.Mutex // one StartReady at a time: busy snapshot, claim and marking stay together
+	mu         sync.Mutex
+	busy       map[string]bool // origin ids with a job running now
+	wg         sync.WaitGroup
+	now        func() time.Time
+	onReply    OnReply
+	onProgress OnProgress
 }
 
 // OnReply gets what a run from a chat channel answers (ADR-049): origin is
@@ -53,6 +54,11 @@ type OnReply func(ctx context.Context, origin storage.Job, reply string, err err
 
 // SetOnReply sets where answers to channel messages go.
 func (r *Runner) SetOnReply(fn OnReply) { r.onReply = fn }
+
+// OnProgress hears what a run for a chat channel's message is doing (a step).
+type OnProgress func(ctx context.Context, origin storage.Job, step string)
+
+func (r *Runner) SetOnProgress(fn OnProgress) { r.onProgress = fn }
 
 // New builds a Runner.
 func New(store storage.Store, exec Executor) *Runner {
@@ -296,6 +302,9 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	}
 	if fromChannel { // the files sent with the message go to the agent with it
 		actx = WithAttachments(actx, channelPayloadOf(origin).Attachments)
+	}
+	if fromChannel && r.onProgress != nil { // what it is doing, while it does it
+		actx = WithProgress(actx, func(step string) { r.onProgress(context.WithoutCancel(ctx), origin, step) })
 	}
 	if fromChannel && r.onReply != nil { // the team's reports, after the answer, go to the chat too
 		actx = WithFollowUp(actx, func(t string) { r.onReply(context.WithoutCancel(ctx), origin, t, nil, true) })
@@ -555,6 +564,18 @@ type followUpKey struct{}
 
 // WithFollowUp gives a chat run where to send what comes after its answer:
 // the reports of the agents it gave work to (a bot's chat: back to the channel).
+type progressKey struct{}
+
+// WithProgress: where a chat run reports its steps (a tool it uses…).
+func WithProgress(ctx context.Context, fn func(step string)) context.Context {
+	return context.WithValue(ctx, progressKey{}, fn)
+}
+
+func ProgressOf(ctx context.Context) func(step string) {
+	fn, _ := ctx.Value(progressKey{}).(func(step string))
+	return fn
+}
+
 type attachmentsKey struct{}
 
 // WithAttachments: the files (attachment ids) the chat's message carries.

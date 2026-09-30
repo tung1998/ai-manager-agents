@@ -47,6 +47,8 @@ type Manager struct {
 	root     context.Context
 	pending  Pending
 	reload   sync.Mutex // one Reload at a time: never two bots for one channel
+	// ProgressAfter: a run longer than this shows its steps in a status message
+	ProgressAfter time.Duration
 	decider  Decider    // decides proposals from the chat (nil = only on the dashboard)
 }
 
@@ -54,6 +56,10 @@ type waiter struct {
 	key     string
 	typing  context.CancelFunc
 	respond func(ctx context.Context, text string) (string, error) // a slash command's reply (nil = send a message)
+	// the message it answers (👀 on it meanwhile), and the status message of a long run
+	chat, msg, status string
+	started, edited   time.Time
+	steps             int
 }
 
 // MaxPending is how many messages of one outside chat may wait at once.
@@ -91,7 +97,7 @@ func (p *Pending) Done(key string) {
 // NewManager builds a Manager; wire the runner's answers to Reply.
 func NewManager(store storage.Store, engine *chat.Engine, runner Runner, factory Factory) *Manager {
 	return &Manager{store: store, engine: engine, runner: runner, factory: factory, running: map[string]context.CancelFunc{},
-		adapters: map[string]Adapter{}, ready: map[string]bool{}, waiting: map[string]waiter{}}
+		adapters: map[string]Adapter{}, ready: map[string]bool{}, waiting: map[string]waiter{}, ProgressAfter: 10 * time.Second}
 }
 
 // Start runs the enabled channels until ctx ends.
@@ -331,7 +337,10 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	job, status, err := m.runner.Enqueue(actx, rule, ch.Kind, string(raw), "", "")
 	if err == nil && status == "queued" {
 		tctx, stop := context.WithCancel(m.root)
-		w := waiter{key: key, typing: stop}
+		w := waiter{key: key, typing: stop, chat: in.ChatID, msg: in.MessageID, started: time.Now()}
+		if r, ok := ad.(Reactor); ok && in.MessageID != "" { // seen: working on it
+			go func() { _ = r.React(context.WithoutCancel(ctx), in.ChatID, in.MessageID, "👀", true) }()
+		}
 		if custom {
 			w.respond = in.Respond // the answer edits the slash command's "thinking…"
 		}
@@ -369,6 +378,9 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 	if final && waited {
 		w.typing()
 		m.pending.Done(w.key)
+		if ad != nil { // answered: no 👀, no status message
+			m.settle(ctx, ad, w)
+		}
 	}
 	if ad == nil {
 		return // the channel is off now

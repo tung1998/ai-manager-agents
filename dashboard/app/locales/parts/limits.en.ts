@@ -57,7 +57,7 @@ const en: Record<keyof typeof vi, string> = {
   'channels.guideTelegram': 'How to make a Telegram bot (about 2 minutes)',
   'channels.gd1': 'Open the page below, click New Application and name the bot.',
   'channels.gd2': 'Open Bot in the left column: click Reset Token, copy the string and paste it into "Bot token". On the same page turn on Message Content Intent and click Save Changes.',
-  'channels.gd3': 'Open OAuth2 → URL Generator: tick "bot", then View Channels, Send Messages, Send Messages in Threads, Read Message History. Open the link at the bottom to invite the bot to your server.',
+  'channels.gd3': 'Open OAuth2 → URL Generator: tick "bot", then View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions. Open the link at the bottom to invite the bot to your server.',
   'channels.gd4': 'Get a User ID: in Discord open User Settings → Advanced and turn on Developer Mode; then right-click the person → Copy User ID. The bot answers direct messages, and messages that tag it in a server.',
   'channels.gt1': 'Open Telegram and message',
   'channels.gt2': 'Send /newbot, give the bot a name and a username (ending in "bot"). BotFather replies with a token: paste it into "Bot token".',

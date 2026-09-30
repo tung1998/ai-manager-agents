@@ -130,6 +130,7 @@ func serveCmd() *cobra.Command {
 				return &channels.Telegram{Token: token}, nil
 			})
 			runner.SetOnReply(bots.Reply)
+			runner.SetOnProgress(bots.Progress)
 			bots.SetDecider(chatDecider{store: a.store, chat: chatEngine, acts: acts}) // proposals decided from the chat (ADR-054)
 			bots.Start(ctx)
 

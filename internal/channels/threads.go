@@ -2,12 +2,16 @@ package channels
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/attach"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
 
 // Discord threads: a thread made from a message goes on with that message's
@@ -218,4 +222,72 @@ func (m *Manager) saveFiles(ctx context.Context, ch storage.Channel, files []InF
 		skipped = append(skipped, f.Name+": "+err.Error())
 	}
 	return ids, skipped
+}
+
+// Reactor is an adapter that can put an emoji on a message (and take it off).
+type Reactor interface {
+	React(ctx context.Context, chatID, msgID, emoji string, on bool) error
+}
+
+// Editor is an adapter that can change and remove the bot's own messages.
+type Editor interface {
+	Edit(ctx context.Context, chatID, msgID, text string) error
+	Delete(ctx context.Context, chatID, msgID string) error
+}
+
+// Progress shows what a run for a message is doing (the runner's OnProgress):
+// after ProgressAfter, one status message, edited at most every 4 seconds.
+func (m *Manager) Progress(ctx context.Context, origin storage.Job, step string) {
+	var p trigger.ChannelPayload
+	if json.Unmarshal([]byte(origin.Payload), &p) != nil {
+		return
+	}
+	m.mu.Lock()
+	w, ok := m.waiting[origin.ID]
+	ad := m.adapters[p.ChannelID]
+	if !ok || ad == nil {
+		m.mu.Unlock()
+		return
+	}
+	w.steps++
+	now := time.Now()
+	if now.Sub(w.started) < m.ProgressAfter || (w.status != "" && now.Sub(w.edited) < 4*time.Second && m.ProgressAfter > 0) {
+		m.waiting[origin.ID] = w
+		m.mu.Unlock()
+		return
+	}
+	w.edited = now
+	m.waiting[origin.ID] = w
+	status, chatID := w.status, w.chat
+	m.mu.Unlock()
+	text := fmt.Sprintf("⏳ Đang làm… (%d bước)\n%s", w.steps, truncate(step, 300))
+	ed, canEdit := ad.(Editor)
+	if status != "" && canEdit {
+		_ = ed.Edit(ctx, chatID, status, text)
+		return
+	}
+	if status != "" || !canEdit {
+		return // no editing: one status line is enough
+	}
+	if ids, err := ad.Send(ctx, chatID, text); err == nil && len(ids) > 0 {
+		m.mu.Lock()
+		if cur, ok := m.waiting[origin.ID]; ok {
+			cur.status = ids[0]
+			m.waiting[origin.ID] = cur
+		} else { // answered meanwhile: gone at once
+			go func() { _ = ed.Delete(context.WithoutCancel(ctx), chatID, ids[0]) }()
+		}
+		m.mu.Unlock()
+	}
+}
+
+// settle clears a message's marks once it is answered.
+func (m *Manager) settle(ctx context.Context, ad Adapter, w waiter) {
+	ctx = context.WithoutCancel(ctx)
+	if r, ok := ad.(Reactor); ok && w.msg != "" {
+		go func() { _ = r.React(ctx, w.chat, w.msg, "👀", false) }()
+	}
+	if ed, ok := ad.(Editor); ok && w.status != "" {
+		go func() { _ = ed.Delete(ctx, w.chat, w.status) }()
+	}
 }

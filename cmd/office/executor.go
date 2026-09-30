@@ -55,9 +55,13 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 	for seq := 0; ; {
 		evs, done, wake := turn.Since(seq)
 		seq += len(evs)
+		progress := trigger.ProgressOf(ctx)
 		for _, e := range evs {
 			if e.Type == "error" {
 				return conversationID, "", errors.New(e.Text)
+			}
+			if progress != nil && e.Type == "tool" && e.Tool != nil && e.Tool.Summary != "" { // a bot's chat sees the steps
+				progress(e.Tool.Summary)
 			}
 			if e.Type == "done" && e.Message != nil {
 				reply, replyID, author = e.Message.Content, e.Message.ID, e.Message.Author

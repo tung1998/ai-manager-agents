@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -520,6 +521,25 @@ func cut(s string, n int) string {
 		return string(r[:n-1]) + "…"
 	}
 	return s
+}
+
+// React puts an emoji on a message (on) or takes the bot's off.
+func (d *Discord) React(ctx context.Context, chatID, msgID, emoji string, on bool) error {
+	method := "PUT"
+	if !on {
+		method = "DELETE"
+	}
+	return d.do(ctx, method, "/channels/"+chatID+"/messages/"+msgID+"/reactions/"+url.PathEscape(emoji)+"/@me", nil)
+}
+
+// Edit changes one of the bot's messages.
+func (d *Discord) Edit(ctx context.Context, chatID, msgID, text string) error {
+	return d.do(ctx, "PATCH", "/channels/"+chatID+"/messages/"+msgID, map[string]string{"content": cut(text, 1900)})
+}
+
+// Delete removes one of the bot's messages.
+func (d *Discord) Delete(ctx context.Context, chatID, msgID string) error {
+	return d.do(ctx, "DELETE", "/channels/"+chatID+"/messages/"+msgID, nil)
 }
 
 // buttonPrefix marks office's buttons (their custom_id: the command).
