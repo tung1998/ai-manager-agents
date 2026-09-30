@@ -1505,4 +1505,4 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Bot vẫn vào thread, vì Discord không gửi tin trong thread (kể cả tin tag bot) cho người không phải thành viên.
   - Trong thread, bot chỉ trả lời khi được tag, giống ở kênh.
   - `/create-conversation` gõ trong thread thì bot nghe mọi tin, chỉ trong thread đó. Thread đã nối với một cuộc chat vẫn giữ cuộc chat đó.
-  - Thread do `/create-thread` tạo cũng theo luật này.
+  - Thread do `/create-thread` tạo thì bật sẵn chế độ hội thoại: không cần tag; `/close-conversation` để tắt.

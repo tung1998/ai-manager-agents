@@ -124,9 +124,10 @@ func (m *Manager) makeThread(ctx context.Context, ch storage.Channel, ad Adapter
 		_ = m.store.Channels().SetThread(ctx, ch.ID, inKey(thread), conv)
 		_ = m.store.Settings().Set(ctx, linkKey+conv, discordURL(in.GuildID, thread, ""))
 	}
-	hint := "Đã mở thread. Tag mình để hỏi tiếp, hoặc gõ /create-conversation để khỏi phải tag trong thread này."
+	m.setKeep(ctx, ch.ID, thread, true) // asked for: a conversation from the start, no tag needed there
+	hint := "Đã mở thread: nhắn tiếp ở đây, không cần tag. Gõ /close-conversation nếu muốn phải tag mới trả lời."
 	if conv != "" {
-		hint = "Đã mở thread, tiếp tục hội thoại ở trên. Tag mình để hỏi tiếp, hoặc gõ /create-conversation để khỏi phải tag trong thread này."
+		hint = "Đã mở thread, tiếp tục hội thoại ở trên: nhắn tiếp ở đây, không cần tag. Gõ /close-conversation nếu muốn phải tag mới trả lời."
 	}
 	_, _ = ad.Send(ctx, thread, hint)
 	if in.Respond != nil {

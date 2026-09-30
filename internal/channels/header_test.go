@@ -269,6 +269,10 @@ func TestCreateThreadCommand(t *testing.T) {
 	if got := channels.ConversationLink(ctx, st, conv.ID); got != "https://discord.com/channels/g/1" {
 		t.Fatalf("link = %q", got)
 	}
+	var keep string // /create-thread starts as a conversation: no tag needed there
+	if ok, _ := st.Settings().Get(ctx, "channel_keep/"+ch.ID+"/1", &keep); !ok || keep == "" {
+		t.Fatal("the new thread is not a kept conversation")
+	}
 }
 
 // /create-thread from the "/" menu (Discord sends no message it replies to):
