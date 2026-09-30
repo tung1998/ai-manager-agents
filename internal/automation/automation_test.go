@@ -289,3 +289,22 @@ func TestInstallSkillFromFiles(t *testing.T) {
 		t.Fatalf("edited = %q", got)
 	}
 }
+
+// Repos next to a known project are found too, though Claude Code never opened
+// them; a git worktree (.git is a file) and a plain folder are not.
+func TestScanSiblingRepos(t *testing.T) {
+	home, proj := fixture(t)
+	root := filepath.Dir(proj)
+	write(t, filepath.Join(root, "admin", ".git", "HEAD"), "ref: refs/heads/main")
+	write(t, filepath.Join(root, "wt", ".git"), "gitdir: /elsewhere")
+	write(t, filepath.Join(root, "notes", "a.txt"), "x")
+	write(t, filepath.Join(root, ".hidden", ".git", "HEAD"), "x")
+	inv := Scan(Env{Home: home, Projects: map[string]string{proj: "prj_1"}})
+	got := map[string]bool{}
+	for _, p := range inv.Projects {
+		got[filepath.Base(p.Path)] = true
+	}
+	if !got["shop"] || !got["admin"] || got["wt"] || got["notes"] || got[".hidden"] {
+		t.Fatalf("projects = %v", got)
+	}
+}

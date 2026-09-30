@@ -120,7 +120,7 @@ export default {
   'projects.agentCount': '{n} agent',
   'projects.noModel': 'Chưa có mô hình',
   'projects.foundOnMachine': 'Tìm thấy trên máy',
-  'projects.foundOnMachineDesc': 'Thư mục Claude Code đã mở, chưa quản lý trong office',
+  'projects.foundOnMachineDesc': 'Thư mục Claude Code đã mở và repo git cạnh đó, chưa quản lý trong office',
   'projects.rescan': 'Quét lại',
   'projects.skillCount': '{n} skill',
   'projects.mcpCount': '{n} MCP',

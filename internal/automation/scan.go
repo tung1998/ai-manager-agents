@@ -283,6 +283,10 @@ func Scan(env Env) Inventory {
 	for p := range env.Projects {
 		paths[p] = true
 	}
+	// git repos next to them: a folder of repos is seldom opened one by one
+	for _, p := range siblingRepos(paths, env.Home) {
+		paths[p] = true
+	}
 	sorted := make([]string, 0, len(paths))
 	for p := range paths {
 		sorted = append(sorted, p)
@@ -367,4 +371,36 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// siblingRepos: the git repos in the folders that hold the known projects
+// (one level, no hidden folders). A worktree (.git is a file) is not a repo
+// of its own.
+func siblingRepos(known map[string]bool, home string) []string {
+	parents := map[string]bool{}
+	for p := range known {
+		if p != "" && p != home {
+			parents[filepath.Dir(p)] = true
+		}
+	}
+	var out []string
+	for dir := range parents {
+		if dir == "/" || dir == filepath.Dir(home) {
+			continue
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			p := filepath.Join(dir, e.Name())
+			if st, err := os.Stat(filepath.Join(p, ".git")); err == nil && st.IsDir() && !known[p] {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }
