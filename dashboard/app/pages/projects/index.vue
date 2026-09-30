@@ -106,7 +106,6 @@ async function add() {
       <section v-if="isAdmin && (found.length || scanning)" class="space-y-2">
         <div class="flex items-center gap-2">
           <h3 class="text-sm font-semibold">{{ t('projects.foundOnMachine') }}</h3>
-          <span class="text-xs text-(--ui-text-muted)">{{ t('projects.foundOnMachineDesc') }}</span>
           <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :loading="scanning" :aria-label="t('projects.rescan')" class="ms-auto" @click="scanMachine" />
         </div>
         <div class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">

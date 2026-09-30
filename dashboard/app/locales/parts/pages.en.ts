@@ -121,7 +121,6 @@ const en: Record<keyof typeof vi, string> = {
   'projects.agentCount': '{n} agents',
   'projects.noModel': 'No model yet',
   'projects.foundOnMachine': 'Found on this machine',
-  'projects.foundOnMachineDesc': 'Folders Claude Code has opened and the git repos next to them, not managed by office yet',
   'projects.rescan': 'Rescan',
   'projects.skillCount': '{n} skills',
   'projects.mcpCount': '{n} MCP',
