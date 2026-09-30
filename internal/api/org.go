@@ -63,6 +63,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/revisions/{id}", auth(s.getRevision))
 	mux.Handle("POST /api/revisions/{id}/restore", admin(s.restoreRevision))
 	mux.Handle("GET /api/agents/{id}", auth(s.getAgent))
+	mux.Handle("GET /api/events", auth(s.events))
 	if s.cfg.Memory != nil {
 		mux.Handle("GET /api/projects/{id}/agents/{aid}/memories", auth(s.listMemories))
 		mux.Handle("POST /api/projects/{id}/agents/{aid}/memories", admin(s.addMemory))

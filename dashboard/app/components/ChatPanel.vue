@@ -126,6 +126,29 @@ async function loadOlder() {
   }
 }
 
+// what changed elsewhere (a Discord message into this chat, an agent's answer
+// in the background): the list, and the open chat's latest messages
+const nearEnd = () => { const el = listEl.value; return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120 }
+onLiveChange(async (tables) => {
+  if (!tables.some(t => ['messages', 'conversations', 'patches', 'actions', 'conversation_agents'].includes(t))) return
+  if (!single.value) refreshConvs()
+  const c = current.value
+  if (!c || streaming.value || loadingMsgs.value) return
+  try {
+    const res = await $fetch<{ messages: Message[], members?: Member[], running?: RunningTurn[], conversation: Conversation }>(`/api/conversations/${c.id}?limit=${PAGE}`)
+    if (current.value?.id !== c.id || streaming.value) return
+    const known = new Set(messages.value.map(m => m.id))
+    const fresh = res.messages.filter(m => !known.has(m.id))
+    const changed = res.messages.some(m => { const x = messages.value.find(y => y.id === m.id); return x && JSON.stringify(x) !== JSON.stringify(m) })
+    if (!fresh.length && !changed) return
+    const stay = nearEnd()
+    messages.value = [...messages.value.filter(m => !res.messages.some(n => n.id === m.id)), ...res.messages]
+    applyGroup(res.members, res.running)
+    if (res.conversation.active_turn && !streaming.value) follow(res.conversation.active_turn)
+    if (stay) scrollDown()
+  } catch { /* gone, or offline: the next change tries again */ }
+})
+
 async function scrollDown() {
   await nextTick()
   listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })

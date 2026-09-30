@@ -1577,3 +1577,12 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Tin của người được duyệt chạy với toàn quyền: `ChannelPayload.FullAccess` → `trigger.WithFullAccess` → `chat.WithFullAccess` → Claude Code `bypassPermissions`, dùng mọi công cụ.
   - Tin của người khác trong kênh vẫn chạy với quyền của agent.
 - Agent được dặn tự làm tới khi xong rồi mới báo, và hỏi lại trước việc có thể mất dữ liệu.
+
+## ADR-072: Dashboard tự cập nhật khi có thay đổi
+- Store SQLite báo tên bảng sau mỗi lần ghi (`sqlite.Store.OnWrite`: INSERT/UPDATE/DELETE, kể cả trong transaction và `UPDATE … RETURNING`).
+  - `events.Bus` chỉ giữ các bảng dashboard hiển thị (tin nhắn, cuộc chat, job, automation, bot, đề xuất, diff, agent…), gộp trong 300 ms, và chỉ chạy khi có trang đang mở.
+- `GET /api/events` là luồng SSE: `event: change`, data `{"tables": [...]}`, có ping 25 giây một lần.
+- Dashboard mở một `EventSource` sau khi đăng nhập:
+  - Mỗi thông báo gọi `dataChanged()` (tải lại mọi `useFetch` và danh sách tự quản lý).
+  - Cuộc chat đang mở tự thêm tin mới (tin từ Discord, câu trả lời chạy nền), và cuộn xuống nếu đang ở cuối.
+- Danh sách chat: biểu tượng nguồn (web, Discord, Telegram, tự động, skill, mô hình) nằm trước; avatar agent nhỏ ở dòng dưới.

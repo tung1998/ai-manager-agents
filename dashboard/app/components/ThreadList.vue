@@ -8,6 +8,9 @@ defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, 
 const origin = defineModel<'all' | Source>('origin', { default: 'all' })
 const emit = defineEmits<{ open: [Thread], new: [] }>()
 const { t, dateLocale } = useLang()
+// a skill's or template's editor chat, else where it started (web, a bot, an automation)
+const kindIcon = (c: Thread) => c.purpose === 'skill' ? 'i-lucide-sparkles' : c.purpose === 'template' ? 'i-lucide-network' : sourceIcon[c.source ?? 'web']
+const kindTitle = (c: Thread) => c.purpose === 'skill' ? t('chat.skillChat') : c.purpose === 'template' ? t('chat.templateChat') : t(`source.${c.source ?? 'web'}`)
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 </script>
 
@@ -26,13 +29,14 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
         :class="currentId === c.id ? 'bg-(--ui-bg-accented)' : 'hover:bg-(--ui-bg-muted)'"
         @click="emit('open', c)"
       >
-        <AgentAvatar :agent="agents.find(a => a.id === c.agent_id) ?? { id: c.agent_id, name: c.agent_name }" size="xs" class="mt-0.5" />
+        <!-- where it came from, big; who answers, small underneath -->
+        <span class="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-(--ui-bg-elevated) text-(--ui-text-muted)" :title="kindTitle(c)">
+          <UIcon :name="kindIcon(c)" class="size-3.5" />
+        </span>
         <div class="min-w-0 flex-1">
           <p class="truncate">{{ c.title || t('chat.newThreadTitle') }}</p>
           <p class="flex items-center gap-1 truncate text-xs text-(--ui-text-muted)">
-            <UIcon v-if="c.source && c.source !== 'web'" :name="sourceIcon[c.source]" class="size-3 shrink-0" :title="t(`source.${c.source}`)" />
-            <UIcon v-if="c.purpose === 'skill'" name="i-lucide-sparkles" class="size-3 shrink-0" :title="t('chat.skillChat')" />
-            <UIcon v-if="c.purpose === 'template'" name="i-lucide-network" class="size-3 shrink-0" :title="t('chat.templateChat')" />
+            <AgentAvatar :agent="agents.find(a => a.id === c.agent_id) ?? { id: c.agent_id, name: c.agent_name }" size="2xs" class="shrink-0" />
             <span class="truncate">{{ c.agent_name }} · {{ when(c.updated_at) }}</span>
           </p>
         </div>

@@ -30,8 +30,9 @@ const (
 
 // Store implements storage.Store on a single SQLite file.
 type Store struct {
-	db *sql.DB
-	q  dbtx // db, or the open transaction inside InTx
+	db      *sql.DB
+	q       dbtx // db, or the open transaction inside InTx
+	onWrite func(table string)
 }
 
 // dbtx is what repositories need; *sql.DB and *sql.Tx both satisfy it.
@@ -102,14 +103,18 @@ func (s *Store) Memories() storage.MemoryRepo       { return memoryRepo{s.q} }
 
 // InTx runs fn inside one transaction. Nested calls reuse the outer one.
 func (s *Store) InTx(ctx context.Context, fn func(storage.Store) error) error {
-	if _, nested := s.q.(*sql.Tx); nested {
+	if _, nested := s.q.(*sql.Tx); nested || isHookedTx(s.q) {
 		return fn(s)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if err := fn(&Store{db: s.db, q: tx}); err != nil {
+	inner := &Store{db: s.db, q: tx, onWrite: s.onWrite}
+	if s.onWrite != nil {
+		inner.q = hooked{tx, s.onWrite}
+	}
+	if err := fn(inner); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

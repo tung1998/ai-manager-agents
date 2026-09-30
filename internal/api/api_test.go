@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/events"
 	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bytes"
 	"context"
@@ -82,6 +83,8 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	provs.SetUsage(u)
 	chatEng := chat.NewEngine(st, provs, u)
 	acts := actions.New(st, nil)
+	bus := events.New(20 * time.Millisecond)
+	st.OnWrite(bus.Wrote)
 	mem := memory.New(st, func(_ context.Context, _, _ string, items []storage.Memory) ([]string, error) {
 		return []string{fmt.Sprintf("gộp %d ghi nhớ", len(items))}, nil
 	})
@@ -90,7 +93,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	office.SetOffice(func(ctx context.Context) string { return assistant.ID(ctx, st) })
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
 		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chatEng,
-		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcpserver.New(office, "test"), Memory: mem})
+		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcpserver.New(office, "test"), Memory: mem, Events: bus})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	ctx := context.Background()

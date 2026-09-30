@@ -20,6 +20,7 @@ async function loadProjects() {
 }
 watch(() => route.path, loadProjects, { immediate: true })
 onDataChanged(loadProjects) // added, renamed, removed: without leaving the page
+onMounted(() => { if (!bareLayout.value) startLive() }) // what changes elsewhere shows up here (ADR-072)
 
 // pages below a project (/projects/:id/<child>/…) belong to one of its sections
 const childSection: Record<string, string> = { agents: 'model', automations: 'automations' }

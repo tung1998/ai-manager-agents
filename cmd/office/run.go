@@ -6,6 +6,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/channels"
+	"bitbucket.org/senprints/agent-office/internal/events"
 	"bitbucket.org/senprints/agent-office/internal/home"
 	"bitbucket.org/senprints/agent-office/internal/limitalert"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
@@ -14,6 +15,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
+	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/worktree"
 	"context"
@@ -101,6 +103,11 @@ func serveCmd() *cobra.Command {
 			go procs.RunSampler(ctx, 3*time.Second)
 			procs.Autostart(ctx)
 			// agents read build/run/monitoring data through the office tools (MCP for Claude Code)
+			// what changed, whoever changed it, for the dashboard's open pages (ADR-072)
+			liveBus := events.New(300 * time.Millisecond)
+			if sq, ok := a.store.(*sqlite.Store); ok {
+				sq.OnWrite(liveBus.Wrote)
+			}
 			acts := actions.New(a.store, procs) // agents propose, people approve
 			// agents' long-term notes (ADR-068); too long, a fast model compacts them
 			mem := memory.New(a.store, compactNotes(a.store, chatEngine))
@@ -137,7 +144,9 @@ func serveCmd() *cobra.Command {
 			runner.SetOnReply(bots.Reply)
 			runner.SetOnProgress(bots.Progress)
 			acts.SetAutoApprover(bots.DirectApprover) // a chat in direct mode: approved in the turn, the agent goes on
-			runner.SetOnNotify(func(ctx context.Context, channelID, chatID, text string) { _ = bots.Notify(ctx, channelID, chatID, text) })
+			runner.SetOnNotify(func(ctx context.Context, channelID, chatID, text string) {
+				_ = bots.Notify(ctx, channelID, chatID, text)
+			})
 			// an AI connection close to its limit: told in the chat the admin picked
 			alerts := limitalert.New(a.store, bots.Notify)
 			chatEngine.SetOnLimits(func(p storage.Provider, l chat.Limits) {
@@ -169,7 +178,7 @@ func serveCmd() *cobra.Command {
 			go monitors.Run(ctx)
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 			handler := api.New(api.Config{
-				Office: office, Channels: bots, Memory: mem,
+				Office: office, Channels: bots, Memory: mem, Events: liveBus,
 				Store: st, Auth: a.auth, AllowedOrigins: origins,
 				SecureCookies: secureCookies, TrustedProxies: proxies, Logger: log, Version: version,
 				Providers: a.providers, Org: a.org, Setup: setup.New(a.store, a.providers, a.org),
