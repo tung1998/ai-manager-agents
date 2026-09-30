@@ -139,7 +139,40 @@ func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, 
 		_, _ = ad.Send(ctx, chatID, "Tự duyệt (chế độ làm thẳng):\n"+strings.Join(done, "\n"))
 	}
 	if asked {
-		_, _ = ad.Send(ctx, chatID, m.pendingText(ctx, ch, list))
+		m.sendPending(ctx, ch, ad, chatID, list)
+	}
+}
+
+// sendPending lists what waits, with Approve / Reject buttons where the chat
+// has them (and someone may decide there); the commands still work.
+func (m *Manager) sendPending(ctx context.Context, ch storage.Channel, ad Adapter, chatID string, list []proposal) {
+	text := m.pendingText(ctx, ch, list)
+	bs, ok := ad.(ButtonSender)
+	if !ok || len(ch.Approvers) == 0 {
+		_, _ = ad.Send(ctx, chatID, text)
+		return
+	}
+	var rows [][]Button
+	waiting := 0
+	for _, p := range list {
+		if !m.still(ctx, p) {
+			continue
+		}
+		waiting++
+		if len(rows) < 4 {
+			n := strconv.Itoa(p.N)
+			rows = append(rows, []Button{{Label: "✅ Duyệt " + n, Data: "/approve " + n}, {Label: "❌ Từ chối " + n, Data: "/reject " + n, Danger: true}})
+		}
+	}
+	if waiting == 0 {
+		_, _ = ad.Send(ctx, chatID, text)
+		return
+	}
+	if waiting > 1 {
+		rows = append(rows, []Button{{Label: "✅ Duyệt tất cả", Data: "/approve all"}})
+	}
+	if _, err := bs.SendButtons(ctx, chatID, text, rows); err != nil {
+		_, _ = ad.Send(ctx, chatID, text) // the commands, then
 	}
 }
 
@@ -154,7 +187,7 @@ func (m *Manager) pendingText(ctx context.Context, ch storage.Channel, list []pr
 	if len(lines) == 0 {
 		return "Không có gì chờ duyệt."
 	}
-	how := "Gõ /approve 1 (hoặc /approve all) để duyệt, /reject 1 để từ chối."
+	how := "Bấm nút bên dưới, hoặc gõ /approve 1 (/approve all) để duyệt, /reject 1 để từ chối."
 	if len(ch.Approvers) == 0 {
 		how = "Bot này chưa có ai được duyệt qua chat: duyệt trên dashboard (Tổng quan → Cần xử lý)."
 	}

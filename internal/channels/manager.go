@@ -251,6 +251,10 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	cmd, arg, isCmd := command(in.Text)
 	switch cmd {
 	case "pending", "approve", "reject", "mode": // deciding proposals from the chat (ADR-054)
+		if isCmd && cmd == "pending" && in.Respond == nil && m.decider != nil { // typed: with its buttons
+			m.sendPending(ctx, ch, ad, in.ChatID, m.listing(ctx, ch.ID, in.ChatID))
+			return
+		}
 		if isCmd {
 			say(m.approvals(ctx, ch, in, cmd, arg, who))
 			return

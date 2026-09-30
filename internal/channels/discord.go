@@ -420,6 +420,7 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 			Name     string `json:"name"`
 			Type     int    `json:"type"`      // 3: a message's "Apps" menu
 			TargetID string `json:"target_id"` // …on that message
+			CustomID string `json:"custom_id"` // a button pressed (interaction type 3)
 			Options  []struct {
 				Value any `json:"value"`
 			} `json:"options"`
@@ -429,7 +430,10 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 		} `json:"member"`
 		User *user `json:"user"`
 	}
-	if json.Unmarshal(raw, &x) != nil || x.Type != 2 || x.Token == "" {
+	if json.Unmarshal(raw, &x) != nil || (x.Type != 2 && x.Type != 3) || x.Token == "" {
+		return Incoming{}, false
+	}
+	if x.Type == 3 && !strings.HasPrefix(x.Data.CustomID, buttonPrefix) { // a button, not ours
 		return Incoming{}, false
 	}
 	if err := d.do(ctx, "POST", "/interactions/"+x.ID+"/"+x.Token+"/callback", map[string]any{"type": 5}); err != nil {
@@ -438,6 +442,9 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 	in := Incoming{ChatID: x.ChannelID, Text: "/" + x.Data.Name, Private: x.GuildID == "", Addressed: true, GuildID: x.GuildID}
 	if x.Data.Type == 3 && x.Data.Name == threadMenu { // Apps → Create thread, on one message
 		in.Text, in.ReplyTo = "/create-thread", x.Data.TargetID
+	}
+	if x.Type == 3 { // a button: the command it stands for
+		in.Text = strings.TrimPrefix(x.Data.CustomID, buttonPrefix)
 	}
 	for _, o := range x.Data.Options {
 		if s, ok := o.Value.(string); ok {
@@ -505,6 +512,40 @@ func (d *Discord) Send(ctx context.Context, chatID, text string) ([]string, erro
 		ids = append(ids, sent.ID)
 	}
 	return ids, nil
+}
+
+// cut keeps the first n characters (lines kept, unlike clip).
+func cut(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
+}
+
+// buttonPrefix marks office's buttons (their custom_id: the command).
+const buttonPrefix = "office:"
+
+// SendButtons posts text with buttons (5 a row, 5 rows at most).
+func (d *Discord) SendButtons(ctx context.Context, chatID, text string, rows [][]Button) ([]string, error) {
+	var comps []map[string]any
+	for _, r := range rows[:min(len(rows), 5)] {
+		var row []map[string]any
+		for _, b := range r[:min(len(r), 5)] {
+			style := 3 // green
+			if b.Danger {
+				style = 4
+			}
+			row = append(row, map[string]any{"type": 2, "style": style, "label": clip(b.Label, 80), "custom_id": clip(buttonPrefix+b.Data, 100)})
+		}
+		comps = append(comps, map[string]any{"type": 1, "components": row})
+	}
+	var sent struct {
+		ID string `json:"id"`
+	}
+	if err := d.do(ctx, "POST", "/channels/"+chatID+"/messages", map[string]any{"content": cut(text, 1900), "components": comps}, &sent); err != nil {
+		return nil, err
+	}
+	return []string{sent.ID}, nil
 }
 
 func (d *Discord) Typing(ctx context.Context, chatID string) {

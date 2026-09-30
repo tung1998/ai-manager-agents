@@ -556,3 +556,52 @@ func TestTelegramAttachments(t *testing.T) {
 		t.Fatalf("fetch = %q %v", data, err)
 	}
 }
+
+// Buttons under a message; a click comes up as the command it stands for.
+func TestDiscordButtons(t *testing.T) {
+	gw := wsServe(t, func(send func(string)) {
+		send(`{"op":10,"d":{"heartbeat_interval":45000}}`)
+	}, func(msg string, send func(string)) {
+		if !strings.Contains(msg, `"op":2`) {
+			return
+		}
+		send(`{"op":0,"s":1,"t":"READY","d":{"user":{"id":"99","username":"shopbot"},"application":{"id":"app1"}}}`)
+		send(`{"op":0,"s":2,"t":"INTERACTION_CREATE","d":{"id":"i1","token":"tk","type":3,"channel_id":"c2","guild_id":"g","data":{"custom_id":"office:/approve 2","component_type":2},"member":{"user":{"id":"8","username":"binh"}}}}`)
+	})
+	defer gw.Close()
+	var mu sync.Mutex
+	var calls []string
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path+" "+string(raw))
+		mu.Unlock()
+		w.Write([]byte(`{"id":"m1"}`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", GatewayURL: "ws" + strings.TrimPrefix(gw.URL, "http"), APIBase: rest.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	got := make(chan Incoming, 2)
+	go d.Run(ctx, func(string) {}, func(m Incoming) { got <- m })
+	var m Incoming
+	select {
+	case m = <-got:
+	case <-ctx.Done():
+		t.Fatal("no click")
+	}
+	if m.Text != "/approve 2" || m.UserID != "8" || !m.Addressed || m.Respond == nil {
+		t.Fatalf("click = %+v", m)
+	}
+	if _, err := d.SendButtons(ctx, "c2", "Chờ duyệt", [][]Button{{{Label: "Duyệt 1", Data: "/approve 1"}, {Label: "Từ chối 1", Data: "/reject 1", Danger: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	all := strings.Join(calls, "\n")
+	for _, want := range []string{`"custom_id":"office:/approve 1"`, `"style":4`, `"type":1`, `Chờ duyệt`} {
+		if !strings.Contains(all, want) {
+			t.Errorf("no %s in\n%s", want, all)
+		}
+	}
+}

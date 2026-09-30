@@ -539,3 +539,55 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"đã xem �
 		t.Fatalf("the agent's message = %+v", msgs)
 	}
 }
+
+// buttonBot puts buttons under messages.
+type buttonBot struct {
+	fakeBot
+	rows chan [][]channels.Button
+}
+
+func (b *buttonBot) SendButtons(ctx context.Context, chatID, text string, rows [][]channels.Button) ([]string, error) {
+	b.rows <- rows
+	return b.Send(ctx, chatID, text)
+}
+
+// What waits for approval comes with Approve / Reject buttons (a press is the command).
+func TestPendingButtons(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	bot := &buttonBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, rows: make(chan [][]channels.Button, 2)}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"7"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	m.SetDecider(&fakeDecider{})
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
+	st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm lint", Status: "pending"})
+	st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm test", Status: "pending"})
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "42", ConversationID: conv.ID})
+	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Xong", nil, true)
+	select {
+	case rows := <-bot.rows:
+		if len(rows) != 3 || rows[0][0].Data != "/approve 1" || rows[0][1].Data != "/reject 1" || !rows[0][1].Danger || rows[2][0].Data != "/approve all" {
+			t.Fatalf("rows = %+v", rows)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no buttons")
+	}
+}

@@ -1524,3 +1524,9 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Tin chỉ có file, không có chữ, cũng được nhận.
 - Office tải file vào kho đính kèm với cùng giới hạn như chat trên web (10 MB mỗi file, 10 file mỗi lần), ghi id vào `ChannelPayload.Attachments`. Runner chuyển id qua context (`trigger.WithAttachments`) tới `chat.Send`.
 - File không nhận được thì bot báo lại trong chat, kèm lý do.
+
+## ADR-066: Nút duyệt trong Discord/Telegram
+- Tin "Chờ duyệt" có nút ✅ Duyệt n / ❌ Từ chối n cho tối đa 4 đề xuất, thêm nút "Duyệt tất cả" khi có từ 2 đề xuất. Gõ `/pending` cũng hiện nút.
+- Nút chỉ hiện khi bot có người được duyệt. Bấm nút tương đương gõ lệnh (`/approve n`, `/reject n`), nên vẫn kiểm tra quyền duyệt như lệnh.
+  - Discord: component, `custom_id` là `office:<lệnh>`.
+  - Telegram: inline keyboard, `callback_data` là lệnh; bot trả `answerCallbackQuery`.

@@ -1,6 +1,7 @@
 package channels
 
 import (
+	"io"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -163,6 +164,59 @@ func TestTelegramCommandForAnotherBot(t *testing.T) {
 		in, ok := tg.addressed(m)
 		if in.Addressed != want || ok != want {
 			t.Errorf("%q addressed = %v, want %v", text, in.Addressed, want)
+		}
+	}
+}
+
+// Telegram: inline buttons; a press (callback_query) comes up as its command.
+func TestTelegramButtons(t *testing.T) {
+	var mu sync.Mutex
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		calls = append(calls, r.URL.Path+" "+string(raw))
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/botTOK/getMe":
+			w.Write([]byte(`{"ok":true,"result":{"username":"shop_bot"}}`))
+		case "/botTOK/getUpdates":
+			if strings.Contains(string(raw), `"offset":0`) {
+				w.Write([]byte(`{"ok":true,"result":[{"update_id":1,"callback_query":{"id":"cb1","from":{"id":7,"username":"an"},"data":"/approve 1","message":{"message_id":3,"chat":{"id":-100,"type":"supergroup"}}}}]}`))
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+			w.Write([]byte(`{"ok":true,"result":[]}`))
+		case "/botTOK/sendMessage":
+			w.Write([]byte(`{"ok":true,"result":{"message_id":9}}`))
+		default:
+			w.Write([]byte(`{"ok":true,"result":true}`))
+		}
+	}))
+	defer srv.Close()
+	tg := &Telegram{Token: "TOK", BaseURL: srv.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	got := make(chan Incoming, 2)
+	go tg.Run(ctx, func(string) {}, func(m Incoming) { got <- m })
+	var m Incoming
+	select {
+	case m = <-got:
+	case <-ctx.Done():
+		t.Fatal("no press")
+	}
+	if m.Text != "/approve 1" || m.ChatID != "-100" || m.UserID != "7" || !m.Addressed {
+		t.Fatalf("press = %+v", m)
+	}
+	if _, err := tg.SendButtons(ctx, "-100", "Chờ duyệt", [][]Button{{{Label: "Duyệt 1", Data: "/approve 1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	all := strings.Join(calls, "\n")
+	for _, want := range []string{"answerCallbackQuery", `"callback_data":"/approve 1"`, `"inline_keyboard"`, "callback_query"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("no %s in\n%s", want, all)
 		}
 	}
 }
