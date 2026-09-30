@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -57,4 +58,32 @@ func isHookedTx(q dbtx) bool {
 	}
 	_, tx := h.dbtx.(*sql.Tx)
 	return tx
+}
+
+// wrap puts the hook back around db (none: db as is).
+func wrap(db dbtx, on func(string)) dbtx {
+	if on == nil {
+		return db
+	}
+	return hooked{db, on}
+}
+
+// tables written in a transaction: told once it commits, never if it rolls back.
+type written struct {
+	on     func(string)
+	tables []string
+}
+
+func deferred(on func(string)) *written { return &written{on: on} }
+
+func (w *written) add(t string) {
+	if w.on != nil && !slices.Contains(w.tables, t) {
+		w.tables = append(w.tables, t)
+	}
+}
+
+func (w *written) flush() {
+	for _, t := range w.tables {
+		w.on(t)
+	}
 }

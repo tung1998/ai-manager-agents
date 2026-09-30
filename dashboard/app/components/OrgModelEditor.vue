@@ -4,6 +4,7 @@ const props = defineProps<{ modelId: string, agentsFirst?: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
 
 const toast = useToast()
+const saveError = useSaveError()
 const { isAdmin } = useAuth()
 const { t } = useLang()
 
@@ -36,14 +37,16 @@ const problems = ref<string[]>([])
 function showError(e: unknown) {
   const d = (e as { data?: { error?: string, problems?: string[] } })?.data
   problems.value = d?.problems ?? []
-  if (!d?.problems) toast.add({ title: d?.error ?? t('org.editor.genericError'), color: 'error' })
+  if (!d?.problems) saveError(e, async () => { await refresh() })
 }
 
 // ---- model settings ----
 const settingsOpen = ref(false)
 const settings = reactive({ name: '', description: '', kind: 'custom', mode: 'hierarchy', quorum: 2, veto: [] as string[], notes: '' })
+let settingsFrom = '' // the model as it was opened: a save over someone else's change is refused (409)
 function openSettings() {
   const m = model.value!
+  settingsFrom = (m as { version?: string }).version ?? ''
   Object.assign(settings, {
     name: m.name, description: m.description, kind: m.kind, mode: m.governance.mode || 'hierarchy',
     quorum: m.governance.quorum || 2, veto: [...(m.governance.veto ?? [])], notes: m.governance.notes ?? ''
@@ -60,7 +63,8 @@ async function saveSettings() {
         governance: {
           mode: settings.mode, notes: settings.notes, veto: settings.veto,
           quorum: settings.mode === 'council' ? Number(settings.quorum) : 0
-        }
+        },
+        version: settingsFrom || undefined
       }
     })
     settingsOpen.value = false
@@ -127,7 +131,7 @@ async function saveAgent() {
   }
   try {
     if (editing.value) {
-      await $fetch(`/api/agents/${editing.value.id}`, { method: 'PATCH', body })
+      await $fetch(`/api/agents/${editing.value.id}`, { method: 'PATCH', body: { ...body, version: (editing.value as { version?: string }).version } })
     } else {
       await $fetch(`/api/org-models/${props.modelId}/agents`, { method: 'POST', body })
     }

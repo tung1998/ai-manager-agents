@@ -144,6 +144,10 @@ func TestConfigChangeApprovedFromChat(t *testing.T) {
 			t.Fatal("an unknown account applied a change")
 		}
 	}
+	// a bot set up to approve directly approves in its own name
+	if done, err := e.acts.Decide(ctx, mustPropose(t, e, pid, aid), true, "bot:Dev"); err != nil || done.Status != "done" {
+		t.Fatalf("decide by the bot = %+v %v", done, err)
+	}
 }
 
 func mustPropose(t *testing.T, e *env, pid, aid string) string {

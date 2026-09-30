@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/events"
 	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bytes"
@@ -93,7 +94,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	office.SetOffice(func(ctx context.Context) string { return assistant.ID(ctx, st) })
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
 		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chatEng,
-		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcpserver.New(office, "test"), Memory: mem, Events: bus})
+		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcpserver.New(office, "test"), Memory: mem, Events: bus, Automation: testAutomation(t, st)})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	ctx := context.Background()
@@ -318,4 +319,21 @@ func cliManager() *clitools.Manager {
 		return nil
 	}
 	return clitools.NewManagerWithPath(cliPath)
+}
+
+// testAutomation manages skills in a temp home, over the store's projects.
+func testAutomation(t *testing.T, st storage.Store) *automation.Service {
+	home, office := t.TempDir(), t.TempDir()
+	trash := filepath.Join(office, "trash")
+	return &automation.Service{Home: home, Library: automation.Library{Dir: filepath.Join(office, "library"), Trash: trash},
+		Installer: automation.Installer{Home: home, Trash: trash},
+		Projects: func(ctx context.Context) map[string]string {
+			out := map[string]string{}
+			if list, err := st.Repos().List(ctx); err == nil {
+				for _, p := range list {
+					out[p.Path] = p.ID
+				}
+			}
+			return out
+		}}
 }

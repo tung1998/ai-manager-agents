@@ -130,8 +130,8 @@ async function loadOlder() {
 // in the background): the list, and the open chat's latest messages
 const nearEnd = () => { const el = listEl.value; return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120 }
 onLiveChange(async (tables) => {
-  if (!tables.some(t => ['messages', 'conversations', 'patches', 'actions', 'conversation_agents'].includes(t))) return
-  if (!single.value) refreshConvs()
+  if (!tables.includes('*') && !tables.some(t => ['messages', 'conversations', 'patches', 'actions', 'conversation_agents'].includes(t))) return // '*': back online
+  if (!single.value && !tables.includes('conversations') && !tables.includes('*')) refreshConvs() // the list's own fetch refreshes on those
   const c = current.value
   if (!c || streaming.value || loadingMsgs.value) return
   try {
@@ -346,7 +346,7 @@ function follow(id: string) {
       case 'done':
       case 'error':
         if (ev.message) {
-          messages.value.push(ev.message)
+          if (!messages.value.some(x => x.id === ev.message!.id)) messages.value.push(ev.message) // the live refresh may have it already
           if (props.purpose === 'automation' && ev.type === 'done') fencedBlocks(ev.message.content, 'automation').forEach(p => emit('automation-patch', p))
           if (props.purpose === 'skill' && ev.type === 'done') fencedBlocks(ev.message.content, 'skill').forEach(p => emit('skill-patch', p))
           if (props.purpose === 'template' && ev.type === 'done') fencedBlocks(ev.message.content, 'template').forEach(p => emit('template-patch', p))

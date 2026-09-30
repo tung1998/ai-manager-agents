@@ -78,6 +78,11 @@ func serveCmd() *cobra.Command {
 			}
 			defer a.Close()
 			st := a.store
+			// what changed, whoever changed it, for the dashboard's open pages (ADR-072); set before anything writes in the background
+			liveBus := events.New(300 * time.Millisecond)
+			if sq, ok := a.store.(*sqlite.Store); ok {
+				sq.OnWrite(liveBus.Wrote)
+			}
 
 			proxies, err := parsePrefixes(trustedProxies)
 			if err != nil {
@@ -103,11 +108,6 @@ func serveCmd() *cobra.Command {
 			go procs.RunSampler(ctx, 3*time.Second)
 			procs.Autostart(ctx)
 			// agents read build/run/monitoring data through the office tools (MCP for Claude Code)
-			// what changed, whoever changed it, for the dashboard's open pages (ADR-072)
-			liveBus := events.New(300 * time.Millisecond)
-			if sq, ok := a.store.(*sqlite.Store); ok {
-				sq.OnWrite(liveBus.Wrote)
-			}
 			acts := actions.New(a.store, procs) // agents propose, people approve
 			// agents' long-term notes (ADR-068); too long, a fast model compacts them
 			mem := memory.New(a.store, compactNotes(a.store, chatEngine))

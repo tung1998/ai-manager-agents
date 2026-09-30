@@ -84,7 +84,7 @@ export interface Automation {
 }
 
 // A bot's settings as a form edits them (the token only when a new one is pasted).
-export interface BotDraft { token?: string, allow: string[], refusal: string, approvers?: string[], approval?: 'ask' | 'direct' | 'admin', header?: string }
+export interface BotDraft { token?: string, allow: string[], refusal: string, approvers?: string[], approval?: 'ask' | 'direct' | 'admin', header?: string, version?: string }
 
 // AutomationBody is what PATCH/POST take.
 export interface AutomationBody {

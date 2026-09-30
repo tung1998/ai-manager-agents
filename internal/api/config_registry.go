@@ -503,7 +503,7 @@ func (s *server) approver(ctx context.Context, by string) (storage.User, error) 
 	if u, err := s.cfg.Store.Users().GetByEmail(ctx, by); err == nil {
 		return u, nil
 	}
-	if via, _, _ := strings.Cut(by, ":"); via == "discord" || via == "telegram" {
+	if via, _, _ := strings.Cut(by, ":"); via == "discord" || via == "telegram" || via == "bot" {
 		users, err := s.cfg.Store.Users().List(ctx)
 		if err == nil {
 			for _, u := range users {

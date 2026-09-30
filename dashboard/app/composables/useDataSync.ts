@@ -10,16 +10,21 @@ const rawListeners = new Set<(tables: string[]) => void>()
 // tablesFor: the tables an API path shows ('*' = refresh on anything).
 const routes: [RegExp, string[]][] = [
   [/\/memories/, ['agent_memories']],
+  [/\/audit/, ['audit_log']],
+  [/\/stats\b/, ['runs', 'jobs']],
+  [/\/assistant/, ['conversations', 'messages', 'settings']],
+  [/\/system/, ['*']],
   [/\/conversations|\/chat\//, ['conversations', 'messages', 'conversation_agents', 'patches', 'actions', 'agents']],
   [/\/automations|\/bots?\b/, ['automations', 'jobs', 'channels']],
   [/\/jobs/, ['jobs', 'automations']],
-  [/\/channels|\/limit-alert/, ['channels']],
+  [/\/limit-alert/, ['settings', 'channels']],
+  [/\/channels/, ['channels']],
   [/\/incidents/, ['jobs', 'actions', 'patches', 'channels', 'automations', 'monitors', 'processes', 'providers']],
-  [/\/providers|\/usage|\/budget/, ['providers', 'runs', 'jobs']],
+  [/\/providers|\/usage|\/budget/, ['providers', 'runs', 'jobs', 'settings']],
   [/\/agents|\/org-models|\/templates/, ['agents', 'org_models']],
-  [/\/processes|\/compose|\/monitors|\/monitor-events/, ['processes', 'monitors']],
+  [/\/processes|\/compose|\/monitors|\/monitor-events/, ['processes', 'monitors', 'monitor_events']],
   [/\/users|\/me\//, ['users']],
-  [/\/policy/, ['repos']],
+  [/\/policy/, ['settings', 'repos']],
   [/^\/api\/projects(\/[^/?]+)?(\?|$)/, ['repos', 'org_models', 'agents']]
 ]
 export function tablesFor(path: string): string[] {
@@ -44,7 +49,11 @@ export function onLiveChange(fn: (tables: string[]) => void) {
 // useLiveFetch is useFetch that refreshes when what it shows changes.
 export const useLiveFetch = ((url: MaybeRefOrGetter<string>, opts?: object) => {
   const res = useFetch(url as never, opts as never)
-  useLive(() => tablesFor(toValue(url) ?? ''), () => res.refresh())
+  const lazyStart = (opts as { immediate?: boolean } | undefined)?.immediate === false
+  useLive(() => tablesFor(toValue(url) ?? ''), () => {
+    if (lazyStart && res.status.value === 'idle') return // not started on purpose: a change does not start it
+    return res.refresh()
+  })
   return res
 }) as typeof useFetch
 
@@ -68,17 +77,37 @@ export function liveChanged(tables: string[]) {
 // startLive opens the server's change stream once (signed in); it reconnects
 // on its own, and a reconnect (office restarted, laptop woke) refreshes all.
 let source: EventSource | null = null
+let retry: ReturnType<typeof setTimeout> | undefined
+let backoff = 1000
 export function startLive() {
   if (source || typeof EventSource === 'undefined') return
-  source = new EventSource('/api/events')
+  const es = new EventSource('/api/events')
+  source = es
   let opened = false
-  source.addEventListener('open', () => {
-    if (opened) liveChanged(['*']) // missed what changed while away
+  es.addEventListener('open', () => {
+    if (opened || backoff > 1000) liveChanged(['*']) // missed what changed while away
     opened = true
+    backoff = 1000
   })
-  source.addEventListener('change', (e) => {
+  // a refused stream (signed out, office restarting: 401/502) is not retried
+  // by the browser: try again, slower each time
+  es.addEventListener('error', () => {
+    if (es.readyState !== EventSource.CLOSED || source !== es) return
+    source = null
+    clearTimeout(retry)
+    retry = setTimeout(startLive, backoff)
+    backoff = Math.min(backoff * 2, 30000)
+  })
+  es.addEventListener('change', (e) => {
     let tables: string[] = ['*']
     try { tables = JSON.parse((e as MessageEvent).data).tables ?? ['*'] } catch { /* a bad notice: refresh all */ }
     liveChanged(tables)
   })
+}
+
+// stopLive closes the stream (signing out).
+export function stopLive() {
+  clearTimeout(retry)
+  source?.close()
+  source = null
 }

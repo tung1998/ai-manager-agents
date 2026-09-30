@@ -41,6 +41,7 @@ export function useAuth() {
 
   async function logout() {
     await $fetch('/api/auth/logout', { method: 'POST', body: {} }).catch(() => {})
+    stopLive()
     user.value = null
     await navigateTo('/login')
   }

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"bitbucket.org/senprints/agent-office/internal/perm"
@@ -21,6 +22,9 @@ func versionOf(v any) string {
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:8])
 }
+
+// errConflict: a save over someone else's change (answered 409 by writeDomainError's callers).
+var errConflict = errors.New("Đã có thay đổi mới ở nơi khác kể từ lúc bạn mở (người khác hoặc agent). Tải lại để xem bản mới rồi sửa lại.")
 
 // conflicted answers 409 when want is given and is not now.
 func conflicted(w http.ResponseWriter, want, now string) bool {
@@ -55,4 +59,20 @@ func policyVersion(p perm.Policy) string {
 		DenyPaths     []string
 		WorktreeLinks []string
 	}{p.Packs, p.DenyPaths, p.WorktreeLinks})
+}
+
+func modelVersion(m storage.OrgModel) string {
+	return versionOf(struct {
+		Name, Description, Kind, Key string
+		Governance                   storage.Governance
+	}{m.Name, m.Description, m.Kind, m.Key, m.Governance})
+}
+
+func channelVersion(c storage.Channel) string {
+	return versionOf(struct {
+		Name, AgentID, Mode, Scope, Refusal, Approval, Header string
+		Enabled, FilterEnabled                                bool
+		Allow, Approvers                                      []string
+		Token                                                 string
+	}{c.Name, c.AgentID, c.Mode, c.Scope, c.Refusal, c.Approval, c.Header, c.Enabled, c.FilterEnabled, c.Allow, c.Approvers, c.TokenEnc})
 }

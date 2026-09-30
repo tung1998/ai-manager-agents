@@ -4,6 +4,7 @@
 // nothing is written until Save. name "" = a new skill of the project.
 const props = defineProps<{ projectId: string, projectPath: string, name?: string, scope?: 'project' | 'user' }>()
 const toast = useToast()
+const saveError = useSaveError()
 const { t } = useLang()
 const editing = computed(() => !!props.name)
 const scope = computed(() => props.scope ?? 'project')
@@ -14,6 +15,8 @@ const otherFiles = ref<Record<string, string>>({}) // the skill's other files, k
 const loaded = ref(!editing.value)
 const skillMd = () => writeSkillMd({ name: form.name, description: form.description, body: form.body, entries: parsed.value?.entries })
 
+let edited: ReturnType<typeof refOf> | undefined
+let editedFrom: string | undefined
 onMounted(async () => {
   if (!editing.value) return
   try {
@@ -21,7 +24,9 @@ onMounted(async () => {
     const item = inv.items.find(i => i.kind === 'skill' && i.name === props.name && i.location.type === scope.value &&
       (scope.value === 'user' || i.location.project_path === props.projectPath))
     if (!item) throw new Error(t('skill.notFound'))
-    const it = await $fetch<LibraryItem>('/api/automation/content', { method: 'POST', body: refOf(item) })
+    edited = refOf(item)
+    const it = await $fetch<LibraryItem & { version?: string }>('/api/automation/content', { method: 'POST', body: edited })
+    editedFrom = it.version // the files as they were read: a save over someone else's change is refused (409)
     const files = { ...(it.files ?? {}) }
     const p = parseSkillMd(files['SKILL.md'] ?? '')
     delete files['SKILL.md']
@@ -82,7 +87,8 @@ async function save(accept = false) {
       body: {
         kind: 'skill', name: form.name.trim(), overwrite: editing.value, accept,
         target: { scope: scope.value, project_path: scope.value === 'user' ? '' : props.projectPath },
-        files: { ...otherFiles.value, 'SKILL.md': skillMd() }
+        files: { ...otherFiles.value, 'SKILL.md': skillMd() },
+        edited: editing.value ? edited : undefined, version: editing.value ? editedFrom : undefined
       }
     })
     toast.add({ title: t('skill.saved'), color: 'success' })
@@ -94,7 +100,7 @@ async function save(accept = false) {
       if (confirm(t('skill.consent', { n: data.findings.length }))) return save(true)
     } else {
       if (data?.findings) findings.value = data.findings
-      toast.add({ title: apiError(e), color: 'error' })
+      saveError(e, () => reloadNuxtApp())
     }
   } finally {
     saving.value = false

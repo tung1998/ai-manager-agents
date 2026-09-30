@@ -95,6 +95,7 @@ const formProvider = computed(() => providers.value.find(p => p.id === form.prov
 const bossOptions = computed(() => others.value.filter(a => a.tier !== 'worker').map(a => ({ label: `${a.name} (${a.key})`, value: a.key })))
 const saving = ref('')
 const avatarEditing = ref(false)
+const cardFields = { role: ['key', 'name', 'tier', 'role', 'description', 'reports_to', 'instructions'], model: ['provider_id', 'model_tier', 'llm_model'], perm: ['permissions'], avatar: ['avatar'] } as const
 async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
   const a = agent.value!
   // each card sends its own fields on top of the saved agent
@@ -106,8 +107,12 @@ async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
   saving.value = card
   try {
     await $fetch(`/api/agents/${a.id}`, { method: 'PATCH', body })
+    // what is typed in the other cards, not saved yet, stays
+    const others = (Object.keys(cardFields) as (keyof typeof cardFields)[]).filter(c => c !== card).flatMap(c => [...cardFields[c]])
+    const kept = JSON.parse(JSON.stringify(Object.fromEntries(others.map(k => [k, form[k]]))))
     await refresh()
     resync() // saved: take what the server has now
+    Object.assign(form, kept)
     history.value = null
     toast.add({ title: t('org.editor.savedAgent', { name: form.name }), color: 'success' })
   } catch (e) {

@@ -15,7 +15,7 @@ var Followed = map[string]bool{
 	"conversations": true, "messages": true, "conversation_agents": true, "patches": true, "actions": true,
 	"jobs": true, "automations": true, "channels": true, "repos": true, "org_models": true, "agents": true,
 	"processes": true, "monitors": true, "agent_memories": true, "providers": true, "users": true,
-	"runs": true, "org_revisions": true, "audit_log": true, "monitor_events": true,
+	"runs": true, "org_revisions": true, "audit_log": true, "monitor_events": true, "settings": true,
 }
 
 // Bus fans notices out to the dashboard's open pages.

@@ -2,13 +2,13 @@ package channels_test
 
 import (
 	"context"
-	"sync"
+	"encoding/json"
 	"fmt"
 	"os"
-	"encoding/json"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -580,17 +580,25 @@ func TestPendingButtons(t *testing.T) {
 		}
 	}
 	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
-	st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm lint", Status: "pending"})
+	lint, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm lint", Status: "pending"})
 	st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm test", Status: "pending"})
 	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "42", ConversationID: conv.ID})
 	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Xong", nil, true)
 	select {
 	case rows := <-bot.rows:
-		if len(rows) != 3 || rows[0][0].Data != "/approve 1" || rows[0][1].Data != "/reject 1" || !rows[0][1].Danger || rows[2][0].Data != "/approve all" {
+		// a button names the proposal, not its number: numbers start again once all is decided
+		if len(rows) != 3 || rows[0][0].Data != "/approve "+lint.ID || rows[0][1].Data != "/reject "+lint.ID || !rows[0][1].Danger || rows[2][0].Data != "/approve all" || !strings.Contains(rows[0][0].Label, "1") {
 			t.Fatalf("rows = %+v", rows)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("no buttons")
+	}
+	bot.mu.Lock()
+	before := len(bot.sent["42"])
+	bot.mu.Unlock()
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve " + lint.ID, Addressed: true}
+	if got := bot.wait(t, "42", before+1); !strings.Contains(got[len(got)-1], "pnpm lint") || strings.Contains(got[len(got)-1], "pnpm test") {
+		t.Fatalf("approve by id = %q", got)
 	}
 }
 
@@ -614,7 +622,11 @@ func (b *liveBot) Delete(_ context.Context, chatID, msgID string) error {
 	b.note("delete " + msgID)
 	return nil
 }
-func (b *liveBot) seen() string { b.mu2.Lock(); defer b.mu2.Unlock(); return strings.Join(b.events, "\n") }
+func (b *liveBot) seen() string {
+	b.mu2.Lock()
+	defer b.mu2.Unlock()
+	return strings.Join(b.events, "\n")
+}
 
 // A message the bot takes gets 👀; a long run shows its steps in one status
 // message, edited as it goes and gone with the answer.
@@ -780,10 +792,19 @@ func TestAdminMode(t *testing.T) {
 	if got := bot.wait(t, "c2", 2); !strings.Contains(got[1], "administrator") {
 		t.Fatalf("mode admin = %q", got[1])
 	}
-	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2"})
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", UserID: "7"})
 	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Payload: string(payload), Status: "running"})
 	if by, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin fix", JobID: job.ID}); !ok || by != "discord:an" {
 		t.Fatalf("admin push = %q %v", by, ok)
+	}
+	// a message of someone who may not approve: direct rules only (a push asks)
+	other, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", UserID: "8"})
+	job2, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Payload: string(other), Status: "running"})
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin fix", JobID: job2.ID}); ok {
+		t.Fatal("admin mode approved a push for someone who may not approve")
+	}
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "git fetch", JobID: job2.ID}); !ok {
+		t.Fatal("someone who may not approve: direct rules still apply")
 	}
 	if !m.FullAccessFor(ctx, ch, "c2", "7") || m.FullAccessFor(ctx, ch, "c2", "8") {
 		t.Fatal("full access: only for who may approve, in admin mode")

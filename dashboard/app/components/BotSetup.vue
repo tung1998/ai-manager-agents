@@ -5,6 +5,7 @@
 // one, the "/" ones are custom; the office's own commands are listed, fixed.
 const props = defineProps<{ projectId: string, botId: string }>()
 const toast = useToast()
+const saveError = useSaveError()
 const { t } = useLang()
 const isNew = computed(() => props.botId === 'new')
 
@@ -23,6 +24,8 @@ const bot = reactive({ kind: (channel.value?.kind ?? 'discord') as 'telegram' | 
   // the line on top of its answers ("" = the default, "-" = none)
   headerOn: channel.value?.header !== '-', header: channel.value?.header === '-' ? '' : (channel.value?.header ?? '') })
 const ids = (s: string) => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean)
+// the bot's settings as they were read: a save over someone else's change is refused (409)
+let botVersion = channel.value?.version
 const settingsOpen = ref(isNew.value)
 const guideOpen = ref(false)
 
@@ -152,12 +155,17 @@ async function save() {
       d.config.command = d.config.command ? commandName(d.config.command) : ''
       d.name = d.config.command ? `/${d.config.command}` : t('bot.tagName', { bot: botLabel.value })
       const body = { ...automationBody(d), version: c.version }
-      body.bot = i === 0 ? { token: bot.token || undefined, allow: ids(bot.allow), refusal: bot.refusal, approvers: ids(bot.approvers), approval: bot.approval, header: bot.headerOn ? bot.header.trim() : '-' } : undefined
+      body.bot = i === 0 ? { token: bot.token || undefined, allow: ids(bot.allow), refusal: bot.refusal, approvers: ids(bot.approvers), approval: bot.approval, header: bot.headerOn ? bot.header.trim() : '-', version: botVersion } : undefined
       const res = c.id
         ? await $fetch<{ automation: Automation }>(`/api/automations/${c.id}`, { method: 'PATCH', body })
         : await $fetch<{ automation: Automation }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body })
       c.id = res.automation.id
+      c.version = res.automation.version // Save again after a failure goes on from here
       channelId = res.automation.config.channel_id ?? channelId
+      if (i === 0) {
+        await refreshCh()
+        botVersion = chData.value?.channels.find(x => x.id === channelId)?.version
+      }
       saved++
     }
     at = undefined
@@ -170,7 +178,7 @@ async function save() {
       toast.add({ title: t('bot.savedPartly', { n: saved, total: cmds.value.length, cmd: at.draft.name || at.draft.config.command || '' }), description: apiError(e), color: 'warning' })
     } else {
       if (at) at.open = true
-      toast.add({ title: apiError(e), color: 'error' })
+      saveError(e, () => reloadNuxtApp())
     }
   } finally {
     saving.value = false

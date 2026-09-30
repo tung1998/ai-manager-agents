@@ -2,9 +2,11 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/memory"
@@ -18,6 +20,7 @@ type memoryDTO struct {
 	Source    string    `json:"source"`
 	CreatedBy string    `json:"created_by"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Version   string    `json:"version"` // what an edit is made from (ADR-072)
 }
 
 type memoryRevisionDTO struct {
@@ -58,7 +61,7 @@ func (s *server) listMemories(w http.ResponseWriter, r *http.Request) {
 	items := make([]memoryDTO, 0, len(list))
 	size := 0
 	for _, m := range list {
-		items = append(items, memoryDTO{m.ID, m.Text, m.Source, m.CreatedBy, m.UpdatedAt})
+		items = append(items, memoryDTO{m.ID, m.Text, m.Source, m.CreatedBy, m.UpdatedAt, versionOf(m.Text)})
 		size += len([]rune(m.Text))
 	}
 	revs, _ := s.cfg.Store.Memories().Revisions(r.Context(), pid, aid)
@@ -95,12 +98,13 @@ func (s *server) addMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, audit.Change{Action: "memory.add", Resource: "memory", ResourceID: m.ID, ProjectID: pid, After: m.Text})
-	writeJSON(w, http.StatusCreated, map[string]any{"memory": memoryDTO{m.ID, m.Text, m.Source, m.CreatedBy, m.UpdatedAt}})
+	writeJSON(w, http.StatusCreated, map[string]any{"memory": memoryDTO{m.ID, m.Text, m.Source, m.CreatedBy, m.UpdatedAt, versionOf(m.Text)}})
 }
 
 func (s *server) editMemory(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Text string `json:"text"`
+		Text    string `json:"text"`
+		Version string `json:"version"` // the note as it was read (409 when changed since)
 	}
 	if !decode(w, r, &in) {
 		return
@@ -110,9 +114,16 @@ func (s *server) editMemory(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	if conflicted(w, in.Version, versionOf(old.Text)) {
+		return
+	}
 	text := strings.TrimSpace(in.Text)
 	if text == "" {
 		writeError(w, http.StatusBadRequest, memory.ErrEmpty.Error())
+		return
+	}
+	if utf8.RuneCountInString(text) > memory.MaxNote {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Một ghi nhớ tối đa %d ký tự.", memory.MaxNote))
 		return
 	}
 	if err := s.cfg.Store.Memories().Update(r.Context(), old.ID, text); err != nil {

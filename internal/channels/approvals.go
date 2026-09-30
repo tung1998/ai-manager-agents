@@ -63,6 +63,16 @@ func (m *Manager) mode(ctx context.Context, ch storage.Channel, chatID string) a
 	return approvalMode{Mode: "ask"}
 }
 
+// modeFor: the chat's mode for a message of userID — administrator only for
+// who may approve there; anyone else gets the direct rules.
+func (m *Manager) modeFor(ctx context.Context, ch storage.Channel, chatID, userID string) approvalMode {
+	am := m.mode(ctx, ch, chatID)
+	if am.Mode == "admin" && !MayDecide(ch, userID) {
+		am.Mode = "direct"
+	}
+	return am
+}
+
 // proposals are what waits for a person in a conversation.
 func (m *Manager) proposals(ctx context.Context, conversationID string) []proposal {
 	var out []proposal
@@ -109,7 +119,7 @@ func mustAsk(p proposal) bool {
 
 // announce tells the chat what its answer left waiting: approved at once in
 // direct mode, else numbered for /approve and /reject.
-func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, chatID, conversationID string) {
+func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, chatID, userID, conversationID string) {
 	if m.decider == nil || conversationID == "" {
 		return
 	}
@@ -120,7 +130,7 @@ func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, 
 		known[p.ID] = true
 		next = max(next, p.N+1)
 	}
-	am := m.mode(ctx, ch, chatID)
+	am := m.modeFor(ctx, ch, chatID, userID)
 	var done []string
 	asked := false
 	for _, p := range m.proposals(ctx, conversationID) {
@@ -167,7 +177,8 @@ func (m *Manager) sendPending(ctx context.Context, ch storage.Channel, ad Adapte
 		waiting++
 		if len(rows) < 4 {
 			n := strconv.Itoa(p.N)
-			rows = append(rows, []Button{{Label: "✅ Duyệt " + n, Data: "/approve " + n}, {Label: "❌ Từ chối " + n, Data: "/reject " + n, Danger: true}})
+			// by id: a number is given again once all is decided, an old button must not pick the new one
+			rows = append(rows, []Button{{Label: "✅ Duyệt " + n, Data: "/approve " + p.ID}, {Label: "❌ Từ chối " + n, Data: "/reject " + p.ID, Danger: true}})
 		}
 	}
 	if waiting == 0 {
@@ -245,6 +256,9 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 			_ = m.store.Settings().Set(ctx, modeKey(ch.ID, in.ChatID), approvalMode{Mode: "ask"})
 			return "Đã chuyển sang hỏi trước: mỗi đề xuất chờ /approve."
 		case "admin", "administrator", "quan-tri":
+			if slices.Contains(ch.Approvers, "*") { // anyone would get the machine
+				return "Không bật administrator khi ai cũng được duyệt (\"*\"): hãy ghi rõ người được duyệt khi cài bot."
+			}
 			_ = m.store.Settings().Set(ctx, modeKey(ch.ID, in.ChatID), approvalMode{Mode: "admin", By: by})
 			return "Đã chuyển sang administrator: mọi đề xuất ở đây được duyệt ngay (cả push, dừng dịch vụ, đổi cài đặt), đứng tên " + who +
 				". Tin của người được duyệt chạy với toàn quyền trên máy cài office (Bash, sửa file ở bất kỳ đâu). Gõ /mode ask để quay lại."
@@ -260,19 +274,22 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	approve := cmd == "approve"
 	var picked []proposal
 	all := arg == "" && len(list) == 1 || strings.EqualFold(strings.TrimSpace(arg), "all") || strings.EqualFold(strings.TrimSpace(arg), "tat-ca")
+	stale := 0 // a button of a proposal no longer listed: decided before
 	for _, f := range strings.FieldsFunc(arg, func(r rune) bool { return r == ',' || r == ' ' }) {
 		n, err := strconv.Atoi(f)
-		if err != nil {
-			continue
-		}
-		for _, p := range list {
-			if p.N == n {
-				picked = append(picked, p)
-			}
+		i := slices.IndexFunc(list, func(p proposal) bool { return err == nil && p.N == n || p.ID == f })
+		switch {
+		case i >= 0:
+			picked = append(picked, list[i])
+		case err != nil && strings.Contains(f, "_"):
+			stale++
 		}
 	}
 	if all {
 		picked = list
+	}
+	if len(picked) == 0 && stale > 0 {
+		return "Đề xuất này đã được quyết trước đó."
 	}
 	if len(picked) == 0 {
 		return "Hãy ghi số đề xuất, ví dụ /approve 1 hoặc /approve all.\n" + m.pendingText(ctx, ch, list)
@@ -317,7 +334,7 @@ func (m *Manager) DirectApprover(ctx context.Context, a storage.Action) (string,
 	if err != nil {
 		return "", false
 	}
-	am := m.mode(ctx, ch, p.ChatID)
+	am := m.modeFor(ctx, ch, p.ChatID, p.UserID)
 	switch {
 	case am.By == "":
 	case am.Mode == "admin": // administrator: nothing asked

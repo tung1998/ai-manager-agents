@@ -111,7 +111,11 @@ const maxDiff = 150 << 10
 // prDiff fetches the PR's two branches and returns their diff (with a
 // summary on top), or why it could not.
 func prDiff(ctx context.Context, root string, pr PR) string {
-	diff, err := gitops.BranchDiff(ctx, root, pr.Target, pr.Source, maxDiff)
+	heads := []string{pr.Source}
+	if pr.Provider == "github" && pr.Number != "" { // a PR from a fork: its branch is not on origin
+		heads = []string{"refs/pull/" + pr.Number + "/head", pr.Source}
+	}
+	diff, err := gitops.BranchDiff(ctx, root, pr.Target, heads, maxDiff)
 	if err != nil {
 		return "(Không lấy được diff: " + err.Error() + ". Đọc thay đổi bằng git diff / git show nếu được.)"
 	}

@@ -320,6 +320,10 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 	old := a
 	wasWebhook := a.Source == "webhook"
 	newBot, commitBot, err := s.saveBot(r, &in, a.ProjectID)
+	if errors.Is(err, errConflict) {
+		conflicted(w, "x", "y") // the bot was changed since it was read
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

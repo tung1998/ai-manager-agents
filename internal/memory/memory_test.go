@@ -66,3 +66,22 @@ func TestMemory(t *testing.T) {
 		t.Fatal("auto not kept")
 	}
 }
+
+// A note added while the model compacts is not lost with the old ones.
+func TestCompactKeepsNewNotes(t *testing.T) {
+	ctx := context.Background()
+	st, pid := open(t)
+	svc := memory.New(st, func(ctx context.Context, _, _ string, items []storage.Memory) ([]string, error) {
+		st.Memories().Create(ctx, storage.Memory{ProjectID: pid, AgentID: "agt_1", Text: "ghi trong lúc gộp"})
+		return []string{"gộp"}, nil
+	})
+	svc.Add(ctx, pid, "agt_1", "a", "person", "human:a")
+	svc.Add(ctx, pid, "agt_1", "b", "person", "human:a")
+	if err := svc.Compact(ctx, pid, "agt_1", "thử"); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := st.Memories().List(ctx, pid, "agt_1")
+	if len(list) != 2 || list[0].Text != "gộp" || list[1].Text != "ghi trong lúc gộp" {
+		t.Fatalf("after compaction = %+v", list)
+	}
+}

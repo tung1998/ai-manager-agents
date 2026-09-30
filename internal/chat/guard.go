@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -52,16 +53,47 @@ func Guard(in io.Reader, out io.Writer, userMCP bool) {
 	if p == "" {
 		p, _ = ev.ToolInput["notebook_path"].(string)
 	}
-	if p == "" || ev.Cwd == "" {
+	if p == "" || ev.Cwd == "" || strings.HasPrefix(p, "~") { // unclear: refused, never let through
+		deny(out, "agent-office: không rõ file cần sửa")
 		return
 	}
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(ev.Cwd, p)
 	}
 	root, target := realPath(ev.Cwd), realPath(p)
-	if rel, err := filepath.Rel(root, target); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		deny(out, "agent-office: chỉ sửa file trong thư mục project")
+	if fi, err := os.Lstat(target); err == nil && fi.Mode()&os.ModeSymlink != 0 { // a link to what is not there yet
+		if to, err := os.Readlink(target); err == nil {
+			if !filepath.IsAbs(to) {
+				to = filepath.Join(filepath.Dir(target), to)
+			}
+			target = realPath(to)
+		}
 	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		deny(out, "agent-office: chỉ sửa file trong thư mục project")
+		return
+	}
+	if why := protected(filepath.ToSlash(rel)); why != "" {
+		deny(out, "agent-office: "+why)
+	}
+}
+
+// protected: files that would let an agent run commands on the machine (its
+// own Claude Code settings and hooks, MCP servers, git hooks). Skills and
+// subagents in .claude/ are the ones it may write.
+func protected(rel string) string {
+	switch {
+	case rel == ".mcp.json":
+		return "không sửa .mcp.json (máy chủ MCP chạy lệnh trên máy)"
+	case rel == ".git" || strings.HasPrefix(rel, ".git/"):
+		return "không sửa .git"
+	case strings.HasPrefix(rel, ".claude/skills/"), strings.HasPrefix(rel, ".claude/agents/"):
+		return ""
+	case rel == ".claude" || strings.HasPrefix(rel, ".claude/"):
+		return "trong .claude/ chỉ sửa skills và agents (không sửa settings, hooks)"
+	}
+	return ""
 }
 
 // realPath resolves symlinks of the part that exists (a new file's folder may not).
@@ -86,4 +118,3 @@ func deny(out io.Writer, reason string) {
 		"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason,
 	}})
 }
-

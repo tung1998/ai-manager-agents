@@ -12,6 +12,8 @@ export function useDraft<T>(source: Ref<T | null | undefined> | (() => T | null 
   const tick = ref(0) // the form's edits (deep), for dirty
   watch(() => (isRef(form) ? form.value : form), () => { tick.value++ }, { deep: true })
   const dirty = computed(() => { void tick.value; return filled.value !== null && snap() !== filled.value })
+  // edits undone by hand: nothing to lose, take the newest
+  watch(dirty, (d) => { if (!d && stale.value && latest.value != null) apply(latest.value) })
   function apply(d: T) {
     fill(d)
     filled.value = snap()

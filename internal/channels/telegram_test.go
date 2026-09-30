@@ -1,9 +1,9 @@
 package channels
 
 import (
-	"io"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"

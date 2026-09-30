@@ -55,7 +55,10 @@ func (s *server) autoContent(w http.ResponseWriter, r *http.Request) {
 		s.autoError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, it)
+	writeJSON(w, http.StatusOK, struct {
+		automation.LibraryItem
+		Version string `json:"version"` // what an edit is made from (ADR-072)
+	}{it, versionOf(it.Files)})
 }
 
 func (s *server) autoInstall(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +69,11 @@ func (s *server) autoInstall(w http.ResponseWriter, r *http.Request) {
 	if !validKind(req.Kind) {
 		writeError(w, http.StatusBadRequest, "loại không hợp lệ")
 		return
+	}
+	if req.Version != "" && req.Edited != nil && req.Overwrite { // the editor's skill as it opened it
+		if cur, err := s.cfg.Automation.Content(r.Context(), *req.Edited); err == nil && conflicted(w, req.Version, versionOf(cur.Files)) {
+			return
+		}
 	}
 	res, err := s.cfg.Automation.Install(r.Context(), req)
 	switch {

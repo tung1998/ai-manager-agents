@@ -37,3 +37,27 @@ func TestOnWrite(t *testing.T) {
 		}
 	}
 }
+
+// With live updates on, a replace is still one transaction: a failure leaves
+// the notes as they were, and says nothing changed.
+func TestOnWriteKeepsTransactions(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	mem := st.Memories()
+	mem.Create(ctx, storage.Memory{ProjectID: p.ID, AgentID: "agt_1", Text: "cũ", Source: "person"})
+	var got []string
+	st.(*sqlite.Store).OnWrite(func(table string) { got = append(got, table) })
+	dup := storage.Memory{ID: "mem_same", Text: "a"}
+	if err := st.Memories().Replace(ctx, p.ID, "agt_1", []storage.Memory{dup, dup}); err == nil {
+		t.Fatal("a duplicate id was stored")
+	}
+	if list, _ := st.Memories().List(ctx, p.ID, "agt_1"); len(list) != 1 || list[0].Text != "cũ" {
+		t.Fatalf("a failed replace changed the notes: %+v", list)
+	}
+	if len(got) != 0 {
+		t.Fatalf("a rolled back write was told: %v", got)
+	}
+	if err := st.Memories().Replace(ctx, p.ID, "agt_1", []storage.Memory{{Text: "mới"}}); err != nil || !slices.Contains(got, "agent_memories") {
+		t.Fatalf("replace = %v, told %v", err, got)
+	}
+}

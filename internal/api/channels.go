@@ -38,7 +38,8 @@ type channelDTO struct {
 	Approvers     []string   `json:"approvers"`
 	Approval      string     `json:"approval"`
 	Header        string     `json:"header"`
-	State         string     `json:"state"` // connecting | running | "" (off or stopped: last_error)
+	State         string     `json:"state"`   // connecting | running | "" (off or stopped: last_error)
+	Version       string     `json:"version"` // what an edit is made from (ADR-072)
 	BotName       string     `json:"bot_name"`
 	LastError     string     `json:"last_error"`
 	LastMessageAt *time.Time `json:"last_message_at"`
@@ -47,7 +48,7 @@ type channelDTO struct {
 // channelDTO is the channel with how its bot is doing now.
 func (s *server) channelDTO(c storage.Channel) channelDTO {
 	d := toChannelDTO(c)
-	d.State = s.botState(c.ID)
+	d.State, d.Version = s.botState(c.ID), channelVersion(c)
 	return d
 }
 
@@ -61,7 +62,7 @@ func toChannelDTO(c storage.Channel) channelDTO {
 		approvers = []string{}
 	}
 	return channelDTO{c.ID, c.ProjectID, c.Kind, c.Name, c.TokenEnc != "", c.AgentID, c.Mode, c.Enabled, allow, c.Scope, c.FilterEnabled, c.Refusal,
-		approvers, firstNonEmptyStr(c.Approval, "ask"), c.Header, "", c.BotName, c.LastError, c.LastMessageAt}
+		approvers, firstNonEmptyStr(c.Approval, "ask"), c.Header, "", "", c.BotName, c.LastError, c.LastMessageAt}
 }
 
 type channelInput struct {
@@ -78,6 +79,7 @@ type channelInput struct {
 	Approvers     *[]string `json:"approvers"`
 	Approval      *string   `json:"approval"`
 	Header        *string   `json:"header"`
+	Version       string    `json:"version"` // the bot as it was read (409 when changed since)
 }
 
 func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
@@ -203,6 +205,9 @@ func (s *server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	c, err := s.cfg.Store.Channels().Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeDomainError(w, r, err)
+		return
+	}
+	if conflicted(w, in.Version, channelVersion(c)) {
 		return
 	}
 	old := c

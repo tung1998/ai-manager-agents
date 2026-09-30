@@ -2,12 +2,13 @@
 // An agent's long-term notes (ADR-068): put at the top of every new
 // conversation. People see them; admins add, edit, remove, compact, put back
 // an earlier version, and decide whether the agent's own notes need approval.
-interface Note { id: string, text: string, source: 'person' | 'agent' | 'compact', created_by: string, updated_at: string }
+interface Note { id: string, text: string, version?: string, source: 'person' | 'agent' | 'compact', created_by: string, updated_at: string }
 interface Rev { id: string, reason: string, count: number, items: string[], created_at: string }
 const props = defineProps<{ projectId: string, agentId: string }>()
 const { t, dateLocale } = useLang()
 const { isAdmin } = useAuth()
 const toast = useToast()
+const saveError = useSaveError()
 const base = computed(() => `/api/projects/${props.projectId}/agents/${props.agentId}/memories`)
 const { data, refresh } = useLiveFetch<{ items: Note[], revisions: Rev[], auto: boolean, size: number, limit: number }>(base, { lazy: true })
 
@@ -21,7 +22,7 @@ async function run(fn: () => Promise<unknown>, ok?: string) {
     if (ok) toast.add({ title: ok, color: 'success' })
     await refresh()
   } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
+    saveError(e, refresh)
   }
 }
 
@@ -32,9 +33,10 @@ const add = () => run(async () => {
 })
 const editing = ref<string | null>(null)
 const editText = ref('')
-function startEdit(n: Note) { editing.value = n.id; editText.value = n.text }
+let editFrom: string | undefined // the note as it was opened (409 when changed since)
+function startEdit(n: Note) { editing.value = n.id; editText.value = n.text; editFrom = n.version }
 const saveEdit = () => run(async () => {
-  await $fetch(`/api/memories/${editing.value}`, { method: 'PATCH', body: { text: editText.value } })
+  await $fetch(`/api/memories/${editing.value}`, { method: 'PATCH', body: { text: editText.value, version: editFrom } })
   editing.value = null
 })
 const remove = (n: Note) => { if (confirm(t('mem.deleteConfirm'))) run(() => $fetch(`/api/memories/${n.id}`, { method: 'DELETE' })) }

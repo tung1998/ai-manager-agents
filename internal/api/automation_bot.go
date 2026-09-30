@@ -20,7 +20,8 @@ type botInput struct {
 	Refusal   *string   `json:"refusal"`
 	Approvers *[]string `json:"approvers"`
 	Approval  *string   `json:"approval"`
-	Header    *string   `json:"header"` // the line on top of its answers ("" = default, "-" = none)
+	Header    *string   `json:"header"`  // the line on top of its answers ("" = default, "-" = none)
+	Version   string    `json:"version"` // the bot as it was read (409 when changed since)
 }
 
 // automationBot is the bot as an automation shows it: what may be edited…
@@ -80,6 +81,9 @@ func (s *server) saveBot(r *http.Request, in *automationInput, projectID string)
 	c, err := s.cfg.Store.Channels().Get(r.Context(), in.Config.ChannelID)
 	if err != nil || c.ProjectID != projectID {
 		return "", commit, errors.New("hãy chọn bot của project này")
+	}
+	if b.Version != "" && b.Version != channelVersion(c) {
+		return "", commit, errConflict
 	}
 	old := c
 	if err := s.applyChannel(channelInput{Token: b.Token, Allow: b.Allow, Refusal: b.Refusal, Approvers: b.Approvers, Approval: b.Approval, Header: b.Header}, &c); err != nil {

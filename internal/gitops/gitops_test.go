@@ -94,3 +94,36 @@ func TestFetchShowsBehind(t *testing.T) {
 		t.Fatalf("after fetch = %+v", st)
 	}
 }
+
+// A PR from a fork: its branch is not on origin, only refs/pull/N/head.
+func TestBranchDiffFromFork(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git missing")
+	}
+	origin, work, project := t.TempDir(), t.TempDir(), t.TempDir()
+	run := func(dir string, args ...string) {
+		c := exec.Command("git", append([]string{"-c", "user.email=t@x.io", "-c", "user.name=T"}, args...)...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatal(string(out))
+		}
+	}
+	run(origin, "init", "-q", "--bare", "-b", "main")
+	run(work, "clone", "-q", origin, ".")
+	os.WriteFile(filepath.Join(work, "pay.go"), []byte("package pay\n"), 0o644)
+	run(work, "add", "-A")
+	run(work, "commit", "-qm", "init")
+	run(work, "push", "-q", "origin", "HEAD:main")
+	run(project, "clone", "-q", origin, ".")
+	os.WriteFile(filepath.Join(work, "pay.go"), []byte("package pay\n\nfunc Charge() {}\n"), 0o644)
+	run(work, "commit", "-qam", "charge")
+	run(work, "push", "-q", "origin", "HEAD:refs/pull/7/head")
+	ctx := context.Background()
+	d, err := BranchDiff(ctx, project, "main", []string{"refs/pull/7/head", "fix/pay"}, 1<<20)
+	if err != nil || !strings.Contains(d, "+func Charge() {}") {
+		t.Fatalf("diff = %q %v", d, err)
+	}
+	if _, err := BranchDiff(ctx, "", "main", []string{"fix/pay"}, 1<<20); err == nil {
+		t.Fatal("no folder: no error")
+	}
+}

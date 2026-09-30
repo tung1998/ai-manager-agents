@@ -49,7 +49,7 @@ type Manager struct {
 	reload   sync.Mutex // one Reload at a time: never two bots for one channel
 	// ProgressAfter: a run longer than this shows its steps in a status message
 	ProgressAfter time.Duration
-	decider  Decider    // decides proposals from the chat (nil = only on the dashboard)
+	decider       Decider // decides proposals from the chat (nil = only on the dashboard)
 }
 
 type waiter struct {
@@ -389,7 +389,7 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 	if final && err == nil && p.ConversationID != "" { // after the answer: what it left waiting for a person
 		defer func() {
 			if ch, gerr := m.store.Channels().Get(context.WithoutCancel(ctx), p.ChannelID); gerr == nil {
-				m.announce(context.WithoutCancel(ctx), ch, ad, p.ChatID, p.ConversationID)
+				m.announce(context.WithoutCancel(ctx), ch, ad, p.ChatID, p.UserID, p.ConversationID)
 			}
 		}()
 	}

@@ -1593,3 +1593,17 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
     - Lần ghi của chính trang cũng làm mới ngay theo bảng của đường dẫn ghi.
   - **Bản nháp form (`useDraft`).** Chép từ server một lần. Server đổi trong lúc form đã bị sửa thì hiện `StaleNotice` ("thay đổi ở nơi khác · Tải lại"), không ghi đè ngầm.
   - **Chống ghi đè khi lưu.** Automation, agent và quyền trả `version` (hash các trường người dùng sửa được, nên lần chạy của automation không làm đổi version). Form gửi lại version lúc mở; đã có thay đổi khác thì server trả `409 conflict` và trang báo kèm nút Tải lại. Lần lưu không kèm version (công cụ, agent) vẫn chạy như trước.
+    - Mở rộng tới cài đặt bot, mô hình (template và mô hình của project), agent trong trình sửa mô hình, skill (hash các file lúc mở) và ghi nhớ.
+    - Bảng `settings` (quyền, ngân sách, cảnh báo hạn mức) cũng báo thay đổi.
+    - Lệnh chỉ kiểm tra (validate, test, preview, scan, content) không làm mới trang.
+    - Luồng SSE bị từ chối (hết phiên, office đang khởi động lại) sẽ tự mở lại, chờ lâu dần tới 30 giây.
+
+## ADR-073: Rà soát an toàn sau đợt 060–072
+- Hook `office hook guard`:
+  - Không cho sửa `.claude/` (chỉ trừ `skills/` và `agents/`), `.mcp.json` và `.git`, vì các file đó cho agent chạy lệnh trên máy.
+  - Symlink trỏ ra ngoài thư mục bị chặn, kể cả khi đích chưa tồn tại.
+  - Yêu cầu không rõ file, không rõ thư mục hoặc đường dẫn `~` đều bị từ chối.
+- Chế độ administrator chỉ áp cho tin của người được duyệt; tin của người khác theo luật làm thẳng. Không bật được administrator khi "Ai được duyệt" là `*`.
+- Nút Duyệt/Từ chối mang id đề xuất chứ không mang số thứ tự, vì số được đánh lại khi mọi thứ đã được quyết.
+- Rút gọn ghi nhớ chạy trong một transaction và giữ những ghi nhớ thêm vào trong lúc model đang rút gọn. Thông báo thay đổi của một transaction chỉ gửi sau khi commit.
+- Diff PR từ fork lấy từ `refs/pull/N/head` (GitHub).

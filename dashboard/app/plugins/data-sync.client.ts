@@ -7,7 +7,8 @@ export default defineNuxtPlugin(() => {
     onResponse({ request, options, response }) {
       const method = String(options.method ?? 'GET').toUpperCase()
       const url = typeof request === 'string' ? request : request instanceof Request ? request.url : String(request)
-      if (method !== 'GET' && response.ok && url.includes('/api/')) {
+      // a check that writes nothing (validate, test, preview) refreshes nothing
+      if (method !== 'GET' && response.ok && url.includes('/api/') && !/\/(validate|test|preview|scan|content)(\?|$)/.test(url)) {
         const path = url.replace(/^https?:\/\/[^/]+/, '')
         const tables = tablesFor(path)
         if (tables.length) liveChanged(tables)

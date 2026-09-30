@@ -241,7 +241,7 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 			Size     int64  `json:"size"`
 			URL      string `json:"url"`
 		} `json:"attachments"`
-		Replied      *struct {
+		Replied *struct {
 			ID     string `json:"id"`
 			Author struct {
 				ID string `json:"id"`

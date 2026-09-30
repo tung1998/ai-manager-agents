@@ -7,7 +7,7 @@ const toast = useToast()
 const { isAdmin } = useAuth()
 const { data, refresh } = useLiveFetch<{ daily_limit_usd: number, today_usd: number, office_limit_usd: number }>(() => `/api/projects/${props.projectId}/budget`, { lazy: true })
 const limit = ref(0)
-const { stale, reset: resync } = useDraft(data, limit, (d) => { limit.value = d.daily_limit_usd ?? 0 }) // never over what is being typed
+const { stale, reset: resync } = useDraft(() => data.value && { daily_limit_usd: data.value.daily_limit_usd }, limit, (d) => { limit.value = d.daily_limit_usd ?? 0 }) // never over what is being typed
 const saving = ref(false)
 async function save() {
   saving.value = true

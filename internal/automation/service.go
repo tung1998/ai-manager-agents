@@ -125,6 +125,10 @@ type InstallRequest struct {
 	Files     map[string]string `json:"files,omitempty"`    // a skill written in office's editor (path → content)
 	Overwrite bool              `json:"overwrite"`
 	Accept    bool              `json:"accept"` // accept safety warnings
+	// Edited and Version: the installed item the editor opened, as it was
+	// (the API answers 409 when it changed since, ADR-072)
+	Edited  *Ref   `json:"edited,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // Install runs an InstallRequest.

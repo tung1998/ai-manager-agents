@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -76,18 +77,33 @@ func (s *Service) Compact(ctx context.Context, projectID, agentID, reason string
 		return err
 	}
 	var items []storage.Memory
-	for _, t := range texts {
-		if t = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(t), "- ")); t != "" {
-			items = append(items, storage.Memory{Text: t, Source: "compact"})
+	for i, t := range texts {
+		if t = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(t), "- ")); t != "" { // in the place of the old ones
+			items = append(items, storage.Memory{Text: t, Source: "compact", CreatedAt: list[0].CreatedAt.Add(time.Duration(i) * time.Microsecond)})
 		}
 	}
 	if len(items) == 0 {
 		return errors.New("rút gọn ra rỗng: giữ nguyên")
 	}
-	if _, err := s.store.Memories().SaveRevision(ctx, storage.MemoryRevision{ProjectID: projectID, AgentID: agentID, Items: list, Reason: reason}); err != nil {
-		return err
+	compacted := map[string]bool{}
+	for _, m := range list {
+		compacted[m.ID] = true
 	}
-	return s.store.Memories().Replace(ctx, projectID, agentID, items)
+	return s.store.InTx(ctx, func(tx storage.Store) error {
+		if _, err := tx.Memories().SaveRevision(ctx, storage.MemoryRevision{ProjectID: projectID, AgentID: agentID, Items: list, Reason: reason}); err != nil {
+			return err
+		}
+		now, err := tx.Memories().List(ctx, projectID, agentID)
+		if err != nil {
+			return err
+		}
+		for _, m := range now { // written while the model compacted: kept
+			if !compacted[m.ID] {
+				items = append(items, m)
+			}
+		}
+		return tx.Memories().Replace(ctx, projectID, agentID, items)
+	})
 }
 
 // Restore puts a revision back (what is there now is kept as a revision too).

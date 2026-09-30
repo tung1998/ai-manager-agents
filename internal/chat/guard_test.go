@@ -81,3 +81,33 @@ func TestClaudeArgsGuard(t *testing.T) {
 		t.Fatal("a read-only chat must stay dontAsk")
 	}
 }
+
+// What would let an agent run commands (Claude Code settings and hooks, MCP
+// servers, git hooks) is never written; a link out, even to nothing yet, is
+// refused; an unclear request is refused.
+func TestGuardProtected(t *testing.T) {
+	dir := t.TempDir()
+	in := func(p string) map[string]any {
+		return map[string]any{"cwd": dir, "tool_name": "Write", "tool_input": map[string]any{"file_path": p}}
+	}
+	for _, p := range []string{".claude/settings.json", ".claude/settings.local.json", ".claude/hooks/x.sh", ".mcp.json", ".git/hooks/pre-commit", "~/.bashrc"} {
+		if s := guardSays(t, in(p), false); !strings.Contains(s, `"deny"`) {
+			t.Errorf("%s allowed", p)
+		}
+	}
+	for _, p := range []string{".claude/skills/x/SKILL.md", ".claude/agents/reviewer.md", "CLAUDE.md"} {
+		if s := guardSays(t, in(p), false); s != "" {
+			t.Errorf("%s denied: %s", p, s)
+		}
+	}
+	os.Symlink(filepath.Join(t.TempDir(), "nothing-yet", "f"), filepath.Join(dir, "dangling"))
+	if s := guardSays(t, in(filepath.Join(dir, "dangling")), false); !strings.Contains(s, `"deny"`) {
+		t.Error("a dangling link out of the folder is allowed")
+	}
+	if s := guardSays(t, map[string]any{"tool_name": "Write", "tool_input": map[string]any{"file_path": "/etc/x"}}, false); !strings.Contains(s, `"deny"`) {
+		t.Error("no cwd: allowed")
+	}
+	if s := guardSays(t, map[string]any{"cwd": dir, "tool_name": "Edit", "tool_input": map[string]any{}}, false); !strings.Contains(s, `"deny"`) {
+		t.Error("no path: allowed")
+	}
+}

@@ -1,12 +1,12 @@
 package channels
 
 import (
-	"io"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -151,8 +151,8 @@ func (t *Telegram) call(ctx context.Context, method string, body any, out any) e
 type tgMessage struct {
 	MessageID int64  `json:"message_id"`
 	Text      string `json:"text"`
-	Caption string `json:"caption"`
-	Chat    struct {
+	Caption   string `json:"caption"`
+	Chat      struct {
 		ID   int64  `json:"id"`
 		Type string `json:"type"`
 	} `json:"chat"`
@@ -247,7 +247,9 @@ func (t *Telegram) Run(ctx context.Context, onReady func(string), onMessage func
 				onMessage(m)
 			}
 			if c := u.Callback; c != nil && c.Message != nil && c.Data != "" { // a button pressed: its command
-				go func(id string) { _ = t.call(context.WithoutCancel(ctx), "answerCallbackQuery", map[string]string{"callback_query_id": id}, nil) }(c.ID)
+				go func(id string) {
+					_ = t.call(context.WithoutCancel(ctx), "answerCallbackQuery", map[string]string{"callback_query_id": id}, nil)
+				}(c.ID)
 				onMessage(Incoming{ChatID: strconv.FormatInt(c.Message.Chat.ID, 10), UserID: strconv.FormatInt(c.From.ID, 10), UserName: c.From.Username,
 					Private: c.Message.Chat.Type == "private", Text: c.Data, Addressed: true})
 			}

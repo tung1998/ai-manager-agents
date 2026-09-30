@@ -447,12 +447,13 @@ type orgDTO struct {
 	Tiers            map[string]int     `json:"tiers"`
 	Agents           []agentDTO         `json:"agents,omitempty"`
 	UpdatedAt        time.Time          `json:"updated_at"`
+	Version          string             `json:"version"` // what an edit is made from (ADR-072)
 }
 
 func toOrgDTO(m storage.OrgModel, agents []storage.Agent, withAgents bool) orgDTO {
 	d := orgDTO{ID: m.ID, RepoID: m.RepoID, SourceTemplateID: m.SourceTemplateID, Key: m.Key, Name: m.Name,
 		Description: m.Description, Kind: m.Kind, Governance: m.Governance, Builtin: m.Builtin, IsTemplate: m.IsTemplate(),
-		AgentCount: len(agents), Tiers: map[string]int{}, UpdatedAt: m.UpdatedAt}
+		AgentCount: len(agents), Tiers: map[string]int{}, UpdatedAt: m.UpdatedAt, Version: modelVersion(m)}
 	for _, a := range agents {
 		d.Tiers[a.Tier]++
 		if withAgents {
@@ -584,6 +585,7 @@ func (s *server) updateOrgModel(w http.ResponseWriter, r *http.Request) {
 		Kind        *string             `json:"kind"`
 		Key         *string             `json:"key"`
 		Governance  *storage.Governance `json:"governance"`
+		Version     string              `json:"version"` // the model as it was read (409 when changed since)
 	}
 	if !decode(w, r, &in) {
 		return
@@ -591,6 +593,9 @@ func (s *server) updateOrgModel(w http.ResponseWriter, r *http.Request) {
 	old, err := s.cfg.Store.OrgModels().Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeDomainError(w, r, err)
+		return
+	}
+	if conflicted(w, in.Version, modelVersion(old)) {
 		return
 	}
 	m, err := s.cfg.Org.UpdateModel(r.Context(), r.PathValue("id"), func(m *storage.OrgModel) {

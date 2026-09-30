@@ -172,16 +172,39 @@ func Fetch(ctx context.Context, root string) error {
 	return err
 }
 
-// BranchDiff fetches base and head from origin and returns what head adds
-// over base (three dots: since they parted), its summary on top, at most max bytes.
-func BranchDiff(ctx context.Context, root, base, head string, max int) (string, error) {
-	if base == "" || head == "" || strings.HasPrefix(base, "-") || strings.HasPrefix(head, "-") {
+// BranchDiff fetches base and the first of heads origin has (a PR's own ref,
+// then its branch: a PR from a fork has only the ref) and returns what head
+// adds to base, with a summary on top.
+func BranchDiff(ctx context.Context, root, base string, heads []string, max int) (string, error) {
+	if root == "" {
+		return "", errors.New("project chưa có thư mục")
+	}
+	if base == "" || strings.HasPrefix(base, "-") {
 		return "", errors.New("thiếu nhánh")
 	}
-	if _, err := git(ctx, root, "fetch", "--no-tags", "origin", base, head); err != nil {
+	if _, err := git(ctx, root, "fetch", "--no-tags", "origin", base); err != nil {
 		return "", err
 	}
-	rng := "origin/" + base + "...origin/" + head
+	head, why := "", "thiếu nhánh"
+	for _, h := range heads {
+		if h == "" || strings.HasPrefix(h, "-") {
+			continue
+		}
+		_, err := git(ctx, root, "fetch", "--no-tags", "origin", h)
+		if err != nil {
+			why = err.Error()
+			continue
+		}
+		sha, err := git(ctx, root, "rev-parse", "FETCH_HEAD")
+		if err == nil {
+			head = strings.TrimSpace(sha)
+			break
+		}
+	}
+	if head == "" {
+		return "", errors.New(why)
+	}
+	rng := "origin/" + base + "..." + head
 	stat, err := git(ctx, root, "diff", "--stat", rng)
 	if err != nil {
 		return "", err

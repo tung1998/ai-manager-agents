@@ -139,20 +139,29 @@ func (r memoryRepo) GetRevision(ctx context.Context, id string) (storage.MemoryR
 
 // inTx runs fn in a transaction (the one db already is, or a new one).
 func inTx(ctx context.Context, db dbtx, fn func(dbtx) error) error {
-	if tx, ok := db.(*sql.Tx); ok {
-		return fn(tx)
+	var on func(string)
+	if h, ok := db.(hooked); ok { // the live updates' wrapper: the db is inside
+		db, on = h.dbtx, h.on
+	}
+	if _, ok := db.(*sql.Tx); ok {
+		return fn(wrap(db, on))
 	}
 	d, ok := db.(*sql.DB)
 	if !ok {
-		return fn(db)
+		return fn(wrap(db, on))
 	}
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if err := fn(tx); err != nil {
+	w := deferred(on)
+	if err := fn(wrap(tx, w.add)); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	w.flush()
+	return nil
 }
