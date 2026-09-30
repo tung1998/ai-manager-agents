@@ -4,6 +4,7 @@ package api
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
+	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
@@ -63,6 +64,8 @@ type Config struct {
 	MCP http.Handler
 	// Actions are operations agents proposed; admins approve or reject them.
 	Actions *actions.Service
+	// Memory keeps agents' long-term notes (ADR-068).
+	Memory *memory.Service
 	// Updater rebuilds office from its source; nil when not supervised or
 	// running an installed build without source.
 	Updater *selfupdate.Updater

@@ -12,6 +12,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/worktree"
@@ -670,6 +671,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if conv.Purpose == "automation" {
 		req.System += automationGuide
 	}
+	req.System += memory.Block(ctx, e.store, project.ID, agent.ID, 4000) // what it keeps from before (ADR-068)
 	if conv.Purpose == "template" {
 		req.System += templateGuide
 	}

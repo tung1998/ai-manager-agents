@@ -1535,3 +1535,15 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Nhận tin (đã vào hàng chạy) thì bot thả 👀 lên tin, và gỡ khi đã trả lời. Discord dùng reactions (cần quyền Add Reactions), Telegram dùng `setMessageReaction`.
 - Chạy quá 10 giây (`Manager.ProgressAfter`) thì bot gửi một tin trạng thái "⏳ Đang làm… (n bước)" kèm bước đang làm, lấy từ tóm tắt công cụ agent dùng (`trigger.WithProgress` → `Runner.SetOnProgress` → `Manager.Progress`).
   - Tin này được sửa tại chỗ, tối đa 4 giây một lần, và bị xóa khi có câu trả lời.
+
+## ADR-068: Trí nhớ dài hạn của agent
+- Mỗi agent có một sổ ghi nhớ riêng trong project (bảng `agent_memories`), gồm các ghi chú ngắn, tối đa 500 ký tự mỗi ghi chú.
+  - Sổ được đưa vào system prompt của mọi cuộc chat mới, cả chat qua Discord/Telegram.
+  - Giới hạn 4000 ký tự; quá thì ưu tiên giữ ghi chú mới nhất.
+- Agent ghi bằng công cụ `remember` (action kind `remember`, đi qua thẻ duyệt như các đề xuất khác). Project có thể bật "Agent tự ghi không cần duyệt" (`memory_auto/<project>`).
+- Sổ vượt giới hạn thì office nhờ model nhanh gộp và rút gọn (`memory.Compact`, gọi không có công cụ). Admin cũng bấm Rút gọn được.
+  - Trước khi rút gọn hoặc khôi phục, office lưu bản cũ (`agent_memory_revisions`) để khôi phục lại được.
+- Trang agent có tab **Ghi nhớ**:
+  - Mọi người trong project xem được sổ và bản cũ.
+  - Admin thêm, sửa, xóa, rút gọn, khôi phục, và bật/tắt tự ghi.
+  - Mọi thay đổi đều ghi audit.

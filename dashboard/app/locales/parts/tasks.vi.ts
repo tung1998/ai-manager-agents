@@ -99,6 +99,7 @@ export default {
   'action.auto': 'tự động',
   'action.approve': 'Duyệt',
   'action.reject': 'Từ chối',
+  'action.kind.remember': 'Ghi nhớ',
   'action.kind.config_change': 'Đổi cài đặt',
   'action.op.create': 'Tạo mới',
   'action.op.update': 'Cập nhật',

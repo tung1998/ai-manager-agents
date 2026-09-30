@@ -8,6 +8,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/home"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
@@ -100,6 +101,9 @@ func serveCmd() *cobra.Command {
 			procs.Autostart(ctx)
 			// agents read build/run/monitoring data through the office tools (MCP for Claude Code)
 			acts := actions.New(a.store, procs) // agents propose, people approve
+			// agents' long-term notes (ADR-068); too long, a fast model compacts them
+			mem := memory.New(a.store, compactNotes(a.store, chatEngine))
+			acts.SetMemory(mem)
 			office := officetools.New(a.store, procs, acts)
 			mcp := mcpserver.New(office, version)
 			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")
@@ -155,7 +159,7 @@ func serveCmd() *cobra.Command {
 			go monitors.Run(ctx)
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 			handler := api.New(api.Config{
-				Office: office, Channels: bots,
+				Office: office, Channels: bots, Memory: mem,
 				Store: st, Auth: a.auth, AllowedOrigins: origins,
 				SecureCookies: secureCookies, TrustedProxies: proxies, Logger: log, Version: version,
 				Providers: a.providers, Org: a.org, Setup: setup.New(a.store, a.providers, a.org),

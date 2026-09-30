@@ -118,6 +118,8 @@ type Store interface {
 	Actions() ActionRepo
 	Jobs() JobRepo
 	Automations() AutomationRepo
+	// Memories are each agent's long-term notes in a project (ADR-068).
+	Memories() MemoryRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error
@@ -205,4 +207,35 @@ type ChannelRepo interface {
 	// Prune lets go what ties outside chats to conversations quiet since
 	// before (their reply links and rules; the conversations stay).
 	Prune(ctx context.Context, before time.Time) (int, error)
+}
+
+// Memory is one note an agent keeps across conversations (ADR-068).
+type Memory struct {
+	ID, ProjectID, AgentID string
+	Text                   string
+	Source                 string // person | agent | compact
+	CreatedBy              string
+	CreatedAt, UpdatedAt   time.Time
+}
+
+// MemoryRevision is the notes as they were before a compaction or a restore.
+type MemoryRevision struct {
+	ID, ProjectID, AgentID string
+	Items                  []Memory
+	Reason                 string
+	CreatedAt              time.Time
+}
+
+// MemoryRepo stores agents' notes, oldest first.
+type MemoryRepo interface {
+	List(ctx context.Context, projectID, agentID string) ([]Memory, error)
+	Get(ctx context.Context, id string) (Memory, error)
+	Create(ctx context.Context, m Memory) (Memory, error)
+	Update(ctx context.Context, id, text string) error
+	Delete(ctx context.Context, id string) error
+	// Replace puts items in place of all of the agent's notes (one transaction).
+	Replace(ctx context.Context, projectID, agentID string, items []Memory) error
+	SaveRevision(ctx context.Context, r MemoryRevision) (MemoryRevision, error)
+	Revisions(ctx context.Context, projectID, agentID string) ([]MemoryRevision, error) // newest first
+	GetRevision(ctx context.Context, id string) (MemoryRevision, error)
 }

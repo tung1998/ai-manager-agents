@@ -211,6 +211,14 @@ func TestTelegramButtons(t *testing.T) {
 	if _, err := tg.SendButtons(ctx, "-100", "Chờ duyệt", [][]Button{{{Label: "Duyệt 1", Data: "/approve 1"}}}); err != nil {
 		t.Fatal(err)
 	}
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) { // the press is answered in the background
+		mu.Lock()
+		answered := strings.Contains(strings.Join(calls, "\n"), "answerCallbackQuery")
+		mu.Unlock()
+		if answered {
+			break
+		}
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	all := strings.Join(calls, "\n")

@@ -36,9 +36,9 @@ const providerOf = (a: { provider_id: string }) => providers.value.find(p => p.i
 const resolvedModel = computed(() => agent.value ? agent.value.llm_model || providerOf(agent.value)?.tier_models[agent.value.model_tier] || '—' : '—')
 const others = computed(() => (modelData.value?.model.agents ?? []).filter(a => a.id !== agentId.value))
 
-type Tab = 'overview' | 'config' | 'activity' | 'history'
+type Tab = 'overview' | 'config' | 'memory' | 'activity' | 'history'
 const tab = computed<Tab>({
-  get: () => (['config', 'activity', 'history'] as const).find(v => v === route.query.tab) ?? 'overview',
+  get: () => (['config', 'memory', 'activity', 'history'] as const).find(v => v === route.query.tab) ?? 'overview',
   set: v => navigateTo({ query: { tab: v } }, { replace: true })
 })
 
@@ -202,6 +202,7 @@ async function restore(e: Entry) {
         :items="[
           { label: t('agentPage.tabOverview'), value: 'overview', icon: 'i-lucide-chart-column' },
           { label: t('agentPage.tabConfig'), value: 'config', icon: 'i-lucide-sliders-horizontal' },
+          { label: t('agentPage.tabMemory'), value: 'memory', icon: 'i-lucide-notebook-pen' },
           { label: t('agentPage.tabActivity'), value: 'activity', icon: 'i-lucide-activity' },
           { label: t('agentPage.tabHistory'), value: 'history', icon: 'i-lucide-history' }
         ]"
@@ -344,6 +345,9 @@ async function restore(e: Entry) {
           <UButton v-if="isAdmin" size="sm" icon="i-lucide-save" :label="t('org.form.save')" :loading="saving === 'perm'" @click="save('perm')" />
         </UCard>
       </fieldset>
+
+      <!-- long-term notes (ADR-068) -->
+      <AgentMemory v-else-if="tab === 'memory'" :project-id="projectId" :agent-id="agentId" />
 
       <!-- activity -->
       <UCard v-else-if="tab === 'activity'" :ui="{ body: 'p-0 sm:p-0' }">

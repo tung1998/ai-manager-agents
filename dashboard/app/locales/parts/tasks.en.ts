@@ -100,6 +100,7 @@ const en: Record<keyof typeof vi, string> = {
   'action.auto': 'auto',
   'action.approve': 'Approve',
   'action.reject': 'Reject',
+  'action.kind.remember': 'Remember',
   'action.kind.config_change': 'Change a setting',
   'action.op.create': 'Create',
   'action.op.update': 'Update',

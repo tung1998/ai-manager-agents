@@ -37,6 +37,7 @@ var Kinds = map[string]string{
 	"update_automation": "Sửa tự động hóa",
 	"config_change":     "Đổi cài đặt",
 	"run_automation":    "Chạy tự động hóa",
+	"remember":          "Ghi nhớ",
 }
 
 // Runner starts work the office assistant proposed (ADR-046).
@@ -63,6 +64,15 @@ type ConfigApplier interface {
 func isAutomation(kind string) bool {
 	return kind == "create_automation" || kind == "update_automation"
 }
+
+// Memory keeps agents' notes (ADR-068).
+type Memory interface {
+	Add(ctx context.Context, projectID, agentID, text, source, by string) (storage.Memory, error)
+	Auto(ctx context.Context, projectID string) bool
+}
+
+// SetMemory turns on remember proposals.
+func (s *Service) SetMemory(m Memory) { s.memory = m }
 
 // SetConfig turns on config_change proposals.
 func (s *Service) SetConfig(c ConfigApplier) { s.config = c }
@@ -99,12 +109,31 @@ type Service struct {
 	ops    *ops.Manager
 	config ConfigApplier
 	runner Runner
+	memory Memory
 }
 
 // New builds a Service.
 func New(store storage.Store, o *ops.Manager) *Service { return &Service{store: store, ops: o} }
 
 func isProcess(kind string) bool { return strings.HasSuffix(kind, "_process") }
+
+// agentID is the id of the project's agent of that name.
+func (s *Service) agentID(ctx context.Context, projectID, name string) (string, error) {
+	model, err := s.store.OrgModels().GetForRepo(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	agents, err := s.store.Agents().List(ctx, model.ID)
+	if err != nil {
+		return "", err
+	}
+	for _, a := range agents {
+		if a.Name == name {
+			return a.ID, nil
+		}
+	}
+	return "", fmt.Errorf("%w: agent %q", ErrTarget, name)
+}
 
 // Propose validates and records a pending action (an identical pending one
 // from the same conversation/task is returned instead of a duplicate).
@@ -118,7 +147,16 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 	if len(args) > 0 {
 		a.Args = args[0]
 	}
-	if kind == "run_automation" { // costs tokens: a person always decides
+	if kind == "remember" { // a note the agent keeps: whose it is
+		if s.memory == nil || a.Target == "" {
+			return a, errors.New("không ghi nhớ được ở đây")
+		}
+		id, err := s.agentID(ctx, sc.ProjectID, sc.Agent)
+		if err != nil {
+			return a, err
+		}
+		a.TargetID = id
+	} else if kind == "run_automation" { // costs tokens: a person always decides
 		if s.runner == nil {
 			return a, errors.New("không giao việc được ở đây")
 		}
@@ -228,6 +266,8 @@ func (s *Service) auditAuto(ctx context.Context, sc Scope, a storage.Action, err
 // lists (processes, containers, commands). Push always needs a person.
 func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Access) bool {
 	switch a.Kind {
+	case "remember": // the project keeps its agents' notes on its own, or a person reads each
+		return s.memory != nil && s.memory.Auto(ctx, a.ProjectID)
 	case "create_automation", "update_automation", "config_change", "run_automation":
 		return false // code that runs unattended, or settings: a person always decides
 	case "git_commit":
@@ -385,6 +425,10 @@ func firstNonEmpty(a, b string) string {
 }
 
 func (s *Service) run(ctx context.Context, a storage.Action) error {
+	if a.Kind == "remember" {
+		_, err := s.memory.Add(ctx, a.ProjectID, a.TargetID, a.Target, "agent", a.ProposedBy)
+		return err
+	}
 	if a.Kind == "run_automation" {
 		if s.runner == nil {
 			return errors.New("không chạy tự động hóa được ở đây")

@@ -60,6 +60,15 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/revisions/{id}", auth(s.getRevision))
 	mux.Handle("POST /api/revisions/{id}/restore", admin(s.restoreRevision))
 	mux.Handle("GET /api/agents/{id}", auth(s.getAgent))
+	if s.cfg.Memory != nil {
+		mux.Handle("GET /api/projects/{id}/agents/{aid}/memories", auth(s.listMemories))
+		mux.Handle("POST /api/projects/{id}/agents/{aid}/memories", admin(s.addMemory))
+		mux.Handle("POST /api/projects/{id}/agents/{aid}/memories/compact", admin(s.compactMemories))
+		mux.Handle("PATCH /api/memories/{id}", admin(s.editMemory))
+		mux.Handle("DELETE /api/memories/{id}", admin(s.deleteMemory))
+		mux.Handle("POST /api/memory-revisions/{id}/restore", admin(s.restoreMemories))
+		mux.Handle("PUT /api/projects/{id}/memory-settings", admin(s.memorySettings))
+	}
 	mux.Handle("GET /api/agents/{id}/stats", auth(s.agentStats))
 	mux.Handle("GET /api/agents/{id}/activity", auth(s.agentActivity))
 	mux.Handle("GET /api/agents/{id}/history", auth(s.agentHistory))

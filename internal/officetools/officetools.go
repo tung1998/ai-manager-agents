@@ -114,6 +114,13 @@ func (t *Toolbox) Tools() []Tool {
 				"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "git_commit: file cần commit"},
 				"branch":  map[string]any{"type": "string", "description": "git_branch: tên nhánh"},
 			}, "action", "reason")})
+		list = append(list, Tool{Name: "remember", Description: "Ghi một điều đáng nhớ lâu dài vào sổ ghi nhớ của bạn ở project này (có ở mọi cuộc chat sau): " +
+			"quy ước của repo, quyết định đã chốt, điều người dùng muốn hay không muốn, lỗi đã gặp và cách sửa. Một ý ngắn, rõ, mỗi lần một điều; " +
+			"không ghi việc chỉ của lần này, không ghi bí mật. Tùy cài đặt project, ghi ngay hoặc chờ người dùng duyệt.",
+			Schema: obj(map[string]any{
+				"note":   map[string]any{"type": "string", "description": "Điều cần nhớ, ví dụ: Repo dùng pnpm; chạy pnpm test trước khi báo xong"},
+				"reason": map[string]any{"type": "string", "description": "Vì sao đáng nhớ"},
+			}, "note")})
 		str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
 		list = append(list, Tool{Name: "propose_automation", Description: "Đề xuất một tự động hóa cho project (luôn chờ người dùng duyệt). " +
 			"Ưu tiên action=script (bash/node/python, chạy trong thư mục project, KHÔNG tốn token AI): script nhận payload qua stdin và $OFFICE_PAYLOAD, in kết quả ra stdout; " +
@@ -245,6 +252,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		Op       string          `json:"op"`
 		ID       string          `json:"id"`
 		Patch    json.RawMessage `json:"patch"`
+		Note     string          `json:"note"`
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &in); err != nil {
@@ -349,6 +357,18 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		var a storage.Action
 		if a, err = t.actions.Propose(ctx, sc, kind, target, in.Reason, storage.ActionArgs{Automation: raw}); err == nil {
 			out = fmt.Sprintf("Đã tạo đề xuất %q (mã %s), đang chờ người dùng duyệt. Chưa có gì chạy; hãy tóm tắt cho người dùng script/lịch và nhắc họ bấm Duyệt.", a.Target, a.ID)
+		}
+	case "remember":
+		if t.actions == nil {
+			return "Không ghi nhớ được ở đây", true
+		}
+		var a storage.Action
+		if a, err = t.actions.Propose(ctx, sc, "remember", in.Note, in.Reason); err == nil {
+			if a.Status == "done" {
+				out = "Đã ghi vào sổ ghi nhớ: " + a.Target
+			} else {
+				out = "Đã đề xuất ghi nhớ (mã " + a.ID + "), chờ người dùng duyệt."
+			}
 		}
 	case "propose_action":
 		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {
