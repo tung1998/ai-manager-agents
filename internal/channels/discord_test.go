@@ -379,3 +379,44 @@ func TestDiscordJoinsOpenThreads(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 }
+
+// A message in a thread the bot knows of (made, or open when it connected) says so.
+func TestDiscordMarksThreadMessages(t *testing.T) {
+	gw := wsServe(t, func(send func(string)) {
+		send(`{"op":10,"d":{"heartbeat_interval":45000}}`)
+	}, func(msg string, send func(string)) {
+		if !strings.Contains(msg, `"op":2`) {
+			return
+		}
+		send(`{"op":0,"s":1,"t":"READY","d":{"user":{"id":"99","username":"shopbot"}}}`)
+		send(`{"op":0,"s":2,"t":"GUILD_CREATE","d":{"id":"g","threads":[{"id":"t1","parent_id":"c2","member":{"user_id":"99"}}]}}`)
+		send(`{"op":0,"s":3,"t":"THREAD_CREATE","d":{"id":"t2","guild_id":"g","parent_id":"c2","newly_created":true}}`)
+		send(`{"op":0,"s":4,"t":"MESSAGE_CREATE","d":{"id":"a","channel_id":"t1","guild_id":"g","content":"<@99> một","author":{"id":"8"},"mentions":[{"id":"99"}]}}`)
+		send(`{"op":0,"s":5,"t":"MESSAGE_CREATE","d":{"id":"b","channel_id":"t2","guild_id":"g","content":"<@99> hai","author":{"id":"8"},"mentions":[{"id":"99"}]}}`)
+		send(`{"op":0,"s":6,"t":"MESSAGE_CREATE","d":{"id":"c","channel_id":"c2","guild_id":"g","content":"<@99> ba","author":{"id":"8"},"mentions":[{"id":"99"}]}}`)
+	})
+	defer gw.Close()
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", GatewayURL: "ws" + strings.TrimPrefix(gw.URL, "http"), APIBase: rest.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	got := make(chan Incoming, 10)
+	go d.Run(ctx, func(string) {}, func(m Incoming) {
+		if m.ThreadOf == "" {
+			got <- m
+		}
+	})
+	in := map[string]bool{}
+	for len(in) < 3 {
+		select {
+		case m := <-got:
+			in[m.Text] = m.InThread
+		case <-ctx.Done():
+			t.Fatalf("got %v", in)
+		}
+	}
+	if !in["một"] || !in["hai"] || in["ba"] {
+		t.Fatalf("in a thread = %v", in)
+	}
+}

@@ -1506,3 +1506,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Trong thread, bot chỉ trả lời khi được tag, giống ở kênh.
   - `/create-conversation` gõ trong thread thì bot nghe mọi tin, chỉ trong thread đó. Thread đã nối với một cuộc chat vẫn giữ cuộc chat đó.
   - Thread do `/create-thread` tạo thì bật sẵn chế độ hội thoại: không cần tag; `/close-conversation` để tắt.
+- Mỗi thread là một cuộc chat, theo id của thread:
+  - Tin đầu tiên được tag trong thread mở cuộc chat và gắn nó vào thread (`in:<thread>`). Các tin sau, tag hay không, đều đi vào đúng cuộc chat đó.
+  - Việc cần tag hay không thì vẫn theo `/create-conversation` như ở kênh.
+  - Adapter nhớ các thread (từ `THREAD_CREATE`, `GUILD_CREATE`, `THREAD_UPDATE`) và đánh dấu tin trong thread là `InThread`.

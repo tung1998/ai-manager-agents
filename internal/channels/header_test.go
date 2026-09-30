@@ -242,7 +242,7 @@ func TestCreateThreadCommand(t *testing.T) {
 	}
 	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", ConversationID: conv.ID})
 	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Kế hoạch migrate", nil, false)
-	bot.wait(t, "c2", 1) // message "1"
+	bot.wait(t, "c2", 1)                                                                   // message "1"
 	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) { // remembered once sent
 		if id, _ := st.Channels().Thread(ctx, ch.ID, "thread:1"); id == conv.ID {
 			break
@@ -360,7 +360,7 @@ func TestThreadNeedsTag(t *testing.T) {
 		}
 	}
 	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
-	st.Channels().SetThread(ctx, ch.ID, "in:t1", conv.ID) // a thread of the conversation
+	st.Channels().SetThread(ctx, ch.ID, "in:t1", conv.ID)                        // a thread of the conversation
 	bot.in <- channels.Incoming{ChatID: "t1", UserID: "8", Text: "còn đó không"} // untagged: not for the bot
 	bot.in <- channels.Incoming{ChatID: "t1", UserID: "8", Text: "/create-conversation", Addressed: true}
 	got := bot.wait(t, "t1", 1)
@@ -369,5 +369,33 @@ func TestThreadNeedsTag(t *testing.T) {
 	}
 	if id, _ := st.Channels().Thread(ctx, ch.ID, "in:t1"); id != conv.ID {
 		t.Fatal("/create-conversation took the thread off its conversation")
+	}
+}
+
+// Every message in a thread is one conversation (the thread's), tagged or
+// not kept: the first tag makes it, the next ones go on in it.
+func TestThreadIsOneConversation(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
+	a, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "t9", InThread: true, Text: "một", Addressed: true})
+	b, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "t9", InThread: true, Text: "hai", Addressed: true})
+	c, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "c2", Text: "ba", Addressed: true})
+	if a == "" || a != b {
+		t.Fatalf("two tags in one thread: %q %q", a, b)
+	}
+	if c == a {
+		t.Fatal("a channel message went into the thread's conversation")
 	}
 }

@@ -482,6 +482,16 @@ func (m *Manager) agent(ctx context.Context, projectID, agentID string) (storage
 	return storage.Agent{}, errors.New("không có agent cho quy tắc này")
 }
 
+// ConversationFor is the conversation a message would be answered in by the
+// project's lead (what thread decides, for tests and tools).
+func (m *Manager) ConversationFor(ctx context.Context, ch storage.Channel, in Incoming) (string, error) {
+	agent, err := m.agent(ctx, ch.ProjectID, "")
+	if err != nil {
+		return "", err
+	}
+	return m.thread(ctx, ch, storage.Automation{}, agent, in)
+}
+
 // thread is the conversation a message is answered in: a new one each time,
 // or while the chat keeps one (/create-conversation) the chat's own with that
 // agent. Tool-less, read only, not in the project's chat list.
@@ -497,6 +507,16 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 		if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
 			return id, nil
 		}
+	}
+	if in.InThread { // a thread is one conversation: the first tag makes it, the rest go on in it
+		conv, err := m.engine.StartConversationPurpose(ctx, ch.ProjectID, agent.ID, "channel")
+		if err != nil {
+			return "", err
+		}
+		if err := m.engine.SetMode(ctx, conv.ID, perm.Operate); err != nil {
+			return "", err
+		}
+		return conv.ID, m.store.Channels().SetThread(ctx, ch.ID, inKey(in.ChatID), conv.ID)
 	}
 	keep := m.keep(ctx, ch.ID, in.ChatID)
 	key := in.ChatID + "#" + agent.ID + "#" + keep

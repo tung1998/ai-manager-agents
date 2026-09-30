@@ -36,6 +36,8 @@ type Incoming struct {
 	// the thread, Text empty): the message's conversation goes on in it.
 	ThreadOf string
 	ParentID string // …in that channel
+	// InThread: said in a Discord thread; the thread is one conversation.
+	InThread bool
 }
 
 // Adapter connects one bot.

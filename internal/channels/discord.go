@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -23,6 +24,7 @@ type Discord struct {
 	botID      string
 	appID      string // the application: its commands, its interactions' replies
 	menu       menu
+	threads    sync.Map // thread ids it knows of (made, open when it connected): their messages are InThread
 }
 
 // intents: guilds (threads made), guild messages, direct messages, message content
@@ -180,7 +182,24 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 				if m, ok := d.threadMade(ctx, p.D); ok {
 					onMessage(m)
 				}
+			case "THREAD_UPDATE": // an archived thread back in use
+				var th struct {
+					ID string `json:"id"`
+				}
+				if json.Unmarshal(p.D, &th) == nil && th.ID != "" {
+					d.threads.Store(th.ID, true)
+				}
 			case "GUILD_CREATE": // the open threads: joined, so what is said there is heard
+				var g struct {
+					Threads []struct {
+						ID string `json:"id"`
+					} `json:"threads"`
+				}
+				if json.Unmarshal(p.D, &g) == nil { // known before the next message is read
+					for _, th := range g.Threads {
+						d.threads.Store(th.ID, true)
+					}
+				}
 				go d.joinOpen(context.WithoutCancel(ctx), p.D, onMessage)
 			}
 		}
@@ -217,6 +236,7 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 		return Incoming{}, false
 	}
 	in := Incoming{ChatID: m.ChannelID, UserID: m.Author.ID, UserName: m.Author.Username, Private: m.GuildID == "", MessageID: m.ID, GuildID: m.GuildID}
+	_, in.InThread = d.threads.Load(m.ChannelID)
 	tagged := false
 	for _, x := range m.Mentions {
 		if x.ID == d.botID && d.botID != "" {
@@ -247,7 +267,11 @@ func (d *Discord) threadMade(ctx context.Context, raw json.RawMessage) (Incoming
 		ParentID     string `json:"parent_id"`
 		NewlyCreated bool   `json:"newly_created"`
 	}
-	if json.Unmarshal(raw, &th) != nil || th.ID == "" || !th.NewlyCreated {
+	if json.Unmarshal(raw, &th) != nil || th.ID == "" {
+		return Incoming{}, false
+	}
+	d.threads.Store(th.ID, true)
+	if !th.NewlyCreated {
 		return Incoming{}, false
 	}
 	slog.Info("discord: thread made", "thread", th.ID, "parent", th.ParentID)
@@ -305,6 +329,7 @@ func (d *Discord) joinOpen(ctx context.Context, raw json.RawMessage, onMessage f
 		if th.ID == "" {
 			continue
 		}
+		d.threads.Store(th.ID, true)
 		// each goes on with the conversation of the message it grew from, if office knows it
 		onMessage(Incoming{ChatID: th.ID, GuildID: g.ID, ThreadOf: th.ID, ParentID: th.ParentID})
 		if th.Member != nil { // in it already
