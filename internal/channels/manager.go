@@ -255,6 +255,12 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 			return
 		}
 	}
+	if isCmd && cmd == "thread" { // /create-thread [name]: only when asked
+		if msg := m.makeThread(ctx, ch, ad, in, arg); msg != "" {
+			say(msg)
+		}
+		return
+	}
 	if isCmd { // /create-conversation, /close-conversation
 		say(m.setKeep(ctx, ch.ID, in.ChatID, cmd == "create"))
 		return
@@ -523,6 +529,8 @@ func command(text string) (cmd, arg string, ok bool) {
 		return "create", "", rest == ""
 	case "close-conversation", "close-conversion":
 		return "close", "", rest == ""
+	case "create-thread":
+		return "thread", rest, true
 	case "pending", "cho-duyet": // the Vietnamese names still work
 		return "pending", "", true
 	case "approve", "duyet":
@@ -538,6 +546,9 @@ func command(text string) (cmd, arg string, ok bool) {
 // commands are a bot's menu: its own, then its automations' custom ones.
 func (m *Manager) commands(ctx context.Context, ch storage.Channel) []Command {
 	out := Builtins()
+	if ch.Kind != "discord" { // threads are Discord's
+		out = slices.DeleteFunc(out, func(c Command) bool { return c.Name == "create-thread" })
+	}
 	list, _ := m.store.Automations().List(ctx, ch.ProjectID)
 	for _, a := range list {
 		if a.Enabled && a.Source == ch.Kind && a.Config.ChannelID == ch.ID && a.Config.Command != "" {

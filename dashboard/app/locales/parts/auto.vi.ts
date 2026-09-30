@@ -203,6 +203,8 @@ export default {
   'cmd.reject': 'Từ chối đề xuất',
   'cmd.mode': 'Hỏi trước mỗi đề xuất, hoặc làm thẳng',
   'cmd.create': 'Bắt đầu hội thoại: bot nhớ mọi tin trong cuộc chat, không cần tag',
+  'cmd.thread': 'Tạo thread, chỉ khi được gọi. Reply câu trả lời của bot rồi gõ lệnh để mang hội thoại đó vào thread',
+  'cmd.threadArg': 'tên (không bắt buộc)',
   'cmd.close': 'Kết thúc hội thoại: mỗi tin được trả lời riêng',
   'auto.tabBot': 'Cài đặt bot',
   'auto.botSharedN': 'Bot dùng chung cho {n} tự động hóa: sửa ở đây là đổi cho tất cả.',

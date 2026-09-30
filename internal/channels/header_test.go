@@ -183,3 +183,78 @@ func TestThreadFromAnswer(t *testing.T) {
 		t.Fatalf("link = %q", got)
 	}
 }
+
+// threadBot makes threads as Discord does: from a message, the thread's id is the message's.
+type threadBot struct {
+	fakeBot
+	made chan [3]string // chat, from message, name
+}
+
+func (b *threadBot) MakeThread(_ context.Context, chatID, fromMsg, name string) (string, error) {
+	b.made <- [3]string{chatID, fromMsg, name}
+	if fromMsg != "" {
+		return fromMsg, nil
+	}
+	return "t-new", nil
+}
+
+// /create-thread (a reply to the bot's answer) makes a thread from that
+// answer: its conversation goes on there. Asked for only: nothing else makes one.
+func TestCreateThreadCommand(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	bot := &threadBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, made: make(chan [3]string, 2)}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	conv, err := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
+	if err != nil || conv.ID == "" {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", ConversationID: conv.ID})
+	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Kế hoạch migrate", nil, false)
+	bot.wait(t, "c2", 1) // message "1"
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) { // remembered once sent
+		if id, _ := st.Channels().Thread(ctx, ch.ID, "thread:1"); id == conv.ID {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the answer is not remembered")
+		}
+	}
+	bot.in <- channels.Incoming{ChatID: "c2", GuildID: "g", MessageID: "u9", UserID: "8", Text: "/create-thread Migrate admin", ReplyTo: "1", Addressed: true}
+	select {
+	case got := <-bot.made:
+		if got != [3]string{"c2", "1", "Migrate admin"} {
+			t.Fatalf("made = %v", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no thread made")
+	}
+	if got := bot.wait(t, "1", 1); !strings.Contains(got[0], "thread") {
+		t.Fatalf("in the thread = %q", got)
+	}
+	if id, _ := st.Channels().Thread(ctx, ch.ID, "in:1"); id != conv.ID {
+		t.Fatalf("the thread's conversation = %q", id)
+	}
+	if got := channels.ConversationLink(ctx, st, conv.ID); got != "https://discord.com/channels/g/1" {
+		t.Fatalf("link = %q", got)
+	}
+}

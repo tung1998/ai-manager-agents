@@ -256,6 +256,28 @@ func (d *Discord) threadMade(ctx context.Context, raw json.RawMessage) (Incoming
 	return Incoming{ChatID: th.ID, GuildID: th.GuildID, ThreadOf: th.ID}, true
 }
 
+// MakeThread opens a public thread: from a message (the thread takes its id),
+// or on its own in chatID; a day without messages archives it.
+func (d *Discord) MakeThread(ctx context.Context, chatID, fromMsg, name string) (string, error) {
+	var out struct {
+		ID string `json:"id"`
+	}
+	body := map[string]any{"name": name, "auto_archive_duration": 1440}
+	path := "/channels/" + chatID + "/threads"
+	if fromMsg != "" {
+		path = "/channels/" + chatID + "/messages/" + fromMsg + "/threads"
+	} else {
+		body["type"] = 11 // public thread
+	}
+	if err := d.do(ctx, "POST", path, body, &out); err != nil {
+		return "", err
+	}
+	if out.ID == "" {
+		return "", errors.New("discord: no thread id")
+	}
+	return out.ID, nil
+}
+
 // SetCommands puts the bot's slash commands in Discord's "/" menu (after
 // READY: it needs the application's id).
 func (d *Discord) SetCommands(ctx context.Context, cmds []Command) {

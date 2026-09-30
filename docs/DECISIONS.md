@@ -1494,3 +1494,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Thread tạo từ một tin nhắn có id trùng id tin đó. Office ghi nhớ id của tin người gửi và tin bot trả lời (`thread:<msg>` → cuộc chat), nên thread nối tiếp đúng cuộc chat của tin gốc (`in:<thread>`). Mọi tin trong thread đều được nghe, như một cuộc chat đang giữ.
 - Cuộc chat Discord lưu link (`conv_link/<conv>`): ban đầu là tin nhắn đầu tiên, có thread thì chuyển sang thread. Trang chat hiện nút "Mở trong Discord".
 - Hướng dẫn mời bot thêm quyền Send Messages in Threads.
+- `/create-thread [tên]` (chỉ Discord): bot chỉ tạo thread khi được gọi.
+  - Reply vào một câu trả lời của bot rồi gõ lệnh: thread tạo từ câu trả lời đó và nối tiếp cuộc chat của nó.
+  - Gõ lệnh không reply: thread tạo từ chính tin gõ lệnh, là một cuộc chat mới, bot nghe mọi tin trong đó.
+  - Bot cần quyền Create Public Threads.

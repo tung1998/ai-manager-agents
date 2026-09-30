@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
@@ -64,4 +65,55 @@ func (m *Manager) threadMade(ctx context.Context, ch storage.Channel, in Incomin
 	}
 	_ = m.store.Channels().SetThread(ctx, ch.ID, inKey(in.ChatID), conv)
 	_ = m.store.Settings().Set(ctx, linkKey+conv, discordURL(in.GuildID, in.ChatID, ""))
+}
+
+// ThreadMaker is an adapter that can open a thread (Discord): from a message
+// (fromMsg; the thread takes its id) or on its own; it returns the thread.
+type ThreadMaker interface {
+	MakeThread(ctx context.Context, chatID, fromMsg, name string) (string, error)
+}
+
+// makeThread answers /create-thread: a thread from the bot's answer replied to
+// (its conversation goes on there), else from the command's own message (or,
+// a slash command, on its own), which keeps one conversation.
+func (m *Manager) makeThread(ctx context.Context, ch storage.Channel, ad Adapter, in Incoming, name string) string {
+	tm, ok := ad.(ThreadMaker)
+	if !ok || in.Private {
+		return "Ở đây không tạo thread được."
+	}
+	conv := ""
+	from := in.MessageID
+	if in.ReplyTo != "" {
+		from = in.ReplyTo
+		if id, err := m.store.Channels().Thread(ctx, ch.ID, msgKey(in.ReplyTo)); err == nil {
+			conv = id
+		}
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Hội thoại"
+		if conv != "" {
+			if c, err := m.store.Chat().GetConversation(ctx, conv); err == nil && c.Title != "" {
+				name = c.Title
+			}
+		}
+	}
+	if r := []rune(name); len(r) > 100 {
+		name = string(r[:99]) + "…"
+	}
+	thread, err := tm.MakeThread(ctx, in.ChatID, from, name)
+	if err != nil {
+		return "Chưa tạo được thread (bot cần quyền Create Public Threads): " + err.Error()
+	}
+	if conv != "" {
+		_ = m.store.Channels().SetThread(ctx, ch.ID, inKey(thread), conv)
+		_ = m.store.Settings().Set(ctx, linkKey+conv, discordURL(in.GuildID, thread, ""))
+	} else {
+		m.setKeep(ctx, ch.ID, thread, true) // a new thread: one conversation, all of it heard
+	}
+	_, _ = ad.Send(ctx, thread, "Đã mở thread: nhắn tiếp ở đây, không cần tag, mình nhớ những gì đã nói.")
+	if in.Respond != nil {
+		return "Đã tạo thread <#" + thread + ">."
+	}
+	return ""
 }

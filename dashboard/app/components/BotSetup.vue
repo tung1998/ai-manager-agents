@@ -104,6 +104,7 @@ function summary(c: Cmd) {
 const systemCommands = computed(() => [
   { name: 'create-conversation', arg: '', desc: t('cmd.create') },
   { name: 'close-conversation', arg: '', desc: t('cmd.close') },
+  ...(bot.kind === 'discord' ? [{ name: 'create-thread', arg: t('cmd.threadArg'), desc: t('cmd.thread') }] : []),
   { name: 'pending', arg: '', desc: t('cmd.pending') },
   { name: 'approve', arg: t('cmd.numberArg'), desc: t('cmd.approve') },
   { name: 'reject', arg: t('cmd.numberArg'), desc: t('cmd.reject') },
