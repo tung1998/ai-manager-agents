@@ -92,6 +92,7 @@ const en: Record<keyof typeof vi, string> = {
   'auto.notifyTitle': 'Send the result',
   'auto.notifyBot': 'Send the answer to',
   'auto.notifyNone': 'Nowhere (only in office)',
+  'auto.urlWithToken': 'URL to paste in GitHub/Bitbucket (token included)',
   'auto.tunnelHint': 'Outside systems can call it only when this machine has a public URL (e.g. Cloudflare Tunnel).',
   'job.title': 'Jobs',
   'job.running': 'Running',

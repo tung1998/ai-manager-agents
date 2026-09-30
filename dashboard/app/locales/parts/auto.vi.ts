@@ -91,6 +91,7 @@ export default {
   'auto.notifyTitle': 'Gửi kết quả',
   'auto.notifyBot': 'Gửi câu trả lời vào',
   'auto.notifyNone': 'Không gửi (chỉ xem trong office)',
+  'auto.urlWithToken': 'URL dán vào GitHub/Bitbucket (đã kèm token)',
   'auto.tunnelHint': 'Hệ thống bên ngoài chỉ gọi được khi máy có URL công khai (VD Cloudflare Tunnel).',
   'job.title': 'Job',
   'job.running': 'Đang chạy',

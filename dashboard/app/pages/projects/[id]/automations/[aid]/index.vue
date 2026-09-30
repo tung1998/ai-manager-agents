@@ -30,7 +30,7 @@ async function rotate() {
   if (!confirm(t('auto.rotateConfirm'))) return
   await act(async () => {
     const res = await $fetch<{ secret: string }>(`/api/automations/${aid.value}/rotate-secret`, { method: 'POST', body: {} })
-    secret.value = { url: `${location.origin}${a.value!.webhook_url}`, secret: res.secret }
+    secret.value = { url: `${location.origin}${a.value!.webhook_url}`, secret: res.secret, auth: a.value!.config.auth, authName: a.value!.config.auth_name }
   })
 }
 async function remove() {

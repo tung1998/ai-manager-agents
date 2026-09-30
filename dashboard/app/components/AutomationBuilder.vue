@@ -44,7 +44,7 @@ async function save() {
       ? await $fetch<{ automation: Automation, secret?: string }>(`/api/automations/${props.automation.id}`, { method: 'PATCH', body })
       : await $fetch<{ automation: Automation, secret?: string }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body })
     toast.add({ title: t('auto.saved'), color: 'success' })
-    if (res.secret) secret.value = { url: `${location.origin}${res.automation.webhook_url}`, secret: res.secret }
+    if (res.secret) secret.value = { url: `${location.origin}${res.automation.webhook_url}`, secret: res.secret, auth: res.automation.config.auth, authName: res.automation.config.auth_name }
     else await navigateTo(`/projects/${props.projectId}/automations/${res.automation.id}`)
     savedId.value = res.automation.id
   } catch (e) {
