@@ -136,7 +136,7 @@ export default {
   'job.groupKind.task': 'Việc',
   'job.groupKind.automation': 'Tự động hóa',
   'job.groupKind.job': 'Lượt chạy',
-  'job.openChat': 'Mở cuộc chat',
+  'job.openChat': 'Mở trong chat',
   'job.openAutomation': 'Mở tự động hóa',
   'job.errorTitle': 'Lỗi',
   'job.factKind': 'Loại',

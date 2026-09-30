@@ -137,7 +137,7 @@ const en: Record<keyof typeof vi, string> = {
   'job.groupKind.task': 'Task',
   'job.groupKind.automation': 'Automation',
   'job.groupKind.job': 'Run',
-  'job.openChat': 'Open the chat',
+  'job.openChat': 'Open in chat',
   'job.openAutomation': 'Open the automation',
   'job.errorTitle': 'Error',
   'job.factKind': 'Kind',
