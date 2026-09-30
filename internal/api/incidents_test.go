@@ -173,3 +173,24 @@ func TestAssistantMode(t *testing.T) {
 		t.Fatalf("set = %d %v", resp.StatusCode, b)
 	}
 }
+
+// A project's daily budget is set on the project; the other settings stay.
+func TestProjectBudget(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	do(t, admin, "PUT", e.srv.URL+"/api/usage/settings", map[string]any{"daily_limit_usd": 50}, nil)
+	if resp, b := do(t, admin, "PUT", e.srv.URL+"/api/projects/"+pid+"/budget", map[string]any{"daily_limit_usd": 12.5}, nil); resp.StatusCode != 200 || b["daily_limit_usd"] != 12.5 {
+		t.Fatalf("set = %d %v", resp.StatusCode, b)
+	}
+	_, b := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/budget", nil, nil)
+	if b["daily_limit_usd"] != 12.5 || b["office_limit_usd"] != float64(50) {
+		t.Fatalf("get = %v", b)
+	}
+	do(t, admin, "PUT", e.srv.URL+"/api/projects/"+pid+"/budget", map[string]any{"daily_limit_usd": 0}, nil)
+	if _, b := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/budget", nil, nil); b["daily_limit_usd"] != float64(0) {
+		t.Fatalf("cleared = %v", b)
+	}
+}

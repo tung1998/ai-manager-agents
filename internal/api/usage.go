@@ -89,3 +89,60 @@ func (s *server) usageSettings(w http.ResponseWriter, r *http.Request) {
 		Detail: map[string]any{"daily_limit_usd": in.DailyLimitUSD, "project_limits": len(in.ProjectLimits), "prices": len(in.Prices)}})
 	writeJSON(w, http.StatusOK, st)
 }
+
+// projectBudget is a project's daily budget, what it spent today, and the
+// office-wide limit above it.
+func (s *server) projectBudget(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	st, err := s.cfg.Usage.Settings(r.Context())
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	today := 0.0
+	if sum, err := s.cfg.Usage.Summarize(r.Context(), 1); err == nil {
+		today = sum.ProjectToday[id]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"daily_limit_usd": st.ProjectLimits[id], "today_usd": today, "office_limit_usd": st.DailyLimitUSD})
+}
+
+// setProjectBudget sets one project's daily budget (0 = none); the rest of
+// the settings stay as they are.
+func (s *server) setProjectBudget(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		DailyLimitUSD float64 `json:"daily_limit_usd"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.DailyLimitUSD < 0 {
+		writeError(w, http.StatusBadRequest, "ngân sách không được âm")
+		return
+	}
+	id := r.PathValue("id")
+	if _, err := s.cfg.Store.Repos().Get(r.Context(), id); err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	st, err := s.cfg.Usage.Settings(r.Context())
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	old := st.ProjectLimits[id]
+	if st.ProjectLimits == nil {
+		st.ProjectLimits = map[string]float64{}
+	}
+	if in.DailyLimitUSD > 0 {
+		st.ProjectLimits[id] = in.DailyLimitUSD
+	} else {
+		delete(st.ProjectLimits, id)
+	}
+	if err := s.cfg.Usage.SaveSettings(r.Context(), st); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(r, audit.Change{Action: "usage.project_budget", Resource: "usage_settings", ProjectID: id,
+		Before: map[string]any{"daily_limit_usd": old}, After: map[string]any{"daily_limit_usd": in.DailyLimitUSD}})
+	writeJSON(w, http.StatusOK, map[string]any{"daily_limit_usd": in.DailyLimitUSD})
+}

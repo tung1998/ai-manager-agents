@@ -294,7 +294,7 @@ async function send() {
   } catch (e) {
     const d = (e as { data?: { code?: string, error?: string } }).data
     if (d?.code === 'budget') {
-      toast.add({ title: t('chat.budgetHit'), description: d.error, color: 'warning', actions: [{ label: t('chat.seeCosts'), onClick: () => { navigateTo('/costs') } }] })
+      toast.add({ title: t('chat.budgetHit'), description: d.error, color: 'warning', actions: [{ label: t('chat.seeCosts'), onClick: () => { navigateTo(`/projects/${props.projectId}?tab=info`) } }] })
     } else {
       toast.add({ title: apiError(e), color: 'error' })
     }

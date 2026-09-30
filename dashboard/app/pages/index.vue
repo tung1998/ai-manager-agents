@@ -209,6 +209,9 @@ const steps = computed(() => [
         </ol>
       </UCard>
 
+      <!-- the office over the last days -->
+      <OverviewCharts />
+
       <UCard v-if="!chatData || recentChats.length" :ui="{ body: 'p-0 sm:p-0' }">
         <template #header>
           <p class="font-semibold">{{ t('home.recentChats') }}</p>

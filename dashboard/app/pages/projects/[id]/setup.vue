@@ -119,7 +119,7 @@ async function propose() {
     const d = (e as { data?: { code?: string, error?: string } }).data
     if (d?.code === 'no_provider') return goConnect()
     if (d?.code === 'budget') {
-      toast.add({ title: t('setup.needProviderBudget'), description: d.error, color: 'warning', actions: [{ label: t('setup.viewCosts'), onClick: () => { navigateTo('/costs') } }] })
+      toast.add({ title: t('setup.needProviderBudget'), description: d.error, color: 'warning', actions: [{ label: t('setup.viewCosts'), onClick: () => { navigateTo(`/projects/${route.params.id}?tab=info`) } }] })
       return
     }
     toast.add({ title: t('setup.proposeFailed'), description: apiError(e), color: 'error' })

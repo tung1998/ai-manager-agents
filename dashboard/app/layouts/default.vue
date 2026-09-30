@@ -64,8 +64,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
     // one place to follow the office: what needs a person is counted here
     { label: t('assistant.title'), icon: 'i-lucide-sparkles', to: '/assistant' },
     { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/', badge: attention.value || undefined },
-    { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' },
-    { label: t('nav.costs'), icon: 'i-lucide-wallet', to: '/costs' }
+    { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' }
   ]
   const settings: NavigationMenuItem[] = [
     { label: t('nav.settings'), type: 'label' },

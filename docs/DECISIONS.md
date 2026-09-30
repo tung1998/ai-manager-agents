@@ -1456,3 +1456,10 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Kết nối không phải Claude Code thì không có toàn quyền.
   - Trợ lý được dặn nói trước và hỏi lại trước những việc có thể mất dữ liệu.
   - Đổi mức quyền được ghi audit.
+
+## ADR-060: Bỏ trang Chi phí
+- Biểu đồ lên **Tổng quan**: lượt chạy mỗi ngày (xong / lỗi / khác), chi phí theo ngày, chi phí theo project và theo model; chọn 7/30/90 ngày.
+- Bảng từng lượt chạy bỏ đi vì trang Job đã thể hiện đủ.
+- Ngân sách từng project nằm ở tab **Thông tin** của project (`GET/PUT /api/projects/{id}/budget`; chỉ admin sửa).
+- Trần chung của office và giá model nằm ở **Kết nối AI**.
+- `/costs` chuyển về Tổng quan; thông báo chạm trần mở tab Thông tin của project.

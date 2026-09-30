@@ -232,6 +232,8 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
       </div>
 
       <!-- today / 7 days -->
+      <!-- the office-wide limit and the model prices (each project's budget is on the project) -->
+      <OfficeBudget v-if="isAdmin" />
       <div v-if="providers.length" class="grid grid-cols-2 overflow-hidden rounded-lg border border-(--ui-border) md:grid-cols-4">
         <div class="p-4">
           <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">{{ t('prov.callsToday') }}</p>
@@ -245,7 +247,7 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
           <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">{{ t('prov.costToday') }}</p>
           <p class="mt-1 font-mono text-2xl font-semibold">{{ usd(statsData?.today.cost_usd ?? 0) }}</p>
         </div>
-        <NuxtLink to="/costs" class="border-s border-t border-(--ui-border) p-4 transition hover:bg-(--ui-bg-elevated) md:border-t-0">
+        <NuxtLink to="/" class="border-s border-t border-(--ui-border) p-4 transition hover:bg-(--ui-bg-elevated) md:border-t-0">
           <p class="text-xs font-medium tracking-wide text-(--ui-text-muted) uppercase">{{ t('prov.sevenDays') }}</p>
           <p class="mt-1 font-mono text-2xl font-semibold">{{ usd(week.cost) }} <span class="text-sm font-normal text-(--ui-text-muted)">· {{ num(week.calls) }} {{ t('prov.callsUnit') }}</span></p>
         </NuxtLink>

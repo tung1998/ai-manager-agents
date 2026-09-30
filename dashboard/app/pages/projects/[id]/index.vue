@@ -131,7 +131,8 @@ async function saveAsTemplate() {
       <AuditLog v-else-if="tab === 'log' && isAdmin" :key="project.id" class="max-w-6xl" :filter="{ project: project.id }" show-filters />
       <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
       <template v-else-if="['info', 'model', 'perm', 'skill', 'mcp'].includes(tab)">
-        <UCard v-if="tab === 'info'" class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">
+        <div v-if="tab === 'info'" class="space-y-4">
+        <UCard class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">
           <div class="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
             <span class="text-(--ui-text-muted)">{{ t('project.infoFolder') }}</span>
             <span v-if="project.scope === 'folder'" class="min-w-0 break-all font-mono text-xs">{{ project.path }}</span>
@@ -145,6 +146,8 @@ async function saveAsTemplate() {
           </div>
           <UButton v-if="isAdmin" size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('project.rename')" @click="openEdit" />
         </UCard>
+          <ProjectBudget :project-id="project.id" />
+        </div>
         <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" />
         <ToolsPanel v-else-if="tab === 'skill' || tab === 'mcp'" :key="tab" :kind="tab" :project-path="project.path" :project-id="project.id" />
         <OrgModelEditor v-else-if="project.model" :key="project.model.id" :model-id="project.model.id" agents-first @changed="refresh()" />
