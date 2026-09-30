@@ -928,7 +928,9 @@ func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool, a
 	if project.Path != "" {
 		fmt.Fprintf(&b, "Project: %s\nThư mục làm việc: %s\n", project.Name, pl.dir)
 		if pl.tree != "" {
-			fmt.Fprintf(&b, "(Đây là git worktree riêng của bạn, bản sao của project %s; mọi đường dẫn tính từ thư mục làm việc.)\n", project.Path)
+			fmt.Fprintf(&b, "(Đây là git worktree riêng của bạn, bản sao của project %s; mọi đường dẫn tính từ thư mục làm việc. "+
+				"Thư mục phụ thuộc như node_modules, .venv là liên kết tới của project: cài gói ở đây là cài cho project luôn. "+
+				"Tiến trình và container của project (process_logs, propose_action) chạy trong thư mục project, chỉ thấy code của bạn sau khi diff được duyệt.)\n", project.Path)
 		}
 	} else {
 		fmt.Fprintf(&b, "Bạn là helper trên toàn bộ máy của người dùng (thư mục làm việc: thư mục home).\n")

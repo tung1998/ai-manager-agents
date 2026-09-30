@@ -124,6 +124,35 @@ func snapshot(ctx context.Context, repo string) (string, error) {
 
 var linkDirs = []string{"node_modules", ".venv", "venv"}
 
+// notInstalled makes, in the project, the node_modules of each package.json
+// that has none yet (and that git ignores): linked into the worktree, what
+// the agent installs there is the project's, so the project's own dev server
+// runs with it. Their paths.
+func notInstalled(ctx context.Context, repo string) []string {
+	out, err := git(ctx, repo, "ls-files", "--", "package.json", "*/package.json")
+	if err != nil {
+		return nil
+	}
+	var made []string
+	for _, f := range strings.Split(out, "\n") {
+		f = strings.TrimSpace(f)
+		if f == "" || strings.Contains(f, "node_modules/") || strings.Count(f, "/") > 3 {
+			continue
+		}
+		rel := filepath.ToSlash(filepath.Join(filepath.Dir(f), "node_modules"))
+		if _, err := os.Stat(filepath.Join(repo, rel)); err == nil {
+			continue // installed: linked as any ignored folder
+		}
+		if _, err := git(ctx, repo, "check-ignore", "-q", rel+"/"); err != nil {
+			continue // not ignored: never made (it would show in the person's git status)
+		}
+		if err := os.MkdirAll(filepath.Join(repo, rel), 0o755); err == nil {
+			made = append(made, rel)
+		}
+	}
+	return made
+}
+
 // linkIgnored links the project's dependency folders and copies its ignored
 // .env files into the worktree, and tells git to ignore the links.
 func linkIgnored(ctx context.Context, repo, dir string, extra []string) error {
@@ -132,6 +161,7 @@ func linkIgnored(ctx context.Context, repo, dir string, extra []string) error {
 		return err
 	}
 	var links []string
+	links = append(links, notInstalled(ctx, repo)...)
 	for _, line := range strings.Split(out, "\n") {
 		rel := strings.TrimSuffix(strings.TrimSpace(line), "/")
 		if rel == "" || strings.HasPrefix(rel, ".office") || strings.Count(rel, "/") > 4 {
@@ -140,7 +170,7 @@ func linkIgnored(ctx context.Context, repo, dir string, extra []string) error {
 		base := filepath.Base(rel)
 		isDir := strings.HasSuffix(strings.TrimSpace(line), "/")
 		switch {
-		case isDir && slices.Contains(linkDirs, base):
+		case isDir && slices.Contains(linkDirs, base) && !slices.Contains(links, rel):
 			links = append(links, rel)
 		case !isDir && (base == ".env" || strings.HasPrefix(base, ".env.")):
 			_ = copyFile(filepath.Join(repo, rel), filepath.Join(dir, rel))

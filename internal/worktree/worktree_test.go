@@ -181,3 +181,38 @@ func TestRefreshOntoMovedProject(t *testing.T) {
 		t.Fatalf("the project was touched: %q", b)
 	}
 }
+
+// A Node project not installed yet: its node_modules is made (empty) in the
+// project and linked, so what the agent installs in its worktree is the
+// project's too (the project's dev server finds it); the link stays out of diffs.
+func TestLinkNodeModulesNotInstalled(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+	repo := t.TempDir()
+	run(t, repo, "init", "-q")
+	write(t, filepath.Join(repo, ".gitignore"), "node_modules\n")
+	write(t, filepath.Join(repo, "package.json"), `{"name":"x"}`)
+	write(t, filepath.Join(repo, "apps", "web", "package.json"), `{"name":"web"}`)
+	run(t, repo, "add", "-A")
+	run(t, repo, "commit", "-q", "-m", "init")
+	m := New(filepath.Join(t.TempDir(), "worktrees"))
+	dir, err := m.Ensure(ctx, repo, "p1", "chat-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(filepath.Join(dir, "node_modules")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("node_modules is not a link: %v %v", fi, err)
+	}
+	write(t, filepath.Join(dir, "node_modules", "left-pad", "index.js"), "x") // pnpm install in the worktree
+	if _, err := os.Stat(filepath.Join(repo, "node_modules", "left-pad", "index.js")); err != nil {
+		t.Fatal("what was installed in the worktree is not the project's")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "apps", "web", "node_modules")); err != nil {
+		t.Fatal("a workspace package's node_modules is not linked")
+	}
+	if diff, files, err := Changes(ctx, dir, nil); err != nil || diff != "" || len(files) != 0 {
+		t.Fatalf("the links are in the diff: %v %q", files, diff)
+	}
+}
