@@ -22,7 +22,7 @@ func Builtins() []Command {
 	return []Command{
 		{"create-conversation", "Bắt đầu hội thoại: bot nhớ những gì bạn nói ở đây", ""},
 		{"close-conversation", "Kết thúc hội thoại: mỗi tin được trả lời riêng", ""},
-		{"create-thread", "Tạo thread (reply câu trả lời của bot để mang theo hội thoại đó)", ""},
+		{"create-thread", "Tạo thread từ câu trả lời gần nhất (chuột phải tin → Apps để chọn tin)", ""},
 		{"pending", "Xem những gì agent đề xuất đang chờ duyệt", ""},
 		{"approve", "Duyệt đề xuất theo số (hoặc all)", "number"},
 		{"reject", "Từ chối đề xuất theo số (hoặc all)", "number"},

@@ -278,6 +278,9 @@ func (d *Discord) MakeThread(ctx context.Context, chatID, fromMsg, name string) 
 	return out.ID, nil
 }
 
+// threadMenu is the entry of a message's "Apps" menu that makes a thread from it.
+const threadMenu = "Create thread"
+
 // SetCommands puts the bot's slash commands in Discord's "/" menu (after
 // READY: it needs the application's id).
 func (d *Discord) SetCommands(ctx context.Context, cmds []Command) {
@@ -293,6 +296,11 @@ func (d *Discord) SetCommands(ctx context.Context, cmds []Command) {
 			cmd["options"] = []map[string]any{{"type": 3, "name": argName(c.Arg), "description": clip(c.Arg, 100), "required": true}}
 		}
 		list = append(list, cmd)
+	}
+	for _, c := range cmds {
+		if c.Name == "create-thread" { // and in a message's Apps menu: the thread grows from that message
+			list = append(list, map[string]any{"name": threadMenu, "type": 3, "contexts": []int{0}})
+		}
 	}
 	if err := d.do(ctx, "PUT", "/applications/"+d.appID+"/commands", list); err != nil {
 		slog.Warn("discord: slash commands not registered", "err", err)
@@ -313,8 +321,10 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 		ChannelID string `json:"channel_id"`
 		GuildID   string `json:"guild_id"`
 		Data      struct {
-			Name    string `json:"name"`
-			Options []struct {
+			Name     string `json:"name"`
+			Type     int    `json:"type"`      // 3: a message's "Apps" menu
+			TargetID string `json:"target_id"` // …on that message
+			Options  []struct {
 				Value any `json:"value"`
 			} `json:"options"`
 		} `json:"data"`
@@ -329,7 +339,10 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 	if err := d.do(ctx, "POST", "/interactions/"+x.ID+"/"+x.Token+"/callback", map[string]any{"type": 5}); err != nil {
 		return Incoming{}, false
 	}
-	in := Incoming{ChatID: x.ChannelID, Text: "/" + x.Data.Name, Private: x.GuildID == "", Addressed: true}
+	in := Incoming{ChatID: x.ChannelID, Text: "/" + x.Data.Name, Private: x.GuildID == "", Addressed: true, GuildID: x.GuildID}
+	if x.Data.Type == 3 && x.Data.Name == threadMenu { // Apps → Create thread, on one message
+		in.Text, in.ReplyTo = "/create-thread", x.Data.TargetID
+	}
 	for _, o := range x.Data.Options {
 		if s, ok := o.Value.(string); ok {
 			in.Text += " " + s

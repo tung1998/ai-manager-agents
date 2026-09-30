@@ -219,9 +219,18 @@ func TestDiscordCommandCap(t *testing.T) {
 		cmds = append(cmds, Command{Name: fmt.Sprintf("s%d", i), Description: "x"})
 	}
 	d.SetCommands(context.Background(), cmds)
-	var got []struct{ Name string }
-	json.Unmarshal([]byte(body), &got)
-	if len(got) != 100 || got[0].Name != "create-conversation" {
+	var all []struct {
+		Name string
+		Type int
+	}
+	json.Unmarshal([]byte(body), &all)
+	var got []string // the "/" commands (a message menu entry is counted apart by Discord)
+	for _, c := range all {
+		if c.Type == 1 {
+			got = append(got, c.Name)
+		}
+	}
+	if len(got) != 100 || got[0] != "create-conversation" {
 		t.Fatalf("registered %d, first %v", len(got), got[:1])
 	}
 }
@@ -283,5 +292,50 @@ func TestDiscordThreads(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("the bot did not join the thread")
+	}
+}
+
+// "Apps → Create thread" on a message: that message is the one the thread is
+// made from; the menu entry is registered with the commands.
+func TestDiscordThreadMenu(t *testing.T) {
+	gw := wsServe(t, func(send func(string)) {
+		send(`{"op":10,"d":{"heartbeat_interval":45000}}`)
+	}, func(msg string, send func(string)) {
+		if !strings.Contains(msg, `"op":2`) {
+			return
+		}
+		send(`{"op":0,"s":1,"t":"READY","d":{"user":{"id":"99","username":"shopbot"},"application":{"id":"app1"}}}`)
+		send(`{"op":0,"s":2,"t":"INTERACTION_CREATE","d":{"id":"int1","token":"itok","type":2,"channel_id":"c2","guild_id":"g","data":{"name":"Create thread","type":3,"target_id":"m7"},"member":{"user":{"id":"8","username":"binh"}}}}`)
+	})
+	defer gw.Close()
+	var mu sync.Mutex
+	var calls []string
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path+" "+string(raw))
+		mu.Unlock()
+		w.Write([]byte(`{}`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", GatewayURL: "ws" + strings.TrimPrefix(gw.URL, "http"), APIBase: rest.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	got := make(chan Incoming, 2)
+	go d.Run(ctx, func(string) { d.SetCommands(ctx, Builtins()) }, func(m Incoming) { got <- m })
+	var m Incoming
+	select {
+	case m = <-got:
+	case <-ctx.Done():
+		t.Fatal("no interaction")
+	}
+	if m.Text != "/create-thread" || m.ReplyTo != "m7" || m.GuildID != "g" || m.Respond == nil {
+		t.Fatalf("menu = %+v", m)
+	}
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if all := strings.Join(calls, "\n"); !strings.Contains(all, `"name":"Create thread"`) || !strings.Contains(all, `"type":3`) {
+		t.Fatalf("menu entry not registered:\n%s", all)
 	}
 }

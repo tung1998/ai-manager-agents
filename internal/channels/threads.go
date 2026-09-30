@@ -17,6 +17,9 @@ func inKey(chatID string) string     { return "in:" + chatID }        // a threa
 
 const linkKey = "conv_link/"
 
+// lastKey: the bot's latest answer in a chat (/create-thread from the "/" menu grows from it).
+func lastKey(channelID, chatID string) string { return "channel_last/" + channelID + "/" + chatID }
+
 // ConversationLink is where a conversation is on Discord ("" = nowhere).
 func ConversationLink(ctx context.Context, st storage.Store, convID string) string {
 	var v string
@@ -83,6 +86,12 @@ func (m *Manager) makeThread(ctx context.Context, ch storage.Channel, ad Adapter
 	}
 	conv := ""
 	from := in.MessageID
+	if in.ReplyTo == "" && in.Respond != nil { // from the "/" menu (no message it replies to): the latest answer here
+		var last string
+		if ok, _ := m.store.Settings().Get(ctx, lastKey(ch.ID, in.ChatID), &last); ok && last != "" {
+			in.ReplyTo = last
+		}
+	}
 	if in.ReplyTo != "" {
 		from = in.ReplyTo
 		if id, err := m.store.Channels().Thread(ctx, ch.ID, msgKey(in.ReplyTo)); err == nil {

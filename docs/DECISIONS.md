@@ -1498,3 +1498,5 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Reply vào một câu trả lời của bot rồi gõ lệnh: thread tạo từ câu trả lời đó và nối tiếp cuộc chat của nó.
   - Gõ lệnh không reply: thread tạo từ chính tin gõ lệnh, là một cuộc chat mới, bot nghe mọi tin trong đó.
   - Bot cần quyền Create Public Threads.
+  - Lệnh chọn từ menu "/" không kèm tin đang reply (Discord gửi interaction riêng), nên thread mọc từ câu trả lời gần nhất của bot trong kênh (`channel_last/<ch>/<chat>`).
+  - Muốn chọn đúng một tin: chuột phải tin đó → Apps → **Create thread** (message command, type 3).

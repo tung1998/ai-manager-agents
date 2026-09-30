@@ -204,7 +204,7 @@ const en: Record<keyof typeof vi, string> = {
   'cmd.reject': 'Reject a proposal',
   'cmd.mode': 'Ask before each proposal, or go direct',
   'cmd.create': 'Start a conversation: the bot remembers the chat, no tag needed',
-  'cmd.thread': 'Open a thread, only when asked. Reply to a bot answer and type it to take that conversation into the thread',
+  'cmd.thread': 'Open a thread, only when asked: from the bot\'s latest answer, or right-click a message → Apps → Create thread to pick it',
   'cmd.threadArg': 'name (optional)',
   'cmd.close': 'End the conversation: each message is answered alone',
   'auto.tabBot': 'Bot settings',
