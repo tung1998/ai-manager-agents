@@ -219,10 +219,13 @@ const ownsUrl = computed(() => !single.value && !props.compact)
 const copy = useCopy()
 const chatLink = (id: string, messageId?: string) => `${location.origin}/projects/${props.projectId}?tab=chat&c=${id}${messageId ? `&m=${messageId}` : ''}`
 function threadMenu(c: Conversation) {
-  return [[
+  const items: { label: string, icon: string, onSelect: () => unknown }[] = [
     { label: t('chat.copyLink'), icon: 'i-lucide-link', onSelect: () => copy(chatLink(c.id)) },
     { label: t('chat.copyId'), icon: 'i-lucide-hash', onSelect: () => copy(c.id) }
-  ], [{ label: t('chat.delete'), icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => remove(c) }]]
+  ]
+  // a Discord/Telegram chat: where it is there (its thread, once it has one)
+  if (c.external_url) items.unshift({ label: c.source === 'telegram' ? t('chat.openInTelegram') : t('chat.openInDiscord'), icon: 'i-lucide-external-link', onSelect: () => { window.open(c.external_url, '_blank', 'noopener') } })
+  return [items, [{ label: t('chat.delete'), icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => remove(c) }]]
 }
 function messageMenu(m: Message) {
   const items = [{ label: t('chat.copyText'), icon: 'i-lucide-copy', onSelect: () => copy(m.content) }]
@@ -520,12 +523,6 @@ onBeforeUnmount(() => {
           <UIcon name="i-lucide-network" class="size-4 shrink-0 text-(--ui-primary)" />
           <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.templateChat') }}</span>
           <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('chat.backToTemplateEditor')" :to="`/templates/new?c=${current.id}`" />
-        </div>
-        <!-- a Discord chat: open it there (its thread, once it has one) -->
-        <div v-else-if="!single && current?.external_url" class="flex items-center gap-2 rounded-lg border border-(--ui-border) px-3 py-2 text-sm">
-          <UIcon name="i-lucide-gamepad-2" class="size-4 shrink-0 text-(--ui-text-muted)" />
-          <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.fromDiscord') }}</span>
-          <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-external-link" :label="t('chat.openInDiscord')" :to="current.external_url" target="_blank" />
         </div>
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />

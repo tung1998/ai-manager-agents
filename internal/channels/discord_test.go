@@ -459,3 +459,17 @@ func TestDiscordBotRoleTag(t *testing.T) {
 		t.Fatalf("another role = %+v", msgs[1])
 	}
 }
+
+// Where a Telegram chat opens: a supergroup's message, a private chat with the
+// bot; a basic group has no link.
+func TestTelegramURL(t *testing.T) {
+	for _, c := range []struct{ bot, chat, msg, want string }{
+		{"shop_bot", "-1001234567890", "42", "https://t.me/c/1234567890/42"},
+		{"shop_bot", "399661258", "7", "https://t.me/shop_bot"},
+		{"shop_bot", "-4567", "7", ""},
+	} {
+		if got := telegramURL(c.bot, c.chat, c.msg); got != c.want {
+			t.Errorf("%v: %q", c, got)
+		}
+	}
+}

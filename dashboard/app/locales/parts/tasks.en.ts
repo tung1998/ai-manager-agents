@@ -77,7 +77,7 @@ const en: Record<keyof typeof vi, string> = {
   'chat.backToSkillEditor': 'Open the skill editor',
   'chat.templateChat': 'A template editor chat',
   'chat.backToTemplateEditor': 'Open the template editor',
-  'chat.fromDiscord': 'A Discord chat',
+  'chat.openInTelegram': 'Open in Telegram',
   'chat.openInDiscord': 'Open in Discord',
   'chat.openSkillEditor': 'Open in the skill editor: {name}',
   'chat.seeCosts': 'View budget',

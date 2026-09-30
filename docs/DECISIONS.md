@@ -1511,3 +1511,6 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Việc cần tag hay không thì vẫn theo `/create-conversation` như ở kênh.
   - Adapter nhớ các thread (từ `THREAD_CREATE`, `GUILD_CREATE`, `THREAD_UPDATE`) và đánh dấu tin trong thread là `InThread`.
 - Tag role riêng của bot (role do Discord tự tạo khi mời bot, cùng tên với bot; `roles[].tags.bot_id` trong `GUILD_CREATE`) cũng được tính là tag bot. Discord gợi ý cả role và bot khi gõ @, nên người dùng dễ chọn nhầm.
+- Nút "Mở trong Discord/Telegram" chuyển vào menu "…" của từng cuộc chat trong danh sách, bỏ dòng đầu cuộc chat.
+  - Telegram: supergroup mở đúng tin (`t.me/c/<id>/<tin>`), chat riêng mở cuộc chat với bot (`t.me/<bot>`).
+  - Nhóm thường của Telegram không có link.

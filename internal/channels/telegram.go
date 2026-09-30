@@ -100,7 +100,8 @@ func (t *Telegram) call(ctx context.Context, method string, body any, out any) e
 }
 
 type tgMessage struct {
-	Text    string `json:"text"`
+	MessageID int64  `json:"message_id"`
+	Text      string `json:"text"`
 	Caption string `json:"caption"`
 	Chat    struct {
 		ID   int64  `json:"id"`
@@ -186,6 +187,9 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 	}
 	text := strings.TrimSpace(m.Text + m.Caption)
 	in := Incoming{ChatID: strconv.FormatInt(m.Chat.ID, 10), UserID: strconv.FormatInt(m.From.ID, 10), UserName: m.From.Username, Private: m.Chat.Type == "private"}
+	if m.MessageID != 0 {
+		in.MessageID = strconv.FormatInt(m.MessageID, 10)
+	}
 	if text == "" {
 		return in, false
 	}

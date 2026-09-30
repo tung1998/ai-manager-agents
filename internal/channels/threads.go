@@ -20,7 +20,7 @@ const linkKey = "conv_link/"
 // lastKey: the bot's latest answer in a chat (/create-thread from the "/" menu grows from it).
 func lastKey(channelID, chatID string) string { return "channel_last/" + channelID + "/" + chatID }
 
-// ConversationLink is where a conversation is on Discord ("" = nowhere).
+// ConversationLink is where a conversation is on Discord or Telegram ("" = nowhere).
 func ConversationLink(ctx context.Context, st storage.Store, convID string) string {
 	var v string
 	_, _ = st.Settings().Get(ctx, linkKey+convID, &v)
@@ -51,13 +51,32 @@ func (m *Manager) threadOf(ctx context.Context, ch storage.Channel, chatID strin
 // its id, so a thread made from it finds the conversation; the conversation
 // links to its first message, until it has a thread.
 func (m *Manager) placed(ctx context.Context, ch storage.Channel, convID, guild, chat, msgID string) {
-	if convID == "" || msgID == "" || ch.Kind != "discord" {
+	if convID == "" || msgID == "" {
 		return
 	}
-	_ = m.store.Channels().SetThread(ctx, ch.ID, msgKey(msgID), convID)
-	if ConversationLink(ctx, m.store, convID) == "" {
-		_ = m.store.Settings().Set(ctx, linkKey+convID, discordURL(guild, chat, msgID))
+	url := ""
+	switch ch.Kind {
+	case "discord":
+		_ = m.store.Channels().SetThread(ctx, ch.ID, msgKey(msgID), convID)
+		url = discordURL(guild, chat, msgID)
+	case "telegram":
+		url = telegramURL(ch.BotName, chat, msgID)
 	}
+	if url != "" && ConversationLink(ctx, m.store, convID) == "" {
+		_ = m.store.Settings().Set(ctx, linkKey+convID, url)
+	}
+}
+
+// telegramURL: a supergroup's message (t.me/c/…), or the private chat with
+// the bot; a basic group has no link.
+func telegramURL(bot, chat, msg string) string {
+	switch {
+	case strings.HasPrefix(chat, "-100"):
+		return "https://t.me/c/" + strings.TrimPrefix(chat, "-100") + "/" + msg
+	case !strings.HasPrefix(chat, "-") && bot != "":
+		return "https://t.me/" + bot
+	}
+	return ""
 }
 
 // threadMade binds a new thread to the conversation of the message it grew from.
