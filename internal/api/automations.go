@@ -68,6 +68,7 @@ type automationDTO struct {
 	BotStatus      *automationBotStatus       `json:"bot_status,omitempty"` // …and how that bot is doing
 	LastJob        *jobDTO                    `json:"last_job"`
 	CreatedAt      time.Time                  `json:"created_at"`
+	Version        string                     `json:"version"` // what an edit is made from (ADR-072)
 }
 
 func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automationDTO {
@@ -85,6 +86,7 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 	d := automationDTO{ID: a.ID, ProjectID: a.ProjectID, Name: a.Name, Enabled: a.Enabled, Source: a.Source, Config: cfg, Action: a.Action,
 		AgentID: a.AgentID, Prompt: a.Prompt, EditMode: a.EditMode, ModelTier: a.ModelTier, KeepContext: a.KeepContext, Limits: a.Limits, Script: a.Script, Escalate: a.Escalate, Failures: a.Failures,
 		DisabledCode: a.DisabledCode, DisabledReason: a.DisabledReason, LastRunAt: a.LastRunAt, NextRunAt: a.NextRunAt, CreatedAt: a.CreatedAt}
+	d.Version = automationVersion(a)
 	if a.Source == "webhook" {
 		d.WebhookURL = "/hooks/" + a.ID
 	}
@@ -99,6 +101,7 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 }
 
 type automationInput struct {
+	Version     string                     `json:"version"` // the automation as it was read (409 when changed since)
 	Name        string                     `json:"name"`
 	Enabled     *bool                      `json:"enabled"`
 	Source      string                     `json:"source"`
@@ -309,6 +312,9 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 	a, err := s.cfg.Store.Automations().Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeDomainError(w, r, err)
+		return
+	}
+	if conflicted(w, in.Version, automationVersion(a)) {
 		return
 	}
 	old := a

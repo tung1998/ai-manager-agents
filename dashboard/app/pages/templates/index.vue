@@ -2,7 +2,7 @@
 const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
-const { data, refresh } = await useFetch<{ templates: OrgModel[] }>('/api/templates')
+const { data, refresh } = await useLiveFetch<{ templates: OrgModel[] }>('/api/templates')
 const templates = computed(() => data.value?.templates ?? [])
 
 const cloneOpen = ref(false)

@@ -1587,3 +1587,9 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Cuộc chat đang mở tự thêm tin mới (tin từ Discord, câu trả lời chạy nền), và cuộn xuống nếu đang ở cuối.
 - Danh sách chat: biểu tượng nguồn (web, Discord, Telegram, tự động, skill, mô hình) nằm trước; avatar agent nhỏ ở dòng dưới.
 - Form lấy dữ liệu từ server (`syncForm`) chỉ nhận dữ liệu mới khi người dùng chưa sửa form kể từ lần điền trước; lưu xong thì nhận lại. Nhờ vậy việc tự cập nhật không xóa chữ đang gõ. Áp dụng cho Cảnh báo hạn mức, Ngân sách project, Quyền và Cấu hình agent.
+- Nâng cấp theo cách làm chuẩn:
+  - **Làm mới đúng chỗ.** Mỗi dữ liệu trên trang (`useLiveFetch`, dùng như `useFetch`) biết mình hiển thị bảng nào qua đường dẫn API (`tablesFor`), và chỉ tải lại khi đúng bảng đó đổi. Danh sách tự quản lý dùng `useLive(tables, fn)`. Không còn tải lại toàn bộ trang (`refreshNuxtData`).
+    - Kết nối lại luồng SSE hoặc quay lại tab thì tải lại tất cả, vì có thể đã lỡ thông báo.
+    - Lần ghi của chính trang cũng làm mới ngay theo bảng của đường dẫn ghi.
+  - **Bản nháp form (`useDraft`).** Chép từ server một lần. Server đổi trong lúc form đã bị sửa thì hiện `StaleNotice` ("thay đổi ở nơi khác · Tải lại"), không ghi đè ngầm.
+  - **Chống ghi đè khi lưu.** Automation, agent và quyền trả `version` (hash các trường người dùng sửa được, nên lần chạy của automation không làm đổi version). Form gửi lại version lúc mở; đã có thay đổi khác thì server trả `409 conflict` và trang báo kèm nút Tải lại. Lần lưu không kèm version (công cụ, agent) vẫn chạy như trước.

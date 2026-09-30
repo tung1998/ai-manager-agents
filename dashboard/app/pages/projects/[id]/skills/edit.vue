@@ -5,7 +5,7 @@ const { t } = useLang()
 const projectId = computed(() => route.params.id as string)
 const name = computed(() => typeof route.query.name === 'string' ? route.query.name : '')
 const scope = computed(() => route.query.scope === 'user' ? 'user' : 'project')
-const { data } = await useFetch<{ project: { path: string } }>(() => `/api/projects/${projectId.value}`)
+const { data } = await useLiveFetch<{ project: { path: string } }>(() => `/api/projects/${projectId.value}`)
 </script>
 
 <template>

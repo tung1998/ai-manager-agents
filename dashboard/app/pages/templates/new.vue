@@ -7,7 +7,7 @@ interface TemplateDraft { key: string, name: string, kind: 'solo' | 'team' | 'co
 const toast = useToast()
 const { t } = useLang()
 const { isAdmin } = useAuth()
-const { data: asst } = await useFetch<{ project_id: string }>('/api/assistant', { key: 'assistant' })
+const { data: asst } = await useLiveFetch<{ project_id: string }>('/api/assistant', { key: 'assistant' })
 
 const draft = ref<TemplateDraft>({ key: '', name: '', kind: 'team', description: '', governance: { mode: 'hierarchy' }, agents: [] })
 const highlight = ref(false)

@@ -2,23 +2,23 @@
 const { user, isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
 
-const _f2 = useFetch<{ providers: Provider[] }>('/api/providers', { lazy: true })
+const _f2 = useLiveFetch<{ providers: Provider[] }>('/api/providers', { lazy: true })
 const { data: prov } = _f2
-const _f3 = useFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
+const _f3 = useLiveFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
 const { data: proj } = _f3
-const _f4 = useFetch<{ templates: OrgModel[] }>('/api/templates', { lazy: true })
+const _f4 = useLiveFetch<{ templates: OrgModel[] }>('/api/templates', { lazy: true })
 const { data: tpl } = _f4
 
 // the latest chats across projects (bots' too): where the work happens now
 interface RecentChat { id: string, project_id: string, title: string, agent_name: string, source?: Source, updated_at: string, active_turn?: string }
-const _f5 = useFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 6 }, lazy: true })
+const _f5 = useLiveFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 6 }, lazy: true })
 const { data: chatData } = _f5
 const recentChats = computed(() => chatData.value?.conversations ?? [])
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // what needs a person, and the last day in numbers
 interface Incident { kind: string, severity: 'error' | 'warning', project_id: string, project_name: string, title: string, detail: string, link: string, id: string, key: string }
-const _f6 = useFetch<{ incidents: Incident[], count: number }>('/api/incidents', { lazy: true })
+const _f6 = useLiveFetch<{ incidents: Incident[], count: number }>('/api/incidents', { lazy: true })
 const { data: incData, refresh: refreshInc } = _f6
 let incTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => { incTimer = setInterval(() => refreshInc(), 30000) })
@@ -26,7 +26,7 @@ onBeforeUnmount(() => clearInterval(incTimer))
 const incidents = computed(() => incData.value?.incidents ?? [])
 // the kind of each, as a word next to it
 const incKind = (k: string) => t(`incidents.kind.${k}` as 'incidents.kind.monitor')
-const _f7 = useFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h', { lazy: true })
+const _f7 = useLiveFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h', { lazy: true })
 const { data: stats } = _f7
 // none is awaited: the page shows at once (a phone over a VPN), each block
 // with its skeleton until its data comes (they all start together)

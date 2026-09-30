@@ -1,11 +1,11 @@
 <script setup lang="ts">
 const { isAdmin } = useAuth()
 const { t } = useLang()
-const _f1 = useFetch<{ projects: Project[] }>('/api/projects')
+const _f1 = useLiveFetch<{ projects: Project[] }>('/api/projects')
 const { data, refresh } = _f1
-const _f2 = useFetch<{ templates: OrgModel[] }>('/api/templates')
+const _f2 = useLiveFetch<{ templates: OrgModel[] }>('/api/templates')
 const { data: tplData } = _f2
-const _f3 = useFetch<{ mode: string, home_dir: string, project_root?: string }>('/api/system')
+const _f3 = useLiveFetch<{ mode: string, home_dir: string, project_root?: string }>('/api/system')
 const { data: sys } = _f3
 await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
 const projects = computed(() => data.value?.projects ?? [])

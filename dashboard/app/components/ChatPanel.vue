@@ -36,11 +36,11 @@ const composeOpen = ref(false)
 const toast = useToast()
 const { t, dateLocale } = useLang()
 
-const _f1 = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
+const _f1 = useLiveFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const { data: agentsData } = _f1
 // where the chats started: the dashboard, a bot, an automation
 const origin = ref<'all' | Source>('all')
-const _f2 = useFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value, lazy: true })
+const _f2 = useLiveFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value, lazy: true })
 const { data: convData, refresh: refreshConvs, pending: convsLoading } = _f2
 // not awaited: the chat shows at once with its skeletons (a phone over a VPN)
 // every agent of the project: the person picks who answers, by its rights

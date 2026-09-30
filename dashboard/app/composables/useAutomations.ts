@@ -80,6 +80,7 @@ export interface Automation {
   bot_status?: { kind: 'telegram' | 'discord', bot_name: string, enabled: boolean, last_error: string, last_message_at: string | null, shared: number, state?: BotState }
   last_job: Job | null
   created_at: string
+  version?: string // what an edit is made from (409 when changed since)
 }
 
 // A bot's settings as a form edits them (the token only when a new one is pasted).
@@ -89,7 +90,7 @@ export interface BotDraft { token?: string, allow: string[], refusal: string, ap
 export interface AutomationBody {
   name: string, enabled: boolean, source: Automation['source'], action: Automation['action'], agent_id: string, prompt: string,
   edit_mode: Automation['edit_mode'], model_tier: NonNullable<Automation['model_tier']>, keep_context: boolean,
-  config: AutomationConfig, limits: AutomationLimits, script: AutomationScript, escalate: AutomationEscalate, bot?: BotDraft
+  config: AutomationConfig, limits: AutomationLimits, script: AutomationScript, escalate: AutomationEscalate, bot?: BotDraft, version?: string
 }
 
 export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'model_tier' | 'keep_context' | 'limits' | 'script' | 'escalate'> & { bot?: BotDraft }): AutomationBody {

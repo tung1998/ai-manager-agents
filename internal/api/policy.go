@@ -52,17 +52,24 @@ func (s *server) getPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pol := perm.LoadPolicy(r.Context(), s.cfg.Store, p.ID)
-	writeJSON(w, http.StatusOK, map[string]any{"policy": pol, "levels": perm.All, "packs": perm.ProjectPacks(p.Path, pol.Packs), "safe": pol.Safe})
+	writeJSON(w, http.StatusOK, map[string]any{"policy": pol, "levels": perm.All, "packs": perm.ProjectPacks(p.Path, pol.Packs), "safe": pol.Safe, "version": policyVersion(pol)})
 }
 
 func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
-	var in perm.Policy
-	if !decode(w, r, &in) {
+	var body struct {
+		perm.Policy
+		Version string `json:"version"` // the policy as it was read (409 when changed since)
+	}
+	if !decode(w, r, &body) {
 		return
 	}
+	in := body.Policy
 	projectID := r.PathValue("id")
 	if _, err := s.cfg.Store.Repos().Get(r.Context(), projectID); err != nil {
 		s.writeDomainError(w, r, err)
+		return
+	}
+	if conflicted(w, body.Version, policyVersion(perm.LoadPolicy(r.Context(), s.cfg.Store, projectID))) {
 		return
 	}
 	in.MaxLevel = perm.Operate // no project cap: the chat/task mode is the limit

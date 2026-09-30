@@ -14,7 +14,7 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
 const secs = (ms: number) => !ms ? '—' : ms >= 60000 ? `${(ms / 60000).toFixed(1)}m` : `${(ms / 1000).toFixed(1)}s`
 const kindName = (k: string) => t(`job.kind.${k}` as 'job.kind.script')
 // where it belongs: its chat (the assistant's on its own page), its automation
-const { data: asst } = useFetch<{ project_id: string }>('/api/assistant', { key: 'assistant', lazy: true })
+const { data: asst } = useLiveFetch<{ project_id: string }>('/api/assistant', { key: 'assistant', lazy: true })
 const link = computed(() => {
   const j = data.value?.job
   if (!j) return null

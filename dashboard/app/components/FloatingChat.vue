@@ -7,7 +7,7 @@ const { t } = useLang()
 const open = ref(false)
 const projectId = computed(() => (route.params.id as string) || '')
 const inProject = computed(() => !!projectId.value && route.path.startsWith(`/projects/${projectId.value}`))
-const { data: asst } = useFetch<{ project_id: string }>('/api/assistant', { lazy: true, server: false })
+const { data: asst } = useLiveFetch<{ project_id: string }>('/api/assistant', { lazy: true, server: false })
 const assistantId = computed(() => asst.value?.project_id ?? '')
 // the scope chip: the project, or the whole office
 const scope = ref<'project' | 'office'>('project')

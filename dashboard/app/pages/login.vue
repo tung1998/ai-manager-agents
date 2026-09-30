@@ -7,7 +7,7 @@ const state = reactive({ email: '', password: '' })
 const loading = ref(false)
 const error = ref('')
 
-const { data: status } = await useFetch<{ has_users: boolean }>('/api/auth/status')
+const { data: status } = await useLiveFetch<{ has_users: boolean }>('/api/auth/status')
 
 async function onSubmit() {
   error.value = ''

@@ -8,14 +8,14 @@ const toast = useToast()
 const { t } = useLang()
 const isNew = computed(() => props.botId === 'new')
 
-const _f1 = useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`)
-const { data: chData } = _f1
-const _f2 = useFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`)
+const _f1 = useLiveFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`)
+const { data: chData, refresh: refreshCh } = _f1
+const _f2 = useLiveFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`)
 const { data: autoData } = _f2
 await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
-const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
+const { data: agentsData } = useLiveFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const channel = computed(() => chData.value?.channels.find(c => c.id === props.botId))
-useFollowBot(() => channel.value?.state === 'connecting', () => refreshNuxtData())
+useFollowBot(() => channel.value?.state === 'connecting', () => refreshCh())
 
 // the bot's settings
 const bot = reactive({ kind: (channel.value?.kind ?? 'discord') as 'telegram' | 'discord', token: '', allow: (channel.value?.allow ?? []).join('\n'), refusal: channel.value?.refusal ?? '',
@@ -27,7 +27,7 @@ const settingsOpen = ref(isNew.value)
 const guideOpen = ref(false)
 
 // its commands: drafts of their automations
-interface Cmd { key: string, id?: string, draft: AutomationDraft, open: boolean }
+interface Cmd { key: string, id?: string, draft: AutomationDraft, open: boolean, version?: string }
 let seq = 0
 function draftFor(command: string): AutomationDraft {
   const d = emptyDraft()
@@ -41,7 +41,7 @@ const cmds = ref<Cmd[]>([])
 const removed: string[] = []
 {
   const mine = (autoData.value?.automations ?? []).filter(a => isChannelSource(a.source) && a.config.channel_id === props.botId && !isNew.value)
-  cmds.value = mine.map(a => ({ key: `k${seq++}`, id: a.id, draft: draftFrom(a), open: false }))
+  cmds.value = mine.map(a => ({ key: `k${seq++}`, id: a.id, version: a.version, draft: draftFrom(a), open: false }))
   cmds.value.sort((a, b) => Number(!!a.draft.config.command) - Number(!!b.draft.config.command)) // "@bot" first
   if (!cmds.value.some(c => !c.draft.config.command)) cmds.value.unshift({ key: `k${seq++}`, draft: draftFor(''), open: isNew.value })
 }
@@ -54,7 +54,7 @@ function addCommand() {
 // the project's skills as commands: pick some (or all), each becomes "/skill <text>"
 interface Skill { name: string, description: string, source: string }
 const skillsOpen = ref(false)
-const { data: skillsData } = useFetch<{ skills: Skill[] }>(() => `/api/projects/${props.projectId}/skills`, { lazy: true })
+const { data: skillsData } = useLiveFetch<{ skills: Skill[] }>(() => `/api/projects/${props.projectId}/skills`, { lazy: true })
 const skills = computed(() => skillsData.value?.skills ?? [])
 const hasSkill = (name: string) => cmds.value.some(c => c.draft.config.skill === name)
 const picked = ref<string[]>([])
@@ -151,7 +151,7 @@ async function save() {
       d.config.channel_id = channelId
       d.config.command = d.config.command ? commandName(d.config.command) : ''
       d.name = d.config.command ? `/${d.config.command}` : t('bot.tagName', { bot: botLabel.value })
-      const body = automationBody(d)
+      const body = { ...automationBody(d), version: c.version }
       body.bot = i === 0 ? { token: bot.token || undefined, allow: ids(bot.allow), refusal: bot.refusal, approvers: ids(bot.approvers), approval: bot.approval, header: bot.headerOn ? bot.header.trim() : '-' } : undefined
       const res = c.id
         ? await $fetch<{ automation: Automation }>(`/api/automations/${c.id}`, { method: 'PATCH', body })

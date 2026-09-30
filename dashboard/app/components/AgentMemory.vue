@@ -9,7 +9,7 @@ const { t, dateLocale } = useLang()
 const { isAdmin } = useAuth()
 const toast = useToast()
 const base = computed(() => `/api/projects/${props.projectId}/agents/${props.agentId}/memories`)
-const { data, refresh } = useFetch<{ items: Note[], revisions: Rev[], auto: boolean, size: number, limit: number }>(base, { lazy: true })
+const { data, refresh } = useLiveFetch<{ items: Note[], revisions: Rev[], auto: boolean, size: number, limit: number }>(base, { lazy: true })
 
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 const sourceLabel = (s: Note['source']) => ({ person: t('mem.fromPerson'), agent: t('mem.fromAgent'), compact: t('mem.fromCompact') })[s]

@@ -72,7 +72,7 @@ function describe(action: string) {
   return t('rev.beforeAction', { action: map[kind!] ?? action })
 }
 const who = (a: string) => a.replace(/^human:/, '')
-onDataChanged(() => { if (open.value) load() })
+useLive(['org_revisions', 'org_models', 'agents'], () => { if (open.value) load() })
 </script>
 
 <template>

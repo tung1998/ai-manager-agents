@@ -7,12 +7,12 @@ const { t } = useLang()
 const projectId = computed(() => route.params.id as string)
 const bid = computed(() => route.params.bid as string)
 
-const _f1 = useFetch<{ channels: Channel[] }>(() => `/api/projects/${projectId.value}/channels`)
+const _f1 = useLiveFetch<{ channels: Channel[] }>(() => `/api/projects/${projectId.value}/channels`)
 const { data: chData, refresh: refreshCh } = _f1
-const _f2 = useFetch<{ automations: Automation[] }>(() => `/api/projects/${projectId.value}/automations`)
+const _f2 = useLiveFetch<{ automations: Automation[] }>(() => `/api/projects/${projectId.value}/automations`)
 const { data: autoData, refresh: refreshAutos } = _f2
 await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
-const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${projectId.value}/chat/agents`, { lazy: true })
+const { data: agentsData } = useLiveFetch<{ agents: Agent[] }>(() => `/api/projects/${projectId.value}/chat/agents`, { lazy: true })
 const bot = computed(() => chData.value?.channels.find(c => c.id === bid.value))
 useFollowBot(() => bot.value?.state === 'connecting', () => refreshCh())
 const cmds = computed(() => (autoData.value?.automations ?? []).filter(a => isChannelSource(a.source) && a.config.channel_id === bid.value)

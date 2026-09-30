@@ -17,7 +17,7 @@ const emit = defineEmits<{ done: [] }>()
 const toast = useToast()
 const { t } = useLang()
 const { inv } = useInventory()
-const { data: projData } = await useFetch<{ projects: Project[] }>('/api/projects')
+const { data: projData } = await useLiveFetch<{ projects: Project[] }>('/api/projects')
 
 const target = ref('__user')
 const mcpScope = ref<'project' | 'local'>('project')

@@ -20,7 +20,7 @@ const toast = useToast()
 const { t } = useLang()
 
 // ---- skills ----
-const { data: skillData } = await useFetch<{ skills: Skill[] }>(() => `/api/projects/${props.projectId}/skills`)
+const { data: skillData } = await useLiveFetch<{ skills: Skill[] }>(() => `/api/projects/${props.projectId}/skills`)
 const skills = computed(() => skillData.value?.skills ?? [])
 const menuIndex = ref(0)
 const menuClosed = ref(false)

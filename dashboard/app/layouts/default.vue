@@ -19,7 +19,7 @@ async function loadProjects() {
   } catch { /* signed out: the auth middleware redirects */ }
 }
 watch(() => route.path, loadProjects, { immediate: true })
-onDataChanged(loadProjects) // added, renamed, removed: without leaving the page
+useLive(['repos', 'org_models'], loadProjects) // added, renamed, removed: without leaving the page
 onMounted(() => { if (!bareLayout.value) startLive() }) // what changes elsewhere shows up here (ADR-072)
 
 // pages below a project (/projects/:id/<child>/…) belong to one of its sections
@@ -54,7 +54,7 @@ function withParent(parent: string | undefined, items: NavigationMenuItem[]): Na
 }
 
 // what needs a person across the office: its count on "Sự cố"
-const { data: incData, refresh: refreshInc } = useFetch<{ count: number }>('/api/incidents', { lazy: true })
+const { data: incData, refresh: refreshInc } = useLiveFetch<{ count: number }>('/api/incidents', { lazy: true })
 const attention = computed(() => incData.value?.count ?? 0)
 let incTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => { incTimer = setInterval(() => refreshInc(), 60000) })

@@ -88,6 +88,7 @@ func TestTemplatesReposAgentsAPI(t *testing.T) {
 		t.Fatalf("update agent = %d %v", resp.StatusCode, body)
 	}
 	// invalid structure is rejected with problems
+	engineer["version"] = body["agent"].(map[string]any)["version"] // edited from what was just saved
 	engineer["reports_to"] = []string{"ghost"}
 	resp, body = do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+engineer["id"].(string), stripID(engineer), nil)
 	if resp.StatusCode != 400 || body["problems"] == nil {

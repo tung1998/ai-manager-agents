@@ -5,7 +5,7 @@ interface Token { id: string, name: string, created_at: string, last_used_at?: s
 const { t, dateLocale } = useLang()
 const toast = useToast()
 const copy = useCopy()
-const { data, refresh } = await useFetch<{ tokens: Token[] }>('/api/me/tokens')
+const { data, refresh } = await useLiveFetch<{ tokens: Token[] }>('/api/me/tokens')
 const name = ref('')
 const created = ref<{ token: string, name: string } | null>(null)
 const mcpURL = computed(() => typeof location === 'undefined' ? '' : `${location.protocol}//${location.hostname}:8787/mcp`)

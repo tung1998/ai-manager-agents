@@ -25,7 +25,7 @@ const { isAdmin } = useAuth()
 const { t } = useLang()
 type Section = 'processes' | 'containers' | 'monitors'
 // counts for the switch; monitors are cheap to list (no checks run)
-const { data: monData, refresh: refreshMon } = await useFetch<{ summary: Record<string, number>, monitors: unknown[] }>('/api/monitors', { query: { project: props.projectId } })
+const { data: monData, refresh: refreshMon } = await useLiveFetch<{ summary: Record<string, number>, monitors: unknown[] }>('/api/monitors', { query: { project: props.projectId } })
 const navItems = computed(() => [
   { value: 'processes', label: t('ops.nav.processes'), icon: 'i-lucide-square-terminal', count: procs.value.length, alert: procs.value.some(p => p.state.status === 'crashed') },
   { value: 'containers', label: t('ops.nav.containers'), icon: 'i-lucide-container' },
@@ -33,7 +33,7 @@ const navItems = computed(() => [
 ])
 const section = ref<Section>((['processes', 'containers', 'monitors'] as const).find(v => v === useRoute().query.section) ?? 'processes')
 
-const { data, refresh } = await useFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`)
+const { data, refresh } = await useLiveFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`)
 const procs = computed(() => data.value?.processes ?? [])
 const selectedId = ref<string | null>(null)
 const selected = computed(() => procs.value.find(p => p.id === selectedId.value) ?? null)

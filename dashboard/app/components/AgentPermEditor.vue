@@ -36,7 +36,7 @@ function toggle(id: string, on: boolean) {
 }
 
 // ---- commands it may run, from the project's catalog (default: the safe ones) ----
-const { data: pol } = useFetch<{ packs: CommandPack[], safe: string[] }>(
+const { data: pol } = useLiveFetch<{ packs: CommandPack[], safe: string[] }>(
   () => `/api/projects/${props.projectId}/policy`, { lazy: true, immediate: !!props.projectId })
 const safe = computed(() => pol.value?.safe ?? [])
 const tree = computed(() => {
@@ -69,8 +69,8 @@ function togglePack(cmds: string[]) {
 
 // ---- processes and containers it may run/restart (default: check jobs, no containers) ----
 interface Proc { id: string, name: string, kind: 'service' | 'job' }
-const { data: procData } = useFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`, { lazy: true, immediate: !!props.projectId })
-const { data: composeData } = useFetch<{ services: { name: string }[] }>(() => `/api/projects/${props.projectId}/compose`, { lazy: true, immediate: !!props.projectId })
+const { data: procData } = useLiveFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`, { lazy: true, immediate: !!props.projectId })
+const { data: composeData } = useLiveFetch<{ services: { name: string }[] }>(() => `/api/projects/${props.projectId}/compose`, { lazy: true, immediate: !!props.projectId })
 const procs = computed(() => procData.value?.processes ?? [])
 const services = computed(() => composeData.value?.services ?? [])
 const pickedProcs = computed(() => perms.value.processes ?? procs.value.filter(p => p.kind === 'job').map(p => p.id))

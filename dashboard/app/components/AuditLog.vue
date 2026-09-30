@@ -87,7 +87,7 @@ function openJob(j: Job) {
 // how many filters differ from the default (shown on the filter icon)
 const activeFilters = computed(() => [!!kind.value, !!via.value, !!resource.value && !props.filter?.resource, !!project.value && !props.filter?.project, since.value !== '168h'].filter(Boolean).length)
 defineExpose({ reload: () => load() })
-onDataChanged(() => load())
+useLive(['audit_log'], () => load())
 </script>
 
 <template>

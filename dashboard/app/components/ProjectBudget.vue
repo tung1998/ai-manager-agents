@@ -5,9 +5,9 @@ const props = defineProps<{ projectId: string }>()
 const { t } = useLang()
 const toast = useToast()
 const { isAdmin } = useAuth()
-const { data, refresh } = useFetch<{ daily_limit_usd: number, today_usd: number, office_limit_usd: number }>(() => `/api/projects/${props.projectId}/budget`, { lazy: true })
+const { data, refresh } = useLiveFetch<{ daily_limit_usd: number, today_usd: number, office_limit_usd: number }>(() => `/api/projects/${props.projectId}/budget`, { lazy: true })
 const limit = ref(0)
-const resync = syncForm(data, limit, (d) => { limit.value = d.daily_limit_usd ?? 0 }) // never over what is being typed
+const { stale, reset: resync } = useDraft(data, limit, (d) => { limit.value = d.daily_limit_usd ?? 0 }) // never over what is being typed
 const saving = ref(false)
 async function save() {
   saving.value = true
@@ -29,6 +29,7 @@ const ratio = computed(() => data.value?.daily_limit_usd ? data.value.today_usd 
 <template>
   <UCard class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">
     <p class="flex items-center gap-2 font-medium"><UIcon name="i-lucide-wallet" class="size-4 text-(--ui-text-muted)" />{{ t('budget.title') }}</p>
+    <StaleNotice :show="stale" @reload="resync" />
     <USkeleton v-if="!data" class="h-10 w-full" />
     <template v-else>
       <p class="text-sm">

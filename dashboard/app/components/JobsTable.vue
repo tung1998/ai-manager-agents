@@ -108,7 +108,7 @@ async function act(j: Job, what: 'cancel' | 'retry') {
   }
 }
 defineExpose({ reload: () => load() })
-onDataChanged(() => load())
+useLive(['jobs'], () => load())
 </script>
 
 <template>

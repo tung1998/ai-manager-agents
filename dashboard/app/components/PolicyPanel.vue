@@ -9,11 +9,14 @@ const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
 
-const { data, refresh } = await useFetch<{ policy: Policy, packs: CommandPack[], safe: string[] }>(() => `/api/projects/${props.projectId}/policy`)
+const { data, refresh } = await useLiveFetch<{ policy: Policy, packs: CommandPack[], safe: string[] }>(() => `/api/projects/${props.projectId}/policy`)
 const safe = computed(() => new Set(data.value?.safe ?? []))
 
 const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '' })
-const resync = syncForm(data, form, (d) => { // never over what is being edited
+const editedFrom = ref('') // the policy as the form was filled
+const saveError = useSaveError()
+const { stale, reset: resync } = useDraft(data, form, (d) => { // never over what is being edited
+  editedFrom.value = (d as { version?: string }).version ?? ''
   form.packs = JSON.parse(JSON.stringify(d.policy.packs))
   form.deny = [...d.policy.deny_paths]
   form.links = (d.policy.worktree_links ?? []).join('\n')
@@ -32,13 +35,13 @@ async function save() {
   try {
     await $fetch(`/api/projects/${props.projectId}/policy`, {
       method: 'PUT',
-      body: { packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean) }
+      body: { version: editedFrom.value, packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean) }
     })
     toast.add({ title: t('policy.saved'), color: 'success' })
     await refresh()
     resync() // saved: take what the server has now
   } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
+    saveError(e, async () => { await refresh(); resync() })
   } finally {
     saving.value = false
   }
@@ -73,6 +76,7 @@ function removePack(p: CommandPack) {
 
 <template>
   <div class="max-w-4xl space-y-3">
+    <StaleNotice :show="stale" @reload="resync" />
     <!-- save stays in reach while scrolling -->
     <div v-if="isAdmin" class="sticky top-0 z-10 flex justify-end bg-(--ui-bg)/80 py-1 backdrop-blur">
       <UButton icon="i-lucide-save" size="sm" :label="t('policy.save')" :loading="saving" @click="save" />

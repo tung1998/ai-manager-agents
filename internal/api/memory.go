@@ -183,4 +183,3 @@ func (s *server) memorySettings(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, audit.Change{Action: "memory.settings", Resource: "project", ResourceID: pid, ProjectID: pid, After: map[string]any{"auto": in.Auto}})
 	writeJSON(w, http.StatusOK, map[string]any{"auto": in.Auto})
 }
-

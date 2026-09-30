@@ -73,6 +73,9 @@ export default {
   'incidents.kind.bot': 'bot',
   'incidents.kind.jobs': 'job lỗi',
   'incidents.kind.limit': 'hạn mức AI',
+  'draft.conflict': 'Chưa lưu: có thay đổi mới ở nơi khác',
+  'draft.stale': 'Dữ liệu vừa được thay đổi ở nơi khác (người khác hoặc agent). Tải lại để xem bản mới; những gì bạn đang sửa sẽ mất.',
+  'draft.reload': 'Tải lại',
   'incidents.kind.patch': 'diff chờ duyệt',
   'incidents.kind.approval': 'chờ duyệt',
 

@@ -3,9 +3,9 @@
 const route = useRoute()
 const { t } = useLang()
 const project = computed(() => (route.query.project as string) || '')
-const { data: stats, refresh } = useFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>(
+const { data: stats, refresh } = useLiveFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>(
   () => `/api/jobs/stats?since=24h${project.value ? `&project=${project.value}` : ''}`, { lazy: true })
-const { data: proj } = useFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
+const { data: proj } = useLiveFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
 const projects = computed(() => (proj.value?.projects ?? []).map(p => ({ id: p.id, name: p.name })))
 const tiles = computed(() => {
   const x = stats.value?.totals

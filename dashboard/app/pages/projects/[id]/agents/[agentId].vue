@@ -22,11 +22,11 @@ const { t, dateLocale } = useLang()
 const projectId = computed(() => route.params.id as string)
 const agentId = computed(() => route.params.agentId as string)
 
-const _f1 = useFetch<{ agent: Agent, model: { id: string, name: string, kind: string, repo_id: string }, project?: { id: string, name: string } }>(() => `/api/agents/${agentId.value}`)
+const _f1 = useLiveFetch<{ agent: Agent, model: { id: string, name: string, kind: string, repo_id: string }, project?: { id: string, name: string } }>(() => `/api/agents/${agentId.value}`)
 const { data, refresh } = _f1
-const _f2 = useFetch<{ providers: Provider[] }>('/api/providers')
+const _f2 = useLiveFetch<{ providers: Provider[] }>('/api/providers')
 const { data: provData } = _f2
-const _f3 = useFetch<{ model: OrgModel }>(() => `/api/org-models/${data.value?.model.id}`, { immediate: !!data.value })
+const _f3 = useLiveFetch<{ model: OrgModel }>(() => `/api/org-models/${data.value?.model.id}`, { immediate: !!data.value })
 const { data: modelData } = _f3
 await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
 const agent = computed(() => data.value?.agent)
@@ -48,7 +48,7 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
 
 // ---- overview ----
 const days = ref(7)
-const { data: statsData } = useFetch<{ stats: Stats }>(() => `/api/agents/${agentId.value}/stats?days=${days.value}`, { lazy: true })
+const { data: statsData } = useLiveFetch<{ stats: Stats }>(() => `/api/agents/${agentId.value}/stats?days=${days.value}`, { lazy: true })
 const stats = computed(() => statsData.value?.stats)
 const maxDay = computed(() => Math.max(1, ...(stats.value?.per_day.map(d => d.ok + d.errors) ?? [0])))
 const maxModel = computed(() => Math.max(0.0001, ...(stats.value?.by_model.map(m => m.cost_usd) ?? [0])))
@@ -70,15 +70,18 @@ const tiles = computed(() => {
 
 // ---- config: three cards, each saved on its own ----
 const form = reactive({ name: '', key: '', tier: 'worker' as AgentTier, role: '', description: '', reports_to: [] as string[], instructions: '', provider_id: '', model_tier: 'balanced' as ModelTier, llm_model: '', permissions: { level: 'propose', read_only: false } as Permissions, avatar: {} as AvatarSpec })
+const editedFrom = ref('') // the agent as the form was filled: a save over someone else's change is refused
+const saveError = useSaveError()
 function load() {
   const a = agent.value
   if (!a) return
+  editedFrom.value = (a as { version?: string }).version ?? ''
   Object.assign(form, JSON.parse(JSON.stringify({
     name: a.name, key: a.key, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, instructions: a.instructions,
     provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, permissions: a.permissions, avatar: a.avatar ?? {}
   })))
 }
-const resync = syncForm(agent, form, () => load()) // never over what is being edited
+const { stale, reset: resync } = useDraft(agent, form, () => load()) // never over what is being edited
 const DEFAULT_PROVIDER = '__default'
 const providerChoice = computed({
   get: () => form.provider_id || DEFAULT_PROVIDER,
@@ -95,7 +98,7 @@ const avatarEditing = ref(false)
 async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
   const a = agent.value!
   // each card sends its own fields on top of the saved agent
-  const base = { key: a.key, name: a.name, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, instructions: a.instructions, permissions: a.permissions }
+  const base = { version: editedFrom.value, key: a.key, name: a.name, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, instructions: a.instructions, permissions: a.permissions }
   const body = card === 'role'
     ? { ...base, key: form.key, name: form.name, tier: form.tier, role: form.role, description: form.description, reports_to: form.tier === 'lead' ? [] : form.reports_to, instructions: form.instructions }
     : card === 'model' ? { ...base, provider_id: form.provider_id, model_tier: form.model_tier, llm_model: form.llm_model }
@@ -108,8 +111,9 @@ async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
     history.value = null
     toast.add({ title: t('org.editor.savedAgent', { name: form.name }), color: 'success' })
   } catch (e) {
-    const d = (e as { data?: { error?: string, problems?: string[] } })?.data
-    toast.add({ title: d?.error ?? apiError(e), description: d?.problems?.join('\n'), color: 'error' })
+    const d = (e as { data?: { code?: string, error?: string, problems?: string[] } })?.data
+    if (d?.code === 'conflict') saveError(e, async () => { await refresh(); resync() })
+    else toast.add({ title: d?.error ?? apiError(e), description: d?.problems?.join('\n'), color: 'error' })
   } finally {
     saving.value = ''
   }
@@ -293,6 +297,7 @@ async function restore(e: Entry) {
 
       <!-- config -->
       <fieldset v-else-if="tab === 'config'" :disabled="!isAdmin" class="max-w-4xl space-y-3">
+        <StaleNotice :show="stale" @reload="resync" />
         <!-- avatar: just the picture until the person edits it -->
         <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
           <div class="flex items-center gap-3">

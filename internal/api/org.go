@@ -417,6 +417,7 @@ type agentDTO struct {
 	Permissions  storage.Permissions `json:"permissions"`
 	Avatar       storage.Avatar      `json:"avatar"`
 	Sort         int                 `json:"sort"`
+	Version      string              `json:"version"` // what an edit is made from (ADR-072)
 }
 
 func toAgentDTO(a storage.Agent) agentDTO {
@@ -424,9 +425,11 @@ func toAgentDTO(a storage.Agent) agentDTO {
 	if rt == nil {
 		rt = []string{}
 	}
-	return agentDTO{ID: a.ID, OrgModelID: a.OrgModelID, Key: a.Key, Name: a.Name, Tier: a.Tier, Role: a.Role,
+	d := agentDTO{ID: a.ID, OrgModelID: a.OrgModelID, Key: a.Key, Name: a.Name, Tier: a.Tier, Role: a.Role,
 		Description: a.Description, ReportsTo: rt, ProviderID: a.ProviderID, ModelTier: a.ModelTier, LLMModel: a.LLMModel,
 		Instructions: a.Instructions, Permissions: a.Permissions, Avatar: a.Avatar, Sort: a.Sort}
+	d.Version = agentVersion(d)
+	return d
 }
 
 type orgDTO struct {
@@ -636,6 +639,7 @@ func (s *server) deleteOrgModel(w http.ResponseWriter, r *http.Request) {
 }
 
 type agentInput struct {
+	Version      string              `json:"version"` // the agent as it was read (409 when changed since)
 	Key          string              `json:"key"`
 	Name         string              `json:"name"`
 	Tier         string              `json:"tier"`
@@ -731,6 +735,9 @@ func (s *server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	a, err := s.cfg.Store.Agents().Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeDomainError(w, r, err)
+		return
+	}
+	if conflicted(w, in.Version, agentVersion(toAgentDTO(a))) {
 		return
 	}
 	old := a

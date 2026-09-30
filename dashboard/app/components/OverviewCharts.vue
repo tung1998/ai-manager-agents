@@ -8,8 +8,8 @@ interface DayStats { key: string, jobs: number, done: number, failed: number, co
 const { t, dateLocale } = useLang()
 
 const days = ref(30)
-const { data: sum } = useFetch<Summary>('/api/usage/summary', { query: { days }, lazy: true })
-const { data: work } = useFetch<{ rows: DayStats[] }>('/api/jobs/stats', { query: { by: 'day', days }, lazy: true })
+const { data: sum } = useLiveFetch<Summary>('/api/usage/summary', { query: { days }, lazy: true })
+const { data: work } = useLiveFetch<{ rows: DayStats[] }>('/api/jobs/stats', { query: { by: 'day', days }, lazy: true })
 
 // every day of the range, a day without work too (the bars keep their place)
 const dayKeys = computed(() => {

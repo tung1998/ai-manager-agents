@@ -37,8 +37,8 @@ const toast = useToast()
 const { isAdmin } = useAuth()
 
 // lazy: the panel renders at once and fills in (no blank flash when switching)
-const { data, refresh, status: monStatus } = useFetch<{ monitors: Monitor[], summary: Record<string, number> }>('/api/monitors', { query: { project: props.projectId }, lazy: true })
-const { data: evData, refresh: refreshEvents } = useFetch<{ events: MonitorEvent[] }>('/api/monitor-events', { query: { project: props.projectId, limit: 50 }, lazy: true })
+const { data, refresh, status: monStatus } = useLiveFetch<{ monitors: Monitor[], summary: Record<string, number> }>('/api/monitors', { query: { project: props.projectId }, lazy: true })
+const { data: evData, refresh: refreshEvents } = useLiveFetch<{ events: MonitorEvent[] }>('/api/monitor-events', { query: { project: props.projectId, limit: 50 }, lazy: true })
 const loaded = computed(() => !!data.value || monStatus.value === 'error')
 const monitors = computed(() => data.value?.monitors ?? [])
 const events = computed(() => evData.value?.events ?? [])
@@ -89,9 +89,9 @@ function targetLabel(m: Monitor) {
 const heartbeatURL = (m: Monitor) => m.heartbeat_path ? `${window.location.origin}${m.heartbeat_path}` : ''
 
 // ---- sources for the form & suggestions ----
-const { data: procData } = useFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`, { lazy: true })
+const { data: procData } = useLiveFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`, { lazy: true })
 const procs = computed(() => procData.value?.processes ?? [])
-const { data: composeData } = useFetch<ComposeView>(() => `/api/projects/${props.projectId}/compose`, { lazy: true })
+const { data: composeData } = useLiveFetch<ComposeView>(() => `/api/projects/${props.projectId}/compose`, { lazy: true })
 
 // ---- actions ----
 async function patch(m: Monitor, body: Record<string, unknown>) {

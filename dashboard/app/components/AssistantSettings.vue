@@ -6,7 +6,7 @@ const { t } = useLang()
 const toast = useToast()
 const open = ref(false)
 
-const { data: provData } = useFetch<{ providers: Provider[] }>('/api/providers', { lazy: true })
+const { data: provData } = useLiveFetch<{ providers: Provider[] }>('/api/providers', { lazy: true })
 const providers = computed(() => provData.value?.providers ?? [])
 const defaultProvider = computed(() => providers.value.find(p => p.is_default))
 const agent = ref<Agent | null>(null)

@@ -3,7 +3,7 @@
 // reports, settings through approval cards, work handed to a project's chat.
 const { t } = useLang()
 const { isAdmin } = useAuth()
-const { data, error } = await useFetch<{ project_id: string }>('/api/assistant')
+const { data, error } = await useLiveFetch<{ project_id: string }>('/api/assistant')
 </script>
 
 <template>

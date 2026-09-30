@@ -8,6 +8,8 @@ const { isAdmin } = useAuth()
 const { t } = useLang()
 
 const form = reactive<AutomationDraft>(props.automation ? draftFrom(props.automation) : props.preset ?? emptyDraft())
+const editedFrom = props.automation?.version // the automation as it was opened: a save over someone else's change is refused
+const saveError = useSaveError()
 const highlight = ref<string[]>([])
 let clearHl: ReturnType<typeof setTimeout> | undefined
 function applyPatch(p: Record<string, unknown>) {
@@ -39,7 +41,7 @@ const secret = ref<{ url: string, secret: string, auth?: string, authName?: stri
 async function save() {
   saving.value = true
   try {
-    const body = { ...automationBody(form), conversation_id: conversationId.value }
+    const body = { ...automationBody(form), conversation_id: conversationId.value, version: editedFrom }
     const res = props.automation
       ? await $fetch<{ automation: Automation, secret?: string }>(`/api/automations/${props.automation.id}`, { method: 'PATCH', body })
       : await $fetch<{ automation: Automation, secret?: string }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body })
@@ -48,7 +50,7 @@ async function save() {
     else await navigateTo(`/projects/${props.projectId}/automations/${res.automation.id}`)
     savedId.value = res.automation.id
   } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
+    saveError(e, () => reloadNuxtApp())
   } finally {
     saving.value = false
   }

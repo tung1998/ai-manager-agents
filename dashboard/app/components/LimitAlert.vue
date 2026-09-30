@@ -3,9 +3,9 @@
 interface Bot { id: string, name: string, kind: 'discord' | 'telegram', project: string }
 const { t } = useLang()
 const toast = useToast()
-const { data, refresh } = useFetch<{ channel_id: string, chat_id: string, threshold: number, bots: Bot[] }>('/api/limit-alert', { lazy: true })
+const { data, refresh } = useLiveFetch<{ channel_id: string, chat_id: string, threshold: number, bots: Bot[] }>('/api/limit-alert', { lazy: true })
 const form = reactive({ channel_id: '', chat_id: '', threshold: 80 })
-const resync = syncForm(data, form, d => Object.assign(form, { channel_id: d.channel_id, chat_id: d.chat_id, threshold: d.threshold })) // never over what is being typed
+const { stale, reset: resync } = useDraft(data, form, d => Object.assign(form, { channel_id: d.channel_id, chat_id: d.chat_id, threshold: d.threshold })) // never over what is being typed
 const NONE = '__none'
 const bot = computed({ get: () => form.channel_id || NONE, set: (v: string) => { form.channel_id = v === NONE ? '' : v } })
 const botItems = computed(() => [{ label: t('alert.off'), value: NONE }, ...(data.value?.bots ?? []).map(b => ({ label: `${b.name} · ${b.kind === 'discord' ? 'Discord' : 'Telegram'} · ${b.project}`, value: b.id }))])
@@ -34,6 +34,7 @@ async function save(test = false) {
       <p class="font-medium">{{ t('alert.title') }}</p>
       <UTooltip :text="t('alert.help')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
     </div>
+    <StaleNotice :show="stale" @reload="resync" />
     <USkeleton v-if="!data" class="h-10 w-full" />
     <div v-else class="grid gap-3 sm:grid-cols-[1fr_12rem_7rem_auto] sm:items-end">
       <UFormField :label="t('alert.bot')">

@@ -6,7 +6,7 @@ definePageMeta({ admin: true })
 const toast = useToast()
 const { user: me } = useAuth()
 const { t, dateLocale } = useLang()
-const { data, refresh, status } = await useFetch<{ users: OfficeUser[] }>('/api/users')
+const { data, refresh, status } = await useLiveFetch<{ users: OfficeUser[] }>('/api/users')
 const users = computed(() => data.value?.users ?? [])
 
 const columns = computed<TableColumn<OfficeUser>[]>(() => [

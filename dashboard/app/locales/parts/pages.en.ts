@@ -74,6 +74,9 @@ const en: Record<keyof typeof vi, string> = {
   'incidents.kind.bot': 'bot',
   'incidents.kind.jobs': 'failed jobs',
   'incidents.kind.limit': 'AI limit',
+  'draft.conflict': 'Not saved: it was changed elsewhere',
+  'draft.stale': 'This was just changed elsewhere (someone else or an agent). Reload to see it; what you are editing is dropped.',
+  'draft.reload': 'Reload',
   'incidents.kind.patch': 'diff to review',
   'incidents.kind.approval': 'waiting',
 

@@ -6,7 +6,7 @@ interface Settings { daily_limit_usd: number, project_limits?: Record<string, nu
 const { t } = useLang()
 const toast = useToast()
 const open = ref(false)
-const { data: sum, refresh } = useFetch<{ today: number, daily_limit: number, settings: Settings, default_prices: Record<string, Price> }>('/api/usage/summary', { query: { days: 1 }, lazy: true })
+const { data: sum, refresh } = useLiveFetch<{ today: number, daily_limit: number, settings: Settings, default_prices: Record<string, Price> }>('/api/usage/summary', { query: { days: 1 }, lazy: true })
 const form = reactive({ daily: 0, prices: [] as { model: string, input: number, output: number }[] })
 function edit() {
   const s = sum.value?.settings

@@ -13,7 +13,7 @@ interface Status {
 
 const toast = useToast()
 const { t, dateLocale } = useLang()
-const { data, refresh } = await useFetch<Status>('/api/system/update')
+const { data, refresh } = await useLiveFetch<Status>('/api/system/update')
 const runTests = ref(true)
 const starting = ref(false)
 const restarting = ref(false)

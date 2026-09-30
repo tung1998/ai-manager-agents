@@ -6,9 +6,9 @@ const { isAdmin } = useAuth()
 const { t } = useLang()
 const id = computed(() => route.params.id as string)
 
-const _f1 = useFetch<{ project: Project }>(() => `/api/projects/${id.value}`, { lazy: true })
+const _f1 = useLiveFetch<{ project: Project }>(() => `/api/projects/${id.value}`, { lazy: true })
 const { data, refresh, error: loadError } = _f1
-const _f2 = useFetch<{ templates: OrgModel[] }>('/api/templates', { lazy: true })
+const _f2 = useLiveFetch<{ templates: OrgModel[] }>('/api/templates', { lazy: true })
 const { data: tplData } = _f2
 // not awaited: the page shows at once with a skeleton (a phone over a VPN)
 const project = computed(() => data.value?.project)

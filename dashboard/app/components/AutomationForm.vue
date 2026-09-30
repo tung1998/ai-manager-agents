@@ -12,7 +12,7 @@ const { t, dateLocale } = useLang()
 // eslint-disable-next-line vue/no-mutating-props -- the draft is the parent's reactive object, edited in place
 const form = props.form
 
-const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
+const { data: agentsData } = useLiveFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 // a bot's messages start it (ADR-049): bots are set up on their own page,
 // each of its commands being one automation edited here in "command" mode
 const fromChannel = computed(() => isChannelSource(form.source))
@@ -30,7 +30,7 @@ const sourceCards = computed(() => [
     pick: () => { botsOpen.value = true } }
 ])
 const botsOpen = ref(false)
-const { data: projBots } = useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true, immediate: isAdmin.value })
+const { data: projBots } = useLiveFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true, immediate: isAdmin.value })
 // a Select item cannot have "" as its value: "the lead" is a sentinel
 const LEAD = '__lead'
 const chatAgent = computed({ get: () => form.agent_id || LEAD, set: (v: string) => { form.agent_id = v === LEAD ? '' : v } })
@@ -96,7 +96,7 @@ const placeholders = computed(() => fromChannel.value
     ? ['{{diff}}', '{{payload.number}}', '{{payload.title}}', '{{payload.author}}', '{{payload.url}}', '{{payload.source}}', '{{payload.target}}']
     : ['{{payload}}', '{{payload.x}}', '{{now}}', '{{today}}', '{{yesterday}}', '{{source}}', '{{automation}}'])
 // the project's bots, for where answers go
-const { data: chData } = useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true, immediate: isAdmin.value })
+const { data: chData } = useLiveFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true, immediate: isAdmin.value })
 const NO_BOT = '__none'
 const notifyBot = computed({ get: () => form.config.notify_channel_id || NO_BOT, set: (v: string) => { form.config.notify_channel_id = v === NO_BOT ? '' : v } })
 const notifyItems = computed(() => [{ label: t('auto.notifyNone'), value: NO_BOT }, ...(chData.value?.channels ?? []).map(c => ({ label: `${c.bot_name ? '@' + c.bot_name : c.name} · ${c.kind === 'discord' ? 'Discord' : 'Telegram'}`, value: c.id }))])

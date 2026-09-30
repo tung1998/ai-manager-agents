@@ -7,7 +7,7 @@ const { t } = useLang()
 const projectId = computed(() => route.params.id as string)
 const aid = computed(() => route.params.aid as string)
 
-const { data, refresh } = await useFetch<{ automation: Automation }>(() => `/api/automations/${aid.value}`)
+const { data, refresh } = await useLiveFetch<{ automation: Automation }>(() => `/api/automations/${aid.value}`)
 const a = computed(() => data.value?.automation)
 const secret = ref<{ url: string, secret: string, auth?: string, authName?: string } | null>(null)
 // a bot's command goes back to its bot; others to the automations
