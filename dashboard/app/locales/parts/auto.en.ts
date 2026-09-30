@@ -244,6 +244,8 @@ const en: Record<keyof typeof vi, string> = {
   'bot.approversHelp': 'IDs of the people who may decide what agents propose with /approve, /reject and switch /mode, one per line. Type * to let anyone who may message the bot decide. Empty: only on the dashboard.',
   'bot.anyoneApproveTitle': 'Anyone who may message the bot can approve',
   'bot.anyoneApproveDesc': 'With *, anyone allowed to message the bot can run the commands and apply the diffs agents propose, and turn on direct mode. Pushes, stopping services and deleting commands are still asked.',
+  'bot.header': 'Message prefix',
+  'bot.headerHelp': '{agent}: answering agent · {project}: project · {branch}: git branch',
   'bot.approval': 'Default mode of a new chat',
   'bot.approvalHelp': 'Switch in the chat with /mode ask or /mode direct. Pushes, stopping services, settings and deleting commands are always asked.',
   'bot.approvalAsk': 'Ask: before each proposal',

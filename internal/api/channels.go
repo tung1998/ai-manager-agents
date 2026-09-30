@@ -29,6 +29,7 @@ type channelDTO struct {
 	Refusal       string     `json:"refusal"`
 	Approvers     []string   `json:"approvers"`
 	Approval      string     `json:"approval"`
+	Header        string     `json:"header"`
 	BotName       string     `json:"bot_name"`
 	LastError     string     `json:"last_error"`
 	LastMessageAt *time.Time `json:"last_message_at"`
@@ -44,7 +45,7 @@ func toChannelDTO(c storage.Channel) channelDTO {
 		approvers = []string{}
 	}
 	return channelDTO{c.ID, c.ProjectID, c.Kind, c.Name, c.TokenEnc != "", c.AgentID, c.Mode, c.Enabled, allow, c.Scope, c.FilterEnabled, c.Refusal,
-		approvers, firstNonEmptyStr(c.Approval, "ask"), c.BotName, c.LastError, c.LastMessageAt}
+		approvers, firstNonEmptyStr(c.Approval, "ask"), c.Header, c.BotName, c.LastError, c.LastMessageAt}
 }
 
 type channelInput struct {
@@ -60,6 +61,7 @@ type channelInput struct {
 	Refusal       *string   `json:"refusal"`
 	Approvers     *[]string `json:"approvers"`
 	Approval      *string   `json:"approval"`
+	Header        *string   `json:"header"`
 }
 
 func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
@@ -103,6 +105,9 @@ func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
 				c.Approvers = append(c.Approvers, a)
 			}
 		}
+	}
+	if in.Header != nil {
+		c.Header = strings.TrimSpace(*in.Header)
 	}
 	if in.Approval != nil {
 		c.Approval = "ask"

@@ -18,7 +18,9 @@ const channel = computed(() => chData.value?.channels.find(c => c.id === props.b
 
 // the bot's settings
 const bot = reactive({ kind: (channel.value?.kind ?? 'discord') as 'telegram' | 'discord', token: '', allow: (channel.value?.allow ?? []).join('\n'), refusal: channel.value?.refusal ?? '',
-  approvers: (channel.value?.approvers ?? []).join('\n'), approval: (channel.value?.approval ?? 'ask') as 'ask' | 'direct' })
+  approvers: (channel.value?.approvers ?? []).join('\n'), approval: (channel.value?.approval ?? 'ask') as 'ask' | 'direct',
+  // the line on top of its answers ("" = the default, "-" = none)
+  headerOn: channel.value?.header !== '-', header: channel.value?.header === '-' ? '' : (channel.value?.header ?? '') })
 const ids = (s: string) => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean)
 const settingsOpen = ref(isNew.value)
 const guideOpen = ref(false)
@@ -148,7 +150,7 @@ async function save() {
       d.config.command = d.config.command ? commandName(d.config.command) : ''
       d.name = d.config.command ? `/${d.config.command}` : t('bot.tagName', { bot: botLabel.value })
       const body = automationBody(d)
-      body.bot = i === 0 ? { token: bot.token || undefined, allow: ids(bot.allow), refusal: bot.refusal, approvers: ids(bot.approvers), approval: bot.approval } : undefined
+      body.bot = i === 0 ? { token: bot.token || undefined, allow: ids(bot.allow), refusal: bot.refusal, approvers: ids(bot.approvers), approval: bot.approval, header: bot.headerOn ? bot.header.trim() : '-' } : undefined
       const res = c.id
         ? await $fetch<{ automation: Automation }>(`/api/automations/${c.id}`, { method: 'PATCH', body })
         : await $fetch<{ automation: Automation }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body })
@@ -241,6 +243,13 @@ async function save() {
                 v-model="bot.approval" class="w-full"
                 :items="[{ label: t('bot.approvalAsk'), value: 'ask' }, { label: t('bot.approvalDirect'), value: 'direct' }]"
               />
+            </UFormField>
+            <!-- who answered, where: on top of each answer -->
+            <UFormField :label="t('bot.header')" :help="bot.headerOn ? t('bot.headerHelp') : undefined">
+              <div class="flex items-center gap-2">
+                <USwitch v-model="bot.headerOn" />
+                <UInput v-if="bot.headerOn" v-model="bot.header" class="min-w-0 flex-1 font-mono text-xs" placeholder="{agent} · {project} · {branch}" />
+              </div>
             </UFormField>
             <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')">
               <UInput v-model="bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />

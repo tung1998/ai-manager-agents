@@ -324,6 +324,9 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 		}()
 	}
 	text = strings.TrimSpace(text)
+	if ch, gerr := m.store.Channels().Get(ctx, p.ChannelID); gerr == nil {
+		text = m.headed(ctx, ch, p, origin, text) // who answered, in which project and branch
+	}
 	if respond != nil {
 		reply := text
 		if reply == "" && err != nil && final && !errors.Is(err, trigger.ErrNoAnswer) {

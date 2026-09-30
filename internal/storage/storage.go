@@ -185,6 +185,7 @@ type Channel struct {
 	Refusal                   string   // the reply to an out-of-scope message
 	Approvers                 []string // user ids who may decide proposals from the chat (none = only on the dashboard)
 	Approval                  string   // a new chat's way: ask (commands) | direct (what the agent proposes is approved)
+	Header                    string   // the line on top of its answers: {agent} {project} {branch}; "" = default, "-" = none
 	BotName                   string
 	LastError                 string
 	LastMessageAt             *time.Time

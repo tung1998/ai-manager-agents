@@ -53,6 +53,18 @@ func git(ctx context.Context, root string, args ...string) (string, error) {
 }
 
 // ReadStatus parses `git status --porcelain=v1 -b`.
+// CurrentBranch is the branch checked out (a repo with no commit yet too);
+// detached, the short commit; "" when root is not a git repo.
+func CurrentBranch(ctx context.Context, root string) string {
+	if b, err := git(ctx, root, "symbolic-ref", "--short", "-q", "HEAD"); err == nil && strings.TrimSpace(b) != "" {
+		return strings.TrimSpace(b)
+	}
+	if h, err := git(ctx, root, "rev-parse", "--short", "HEAD"); err == nil {
+		return strings.TrimSpace(h)
+	}
+	return ""
+}
+
 func ReadStatus(ctx context.Context, root string) (Status, error) {
 	out, err := git(ctx, root, "status", "--porcelain=v1", "-b", "--untracked-files=all")
 	if err != nil {

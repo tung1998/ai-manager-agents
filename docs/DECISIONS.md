@@ -1479,3 +1479,11 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - URL trình soạn giữ `?c=<chat>`. Mở lại thì hiện lại cuộc chat, và bản nháp được dựng lại từ các khối ```skill/```template trong chat (skill đã lưu thì giữ nội dung file).
 - Job của các chat này mở về đúng trình soạn.
 - Mô hình mới: trang `/templates/new`. Bản nháp được kiểm tra ngay khi soạn qua `POST /api/templates/validate` (cùng luật `orgmodel.Validate`). Lưu bằng `POST /api/templates {template}`, xong là chọn được khi thêm project hoặc đổi mô hình.
+
+## ADR-063: Prefix tin nhắn của bot
+- Câu trả lời của bot Discord/Telegram có thêm một dòng đầu, lấy từ mẫu `{agent} · {project} · {branch}`.
+  - Discord hiện dòng này dạng chữ nhỏ (`-# `).
+  - `{agent}` là agent đã trả lời. Tin tiếp nối của agent khác (`Tên:\n…`) ghi tên agent đó lên dòng đầu thay cho chữ ký trong nội dung.
+  - `{branch}` là nhánh đang checkout của project.
+  - Phần nào trống thì bỏ; script trả lời thì không có agent.
+- Cài đặt riêng từng bot (cột `channels.header`): để trống là mẫu mặc định, `-` là tắt. Trong trang cài đặt bot là một công tắc kèm ô mẫu.

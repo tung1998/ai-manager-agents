@@ -243,6 +243,8 @@ export default {
   'bot.approversHelp': 'ID của người được duyệt đề xuất của agent bằng /approve, /reject và đổi /mode, mỗi dòng một người. Gõ * nếu ai nhắn được bot cũng duyệt được. Để trống thì chỉ duyệt trên dashboard.',
   'bot.anyoneApproveTitle': 'Ai nhắn được bot cũng duyệt được',
   'bot.anyoneApproveDesc': 'Với *, bất kỳ ai trong ô Ai được nhắn bot cũng chạy được lệnh và áp diff agent đề xuất, kể cả bật làm thẳng. Push, dừng dịch vụ và lệnh xóa vẫn phải hỏi.',
+  'bot.header': 'Prefix tin nhắn',
+  'bot.headerHelp': '{agent}: agent trả lời · {project}: project · {branch}: nhánh git',
   'bot.approval': 'Chế độ mặc định của cuộc chat mới',
   'bot.approvalHelp': 'Đổi trong chat bằng /mode ask hoặc /mode direct. Push, dừng dịch vụ, đổi cài đặt và lệnh xóa luôn phải hỏi.',
   'bot.approvalAsk': 'Duyệt: hỏi trước mỗi đề xuất',

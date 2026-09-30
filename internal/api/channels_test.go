@@ -233,3 +233,25 @@ func TestRefusedAutomationLeavesItsBot(t *testing.T) {
 		t.Fatalf("the refused change opened the bot: %v", ch.Allow)
 	}
 }
+
+// The line on top of a bot's answers is set with the bot and read back.
+func TestChannelHeaderAPI(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	ch, _ := e.st.Channels().Create(context.Background(), storage.Channel{ProjectID: pid, Kind: "discord", Name: "Dev", TokenEnc: "enc"})
+	resp, b := do(t, admin, "PATCH", e.srv.URL+"/api/channels/"+ch.ID, map[string]any{"header": " {agent} · {branch} "}, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("patch = %d %v", resp.StatusCode, b)
+	}
+	got, _ := e.st.Channels().Get(context.Background(), ch.ID)
+	if got.Header != "{agent} · {branch}" {
+		t.Fatalf("header = %q", got.Header)
+	}
+	_, b = do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/channels", nil, nil)
+	if c := b["channels"].([]any)[0].(map[string]any); c["header"] != "{agent} · {branch}" {
+		t.Fatalf("list = %v", c)
+	}
+}

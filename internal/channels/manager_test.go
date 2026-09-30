@@ -213,7 +213,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 		Respond: func(_ context.Context, text string) (string, error) { responded <- text; return "slash-0", nil }}
 	select {
 	case got := <-responded:
-		if got != "Đơn 777: đang giao" {
+		if got != "shop\nĐơn 777: đang giao" { // the header: the project (a script names no agent; no git here)
 			t.Fatalf("command answer = %q", got)
 		}
 	case <-time.After(10 * time.Second):
@@ -288,7 +288,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	}
 
 	bot.in <- channels.Incoming{ChatID: "44", UserID: "9", UserName: "binh", Text: "tra mã giúp", Private: true, Addressed: true}
-	if got := bot.wait(t, "44", 1); got[0] != "Mã của binh: OK" {
+	if got := bot.wait(t, "44", 1); got[0] != "shop\nMã của binh: OK" { // under the header
 		t.Fatalf("script answer = %v", got)
 	}
 	bot.in <- channels.Incoming{ChatID: "43", UserID: "8", Text: "thời tiết hôm nay", Private: true, Addressed: true}
