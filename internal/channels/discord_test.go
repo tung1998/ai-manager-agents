@@ -339,3 +339,43 @@ func TestDiscordThreadMenu(t *testing.T) {
 		t.Fatalf("menu entry not registered:\n%s", all)
 	}
 }
+
+// Threads open before the bot connected (or made while it was down) are
+// joined when the guild comes up, so a tag in them is heard.
+func TestDiscordJoinsOpenThreads(t *testing.T) {
+	gw := wsServe(t, func(send func(string)) {
+		send(`{"op":10,"d":{"heartbeat_interval":45000}}`)
+	}, func(msg string, send func(string)) {
+		if !strings.Contains(msg, `"op":2`) {
+			return
+		}
+		send(`{"op":0,"s":1,"t":"READY","d":{"user":{"id":"99","username":"shopbot"}}}`)
+		send(`{"op":0,"s":2,"t":"GUILD_CREATE","d":{"id":"g","threads":[{"id":"t1","parent_id":"c2"},{"id":"t2","parent_id":"c2","member":{"user_id":"99"}}]}}`)
+	})
+	defer gw.Close()
+	joined := make(chan string, 4)
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" && strings.HasSuffix(r.URL.Path, "/thread-members/@me") {
+			joined <- r.URL.Path
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", GatewayURL: "ws" + strings.TrimPrefix(gw.URL, "http"), APIBase: rest.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	go d.Run(ctx, func(string) {}, func(Incoming) {})
+	select {
+	case p := <-joined:
+		if p != "/channels/t1/thread-members/@me" {
+			t.Fatalf("joined %s", p)
+		}
+	case <-ctx.Done():
+		t.Fatal("an open thread was not joined")
+	}
+	select {
+	case p := <-joined:
+		t.Fatalf("joined a thread it is in already: %s", p)
+	case <-time.After(300 * time.Millisecond):
+	}
+}

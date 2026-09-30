@@ -180,6 +180,8 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 				if m, ok := d.threadMade(ctx, p.D); ok {
 					onMessage(m)
 				}
+			case "GUILD_CREATE": // the open threads: joined, so what is said there is heard
+				go d.joinOpen(context.WithoutCancel(ctx), p.D, onMessage)
 			}
 		}
 	}
@@ -248,12 +250,13 @@ func (d *Discord) threadMade(ctx context.Context, raw json.RawMessage) (Incoming
 	if json.Unmarshal(raw, &th) != nil || th.ID == "" || !th.NewlyCreated {
 		return Incoming{}, false
 	}
+	slog.Info("discord: thread made", "thread", th.ID, "parent", th.ParentID)
 	go func() {
 		if err := d.do(context.WithoutCancel(ctx), "PUT", "/channels/"+th.ID+"/thread-members/@me", nil); err != nil {
 			slog.Warn("discord: not in the thread", "thread", th.ID, "err", err)
 		}
 	}()
-	return Incoming{ChatID: th.ID, GuildID: th.GuildID, ThreadOf: th.ID}, true
+	return Incoming{ChatID: th.ID, GuildID: th.GuildID, ThreadOf: th.ID, ParentID: th.ParentID}, true
 }
 
 // MakeThread opens a public thread: from a message (the thread takes its id),
@@ -280,6 +283,43 @@ func (d *Discord) MakeThread(ctx context.Context, chatID, fromMsg, name string) 
 
 // threadMenu is the entry of a message's "Apps" menu that makes a thread from it.
 const threadMenu = "Create thread"
+
+// joinOpen joins the guild's open threads the bot is not in (made before it
+// connected, or while it was down), one at a time: Discord's rate limits.
+func (d *Discord) joinOpen(ctx context.Context, raw json.RawMessage, onMessage func(Incoming)) {
+	var g struct {
+		ID      string `json:"id"`
+		Threads []struct {
+			ID       string `json:"id"`
+			ParentID string `json:"parent_id"`
+			Member   *struct {
+				UserID string `json:"user_id"`
+			} `json:"member"`
+		} `json:"threads"`
+	}
+	if json.Unmarshal(raw, &g) != nil {
+		return
+	}
+	slog.Info("discord: open threads", "guild", g.ID, "threads", len(g.Threads))
+	for _, th := range g.Threads {
+		if th.ID == "" {
+			continue
+		}
+		// each goes on with the conversation of the message it grew from, if office knows it
+		onMessage(Incoming{ChatID: th.ID, GuildID: g.ID, ThreadOf: th.ID, ParentID: th.ParentID})
+		if th.Member != nil { // in it already
+			continue
+		}
+		if err := d.do(ctx, "PUT", "/channels/"+th.ID+"/thread-members/@me", nil); err != nil {
+			slog.Warn("discord: not in the thread", "thread", th.ID, "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+}
 
 // SetCommands puts the bot's slash commands in Discord's "/" menu (after
 // READY: it needs the application's id).

@@ -63,8 +63,14 @@ func (m *Manager) placed(ctx context.Context, ch storage.Channel, convID, guild,
 // threadMade binds a new thread to the conversation of the message it grew from.
 func (m *Manager) threadMade(ctx context.Context, ch storage.Channel, in Incoming) {
 	conv, err := m.store.Channels().Thread(ctx, ch.ID, msgKey(in.ThreadOf))
+	if (err != nil || conv == "") && in.ParentID != "" { // a bot answer remembered before threads were (its reply key)
+		conv, err = m.store.Channels().Thread(ctx, ch.ID, "msg:"+in.ParentID+":"+in.ThreadOf)
+	}
 	if err != nil || conv == "" {
 		return // a thread of a message office did not take part in
+	}
+	if cur, _ := m.store.Channels().Thread(ctx, ch.ID, inKey(in.ChatID)); cur == conv {
+		return // bound already (an open thread seen again on connect)
 	}
 	_ = m.store.Channels().SetThread(ctx, ch.ID, inKey(in.ChatID), conv)
 	_ = m.store.Settings().Set(ctx, linkKey+conv, discordURL(in.GuildID, in.ChatID, ""))

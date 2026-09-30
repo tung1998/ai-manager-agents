@@ -35,6 +35,7 @@ type Incoming struct {
 	// ThreadOf: a thread was just made from that message (Discord; ChatID is
 	// the thread, Text empty): the message's conversation goes on in it.
 	ThreadOf string
+	ParentID string // …in that channel
 }
 
 // Adapter connects one bot.

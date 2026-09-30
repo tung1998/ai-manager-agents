@@ -1500,3 +1500,4 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Bot cần quyền Create Public Threads.
   - Lệnh chọn từ menu "/" không kèm tin đang reply (Discord gửi interaction riêng), nên thread mọc từ câu trả lời gần nhất của bot trong kênh (`channel_last/<ch>/<chat>`).
   - Muốn chọn đúng một tin: chuột phải tin đó → Apps → **Create thread** (message command, type 3).
+- Khi kết nối, `GUILD_CREATE` kèm danh sách thread đang mở. Bot tham gia các thread chưa là thành viên, và nối từng thread với cuộc chat của tin gốc nếu office biết tin đó. Câu trả lời cũ được tìm qua khóa reply `msg:<kênh cha>:<tin>`.

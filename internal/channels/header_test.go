@@ -182,6 +182,18 @@ func TestThreadFromAnswer(t *testing.T) {
 	if got := channels.ConversationLink(ctx, st, conv.ID); got != "https://discord.com/channels/g/1" {
 		t.Fatalf("link = %q", got)
 	}
+	// an answer remembered before threads were (only its reply key): found through the thread's channel
+	old, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
+	st.Channels().SetThread(ctx, ch.ID, "msg:c2:77", old.ID)
+	bot.in <- channels.Incoming{ChatID: "77", GuildID: "g", ThreadOf: "77", ParentID: "c2"}
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if id, _ := st.Channels().Thread(ctx, ch.ID, "in:77"); id == old.ID {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("an old answer's thread is not its conversation's")
+		}
+	}
 }
 
 // threadBot makes threads as Discord does: from a message, the thread's id is the message's.

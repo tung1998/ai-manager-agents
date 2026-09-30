@@ -220,6 +220,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		if in.Respond != nil { // a slash command waits for an answer
 			_, _ = in.Respond(ctx, "Bạn chưa được phép dùng bot này.")
 		}
+		slog.Info("channels: not allowed", "channel", ch.ID, "chat", in.ChatID, "user", in.UserID)
 		return // not allowed (an empty list allows no one): no answer to a message
 	}
 	key := ch.ID + "/" + in.ChatID
