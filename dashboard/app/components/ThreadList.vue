@@ -3,7 +3,7 @@ import type { DropdownMenuItem } from '@nuxt/ui'
 
 // The chats of a project, newest first: the chat's side column on a wide
 // screen, a drawer on a phone.
-interface Thread { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, source?: Source }
+interface Thread { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, source?: Source, purpose?: string }
 defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, menu: (c: Thread) => DropdownMenuItem[][] }>()
 const origin = defineModel<'all' | Source>('origin', { default: 'all' })
 const emit = defineEmits<{ open: [Thread], new: [] }>()
@@ -31,6 +31,7 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
           <p class="truncate">{{ c.title || t('chat.newThreadTitle') }}</p>
           <p class="flex items-center gap-1 truncate text-xs text-(--ui-text-muted)">
             <UIcon v-if="c.source && c.source !== 'web'" :name="sourceIcon[c.source]" class="size-3 shrink-0" :title="t(`source.${c.source}`)" />
+            <UIcon v-if="c.purpose === 'skill'" name="i-lucide-sparkles" class="size-3 shrink-0" :title="t('chat.skillChat')" />
             <span class="truncate">{{ c.agent_name }} · {{ when(c.updated_at) }}</span>
           </p>
         </div>

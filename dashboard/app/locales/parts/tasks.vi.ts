@@ -72,6 +72,8 @@ export default {
   'chat.placeholderNoAgent': 'Nhắn agent… (Enter gửi)',
   'chat.stop': 'Dừng',
   'chat.budgetHit': 'Đã chạm trần chi phí',
+  'chat.skillChat': 'Chat soạn skill',
+  'chat.backToSkillEditor': 'Mở trình soạn skill',
   'chat.openSkillEditor': 'Mở trong trình soạn skill: {name}',
   'chat.seeCosts': 'Xem ngân sách',
   'patch.pending': 'Chờ duyệt',

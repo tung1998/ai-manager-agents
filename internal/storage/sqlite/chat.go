@@ -71,12 +71,13 @@ func (r chatRepo) ListConversationsFrom(ctx context.Context, projectID, source s
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	where := `purpose=''` // the project's own chats (web, automations)
+	// the project's own chats (web, automations), a skill editor's among them
+	where := `purpose IN ('','skill')`
 	switch source {
 	case "all":
-		where = `purpose IN ('','channel')`
+		where = `purpose IN ('','skill','channel')`
 	case "web":
-		where = `purpose='' AND created_by LIKE 'human:%'`
+		where = `purpose IN ('','skill') AND created_by LIKE 'human:%'`
 	case "auto":
 		where = `purpose='' AND created_by LIKE 'auto:%'`
 	case "discord", "telegram":

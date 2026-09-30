@@ -307,6 +307,9 @@ func (s *server) jobGroups(w http.ResponseWriter, r *http.Request) {
 				if c.Purpose == "automation" && c.AutomationID != "" { // the builder chat opens with its automation
 					d.Link = base + "/automations/" + c.AutomationID
 				}
+				if c.Purpose == "skill" { // a skill editor's chat opens the editor again
+					d.Link = base + "/skills/edit?c=" + c.ID
+				}
 			}
 		case "t:": // a task from before Việc was dropped (ADR-057): its latest job
 			d.Kind, d.JobID = "task", g.LatestID

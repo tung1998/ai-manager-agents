@@ -51,6 +51,12 @@ function applyPatch(p: Record<string, unknown>) {
   setTimeout(() => { highlight.value = [] }, 4000)
   toast.add({ title: t('auto.filled', { n: changed.length }), color: 'info' })
 }
+// back on its chat (?c=): a new skill takes up the chat's drafts again, in
+// order; a saved skill keeps what its file says
+function replay(blocks: Record<string, unknown>[]) {
+  if (editing.value || !blocks.length) return
+  applyPatch(Object.assign({}, ...blocks))
+}
 // a draft handed over from a project chat
 onMounted(() => {
   if (editing.value) return
@@ -134,7 +140,7 @@ async function save(accept = false) {
       </div>
     </div>
     <div class="h-[32rem] lg:h-auto lg:min-h-0">
-      <ChatPanel :project-id="projectId" purpose="skill" :page-context="pageContext" @skill-patch="applyPatch" />
+      <ChatPanel :project-id="projectId" purpose="skill" :page-context="pageContext" @skill-patch="applyPatch" @skill-history="replay" />
     </div>
   </div>
 </template>

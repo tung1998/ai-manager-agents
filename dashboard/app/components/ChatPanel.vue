@@ -16,7 +16,7 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
+interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message, next_turn_id?: string }
 // the agents in a chat and the answers in progress (ADR-044)
 interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
@@ -27,7 +27,7 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 // compact: no thread column (a picker instead), fills its container.
 // pageContext: what the person is looking at, sent with each message.
 const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string }>()
-const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string], 'back': [] }>()
+const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'skill-history': [Record<string, unknown>[]], 'conversation': [string], 'back': [] }>()
 const single = computed(() => !!props.purpose)
 // the chat page on a phone: the input stays behind a button until asked for,
 // so the messages get the whole screen
@@ -268,6 +268,8 @@ async function newConversation(agentId = '') {
     const res = await $fetch<{ conversation: Conversation }>(`/api/projects/${props.projectId}/conversations`, { method: 'POST', body: { agent_id: agentId, purpose: props.purpose ?? '' } })
     if (props.purpose) emit('conversation', res.conversation.id)
     else await refreshConvs()
+    // the skill editor's chat is in the URL: back, reload or a link reopens it
+    if (props.purpose === 'skill') router.replace({ query: { ...route.query, c: res.conversation.id } })
     await open(res.conversation)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -420,8 +422,19 @@ const threadPick = computed({
   set: (id?: string) => { const c = conversations.value.find(x => x.id === id); if (c) open(c) }
 })
 
+// the skill editor opened on its chat again: that chat, and the drafts it gave
+async function openSkillChat(id: string) {
+  try {
+    await open({ id } as Conversation)
+    emit('skill-history', messages.value.filter(m => m.role === 'assistant').flatMap(m => fencedBlocks(m.content, 'skill')))
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+
 onMounted(() => {
   if (props.purpose === 'automation') openAutomation()
+  else if (props.purpose === 'skill') { if (typeof route.query.c === 'string') openSkillChat(route.query.c) }
   else if (ownsUrl.value && typeof route.query.draft === 'string' && !tookPrefill) {
     // handed over by the office assistant: a new chat with the message ready to send
     draft.value = route.query.draft
@@ -496,6 +509,12 @@ onBeforeUnmount(() => {
         </span>
       </div>
       <div ref="listEl" class="min-w-0 space-y-4" :class="['flex-1 overflow-y-auto overflow-x-hidden p-4 max-md:px-3', page && 'max-sm:pb-32' /* room for the floating input, open or not: nothing jumps */]">
+        <!-- a skill editor's chat, followed from the chat list: back to its editor -->
+        <div v-if="!single && current?.purpose === 'skill'" class="flex items-center gap-2 rounded-lg border border-(--ui-border) px-3 py-2 text-sm">
+          <UIcon name="i-lucide-sparkles" class="size-4 shrink-0 text-(--ui-primary)" />
+          <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.skillChat') }}</span>
+          <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('chat.backToSkillEditor')" :to="`/projects/${projectId}/skills/edit?c=${current.id}`" />
+        </div>
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
         </div>
@@ -562,7 +581,7 @@ onBeforeUnmount(() => {
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div class="markdown min-w-0 text-sm" v-html="renderMarkdown(m.content)" />
             <UButton
-              v-for="(d, i) in (purpose === 'skill' ? [] : skillDrafts(m.content))" :key="`sk${i}`"
+              v-for="(d, i) in (purpose === 'skill' || current?.purpose === 'skill' ? [] : skillDrafts(m.content))" :key="`sk${i}`"
               icon="i-lucide-sparkles" size="sm" color="neutral" variant="outline" :label="t('chat.openSkillEditor', { name: String(d.name) })"
               @click="openSkillDraft(d)"
             />

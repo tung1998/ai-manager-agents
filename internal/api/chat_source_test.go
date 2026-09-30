@@ -50,7 +50,7 @@ func TestChatListBySource(t *testing.T) {
 }
 
 // A chat that helps write a skill (its answers fill the editor): its own
-// purpose, out of the project's chat list.
+// purpose, and in the project's chat list so it can be found again.
 func TestSkillChatPurpose(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
@@ -69,8 +69,8 @@ func TestSkillChatPurpose(t *testing.T) {
 		t.Fatalf("create = %d %v", resp.StatusCode, b)
 	}
 	_, b = do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/conversations?source=all", nil, nil)
-	if len(b["conversations"].([]any)) != 0 {
-		t.Fatalf("a skill chat is in the list: %v", b)
+	if cs := b["conversations"].([]any); len(cs) != 1 || cs[0].(map[string]any)["purpose"] != "skill" {
+		t.Fatalf("the skill chat is not in the list: %v", b)
 	}
 }
 
@@ -155,5 +155,39 @@ func TestJobsSmallPage(t *testing.T) {
 	_, b := do(t, admin, "GET", e.srv.URL+"/api/jobs?limit=2", nil, nil)
 	if len(b["jobs"].([]any)) != 2 || b["next_before"] == "" {
 		t.Fatalf("page = %d next %q", len(b["jobs"].([]any)), b["next_before"])
+	}
+}
+
+// A chat of the skill editor is a chat of the project too: in the list (so it
+// can be followed), and its job opens the editor again, not a lost thread.
+func TestSkillChatListed(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	c, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "skill tra đơn", CreatedBy: "human:admin@x.io", Purpose: "skill"})
+	e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "builder", CreatedBy: "human:admin@x.io", Purpose: "automation"})
+	for _, q := range []string{"", "?source=all", "?source=web"} {
+		_, b := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/conversations"+q, nil, nil)
+		var found map[string]any
+		for _, x := range b["conversations"].([]any) {
+			if m := x.(map[string]any); m["id"] == c.ID {
+				found = m
+			}
+			if x.(map[string]any)["title"] == "builder" {
+				t.Fatalf("%q: an automation builder's chat stays with its automation", q)
+			}
+		}
+		if found == nil || found["purpose"] != "skill" {
+			t.Fatalf("%q: skill chat = %v in %v", q, found, b)
+		}
+	}
+	e.st.Jobs().Create(ctx, storage.Job{ProjectID: pid, Kind: "chat_turn", Origin: "user", ConversationID: c.ID, Status: "done"})
+	_, b := do(t, admin, "GET", e.srv.URL+"/api/jobs/groups", nil, nil)
+	g := b["groups"].([]any)[0].(map[string]any)
+	if g["link"] != "/projects/"+pid+"/skills/edit?c="+c.ID {
+		t.Fatalf("link = %v", g["link"])
 	}
 }
