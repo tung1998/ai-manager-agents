@@ -375,6 +375,8 @@ type ChatRepo interface {
 
 	AddPatch(ctx context.Context, p Patch) (Patch, error)
 	GetPatch(ctx context.Context, id string) (Patch, error)
+	// SetPatchDiff replaces a diff and its files (a worktree's, refreshed onto the project).
+	SetPatchDiff(ctx context.Context, id, diff string, files []string) error
 	ListPatches(ctx context.Context, conversationID string) ([]Patch, error)
 	// PendingPatches lists chats' diffs waiting for a person, newest first.
 	PendingPatches(ctx context.Context, limit int) ([]Patch, error)

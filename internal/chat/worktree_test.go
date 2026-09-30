@@ -282,3 +282,71 @@ func TestAssistantChatGetsOfficeScope(t *testing.T) {
 		t.Fatalf("a project's chat got office tools: %v", names)
 	}
 }
+
+// The project moved on after the chat's worktree was made: merging refreshes
+// the worktree onto it first; a clash is left in the worktree for the agent.
+func TestMergeAfterProjectMoved(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	srv := fakeAnthropic(t, "worktree riêng", []map[string]any{
+		{"name": "edit_file", "input": map[string]any{"path": "hello.txt", "old": "hello", "new": "xin chào"}},
+		{"name": "edit_file", "input": map[string]any{"path": "hello.txt", "old": "thế giới", "new": "bạn"}},
+		{"name": "write_file", "input": map[string]any{"path": "note.txt", "content": "ghi chú\n"}},
+	})
+	defer srv.Close()
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		key := "sk-ant-test-key-0000"
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "C", Kind: storage.ProviderAnthropic, BaseURL: srv.URL, APIKey: &key})
+		return p
+	})
+	os.WriteFile(filepath.Join(f.dir, "hello.txt"), []byte("hello\n1\n2\n3\nworld\n"), 0o644)
+	gitRun(t, f.dir, "init", "-q")
+	gitRun(t, f.dir, "add", "-A")
+	gitRun(t, f.dir, "commit", "-q", "-m", "init")
+	trees := worktree.New(filepath.Join(t.TempDir(), "worktrees"))
+	f.engine.SetWorktrees(trees)
+	ctx := actor.With(context.Background(), "human:a@b.c")
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	turn, _, _ := f.engine.Send(ctx, conv.ID, "đổi lời chào", nil)
+	evs := collect(t, turn)
+	pid := evs[len(evs)-1].Message.Patches[0].ID
+	// meanwhile someone changes another line of the project and commits it
+	os.WriteFile(filepath.Join(f.dir, "hello.txt"), []byte("hello\n1\n2\n3\nthế giới\n"), 0o644)
+	gitRun(t, f.dir, "commit", "-q", "-am", "moved")
+	p, err := f.engine.DecidePatch(ctx, pid, true)
+	if err != nil || p.Status != "applied" {
+		t.Fatalf("merge after the project moved = %+v %v", p, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(f.dir, "hello.txt")); string(b) != "xin chào\n1\n2\n3\nthế giới\n" {
+		t.Fatalf("project = %q", b)
+	}
+	// a clash: the same line changed on both sides
+	turn, _, _ = f.engine.Send(ctx, conv.ID, "đổi tiếp", nil)
+	evs = collect(t, turn)
+	if len(evs[len(evs)-1].Message.Patches) == 0 { // the worktree followed the project: "thế giới" is there to edit
+		b, _ := os.ReadFile(filepath.Join(trees.Path(f.project.ID, chat.ChatTree(conv.ID)), "hello.txt"))
+		t.Fatalf("no second patch: %+v worktree=%q", evs[len(evs)-1].Message, b)
+	}
+	pid = evs[len(evs)-1].Message.Patches[0].ID
+	os.WriteFile(filepath.Join(f.dir, "hello.txt"), []byte("xin chào\n1\n2\n3\nworld again\n"), 0o644)
+	gitRun(t, f.dir, "commit", "-q", "-am", "clash")
+	p, err = f.engine.DecidePatch(ctx, pid, true)
+	if err != nil || p.Status != "failed" || !strings.Contains(p.Detail, "xung đột") || !strings.Contains(p.Detail, "hello.txt") {
+		t.Fatalf("clash = %+v %v", p, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(f.dir, "hello.txt")); string(b) != "xin chào\n1\n2\n3\nworld again\n" {
+		t.Fatalf("the project was touched by a clash: %q", b)
+	}
+	// the agent does something else without settling the clash: nothing goes to merge
+	turn, _, _ = f.engine.Send(ctx, conv.ID, "ghi chú", nil)
+	evs = collect(t, turn)
+	for _, pt := range evs[len(evs)-1].Message.Patches {
+		if pt.Status == "pending" || pt.Status == "applied" {
+			t.Fatalf("a diff with conflict markers went to merge: %+v", pt)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(f.dir, "hello.txt")); strings.Contains(string(b), "<<<<<<<") {
+		t.Fatalf("conflict markers reached the project: %q", b)
+	}
+}

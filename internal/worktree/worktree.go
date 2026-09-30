@@ -302,6 +302,73 @@ func Accept(ctx context.Context, dir, diff string) error {
 	return err
 }
 
+// Refresh moves the worktree onto the project (repo) as it is now, with what
+// was changed in it on top: a 3-way merge done in the worktree, so the project
+// is never touched. Files the merge could not settle keep git's conflict
+// markers and are returned; the worktree's accepted point becomes the project's
+// current state, so its diff applies to the project again.
+func Refresh(ctx context.Context, repo, dir string) ([]string, error) {
+	defer lockDir(dir)()
+	base, err := snapshot(ctx, repo)
+	if err != nil {
+		return nil, fmt.Errorf("chụp trạng thái project: %w", err)
+	}
+	// the project as it was when last synced: nothing to do
+	now, _ := git(ctx, dir, "rev-parse", base+"^{tree}")
+	was, _ := git(ctx, dir, "rev-parse", "HEAD^{tree}")
+	if strings.TrimSpace(now) != "" && strings.TrimSpace(now) == strings.TrimSpace(was) {
+		return nil, nil
+	}
+	if _, err := git(ctx, dir, "add", "-A"); err != nil {
+		return nil, err
+	}
+	tree, err := git(ctx, dir, "write-tree")
+	if err != nil {
+		return nil, err
+	}
+	// what the agent changed, as a commit on the old accepted point
+	mine, err := gitEnv(ctx, dir, identity, "commit-tree", strings.TrimSpace(tree), "-p", "HEAD", "-m", "agent-office: thay đổi trong worktree")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := git(ctx, dir, "checkout", "-q", "-f", "--detach", base); err != nil {
+		return nil, err
+	}
+	if _, err := gitEnv(ctx, dir, identity, "cherry-pick", "--no-commit", strings.TrimSpace(mine)); err == nil {
+		_, _ = git(ctx, dir, "reset", "-q") // the changes stay in the files, unstaged
+		return nil, nil
+	}
+	out, _ := git(ctx, dir, "diff", "--name-only", "--diff-filter=U")
+	var conflicts []string
+	for _, f := range strings.Split(out, "\n") {
+		if f = strings.TrimSpace(f); f != "" {
+			conflicts = append(conflicts, f)
+		}
+	}
+	_, _ = git(ctx, dir, "cherry-pick", "--quit") // keep the files as the merge left them
+	_, _ = git(ctx, dir, "reset", "-q")
+	if len(conflicts) == 0 {
+		return nil, errors.New("không gộp được thay đổi của worktree lên code mới của project")
+	}
+	return conflicts, nil
+}
+
+// Markers lists the files among files that still hold conflict markers.
+func Markers(dir string, files []string) []string {
+	var out []string
+	for _, f := range files {
+		b, err := os.ReadFile(filepath.Join(dir, f))
+		if err != nil {
+			continue
+		}
+		s := string(b)
+		if strings.Contains(s, "\n<<<<<<< ") || strings.HasPrefix(s, "<<<<<<< ") || strings.Contains(s, "\n>>>>>>> ") {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // Discard takes diff back out of the worktree's files (a rejected change).
 func Discard(ctx context.Context, dir, diff string) error {
 	defer lockDir(dir)()

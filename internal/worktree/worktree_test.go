@@ -132,3 +132,52 @@ func TestNotGit(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// The project moved on after the worktree was made: Refresh puts what the
+// agent changed on top of the project as it is now (a 3-way merge in the
+// worktree); the project itself is never touched.
+func TestRefreshOntoMovedProject(t *testing.T) {
+	ctx := context.Background()
+	repo := setupRepo(t)
+	write(t, filepath.Join(repo, "b.txt"), "1\n2\n3\n4\n5\n")
+	run(t, repo, "add", "-A")
+	run(t, repo, "commit", "-q", "-m", "b")
+	m := New(filepath.Join(t.TempDir(), "worktrees"))
+	dir, err := m.Ensure(ctx, repo, "p1", "chat-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "b.txt"), "1\n2\n3\n4\nFIVE\n") // the agent, at the end
+	write(t, filepath.Join(repo, "b.txt"), "ONE\n2\n3\n4\n5\n") // the project moved, at the start
+	run(t, repo, "commit", "-q", "-am", "moved")
+	conflicts, err := Refresh(ctx, repo, dir)
+	if err != nil || len(conflicts) != 0 {
+		t.Fatalf("refresh = %v %v", conflicts, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "b.txt")); string(b) != "ONE\n2\n3\n4\nFIVE\n" {
+		t.Fatalf("worktree after refresh = %q", b)
+	}
+	diff, files, err := Changes(ctx, dir, nil)
+	if err != nil || len(files) != 1 || files[0] != "b.txt" {
+		t.Fatalf("changes = %v %v", files, err)
+	}
+	apply := exec.Command("git", "apply", "--check", "-")
+	apply.Dir, apply.Stdin = repo, strings.NewReader(diff)
+	if out, err := apply.CombinedOutput(); err != nil {
+		t.Fatalf("the refreshed diff does not apply: %s", out)
+	}
+	// the same line on both sides: a conflict, kept in the worktree
+	write(t, filepath.Join(dir, "b.txt"), "ONE\n2\nthree-agent\n4\nFIVE\n")
+	write(t, filepath.Join(repo, "b.txt"), "ONE\n2\nthree-project\n4\n5\n")
+	run(t, repo, "commit", "-q", "-am", "again")
+	conflicts, err = Refresh(ctx, repo, dir)
+	if err != nil || len(conflicts) != 1 || conflicts[0] != "b.txt" {
+		t.Fatalf("conflict refresh = %v %v", conflicts, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "b.txt")); !strings.Contains(string(b), "<<<<<<<") {
+		t.Fatalf("no conflict markers: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(repo, "b.txt")); string(b) != "ONE\n2\nthree-project\n4\n5\n" {
+		t.Fatalf("the project was touched: %q", b)
+	}
+}

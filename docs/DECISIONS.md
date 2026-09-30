@@ -1433,3 +1433,15 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Dữ liệu Việc cũ (bảng tasks, job kind `task`) vẫn giữ. Trang Job hiện Việc cũ như một dòng, bấm vào mở chi tiết job.
 - Trang Job: mỗi lần chạy tự động hóa là một dòng riêng. Lượt chat gom theo cuộc chat.
 - (bổ sung) Chat ở chế độ **Worktree riêng** giờ commit, tạo nhánh và push được **sau khi diff của worktree đã được gộp** vào project (không còn diff chờ duyệt). Git chạy trên thư mục project. Trước đây mọi lệnh git từ worktree đều bị từ chối, nên agent không bao giờ commit được. Khi còn diff chờ gộp, agent được dặn nhờ người dùng `/pending` rồi `/approve`, hoặc duyệt ở Tổng quan.
+
+## ADR-058: Worktree của chat theo kịp project
+
+**Bối cảnh.** Worktree riêng của chat được tạo từ trạng thái project lúc đầu. Khi project có commit mới sửa cùng file, diff của worktree không gộp được nữa. Lần SDV-11609 gộp thất bại 5 lần liền và cuộc chat bị treo.
+
+**Quyết định.**
+- Đầu mỗi lượt chat (khi agent được sửa trong worktree), office **cập nhật worktree theo project hiện tại**: phần agent đã sửa được gộp 3 chiều lên code mới, ngay trong worktree, không đụng vào project. Project không đổi thì bỏ qua.
+- Khi gộp diff vào project mà thất bại, office làm mới worktree rồi thử gộp lại bằng diff mới.
+- Nếu trùng chỗ sửa, dấu xung đột nằm lại trong worktree:
+  - Diff đang gộp được đánh dấu thất bại, ghi rõ file nào bị xung đột.
+  - Lượt sau, agent được dặn sửa xung đột trước.
+  - Diff còn dấu xung đột không bao giờ được đưa đi gộp.

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -637,6 +638,19 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			e.mu.Unlock()
 		}()
 	}
+	// the chat's worktree follows the project: what the agent changed is put on
+	// top of the project as it is now; a clash is left for it to settle
+	clash := ""
+	if pl.tree != "" && pl.write && project.Path != "" {
+		if _, err := worktree.Refresh(ctx, project.Path, pl.dir); err != nil {
+			slog.Warn("chat: refresh worktree", "conversation", conv.ID, "err", err)
+		}
+		if files, err := worktree.Changed(ctx, pl.dir); err == nil {
+			if left := worktree.Markers(pl.dir, files); len(left) > 0 {
+				clash = strings.Join(left, ", ")
+			}
+		}
+	}
 	req := RunRequest{
 		Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: text,
 		System: systemPrompt(project, agent, e.office != nil, acc, pl), History: HistoryFor(history, agent.Name), Attachments: files,
@@ -650,6 +664,10 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	if teamChat(conv) { // the team and how to give it work
 		req.System += e.groupBrief(ctx, conv, agent)
+	}
+	if clash != "" {
+		req.System += "\n\n## Xung đột cần sửa trước\nCode ở project đã đổi trùng chỗ bạn sửa; worktree đã cập nhật theo project mới nhất, còn dấu xung đột (<<<<<<< ======= >>>>>>>) ở: " + clash +
+			". Mở các file đó, giữ đúng phần cần giữ, xóa hết dấu xung đột, rồi làm tiếp việc người dùng yêu cầu."
 	}
 	if s := instructionsOf(ctx); s != "" {
 		req.System += "\n\n## Chỉ dẫn của người quản trị cho lượt này\n" + s +
@@ -800,6 +818,11 @@ func (e *Engine) treePatch(ctx context.Context, conv storage.Conversation, messa
 	diff, files, err := worktree.Changes(ctx, dir, nil)
 	if err != nil || diff == "" {
 		return storage.Patch{}, false
+	}
+	// conflict markers left from following the project never reach it
+	if left := worktree.Markers(dir, files); len(left) > 0 {
+		return storage.Patch{ConversationID: conv.ID, MessageID: messageID, TaskID: conv.TaskID, Origin: "worktree", Tree: tree, Status: "failed", Files: files,
+			Detail: "Chưa gộp được: còn dấu xung đột ở " + strings.Join(left, ", ") + ". Agent cần sửa xong các file đó ở lượt sau."}, true
 	}
 	now := time.Now().UTC()
 	if old, err := e.store.Chat().ListPatches(ctx, conv.ID); err == nil {
@@ -1087,11 +1110,14 @@ func (e *Engine) DecidePatch(ctx context.Context, patchID string, approve bool) 
 		if project.Path == "" {
 			return toPatchDTO(p), ErrNoFolder
 		}
-		if err := ApplyPatch(ctx, project.Path, p.Diff); err != nil {
+		err := ApplyPatch(ctx, project.Path, p.Diff)
+		if err != nil && p.Origin == "worktree" {
+			// the project moved on since the worktree was made: refresh it onto
+			// the project as it is now, then merge what the agent changed
+			p, err = e.refreshAndDiff(ctx, project, p)
+		}
+		if err != nil {
 			status, detail = "failed", err.Error()
-			if p.Origin == "worktree" {
-				detail = "Không gộp được vào project (code ở project đã đổi so với lúc tạo worktree): " + err.Error()
-			}
 		} else {
 			status, detail = "applied", "Đã áp dụng vào "+strings.Join(p.Files, ", ")
 			if dir := e.treeOf(project.ID, p); dir != "" {
@@ -1171,4 +1197,34 @@ func (e *Engine) auditAutoPatch(agent string, conv storage.Conversation, jobID s
 	}
 	_ = audit.Record(ctx, e.store.Audit(), audit.Change{Action: "patch." + p.Status, ResourceID: p.ID, ProjectID: conv.ProjectID,
 		Detail: map[string]any{"files": p.Files, "auto": true}, Err: err})
+}
+
+// refreshAndDiff puts a worktree's changes on top of the project as it is now
+// (a 3-way merge in the worktree, the project untouched) and makes p that
+// diff, applied to the project. A clash stays in the worktree for the agent.
+func (e *Engine) refreshAndDiff(ctx context.Context, project storage.Repo, p storage.Patch) (storage.Patch, error) {
+	dir := e.treeOf(project.ID, p)
+	if dir == "" {
+		return p, errors.New("không gộp được vào project: code ở project đã đổi và worktree không còn")
+	}
+	conflicts, err := worktree.Refresh(ctx, project.Path, dir)
+	if err != nil {
+		return p, fmt.Errorf("không gộp được vào project: %w", err)
+	}
+	if len(conflicts) > 0 {
+		return p, fmt.Errorf("code ở project đã đổi và trùng chỗ agent sửa: worktree đã cập nhật theo project, còn xung đột ở %s. Nhờ agent sửa các file đó (bỏ dấu <<<<<<< ======= >>>>>>>), diff mới sẽ tới để duyệt", strings.Join(conflicts, ", "))
+	}
+	diff, files, err := worktree.Changes(ctx, dir, nil)
+	if err != nil {
+		return p, err
+	}
+	if diff == "" {
+		return p, errors.New("thay đổi của worktree đã có sẵn trong project")
+	}
+	if err := ApplyPatch(ctx, project.Path, diff); err != nil {
+		return p, fmt.Errorf("không gộp được vào project sau khi cập nhật worktree: %w", err)
+	}
+	p.Diff, p.Files = diff, files
+	_ = e.store.Chat().SetPatchDiff(ctx, p.ID, diff, files)
+	return p, nil
 }
