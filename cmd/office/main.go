@@ -41,7 +41,8 @@ func main() {
 	}
 	root.PersistentFlags().StringVarP(&configPath, "config", "c", "office.config.json", "đường dẫn office.config.json")
 	root.PersistentFlags().StringVar(&homeFlag, "home", "", "thư mục dữ liệu (mặc định: .office của project gần nhất, hoặc ~/.agent-office)")
-	root.AddCommand(runCmd(), serveCmd(), initCmd(), userCmd(), repoCmd(), providerCmd(), templateCmd(), exportCmd(), importCmd(), backupCmd(), configCmd())
+	root.AddCommand(runCmd(), serveCmd(), initCmd(), userCmd(), repoCmd(), providerCmd(), templateCmd(), exportCmd(), importCmd(), backupCmd(), configCmd(), hookCmd())
+	setGuardCommand()
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "lỗi:", err)

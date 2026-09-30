@@ -84,16 +84,22 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 			deny = append(deny, "Edit("+p+")", "Write("+p+")")
 		}
 	}
+	if req.Write && GuardCommand != "" {
+		// Claude Code refuses writes in .claude/ under dontAsk: bypass, with the
+		// office's hook keeping edits in the folder (and MCP as before); the deny
+		// rules below still hold, and --tools still bounds what exists
+		a[slices.Index(a, "dontAsk")] = "bypassPermissions"
+		a = append(a, "--settings", guardSettings(req.UserMCP))
+	} else if req.UserMCP {
+		// dontAsk denies tools it was not told about, and the user's MCP
+		// servers are not known up front: a hook allows every mcp__ tool
+		a = append(a, "--settings", userMCPSettings)
+	}
 	a = append(a,
 		"--tools", strings.Join(tools, ","),
 		"--allowedTools", strings.Join(tools, " "),
 		"--disallowedTools", strings.Join(deny, " "),
 	)
-	if req.UserMCP {
-		// dontAsk denies tools it was not told about, and the user's MCP
-		// servers are not known up front: a hook allows every mcp__ tool
-		a = append(a, "--settings", userMCPSettings)
-	}
 	if req.Model != "" {
 		a = append(a, "--model", req.Model)
 	}

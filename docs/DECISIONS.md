@@ -1463,3 +1463,13 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Ngân sách từng project nằm ở tab **Thông tin** của project (`GET/PUT /api/projects/{id}/budget`; chỉ admin sửa).
 - Trần chung của office và giá model nằm ở **Kết nối AI**.
 - `/costs` chuyển về Tổng quan; thông báo chạm trần mở tab Thông tin của project.
+
+## ADR-061: Agent được ghi skill trong .claude/
+- Ở chế độ `dontAsk`, Claude Code luôn từ chối ghi vào `.claude/`, dù đã cho phép Edit/Write và có hook trả "allow". Vì vậy agent không tạo được skill.
+- Chat có quyền sửa file giờ chạy `bypassPermissions`, kèm hook `office hook guard` (PreToolUse):
+  - Chỉ sửa file trong thư mục làm việc (worktree hoặc project); symlink ra ngoài cũng bị chặn.
+  - MCP của người dùng chỉ được dùng khi agent có quyền đó.
+  - Các luật chặn cũ vẫn giữ: `.env`, khóa bí mật, `.git`, đường dẫn cấm của project. `--tools` vẫn giới hạn công cụ, không có Bash.
+  - Claude Code vẫn tự chặn `.claude/settings*`.
+- Ở worktree, skill mới đi qua thẻ duyệt diff như mọi thay đổi khác.
+- Chat chỉ-đọc thì trả khối ```skill; nút "Mở trong trình soạn skill" mở bản nháp để người dùng xem lại rồi Lưu.

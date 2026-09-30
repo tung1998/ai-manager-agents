@@ -18,10 +18,9 @@ Quy tắc:
 - Giải thích ngắn thay đổi, nhắc người dùng xem lại rồi bấm Lưu. Không tự ghi file skill.
 `
 
-// skillHandoff: in a project's chat Claude Code refuses writes under .claude/
-// (its own protected folder), so a skill is drafted in the answer and opened
-// in the editor by a person.
+// skillHandoff: a chat that cannot write .claude/skills (read-only, or no
+// guard hook) drafts the skill in its answer; a person opens it in the editor.
 const skillHandoff = `
 
 ## Tạo hoặc sửa skill
-Không ghi file trong .claude/ (Claude Code chặn thư mục này). Muốn tạo/sửa skill của project, trả về MỘT khối ` + "```skill" + ` chứa JSON {"name","description","body"} (body là nội dung SKILL.md, không gồm frontmatter; name chữ thường, số, gạch ngang), dấu ` + "```" + ` đóng khối nằm riêng một dòng. Office hiện nút mở khối đó trong trình soạn skill để người dùng xem lại và Lưu.`
+Chat này không ghi được file skill. Muốn tạo/sửa skill của project, trả về MỘT khối ` + "```skill" + ` chứa JSON {"name","description","body"} (body là nội dung SKILL.md, không gồm frontmatter; name chữ thường, số, gạch ngang), dấu ` + "```" + ` đóng khối nằm riêng một dòng. Office hiện nút mở khối đó trong trình soạn skill để người dùng xem lại và Lưu.`
