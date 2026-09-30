@@ -399,3 +399,28 @@ func TestThreadIsOneConversation(t *testing.T) {
 		t.Fatal("a channel message went into the thread's conversation")
 	}
 }
+
+// A kept thread (/create-conversation there, or /create-thread) keeps its
+// conversation: being a thread does not start another one.
+func TestKeptThreadKeepsItsConversation(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
+	st.Settings().Set(ctx, "channel_keep/"+ch.ID+"/t5", "gen1")
+	kept, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "t5", Addressed: true}) // before the bot knew it was a thread
+	again, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "t5", InThread: true, Addressed: true})
+	if kept == "" || again != kept {
+		t.Fatalf("kept %q, then %q", kept, again)
+	}
+}

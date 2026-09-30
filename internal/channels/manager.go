@@ -508,16 +508,6 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 			return id, nil
 		}
 	}
-	if in.InThread { // a thread is one conversation: the first tag makes it, the rest go on in it
-		conv, err := m.engine.StartConversationPurpose(ctx, ch.ProjectID, agent.ID, "channel")
-		if err != nil {
-			return "", err
-		}
-		if err := m.engine.SetMode(ctx, conv.ID, perm.Operate); err != nil {
-			return "", err
-		}
-		return conv.ID, m.store.Channels().SetThread(ctx, ch.ID, inKey(in.ChatID), conv.ID)
-	}
 	keep := m.keep(ctx, ch.ID, in.ChatID)
 	key := in.ChatID + "#" + agent.ID + "#" + keep
 	if keep != "" {
@@ -533,6 +523,11 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 	}
 	if err := m.engine.SetMode(ctx, conv.ID, perm.Operate); err != nil { // no extra ceiling: the agent's own rights apply
 		return "", err
+	}
+	if in.InThread { // a thread is one conversation: the first tag makes it, the rest go on in it
+		if err := m.store.Channels().SetThread(ctx, ch.ID, inKey(in.ChatID), conv.ID); err != nil {
+			return "", err
+		}
 	}
 	if keep == "" {
 		return conv.ID, nil
