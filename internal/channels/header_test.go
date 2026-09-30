@@ -328,3 +328,42 @@ func TestCreateThreadSlash(t *testing.T) {
 		t.Fatalf("the thread's conversation = %q", id)
 	}
 }
+
+// In a thread of a conversation the bot still wants a tag, until
+// /create-conversation there (that thread only), which keeps its conversation.
+func TestThreadNeedsTag(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
+	st.Channels().SetThread(ctx, ch.ID, "in:t1", conv.ID) // a thread of the conversation
+	bot.in <- channels.Incoming{ChatID: "t1", UserID: "8", Text: "còn đó không"} // untagged: not for the bot
+	bot.in <- channels.Incoming{ChatID: "t1", UserID: "8", Text: "/create-conversation", Addressed: true}
+	got := bot.wait(t, "t1", 1)
+	if len(got) != 1 || !strings.Contains(got[0], "hội thoại") {
+		t.Fatalf("thread = %q (the untagged message was answered?)", got)
+	}
+	if id, _ := st.Channels().Thread(ctx, ch.ID, "in:t1"); id != conv.ID {
+		t.Fatal("/create-conversation took the thread off its conversation")
+	}
+}

@@ -8,8 +8,8 @@ import (
 )
 
 // Discord threads: a thread made from a message goes on with that message's
-// conversation (the thread's id is the message's), and every message said in
-// it is heard, as in a kept conversation. The conversation links to where it
+// conversation (the thread's id is the message's). As anywhere, the bot
+// answers a tag; /create-conversation in the thread makes it hear the rest. The conversation links to where it
 // is on Discord: its first message, then its thread.
 
 func msgKey(messageID string) string { return "thread:" + messageID } // a message → its conversation
@@ -123,10 +123,12 @@ func (m *Manager) makeThread(ctx context.Context, ch storage.Channel, ad Adapter
 	if conv != "" {
 		_ = m.store.Channels().SetThread(ctx, ch.ID, inKey(thread), conv)
 		_ = m.store.Settings().Set(ctx, linkKey+conv, discordURL(in.GuildID, thread, ""))
-	} else {
-		m.setKeep(ctx, ch.ID, thread, true) // a new thread: one conversation, all of it heard
 	}
-	_, _ = ad.Send(ctx, thread, "Đã mở thread: nhắn tiếp ở đây, không cần tag, mình nhớ những gì đã nói.")
+	hint := "Đã mở thread. Tag mình để hỏi tiếp, hoặc gõ /create-conversation để khỏi phải tag trong thread này."
+	if conv != "" {
+		hint = "Đã mở thread, tiếp tục hội thoại ở trên. Tag mình để hỏi tiếp, hoặc gõ /create-conversation để khỏi phải tag trong thread này."
+	}
+	_, _ = ad.Send(ctx, thread, hint)
 	if in.Respond != nil {
 		return "Đã tạo thread <#" + thread + ">."
 	}

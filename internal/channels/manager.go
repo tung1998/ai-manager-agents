@@ -213,8 +213,8 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		m.threadMade(ctx, ch, in)
 		return
 	}
-	if !in.Addressed && m.keep(ctx, ch.ID, in.ChatID) == "" && m.threadOf(ctx, ch, in.ChatID) == "" {
-		return // not for the bot, and no kept conversation (or thread of one) listening to this chat
+	if !in.Addressed && m.keep(ctx, ch.ID, in.ChatID) == "" {
+		return // not for the bot, and no kept conversation listening to this chat (a thread too: a tag, or /create-conversation there)
 	}
 	if !slices.Contains(ch.Allow, "*") && !slices.Contains(ch.Allow, in.ChatID) && !slices.Contains(ch.Allow, in.UserID) {
 		if in.Respond != nil { // a slash command waits for an answer

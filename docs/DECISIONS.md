@@ -1501,3 +1501,8 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Lệnh chọn từ menu "/" không kèm tin đang reply (Discord gửi interaction riêng), nên thread mọc từ câu trả lời gần nhất của bot trong kênh (`channel_last/<ch>/<chat>`).
   - Muốn chọn đúng một tin: chuột phải tin đó → Apps → **Create thread** (message command, type 3).
 - Khi kết nối, `GUILD_CREATE` kèm danh sách thread đang mở. Bot tham gia các thread chưa là thành viên, và nối từng thread với cuộc chat của tin gốc nếu office biết tin đó. Câu trả lời cũ được tìm qua khóa reply `msg:<kênh cha>:<tin>`.
+- Sửa lại luật trả lời trong thread (theo yêu cầu):
+  - Bot vẫn vào thread, vì Discord không gửi tin trong thread (kể cả tin tag bot) cho người không phải thành viên.
+  - Trong thread, bot chỉ trả lời khi được tag, giống ở kênh.
+  - `/create-conversation` gõ trong thread thì bot nghe mọi tin, chỉ trong thread đó. Thread đã nối với một cuộc chat vẫn giữ cuộc chat đó.
+  - Thread do `/create-thread` tạo cũng theo luật này.
