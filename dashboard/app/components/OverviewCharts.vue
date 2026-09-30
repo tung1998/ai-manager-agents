@@ -40,6 +40,8 @@ const tokens = (v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ?
 const dayLabel = (key: string) => new Date(key + 'T00:00:00').toLocaleDateString(dateLocale.value, { day: '2-digit', month: '2-digit' })
 const tickEvery = computed(() => Math.max(1, Math.ceil(days.value / 8)))
 const hover = ref<number | null>(null)
+// the cost line: one point at the middle of each day's bar, 0–100 up
+const costLine = computed(() => costDays.value.map((d, i) => `${i + 0.5},${100 - (d.cost_usd / maxCost.value) * 100}`).join(' '))
 const dim = (i: number) => hover.value !== null && hover.value !== i ? 'opacity-40' : ''
 </script>
 
@@ -61,36 +63,39 @@ const dim = (i: number) => hover.value !== null && hover.value !== i ? 'opacity-
           <div class="flex flex-wrap items-center justify-between gap-2">
             <p class="font-medium">{{ t('home.workChart') }}</p>
             <div class="flex flex-wrap items-center gap-3 text-xs text-(--ui-text-muted)">
-              <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-(--ui-primary)" />{{ t('home.workDone', { n: totals.done }) }}</span>
+              <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-(--ui-primary)/70" />{{ t('home.workDone', { n: totals.done }) }}</span>
               <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-(--ui-error)" />{{ t('home.workFailed', { n: totals.failed }) }}</span>
               <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-(--ui-text-dimmed)/60" />{{ t('home.workOther', { n: totals.jobs - totals.done - totals.failed }) }}</span>
-              <span v-if="sum" class="flex items-center gap-1"><span class="size-2 rounded-sm bg-(--ui-warning)" />{{ usd(sum.period) }} · {{ t('costs.avgPerDay', { v: usd(sum.period / Math.max(sum.days, 1)) }) }}</span>
+              <span v-if="sum" class="flex items-center gap-1"><span class="h-0.5 w-3 rounded-full bg-(--ui-warning)" />{{ usd(sum.period) }} · {{ t('costs.avgPerDay', { v: usd(sum.period / Math.max(sum.days, 1)) }) }}</span>
             </div>
           </div>
         </template>
         <USkeleton v-if="!work || !sum" class="h-56 w-full" />
         <div v-else class="relative" @mouseleave="hover = null">
           <div class="flex">
-            <p class="w-12 shrink-0 text-[10px] text-(--ui-text-muted)">{{ maxWork }}</p>
-            <div class="flex h-36 flex-1 items-end gap-0.5 border-b border-(--ui-border) pb-px">
-              <div v-for="(d, i) in workDays" :key="d.key" class="flex h-full flex-1 flex-col justify-end" @mouseenter="hover = i">
-                <div class="flex w-full flex-col-reverse overflow-hidden rounded-t transition-opacity" :class="dim(i)" :style="{ height: d.jobs ? `max(2px, ${(d.jobs / maxWork) * 100}%)` : '0' }">
-                  <div class="w-full bg-(--ui-primary)" :style="{ height: `${(d.done / Math.max(d.jobs, 1)) * 100}%` }" />
-                  <div class="w-full bg-(--ui-text-dimmed)/60" :style="{ height: `${((d.jobs - d.done - d.failed) / Math.max(d.jobs, 1)) * 100}%` }" />
-                  <div class="w-full border-b-2 border-(--ui-bg) bg-(--ui-error)" :style="{ height: `${(d.failed / Math.max(d.jobs, 1)) * 100}%` }" />
+            <p class="w-10 shrink-0 text-[10px] text-(--ui-text-muted)">{{ maxWork }}</p>
+            <!-- runs as bars, cost as a line over them (its scale on the right) -->
+            <div class="relative h-48 flex-1 border-b border-(--ui-border)">
+              <div class="flex h-full items-end gap-0.5 pb-px">
+                <div v-for="(d, i) in workDays" :key="d.key" class="flex h-full flex-1 flex-col justify-end" @mouseenter="hover = i">
+                  <div class="flex w-full flex-col-reverse overflow-hidden rounded-t transition-opacity" :class="dim(i)" :style="{ height: d.jobs ? `max(2px, ${(d.jobs / maxWork) * 100}%)` : '0' }">
+                    <div class="w-full bg-(--ui-primary)/70" :style="{ height: `${(d.done / Math.max(d.jobs, 1)) * 100}%` }" />
+                    <div class="w-full bg-(--ui-text-dimmed)/60" :style="{ height: `${((d.jobs - d.done - d.failed) / Math.max(d.jobs, 1)) * 100}%` }" />
+                    <div class="w-full border-b-2 border-(--ui-bg) bg-(--ui-error)" :style="{ height: `${(d.failed / Math.max(d.jobs, 1)) * 100}%` }" />
+                  </div>
                 </div>
               </div>
+              <svg class="pointer-events-none absolute inset-0 size-full overflow-visible" :viewBox="`0 0 ${costDays.length} 100`" preserveAspectRatio="none">
+                <polyline :points="costLine" fill="none" stroke="var(--ui-warning)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+              </svg>
+              <span
+                v-if="hover !== null" class="pointer-events-none absolute size-2 -translate-x-1/2 translate-y-1/2 rounded-full bg-(--ui-warning) ring-2 ring-(--ui-bg)"
+                :style="{ left: `${((hover + 0.5) / costDays.length) * 100}%`, bottom: `${(costDays[hover]!.cost_usd / maxCost) * 100}%` }"
+              />
             </div>
+            <p class="w-12 shrink-0 text-right text-[10px] text-(--ui-warning)">{{ usd(maxCost) }}</p>
           </div>
-          <div class="mt-2 flex">
-            <p class="w-12 shrink-0 text-[10px] text-(--ui-text-muted)">{{ usd(maxCost) }}</p>
-            <div class="flex h-20 flex-1 items-end gap-0.5 border-b border-(--ui-border) pb-px">
-              <div v-for="(d, i) in costDays" :key="d.key" class="flex h-full flex-1 items-end" @mouseenter="hover = i">
-                <div class="w-full rounded-t bg-(--ui-warning) transition-opacity" :class="dim(i)" :style="{ height: d.cost_usd ? `max(2px, ${(d.cost_usd / maxCost) * 100}%)` : '0' }" />
-              </div>
-            </div>
-          </div>
-          <div class="ms-12 mt-1 flex gap-0.5 text-[10px] text-(--ui-text-muted)">
+          <div class="ms-10 me-12 mt-1 flex gap-0.5 text-[10px] text-(--ui-text-muted)">
             <span v-for="(d, i) in workDays" :key="d.key" class="flex-1 text-center whitespace-nowrap">{{ i % tickEvery === 0 ? dayLabel(d.key) : '' }}</span>
           </div>
           <div v-if="hover !== null" class="pointer-events-none absolute right-0 top-0 rounded-md border border-(--ui-border) bg-(--ui-bg) px-3 py-2 text-xs shadow-sm">
