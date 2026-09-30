@@ -164,8 +164,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	bot.wait(t, "42", 4)
 	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 thì sao", Private: true, Addressed: true}
 	bot.wait(t, "42", 5)
-	if n := resumes(); n != 1 {
-		t.Fatalf("kept conversation: %d resumes, want 1", n)
+	if n := resumes(); n != 2 { // it went on with the latest answer's conversation: both resume it
+		t.Fatalf("kept conversation: %d resumes, want 2", n)
 	}
 	// a kept conversation hears its chat without a tag; others are not heard
 	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 nữa không tag"}
@@ -184,20 +184,20 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	}
 	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 nữa", Addressed: true, Private: true}
 	bot.wait(t, "42", 8)
-	if n := resumes(); n != 2 {
-		t.Fatalf("after close: %d resumes, want 2", n)
+	if n := resumes(); n != 3 { // the kept one resumed 3 times (going on from the latest answer)
+		t.Fatalf("after close: %d resumes, want 3", n)
 	}
 	// a reply to one of the bot's answers goes on in that answer's conversation
 	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "đơn 123 thì sao nữa", Addressed: true, Private: true, ReplyTo: "8"}
 	bot.wait(t, "42", 9)
-	if n := resumes(); n != 3 {
-		t.Fatalf("a reply: %d resumes, want 3", n)
+	if n := resumes(); n != 4 {
+		t.Fatalf("a reply: %d resumes, want 4", n)
 	}
 	// review C1: the same message id in another chat is another message: a reply
 	// there never goes on in this chat's conversation
 	bot.in <- channels.Incoming{ChatID: "44", UserID: "9", UserName: "binh", Text: "đơn 123 của tôi", Addressed: true, Private: true, ReplyTo: "8"}
 	bot.wait(t, "44", 1)
-	if n := resumes(); n != 3 {
+	if n := resumes(); n != 4 {
 		t.Fatalf("a reply in chat 44 to its own message 8 went on in chat 42's conversation (%d resumes)", n)
 	}
 	bot.mu.Lock()

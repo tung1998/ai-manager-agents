@@ -202,7 +202,7 @@ export default {
   'cmd.approve': 'Duyệt đề xuất (người trong Ai được duyệt)',
   'cmd.reject': 'Từ chối đề xuất',
   'cmd.mode': 'Hỏi trước mỗi đề xuất, hoặc làm thẳng',
-  'cmd.create': 'Bắt đầu hội thoại: bot nhớ mọi tin trong cuộc chat, không cần tag',
+  'cmd.create': 'Bật hội thoại: tiếp tục từ câu trả lời gần nhất của bot, từ đó không cần tag',
   'cmd.thread': 'Tạo thread, chỉ khi được gọi: từ câu trả lời gần nhất của bot, hoặc chuột phải một tin → Apps → Create thread để chọn đúng tin',
   'cmd.threadArg': 'tên (không bắt buộc)',
   'cmd.close': 'Kết thúc hội thoại: mỗi tin được trả lời riêng',

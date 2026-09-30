@@ -154,3 +154,38 @@ func (m *Manager) makeThread(ctx context.Context, ch storage.Channel, ad Adapter
 	}
 	return ""
 }
+
+func closedKey(channelID, chatID string) string { return "channel_closed/" + channelID + "/" + chatID }
+
+// startKeep turns on a kept conversation: it goes on with the conversation of
+// the bot's latest answer here (tagging, then keeping: nothing lost), unless
+// that one was closed with /close-conversation (then a fresh one).
+func (m *Manager) startKeep(ctx context.Context, ch storage.Channel, chatID string) string {
+	var last, closed string
+	_, _ = m.store.Settings().Get(ctx, lastKey(ch.ID, chatID), &last)
+	_, _ = m.store.Settings().Get(ctx, closedKey(ch.ID, chatID), &closed)
+	msg := m.setKeep(ctx, ch.ID, chatID, true)
+	if last == "" || last == closed {
+		return msg
+	}
+	conv, _ := m.store.Channels().Thread(ctx, ch.ID, msgKey(last))
+	if conv == "" {
+		conv, _ = m.store.Channels().Thread(ctx, ch.ID, "msg:"+chatID+":"+last)
+	}
+	c, err := m.store.Chat().GetConversation(ctx, conv)
+	if conv == "" || err != nil {
+		return msg
+	}
+	if err := m.store.Channels().SetThread(ctx, ch.ID, chatID+"#"+c.AgentID+"#"+m.keep(ctx, ch.ID, chatID), conv); err != nil {
+		return msg
+	}
+	return "Đã bật hội thoại, tiếp tục từ câu trả lời gần nhất của mình: từ giờ không cần tag, mình nhớ những gì đã nói. Gửi /close-conversation để kết thúc."
+}
+
+// stopKeep ends it; the next /create-conversation starts afresh.
+func (m *Manager) stopKeep(ctx context.Context, ch storage.Channel, chatID string) string {
+	var last string
+	_, _ = m.store.Settings().Get(ctx, lastKey(ch.ID, chatID), &last)
+	_ = m.store.Settings().Set(ctx, closedKey(ch.ID, chatID), last)
+	return m.setKeep(ctx, ch.ID, chatID, false)
+}

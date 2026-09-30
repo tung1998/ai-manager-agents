@@ -262,8 +262,12 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		}
 		return
 	}
-	if isCmd { // /create-conversation, /close-conversation
-		say(m.setKeep(ctx, ch.ID, in.ChatID, cmd == "create"))
+	if isCmd { // /create-conversation (going on with the latest answer), /close-conversation
+		if cmd == "create" {
+			say(m.startKeep(ctx, ch, in.ChatID))
+		} else {
+			say(m.stopKeep(ctx, ch, in.ChatID))
+		}
 		return
 	}
 	var rule storage.Automation

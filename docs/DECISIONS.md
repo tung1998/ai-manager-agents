@@ -1514,3 +1514,5 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Nút "Mở trong Discord/Telegram" chuyển vào menu "…" của từng cuộc chat trong danh sách, bỏ dòng đầu cuộc chat.
   - Telegram: supergroup mở đúng tin (`t.me/c/<id>/<tin>`), chat riêng mở cuộc chat với bot (`t.me/<bot>`).
   - Nhóm thường của Telegram không có link.
+- `/create-conversation` tiếp tục cuộc chat của câu trả lời gần nhất của bot trong kênh hoặc thread đó. Đang tag mà chuyển sang chế độ hội thoại thì không mất ngữ cảnh.
+  - Sau `/close-conversation` (ghi lại câu trả lời lúc đóng: `channel_closed/<ch>/<chat>`), lần `/create-conversation` tiếp theo mở cuộc chat mới.

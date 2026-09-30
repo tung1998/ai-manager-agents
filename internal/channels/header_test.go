@@ -424,3 +424,59 @@ func TestKeptThreadKeepsItsConversation(t *testing.T) {
 		t.Fatalf("kept %q, then %q", kept, again)
 	}
 }
+
+// /create-conversation goes on with the latest answer's conversation (tagging,
+// then keeping: nothing lost); after /close-conversation it starts afresh.
+func TestCreateConversationContinues(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	tagged, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "c2", Addressed: true})
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", ConversationID: tagged})
+	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Câu trả lời", nil, false)
+	bot.wait(t, "c2", 1)
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		var last string
+		if ok, _ := st.Settings().Get(ctx, "channel_last/"+ch.ID+"/c2", &last); ok && last != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the answer is not remembered")
+		}
+	}
+	bot.in <- channels.Incoming{ChatID: "c2", UserID: "8", Text: "/create-conversation", Addressed: true}
+	got := bot.wait(t, "c2", 2)
+	if !strings.Contains(got[1], "tiếp tục") {
+		t.Fatalf("create = %q", got[1])
+	}
+	if kept, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "c2"}); kept != tagged {
+		t.Fatalf("kept %q, want the tagged answer's %q", kept, tagged)
+	}
+	bot.in <- channels.Incoming{ChatID: "c2", UserID: "8", Text: "/close-conversation", Addressed: true}
+	bot.wait(t, "c2", 3)
+	bot.in <- channels.Incoming{ChatID: "c2", UserID: "8", Text: "/create-conversation", Addressed: true}
+	bot.wait(t, "c2", 4)
+	if fresh, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "c2"}); fresh == tagged || fresh == "" {
+		t.Fatalf("after close, a fresh one: %q", fresh)
+	}
+}
