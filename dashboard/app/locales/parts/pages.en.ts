@@ -16,7 +16,7 @@ const en: Record<keyof typeof vi, string> = {
   'home.whatHappened': 'What happened',
   'home.monitorEvents': 'Latest checks',
   'home.chartsTitle': 'Work & cost',
-  'home.workChart': 'Runs per day',
+  'home.workChart': 'Runs and cost per day',
   'home.workDone': '{n} done',
   'home.workFailed': '{n} failed',
   'home.workOther': '{n} other',

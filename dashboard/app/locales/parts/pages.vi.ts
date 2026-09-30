@@ -15,7 +15,7 @@ export default {
   'home.whatHappened': 'Chuyện gì xảy ra',
   'home.monitorEvents': 'Các lần kiểm tra gần đây',
   'home.chartsTitle': 'Sức làm việc & chi phí',
-  'home.workChart': 'Lượt chạy mỗi ngày',
+  'home.workChart': 'Lượt chạy & chi phí mỗi ngày',
   'home.workDone': '{n} xong',
   'home.workFailed': '{n} lỗi',
   'home.workOther': '{n} khác',

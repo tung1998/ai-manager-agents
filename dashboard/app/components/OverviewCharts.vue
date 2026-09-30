@@ -39,8 +39,8 @@ const usd = (v: number) => v >= 100 ? `$${v.toFixed(0)}` : v >= 1 ? `$${v.toFixe
 const tokens = (v: number) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : `${v}`
 const dayLabel = (key: string) => new Date(key + 'T00:00:00').toLocaleDateString(dateLocale.value, { day: '2-digit', month: '2-digit' })
 const tickEvery = computed(() => Math.max(1, Math.ceil(days.value / 8)))
-const hoverWork = ref<DayStats | null>(null)
-const hoverCost = ref<UsageRow | null>(null)
+const hover = ref<number | null>(null)
+const dim = (i: number) => hover.value !== null && hover.value !== i ? 'opacity-40' : ''
 </script>
 
 <template>
@@ -54,67 +54,49 @@ const hoverCost = ref<UsageRow | null>(null)
     </div>
 
     <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-      <!-- work each day: done and failed runs, stacked -->
-      <UCard>
+      <!-- work and cost on one time axis: two panels, one hover, so a day's
+           runs and its money read together (no second y-scale) -->
+      <UCard class="lg:col-span-2">
         <template #header>
           <div class="flex flex-wrap items-center justify-between gap-2">
             <p class="font-medium">{{ t('home.workChart') }}</p>
-            <div class="flex items-center gap-3 text-xs text-(--ui-text-muted)">
+            <div class="flex flex-wrap items-center gap-3 text-xs text-(--ui-text-muted)">
               <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-(--ui-primary)" />{{ t('home.workDone', { n: totals.done }) }}</span>
               <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-(--ui-error)" />{{ t('home.workFailed', { n: totals.failed }) }}</span>
               <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-(--ui-text-dimmed)/60" />{{ t('home.workOther', { n: totals.jobs - totals.done - totals.failed }) }}</span>
+              <span v-if="sum" class="flex items-center gap-1"><span class="size-2 rounded-sm bg-(--ui-warning)" />{{ usd(sum.period) }} · {{ t('costs.avgPerDay', { v: usd(sum.period / Math.max(sum.days, 1)) }) }}</span>
             </div>
           </div>
         </template>
-        <USkeleton v-if="!work" class="h-40 w-full" />
-        <div v-else class="relative">
-          <div class="flex h-40 items-end gap-0.5 border-b border-(--ui-border) pb-px" @mouseleave="hoverWork = null">
-            <div v-for="d in workDays" :key="d.key" class="flex h-full flex-1 flex-col justify-end" @mouseenter="hoverWork = d">
-              <div class="flex w-full flex-col-reverse overflow-hidden rounded-t transition-opacity" :class="hoverWork && hoverWork.key !== d.key ? 'opacity-40' : ''" :style="{ height: d.jobs ? `max(2px, ${(d.jobs / maxWork) * 100}%)` : '0' }">
-                <div class="w-full bg-(--ui-primary)" :style="{ height: `${(d.done / Math.max(d.jobs, 1)) * 100}%` }" />
-                <div class="w-full bg-(--ui-text-dimmed)/60" :style="{ height: `${((d.jobs - d.done - d.failed) / Math.max(d.jobs, 1)) * 100}%` }" />
-                <div class="w-full border-b-2 border-(--ui-bg) bg-(--ui-error)" :style="{ height: `${(d.failed / Math.max(d.jobs, 1)) * 100}%` }" />
+        <USkeleton v-if="!work || !sum" class="h-56 w-full" />
+        <div v-else class="relative" @mouseleave="hover = null">
+          <div class="flex">
+            <p class="w-12 shrink-0 text-[10px] text-(--ui-text-muted)">{{ maxWork }}</p>
+            <div class="flex h-36 flex-1 items-end gap-0.5 border-b border-(--ui-border) pb-px">
+              <div v-for="(d, i) in workDays" :key="d.key" class="flex h-full flex-1 flex-col justify-end" @mouseenter="hover = i">
+                <div class="flex w-full flex-col-reverse overflow-hidden rounded-t transition-opacity" :class="dim(i)" :style="{ height: d.jobs ? `max(2px, ${(d.jobs / maxWork) * 100}%)` : '0' }">
+                  <div class="w-full bg-(--ui-primary)" :style="{ height: `${(d.done / Math.max(d.jobs, 1)) * 100}%` }" />
+                  <div class="w-full bg-(--ui-text-dimmed)/60" :style="{ height: `${((d.jobs - d.done - d.failed) / Math.max(d.jobs, 1)) * 100}%` }" />
+                  <div class="w-full border-b-2 border-(--ui-bg) bg-(--ui-error)" :style="{ height: `${(d.failed / Math.max(d.jobs, 1)) * 100}%` }" />
+                </div>
               </div>
             </div>
           </div>
-          <div class="mt-1 flex gap-0.5 text-[10px] text-(--ui-text-muted)">
-            <span v-for="(d, i) in workDays" :key="d.key" class="flex-1 text-center">{{ i % tickEvery === 0 ? dayLabel(d.key) : '' }}</span>
-          </div>
-          <p class="absolute left-0 top-0 text-[10px] text-(--ui-text-muted)">{{ maxWork }}</p>
-          <div v-if="hoverWork" class="pointer-events-none absolute right-0 top-0 rounded-md border border-(--ui-border) bg-(--ui-bg) px-3 py-2 text-xs shadow-sm">
-            <p class="font-medium">{{ new Date(hoverWork.key + 'T00:00:00').toLocaleDateString(dateLocale) }}</p>
-            <p class="tabular-nums">{{ t('home.workRuns', { n: hoverWork.jobs }) }}</p>
-            <p class="tabular-nums text-(--ui-text-muted)">{{ t('home.workDone', { n: hoverWork.done }) }} · {{ t('home.workFailed', { n: hoverWork.failed }) }}</p>
-          </div>
-        </div>
-      </UCard>
-
-      <!-- cost each day: one series, one hue -->
-      <UCard>
-        <template #header>
-          <div class="flex items-center justify-between gap-2">
-            <p class="font-medium">{{ t('costs.dailyChart') }}</p>
-            <span v-if="sum" class="text-xs text-(--ui-text-muted) tabular-nums">{{ usd(sum.period) }} · {{ t('costs.avgPerDay', { v: usd(sum.period / Math.max(sum.days, 1)) }) }}</span>
-          </div>
-        </template>
-        <USkeleton v-if="!sum" class="h-40 w-full" />
-        <div v-else class="relative">
-          <div class="flex h-40 items-end gap-0.5 border-b border-(--ui-border) pb-px" @mouseleave="hoverCost = null">
-            <div v-for="d in costDays" :key="d.key" class="flex h-full flex-1 items-end" @mouseenter="hoverCost = d">
-              <div
-                class="w-full rounded-t bg-(--ui-primary) transition-opacity" :class="hoverCost && hoverCost.key !== d.key ? 'opacity-40' : ''"
-                :style="{ height: d.cost_usd ? `max(2px, ${(d.cost_usd / maxCost) * 100}%)` : '0' }"
-              />
+          <div class="mt-2 flex">
+            <p class="w-12 shrink-0 text-[10px] text-(--ui-text-muted)">{{ usd(maxCost) }}</p>
+            <div class="flex h-20 flex-1 items-end gap-0.5 border-b border-(--ui-border) pb-px">
+              <div v-for="(d, i) in costDays" :key="d.key" class="flex h-full flex-1 items-end" @mouseenter="hover = i">
+                <div class="w-full rounded-t bg-(--ui-warning) transition-opacity" :class="dim(i)" :style="{ height: d.cost_usd ? `max(2px, ${(d.cost_usd / maxCost) * 100}%)` : '0' }" />
+              </div>
             </div>
           </div>
-          <div class="mt-1 flex gap-0.5 text-[10px] text-(--ui-text-muted)">
-            <span v-for="(d, i) in costDays" :key="d.key" class="flex-1 text-center">{{ i % tickEvery === 0 ? dayLabel(d.key) : '' }}</span>
+          <div class="ms-12 mt-1 flex gap-0.5 text-[10px] text-(--ui-text-muted)">
+            <span v-for="(d, i) in workDays" :key="d.key" class="flex-1 text-center whitespace-nowrap">{{ i % tickEvery === 0 ? dayLabel(d.key) : '' }}</span>
           </div>
-          <p class="absolute left-0 top-0 text-[10px] text-(--ui-text-muted)">{{ usd(maxCost) }}</p>
-          <div v-if="hoverCost" class="pointer-events-none absolute right-0 top-0 rounded-md border border-(--ui-border) bg-(--ui-bg) px-3 py-2 text-xs shadow-sm">
-            <p class="font-medium">{{ new Date(hoverCost.key + 'T00:00:00').toLocaleDateString(dateLocale) }}</p>
-            <p class="tabular-nums">{{ usd(hoverCost.cost_usd) }} · {{ t('costs.runsUnit', { n: hoverCost.runs }) }}</p>
-            <p class="tabular-nums text-(--ui-text-muted)">{{ tokens(hoverCost.input_tokens) }} in / {{ tokens(hoverCost.output_tokens) }} out</p>
+          <div v-if="hover !== null" class="pointer-events-none absolute right-0 top-0 rounded-md border border-(--ui-border) bg-(--ui-bg) px-3 py-2 text-xs shadow-sm">
+            <p class="font-medium">{{ new Date(workDays[hover]!.key + 'T00:00:00').toLocaleDateString(dateLocale) }}</p>
+            <p class="tabular-nums">{{ t('home.workRuns', { n: workDays[hover]!.jobs }) }} · {{ t('home.workDone', { n: workDays[hover]!.done }) }} · {{ t('home.workFailed', { n: workDays[hover]!.failed }) }}</p>
+            <p class="tabular-nums">{{ usd(costDays[hover]!.cost_usd) }} · {{ tokens(costDays[hover]!.input_tokens) }} in / {{ tokens(costDays[hover]!.output_tokens) }} out</p>
           </div>
         </div>
       </UCard>
