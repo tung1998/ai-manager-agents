@@ -73,6 +73,7 @@ const en: Record<keyof typeof vi, string> = {
   'chat.placeholderNoAgent': 'Message an agent… (Enter to send)',
   'chat.stop': 'Stop',
   'chat.budgetHit': 'Hit the cost cap',
+  'chat.openSkillEditor': 'Open in the skill editor: {name}',
   'chat.seeCosts': 'View budget',
   'patch.pending': 'Pending',
   'patch.applied': 'Applied',

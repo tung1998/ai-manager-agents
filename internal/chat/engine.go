@@ -672,6 +672,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	if conv.Purpose == "skill" {
 		req.System += skillGuide
+	} else if conv.Purpose == "" || conv.Purpose == "channel" {
+		req.System += skillHandoff
 	}
 	if teamChat(conv) { // the team and how to give it work
 		req.System += e.groupBrief(ctx, conv, agent)

@@ -51,6 +51,15 @@ function applyPatch(p: Record<string, unknown>) {
   setTimeout(() => { highlight.value = [] }, 4000)
   toast.add({ title: t('auto.filled', { n: changed.length }), color: 'info' })
 }
+// a draft handed over from a project chat
+onMounted(() => {
+  if (editing.value) return
+  try {
+    const raw = sessionStorage.getItem('office.skillDraft')
+    sessionStorage.removeItem('office.skillDraft')
+    if (raw) applyPatch(JSON.parse(raw))
+  } catch { /* nothing handed over */ }
+})
 const pageContext = () => JSON.stringify({ page: editing.value ? 'skill.edit' : 'skill.new', scope: scope.value, draft: { ...form }, other_files: Object.keys(otherFiles.value) })
 const hl = (k: string) => highlight.value.includes(k) ? 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition' : ''
 

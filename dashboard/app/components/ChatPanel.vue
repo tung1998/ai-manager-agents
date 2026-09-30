@@ -382,13 +382,22 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
 // ```automation {…}``` (or ```skill```) blocks of an answer: form changes (bad JSON is skipped)
 function fencedBlocks(text: string, lang: string): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = []
-  for (const m of text.matchAll(new RegExp('```' + lang + '\\s*\\n([\\s\\S]*?)```', 'g'))) {
+  // the closing fence starts a line: JSON has no raw newline, while a skill's body may hold ``` of its own
+  for (const m of text.matchAll(new RegExp('```' + lang + '[ \\t]*\\n([\\s\\S]*?)\\n[ \\t]*```', 'g'))) {
     try {
       const v = JSON.parse(m[1]!)
       if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v)
     } catch { /* not JSON: ignore */ }
   }
   return out
+}
+
+// a skill an agent drafted in the chat (Claude Code may not write .claude/): the
+// editor opens with it, a person reviews and saves
+const skillDrafts = (text: string) => text.includes('```skill') ? fencedBlocks(text, 'skill').filter(d => typeof d.name === 'string' && typeof d.body === 'string') : []
+function openSkillDraft(d: Record<string, unknown>) {
+  try { sessionStorage.setItem('office.skillDraft', JSON.stringify(d)) } catch { /* private mode: the editor opens empty */ }
+  navigateTo(`/projects/${props.projectId}/skills/edit`)
 }
 
 async function openAutomation() {
@@ -552,6 +561,11 @@ onBeforeUnmount(() => {
             </details>
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div class="markdown min-w-0 text-sm" v-html="renderMarkdown(m.content)" />
+            <UButton
+              v-for="(d, i) in (purpose === 'skill' ? [] : skillDrafts(m.content))" :key="`sk${i}`"
+              icon="i-lucide-sparkles" size="sm" color="neutral" variant="outline" :label="t('chat.openSkillEditor', { name: String(d.name) })"
+              @click="openSkillDraft(d)"
+            />
             <PatchCard v-for="p in m.patches" :key="p.id" :patch="p" @updated="(np: Patch) => onPatchUpdated(m, np)" />
             <ActionCard
               v-for="a in m.actions ?? []" :key="a.id" :action="a" :project-id="projectId"
