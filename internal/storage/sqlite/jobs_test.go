@@ -251,3 +251,15 @@ func TestJobGroups(t *testing.T) {
 		t.Fatalf("next page = %+v %v", more, err)
 	}
 }
+
+// A chat's jobs: its turns only.
+func TestJobsOfAConversation(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "user", ConversationID: "cnv_1", Status: "done"})
+	st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "user", ConversationID: "cnv_2", Status: "failed"})
+	got, err := st.Jobs().List(ctx, storage.JobFilter{ConversationID: "cnv_1"})
+	if err != nil || len(got) != 1 || got[0].ConversationID != "cnv_1" {
+		t.Fatalf("jobs = %+v %v", got, err)
+	}
+}

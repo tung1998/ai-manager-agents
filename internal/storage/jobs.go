@@ -49,13 +49,15 @@ type JobFilter struct {
 	OriginID  string
 	OriginIDs []string // any of these (a bot: its commands, and itself)
 	TaskID    string
-	Source    string // web | discord | telegram | auto (where it came from)
-	Query     string // in the title
-	Status    string
-	AgentID   string
-	Since     time.Time
-	Before    string // cursor: list jobs older than this job id
-	Limit     int
+	// ConversationID: a chat's jobs (its turns)
+	ConversationID string
+	Source         string // web | discord | telegram | auto (where it came from)
+	Query          string // in the title
+	Status         string
+	AgentID        string
+	Since          time.Time
+	Before         string // cursor: list jobs older than this job id
+	Limit          int
 }
 
 // JobStats is jobs grouped by one dimension.

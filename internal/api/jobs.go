@@ -94,7 +94,7 @@ func (s *server) toJobDTO(r *http.Request, j storage.Job, n *names) jobDTO {
 func jobFilter(r *http.Request) storage.JobFilter {
 	q := r.URL.Query()
 	f := storage.JobFilter{ProjectID: q.Get("project"), Kind: q.Get("kind"), Origin: q.Get("origin"), OriginID: q.Get("origin_id"),
-		Status: q.Get("status"), AgentID: q.Get("agent"), Before: q.Get("before"), Source: q.Get("source"), Query: q.Get("q")}
+		Status: q.Get("status"), AgentID: q.Get("agent"), Before: q.Get("before"), Source: q.Get("source"), Query: q.Get("q"), ConversationID: q.Get("conversation")}
 	if ids := q.Get("origin_ids"); ids != "" { // comma separated
 		f.OriginIDs = strings.Split(ids, ",")
 	}
@@ -253,20 +253,21 @@ func (s *server) retryJob(w http.ResponseWriter, r *http.Request) {
 // jobGroupDTO is one piece of work on the Job page: a chat, a task, an
 // automation's runs, with how its jobs went.
 type jobGroupDTO struct {
-	Key         string    `json:"key"`
-	Kind        string    `json:"kind"` // chat | task | automation | job
-	ProjectID   string    `json:"project_id"`
-	ProjectName string    `json:"project_name"`
-	Source      string    `json:"source"` // web | discord | telegram | auto
-	Title       string    `json:"title"`
-	Status      string    `json:"status"` // the latest job's
-	Runs        int       `json:"runs"`
-	Failed      int       `json:"failed"`
-	Active      int       `json:"active"`
-	CostUSD     float64   `json:"cost_usd"`
-	LastAt      time.Time `json:"last_at"`
-	Link        string    `json:"link"`
-	JobID       string    `json:"job_id,omitempty"` // a job of its own: opened in place
+	Key            string    `json:"key"`
+	Kind           string    `json:"kind"` // chat | task | automation | job
+	ProjectID      string    `json:"project_id"`
+	ProjectName    string    `json:"project_name"`
+	Source         string    `json:"source"` // web | discord | telegram | auto
+	Title          string    `json:"title"`
+	Status         string    `json:"status"` // the latest job's
+	Runs           int       `json:"runs"`
+	Failed         int       `json:"failed"`
+	Active         int       `json:"active"`
+	CostUSD        float64   `json:"cost_usd"`
+	LastAt         time.Time `json:"last_at"`
+	Link           string    `json:"link"`
+	JobID          string    `json:"job_id,omitempty"`          // a job of its own: opened in place
+	ConversationID string    `json:"conversation_id,omitempty"` // a chat: its turns
 }
 
 func (s *server) jobGroups(w http.ResponseWriter, r *http.Request) {
@@ -295,7 +296,7 @@ func (s *server) jobGroups(w http.ResponseWriter, r *http.Request) {
 		base := "/projects/" + g.ProjectID
 		switch g.Key[:2] {
 		case "c:":
-			d.Kind, d.Link = "chat", base+"?tab=chat&c="+g.ConversationID
+			d.Kind, d.Link, d.ConversationID = "chat", base+"?tab=chat&c="+g.ConversationID, g.ConversationID
 			if c, err := s.cfg.Store.Chat().GetConversation(ctx, g.ConversationID); err == nil && c.Title != "" {
 				d.Title = c.Title
 			}

@@ -56,6 +56,25 @@ function investigate(x: Incident) {
   prefill.value = { text: t('home.investigatePrompt', { kind: incKind(x.kind), title: x.title, detail: x.detail || '—' }), files: [], send: true }
   navigateTo({ path: `/projects/${x.project_id}`, query: { tab: 'chat' } })
 }
+// a failure opened in place: what happened, its failed runs, its logs or checks
+const shown = ref<Incident | null>(null)
+const shownOpen = computed({ get: () => !!shown.value, set: (v: boolean) => { if (!v) shown.value = null } })
+const isDecision = (x: Incident) => x.kind === 'approval' || x.kind === 'patch'
+const runsQuery = (x: Incident) => ({
+  jobs: `project=${x.project_id}&status=failed&since=24h&limit=30`,
+  automation: `origin_id=${x.id}&limit=20`,
+  monitor: `origin_id=${x.id}&limit=20`
+} as Record<string, string>)[x.kind] ?? ''
+interface MonitorEvent { id: string, monitor_id: string, kind: string, message: string, analysis: string, at: string }
+const monitorEvents = ref<MonitorEvent[] | null>(null)
+watch(shown, async (x) => {
+  monitorEvents.value = null
+  if (x?.kind !== 'monitor') return
+  try {
+    const res = await $fetch<{ events: MonitorEvent[] }>('/api/monitor-events', { query: { project: x.project_id, limit: 50 } })
+    monitorEvents.value = res.events.filter(e => e.monitor_id === x.id).slice(0, 10)
+  } catch { monitorEvents.value = [] }
+})
 const canRetry = (k: string) => ['monitor', 'process', 'automation', 'bot', 'jobs'].includes(k)
 const incIcon: Record<string, string> = {
   monitor: 'i-lucide-activity', process: 'i-lucide-square-terminal', automation: 'i-lucide-alarm-clock-off',
@@ -112,7 +131,10 @@ const steps = computed(() => [
         </p>
         <div v-else class="divide-y divide-(--ui-border)">
           <div v-for="(x, i) in incidents" :key="i" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
-            <NuxtLink :to="x.link" class="flex min-w-0 flex-1 basis-60 items-center gap-3">
+            <component
+              :is="isDecision(x) ? 'NuxtLink' : 'button'" :to="isDecision(x) ? x.link : undefined" :type="isDecision(x) ? undefined : 'button'"
+              class="flex min-w-0 flex-1 basis-60 items-center gap-3 text-left" @click="!isDecision(x) && (shown = x)"
+            >
               <UIcon :name="incIcon[x.kind] ?? 'i-lucide-circle-alert'" class="size-4 shrink-0" :class="x.severity === 'error' ? 'text-(--ui-error)' : 'text-(--ui-warning)'" />
               <span class="min-w-0 flex-1">
                 <span class="flex items-center gap-2">
@@ -121,7 +143,7 @@ const steps = computed(() => [
                 </span>
                 <span class="block truncate text-xs text-(--ui-text-muted)">{{ x.project_name }}<template v-if="x.detail"> · {{ x.detail }}</template></span>
               </span>
-            </NuxtLink>
+            </component>
             <!-- what to do about it, right here -->
             <div v-if="isAdmin" class="flex shrink-0 flex-wrap items-center gap-1 max-sm:w-full max-sm:ps-7">
               <template v-if="x.kind === 'approval' || x.kind === 'patch'">
@@ -209,5 +231,37 @@ const steps = computed(() => [
         </div>
       </UCard>
     </div>
+    <WorkDetailModal
+      v-if="shown" v-model:open="shownOpen" :title="shown.title" :subtitle="`${incKind(shown.kind)} · ${shown.project_name}`" :query="runsQuery(shown)"
+    >
+      <div v-if="shown.detail" class="rounded-lg border p-3" :class="shown.severity === 'error' ? 'border-(--ui-error)/40 bg-(--ui-error)/5' : 'border-(--ui-warning)/40 bg-(--ui-warning)/5'">
+        <p class="text-xs font-medium" :class="shown.severity === 'error' ? 'text-(--ui-error)' : 'text-(--ui-warning)'">{{ t('home.whatHappened') }}</p>
+        <pre class="mt-1 max-h-48 overflow-auto font-mono text-xs leading-5 whitespace-pre-wrap break-anywhere">{{ shown.detail }}</pre>
+      </div>
+      <!-- a process: its log -->
+      <div v-if="shown.kind === 'process'" class="h-72">
+        <LogTerminal :url="`/api/processes/${shown.id}/stream`" :title="shown.title" :empty="t('ops.emptyLog')" />
+      </div>
+      <!-- a monitor: its latest checks -->
+      <div v-if="shown.kind === 'monitor'">
+        <p class="mb-1.5 text-xs font-medium text-(--ui-text-muted)">{{ t('home.monitorEvents') }}</p>
+        <LoadingRows v-if="!monitorEvents" :n="2" :icon="false" />
+        <div v-else class="space-y-2">
+          <div v-for="e in monitorEvents" :key="e.id" class="rounded-lg border border-(--ui-border) px-3 py-2 text-xs">
+            <p><span class="font-medium">{{ e.kind }}</span> · {{ when(e.at) }}</p>
+            <p class="break-anywhere text-(--ui-text-muted)">{{ e.message }}</p>
+            <p v-if="e.analysis" class="mt-1 whitespace-pre-wrap break-anywhere">{{ e.analysis }}</p>
+          </div>
+        </div>
+      </div>
+      <template #actions>
+        <UButton color="neutral" variant="outline" icon="i-lucide-eye" :label="t('home.view')" :to="shown.link" />
+        <template v-if="isAdmin">
+          <UButton v-if="canRetry(shown.kind)" color="neutral" variant="outline" icon="i-lucide-rotate-cw" :label="t('home.retry')" :loading="acting === shown.key + 'retry'" @click="act(shown, 'retry')" />
+          <UButton color="neutral" variant="outline" icon="i-lucide-search-check" :label="t('home.investigate')" @click="investigate(shown)" />
+          <UButton color="neutral" variant="ghost" :label="t('home.dismiss')" :loading="acting === shown.key + 'dismiss'" @click="act(shown, 'dismiss').then(() => { shown = null })" />
+        </template>
+      </template>
+    </WorkDetailModal>
   </PageShell>
 </template>

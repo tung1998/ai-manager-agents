@@ -7,7 +7,7 @@ const { t, dateLocale } = useLang()
 
 interface Group {
   key: string, kind: 'chat' | 'task' | 'automation' | 'job', project_id: string, project_name: string, source: Source,
-  title: string, status: string, runs: number, failed: number, active: number, cost_usd: number, last_at: string, link: string, job_id?: string
+  title: string, status: string, runs: number, failed: number, active: number, cost_usd: number, last_at: string, link: string, job_id?: string, conversation_id?: string
 }
 
 const origin = ref<'all' | Source>('all')
@@ -103,8 +103,12 @@ const ago = (d: string) => {
 const statusColor = (s: string) => s === 'done' ? 'success' : s === 'failed' ? 'error' : s === 'running' || s === 'pending' ? 'info' : s === 'needs_input' ? 'warning' : 'neutral'
 const kindLabel = (k: Group['kind']) => t(`job.groupKind.${k}`)
 const detail = ref<string | null>(null) // a job of its own, shown in place
+// a chat: its runs at a glance (each one's error), opening the chat is a click away
+const work = ref<Group | null>(null)
+const workOpen = computed({ get: () => !!work.value, set: (v: boolean) => { if (!v) work.value = null } })
 function open(g: Group) {
   if (g.job_id) detail.value = g.job_id
+  else if (g.conversation_id) work.value = g
   else navigateTo(g.link)
 }
 </script>
@@ -191,5 +195,19 @@ function open(g: Group) {
       </div>
     </UCard>
     <JobDetailModal :job-id="detail" @close="detail = null" />
+    <WorkDetailModal
+      v-if="work" v-model:open="workOpen" :title="work.title || t('chat.newThreadTitle')" :subtitle="`${kindLabel(work.kind)} · ${work.project_name}`"
+      :query="`conversation=${work.conversation_id}&limit=50`"
+      :summary="[
+        { label: t('job.colRuns'), value: String(work.runs) },
+        { label: t('job.sumFailed'), value: String(work.failed), bad: work.failed > 0 },
+        { label: t('job.colCost'), value: usd(work.cost_usd) || '—' },
+        { label: t('job.colLast'), value: ago(work.last_at) }
+      ]"
+    >
+      <template #actions>
+        <UButton :to="work.link" icon="i-lucide-messages-square" :label="t('job.openChat')" color="neutral" variant="outline" />
+      </template>
+    </WorkDetailModal>
   </div>
 </template>

@@ -182,6 +182,7 @@ func (r jobRepo) where(f storage.JobFilter) (string, []any) {
 	add("origin", f.Origin)
 	add("origin_id", f.OriginID)
 	add("task_id", f.TaskID)
+	add("conversation_id", f.ConversationID)
 	switch f.Source { // a bot's trigger names it; web = a person on the dashboard
 	case "discord", "telegram":
 		conds = append(conds, "trigger=?")

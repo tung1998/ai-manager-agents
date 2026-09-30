@@ -13,6 +13,8 @@ const en: Record<keyof typeof vi, string> = {
   'home.done_dismiss': 'Dismissed: it shows again only if it happens again',
   'home.investigatePrompt': 'Investigate this incident ({kind}): {title}. Details: {detail}. Find the cause from logs, state and recent changes, with evidence, then propose a fix (do not change anything until I agree).',
   'home.recentChats': 'Recent chats',
+  'home.whatHappened': 'What happened',
+  'home.monitorEvents': 'Latest checks',
   'home.attention': 'Needs you',
   'home.allGood': 'All good: nothing needs you.',
   'home.welcome': 'Hello',

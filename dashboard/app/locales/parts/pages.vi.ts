@@ -12,6 +12,8 @@ export default {
   'home.done_dismiss': 'Đã bỏ qua: chỉ hiện lại khi xảy ra tiếp',
   'home.investigatePrompt': 'Điều tra sự cố ({kind}): {title}. Chi tiết: {detail}. Hãy tìm nguyên nhân từ log, trạng thái và thay đổi gần đây, nêu dẫn chứng, rồi đề xuất cách sửa (chưa sửa khi tôi chưa đồng ý).',
   'home.recentChats': 'Chat gần đây',
+  'home.whatHappened': 'Chuyện gì xảy ra',
+  'home.monitorEvents': 'Các lần kiểm tra gần đây',
   'home.attention': 'Cần xử lý',
   'home.allGood': 'Mọi thứ ổn: không có gì cần bạn xử lý.',
   'home.welcome': 'Xin chào',
