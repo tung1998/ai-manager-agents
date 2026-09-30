@@ -577,7 +577,7 @@ onBeforeUnmount(() => {
           <template #actions>
             <ContextMeter :tokens="current?.context_tokens" :window="current?.context_window" />
             <USelect
-              v-if="!single && agents.length" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink"
+              v-if="!single && agents.length > 1" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink"
               :icon="permOf(pickedLevel).icon" :title="permOf(pickedLevel).description" :aria-label="t('chat.pickAgent')"
             />
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />
