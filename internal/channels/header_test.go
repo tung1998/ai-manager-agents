@@ -139,3 +139,47 @@ func TestBotState(t *testing.T) {
 		t.Fatalf("an off bot: %q", s)
 	}
 }
+
+// A thread made from a message the bot answered goes on with that message's
+// conversation, and the conversation links to the thread on Discord.
+func TestThreadFromAnswer(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", ConversationID: conv.ID})
+	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Đây là kết quả", nil, false)
+	bot.wait(t, "c2", 1) // the answer is message "1" of c2
+	bot.in <- channels.Incoming{ChatID: "1", GuildID: "g", ThreadOf: "1"}
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if id, _ := st.Channels().Thread(ctx, ch.ID, "in:1"); id == conv.ID {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the thread is not the conversation's")
+		}
+	}
+	if got := channels.ConversationLink(ctx, st, conv.ID); got != "https://discord.com/channels/g/1" {
+		t.Fatalf("link = %q", got)
+	}
+}

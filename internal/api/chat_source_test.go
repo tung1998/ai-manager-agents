@@ -227,3 +227,19 @@ func TestTemplateChat(t *testing.T) {
 		t.Fatalf("bad template: %v", b)
 	}
 }
+
+// A Discord chat links to where it is there (its thread, or its first message).
+func TestChannelChatLink(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	c, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "d", CreatedBy: "discord:binh", Purpose: "channel"})
+	e.st.Settings().Set(ctx, "conv_link/"+c.ID, "https://discord.com/channels/g/123")
+	_, b := do(t, admin, "GET", e.srv.URL+"/api/conversations/"+c.ID, nil, nil)
+	if got := b["conversation"].(map[string]any)["external_url"]; got != "https://discord.com/channels/g/123" {
+		t.Fatalf("external_url = %v", got)
+	}
+}

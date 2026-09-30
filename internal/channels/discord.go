@@ -25,8 +25,8 @@ type Discord struct {
 	menu       menu
 }
 
-// intents: guild messages, direct messages, message content
-const discordIntents = 1<<9 | 1<<12 | 1<<15
+// intents: guilds (threads made), guild messages, direct messages, message content
+const discordIntents = 1<<0 | 1<<9 | 1<<12 | 1<<15
 
 type gwPayload struct {
 	Op int             `json:"op"`
@@ -176,6 +176,10 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 				if m, ok := d.addressed(p.D); ok {
 					onMessage(m)
 				}
+			case "THREAD_CREATE":
+				if m, ok := d.threadMade(ctx, p.D); ok {
+					onMessage(m)
+				}
 			}
 		}
 	}
@@ -184,6 +188,8 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 // addressed: a direct message, or one that tags the bot; never a bot's own.
 func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	var m struct {
+		ID        string `json:"id"`
+		Type      int    `json:"type"`
 		ChannelID string `json:"channel_id"`
 		GuildID   string `json:"guild_id"`
 		Content   string `json:"content"`
@@ -205,7 +211,10 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	if json.Unmarshal(raw, &m) != nil || m.Author.Bot || m.Author.ID == d.botID {
 		return Incoming{}, false
 	}
-	in := Incoming{ChatID: m.ChannelID, UserID: m.Author.ID, UserName: m.Author.Username, Private: m.GuildID == ""}
+	if m.Type != 0 && m.Type != 19 { // a person's message or reply; not "X started a thread", a pin, a join…
+		return Incoming{}, false
+	}
+	in := Incoming{ChatID: m.ChannelID, UserID: m.Author.ID, UserName: m.Author.Username, Private: m.GuildID == "", MessageID: m.ID, GuildID: m.GuildID}
 	tagged := false
 	for _, x := range m.Mentions {
 		if x.ID == d.botID && d.botID != "" {
@@ -225,6 +234,26 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	}
 	in.Text = strings.TrimSpace(text)
 	return in, in.Text != ""
+}
+
+// threadMade: a new thread. The bot joins it (to hear what is said there);
+// made from a message, its id is that message's.
+func (d *Discord) threadMade(ctx context.Context, raw json.RawMessage) (Incoming, bool) {
+	var th struct {
+		ID           string `json:"id"`
+		GuildID      string `json:"guild_id"`
+		ParentID     string `json:"parent_id"`
+		NewlyCreated bool   `json:"newly_created"`
+	}
+	if json.Unmarshal(raw, &th) != nil || th.ID == "" || !th.NewlyCreated {
+		return Incoming{}, false
+	}
+	go func() {
+		if err := d.do(context.WithoutCancel(ctx), "PUT", "/channels/"+th.ID+"/thread-members/@me", nil); err != nil {
+			slog.Warn("discord: not in the thread", "thread", th.ID, "err", err)
+		}
+	}()
+	return Incoming{ChatID: th.ID, GuildID: th.GuildID, ThreadOf: th.ID}, true
 }
 
 // SetCommands puts the bot's slash commands in Discord's "/" menu (after
@@ -309,7 +338,10 @@ func (d *Discord) do(ctx context.Context, method, path string, body any, out ...
 	if base == "" {
 		base = "https://discord.com/api/v10"
 	}
-	raw, _ := json.Marshal(body)
+	var raw []byte
+	if body != nil { // none: no "null" (joining a thread takes no body)
+		raw, _ = json.Marshal(body)
+	}
 	req, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(raw))
 	if err != nil {
 		return err

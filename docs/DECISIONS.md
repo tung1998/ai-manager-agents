@@ -1487,3 +1487,10 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - `{branch}` là nhánh đang checkout của project.
   - Phần nào trống thì bỏ; script trả lời thì không có agent.
 - Cài đặt riêng từng bot (cột `channels.header`): để trống là mẫu mặc định, `-` là tắt. Trong trang cài đặt bot là một công tắc kèm ô mẫu.
+
+## ADR-064: Thread Discord
+- Bot bật thêm intent GUILDS để nhận `THREAD_CREATE`. Có thread mới là bot tự tham gia (`PUT /channels/{thread}/thread-members/@me`), nên nghe được tin trong thread.
+- Chỉ trả lời tin nhắn của người (type 0) và tin reply (type 19). Tin hệ thống như "X started a thread", ghim, vào server… bị bỏ qua.
+- Thread tạo từ một tin nhắn có id trùng id tin đó. Office ghi nhớ id của tin người gửi và tin bot trả lời (`thread:<msg>` → cuộc chat), nên thread nối tiếp đúng cuộc chat của tin gốc (`in:<thread>`). Mọi tin trong thread đều được nghe, như một cuộc chat đang giữ.
+- Cuộc chat Discord lưu link (`conv_link/<conv>`): ban đầu là tin nhắn đầu tiên, có thread thì chuyển sang thread. Trang chat hiện nút "Mở trong Discord".
+- Hướng dẫn mời bot thêm quyền Send Messages in Threads.

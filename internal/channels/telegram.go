@@ -30,6 +30,11 @@ type Incoming struct {
 	// does) and returns the answer's message id; nil for a message, which is
 	// answered with Send.
 	Respond func(ctx context.Context, text string) (string, error)
+	// MessageID and GuildID place the message on Discord (a link to it).
+	MessageID, GuildID string
+	// ThreadOf: a thread was just made from that message (Discord; ChatID is
+	// the thread, Text empty): the message's conversation goes on in it.
+	ThreadOf string
 }
 
 // Adapter connects one bot.

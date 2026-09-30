@@ -76,6 +76,8 @@ export default {
   'chat.backToSkillEditor': 'Mở trình soạn skill',
   'chat.templateChat': 'Chat soạn mô hình',
   'chat.backToTemplateEditor': 'Mở trình soạn mô hình',
+  'chat.fromDiscord': 'Chat từ Discord',
+  'chat.openInDiscord': 'Mở trong Discord',
   'chat.openSkillEditor': 'Mở trong trình soạn skill: {name}',
   'chat.seeCosts': 'Xem ngân sách',
   'patch.pending': 'Chờ duyệt',

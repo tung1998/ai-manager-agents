@@ -209,8 +209,12 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	if err != nil || !ch.Enabled {
 		return
 	}
-	if !in.Addressed && m.keep(ctx, ch.ID, in.ChatID) == "" {
-		return // not for the bot, and no kept conversation listening to this chat
+	if in.ThreadOf != "" { // a thread made from a message: it goes on with that message's conversation
+		m.threadMade(ctx, ch, in)
+		return
+	}
+	if !in.Addressed && m.keep(ctx, ch.ID, in.ChatID) == "" && m.threadOf(ctx, ch, in.ChatID) == "" {
+		return // not for the bot, and no kept conversation (or thread of one) listening to this chat
 	}
 	if !slices.Contains(ch.Allow, "*") && !slices.Contains(ch.Allow, in.ChatID) && !slices.Contains(ch.Allow, in.UserID) {
 		if in.Respond != nil { // a slash command waits for an answer
@@ -295,6 +299,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 			say("Bot chưa sẵn sàng.")
 			return
 		}
+		m.placed(ctx, ch, p.ConversationID, in.GuildID, in.ChatID, in.MessageID)
 	}
 	raw, _ := json.Marshal(p)
 	m.mu.Lock() // registered before the runner can answer
@@ -392,6 +397,7 @@ func (m *Manager) remember(ctx context.Context, p trigger.ChannelPayload, origin
 		_ = m.store.Settings().Set(ctx, "channel_rule/"+p.ChannelID+"/"+p.ChatID+"/"+id, origin.OriginID) // threads hold conversations only
 		if p.ConversationID != "" {
 			_ = m.store.Channels().SetThread(ctx, p.ChannelID, "msg:"+p.ChatID+":"+id, p.ConversationID)
+			_ = m.store.Channels().SetThread(ctx, p.ChannelID, msgKey(id), p.ConversationID) // a thread from this answer
 		}
 	}
 }
@@ -477,6 +483,11 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
 				return id, nil
 			}
+		}
+	}
+	if id := m.threadOf(ctx, ch, in.ChatID); id != "" { // a thread of a conversation: that one
+		if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
+			return id, nil
 		}
 	}
 	keep := m.keep(ctx, ch.ID, in.ChatID)

@@ -56,7 +56,7 @@ export default {
   'channels.guideTelegram': 'Cách tạo bot Telegram (khoảng 2 phút)',
   'channels.gd1': 'Mở trang dưới đây, bấm New Application và đặt tên cho bot.',
   'channels.gd2': 'Vào mục Bot ở cột trái: bấm Reset Token, copy chuỗi hiện ra và dán vào ô "Token của bot". Cũng trong trang này, bật Message Content Intent rồi bấm Save Changes.',
-  'channels.gd3': 'Vào OAuth2 → URL Generator: tick "bot", rồi tick quyền View Channels, Send Messages, Read Message History. Mở đường link hiện ở cuối trang để mời bot vào server của bạn.',
+  'channels.gd3': 'Vào OAuth2 → URL Generator: tick "bot", rồi tick quyền View Channels, Send Messages, Send Messages in Threads, Read Message History. Mở đường link hiện ở cuối trang để mời bot vào server của bạn.',
   'channels.gd4': 'Lấy User ID: trong Discord vào User Settings → Advanced, bật Developer Mode; sau đó chuột phải vào tên người cần cho phép → Copy User ID. Bot trả lời khi được nhắn riêng hoặc được tag trong server.',
   'channels.gt1': 'Mở Telegram, nhắn cho',
   'channels.gt2': 'Gửi lệnh /newbot, đặt tên và username cho bot (username phải kết thúc bằng "bot"). BotFather gửi lại một token, dán token đó vào ô "Token của bot".',

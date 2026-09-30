@@ -225,3 +225,63 @@ func TestDiscordCommandCap(t *testing.T) {
 		t.Fatalf("registered %d, first %v", len(got), got[:1])
 	}
 }
+
+// Threads: the bot joins a new one (to hear it) and says which message it
+// grew from; "X started a thread" (a system message) is not a message to answer.
+func TestDiscordThreads(t *testing.T) {
+	gw := wsServe(t, func(send func(string)) {
+		send(`{"op":10,"d":{"heartbeat_interval":45000}}`)
+	}, func(msg string, send func(string)) {
+		var p struct {
+			Op int `json:"op"`
+			D  struct {
+				Intents int `json:"intents"`
+			} `json:"d"`
+		}
+		json.Unmarshal([]byte(msg), &p)
+		if p.Op != 2 || p.D.Intents&1 == 0 { // GUILDS: thread events
+			return
+		}
+		send(`{"op":0,"s":1,"t":"READY","d":{"user":{"id":"99","username":"shopbot"}}}`)
+		send(`{"op":0,"s":2,"t":"MESSAGE_CREATE","d":{"id":"m1","type":18,"channel_id":"c2","guild_id":"g","content":"đọc giúp tôi repo","author":{"id":"8"},"mentions":[]}}`)
+		send(`{"op":0,"s":3,"t":"THREAD_CREATE","d":{"id":"m0","guild_id":"g","parent_id":"c2","newly_created":true,"name":"đọc giúp tôi repo"}}`)
+		send(`{"op":0,"s":4,"t":"MESSAGE_CREATE","d":{"id":"m2","type":0,"channel_id":"m0","guild_id":"g","content":"<@99> ở đây đọc được không","author":{"id":"8","username":"binh"},"mentions":[{"id":"99"}]}}`)
+	})
+	defer gw.Close()
+	joined := make(chan string, 2)
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" && strings.HasSuffix(r.URL.Path, "/thread-members/@me") {
+			joined <- r.URL.Path
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", GatewayURL: "ws" + strings.TrimPrefix(gw.URL, "http"), APIBase: rest.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	got := make(chan Incoming, 10)
+	go d.Run(ctx, func(string) {}, func(m Incoming) { got <- m })
+	var msgs []Incoming
+	for len(msgs) < 2 {
+		select {
+		case m := <-got:
+			msgs = append(msgs, m)
+		case <-ctx.Done():
+			t.Fatalf("got %+v", msgs)
+		}
+	}
+	if msgs[0].ThreadOf != "m0" || msgs[0].ChatID != "m0" || msgs[0].GuildID != "g" || msgs[0].Text != "" {
+		t.Fatalf("thread created = %+v", msgs[0])
+	}
+	if msgs[1].ChatID != "m0" || msgs[1].MessageID != "m2" || msgs[1].GuildID != "g" || !msgs[1].Addressed {
+		t.Fatalf("in the thread = %+v", msgs[1])
+	}
+	select {
+	case p := <-joined:
+		if p != "/channels/m0/thread-members/@me" {
+			t.Fatalf("joined %s", p)
+		}
+	case <-ctx.Done():
+		t.Fatal("the bot did not join the thread")
+	}
+}

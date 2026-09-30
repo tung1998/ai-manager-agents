@@ -6,7 +6,9 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/automation"
+	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/perm"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,8 +37,9 @@ type conversationDTO struct {
 	Source       string    `json:"source"` // where it started: web | discord | telegram | auto
 	AutomationID string    `json:"automation_id"`
 	// how full the model's context was after the last answer (0 = unknown)
-	ContextTokens int `json:"context_tokens"`
-	ContextWindow int `json:"context_window"`
+	ContextTokens int    `json:"context_tokens"`
+	ContextWindow int    `json:"context_window"`
+	ExternalURL   string `json:"external_url,omitempty"` // where it is on Discord: its thread, or its first message
 }
 
 func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
@@ -44,6 +47,9 @@ func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
 		ContextTokens: c.ContextTokens, ContextWindow: c.ContextWindow, Source: actor.Source(c.CreatedBy)}
 	if t, ok := s.cfg.Chat.Active(c.ID); ok {
 		d.ActiveTurn = t.ID
+	}
+	if c.Purpose == "channel" {
+		d.ExternalURL = channels.ConversationLink(context.Background(), s.cfg.Store, c.ID)
 	}
 	return d
 }

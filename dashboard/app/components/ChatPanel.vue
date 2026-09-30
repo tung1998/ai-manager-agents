@@ -16,7 +16,7 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
+interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message, next_turn_id?: string }
 // the agents in a chat and the answers in progress (ADR-044)
 interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
@@ -520,6 +520,12 @@ onBeforeUnmount(() => {
           <UIcon name="i-lucide-network" class="size-4 shrink-0 text-(--ui-primary)" />
           <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.templateChat') }}</span>
           <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('chat.backToTemplateEditor')" :to="`/templates/new?c=${current.id}`" />
+        </div>
+        <!-- a Discord chat: open it there (its thread, once it has one) -->
+        <div v-else-if="!single && current?.external_url" class="flex items-center gap-2 rounded-lg border border-(--ui-border) px-3 py-2 text-sm">
+          <UIcon name="i-lucide-gamepad-2" class="size-4 shrink-0 text-(--ui-text-muted)" />
+          <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.fromDiscord') }}</span>
+          <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-external-link" :label="t('chat.openInDiscord')" :to="current.external_url" target="_blank" />
         </div>
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
