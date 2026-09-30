@@ -8,16 +8,18 @@ const { t } = useLang()
 const bareLayout = computed(() => route.path === '/login')
 
 // sidebar: the 5 projects this viewer opens most, each with its sections
-// (refetched on navigation so added/renamed projects show up)
+// (refetched on navigation and on a change, so added/renamed projects show up)
 const projectList = ref<Project[]>([])
 const { top } = useProjectUsage()
 const recentProjects = computed(() => top(projectList.value, 5, route.params.id as string | undefined))
-watch(() => route.path, async () => {
+async function loadProjects() {
   if (bareLayout.value) return
   try {
     projectList.value = (await $fetch<{ projects: Project[] }>('/api/projects')).projects
   } catch { /* signed out: the auth middleware redirects */ }
-}, { immediate: true })
+}
+watch(() => route.path, loadProjects, { immediate: true })
+onDataChanged(loadProjects) // added, renamed, removed: without leaving the page
 
 // pages below a project (/projects/:id/<child>/…) belong to one of its sections
 const childSection: Record<string, string> = { agents: 'model', automations: 'automations' }

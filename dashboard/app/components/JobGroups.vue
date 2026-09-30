@@ -50,6 +50,7 @@ async function load(more = false) {
   }
 }
 watch([origin, searchQ, status, project, since], () => load(), { immediate: true })
+onDataChanged(() => load()) // retried, dismissed, removed: the table follows
 
 // follow what is still running
 let timer: ReturnType<typeof setInterval> | undefined
