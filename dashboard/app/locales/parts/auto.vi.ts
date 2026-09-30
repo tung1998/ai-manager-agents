@@ -96,6 +96,8 @@ export default {
   'auto.notifyBot': 'Bot',
   'auto.chatIdDiscord': 'Discord: bật Developer Mode (Cài đặt → Nâng cao), chuột phải kênh → Copy Channel ID.',
   'auto.chatIdTelegram': 'Telegram: id của nhóm hoặc chat (nhóm lớn bắt đầu bằng -100).',
+  'auto.channelPick': 'Tự động hóa cho tin nhắn là một lệnh của bot, tạo ở trang bot. Chọn bot để thêm lệnh, hoặc tạo bot mới:',
+  'auto.channelNew': 'Tạo bot mới',
   'auto.tunnelHint': 'Hệ thống bên ngoài chỉ gọi được khi máy có URL công khai (VD Cloudflare Tunnel).',
   'job.title': 'Job',
   'job.running': 'Đang chạy',

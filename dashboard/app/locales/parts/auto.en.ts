@@ -97,6 +97,8 @@ const en: Record<keyof typeof vi, string> = {
   'auto.notifyBot': 'Bot',
   'auto.chatIdDiscord': 'Discord: turn on Developer Mode (Settings → Advanced), right-click the channel → Copy Channel ID.',
   'auto.chatIdTelegram': 'Telegram: the group or chat id (large groups start with -100).',
+  'auto.channelPick': 'A bot message automation is a command of the bot, made on its page. Pick a bot to add a command, or make a new bot:',
+  'auto.channelNew': 'New bot',
   'auto.tunnelHint': 'Outside systems can call it only when this machine has a public URL (e.g. Cloudflare Tunnel).',
   'job.title': 'Jobs',
   'job.running': 'Running',

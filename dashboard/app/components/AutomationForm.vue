@@ -18,16 +18,19 @@ const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/
 const fromChannel = computed(() => isChannelSource(form.source))
 // the three sources, as cards (a bot opens the bot's setup page)
 const sourceCards = computed(() => [
-  { value: 'schedule', icon: 'i-lucide-alarm-clock', title: t('auto.sourceSchedule'), desc: t('auto.sourceScheduleDesc'), active: form.source === 'schedule',
-    pick: () => { form.source = 'schedule' } },
-  { value: 'webhook', icon: 'i-lucide-webhook', title: t('auto.sourceWebhook'), desc: t('auto.sourceWebhookDesc'), active: form.source === 'webhook' && !form.config.pull_request,
-    pick: () => { form.source = 'webhook'; form.config.pull_request = false } },
+  { value: 'schedule', icon: 'i-lucide-alarm-clock', title: t('auto.sourceSchedule'), desc: t('auto.sourceScheduleDesc'), active: !botsOpen.value && form.source === 'schedule',
+    pick: () => { botsOpen.value = false; form.source = 'schedule' } },
+  { value: 'webhook', icon: 'i-lucide-webhook', title: t('auto.sourceWebhook'), desc: t('auto.sourceWebhookDesc'), active: !botsOpen.value && form.source === 'webhook' && !form.config.pull_request,
+    pick: () => { botsOpen.value = false; form.source = 'webhook'; form.config.pull_request = false } },
   // a GitHub/Bitbucket pull request: a webhook whose token is in its URL (they send no header)
-  { value: 'pr', icon: 'i-lucide-git-pull-request', title: t('auto.sourcePR'), desc: t('auto.sourcePRDesc'), active: form.source === 'webhook' && !!form.config.pull_request,
-    pick: () => { form.source = 'webhook'; form.config.pull_request = true; form.config.auth = 'query'; form.config.auth_name = 'token' } },
-  { value: 'channel', icon: 'i-lucide-messages-square', title: t('auto.sourceChannel'), desc: t('auto.sourceChannelDesc'), active: fromChannel.value,
-    pick: () => navigateTo(`/projects/${props.projectId}/bots/new`) }
+  { value: 'pr', icon: 'i-lucide-git-pull-request', title: t('auto.sourcePR'), desc: t('auto.sourcePRDesc'), active: !botsOpen.value && form.source === 'webhook' && !!form.config.pull_request,
+    pick: () => { botsOpen.value = false; form.source = 'webhook'; form.config.pull_request = true; form.config.auth = 'query'; form.config.auth_name = 'token' } },
+  // a bot's messages: made on the bot's page (a command of it); here, which bot
+  { value: 'channel', icon: 'i-lucide-messages-square', title: t('auto.sourceChannel'), desc: t('auto.sourceChannelDesc'), active: botsOpen.value || fromChannel.value,
+    pick: () => { botsOpen.value = true } }
 ])
+const botsOpen = ref(false)
+const { data: projBots } = useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true, immediate: isAdmin.value })
 // a Select item cannot have "" as its value: "the lead" is a sentinel
 const LEAD = '__lead'
 const chatAgent = computed({ get: () => form.agent_id || LEAD, set: (v: string) => { form.agent_id = v === LEAD ? '' : v } })
@@ -155,7 +158,19 @@ async function testRun() {
         </button>
       </div>
 
-      <template v-if="form.source === 'schedule'">
+      <!-- a bot's messages: its commands live on the bot's page -->
+      <div v-if="botsOpen" class="space-y-2">
+        <p class="text-sm text-(--ui-text-muted)">{{ t('auto.channelPick') }}</p>
+        <div class="flex flex-wrap gap-2">
+          <UButton
+            v-for="b in projBots?.channels ?? []" :key="b.id" size="sm" color="neutral" variant="outline"
+            :icon="b.kind === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" :label="b.bot_name ? `@${b.bot_name}` : b.name"
+            :to="`/projects/${projectId}/bots/${b.id}/edit`"
+          />
+          <UButton size="sm" icon="i-lucide-plus" :label="t('auto.channelNew')" :to="`/projects/${projectId}/bots/new`" />
+        </div>
+      </div>
+      <template v-else-if="form.source === 'schedule'">
         <div class="flex flex-wrap gap-1.5">
           <UButton
             v-for="p in presets" :key="p.label" size="xs" :color="presetActive(p) ? 'primary' : 'neutral'" :variant="presetActive(p) ? 'soft' : 'outline'"
