@@ -3,6 +3,7 @@ package actions
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/memory"
@@ -48,5 +49,35 @@ func TestRemember(t *testing.T) {
 	}
 	if _, err := svc.Propose(ctx, Scope{ProjectID: proj.ID, Agent: "không có", Level: perm.Propose}, "remember", "x", ""); err == nil {
 		t.Fatal("a note of an agent that is not in the project")
+	}
+}
+
+// A chat in direct mode approves what the agent proposes at once (the agent
+// gets the result in the same turn and goes on), unless the chat says no.
+func TestDirectApprover(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: proj.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Status: "running"})
+	svc := New(st, nil)
+	var asked []string
+	svc.SetAutoApprover(func(_ context.Context, a storage.Action) (string, bool) {
+		asked = append(asked, a.Kind+" "+a.Target)
+		return "discord:an", a.Target != "echo không"
+	})
+	sc := Scope{ProjectID: proj.ID, RunRef: "r1", JobID: job.ID, Agent: "a", Level: perm.Propose}
+	a, err := svc.Propose(ctx, sc, "run_command", "echo có", "thử")
+	if err != nil || a.Status != "done" || a.DecidedBy != "discord:an" || !strings.Contains(a.Detail, "có") {
+		t.Fatalf("direct = %+v %v", a, err)
+	}
+	sc.RunRef = "r2"
+	if a, _ = svc.Propose(ctx, sc, "run_command", "echo không", "thử"); a.Status != "pending" {
+		t.Fatalf("refused by the chat = %+v", a)
+	}
+	sc.RunRef, sc.JobID = "r3", ""
+	if a, _ = svc.Propose(ctx, sc, "run_command", "echo web", "thử"); a.Status != "pending" || len(asked) != 2 {
+		t.Fatalf("no job, no chat to ask: %+v %v", a, asked)
 	}
 }

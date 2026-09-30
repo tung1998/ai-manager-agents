@@ -136,6 +136,7 @@ func serveCmd() *cobra.Command {
 			})
 			runner.SetOnReply(bots.Reply)
 			runner.SetOnProgress(bots.Progress)
+			acts.SetAutoApprover(bots.DirectApprover) // a chat in direct mode: approved in the turn, the agent goes on
 			runner.SetOnNotify(func(ctx context.Context, channelID, chatID, text string) { _ = bots.Notify(ctx, channelID, chatID, text) })
 			// an AI connection close to its limit: told in the chat the admin picked
 			alerts := limitalert.New(a.store, bots.Notify)

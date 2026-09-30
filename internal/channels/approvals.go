@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -10,6 +11,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
 
 // Decider decides a proposal (kind patch | action) in the name of by, the
@@ -283,4 +285,33 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 		return "Không có gì chờ duyệt."
 	}
 	return strings.Join(lines, "\n")
+}
+
+// DirectApprover (for actions.SetAutoApprover): a proposal from a bot's chat
+// in direct mode is approved at once, in the name of who turned it on, unless
+// it must always be asked (push, stop, settings, delete…) or runs unattended.
+func (m *Manager) DirectApprover(ctx context.Context, a storage.Action) (string, bool) {
+	switch a.Kind {
+	case "create_automation", "run_automation":
+		return "", false
+	}
+	if mustAsk(proposal{Action: a.Kind, Target: a.Target}) || a.JobID == "" {
+		return "", false
+	}
+	job, err := m.store.Jobs().Get(ctx, a.JobID)
+	if err != nil || !trigger.IsChannel(job.Trigger) {
+		return "", false
+	}
+	var p trigger.ChannelPayload
+	if json.Unmarshal([]byte(job.Payload), &p) != nil || p.ChannelID == "" {
+		return "", false
+	}
+	ch, err := m.store.Channels().Get(ctx, p.ChannelID)
+	if err != nil {
+		return "", false
+	}
+	if am := m.mode(ctx, ch, p.ChatID); am.Mode == "direct" && am.By != "" {
+		return am.By, true
+	}
+	return "", false
 }

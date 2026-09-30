@@ -20,8 +20,11 @@ const fromChannel = computed(() => isChannelSource(form.source))
 const sourceCards = computed(() => [
   { value: 'schedule', icon: 'i-lucide-alarm-clock', title: t('auto.sourceSchedule'), desc: t('auto.sourceScheduleDesc'), active: form.source === 'schedule',
     pick: () => { form.source = 'schedule' } },
-  { value: 'webhook', icon: 'i-lucide-webhook', title: t('auto.sourceWebhook'), desc: t('auto.sourceWebhookDesc'), active: form.source === 'webhook',
-    pick: () => { form.source = 'webhook' } },
+  { value: 'webhook', icon: 'i-lucide-webhook', title: t('auto.sourceWebhook'), desc: t('auto.sourceWebhookDesc'), active: form.source === 'webhook' && !form.config.pull_request,
+    pick: () => { form.source = 'webhook'; form.config.pull_request = false } },
+  // a GitHub/Bitbucket pull request: a webhook whose token is in its URL (they send no header)
+  { value: 'pr', icon: 'i-lucide-git-pull-request', title: t('auto.sourcePR'), desc: t('auto.sourcePRDesc'), active: form.source === 'webhook' && !!form.config.pull_request,
+    pick: () => { form.source = 'webhook'; form.config.pull_request = true; form.config.auth = 'query'; form.config.auth_name = 'token' } },
   { value: 'channel', icon: 'i-lucide-messages-square', title: t('auto.sourceChannel'), desc: t('auto.sourceChannelDesc'), active: fromChannel.value,
     pick: () => navigateTo(`/projects/${props.projectId}/bots/new`) }
 ])
@@ -180,6 +183,10 @@ async function testRun() {
           <span v-for="n in preview.next" v-else :key="n" class="rounded-md bg-(--ui-bg-elevated) px-2 py-0.5 tabular-nums">{{ fmt(n) }}</span>
         </div>
       </template>
+      <p v-else-if="form.config.pull_request" class="flex items-start gap-1.5 text-sm text-(--ui-text-muted)">
+        {{ t('auto.prShort') }}
+        <UTooltip :text="t('auto.prWhere')"><UIcon name="i-lucide-info" class="mt-0.5 size-4 shrink-0 hover:text-(--ui-text)" /></UTooltip>
+      </p>
       <template v-else>
         <div class="grid gap-3 @lg:grid-cols-2">
           <UFormField :label="t('auto.auth')">
@@ -189,10 +196,6 @@ async function testRun() {
             <UInput v-model="form.config.auth_name" class="w-full font-mono" :placeholder="form.config.auth === 'header' ? 'X-Office-Token' : 'token'" />
           </UFormField>
         </div>
-        <label class="flex items-start gap-2 text-sm">
-          <USwitch v-model="form.config.pull_request" class="mt-0.5" />
-          <span>{{ t('auto.prToggle') }}<span class="block text-xs text-(--ui-text-muted)">{{ t('auto.prHelp') }}</span></span>
-        </label>
         <p class="text-xs text-(--ui-text-muted)">{{ t('auto.tunnelHint') }}</p>
       </template>
     </section>
@@ -271,6 +274,9 @@ async function testRun() {
           <USelect v-model="notifyBot" :items="notifyItems" class="w-full" />
         </UFormField>
         <UFormField v-if="form.config.notify_channel_id" :label="notifyKind === 'telegram' ? t('alert.chatTelegram') : t('alert.chatDiscord')">
+          <template #hint>
+            <UTooltip :text="notifyKind === 'telegram' ? t('auto.chatIdTelegram') : t('auto.chatIdDiscord')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+          </template>
           <UInput v-model="form.config.notify_chat_id" class="w-full font-mono text-xs" placeholder="1554696300254199890" />
         </UFormField>
       </div>

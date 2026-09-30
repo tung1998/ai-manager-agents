@@ -720,3 +720,31 @@ func TestNotify(t *testing.T) {
 		t.Fatal("an off bot sent")
 	}
 }
+
+// A proposal from a chat in direct mode is approved at once; a push still asks;
+// a chat in ask mode asks.
+func TestDirectApprover(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Approvers: []string{"7"}})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2"})
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Payload: string(payload), Status: "running"})
+	run := storage.Action{Kind: "run_command", Target: "git fetch --all", JobID: job.ID}
+	if _, ok := m.DirectApprover(ctx, run); ok {
+		t.Fatal("ask mode approved")
+	}
+	st.Settings().Set(ctx, "channel_approval/"+ch.ID+"/c2", map[string]string{"mode": "direct", "by": "discord:an"})
+	if by, ok := m.DirectApprover(ctx, run); !ok || by != "discord:an" {
+		t.Fatalf("direct = %q %v", by, ok)
+	}
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin fix", JobID: job.ID}); ok {
+		t.Fatal("a push was approved without asking")
+	}
+}

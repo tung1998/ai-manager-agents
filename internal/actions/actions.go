@@ -110,7 +110,15 @@ type Service struct {
 	config ConfigApplier
 	runner Runner
 	memory Memory
+	direct AutoApprover
 }
+
+// AutoApprover says whether the chat an action comes from approves it at once
+// (a bot's chat in direct mode), and in whose name.
+type AutoApprover func(ctx context.Context, a storage.Action) (by string, ok bool)
+
+// SetAutoApprover turns on direct approval from chats.
+func (s *Service) SetAutoApprover(fn AutoApprover) { s.direct = fn }
 
 // New builds a Service.
 func New(store storage.Store, o *ops.Manager) *Service { return &Service{store: store, ops: o} }
@@ -243,6 +251,24 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 		done, err := s.Decide(ctx, a.ID, true, "auto:"+sc.Agent+" ("+perm.Label(sc.Access.Level)+")")
 		s.auditAuto(ctx, sc, done, err)
 		return done, err
+	}
+	// a bot's chat in direct mode: approved now, so the agent gets the result
+	// in this turn and goes on (not after its answer, waiting to be asked again)
+	if s.direct != nil && a.JobID != "" {
+		if by, ok := s.direct(ctx, a); ok {
+			done, err := s.Decide(ctx, a.ID, true, by)
+			if err != nil {
+				return done, err
+			}
+			via, _, _ := strings.Cut(by, ":")
+			actx := audit.With(ctx, audit.Who{Kind: "agent", Name: sc.Agent, ApprovedBy: by, Via: via, ConversationID: sc.ConversationID, JobID: sc.JobID, ActionID: a.ID})
+			if done.Status == "failed" {
+				err = errors.New(done.Detail)
+			}
+			_ = audit.Record(actx, s.store.Audit(), audit.Change{Action: "action.approve", Resource: "action", ResourceID: a.ID, ProjectID: sc.ProjectID,
+				Detail: map[string]any{"kind": done.Kind, "target": done.Target, "status": done.Status, "direct": true}, Err: err})
+			return done, nil
+		}
 	}
 	return a, nil
 }

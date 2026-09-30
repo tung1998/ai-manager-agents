@@ -1565,3 +1565,8 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Đi qua `Runner.SetOnNotify` → `channels.Manager.Notify`.
 - Trang tạo automation có mẫu **Review Pull Request** (`?preset=pr`): webhook dạng token trên URL, gửi cho agent, prompt review sẵn.
 - Tin trạng thái "đang làm" sửa tối đa 8 giây một lần (trước là 4 giây), để xa giới hạn sửa tin của Discord/Telegram.
+- Sửa luồng làm thẳng (ADR-054):
+  - Trước đây đề xuất được tự duyệt sau khi agent trả lời xong, nên agent dừng ở câu "chờ duyệt".
+  - Giờ đề xuất đến từ chat bot đang ở chế độ làm thẳng được duyệt ngay lúc agent đưa ra (`actions.SetAutoApprover` → `channels.Manager.DirectApprover`, qua job Discord/Telegram của lượt chạy). Agent nhận kết quả trong cùng lượt và làm tiếp tới khi xong.
+  - Push, dừng tiến trình/container, đổi cài đặt, sửa tự động hóa, lệnh nguy hiểm, cùng tạo và chạy tự động hóa vẫn phải hỏi.
+- Form automation có thẻ nguồn **Pull Request** riêng: xác thực đặt sẵn là token trên URL, chỉ một dòng hướng dẫn, chi tiết để trong ⓘ.
