@@ -13,12 +13,11 @@ const { data, refresh } = await useFetch<{ policy: Policy, packs: CommandPack[],
 const safe = computed(() => new Set(data.value?.safe ?? []))
 
 const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '' })
-watch(data, (d) => {
-  if (!d) return
+const resync = syncForm(data, form, (d) => { // never over what is being edited
   form.packs = JSON.parse(JSON.stringify(d.policy.packs))
   form.deny = [...d.policy.deny_paths]
   form.links = (d.policy.worktree_links ?? []).join('\n')
-}, { immediate: true })
+})
 
 const newDeny = ref('')
 function addDeny() {
@@ -37,6 +36,7 @@ async function save() {
     })
     toast.add({ title: t('policy.saved'), color: 'success' })
     await refresh()
+    resync() // saved: take what the server has now
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {

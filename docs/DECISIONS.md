@@ -1586,3 +1586,4 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Mỗi thông báo gọi `dataChanged()` (tải lại mọi `useFetch` và danh sách tự quản lý).
   - Cuộc chat đang mở tự thêm tin mới (tin từ Discord, câu trả lời chạy nền), và cuộn xuống nếu đang ở cuối.
 - Danh sách chat: biểu tượng nguồn (web, Discord, Telegram, tự động, skill, mô hình) nằm trước; avatar agent nhỏ ở dòng dưới.
+- Form lấy dữ liệu từ server (`syncForm`) chỉ nhận dữ liệu mới khi người dùng chưa sửa form kể từ lần điền trước; lưu xong thì nhận lại. Nhờ vậy việc tự cập nhật không xóa chữ đang gõ. Áp dụng cho Cảnh báo hạn mức, Ngân sách project, Quyền và Cấu hình agent.

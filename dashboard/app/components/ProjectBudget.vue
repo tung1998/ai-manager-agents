@@ -7,13 +7,14 @@ const toast = useToast()
 const { isAdmin } = useAuth()
 const { data, refresh } = useFetch<{ daily_limit_usd: number, today_usd: number, office_limit_usd: number }>(() => `/api/projects/${props.projectId}/budget`, { lazy: true })
 const limit = ref(0)
-watch(data, (d) => { limit.value = d?.daily_limit_usd ?? 0 }, { immediate: true })
+const resync = syncForm(data, limit, (d) => { limit.value = d.daily_limit_usd ?? 0 }) // never over what is being typed
 const saving = ref(false)
 async function save() {
   saving.value = true
   try {
     await $fetch(`/api/projects/${props.projectId}/budget`, { method: 'PUT', body: { daily_limit_usd: Number(limit.value) || 0 } })
     await refresh()
+    resync() // saved: take what the server has now
     toast.add({ title: t('costs.saved'), color: 'success' })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })

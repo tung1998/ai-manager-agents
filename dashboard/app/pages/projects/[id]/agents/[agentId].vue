@@ -78,7 +78,7 @@ function load() {
     provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, permissions: a.permissions, avatar: a.avatar ?? {}
   })))
 }
-watch(agent, load, { immediate: true })
+const resync = syncForm(agent, form, () => load()) // never over what is being edited
 const DEFAULT_PROVIDER = '__default'
 const providerChoice = computed({
   get: () => form.provider_id || DEFAULT_PROVIDER,
@@ -104,6 +104,7 @@ async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
   try {
     await $fetch(`/api/agents/${a.id}`, { method: 'PATCH', body })
     await refresh()
+    resync() // saved: take what the server has now
     history.value = null
     toast.add({ title: t('org.editor.savedAgent', { name: form.name }), color: 'success' })
   } catch (e) {
@@ -163,6 +164,7 @@ async function restore(e: Entry) {
   try {
     await $fetch(`/api/agents/${agentId.value}/restore`, { method: 'POST', body: { revision_id: e.revision_id } })
     await refresh()
+    resync() // saved: take what the server has now
     history.value = (await $fetch<{ history: Entry[] }>(`/api/agents/${agentId.value}/history`)).history
     toast.add({ title: t('agentPage.restored'), color: 'success' })
   } catch (err) {

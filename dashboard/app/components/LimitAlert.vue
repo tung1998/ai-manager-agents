@@ -5,7 +5,7 @@ const { t } = useLang()
 const toast = useToast()
 const { data, refresh } = useFetch<{ channel_id: string, chat_id: string, threshold: number, bots: Bot[] }>('/api/limit-alert', { lazy: true })
 const form = reactive({ channel_id: '', chat_id: '', threshold: 80 })
-watch(data, (d) => { if (d) Object.assign(form, { channel_id: d.channel_id, chat_id: d.chat_id, threshold: d.threshold }) }, { immediate: true })
+const resync = syncForm(data, form, d => Object.assign(form, { channel_id: d.channel_id, chat_id: d.chat_id, threshold: d.threshold })) // never over what is being typed
 const NONE = '__none'
 const bot = computed({ get: () => form.channel_id || NONE, set: (v: string) => { form.channel_id = v === NONE ? '' : v } })
 const botItems = computed(() => [{ label: t('alert.off'), value: NONE }, ...(data.value?.bots ?? []).map(b => ({ label: `${b.name} · ${b.kind === 'discord' ? 'Discord' : 'Telegram'} · ${b.project}`, value: b.id }))])
@@ -18,6 +18,7 @@ async function save(test = false) {
     if (test) await $fetch('/api/limit-alert/test', { method: 'POST' })
     toast.add({ title: test ? t('alert.tested') : t('alert.saved'), color: 'success' })
     await refresh()
+    resync()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
