@@ -247,6 +247,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 		prov = p
 		return p
 	})
+	heard := make(chan chat.Limits, 1)
+	f.engine.SetOnLimits(func(_ storage.Provider, l chat.Limits) { heard <- l })
 	ctx := context.Background()
 	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
 	turn, _, err := f.engine.Send(ctx, conv.ID, "chào", nil)
@@ -261,6 +263,14 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 	var lim chat.Limits
 	if ok, _ := f.st.Settings().Get(ctx, chat.LimitsKey(prov.ID), &lim); !ok || lim.Windows["five_hour"].Utilization != 0.2 {
 		t.Fatalf("limits = %v %+v", ok, lim)
+	}
+	select { // and told to whoever watches them (the limit alerts)
+	case got := <-heard:
+		if got.Windows["five_hour"].Utilization != 0.2 {
+			t.Fatalf("heard %+v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the limits were not told")
 	}
 }
 

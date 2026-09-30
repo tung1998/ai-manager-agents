@@ -1,11 +1,11 @@
 package api_test
 
 import (
-	"fmt"
 	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -35,10 +35,11 @@ import (
 )
 
 type env struct {
-	srv  *httptest.Server
-	auth *auth.Service
-	st   storage.Store
-	acts *actions.Service
+	srv   *httptest.Server
+	auth  *auth.Service
+	st    storage.Store
+	acts  *actions.Service
+	provs *provider.Service
 }
 
 // idleExec is an automation executor that does nothing (API tests only queue).
@@ -99,7 +100,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	if _, err := svc.CreateUser(ctx, auth.NewUser{Email: "member@x.io", Role: storage.RoleMember, Password: "member-password"}, "system"); err != nil {
 		t.Fatal(err)
 	}
-	return &env{srv: srv, auth: svc, st: st, acts: acts}
+	return &env{srv: srv, auth: svc, st: st, acts: acts, provs: provs}
 }
 
 func (e *env) client(t *testing.T) *http.Client {

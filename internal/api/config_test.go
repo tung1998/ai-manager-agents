@@ -112,3 +112,46 @@ func TestConfigChangeProposeApprove(t *testing.T) {
 		t.Fatalf("provider with key not created: %+v", ps)
 	}
 }
+
+// A settings change approved from a bot's chat (by someone the bot lets
+// approve, with no office account) is carried out on the office's behalf; the
+// log names who approved it in the chat.
+func TestConfigChangeApprovedFromChat(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Hook", "source": "webhook", "action": "chat", "prompt": "x"}, nil)
+	aid := body["automation"].(map[string]any)["id"].(string)
+	raw, _ := json.Marshal(map[string]any{"name": "Hook từ Discord"})
+	a, err := e.acts.Propose(ctx, actions.Scope{ProjectID: pid, Agent: "Lead", Level: perm.Read}, "config_change", "", "đổi tên",
+		storage.ActionArgs{Change: &storage.ConfigChange{Resource: "automation", Op: "update", ID: aid, Patch: raw}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := e.acts.Decide(ctx, a.ID, true, "discord:tung")
+	if err != nil || done.Status != "done" {
+		t.Fatalf("decide = %+v %v", done, err)
+	}
+	if got, _ := e.st.Automations().Get(ctx, aid); got.Name != "Hook từ Discord" {
+		t.Fatalf("name = %q", got.Name)
+	}
+	if _, err := e.acts.Decide(ctx, mustPropose(t, e, pid, aid), true, "nobody@x.io"); err == nil {
+		// an unknown office account is still refused
+		if got, _ := e.st.Automations().Get(ctx, aid); got.Name == "X" {
+			t.Fatal("an unknown account applied a change")
+		}
+	}
+}
+
+func mustPropose(t *testing.T, e *env, pid, aid string) string {
+	raw, _ := json.Marshal(map[string]any{"name": "X"})
+	a, err := e.acts.Propose(context.Background(), actions.Scope{ProjectID: pid, Agent: "Lead", Level: perm.Read}, "config_change", "", "đổi",
+		storage.ActionArgs{Change: &storage.ConfigChange{Resource: "automation", Op: "update", ID: aid, Patch: raw}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a.ID
+}

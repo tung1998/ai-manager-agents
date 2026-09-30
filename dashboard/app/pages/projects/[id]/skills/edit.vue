@@ -10,7 +10,7 @@ const { data } = await useFetch<{ project: { path: string } }>(() => `/api/proje
 
 <template>
   <PageShell :title="name ? `/${name}` : t('skill.new')">
-    <UButton :to="{ path: `/projects/${projectId}`, query: { tab: 'skill' } }" icon="i-lucide-arrow-left" size="xs" color="neutral" variant="ghost" class="-ms-2 mb-2" :label="t('auto.back')" />
+    <UButton :to="{ path: `/projects/${projectId}`, query: { tab: 'skill' } }" icon="i-lucide-arrow-left" size="xs" color="neutral" variant="ghost" class="-ms-2 mb-2" :label="t('project.sectionSkill')" />
     <SkillEditor v-if="data" :key="name" :project-id="projectId" :project-path="data.project.path" :name="name" :scope="scope" />
   </PageShell>
 </template>

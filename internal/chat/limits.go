@@ -36,4 +36,10 @@ func (e *Engine) keepLimits(p storage.Provider, l *Limits) {
 		return
 	}
 	_ = e.store.Settings().Set(context.Background(), LimitsKey(p.ID), l)
+	if fn := e.onLimits; fn != nil { // the limit alerts
+		go fn(p, *l)
+	}
 }
+
+// SetOnLimits hears every usage report of a provider (the limit alerts).
+func (e *Engine) SetOnLimits(fn func(p storage.Provider, l Limits)) { e.onLimits = fn }

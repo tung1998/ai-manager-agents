@@ -137,6 +137,7 @@ type Engine struct {
 	providers *provider.Service
 	usage     *usage.Service
 	files     attach.Store
+	onLimits  func(p storage.Provider, l Limits)
 	office    *officetools.Toolbox
 	mcp       *mcpserver.Server
 	mcpURL    string

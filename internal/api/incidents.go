@@ -143,6 +143,13 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	for _, it := range s.limitIncidents(ctx) { // an AI connection close to its limit
+		var gone time.Time
+		if ok, _ := s.cfg.Store.Settings().Get(ctx, dismissKey(it.Key), &gone); ok {
+			continue
+		}
+		out = append(out, it)
+	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if (out[i].Severity == "error") != (out[j].Severity == "error") {
 			return out[i].Severity == "error"

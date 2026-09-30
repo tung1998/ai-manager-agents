@@ -7,6 +7,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/home"
+	"bitbucket.org/senprints/agent-office/internal/limitalert"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bitbucket.org/senprints/agent-office/internal/monitor"
@@ -135,6 +136,13 @@ func serveCmd() *cobra.Command {
 			})
 			runner.SetOnReply(bots.Reply)
 			runner.SetOnProgress(bots.Progress)
+			// an AI connection close to its limit: told in the chat the admin picked
+			alerts := limitalert.New(a.store, bots.Notify)
+			chatEngine.SetOnLimits(func(p storage.Provider, l chat.Limits) {
+				for name, w := range l.Windows {
+					alerts.Check(ctx, p.ID, p.Name, name, w.Utilization, w.ResetsAt)
+				}
+			})
 			bots.SetDecider(chatDecider{store: a.store, chat: chatEngine, acts: acts}) // proposals decided from the chat (ADR-054)
 			bots.Start(ctx)
 

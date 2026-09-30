@@ -1547,3 +1547,10 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Mọi người trong project xem được sổ và bản cũ.
   - Admin thêm, sửa, xóa, rút gọn, khôi phục, và bật/tắt tự ghi.
   - Mọi thay đổi đều ghi audit.
+
+## ADR-069: Cảnh báo hạn mức AI
+- Mỗi lần kết nối AI báo số liệu sử dụng (`Engine.SetOnLimits`), `limitalert` kiểm tra từng loại giới hạn (5 giờ, tuần…).
+  - Vượt ngưỡng (mặc định 80%): bot nhắn vào kênh admin đã chọn, một lần mỗi chu kỳ, và thêm một lần khi tới 95%.
+  - Cài đặt ở trang Kết nối AI: chọn bot, Channel/Chat ID, ngưỡng, có nút Gửi thử (`/api/limit-alert`).
+- Mục Cần xử lý hiện loại cảnh báo "hạn mức AI" cho tới khi giới hạn đó reset.
+- Duyệt "Đổi cài đặt" từ chat bot (người duyệt không có tài khoản office) giờ chạy dưới quyền admin đầu tiên của office, thay cho bot. Audit vẫn ghi người duyệt thật (`discord:…`). Trước đây báo lỗi "không rõ người duyệt".

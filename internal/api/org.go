@@ -46,6 +46,9 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/providers/{id}", admin(s.deleteProvider))
 	mux.Handle("POST /api/providers/{id}/default", admin(s.defaultProvider))
 	mux.Handle("POST /api/providers/{id}/test", admin(s.testProvider))
+	mux.Handle("GET /api/limit-alert", admin(s.getLimitAlert))
+	mux.Handle("PUT /api/limit-alert", admin(s.setLimitAlert))
+	mux.Handle("POST /api/limit-alert/test", admin(s.testLimitAlert))
 
 	mux.Handle("GET /api/templates", auth(s.listTemplates))
 	mux.Handle("POST /api/templates", admin(s.createTemplate))

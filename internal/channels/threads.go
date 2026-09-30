@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -290,4 +291,16 @@ func (m *Manager) settle(ctx context.Context, ad Adapter, w waiter) {
 	if ed, ok := ad.(Editor); ok && w.status != "" {
 		go func() { _ = ed.Delete(ctx, w.chat, w.status) }()
 	}
+}
+
+// Notify posts text to one of a bot's chats (the limit alerts), if it runs.
+func (m *Manager) Notify(ctx context.Context, channelID, chatID, text string) error {
+	m.mu.Lock()
+	ad := m.adapters[channelID]
+	m.mu.Unlock()
+	if ad == nil {
+		return errors.New("bot này đang tắt hoặc chưa kết nối")
+	}
+	_, err := ad.Send(ctx, chatID, text)
+	return err
 }

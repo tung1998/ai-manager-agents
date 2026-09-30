@@ -687,3 +687,36 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong rồi
 		t.Errorf("the status message = %q", bot.sent["c2"][0])
 	}
 }
+
+// A running bot posts an alert to a chat; an off one says so.
+func TestNotify(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	bot := &fakeBot{in: make(chan channels.Incoming, 1), sent: map[string][]string{}}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true})
+	off, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Off"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	if err := m.Notify(ctx, ch.ID, "c9", "⚠️ sắp hết"); err != nil {
+		t.Fatal(err)
+	}
+	if got := bot.wait(t, "c9", 1); got[0] != "⚠️ sắp hết" {
+		t.Fatalf("sent = %q", got)
+	}
+	if err := m.Notify(ctx, off.ID, "c9", "x"); err == nil {
+		t.Fatal("an off bot sent")
+	}
+}

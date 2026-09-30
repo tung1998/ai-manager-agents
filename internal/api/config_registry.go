@@ -326,9 +326,9 @@ func (s *server) ApplyChange(ctx context.Context, a storage.Action) (string, err
 			delete(body, f)
 		}
 	}
-	u, err := s.cfg.Store.Users().GetByEmail(ctx, a.DecidedBy)
+	u, err := s.approver(ctx, a.DecidedBy)
 	if err != nil {
-		return "", errors.New("không rõ người duyệt")
+		return "", err
 	}
 	pathID, err := rt.pathID(s, ctx, c.ID, a.ProjectID)
 	if err != nil {
@@ -493,4 +493,25 @@ func typeName(t reflect.Type) string {
 		return "object"
 	}
 	return t.String()
+}
+
+// approver is the office account a change runs as: the person who approved it,
+// or, approved from a bot's chat (by someone the bot lets approve, who has no
+// office account), the office's first admin, on the bot's behalf. The log
+// still names the chat's approver (ApprovedBy).
+func (s *server) approver(ctx context.Context, by string) (storage.User, error) {
+	if u, err := s.cfg.Store.Users().GetByEmail(ctx, by); err == nil {
+		return u, nil
+	}
+	if via, _, _ := strings.Cut(by, ":"); via == "discord" || via == "telegram" {
+		users, err := s.cfg.Store.Users().List(ctx)
+		if err == nil {
+			for _, u := range users {
+				if u.Role == storage.RoleAdmin && !u.Disabled {
+					return u, nil
+				}
+			}
+		}
+	}
+	return storage.User{}, errors.New("không rõ người duyệt")
 }
