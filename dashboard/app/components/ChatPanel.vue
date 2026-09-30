@@ -26,8 +26,8 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 // first send or opened by automationId; its answers may fill the form.
 // compact: no thread column (a picker instead), fills its container.
 // pageContext: what the person is looking at, sent with each message.
-const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string }>()
-const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'skill-history': [Record<string, unknown>[]], 'conversation': [string], 'back': [] }>()
+const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill' | 'template', automationId?: string, compact?: boolean, pageContext?: () => string }>()
+const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'template-patch': [Record<string, unknown>], 'history': [Record<string, unknown>[]], 'conversation': [string], 'back': [] }>()
 const single = computed(() => !!props.purpose)
 // the chat page on a phone: the input stays behind a button until asked for,
 // so the messages get the whole screen
@@ -269,7 +269,7 @@ async function newConversation(agentId = '') {
     if (props.purpose) emit('conversation', res.conversation.id)
     else await refreshConvs()
     // the skill editor's chat is in the URL: back, reload or a link reopens it
-    if (props.purpose === 'skill') router.replace({ query: { ...route.query, c: res.conversation.id } })
+    if (props.purpose === 'skill' || props.purpose === 'template') router.replace({ query: { ...route.query, c: res.conversation.id } })
     await open(res.conversation)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -323,6 +323,7 @@ function follow(id: string) {
           messages.value.push(ev.message)
           if (props.purpose === 'automation' && ev.type === 'done') fencedBlocks(ev.message.content, 'automation').forEach(p => emit('automation-patch', p))
           if (props.purpose === 'skill' && ev.type === 'done') fencedBlocks(ev.message.content, 'skill').forEach(p => emit('skill-patch', p))
+          if (props.purpose === 'template' && ev.type === 'done') fencedBlocks(ev.message.content, 'template').forEach(p => emit('template-patch', p))
         }
         if (ev.next_turn_id) { // the next agent tagged answers now
           follow(ev.next_turn_id)
@@ -422,11 +423,11 @@ const threadPick = computed({
   set: (id?: string) => { const c = conversations.value.find(x => x.id === id); if (c) open(c) }
 })
 
-// the skill editor opened on its chat again: that chat, and the drafts it gave
-async function openSkillChat(id: string) {
+// an editor (skill, template) opened on its chat again: that chat, and the drafts it gave
+async function openEditorChat(id: string) {
   try {
     await open({ id } as Conversation)
-    emit('skill-history', messages.value.filter(m => m.role === 'assistant').flatMap(m => fencedBlocks(m.content, 'skill')))
+    emit('history', messages.value.filter(m => m.role === 'assistant').flatMap(m => fencedBlocks(m.content, props.purpose!)))
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
@@ -434,7 +435,7 @@ async function openSkillChat(id: string) {
 
 onMounted(() => {
   if (props.purpose === 'automation') openAutomation()
-  else if (props.purpose === 'skill') { if (typeof route.query.c === 'string') openSkillChat(route.query.c) }
+  else if (props.purpose === 'skill' || props.purpose === 'template') { if (typeof route.query.c === 'string') openEditorChat(route.query.c) }
   else if (ownsUrl.value && typeof route.query.draft === 'string' && !tookPrefill) {
     // handed over by the office assistant: a new chat with the message ready to send
     draft.value = route.query.draft
@@ -515,6 +516,11 @@ onBeforeUnmount(() => {
           <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.skillChat') }}</span>
           <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('chat.backToSkillEditor')" :to="`/projects/${projectId}/skills/edit?c=${current.id}`" />
         </div>
+        <div v-else-if="!single && current?.purpose === 'template'" class="flex items-center gap-2 rounded-lg border border-(--ui-border) px-3 py-2 text-sm">
+          <UIcon name="i-lucide-network" class="size-4 shrink-0 text-(--ui-primary)" />
+          <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.templateChat') }}</span>
+          <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('chat.backToTemplateEditor')" :to="`/templates/new?c=${current.id}`" />
+        </div>
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
         </div>
@@ -533,6 +539,10 @@ onBeforeUnmount(() => {
           <template v-if="purpose === 'automation'">
             <p class="text-sm">{{ t('chat.askAboutAutomation') }}</p>
             <p class="text-xs">{{ t('chat.automationHint') }}</p>
+          </template>
+          <template v-else-if="purpose === 'template'">
+            <p class="text-sm">{{ t('tplNew.askAI') }}</p>
+            <p class="text-xs">{{ t('tplNew.askAIHint') }}</p>
           </template>
           <template v-else-if="purpose === 'skill'">
             <p class="text-sm">{{ t('skill.askAI') }}</p>
@@ -581,7 +591,7 @@ onBeforeUnmount(() => {
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div class="markdown min-w-0 text-sm" v-html="renderMarkdown(m.content)" />
             <UButton
-              v-for="(d, i) in (purpose === 'skill' || current?.purpose === 'skill' ? [] : skillDrafts(m.content))" :key="`sk${i}`"
+              v-for="(d, i) in (purpose || current?.purpose === 'skill' || current?.purpose === 'template' ? [] : skillDrafts(m.content))" :key="`sk${i}`"
               icon="i-lucide-sparkles" size="sm" color="neutral" variant="outline" :label="t('chat.openSkillEditor', { name: String(d.name) })"
               @click="openSkillDraft(d)"
             />

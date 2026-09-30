@@ -140,7 +140,7 @@ async function save(accept = false) {
       </div>
     </div>
     <div class="h-[32rem] lg:h-auto lg:min-h-0">
-      <ChatPanel :project-id="projectId" purpose="skill" :page-context="pageContext" @skill-patch="applyPatch" @skill-history="replay" />
+      <ChatPanel :project-id="projectId" purpose="skill" :page-context="pageContext" @skill-patch="applyPatch" @history="replay" />
     </div>
   </div>
 </template>

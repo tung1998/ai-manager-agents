@@ -49,6 +49,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/templates", auth(s.listTemplates))
 	mux.Handle("POST /api/templates", admin(s.createTemplate))
+	mux.Handle("POST /api/templates/validate", auth(s.validateTemplate))
 	mux.Handle("POST /api/templates/{key}/reset", admin(s.resetTemplate))
 	mux.Handle("GET /api/org-models/{id}", auth(s.getOrgModel))
 	mux.Handle("GET /api/org-models/{id}/export", auth(s.exportOrgModel))
@@ -509,6 +510,25 @@ func (s *server) createTemplate(w http.ResponseWriter, r *http.Request) {
 	s.auditAction(r, "template.create", m.ID, map[string]any{"key": m.Key, "source": in.SourceID})
 	d, _ := s.loadOrg(r, m.ID, true)
 	writeJSON(w, http.StatusCreated, map[string]any{"model": d})
+}
+
+// validateTemplate checks a draft (the new-template page, as it is written):
+// the problems, none when it can be saved.
+func (s *server) validateTemplate(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Template orgmodel.Template `json:"template"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	problems := []string{}
+	var ve *orgmodel.ValidationError
+	if err := orgmodel.Validate(in.Template); errors.As(err, &ve) {
+		problems = ve.Problems
+	} else if err != nil {
+		problems = append(problems, err.Error())
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"problems": problems})
 }
 
 func (s *server) resetTemplate(w http.ResponseWriter, r *http.Request) {

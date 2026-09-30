@@ -1473,3 +1473,9 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Claude Code vẫn tự chặn `.claude/settings*`.
 - Ở worktree, skill mới đi qua thẻ duyệt diff như mọi thay đổi khác.
 - Chat chỉ-đọc thì trả khối ```skill; nút "Mở trong trình soạn skill" mở bản nháp để người dùng xem lại rồi Lưu.
+
+## ADR-062: Soạn skill và mô hình bằng chat có theo dõi
+- Chat của trình soạn skill (`purpose=skill`) và trình soạn mô hình (`purpose=template`, chạy trên project của Trợ lý office) giờ nằm trong mục Chat, có biểu tượng riêng và nút mở lại trình soạn.
+- URL trình soạn giữ `?c=<chat>`. Mở lại thì hiện lại cuộc chat, và bản nháp được dựng lại từ các khối ```skill/```template trong chat (skill đã lưu thì giữ nội dung file).
+- Job của các chat này mở về đúng trình soạn.
+- Mô hình mới: trang `/templates/new`. Bản nháp được kiểm tra ngay khi soạn qua `POST /api/templates/validate` (cùng luật `orgmodel.Validate`). Lưu bằng `POST /api/templates {template}`, xong là chọn được khi thêm project hoặc đổi mô hình.

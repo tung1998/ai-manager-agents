@@ -670,6 +670,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if conv.Purpose == "automation" {
 		req.System += automationGuide
 	}
+	if conv.Purpose == "template" {
+		req.System += templateGuide
+	}
 	if conv.Purpose == "skill" {
 		req.System += skillGuide
 	} else if (conv.Purpose == "" || conv.Purpose == "channel") && (!pl.write || GuardCommand == "") {

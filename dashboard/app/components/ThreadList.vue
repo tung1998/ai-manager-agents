@@ -32,6 +32,7 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
           <p class="flex items-center gap-1 truncate text-xs text-(--ui-text-muted)">
             <UIcon v-if="c.source && c.source !== 'web'" :name="sourceIcon[c.source]" class="size-3 shrink-0" :title="t(`source.${c.source}`)" />
             <UIcon v-if="c.purpose === 'skill'" name="i-lucide-sparkles" class="size-3 shrink-0" :title="t('chat.skillChat')" />
+            <UIcon v-if="c.purpose === 'template'" name="i-lucide-network" class="size-3 shrink-0" :title="t('chat.templateChat')" />
             <span class="truncate">{{ c.agent_name }} · {{ when(c.updated_at) }}</span>
           </p>
         </div>

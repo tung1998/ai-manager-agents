@@ -1,6 +1,8 @@
 package api_test
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/assistant"
+	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"context"
 	"testing"
 
@@ -189,5 +191,39 @@ func TestSkillChatListed(t *testing.T) {
 	g := b["groups"].([]any)[0].(map[string]any)
 	if g["link"] != "/projects/"+pid+"/skills/edit?c="+c.ID {
 		t.Fatalf("link = %v", g["link"])
+	}
+}
+
+// A template is written with the office assistant: its chat is listed and its
+// job opens the template editor again; the draft is checked before saving.
+func TestTemplateChat(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	aid, _ := assistant.Ensure(ctx, e.st, orgmodel.NewService(e.st), t.TempDir())
+	resp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+aid+"/conversations", map[string]any{"purpose": "template"}, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create = %d %v", resp.StatusCode, b)
+	}
+	cid := b["conversation"].(map[string]any)["id"].(string)
+	_, b = do(t, admin, "GET", e.srv.URL+"/api/projects/"+aid+"/conversations", nil, nil)
+	if cs := b["conversations"].([]any); len(cs) != 1 || cs[0].(map[string]any)["purpose"] != "template" {
+		t.Fatalf("list = %v", b)
+	}
+	e.st.Jobs().Create(ctx, storage.Job{ProjectID: aid, Kind: "chat_turn", Origin: "user", CreatedBy: "human:admin@x.io", ConversationID: cid, Status: "done"})
+	_, b = do(t, admin, "GET", e.srv.URL+"/api/jobs/groups", nil, nil)
+	if g := b["groups"].([]any)[0].(map[string]any); g["link"] != "/templates/new?c="+cid {
+		t.Fatalf("link = %v", g["link"])
+	}
+	good := map[string]any{"key": "review", "name": "Review", "kind": "solo", "agents": []any{
+		map[string]any{"key": "lead", "name": "Lead", "tier": "lead", "model_tier": "strong"}}}
+	_, b = do(t, admin, "POST", e.srv.URL+"/api/templates/validate", map[string]any{"template": good}, nil)
+	if ps, _ := b["problems"].([]any); len(ps) != 0 {
+		t.Fatalf("good template: %v", b)
+	}
+	_, b = do(t, admin, "POST", e.srv.URL+"/api/templates/validate", map[string]any{"template": map[string]any{"key": "X", "kind": "solo"}}, nil)
+	if ps, _ := b["problems"].([]any); len(ps) < 2 {
+		t.Fatalf("bad template: %v", b)
 	}
 }

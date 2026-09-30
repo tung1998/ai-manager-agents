@@ -57,6 +57,9 @@ function menu(tpl: OrgModel) {
 
 <template>
   <PageShell :title="t('tpl.pageTitle')">
+    <template v-if="isAdmin" #actions>
+      <UButton icon="i-lucide-plus" :label="t('tplNew.button')" to="/templates/new" />
+    </template>
     <div class="space-y-4">
       <p class="max-w-3xl text-sm text-(--ui-text-muted)">
         {{ t('tpl.pageIntro', { init: 'init' }) }}
