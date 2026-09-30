@@ -27,7 +27,7 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 // compact: no thread column (a picker instead), fills its container.
 // pageContext: what the person is looking at, sent with each message.
 const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill', automationId?: string, compact?: boolean, pageContext?: () => string }>()
-const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string] }>()
+const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'conversation': [string], 'back': [] }>()
 const single = computed(() => !!props.purpose)
 // the chat page on a phone: the input stays behind a button until asked for,
 // so the messages get the whole screen
@@ -402,6 +402,10 @@ async function openAutomation() {
   }
 }
 const threadItems = computed(() => conversations.value.map(c => ({ label: c.title || t('chat.untitled'), value: c.id })))
+// the corner chat's switcher: every chat, the current one checked
+const threadMenuItems = computed(() => [threadItems.value.length
+  ? threadItems.value.map(i => ({ label: i.label, icon: i.value === current.value?.id ? 'i-lucide-check' : undefined, onSelect: () => { threadPick.value = i.value } }))
+  : [{ label: t('chat.none'), disabled: true }]])
 const threadPick = computed({
   get: () => current.value?.id,
   set: (id?: string) => { const c = conversations.value.find(x => x.id === id); if (c) open(c) }
@@ -456,9 +460,16 @@ onBeforeUnmount(() => {
         <p class="min-w-0 flex-1 truncate text-sm font-medium">{{ current?.title || t('chat.newThreadTitle') }}</p>
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-square-pen" :aria-label="t('chat.newThread')" @click="newConversation(pick)" />
       </div>
+      <!-- compact (the corner chat): back, this chat's title (click to switch), a new one -->
       <div v-if="compact && !single" class="flex items-center gap-1 border-b border-(--ui-border) p-2">
-        <USelect v-model="threadPick" :items="threadItems" size="xs" class="min-w-0 flex-1" :placeholder="t('chat.newThread')" />
-        <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" :aria-label="t('chat.newThread')" @click="newConversation()" />
+        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-arrow-left" :aria-label="t('common.close')" @click="emit('back')" />
+        <UDropdownMenu :items="threadMenuItems" :content="{ align: 'start' }" :ui="{ content: 'max-h-80 w-72' }" class="min-w-0 flex-1">
+          <button type="button" class="flex min-w-0 flex-1 items-center gap-1 rounded-md px-2 py-1 text-left hover:bg-(--ui-bg-elevated)">
+            <span class="truncate font-semibold">{{ current?.title || t('chat.newThreadTitle') }}</span>
+            <UIcon name="i-lucide-chevron-down" class="size-4 shrink-0 text-(--ui-text-muted)" />
+          </button>
+        </UDropdownMenu>
+        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" :aria-label="t('chat.newThread')" @click="newConversation()" />
       </div>
       <div v-if="!single && (members.length > 1 || background.length)" class="flex flex-wrap items-center gap-2 border-b border-(--ui-border) px-3 py-1.5 text-xs">
         <span class="text-(--ui-text-muted)">{{ t('chat.members') }}</span>

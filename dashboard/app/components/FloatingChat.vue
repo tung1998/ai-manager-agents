@@ -42,14 +42,18 @@ watch(() => route.fullPath, () => { if (hidden.value) open.value = false })
       :icon="target === assistantId ? 'i-lucide-sparkles' : 'i-lucide-message-circle'" size="xl" class="fixed bottom-5 end-5 z-40 rounded-full shadow-lg"
       :aria-label="t('floating.open')" :title="t('floating.open')" @click="open = true"
     />
-    <USlideover v-model:open="open" :title="target === assistantId ? t('assistant.title') : t('floating.title')" side="right" :ui="{ content: 'max-w-lg', body: 'p-0 sm:p-0 flex flex-col' }">
+    <!-- one header, the chat's own: back, its title (switch), a new one -->
+    <USlideover
+      v-model:open="open" :title="target === assistantId ? t('assistant.title') : t('floating.title')" side="right" :close="false"
+      :ui="{ content: 'max-w-lg', header: 'sr-only', body: 'p-0 sm:p-0 flex flex-col' }"
+    >
       <template #body>
         <div v-if="inProject && assistantId" class="flex gap-1 border-b border-(--ui-border) p-2">
           <UButton size="xs" :color="scope === 'project' ? 'primary' : 'neutral'" :variant="scope === 'project' ? 'soft' : 'ghost'" icon="i-lucide-folder" :label="t('assistant.scopeProject')" @click="scope = 'project'" />
           <UButton size="xs" :color="scope === 'office' ? 'primary' : 'neutral'" :variant="scope === 'office' ? 'soft' : 'ghost'" icon="i-lucide-sparkles" :label="t('assistant.scopeOffice')" @click="scope = 'office'" />
         </div>
         <div class="min-h-0 flex-1 p-2">
-          <ChatPanel v-if="target" :key="target" :project-id="target" compact :page-context="pageContext" />
+          <ChatPanel v-if="target" :key="target" :project-id="target" compact :page-context="pageContext" @back="open = false" />
         </div>
       </template>
     </USlideover>
