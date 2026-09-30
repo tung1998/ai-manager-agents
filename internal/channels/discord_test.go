@@ -420,3 +420,42 @@ func TestDiscordMarksThreadMessages(t *testing.T) {
 		t.Fatalf("in a thread = %v", in)
 	}
 }
+
+// Tagging the bot's own role (Discord offers it next to the bot, same name)
+// is tagging the bot.
+func TestDiscordBotRoleTag(t *testing.T) {
+	gw := wsServe(t, func(send func(string)) {
+		send(`{"op":10,"d":{"heartbeat_interval":45000}}`)
+	}, func(msg string, send func(string)) {
+		if !strings.Contains(msg, `"op":2`) {
+			return
+		}
+		send(`{"op":0,"s":1,"t":"READY","d":{"user":{"id":"99","username":"shopbot"}}}`)
+		send(`{"op":0,"s":2,"t":"GUILD_CREATE","d":{"id":"g","roles":[{"id":"r1","tags":{"bot_id":"99"}},{"id":"r2"}],"threads":[]}}`)
+		send(`{"op":0,"s":3,"t":"MESSAGE_CREATE","d":{"id":"a","channel_id":"c2","guild_id":"g","content":"<@&r1> xin chào","author":{"id":"8"},"mentions":[],"mention_roles":["r1"]}}`)
+		send(`{"op":0,"s":4,"t":"MESSAGE_CREATE","d":{"id":"b","channel_id":"c2","guild_id":"g","content":"<@&r2> mọi người","author":{"id":"8"},"mentions":[],"mention_roles":["r2"]}}`)
+	})
+	defer gw.Close()
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", GatewayURL: "ws" + strings.TrimPrefix(gw.URL, "http"), APIBase: rest.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	got := make(chan Incoming, 10)
+	go d.Run(ctx, func(string) {}, func(m Incoming) { got <- m })
+	var msgs []Incoming
+	for len(msgs) < 2 {
+		select {
+		case m := <-got:
+			msgs = append(msgs, m)
+		case <-ctx.Done():
+			t.Fatalf("got %+v", msgs)
+		}
+	}
+	if !msgs[0].Addressed || msgs[0].Text != "xin chào" {
+		t.Fatalf("the bot's role = %+v", msgs[0])
+	}
+	if msgs[1].Addressed {
+		t.Fatalf("another role = %+v", msgs[1])
+	}
+}

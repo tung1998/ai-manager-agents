@@ -25,6 +25,7 @@ type Discord struct {
 	appID      string // the application: its commands, its interactions' replies
 	menu       menu
 	threads    sync.Map // thread ids it knows of (made, open when it connected): their messages are InThread
+	botRoles   sync.Map // the bot's own roles (managed, one per server): tagging one tags the bot
 }
 
 // intents: guilds (threads made), guild messages, direct messages, message content
@@ -194,10 +195,21 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 					Threads []struct {
 						ID string `json:"id"`
 					} `json:"threads"`
+					Roles []struct {
+						ID   string `json:"id"`
+						Tags *struct {
+							BotID string `json:"bot_id"`
+						} `json:"tags"`
+					} `json:"roles"`
 				}
 				if json.Unmarshal(p.D, &g) == nil { // known before the next message is read
 					for _, th := range g.Threads {
 						d.threads.Store(th.ID, true)
+					}
+					for _, r := range g.Roles {
+						if r.Tags != nil && r.Tags.BotID != "" && r.Tags.BotID == d.botID {
+							d.botRoles.Store(r.ID, true)
+						}
 					}
 				}
 				go d.joinOpen(context.WithoutCancel(ctx), p.D, onMessage)
@@ -222,7 +234,8 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 		Mentions []struct {
 			ID string `json:"id"`
 		} `json:"mentions"`
-		Replied *struct {
+		MentionRoles []string `json:"mention_roles"`
+		Replied      *struct {
 			ID     string `json:"id"`
 			Author struct {
 				ID string `json:"id"`
@@ -243,6 +256,13 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 			tagged = true
 		}
 	}
+	var roles []string
+	for _, r := range m.MentionRoles {
+		if _, mine := d.botRoles.Load(r); mine { // its own role: Discord offers it by the bot's name
+			tagged = true
+			roles = append(roles, "<@&"+r+">", "")
+		}
+	}
 	replied := m.Replied != nil && d.botID != "" && m.Replied.Author.ID == d.botID
 	if replied {
 		in.ReplyTo = m.Replied.ID
@@ -252,7 +272,7 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	in.Addressed = in.Private || tagged || replied || d.menu.has(m.Content)
 	text := m.Content
 	if d.botID != "" {
-		text = strings.NewReplacer("<@"+d.botID+">", "", "<@!"+d.botID+">", "").Replace(text)
+		text = strings.NewReplacer(append([]string{"<@" + d.botID + ">", "", "<@!" + d.botID + ">", ""}, roles...)...).Replace(text)
 	}
 	in.Text = strings.TrimSpace(text)
 	return in, in.Text != ""
