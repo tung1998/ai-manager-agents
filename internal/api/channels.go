@@ -127,8 +127,8 @@ func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
 	}
 	if in.Approval != nil {
 		c.Approval = "ask"
-		if *in.Approval == "direct" {
-			c.Approval = "direct"
+		if *in.Approval == "direct" || *in.Approval == "admin" {
+			c.Approval = *in.Approval
 		}
 	}
 	if in.Scope != nil {

@@ -524,7 +524,11 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		}
 	}
 	// the turn outlives the request: who, which model and the automation's instructions go with it
-	runCtx, cancel := context.WithTimeout(WithInstructions(WithModelTier(actor.With(context.Background(), actor.From(ctx)), ModelTierFrom(ctx)), instructionsOf(ctx)), 20*time.Minute)
+	base := actor.With(context.Background(), actor.From(ctx))
+	if fullAccess(ctx) { // a bot's chat in administrator mode
+		base = WithFullAccess(base)
+	}
+	runCtx, cancel := context.WithTimeout(WithInstructions(WithModelTier(base, ModelTierFrom(ctx)), instructionsOf(ctx)), 20*time.Minute)
 	turn := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
 		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx)}
 	turn.total.Store(1)
@@ -703,6 +707,10 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			req.FullAccess = true
 			req.System += "\n\n## Quyền: administrator\nBạn chạy được mọi lệnh trên máy cài office (Bash, sửa file ở bất kỳ đâu), không cần thẻ duyệt. Cẩn trọng: nói rõ sẽ làm gì trước khi làm việc có thể mất dữ liệu (xóa, ghi đè, dừng dịch vụ), và hỏi lại người dùng với những việc như vậy."
 		}
+	}
+	if fullAccess(ctx) && power == "" { // a bot's chat in administrator mode (ADR-071)
+		req.FullAccess = true
+		req.System += "\n\n## Quyền: administrator\nBạn chạy được mọi lệnh trên máy cài office (Bash, sửa file ở bất kỳ đâu), không cần thẻ duyệt: tự làm tới khi xong rồi mới báo. Cẩn trọng: nói rõ trước khi làm việc có thể mất dữ liệu (xóa, ghi đè, force push, dừng dịch vụ production) và hỏi lại với những việc như vậy."
 	}
 	if noTools(ctx) { // untrusted text (a scope filter's YES/NO): the conversation only
 		// a bot's chats are not this: they run with their agent's own rights, as chosen

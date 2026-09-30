@@ -57,8 +57,8 @@ func (m *Manager) mode(ctx context.Context, ch storage.Channel, chatID string) a
 	if ok, _ := m.store.Settings().Get(ctx, modeKey(ch.ID, chatID), &am); ok && am.Mode != "" {
 		return am
 	}
-	if ch.Approval == "direct" {
-		return approvalMode{Mode: "direct", By: "bot:" + ch.Name} // the bot was set up that way
+	if ch.Approval == "direct" || ch.Approval == "admin" {
+		return approvalMode{Mode: ch.Approval, By: "bot:" + ch.Name} // the bot was set up that way
 	}
 	return approvalMode{Mode: "ask"}
 }
@@ -127,7 +127,7 @@ func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, 
 		if known[p.ID] {
 			continue
 		}
-		if am.Mode == "direct" && !mustAsk(p) {
+		if am.Mode == "admin" || am.Mode == "direct" && !mustAsk(p) { // admin: everything
 			detail, err := m.decider.Decide(ctx, p.Kind, p.ID, true, am.By)
 			done = append(done, outcome(p, true, detail, err))
 			continue
@@ -138,7 +138,11 @@ func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, 
 	}
 	_ = m.store.Settings().Set(ctx, pendingKey(ch.ID, chatID), list)
 	if len(done) > 0 {
-		_, _ = ad.Send(ctx, chatID, "Tự duyệt (chế độ làm thẳng):\n"+strings.Join(done, "\n"))
+		how := "chế độ làm thẳng"
+		if am.Mode == "admin" {
+			how = "chế độ administrator"
+		}
+		_, _ = ad.Send(ctx, chatID, "Tự duyệt ("+how+"):\n"+strings.Join(done, "\n"))
 	}
 	if asked {
 		m.sendPending(ctx, ch, ad, chatID, list)
@@ -240,11 +244,18 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 		case "duyet", "ask":
 			_ = m.store.Settings().Set(ctx, modeKey(ch.ID, in.ChatID), approvalMode{Mode: "ask"})
 			return "Đã chuyển sang hỏi trước: mỗi đề xuất chờ /approve."
+		case "admin", "administrator", "quan-tri":
+			_ = m.store.Settings().Set(ctx, modeKey(ch.ID, in.ChatID), approvalMode{Mode: "admin", By: by})
+			return "Đã chuyển sang administrator: mọi đề xuất ở đây được duyệt ngay (cả push, dừng dịch vụ, đổi cài đặt), đứng tên " + who +
+				". Tin của người được duyệt chạy với toàn quyền trên máy cài office (Bash, sửa file ở bất kỳ đâu). Gõ /mode ask để quay lại."
 		}
-		if m.mode(ctx, ch, in.ChatID).Mode == "direct" {
-			return "Đang làm thẳng. Gõ /mode ask để hỏi trước mỗi đề xuất."
+		switch m.mode(ctx, ch, in.ChatID).Mode {
+		case "direct":
+			return "Đang làm thẳng. Gõ /mode ask để hỏi trước mỗi đề xuất, /mode admin để không hỏi gì."
+		case "admin":
+			return "Đang administrator: không hỏi duyệt, toàn quyền trên máy. Gõ /mode ask để hỏi trước."
 		}
-		return "Đang hỏi trước từng đề xuất. Gõ /mode direct để làm thẳng."
+		return "Đang hỏi trước từng đề xuất. Gõ /mode direct để làm thẳng, /mode admin để không hỏi gì."
 	}
 	approve := cmd == "approve"
 	var picked []proposal
@@ -291,11 +302,7 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 // in direct mode is approved at once, in the name of who turned it on, unless
 // it must always be asked (push, stop, settings, delete…) or runs unattended.
 func (m *Manager) DirectApprover(ctx context.Context, a storage.Action) (string, bool) {
-	switch a.Kind {
-	case "create_automation", "run_automation":
-		return "", false
-	}
-	if mustAsk(proposal{Action: a.Kind, Target: a.Target}) || a.JobID == "" {
+	if a.JobID == "" {
 		return "", false
 	}
 	job, err := m.store.Jobs().Get(ctx, a.JobID)
@@ -310,8 +317,19 @@ func (m *Manager) DirectApprover(ctx context.Context, a storage.Action) (string,
 	if err != nil {
 		return "", false
 	}
-	if am := m.mode(ctx, ch, p.ChatID); am.Mode == "direct" && am.By != "" {
+	am := m.mode(ctx, ch, p.ChatID)
+	switch {
+	case am.By == "":
+	case am.Mode == "admin": // administrator: nothing asked
+		return am.By, true
+	case am.Mode == "direct" && a.Kind != "create_automation" && a.Kind != "run_automation" && !mustAsk(proposal{Action: a.Kind, Target: a.Target}):
 		return am.By, true
 	}
 	return "", false
+}
+
+// FullAccessFor: a message of userID in chatID runs with the machine (Bash,
+// any file): the chat is in administrator mode and the user may approve there.
+func (m *Manager) FullAccessFor(ctx context.Context, ch storage.Channel, chatID, userID string) bool {
+	return m.mode(ctx, ch, chatID).Mode == "admin" && MayDecide(ch, userID)
 }

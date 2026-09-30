@@ -341,6 +341,9 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	}
 	if fromChannel { // the files sent with the message go to the agent with it
 		actx = WithAttachments(actx, channelPayloadOf(origin).Attachments)
+		if channelPayloadOf(origin).FullAccess {
+			actx = WithFullAccess(actx)
+		}
 	}
 	if fromChannel && r.onProgress != nil { // what it is doing, while it does it
 		actx = WithProgress(actx, func(step string) { r.onProgress(context.WithoutCancel(ctx), origin, step) })
@@ -432,6 +435,7 @@ type ChannelPayload struct {
 	ChannelID      string   `json:"channel_id"`
 	ConversationID string   `json:"conversation_id,omitempty"` // action chat: the outside chat's conversation
 	Attachments    []string `json:"attachments,omitempty"`     // files sent with it (attachment ids)
+	FullAccess     bool     `json:"full_access,omitempty"`     // administrator mode, from someone who may approve: the machine
 }
 
 // IsChannel says whether a job's trigger is a chat channel.
@@ -603,6 +607,15 @@ type followUpKey struct{}
 
 // WithFollowUp gives a chat run where to send what comes after its answer:
 // the reports of the agents it gave work to (a bot's chat: back to the channel).
+type fullAccessKey struct{}
+
+// WithFullAccess: this run has the machine (a bot's chat in administrator mode).
+func WithFullAccess(ctx context.Context) context.Context {
+	return context.WithValue(ctx, fullAccessKey{}, true)
+}
+
+func FullAccessOf(ctx context.Context) bool { v, _ := ctx.Value(fullAccessKey{}).(bool); return v }
+
 type progressKey struct{}
 
 // WithProgress: where a chat run reports its steps (a tool it uses…).

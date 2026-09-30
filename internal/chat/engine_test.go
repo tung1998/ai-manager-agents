@@ -843,3 +843,30 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 		t.Fatalf("args = %s", a)
 	}
 }
+
+// A bot's chat in administrator mode runs the turn with the machine.
+func TestFullAccessTurn(t *testing.T) {
+	tmp := t.TempDir()
+	bin, argsLog := filepath.Join(tmp, "claude"), filepath.Join(tmp, "args")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+echo "$*" >> `+argsLog+`
+cat >/dev/null
+echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"sess-1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		return p
+	})
+	ctx := context.Background()
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	turn, _, err := f.engine.Send(chat.WithFullAccess(ctx), conv.ID, "chạy lệnh", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	b, _ := os.ReadFile(argsLog)
+	if a := string(b); !strings.Contains(a, "--permission-mode bypassPermissions") || !strings.Contains(a, "administrator") {
+		t.Fatalf("args = %s", a)
+	}
+}

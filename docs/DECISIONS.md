@@ -1570,3 +1570,10 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Giờ đề xuất đến từ chat bot đang ở chế độ làm thẳng được duyệt ngay lúc agent đưa ra (`actions.SetAutoApprover` → `channels.Manager.DirectApprover`, qua job Discord/Telegram của lượt chạy). Agent nhận kết quả trong cùng lượt và làm tiếp tới khi xong.
   - Push, dừng tiến trình/container, đổi cài đặt, sửa tự động hóa, lệnh nguy hiểm, cùng tạo và chạy tự động hóa vẫn phải hỏi.
 - Form automation có thẻ nguồn **Pull Request** riêng: xác thực đặt sẵn là token trên URL, chỉ một dòng hướng dẫn, chi tiết để trong ⓘ.
+
+## ADR-071: Chế độ administrator của chat bot
+- Thêm `/mode admin` bên cạnh ask và direct. Chỉ người trong "Ai được duyệt" bật được; cũng đặt được làm chế độ mặc định của bot.
+  - Mọi đề xuất được duyệt ngay lúc agent đưa ra, kể cả push, dừng dịch vụ, đổi cài đặt, tự động hóa. Diff được áp khi agent trả lời xong.
+  - Tin của người được duyệt chạy với toàn quyền: `ChannelPayload.FullAccess` → `trigger.WithFullAccess` → `chat.WithFullAccess` → Claude Code `bypassPermissions`, dùng mọi công cụ.
+  - Tin của người khác trong kênh vẫn chạy với quyền của agent.
+- Agent được dặn tự làm tới khi xong rồi mới báo, và hỏi lại trước việc có thể mất dữ liệu.

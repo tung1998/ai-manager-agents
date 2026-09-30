@@ -308,7 +308,8 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 			CreatedBy: actor.From(actx), Title: truncate(in.Text, 80), Status: "skipped", ErrorCode: "no_rule", Error: "không quy tắc nào nhận tin này"})
 		return
 	}
-	p := trigger.ChannelPayload{Message: in.Text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID}
+	p := trigger.ChannelPayload{Message: in.Text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID,
+		FullAccess: m.FullAccessFor(ctx, ch, in.ChatID, in.UserID)}
 	if len(in.Files) > 0 && rule.Action == "chat" { // the files go to the agent with the message
 		var skipped []string
 		p.Attachments, skipped = m.saveFiles(actx, ch, in.Files, actor.From(actx))

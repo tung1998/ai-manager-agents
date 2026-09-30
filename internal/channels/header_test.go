@@ -748,3 +748,44 @@ func TestDirectApprover(t *testing.T) {
 		t.Fatal("a push was approved without asking")
 	}
 }
+
+// /mode admin: everything the agent proposes is approved at once (a push
+// too), and the runs of those who may approve get the machine (full access).
+func TestAdminMode(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"7"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	m.SetDecider(&fakeDecider{})
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	bot.in <- channels.Incoming{ChatID: "c2", UserID: "8", Text: "/mode admin", Addressed: true}
+	if got := bot.wait(t, "c2", 1); strings.Contains(got[0], "administrator") {
+		t.Fatalf("someone who may not approve turned it on: %q", got[0])
+	}
+	bot.in <- channels.Incoming{ChatID: "c2", UserID: "7", UserName: "an", Text: "/mode admin", Addressed: true}
+	if got := bot.wait(t, "c2", 2); !strings.Contains(got[1], "administrator") {
+		t.Fatalf("mode admin = %q", got[1])
+	}
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2"})
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Payload: string(payload), Status: "running"})
+	if by, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin fix", JobID: job.ID}); !ok || by != "discord:an" {
+		t.Fatalf("admin push = %q %v", by, ok)
+	}
+	if !m.FullAccessFor(ctx, ch, "c2", "7") || m.FullAccessFor(ctx, ch, "c2", "8") {
+		t.Fatal("full access: only for who may approve, in admin mode")
+	}
+}

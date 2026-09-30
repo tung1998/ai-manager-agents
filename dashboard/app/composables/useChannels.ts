@@ -2,7 +2,7 @@
 // message does is an automation whose source is the channel (ADR-049).
 export interface Channel {
   id: string, kind: 'telegram' | 'discord', name: string, has_token: boolean, enabled: boolean,
-  allow: string[], refusal: string, approvers: string[], approval: 'ask' | 'direct', header: string, bot_name: string, last_error: string, last_message_at: string | null,
+  allow: string[], refusal: string, approvers: string[], approval: 'ask' | 'direct' | 'admin', header: string, bot_name: string, last_error: string, last_message_at: string | null,
   state?: BotState
 }
 

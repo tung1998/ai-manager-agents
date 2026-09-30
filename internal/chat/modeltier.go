@@ -71,3 +71,11 @@ func WithNoTools(ctx context.Context) context.Context {
 }
 
 func noTools(ctx context.Context) bool { v, _ := ctx.Value(noToolsKey{}).(bool); return v }
+
+type fullAccessKey struct{}
+
+// WithFullAccess runs the turn with the machine (bypassPermissions, every
+// tool): a bot's chat in administrator mode, for someone who may approve there.
+func WithFullAccess(ctx context.Context) context.Context { return context.WithValue(ctx, fullAccessKey{}, true) }
+
+func fullAccess(ctx context.Context) bool { v, _ := ctx.Value(fullAccessKey{}).(bool); return v }

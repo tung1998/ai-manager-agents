@@ -21,6 +21,9 @@ type officeExecutor struct {
 func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (string, string, error) {
 	ctx = chat.WithModelTier(ctx, trigger.ModelTierOf(ctx)) // the automation's model choice
 	ctx = chat.WithSkill(chat.WithInstructions(ctx, trigger.InstructionsOf(ctx)), trigger.SkillOf(ctx))
+	if trigger.FullAccessOf(ctx) { // administrator mode of a bot's chat
+		ctx = chat.WithFullAccess(ctx)
+	}
 	untrusted := trigger.UntrustedOf(ctx)
 	if untrusted { // outsiders drove it (a bot's escalation): no tools, read only
 		ctx = chat.WithNoTools(ctx)

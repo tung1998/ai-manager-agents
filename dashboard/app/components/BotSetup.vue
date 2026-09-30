@@ -19,7 +19,7 @@ useFollowBot(() => channel.value?.state === 'connecting', () => refreshNuxtData(
 
 // the bot's settings
 const bot = reactive({ kind: (channel.value?.kind ?? 'discord') as 'telegram' | 'discord', token: '', allow: (channel.value?.allow ?? []).join('\n'), refusal: channel.value?.refusal ?? '',
-  approvers: (channel.value?.approvers ?? []).join('\n'), approval: (channel.value?.approval ?? 'ask') as 'ask' | 'direct',
+  approvers: (channel.value?.approvers ?? []).join('\n'), approval: (channel.value?.approval ?? 'ask') as 'ask' | 'direct' | 'admin',
   // the line on top of its answers ("" = the default, "-" = none)
   headerOn: channel.value?.header !== '-', header: channel.value?.header === '-' ? '' : (channel.value?.header ?? '') })
 const ids = (s: string) => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean)
@@ -243,9 +243,10 @@ async function save() {
             <UFormField v-if="ids(bot.approvers).length" :label="t('bot.approval')" :help="t('bot.approvalHelp')">
               <USelect
                 v-model="bot.approval" class="w-full"
-                :items="[{ label: t('bot.approvalAsk'), value: 'ask' }, { label: t('bot.approvalDirect'), value: 'direct' }]"
+                :items="[{ label: t('bot.approvalAsk'), value: 'ask' }, { label: t('bot.approvalDirect'), value: 'direct' }, { label: t('bot.approvalAdmin'), value: 'admin' }]"
               />
             </UFormField>
+            <UAlert v-if="bot.approval === 'admin'" color="error" variant="subtle" icon="i-lucide-shield-alert" :title="t('bot.adminTitle')" :description="t('bot.adminDesc')" />
             <!-- who answered, where: on top of each answer -->
             <UFormField :label="t('bot.header')" :help="bot.headerOn ? t('bot.headerHelp') : undefined">
               <div class="flex items-center gap-2">

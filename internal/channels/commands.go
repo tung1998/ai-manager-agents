@@ -26,7 +26,7 @@ func Builtins() []Command {
 		{"pending", "Xem những gì agent đề xuất đang chờ duyệt", ""},
 		{"approve", "Duyệt đề xuất theo số (hoặc all)", "number"},
 		{"reject", "Từ chối đề xuất theo số (hoặc all)", "number"},
-		{"mode", "Chế độ: ask (hỏi trước) hoặc direct (làm thẳng)", "ask or direct"},
+		{"mode", "Chế độ: ask (hỏi trước), direct (làm thẳng) hoặc admin (không hỏi, toàn quyền)", "ask, direct or admin"},
 	}
 }
 
