@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// Which AI the office assistant uses: its connection and its model (the
-// assistant is the one agent of its hidden project, saved as any agent).
+// The office assistant's settings: its rights (ADR-059), and which AI it uses
+// (the assistant is the one agent of its hidden project, saved as any agent).
 const props = defineProps<{ projectId: string }>()
 const { t } = useLang()
 const toast = useToast()
@@ -10,10 +10,14 @@ const { data: provData } = useFetch<{ providers: Provider[] }>('/api/providers',
 const providers = computed(() => provData.value?.providers ?? [])
 const defaultProvider = computed(() => providers.value.find(p => p.is_default))
 const agent = ref<Agent | null>(null)
+type Mode = 'answer' | 'manage' | 'admin'
+const mode = ref<Mode>('manage')
+const modeItems = computed(() => (['answer', 'manage', 'admin'] as const).map(v => ({ value: v, label: t(`assistant.mode.${v}`), description: t(`assistant.modeDesc.${v}`) })))
 const form = reactive<{ provider_id: string, model_tier: 'strong' | 'balanced' | 'fast', llm_model: string }>({ provider_id: '', model_tier: 'balanced', llm_model: '' })
 watch(open, async (o) => {
   if (!o) return
   try {
+    mode.value = (await $fetch<{ mode: Mode }>('/api/assistant')).mode ?? 'manage'
     const list = (await $fetch<{ agents: Agent[] }>(`/api/projects/${props.projectId}/chat/agents`)).agents
     const a = list[0]
     if (!a) return
@@ -40,6 +44,7 @@ async function save() {
   if (!a) return
   saving.value = true
   try {
+    await $fetch('/api/assistant/mode', { method: 'PUT', body: { mode: mode.value } })
     await $fetch(`/api/agents/${a.id}`, {
       method: 'PATCH',
       body: {
@@ -63,6 +68,13 @@ async function save() {
     <template #body>
       <LoadingRows v-if="!agent" :n="2" :icon="false" />
       <div v-else class="space-y-4">
+        <UFormField :label="t('assistant.rights')">
+          <URadioGroup v-model="mode" :items="modeItems" variant="card" class="w-full" />
+        </UFormField>
+        <UAlert
+          v-if="mode === 'admin'" color="error" variant="subtle" icon="i-lucide-shield-alert"
+          :title="t('assistant.adminWarnTitle')" :description="t('assistant.adminWarn')"
+        />
         <UFormField :label="t('org.form.provider')">
           <USelect v-model="providerChoice" :items="providerItems" class="w-full" />
         </UFormField>

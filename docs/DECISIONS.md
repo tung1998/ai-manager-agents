@@ -1445,3 +1445,14 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Diff đang gộp được đánh dấu thất bại, ghi rõ file nào bị xung đột.
   - Lượt sau, agent được dặn sửa xung đột trước.
   - Diff còn dấu xung đột không bao giờ được đưa đi gộp.
+
+## ADR-059: Quyền của Trợ lý office
+
+**Quyết định.** Trang Trợ lý → Cài đặt có 3 mức quyền (lưu trong `assistant.mode`, chỉ admin đổi được):
+- **Chỉ trả lời:** đọc số liệu và tình hình rồi trả lời. Không có công cụ đề xuất hay chạy (`propose_*`, `run_automation`).
+- **Hỗ trợ quản lý office** (mặc định, như trước): đề xuất qua thẻ duyệt, chuyển việc sang Chat của project.
+- **Administrator:** Claude Code chạy với `--permission-mode bypassPermissions`, dùng được mọi công cụ (Bash, sửa file ở bất kỳ đâu) trên máy cài office, không qua thẻ duyệt.
+  - Chỉ có hiệu lực khi **người đang chat là admin**. Thành viên thường vẫn ở mức hỗ trợ.
+  - Kết nối không phải Claude Code thì không có toàn quyền.
+  - Trợ lý được dặn nói trước và hỏi lại trước những việc có thể mất dữ liệu.
+  - Đổi mức quyền được ghi audit.

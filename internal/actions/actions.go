@@ -83,6 +83,7 @@ type Scope struct {
 	RunRef         string
 	JobID          string // the chat answer/task run it comes from (ADR-043)
 	Office         bool   // the office assistant: tools across projects (ADR-046)
+	AnswerOnly     bool   // the office assistant only answers: no proposals (ADR-059)
 	Agent          string
 	Level          string      // what the agent may do in this run (internal/perm)
 	Access         perm.Access // its capabilities and commands in this run

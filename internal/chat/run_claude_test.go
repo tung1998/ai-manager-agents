@@ -88,3 +88,16 @@ func TestTranscriptNamesOtherAgents(t *testing.T) {
 		t.Fatalf("transcript:\n%s", got)
 	}
 }
+
+// Full access (the office assistant as administrator): every tool, no asking.
+func TestClaudeArgsFullAccess(t *testing.T) {
+	var r claudeRunner
+	a := r.args(RunRequest{FullAccess: true}, false)
+	i := slices.Index(a, "--permission-mode")
+	if i < 0 || a[i+1] != "bypassPermissions" || slices.Contains(a, "--allowedTools") {
+		t.Fatalf("full access args = %v", a)
+	}
+	if b := r.args(RunRequest{}, false); b[slices.Index(b, "--permission-mode")+1] != "dontAsk" {
+		t.Fatalf("default args = %v", b)
+	}
+}

@@ -42,3 +42,27 @@ func TestEnsureOnce(t *testing.T) {
 		t.Fatalf("repos = %+v", repos)
 	}
 }
+
+// The assistant's rights: answer only, help run the office (default), or administrator.
+func TestMode(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	if m := assistant.Mode(ctx, st); m != assistant.ModeManage {
+		t.Fatalf("default = %q", m)
+	}
+	if err := assistant.SetMode(ctx, st, "root"); err == nil {
+		t.Fatal("an unknown mode was saved")
+	}
+	if err := assistant.SetMode(ctx, st, assistant.ModeAdmin); err != nil || assistant.Mode(ctx, st) != assistant.ModeAdmin {
+		t.Fatalf("admin = %v %q", err, assistant.Mode(ctx, st))
+	}
+	// administrator only for an admin of the office; others get the default
+	if assistant.Powers(assistant.ModeAdmin, false) != assistant.ModeManage || assistant.Powers(assistant.ModeAdmin, true) != assistant.ModeAdmin {
+		t.Fatal("administrator must need an admin")
+	}
+	if assistant.Powers(assistant.ModeAnswer, true) != assistant.ModeAnswer {
+		t.Fatal("answer only is for everyone")
+	}
+}

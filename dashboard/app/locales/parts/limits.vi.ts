@@ -1,7 +1,16 @@
 // Vietnamese strings for usage limits and context (source of truth for keys).
 export default {
+  'assistant.rights': 'Quyền',
+  'assistant.mode.answer': 'Chỉ trả lời',
+  'assistant.mode.manage': 'Hỗ trợ quản lý office',
+  'assistant.mode.admin': 'Administrator',
+  'assistant.modeDesc.answer': 'Đọc số liệu, tình hình và trả lời; không đề xuất hay chạy gì.',
+  'assistant.modeDesc.manage': 'Như trên, thêm đề xuất cài đặt/tự động hóa qua thẻ duyệt và chuyển việc sang Chat của project.',
+  'assistant.modeDesc.admin': 'Chạy được mọi lệnh trên máy cài office, sửa file ở bất kỳ đâu, không cần duyệt. Chỉ khi admin chat (thành viên vẫn ở mức hỗ trợ); cần kết nối Claude Code.',
+  'assistant.adminWarnTitle': 'Toàn quyền trên máy này',
+  'assistant.adminWarn': 'Trợ lý có thể xóa file, cài phần mềm, dừng dịch vụ… mà không hỏi qua thẻ duyệt. Chỉ bật khi bạn tin các admin của office.',
   'assistant.settings': 'Cài đặt',
-  'assistant.settingsHint': 'Trợ lý dùng kết nối AI và model nào.',
+  'assistant.settingsHint': 'Trợ lý được làm gì, và dùng kết nối AI, model nào.',
   'assistant.settingsSaved': 'Đã lưu: lượt chat sau của trợ lý dùng cài đặt mới',
   'assistant.title': 'Trợ lý office',
   'assistant.intro': 'Hỏi tình hình các project, chi phí, lỗi; nhờ cài đặt hay giao việc. Mọi thay đổi đều qua thẻ duyệt; việc cần sửa code được chuyển sang Chat của project.',

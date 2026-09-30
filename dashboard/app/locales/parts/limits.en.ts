@@ -1,8 +1,17 @@
 import type vi from './limits.vi'
 
 const en: Record<keyof typeof vi, string> = {
+  'assistant.rights': 'Rights',
+  'assistant.mode.answer': 'Answer only',
+  'assistant.mode.manage': 'Help run the office',
+  'assistant.mode.admin': 'Administrator',
+  'assistant.modeDesc.answer': 'Reads figures and status and answers; proposes and runs nothing.',
+  'assistant.modeDesc.manage': 'As above, plus proposing settings/automations on approval cards and handing work to a project chat.',
+  'assistant.modeDesc.admin': 'Runs any command on the machine office is installed on and edits files anywhere, without approval. Only when an admin chats (members stay at help); needs a Claude Code connection.',
+  'assistant.adminWarnTitle': 'Full access to this machine',
+  'assistant.adminWarn': 'The assistant can delete files, install software, stop services… without approval cards. Only turn it on if you trust the office admins.',
   'assistant.settings': 'Settings',
-  'assistant.settingsHint': 'Which AI connection and model the assistant uses.',
+  'assistant.settingsHint': 'What the assistant may do, and which AI connection and model it uses.',
   'assistant.settingsSaved': 'Saved: the assistant uses it from its next answer',
   'assistant.title': 'Office assistant',
   'assistant.intro': 'Ask about projects, costs, errors; have settings changed or work assigned. Every change goes through an approval card; code work is handed to the chat of the project.',

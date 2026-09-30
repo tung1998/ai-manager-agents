@@ -187,12 +187,25 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 		if sc.Office && x.Name == "delegate" {
 			continue // the assistant hands work to a project's chat instead
 		}
+		if sc.AnswerOnly && proposes(x.Name) {
+			continue
+		}
 		out = append(out, x)
 	}
 	if sc.Office { // the office assistant (ADR-046)
-		out = append(out, t.officeTools()...)
+		for _, x := range t.officeTools() {
+			if !sc.AnswerOnly || !proposes(x.Name) {
+				out = append(out, x)
+			}
+		}
 	}
 	return out
+}
+
+// proposes: a tool that proposes a change or runs something (none for an
+// assistant that only answers).
+func proposes(name string) bool {
+	return strings.HasPrefix(name, "propose") || name == "run_automation"
 }
 
 // Has reports whether name is one of the tools.

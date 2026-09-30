@@ -97,3 +97,25 @@ func TestProposeChangeNeedsProposeLevel(t *testing.T) {
 		t.Fatalf("a read-only agent proposed a change: %v %s", isErr, out)
 	}
 }
+
+// Answer only: the assistant reads and answers, it proposes nothing.
+func TestAnswerOnlyHasNoProposals(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	office, _ := st.Repos().Create(ctx, storage.Repo{Name: "Office"})
+	acts := actions.New(st, nil)
+	acts.SetRunner(fakeRunner{})
+	box := New(st, nil, acts)
+	box.SetOffice(func(ctx context.Context) string { return office.ID })
+	sc := Scope{ProjectID: office.ID, Office: true, Agent: "Trợ lý office", AnswerOnly: true}
+	for _, tl := range box.ToolsFor(sc) {
+		if strings.HasPrefix(tl.Name, "propose") || tl.Name == "run_automation" {
+			t.Fatalf("answer only offers %s", tl.Name)
+		}
+	}
+	if !box.Has(sc, "jobs_query") {
+		t.Fatal("answer only still reads the office")
+	}
+}

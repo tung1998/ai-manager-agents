@@ -32,6 +32,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/providers/stats", auth(s.providerStats))
 	mux.Handle("GET /api/providers/limits", auth(s.providerLimits))
 	mux.Handle("GET /api/assistant", auth(s.assistantInfo))
+	mux.Handle("PUT /api/assistant/mode", admin(s.setAssistantMode))
 	mux.Handle("GET /api/me/tokens", auth(s.listTokens))
 	mux.Handle("POST /api/me/tokens", auth(s.createToken))
 	mux.Handle("DELETE /api/me/tokens/{id}", auth(s.revokeToken))

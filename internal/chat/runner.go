@@ -39,15 +39,18 @@ func (h HistoryItem) Said() string {
 
 // RunRequest is one agent turn.
 type RunRequest struct {
-	Provider  storage.Provider
-	APIKey    string
-	Bin       string // CLI binary for CLI providers
-	Model     string
-	System    string
-	History   []HistoryItem
-	Prompt    string
-	WorkDir   string
-	SessionID string
+	Provider storage.Provider
+	APIKey   string
+	Bin      string // CLI binary for CLI providers
+	// FullAccess: every tool and command on the machine, nothing asked (the
+	// office assistant as administrator, for an admin; Claude Code only)
+	FullAccess bool
+	Model      string
+	System     string
+	History    []HistoryItem
+	Prompt     string
+	WorkDir    string
+	SessionID  string
 	// Files attached to this turn's prompt (see attachments.go).
 	Attachments []attach.File
 	// Office tools (build/run/monitoring info) for this run; nil = none.

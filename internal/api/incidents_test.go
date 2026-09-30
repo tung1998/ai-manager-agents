@@ -160,3 +160,16 @@ func TestPendingPatchIncident(t *testing.T) {
 		t.Fatalf("patch incident = %v in %v", found, b["incidents"])
 	}
 }
+
+// The assistant's rights are set by an admin and read back with it.
+func TestAssistantMode(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	if resp, _ := do(t, admin, "PUT", e.srv.URL+"/api/assistant/mode", map[string]any{"mode": "root"}, nil); resp.StatusCode != 400 {
+		t.Fatalf("unknown mode = %d", resp.StatusCode)
+	}
+	if resp, b := do(t, admin, "PUT", e.srv.URL+"/api/assistant/mode", map[string]any{"mode": "answer"}, nil); resp.StatusCode != 200 || b["mode"] != "answer" {
+		t.Fatalf("set = %d %v", resp.StatusCode, b)
+	}
+}

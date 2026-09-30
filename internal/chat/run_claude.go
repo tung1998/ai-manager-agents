@@ -47,6 +47,20 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 		}
 		return a
 	}
+	if req.FullAccess { // the office assistant as administrator (ADR-059)
+		a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "bypassPermissions",
+			"--setting-sources", "user,project,local"}
+		if req.Model != "" {
+			a = append(a, "--model", req.Model)
+		}
+		if req.System != "" {
+			a = append(a, "--append-system-prompt", req.System)
+		}
+		if resume && req.SessionID != "" {
+			a = append(a, "--resume", req.SessionID)
+		}
+		return a
+	}
 	tools := append(slices.Clone(claudeReadTools), "Skill")
 	// dontAsk: whatever is not allowed is denied, whatever the user's defaultMode
 	a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "dontAsk",

@@ -359,7 +359,24 @@ func (s *server) assistantInfo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "office chưa có trợ lý")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"project_id": id})
+	writeJSON(w, http.StatusOK, map[string]any{"project_id": id, "mode": assistant.Mode(r.Context(), s.cfg.Store)})
+}
+
+// setAssistantMode sets the assistant's rights: answer, manage or admin (ADR-059).
+func (s *server) setAssistantMode(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Mode string `json:"mode"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	old := assistant.Mode(r.Context(), s.cfg.Store)
+	if err := assistant.SetMode(r.Context(), s.cfg.Store, in.Mode); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(r, audit.Change{Action: "assistant.mode", Resource: "assistant", Before: map[string]any{"mode": old}, After: map[string]any{"mode": in.Mode}})
+	writeJSON(w, http.StatusOK, map[string]any{"mode": in.Mode})
 }
 
 // mayOpen: an office assistant chat is its creator's alone (ADR-046);

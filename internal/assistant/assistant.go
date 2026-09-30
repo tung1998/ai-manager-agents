@@ -70,3 +70,38 @@ func Ensure(ctx context.Context, store storage.Store, org *orgmodel.Service, dir
 	}
 	return repo.ID, store.Settings().Set(ctx, settingKey, repo.ID)
 }
+
+// The assistant's rights (ADR-059).
+const (
+	ModeAnswer = "answer" // reads the office and answers; proposes nothing
+	ModeManage = "manage" // + proposes changes on approval cards, hands work to projects (the default)
+	ModeAdmin  = "admin"  // + every command on the machine office runs on (for an admin of the office)
+)
+
+const modeKey = "assistant.mode"
+
+// Mode is the assistant's rights as set (ModeManage when never set).
+func Mode(ctx context.Context, store storage.Store) string {
+	var m string
+	if ok, _ := store.Settings().Get(ctx, modeKey, &m); ok && (m == ModeAnswer || m == ModeManage || m == ModeAdmin) {
+		return m
+	}
+	return ModeManage
+}
+
+// SetMode sets the assistant's rights.
+func SetMode(ctx context.Context, store storage.Store, mode string) error {
+	if mode != ModeAnswer && mode != ModeManage && mode != ModeAdmin {
+		return errors.New("quyền của trợ lý phải là answer, manage hoặc admin")
+	}
+	return store.Settings().Set(ctx, modeKey, mode)
+}
+
+// Powers is what the assistant may do for one person: administrator only for
+// an admin of the office, anyone else gets it as manage.
+func Powers(mode string, admin bool) string {
+	if mode == ModeAdmin && !admin {
+		return ModeManage
+	}
+	return mode
+}
