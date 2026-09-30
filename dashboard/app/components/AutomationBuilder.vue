@@ -35,7 +35,7 @@ const pageContext = () => {
 
 const conversationId = ref('')
 const saving = ref(false)
-const secret = ref<{ url: string, secret: string } | null>(null)
+const secret = ref<{ url: string, secret: string, auth?: string, authName?: string } | null>(null)
 async function save() {
   saving.value = true
   try {

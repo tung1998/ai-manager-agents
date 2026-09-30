@@ -9,7 +9,7 @@ const aid = computed(() => route.params.aid as string)
 
 const { data, refresh } = await useFetch<{ automation: Automation }>(() => `/api/automations/${aid.value}`)
 const a = computed(() => data.value?.automation)
-const secret = ref<{ url: string, secret: string } | null>(null)
+const secret = ref<{ url: string, secret: string, auth?: string, authName?: string } | null>(null)
 // a bot's command goes back to its bot; others to the automations
 const isBotCmd = computed(() => !!a.value && isChannelSource(a.value.source) && !!a.value.config.channel_id)
 const back = computed(() => isBotCmd.value ? `/projects/${projectId.value}/bots/${a.value!.config.channel_id}` : { path: `/projects/${projectId.value}`, query: { tab: 'automations' } })
