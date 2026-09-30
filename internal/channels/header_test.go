@@ -91,3 +91,51 @@ func TestReplyHeader(t *testing.T) {
 		t.Fatalf("off = %q", got[2])
 	}
 }
+
+// slowBot takes its time to connect, as Discord does.
+type slowBot struct {
+	fakeBot
+	ready chan struct{}
+}
+
+func (b *slowBot) Run(ctx context.Context, onReady func(string), onMessage func(channels.Incoming)) error {
+	select {
+	case <-b.ready:
+	case <-ctx.Done():
+		return nil
+	}
+	return b.fakeBot.Run(ctx, onReady, onMessage)
+}
+
+// A bot being connected says so (the dashboard follows it), then runs.
+func TestBotState(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true})
+	off, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Off"})
+	bot := &slowBot{fakeBot: fakeBot{in: make(chan channels.Incoming), sent: map[string][]string{}}, ready: make(chan struct{})}
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(2 * time.Second); m.State(ch.ID) != "connecting"; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("state = %q, want connecting", m.State(ch.ID))
+		}
+	}
+	close(bot.ready)
+	for deadline := time.Now().Add(2 * time.Second); m.State(ch.ID) != "running"; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("state = %q, want running", m.State(ch.ID))
+		}
+	}
+	if s := m.State(off.ID); s != "" {
+		t.Fatalf("an off bot: %q", s)
+	}
+}

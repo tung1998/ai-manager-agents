@@ -19,10 +19,11 @@ const bots = computed(() => {
   return [...by.entries()].map(([id, cmds]) => {
     const st = cmds[0]!.bot_status
     const last = cmds.map(c => c.last_job).filter(Boolean).sort((x, y) => y!.created_at.localeCompare(x!.created_at))[0] ?? null
-    return { id, cmds, kind: st?.kind ?? cmds[0]!.source, name: st?.bot_name ? `@${st.bot_name}` : t('bot.title'), error: st?.last_error ?? '', last, enabled: st?.enabled ?? true }
+    return { id, cmds, kind: st?.kind ?? cmds[0]!.source, name: st?.bot_name ? `@${st.bot_name}` : t('bot.title'), error: st?.state === 'connecting' ? '' : (st?.last_error ?? ''), connecting: st?.state === 'connecting', last, enabled: st?.enabled ?? true }
   })
 })
 type BotRow = (typeof bots.value)[number]
+useFollowBot(() => bots.value.some(b => b.connecting), () => refresh())
 // on/off for the whole bot: off, it disconnects and hears nothing (its commands stay)
 async function toggleBot(b: BotRow, enabled: boolean) {
   try {
@@ -68,7 +69,7 @@ async function reconnect(a: Automation) {
   try {
     await $fetch(`/api/channels/${a.config.channel_id}`, { method: 'PATCH', body: { enabled: true } })
     toast.add({ title: t('auto.reconnecting'), color: 'info' })
-    setTimeout(() => refresh(), 5000)
+    await refresh() // connecting now: followed until it runs or fails
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
@@ -127,6 +128,7 @@ async function runNow(a: Automation) {
           </span>
         </NuxtLink>
         <UBadge v-if="b.error" color="error" variant="subtle" size="sm" icon="i-lucide-bot" :label="b.error" :title="b.error" class="max-w-64 truncate" />
+        <UBadge v-else-if="b.connecting" color="warning" variant="subtle" size="sm" icon="i-lucide-loader-circle" :label="t('channels.connecting')" />
         <span v-else class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
           <JobStatusBadge v-if="b.last" :status="b.last.status" />
           {{ when(b.last?.created_at) }}

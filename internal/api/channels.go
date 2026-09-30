@@ -14,6 +14,14 @@ import (
 // ChannelReloader restarts a channel's bot after its settings change.
 type ChannelReloader interface{ Reload(id string) }
 
+// botState: how the bot is doing right now, when the reloader knows it.
+func (s *server) botState(id string) string {
+	if sr, ok := s.cfg.Channels.(interface{ State(string) string }); ok {
+		return sr.State(id)
+	}
+	return ""
+}
+
 type channelDTO struct {
 	ID            string     `json:"id"`
 	ProjectID     string     `json:"project_id"`
@@ -30,9 +38,17 @@ type channelDTO struct {
 	Approvers     []string   `json:"approvers"`
 	Approval      string     `json:"approval"`
 	Header        string     `json:"header"`
+	State         string     `json:"state"` // connecting | running | "" (off or stopped: last_error)
 	BotName       string     `json:"bot_name"`
 	LastError     string     `json:"last_error"`
 	LastMessageAt *time.Time `json:"last_message_at"`
+}
+
+// channelDTO is the channel with how its bot is doing now.
+func (s *server) channelDTO(c storage.Channel) channelDTO {
+	d := toChannelDTO(c)
+	d.State = s.botState(c.ID)
+	return d
 }
 
 func toChannelDTO(c storage.Channel) channelDTO {
@@ -45,7 +61,7 @@ func toChannelDTO(c storage.Channel) channelDTO {
 		approvers = []string{}
 	}
 	return channelDTO{c.ID, c.ProjectID, c.Kind, c.Name, c.TokenEnc != "", c.AgentID, c.Mode, c.Enabled, allow, c.Scope, c.FilterEnabled, c.Refusal,
-		approvers, firstNonEmptyStr(c.Approval, "ask"), c.Header, c.BotName, c.LastError, c.LastMessageAt}
+		approvers, firstNonEmptyStr(c.Approval, "ask"), c.Header, "", c.BotName, c.LastError, c.LastMessageAt}
 }
 
 type channelInput struct {
@@ -144,7 +160,7 @@ func (s *server) listChannels(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]channelDTO, 0, len(list))
 	for _, c := range list {
-		out = append(out, toChannelDTO(c))
+		out = append(out, s.channelDTO(c))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"channels": out})
 }
@@ -176,7 +192,7 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.Channels != nil {
 		s.cfg.Channels.Reload(c.ID)
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"channel": toChannelDTO(c)})
+	writeJSON(w, http.StatusCreated, map[string]any{"channel": s.channelDTO(c)})
 }
 
 func (s *server) updateChannel(w http.ResponseWriter, r *http.Request) {
@@ -204,7 +220,7 @@ func (s *server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		s.cfg.Channels.Reload(c.ID)
 	}
 	c, _ = s.cfg.Store.Channels().Get(r.Context(), c.ID)
-	writeJSON(w, http.StatusOK, map[string]any{"channel": toChannelDTO(c)})
+	writeJSON(w, http.StatusOK, map[string]any{"channel": s.channelDTO(c)})
 }
 
 func (s *server) deleteChannel(w http.ResponseWriter, r *http.Request) {

@@ -75,7 +75,7 @@ export interface Automation {
   webhook_url?: string
   // telegram | discord: the bot it listens to (ADR-049), and how that bot is doing
   bot?: { has_token: boolean, allow: string[], refusal: string }
-  bot_status?: { kind: 'telegram' | 'discord', bot_name: string, enabled: boolean, last_error: string, last_message_at: string | null, shared: number }
+  bot_status?: { kind: 'telegram' | 'discord', bot_name: string, enabled: boolean, last_error: string, last_message_at: string | null, shared: number, state?: BotState }
   last_job: Job | null
   created_at: string
 }

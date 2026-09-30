@@ -15,6 +15,7 @@ const { data: autoData } = _f2
 await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
 const { data: agentsData } = useFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const channel = computed(() => chData.value?.channels.find(c => c.id === props.botId))
+useFollowBot(() => channel.value?.state === 'connecting', () => refreshNuxtData())
 
 // the bot's settings
 const bot = reactive({ kind: (channel.value?.kind ?? 'discord') as 'telegram' | 'discord', token: '', allow: (channel.value?.allow ?? []).join('\n'), refusal: channel.value?.refusal ?? '',
@@ -205,9 +206,9 @@ async function save() {
             <UIcon :name="channel.kind === 'discord' ? 'i-lucide-gamepad-2' : 'i-lucide-send'" class="size-5 text-(--ui-text-muted)" />
             <span class="font-medium">{{ botLabel }}</span>
             <span class="text-(--ui-text-muted)">· {{ channel.kind === 'discord' ? 'Discord' : 'Telegram' }}</span>
-            <span class="flex items-center gap-1.5 text-xs" :class="channel.last_error ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">
-              <span class="size-1.5 rounded-full" :class="channel.last_error ? 'bg-(--ui-error)' : channel.bot_name ? 'bg-(--ui-success)' : 'bg-(--ui-warning)'" />
-              {{ channel.last_error || (channel.bot_name ? t('auto.botRunning') : t('channels.connecting')) }}
+            <span class="flex items-center gap-1.5 text-xs" :class="botStatus(channel, t).tone === 'error' ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">
+              <span class="size-1.5 rounded-full" :class="botDot[botStatus(channel, t).tone]" />
+              {{ botStatus(channel, t).text }}
             </span>
           </div>
           <UButton

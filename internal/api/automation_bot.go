@@ -41,6 +41,7 @@ type automationBotStatus struct {
 	LastError     string     `json:"last_error"`
 	LastMessageAt *time.Time `json:"last_message_at"`
 	Shared        int        `json:"shared"` // automations using this bot
+	State         string     `json:"state"`  // connecting | running | "" (off or stopped: last_error)
 }
 
 // saveBot creates the automation's bot (no channel yet) at once, and names it
@@ -147,5 +148,5 @@ func (s *server) botOf(r *http.Request, a storage.Automation) (*automationBot, *
 	}
 	return &automationBot{HasToken: c.TokenEnc != "", Allow: allow, Refusal: c.Refusal, Approvers: approvers, Approval: firstNonEmptyStr(c.Approval, "ask"), Header: c.Header},
 		&automationBotStatus{Kind: c.Kind, BotName: c.BotName, Enabled: c.Enabled, LastError: c.LastError, LastMessageAt: c.LastMessageAt,
-			Shared: s.botUsers(r, a.ProjectID, c.ID)}
+			Shared: s.botUsers(r, a.ProjectID, c.ID), State: s.botState(c.ID)}
 }

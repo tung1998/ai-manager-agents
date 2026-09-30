@@ -42,6 +42,7 @@ type Manager struct {
 	mu       sync.Mutex
 	running  map[string]context.CancelFunc
 	adapters map[string]Adapter // by channel id: where answers go
+	ready    map[string]bool    // by channel id: connected (false while it connects)
 	waiting  map[string]waiter  // by job id: a message waiting for its answer
 	root     context.Context
 	pending  Pending
@@ -90,7 +91,7 @@ func (p *Pending) Done(key string) {
 // NewManager builds a Manager; wire the runner's answers to Reply.
 func NewManager(store storage.Store, engine *chat.Engine, runner Runner, factory Factory) *Manager {
 	return &Manager{store: store, engine: engine, runner: runner, factory: factory, running: map[string]context.CancelFunc{},
-		adapters: map[string]Adapter{}, waiting: map[string]waiter{}}
+		adapters: map[string]Adapter{}, ready: map[string]bool{}, waiting: map[string]waiter{}}
 }
 
 // Start runs the enabled channels until ctx ends.
@@ -122,6 +123,7 @@ func (m *Manager) Reload(id string) {
 	if stop, ok := m.running[id]; ok {
 		stop()
 		delete(m.running, id)
+		delete(m.ready, id)
 	}
 	root := m.root
 	m.mu.Unlock()
@@ -133,10 +135,26 @@ func (m *Manager) Reload(id string) {
 	}
 }
 
+// State is how a bot is doing right now: "connecting", "running", or "" (off,
+// or stopped on an error: its last_error says why).
+func (m *Manager) State(id string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ok, on := m.ready[id]
+	switch {
+	case !on:
+		return ""
+	case ok:
+		return "running"
+	}
+	return "connecting"
+}
+
 func (m *Manager) run(ch storage.Channel) {
 	m.mu.Lock()
 	ctx, cancel := context.WithCancel(m.root)
 	m.running[ch.ID] = cancel
+	m.ready[ch.ID] = false
 	m.mu.Unlock()
 	go func() {
 		defer func() {
@@ -147,6 +165,9 @@ func (m *Manager) run(ch storage.Channel) {
 		}()
 		ad, err := m.factory(ch)
 		if err != nil {
+			m.mu.Lock()
+			delete(m.ready, ch.ID)
+			m.mu.Unlock()
 			_ = m.store.Channels().SetStatus(context.Background(), ch.ID, ch.BotName, err.Error(), nil)
 			return
 		}
@@ -156,6 +177,11 @@ func (m *Manager) run(ch storage.Channel) {
 		bot := ch.BotName
 		err = ad.Run(ctx, func(name string) {
 			bot = name
+			m.mu.Lock()
+			if _, on := m.ready[ch.ID]; on {
+				m.ready[ch.ID] = true
+			}
+			m.mu.Unlock()
 			_ = m.store.Channels().SetStatus(context.Background(), ch.ID, name, "", nil)
 			go ad.SetCommands(ctx, m.commands(ctx, ch)) // its own and its automations' commands
 		}, func(in Incoming) { go m.handle(ctx, ch.ID, ad, in) })
@@ -165,6 +191,7 @@ func (m *Manager) run(ch storage.Channel) {
 		m.mu.Lock() // stopped: answers still on the way are not posted through it
 		if m.adapters[ch.ID] == ad {
 			delete(m.adapters, ch.ID)
+			delete(m.ready, ch.ID)
 		}
 		m.mu.Unlock()
 	}()
