@@ -40,6 +40,8 @@ export interface AutomationConfig {
   // …or a custom slash command of the bot, and the text typed after it ("" = none)
   command?: string, command_description?: string, command_arg?: string
   skill?: string // the command calls this project skill
+  pull_request?: boolean // a GitHub/Bitbucket PR webhook: runs on a PR opened or updated, with {{diff}}
+  notify_channel_id?: string, notify_chat_id?: string // what a run answers goes to this bot's chat too
 }
 export interface AutomationLimits {
   max_runs_per_hour?: number
@@ -127,10 +129,24 @@ export const isChannelSource = (s: string) => s === 'telegram' || s === 'discord
 // ---- the draft the builder page edits (ADR-042) ----
 export type AutomationDraft = Omit<Automation, 'id' | 'project_id' | 'failures' | 'disabled_code' | 'disabled_reason' | 'last_run_at' | 'next_run_at' | 'last_job' | 'created_at' | 'webhook_url' | 'bot' | 'bot_status'> & { bot: BotDraft }
 
+// prReviewDraft: a GitHub/Bitbucket PR webhook, the agent reviews the diff and the chat hears it
+export function prReviewDraft(t: (k: 'auto.prName' | 'auto.prPrompt') => string): AutomationDraft {
+  const d = emptyDraft()
+  d.name = t('auto.prName')
+  d.source = 'webhook'
+  d.action = 'chat'
+  d.config.pull_request = true
+  d.config.auth = 'query'
+  d.config.auth_name = 'token'
+  d.prompt = t('auto.prPrompt')
+  d.limits.max_runs_per_hour = 20
+  return d
+}
+
 export function emptyDraft(): AutomationDraft {
   return {
     name: '', enabled: true, source: 'schedule',
-    config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '', channel_id: '', keywords: [], scope: '', command: '', command_description: '', command_arg: '', skill: '' },
+    config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '', channel_id: '', keywords: [], scope: '', command: '', command_description: '', command_arg: '', skill: '', pull_request: false, notify_channel_id: '', notify_chat_id: '' },
     bot: { token: '', allow: [], refusal: '' },
     action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', model_tier: '', keep_context: false,
     script: { lang: 'bash', body: '', timeout_s: 300 },

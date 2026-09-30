@@ -72,7 +72,8 @@ type automationDTO struct {
 
 func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automationDTO {
 	c := a.Config
-	cfg := map[string]any{"every_minutes": c.EveryMinutes, "cron": c.Cron, "timezone": c.Timezone, "auth": c.Auth, "auth_name": c.AuthName}
+	cfg := map[string]any{"every_minutes": c.EveryMinutes, "cron": c.Cron, "timezone": c.Timezone, "auth": c.Auth, "auth_name": c.AuthName,
+		"pull_request": c.PullRequest, "notify_channel_id": c.NotifyChannelID, "notify_chat_id": c.NotifyChatID}
 	if trigger.IsChannel(a.Source) {
 		keywords := c.Keywords
 		if keywords == nil {
@@ -193,6 +194,17 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 		cfg.Auth, cfg.AuthName = in.Config.Auth, strings.TrimSpace(in.Config.AuthName)
 		if cfg.Auth != "header" && cfg.Auth != "query" {
 			cfg.Auth = "bearer"
+		}
+		cfg.PullRequest = in.Config.PullRequest // a GitHub/Bitbucket PR webhook
+	}
+	if !trigger.IsChannel(in.Source) && strings.TrimSpace(in.Config.NotifyChannelID) != "" { // its answers go to a bot's chat of the project too
+		ch, err := s.cfg.Store.Channels().Get(r.Context(), strings.TrimSpace(in.Config.NotifyChannelID))
+		if err != nil || ch.ProjectID != a.ProjectID {
+			return errors.New("hãy chọn bot của project này để gửi kết quả")
+		}
+		cfg.NotifyChannelID, cfg.NotifyChatID = ch.ID, strings.TrimSpace(in.Config.NotifyChatID)
+		if cfg.NotifyChatID == "" {
+			return errors.New("hãy điền channel/chat id để gửi kết quả")
 		}
 	}
 	lim := in.Limits

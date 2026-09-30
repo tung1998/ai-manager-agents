@@ -1554,3 +1554,14 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Cài đặt ở trang Kết nối AI: chọn bot, Channel/Chat ID, ngưỡng, có nút Gửi thử (`/api/limit-alert`).
 - Mục Cần xử lý hiện loại cảnh báo "hạn mức AI" cho tới khi giới hạn đó reset.
 - Duyệt "Đổi cài đặt" từ chat bot (người duyệt không có tài khoản office) giờ chạy dưới quyền admin đầu tiên của office, thay cho bot. Audit vẫn ghi người duyệt thật (`discord:…`). Trước đây báo lỗi "không rõ người duyệt".
+
+## ADR-070: Review Pull Request và gửi kết quả vào kênh
+- Webhook có `config.pull_request`:
+  - Nhận sự kiện PR của GitHub (`X-GitHub-Event: pull_request`, loại opened/reopened/synchronize/ready_for_review, bỏ PR nháp) và Bitbucket (`X-Event-Key: pullrequest:created|updated`). Sự kiện khác trả `200 ignored` và không tạo job.
+  - Payload chỉ giữ bản gọn (số PR, tiêu đề, tác giả, link, nhánh, commit), cho phép nhận payload gốc tới 4 MB. Chống trùng theo `pr:<số>:<commit>`.
+  - Lúc chạy, office tự `git fetch origin <đích> <nguồn>` và đưa `git diff origin/đích...origin/nguồn` (có tóm tắt, tối đa 150 KB) vào `{{diff}}`. Prompt không có `{{diff}}` thì diff được thêm vào cuối.
+- Mọi automation không phải của bot có thể đặt `notify_channel_id` và `notify_chat_id` (bot của chính project):
+  - Câu trả lời của mỗi lần chạy, hoặc lỗi, được gửi vào kênh đó, kèm dòng đầu là tên automation, và PR nếu có.
+  - Đi qua `Runner.SetOnNotify` → `channels.Manager.Notify`.
+- Trang tạo automation có mẫu **Review Pull Request** (`?preset=pr`): webhook dạng token trên URL, gửi cho agent, prompt review sẵn.
+- Tin trạng thái "đang làm" sửa tối đa 8 giây một lần (trước là 4 giây), để xa giới hạn sửa tin của Discord/Telegram.

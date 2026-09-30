@@ -51,3 +51,22 @@ func TestLimitAlertAPI(t *testing.T) {
 		t.Fatalf("limit incidents = %d in %v", n, b["incidents"])
 	}
 }
+
+// A PR review automation keeps its PR switch and where its answers go.
+func TestPRAutomationConfig(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	ch, _ := e.st.Channels().Create(context.Background(), storage.Channel{ProjectID: pid, Kind: "discord", Name: "Dev", TokenEnc: "x"})
+	resp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Review PR", "source": "webhook", "action": "chat", "prompt": "Review {{diff}}",
+		"config": map[string]any{"auth": "query", "auth_name": "token", "pull_request": true, "notify_channel_id": ch.ID, "notify_chat_id": "c9"}}, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create = %d %v", resp.StatusCode, b)
+	}
+	cfg := b["automation"].(map[string]any)["config"].(map[string]any)
+	if cfg["pull_request"] != true || cfg["notify_channel_id"] != ch.ID || cfg["notify_chat_id"] != "c9" {
+		t.Fatalf("config = %v", cfg)
+	}
+}

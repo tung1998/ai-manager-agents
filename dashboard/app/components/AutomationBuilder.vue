@@ -2,12 +2,12 @@
 // Build an automation: the form on one side, its own chat on the other
 // (ADR-042). The chat gets the draft and the last test run with each message
 // and may fill the form; nothing is saved until Save.
-const props = defineProps<{ projectId: string, automation?: Automation | null }>()
+const props = defineProps<{ projectId: string, automation?: Automation | null, preset?: AutomationDraft }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
 
-const form = reactive<AutomationDraft>(props.automation ? draftFrom(props.automation) : emptyDraft())
+const form = reactive<AutomationDraft>(props.automation ? draftFrom(props.automation) : props.preset ?? emptyDraft())
 const highlight = ref<string[]>([])
 let clearHl: ReturnType<typeof setTimeout> | undefined
 function applyPatch(p: Record<string, unknown>) {

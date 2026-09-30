@@ -78,10 +78,14 @@ func validToken(a storage.Automation, req *http.Request) bool {
 }
 
 func (r *Runner) receive(w http.ResponseWriter, req *http.Request, a storage.Automation) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxPayload))
+	limit := int64(maxPayload)
+	if a.Config.PullRequest { // GitHub's PR events are large; only a compact PR is kept
+		limit = 4 << 20
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, limit))
 	var tooBig *http.MaxBytesError
 	if errors.As(err, &tooBig) {
-		hookJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "payload quá 64KB"})
+		hookJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "payload quá lớn"})
 		return
 	}
 	if err != nil {
@@ -89,7 +93,19 @@ func (r *Runner) receive(w http.ResponseWriter, req *http.Request, a storage.Aut
 		return
 	}
 	dedupe := ""
+	if a.Config.PullRequest {
+		pr, ok, why := ParsePR(req.Header, body)
+		if !ok { // closed, merged, a comment, a ping…: nothing to review
+			hookJSON(w, http.StatusOK, map[string]any{"status": "ignored", "reason": why})
+			return
+		}
+		body, _ = json.Marshal(pr)
+		dedupe = "pr:" + pr.Number + ":" + firstNonEmpty(pr.Head, pr.Event) // one review per commit
+	}
 	for _, h := range deliveryHeaders {
+		if dedupe != "" {
+			break
+		}
 		if v := strings.TrimSpace(req.Header.Get(h)); v != "" {
 			dedupe = h + ":" + v
 			break

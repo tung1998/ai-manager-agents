@@ -16,6 +16,8 @@ Các trường: name; source (schedule | webhook | telegram | discord); config {
 agent_id (agent làm Việc một mình, như việc hằng ngày của một nhân viên; rỗng = cả đội, trưởng nhóm chia việc); prompt (cho task, có {{payload}}, {{today}}…); script {lang: bash|node|python, body, timeout_s};
 escalate {when: never|failure|signal, action: task, agent_id (rỗng = cả đội), prompt (có {{output}}, {{exit_code}}, {{message}})};
 limits {max_runs_per_hour, daily_cost_usd, disable_after_failures, debounce_seconds, debounce_key, debounce_max_seconds}.
+Review Pull Request: source=webhook, config.pull_request=true (chỉ chạy khi PR GitHub/Bitbucket mở hoặc có commit mới; office tự fetch và đưa diff vào {{diff}}; payload gọn: {{payload.number}}, {{payload.title}}, {{payload.author}}, {{payload.url}}, {{payload.source}}, {{payload.target}}), action=chat.
+Gửi câu trả lời của mỗi lần chạy vào Discord/Telegram: config {notify_channel_id (bot của project), notify_chat_id (channel/chat id)} — người dùng tự chọn trong form nếu chưa biết id.
 Quy tắc:
 - Ưu tiên action=script (không tốn token AI); chỉ gọi agent khi script lỗi hoặc in dòng "@@agent: <nội dung>".
 - Không dùng action=chat với lịch/webhook (mỗi lần chạy thành một cuộc chat, gây rối); việc của một agent thì dùng task với agent_id.

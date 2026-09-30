@@ -171,3 +171,28 @@ func Fetch(ctx context.Context, root string) error {
 	_, err := git(ctx, root, "fetch", "--quiet", "--prune")
 	return err
 }
+
+// BranchDiff fetches base and head from origin and returns what head adds
+// over base (three dots: since they parted), its summary on top, at most max bytes.
+func BranchDiff(ctx context.Context, root, base, head string, max int) (string, error) {
+	if base == "" || head == "" || strings.HasPrefix(base, "-") || strings.HasPrefix(head, "-") {
+		return "", errors.New("thiếu nhánh")
+	}
+	if _, err := git(ctx, root, "fetch", "--no-tags", "origin", base, head); err != nil {
+		return "", err
+	}
+	rng := "origin/" + base + "...origin/" + head
+	stat, err := git(ctx, root, "diff", "--stat", rng)
+	if err != nil {
+		return "", err
+	}
+	diff, err := git(ctx, root, "diff", rng)
+	if err != nil {
+		return "", err
+	}
+	out := strings.TrimSpace(stat) + "\n\n" + diff
+	if len(out) > max {
+		out = out[:max] + "\n… (diff quá dài, đã cắt; xem thêm bằng git diff)"
+	}
+	return out, nil
+}

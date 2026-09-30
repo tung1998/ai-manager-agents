@@ -153,6 +153,12 @@ type AutomationConfig struct {
 	CommandArg         string `json:"command_arg,omitempty"`
 	// Skill: the command calls this project skill ("/skill text" to the chat)
 	Skill string `json:"skill,omitempty"`
+	// PullRequest: a webhook of GitHub/Bitbucket pull requests; office runs
+	// it on a PR opened or updated only, with the PR's diff ({{diff}}).
+	PullRequest bool `json:"pull_request,omitempty"`
+	// Notify: what a run answers is sent to this bot's chat too ("" = kept in office).
+	NotifyChannelID string `json:"notify_channel_id,omitempty"`
+	NotifyChatID    string `json:"notify_chat_id,omitempty"`
 }
 
 // AutomationLimits guard unattended runs.

@@ -86,7 +86,15 @@ const fmt = (d: string) => new Date(d).toLocaleString(dateLocale.value, { weekda
 
 const placeholders = computed(() => fromChannel.value
   ? ['{{message}}', '{{user}}', '{{now}}', '{{today}}', '{{automation}}']
-  : ['{{payload}}', '{{payload.x}}', '{{now}}', '{{today}}', '{{yesterday}}', '{{source}}', '{{automation}}'])
+  : form.config.pull_request
+    ? ['{{diff}}', '{{payload.number}}', '{{payload.title}}', '{{payload.author}}', '{{payload.url}}', '{{payload.source}}', '{{payload.target}}']
+    : ['{{payload}}', '{{payload.x}}', '{{now}}', '{{today}}', '{{yesterday}}', '{{source}}', '{{automation}}'])
+// the project's bots, for where answers go
+const { data: chData } = useFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true, immediate: isAdmin.value })
+const NO_BOT = '__none'
+const notifyBot = computed({ get: () => form.config.notify_channel_id || NO_BOT, set: (v: string) => { form.config.notify_channel_id = v === NO_BOT ? '' : v } })
+const notifyItems = computed(() => [{ label: t('auto.notifyNone'), value: NO_BOT }, ...(chData.value?.channels ?? []).map(c => ({ label: `${c.bot_name ? '@' + c.bot_name : c.name} · ${c.kind === 'discord' ? 'Discord' : 'Telegram'}`, value: c.id }))])
+const notifyKind = computed(() => chData.value?.channels.find(c => c.id === form.config.notify_channel_id)?.kind)
 const promptEl = ref<{ textareaRef?: HTMLTextAreaElement } | null>(null)
 function insert(p: string) {
   const el = promptEl.value?.textareaRef
@@ -181,6 +189,10 @@ async function testRun() {
             <UInput v-model="form.config.auth_name" class="w-full font-mono" :placeholder="form.config.auth === 'header' ? 'X-Office-Token' : 'token'" />
           </UFormField>
         </div>
+        <label class="flex items-start gap-2 text-sm">
+          <USwitch v-model="form.config.pull_request" class="mt-0.5" />
+          <span>{{ t('auto.prToggle') }}<span class="block text-xs text-(--ui-text-muted)">{{ t('auto.prHelp') }}</span></span>
+        </label>
         <p class="text-xs text-(--ui-text-muted)">{{ t('auto.tunnelHint') }}</p>
       </template>
     </section>
@@ -248,6 +260,19 @@ async function testRun() {
       <div class="flex flex-wrap items-center gap-1 text-xs text-(--ui-text-muted)">
         {{ t('auto.insert') }}
         <button v-for="p in placeholders" :key="p" type="button" class="rounded bg-(--ui-bg-elevated) px-1.5 py-0.5 font-mono hover:text-(--ui-text)" @click="insert(p)">{{ p }}</button>
+      </div>
+    </section>
+
+    <!-- where a run's answer goes besides office (a bot's chat) -->
+    <section v-if="!fromChannel && isAdmin" class="space-y-3" :class="box">
+      <p class="flex items-center gap-2 text-sm font-semibold"><UIcon name="i-lucide-send" class="size-4" />{{ t('auto.notifyTitle') }}</p>
+      <div class="grid gap-3 @lg:grid-cols-2">
+        <UFormField :label="t('auto.notifyBot')">
+          <USelect v-model="notifyBot" :items="notifyItems" class="w-full" />
+        </UFormField>
+        <UFormField v-if="form.config.notify_channel_id" :label="notifyKind === 'telegram' ? t('alert.chatTelegram') : t('alert.chatDiscord')">
+          <UInput v-model="form.config.notify_chat_id" class="w-full font-mono text-xs" placeholder="1554696300254199890" />
+        </UFormField>
       </div>
     </section>
 

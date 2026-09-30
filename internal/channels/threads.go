@@ -237,7 +237,8 @@ type Editor interface {
 }
 
 // Progress shows what a run for a message is doing (the runner's OnProgress):
-// after ProgressAfter, one status message, edited at most every 4 seconds.
+// after ProgressAfter, one status message, edited at most every 8 seconds
+// (well under Discord's and Telegram's edit limits, several runs at once too).
 func (m *Manager) Progress(ctx context.Context, origin storage.Job, step string) {
 	var p trigger.ChannelPayload
 	if json.Unmarshal([]byte(origin.Payload), &p) != nil {
@@ -252,7 +253,7 @@ func (m *Manager) Progress(ctx context.Context, origin storage.Job, step string)
 	}
 	w.steps++
 	now := time.Now()
-	if now.Sub(w.started) < m.ProgressAfter || (w.status != "" && now.Sub(w.edited) < 4*time.Second && m.ProgressAfter > 0) {
+	if now.Sub(w.started) < m.ProgressAfter || (w.status != "" && now.Sub(w.edited) < 8*time.Second && m.ProgressAfter > 0) {
 		m.waiting[origin.ID] = w
 		m.mu.Unlock()
 		return

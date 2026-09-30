@@ -46,6 +46,7 @@ type Runner struct {
 	now        func() time.Time
 	onReply    OnReply
 	onProgress OnProgress
+	onNotify   OnNotify
 }
 
 // OnReply gets what a run from a chat channel answers (ADR-049): origin is
@@ -59,6 +60,11 @@ func (r *Runner) SetOnReply(fn OnReply) { r.onReply = fn }
 type OnProgress func(ctx context.Context, origin storage.Job, step string)
 
 func (r *Runner) SetOnProgress(fn OnProgress) { r.onProgress = fn }
+
+// OnNotify sends an automation's answer to a bot's chat (its Notify settings).
+type OnNotify func(ctx context.Context, channelID, chatID, text string)
+
+func (r *Runner) SetOnNotify(fn OnNotify) { r.onNotify = fn }
 
 // New builds a Runner.
 func New(store storage.Store, exec Executor) *Runner {
@@ -227,11 +233,24 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	jctx := usage.WithJob(ctx, j.ID)
 	// a message from a chat channel gets an answer, whatever happens (ADR-049)
 	origin, fromChannel := r.channelOrigin(ctx, j)
-	spoke := false // this run answered (a script may answer, then an agent it calls in)
+	spoke := false                        // this run answered (a script may answer, then an agent it calls in)
+	var notifyTo storage.AutomationConfig // set once the automation is read: where its answer goes
+	notifyHead := ""                      // …and what it is about (its name, the PR)
 	answer := func(text string, err error, final bool) {
 		if fromChannel && r.onReply != nil && !spoke {
 			spoke = true
 			r.onReply(ctx, origin, text, err, final)
+			return
+		}
+		if !fromChannel && final && !spoke && r.onNotify != nil && notifyTo.NotifyChannelID != "" && notifyTo.NotifyChatID != "" {
+			spoke = true
+			msg := strings.TrimSpace(text)
+			if err != nil && !errors.Is(err, ErrNoAnswer) {
+				msg = "⚠️ " + err.Error()
+			}
+			if msg != "" {
+				r.onNotify(context.WithoutCancel(ctx), notifyTo.NotifyChannelID, notifyTo.NotifyChatID, notifyHead+"\n"+msg)
+			}
 		}
 	}
 	defer func() {
@@ -245,6 +264,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		finish("failed", "agent_missing", "tự động hóa không còn")
 		return
 	}
+	notifyTo, notifyHead = a.Config, "**"+a.Name+"**"
 	if !a.Enabled && j.Trigger != "manual" {
 		finish("skipped", "disabled", "tự động hóa đang tắt")
 		return
@@ -280,6 +300,25 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		return
 	}
 	agentID, prompt := a.AgentID, promptFor(a, j, now, loc)
+	if a.Config.PullRequest { // the PR's diff, fetched now
+		var pr PR
+		if json.Unmarshal([]byte(j.Payload), &pr) == nil && pr.Source != "" {
+			root := ""
+			if p, err := r.store.Repos().Get(ctx, a.ProjectID); err == nil {
+				root = p.Path
+			}
+			diff := prDiff(ctx, root, pr)
+			if strings.Contains(prompt, "{{diff}}") {
+				prompt = strings.ReplaceAll(prompt, "{{diff}}", diff)
+			} else {
+				prompt += "\n\nDiff của PR:\n" + diff
+			}
+			notifyHead = "**" + a.Name + "** · PR #" + pr.Number + ": " + pr.Title // the chat reads which PR it is about
+			if pr.URL != "" {
+				notifyHead += "\n" + pr.URL
+			}
+		}
+	}
 	who := "auto:" + a.Name
 	if fromChannel { // the person who wrote to the bot, as the channel names them
 		if p := channelPayloadOf(origin); p.User != "" {
