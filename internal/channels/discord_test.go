@@ -473,3 +473,86 @@ func TestTelegramURL(t *testing.T) {
 		}
 	}
 }
+
+// Files sent to the bot come up with the message (a photo alone too), each
+// fetched when office needs it.
+func TestDiscordAttachments(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("PNGDATA")) }))
+	defer cdn.Close()
+	gw := wsServe(t, func(send func(string)) {
+		send(`{"op":10,"d":{"heartbeat_interval":45000}}`)
+	}, func(msg string, send func(string)) {
+		if !strings.Contains(msg, `"op":2`) {
+			return
+		}
+		send(`{"op":0,"s":1,"t":"READY","d":{"user":{"id":"99","username":"shopbot"}}}`)
+		send(`{"op":0,"s":2,"t":"MESSAGE_CREATE","d":{"id":"a","channel_id":"c1","content":"","author":{"id":"8"},"mentions":[],"attachments":[{"filename":"lỗi.png","size":7,"url":"` + cdn.URL + `/x.png"}]}}`)
+	})
+	defer gw.Close()
+	d := &Discord{Token: "TOK", GatewayURL: "ws" + strings.TrimPrefix(gw.URL, "http"), APIBase: cdn.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	got := make(chan Incoming, 2)
+	go d.Run(ctx, func(string) {}, func(m Incoming) { got <- m })
+	var m Incoming
+	select {
+	case m = <-got:
+	case <-ctx.Done():
+		t.Fatal("a file alone did not come up")
+	}
+	if len(m.Files) != 1 || m.Files[0].Name != "lỗi.png" || m.Files[0].Size != 7 {
+		t.Fatalf("files = %+v", m.Files)
+	}
+	if data, err := m.Files[0].Fetch(ctx); err != nil || string(data) != "PNGDATA" {
+		t.Fatalf("fetch = %q %v", data, err)
+	}
+}
+
+// Telegram: a photo (its largest size) or a document, fetched through getFile.
+func TestTelegramAttachments(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/botTOK/getMe":
+			w.Write([]byte(`{"ok":true,"result":{"username":"shop_bot"}}`))
+		case "/botTOK/getUpdates":
+			if r.URL.Query().Get("offset") != "" || strings.Contains(r.Header.Get("X-Seen"), "1") {
+				time.Sleep(50 * time.Millisecond)
+			}
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			if off, _ := body["offset"].(float64); off > 0 {
+				w.Write([]byte(`{"ok":true,"result":[]}`))
+				return
+			}
+			w.Write([]byte(`{"ok":true,"result":[{"update_id":1,"message":{"message_id":5,"caption":"xem ảnh","chat":{"id":42,"type":"private"},"from":{"id":7},
+				"photo":[{"file_id":"small","file_size":10},{"file_id":"big","file_size":90}]}}]}`))
+		case "/botTOK/getFile":
+			var body map[string]string
+			json.NewDecoder(r.Body).Decode(&body)
+			w.Write([]byte(`{"ok":true,"result":{"file_path":"photos/` + body["file_id"] + `.jpg"}}`))
+		case "/file/botTOK/photos/big.jpg":
+			w.Write([]byte("JPEG"))
+		default:
+			w.Write([]byte(`{"ok":true,"result":true}`))
+		}
+	}))
+	defer srv.Close()
+	tg := &Telegram{Token: "TOK", BaseURL: srv.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	got := make(chan Incoming, 2)
+	go tg.Run(ctx, func(string) {}, func(m Incoming) { got <- m })
+	var m Incoming
+	select {
+	case m = <-got:
+	case <-ctx.Done():
+		t.Fatal("no message")
+	}
+	if m.Text != "xem ảnh" || len(m.Files) != 1 || m.Files[0].Size != 90 {
+		t.Fatalf("message = %+v", m)
+	}
+	if data, err := m.Files[0].Fetch(ctx); err != nil || string(data) != "JPEG" {
+		t.Fatalf("fetch = %q %v", data, err)
+	}
+}

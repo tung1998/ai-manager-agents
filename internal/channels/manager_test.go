@@ -69,7 +69,7 @@ type chatExec struct{ engine *chat.Engine }
 
 func (x chatExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
 	ctx = chat.WithSkill(chat.WithInstructions(ctx, trigger.InstructionsOf(ctx)), trigger.SkillOf(ctx)) // as the office's executor does
-	turn, _, err := x.engine.Send(ctx, conv, prompt, nil)
+	turn, _, err := x.engine.Send(ctx, conv, prompt, trigger.AttachmentsOf(ctx))
 	if err != nil {
 		return conv, "", err
 	}

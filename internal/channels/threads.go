@@ -2,7 +2,10 @@ package channels
 
 import (
 	"context"
+	"strconv"
 	"strings"
+
+	"bitbucket.org/senprints/agent-office/internal/attach"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
@@ -188,4 +191,31 @@ func (m *Manager) stopKeep(ctx context.Context, ch storage.Channel, chatID strin
 	_, _ = m.store.Settings().Get(ctx, lastKey(ch.ID, chatID), &last)
 	_ = m.store.Settings().Set(ctx, closedKey(ch.ID, chatID), last)
 	return m.setKeep(ctx, ch.ID, chatID, false)
+}
+
+// saveFiles downloads what was sent with a message into the office's
+// attachments (images, PDFs, text; the chat's limits). It returns their ids,
+// and why the others were left out.
+func (m *Manager) saveFiles(ctx context.Context, ch storage.Channel, files []InFile, by string) (ids, skipped []string) {
+	store := m.engine.Attachments()
+	for i, f := range files {
+		if i >= attach.MaxPerSend {
+			skipped = append(skipped, f.Name+" (tối đa "+strconv.Itoa(attach.MaxPerSend)+" file)")
+			continue
+		}
+		if f.Size > attach.MaxSize {
+			skipped = append(skipped, f.Name+": "+attach.ErrTooBig.Error())
+			continue
+		}
+		data, err := f.Fetch(ctx)
+		if err == nil {
+			var meta attach.Meta
+			if meta, err = store.Save(ch.ProjectID, by, f.Name, data); err == nil {
+				ids = append(ids, meta.ID)
+				continue
+			}
+		}
+		skipped = append(skipped, f.Name+": "+err.Error())
+	}
+	return ids, skipped
 }

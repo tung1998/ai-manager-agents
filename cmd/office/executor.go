@@ -44,7 +44,7 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 			}
 		}
 	}
-	turn, _, err := x.chat.Send(ctx, conversationID, prompt, nil)
+	turn, _, err := x.chat.Send(ctx, conversationID, prompt, trigger.AttachmentsOf(ctx)) // with the files of a bot's message
 	if errors.Is(err, chat.ErrBusy) {
 		return conversationID, "", trigger.ErrBusy
 	}

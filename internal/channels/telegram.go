@@ -1,6 +1,7 @@
 package channels
 
 import (
+	"io"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -38,6 +39,42 @@ type Incoming struct {
 	ParentID string // …in that channel
 	// InThread: said in a Discord thread; the thread is one conversation.
 	InThread bool
+	// Files sent with it (fetched when office takes the message).
+	Files []InFile
+}
+
+// InFile is a file sent to the bot.
+type InFile struct {
+	Name  string
+	Size  int64
+	Fetch func(ctx context.Context) ([]byte, error)
+}
+
+// maxFetch caps what is downloaded (office keeps up to 10 MB a file).
+const maxFetch = 10 << 20
+
+// fetchURL downloads a file (at most maxFetch; more is an error).
+func fetchURL(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, errors.New("không tải được file")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("không tải được file: %s", resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxFetch+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxFetch {
+		return nil, fmt.Errorf("file quá lớn (tối đa %d MB)", maxFetch>>20)
+	}
+	return data, nil
 }
 
 // Adapter connects one bot.
@@ -111,6 +148,15 @@ type tgMessage struct {
 		ID       int64  `json:"id"`
 		Username string `json:"username"`
 	} `json:"from"`
+	Photo []struct {
+		FileID   string `json:"file_id"`
+		FileSize int64  `json:"file_size"`
+	} `json:"photo"`
+	Document *struct {
+		FileID   string `json:"file_id"`
+		FileName string `json:"file_name"`
+		FileSize int64  `json:"file_size"`
+	} `json:"document"`
 	ReplyTo *struct {
 		MessageID int64 `json:"message_id"`
 		From      struct {
@@ -190,7 +236,14 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 	if m.MessageID != 0 {
 		in.MessageID = strconv.FormatInt(m.MessageID, 10)
 	}
-	if text == "" {
+	if len(m.Photo) > 0 { // its sizes, smallest first: the largest
+		p := m.Photo[len(m.Photo)-1]
+		in.Files = append(in.Files, t.file(p.FileID, "photo.jpg", p.FileSize))
+	}
+	if m.Document != nil {
+		in.Files = append(in.Files, t.file(m.Document.FileID, m.Document.FileName, m.Document.FileSize))
+	}
+	if text == "" && len(in.Files) == 0 {
 		return in, false
 	}
 	in.Text, in.Addressed = text, true
@@ -208,7 +261,24 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 	default:
 		in.Addressed = false
 	}
-	return in, in.Text != ""
+	return in, in.Text != "" || len(in.Files) > 0
+}
+
+// file is a Telegram file, fetched through getFile.
+func (t *Telegram) file(id, name string, size int64) InFile {
+	return InFile{Name: name, Size: size, Fetch: func(ctx context.Context) ([]byte, error) {
+		var f struct {
+			FilePath string `json:"file_path"`
+		}
+		if err := t.call(ctx, "getFile", map[string]string{"file_id": id}, &f); err != nil {
+			return nil, err
+		}
+		base := t.BaseURL
+		if base == "" {
+			base = "https://api.telegram.org"
+		}
+		return fetchURL(ctx, &t.client, base+"/file/bot"+t.Token+"/"+f.FilePath)
+	}}
 }
 
 // forOtherBot: a command addressed to another bot ("/cmd@other_bot").

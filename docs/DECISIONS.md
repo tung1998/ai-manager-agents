@@ -1516,3 +1516,11 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Nhóm thường của Telegram không có link.
 - `/create-conversation` tiếp tục cuộc chat của câu trả lời gần nhất của bot trong kênh hoặc thread đó. Đang tag mà chuyển sang chế độ hội thoại thì không mất ngữ cảnh.
   - Sau `/close-conversation` (ghi lại câu trả lời lúc đóng: `channel_closed/<ch>/<chat>`), lần `/create-conversation` tiếp theo mở cuộc chat mới.
+
+## ADR-065: File gửi cho bot
+- Ảnh, PDF và file chữ gửi kèm tin nhắn Discord/Telegram được đưa cho agent cùng tin nhắn.
+  - Discord: `attachments[].url`.
+  - Telegram: `photo` (lấy cỡ lớn nhất) hoặc `document`, tải qua `getFile`.
+  - Tin chỉ có file, không có chữ, cũng được nhận.
+- Office tải file vào kho đính kèm với cùng giới hạn như chat trên web (10 MB mỗi file, 10 file mỗi lần), ghi id vào `ChannelPayload.Attachments`. Runner chuyển id qua context (`trigger.WithAttachments`) tới `chat.Send`.
+- File không nhận được thì bot báo lại trong chat, kèm lý do.

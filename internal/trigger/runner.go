@@ -294,6 +294,9 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	if fromChannel {
 		conv = channelPayloadOf(origin).ConversationID // the outside chat's own conversation
 	}
+	if fromChannel { // the files sent with the message go to the agent with it
+		actx = WithAttachments(actx, channelPayloadOf(origin).Attachments)
+	}
 	if fromChannel && r.onReply != nil { // the team's reports, after the answer, go to the chat too
 		actx = WithFollowUp(actx, func(t string) { r.onReply(context.WithoutCancel(ctx), origin, t, nil, true) })
 	}
@@ -374,12 +377,13 @@ var ErrNoAnswer = errors.New("không có câu trả lời")
 
 // ChannelPayload is what a message from a chat channel carries (ADR-049).
 type ChannelPayload struct {
-	Message        string `json:"message"`
-	User           string `json:"user"`
-	UserID         string `json:"user_id"`
-	ChatID         string `json:"chat_id"`
-	ChannelID      string `json:"channel_id"`
-	ConversationID string `json:"conversation_id,omitempty"` // action chat: the outside chat's conversation
+	Message        string   `json:"message"`
+	User           string   `json:"user"`
+	UserID         string   `json:"user_id"`
+	ChatID         string   `json:"chat_id"`
+	ChannelID      string   `json:"channel_id"`
+	ConversationID string   `json:"conversation_id,omitempty"` // action chat: the outside chat's conversation
+	Attachments    []string `json:"attachments,omitempty"`     // files sent with it (attachment ids)
 }
 
 // IsChannel says whether a job's trigger is a chat channel.
@@ -551,6 +555,18 @@ type followUpKey struct{}
 
 // WithFollowUp gives a chat run where to send what comes after its answer:
 // the reports of the agents it gave work to (a bot's chat: back to the channel).
+type attachmentsKey struct{}
+
+// WithAttachments: the files (attachment ids) the chat's message carries.
+func WithAttachments(ctx context.Context, ids []string) context.Context {
+	return context.WithValue(ctx, attachmentsKey{}, ids)
+}
+
+func AttachmentsOf(ctx context.Context) []string {
+	ids, _ := ctx.Value(attachmentsKey{}).([]string)
+	return ids
+}
+
 func WithFollowUp(ctx context.Context, fn func(text string)) context.Context {
 	return context.WithValue(ctx, followUpKey{}, fn)
 }

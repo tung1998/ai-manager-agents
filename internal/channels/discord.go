@@ -235,6 +235,11 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 			ID string `json:"id"`
 		} `json:"mentions"`
 		MentionRoles []string `json:"mention_roles"`
+		Attachments  []struct {
+			Filename string `json:"filename"`
+			Size     int64  `json:"size"`
+			URL      string `json:"url"`
+		} `json:"attachments"`
 		Replied      *struct {
 			ID     string `json:"id"`
 			Author struct {
@@ -250,6 +255,12 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	}
 	in := Incoming{ChatID: m.ChannelID, UserID: m.Author.ID, UserName: m.Author.Username, Private: m.GuildID == "", MessageID: m.ID, GuildID: m.GuildID}
 	_, in.InThread = d.threads.Load(m.ChannelID)
+	for _, a := range m.Attachments {
+		url := a.URL
+		in.Files = append(in.Files, InFile{Name: a.Filename, Size: a.Size, Fetch: func(ctx context.Context) ([]byte, error) {
+			return fetchURL(ctx, &d.client, url)
+		}})
+	}
 	tagged := false
 	for _, x := range m.Mentions {
 		if x.ID == d.botID && d.botID != "" {
@@ -275,7 +286,7 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 		text = strings.NewReplacer(append([]string{"<@" + d.botID + ">", "", "<@!" + d.botID + ">", ""}, roles...)...).Replace(text)
 	}
 	in.Text = strings.TrimSpace(text)
-	return in, in.Text != ""
+	return in, in.Text != "" || len(in.Files) > 0
 }
 
 // threadMade: a new thread. The bot joins it (to hear what is said there);

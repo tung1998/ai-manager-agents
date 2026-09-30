@@ -299,6 +299,16 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		return
 	}
 	p := trigger.ChannelPayload{Message: in.Text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID}
+	if len(in.Files) > 0 && rule.Action == "chat" { // the files go to the agent with the message
+		var skipped []string
+		p.Attachments, skipped = m.saveFiles(actx, ch, in.Files, actor.From(actx))
+		if len(skipped) > 0 {
+			say("Mình bỏ qua " + strings.Join(skipped, "; ") + ".")
+		}
+		if p.Message == "" {
+			p.Message = "(gửi kèm file)"
+		}
+	}
 	if rule.Action == "chat" {
 		agent, err := m.agent(ctx, ch.ProjectID, rule.AgentID)
 		if err != nil {

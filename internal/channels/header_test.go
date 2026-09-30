@@ -2,6 +2,7 @@ package channels_test
 
 import (
 	"context"
+	"os"
 	"encoding/json"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
@@ -478,5 +480,62 @@ func TestCreateConversationContinues(t *testing.T) {
 	bot.wait(t, "c2", 4)
 	if fresh, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "c2"}); fresh == tagged || fresh == "" {
 		t.Fatalf("after close, a fresh one: %q", fresh)
+	}
+}
+
+// A photo sent to the bot reaches the agent as an attachment of the message.
+func TestFilesToTheAgent(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	provs := provider.NewService(st, box, llm.Options{})
+	u := usage.New(st, time.UTC)
+	provs.SetUsage(u)
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	bin := filepath.Join(tmp, "claude")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+cat >/dev/null
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"đã xem ảnh","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	engine := chat.NewEngine(st, provs, u)
+	engine.SetAttachments(attach.Store{Dir: filepath.Join(tmp, "att")})
+	runner := trigger.New(st, chatExec{engine})
+	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
+	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Trả lời", Source: "discord", Action: "chat", Enabled: true,
+		Config: storage.AutomationConfig{ChannelID: ch.ID}})
+	m := channels.NewManager(st, engine, runner, func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runner.SetOnReply(m.Reply)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 32)...)
+	bot.in <- channels.Incoming{ChatID: "c2", UserID: "8", Addressed: true, MessageID: "u1",
+		Files: []channels.InFile{{Name: "lỗi.png", Size: int64(len(png)), Fetch: func(context.Context) ([]byte, error) { return png, nil }}}}
+	if got := bot.wait(t, "c2", 1); got[0] != "đã xem ảnh" {
+		t.Fatalf("answer = %q", got)
+	}
+	jobs, _ := st.Jobs().List(ctx, storage.JobFilter{ProjectID: project.ID})
+	var p trigger.ChannelPayload
+	for _, j := range jobs {
+		if j.Trigger == "discord" {
+			json.Unmarshal([]byte(j.Payload), &p)
+		}
+	}
+	if len(p.Attachments) != 1 {
+		t.Fatalf("payload = %+v", p)
+	}
+	msgs, _ := engine.History(ctx, p.ConversationID)
+	if len(msgs) == 0 || len(msgs[0].Attachments) != 1 || msgs[0].Attachments[0].Name != "lỗi.png" {
+		t.Fatalf("the agent's message = %+v", msgs)
 	}
 }
