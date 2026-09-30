@@ -1,5 +1,8 @@
 // Vietnamese strings for usage limits and context (source of truth for keys).
 export default {
+  'assistant.settings': 'Cài đặt',
+  'assistant.settingsHint': 'Trợ lý dùng kết nối AI và model nào.',
+  'assistant.settingsSaved': 'Đã lưu: lượt chat sau của trợ lý dùng cài đặt mới',
   'assistant.title': 'Trợ lý office',
   'assistant.intro': 'Hỏi tình hình các project, chi phí, lỗi; nhờ cài đặt hay giao việc. Mọi thay đổi đều qua thẻ duyệt; việc cần sửa code được chuyển sang Chat của project.',
   'assistant.missing': 'Office chưa dựng được trợ lý (cần mô hình mẫu solo).',

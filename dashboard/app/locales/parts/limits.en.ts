@@ -1,6 +1,9 @@
 import type vi from './limits.vi'
 
 const en: Record<keyof typeof vi, string> = {
+  'assistant.settings': 'Settings',
+  'assistant.settingsHint': 'Which AI connection and model the assistant uses.',
+  'assistant.settingsSaved': 'Saved: the assistant uses it from its next answer',
   'assistant.title': 'Office assistant',
   'assistant.intro': 'Ask about projects, costs, errors; have settings changed or work assigned. Every change goes through an approval card; code work is handed to the chat of the project.',
   'assistant.missing': 'The office could not set up its assistant (needs the solo template).',
