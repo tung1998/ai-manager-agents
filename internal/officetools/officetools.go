@@ -33,6 +33,7 @@ type Toolbox struct {
 	actions *actions.Service
 	// delegate hands a task to another agent of the chat (ADR-044), set by the chat engine
 	delegate func(ctx context.Context, sc Scope, agent, task string) (string, error)
+	sendFile func(ctx context.Context, sc Scope, path, caption string) (string, error)
 	// config reads settings for describe/list/get (the API's registry, ADR-045)
 	config ConfigReader
 	// assistant is the office assistant's own project (hidden from the list)
@@ -55,6 +56,11 @@ func (t *Toolbox) SetConfig(c ConfigReader) { t.config = c }
 // SetDelegate turns on the delegate tool (the chat engine runs hand-offs).
 func (t *Toolbox) SetDelegate(fn func(ctx context.Context, sc Scope, agent, task string) (string, error)) {
 	t.delegate = fn
+}
+
+// SetSendFile turns on the send_file tool (a bot's chat posts the file, ADR-083).
+func (t *Toolbox) SetSendFile(fn func(ctx context.Context, sc Scope, path, caption string) (string, error)) {
+	t.sendFile = fn
 }
 
 // Scope is who calls a tool: the project, and the conversation/task and run
@@ -171,6 +177,14 @@ func (t *Toolbox) Tools() []Tool {
 	}
 	list = append(list, Tool{Name: "read_link", Description: "Đọc nội dung một liên kết của office mà người dùng dán vào: một cuộc chat (…?tab=chat&c=…), một tin nhắn (&m=…) hoặc một Việc (…?tab=tasks&task=…) của project này.",
 		Schema: obj(map[string]any{"url": map[string]any{"type": "string", "description": "Liên kết dashboard của office"}}, "url")})
+	if t.sendFile != nil {
+		list = append(list, Tool{Name: "send_file", Description: "Gửi một file (ảnh png/jpg/gif/webp hiện dạng ảnh; file khác dạng tài liệu) vào cuộc chat Discord/Telegram đang nói chuyện, ngay lúc gọi. " +
+			"Dùng khi người dùng cần xem ảnh chụp màn hình, biểu đồ, file log… File phải nằm trong thư mục làm việc của project (chép vào đó trước nếu cần).",
+			Schema: obj(map[string]any{
+				"path":    map[string]any{"type": "string", "description": "Đường dẫn file (tương đối theo thư mục làm việc, hoặc tuyệt đối trong đó)"},
+				"caption": map[string]any{"type": "string", "description": "Chú thích ngắn kèm file (không bắt buộc)"},
+			}, "path")})
+	}
 	if t.delegate != nil {
 		list = append(list, Tool{Name: "delegate", Description: "Giao một phần việc cho agent khác trong cuộc chat, như subagent: agent đó làm ở nền, bạn trả lời người dùng ngay; " +
 			"khi nó xong, kết quả hiện trong cuộc chat và bạn được gọi lại để báo cho người dùng. Chỉ dùng khi thật sự cần (việc cần quyền hay chuyên môn bạn không có). " +
@@ -190,6 +204,9 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 	for _, x := range t.Tools() {
 		if (x.Name == "propose_action" || x.Name == "propose_automation") && !perm.AtLeast(sc.Level, perm.Propose) {
 			continue
+		}
+		if x.Name == "send_file" && !t.botChat(sc) {
+			continue // only a bot's chat has somewhere to post it
 		}
 		if sc.Office && x.Name == "delegate" {
 			continue // the assistant hands work to a project's chat instead
@@ -243,6 +260,8 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		Reason   string          `json:"reason"`
 		Message  string          `json:"message"`
 		Files    []string        `json:"files"`
+		Path     string          `json:"path"`
+		Caption  string          `json:"caption"`
 		Branch   string          `json:"branch"`
 		Command  string          `json:"command"`
 		Agent    string          `json:"agent"`
@@ -337,6 +356,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		}
 	case "read_link":
 		out, err = t.readLink(ctx, sc, in.URL)
+	case "send_file":
+		if t.sendFile == nil || !t.botChat(sc) {
+			return "send_file chỉ dùng trong cuộc chat của bot Discord/Telegram", true
+		}
+		out, err = t.sendFile(ctx, sc, in.Path, in.Caption)
 	case "delegate":
 		if t.delegate == nil {
 			return "Không có công cụ giao việc ở đây", true
@@ -588,4 +612,13 @@ func (t *Toolbox) gitRead(ctx context.Context, projectID, dir, name string, file
 	default:
 		return gitops.Log(ctx, p.Path, min(max(lines, 10), 50))
 	}
+}
+
+// botChat: the run is a bot's chat (Discord/Telegram), where send_file posts.
+func (t *Toolbox) botChat(sc Scope) bool {
+	if sc.ConversationID == "" {
+		return false
+	}
+	c, err := t.store.Chat().GetConversation(context.Background(), sc.ConversationID)
+	return err == nil && c.Purpose == "channel"
 }

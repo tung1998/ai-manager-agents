@@ -275,8 +275,5 @@ export default {
   'org.agent.fullAccess': 'Chạy như administrator',
   'org.agent.fullAccessHint': 'Agent này chạy với quyền truy cập đầy đủ (tất cả file, lệnh, container). Chỉ admin bật được, và chỉ có tác dụng khi chat ở chế độ Vận hành.',
   'org.agent.fullAccessBy': 'bật bởi {who}',
-  'org.agent.extraDirs': 'Thư mục đọc thêm',
-  'org.agent.extraDirsFullAccessHint': 'Agent đang chạy quyền administrator: thư mục này không còn giới hạn chỉ đọc, agent sửa/xóa được.',
-  'org.agent.addDir': '+ Thêm thư mục',
   'org.agent.permissionsLocked': 'Quyền này chỉ admin sửa được',
 } as const

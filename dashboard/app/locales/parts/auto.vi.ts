@@ -290,7 +290,6 @@ export default {
   'auto.permModeOverride': 'Ghi đè',
   'auto.permEffectiveAdmin': 'Agent {name} chạy toàn quyền (administrator)',
   'auto.permEffectiveNormal': 'Agent {name} chạy quyền thường',
-  'auto.permEffectiveDirs': '· thư mục đọc thêm: {dirs}',
   'auto.permBudgetWarning': 'Chạy toàn quyền mà không ai duyệt: nên đặt Trần chi phí/ngày và Tự tắt sau N lần lỗi ở mục Giới hạn (không bắt buộc).',
   'auto.adminBadge': 'Admin',
   'auto.adminBadgeHint': 'Chạy toàn quyền administrator'

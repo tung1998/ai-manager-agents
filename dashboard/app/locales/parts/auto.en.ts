@@ -291,7 +291,6 @@ const en: Record<keyof typeof vi, string> = {
   'auto.permModeOverride': 'Override',
   'auto.permEffectiveAdmin': 'Agent {name} runs with full access (administrator)',
   'auto.permEffectiveNormal': 'Agent {name} runs with normal access',
-  'auto.permEffectiveDirs': '· extra directories: {dirs}',
   'auto.permBudgetWarning': 'Runs with full access and nobody approving: a Daily cost cap and Disable after N failures (Limits) are worth setting (optional).',
   'auto.adminBadge': 'Admin',
   'auto.adminBadgeHint': 'Runs with full administrator access'

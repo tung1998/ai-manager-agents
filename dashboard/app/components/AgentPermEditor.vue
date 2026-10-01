@@ -96,38 +96,8 @@ function toggleIn(key: 'processes' | 'containers', current: string[], v: string,
           <span v-if="perms.full_access && perms.full_access_by" class="block text-xs text-(--ui-text-muted) italic">{{ t('org.agent.fullAccessBy', { who: perms.full_access_by }) }}</span>
         </span>
       </label>
-      <div v-if="perms.full_access" class="mt-3 space-y-2 border-t border-(--ui-border) pt-3">
-        <p class="flex items-center gap-1 text-xs font-medium">
-          {{ t('org.agent.extraDirs') }}
-          <UTooltip :text="t('org.agent.extraDirsFullAccessHint')">
-            <UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" />
-          </UTooltip>
-        </p>
-        <div class="space-y-1.5">
-          <div v-for="(dir, i) in (perms.extra_dirs ?? [])" :key="i" class="flex items-center gap-2">
-            <UInput
-              :model-value="dir" :disabled="disabled" class="flex-1 font-mono text-xs" placeholder="/abs/path"
-              @update:model-value="(v: string | number) => { (perms.extra_dirs ??= [])[i] = String(v) }"
-            />
-            <button
-              v-if="!disabled" type="button" :disabled="disabled"
-              class="rounded-md p-1 text-(--ui-text-muted) hover:bg-(--ui-bg-elevated) hover:text-(--ui-text)"
-              @click="perms.extra_dirs = perms.extra_dirs?.filter((_, j) => j !== i) ?? []"
-            >
-              <UIcon name="i-lucide-trash-2" class="size-4" />
-            </button>
-          </div>
-          <button
-            v-if="!disabled" type="button" :disabled="disabled"
-            class="w-full rounded-md border border-dashed border-(--ui-border) px-2 py-1.5 text-xs text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)"
-            @click="perms.extra_dirs = [...(perms.extra_dirs ?? []), '']"
-          >
-            {{ t('org.agent.addDir') }}
-          </button>
-        </div>
-      </div>
     </div>
-    <div v-else-if="perms.full_access || perms.extra_dirs?.length" class="rounded-lg border border-(--ui-border) bg-(--ui-bg-elevated)/50 p-3 opacity-60">
+    <div v-else-if="perms.full_access" class="rounded-lg border border-(--ui-border) bg-(--ui-bg-elevated)/50 p-3 opacity-60">
       <p class="flex items-center gap-1.5 text-xs font-medium text-(--ui-text-muted)">
         <UIcon name="i-lucide-lock" class="size-4" />{{ t('org.agent.permissionsLocked') }}
       </p>

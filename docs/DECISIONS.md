@@ -1734,3 +1734,11 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Trình chạy đếm số job đang chạy của từng tự động hóa (`busy`), cho tới N.
   - Tự động hóa giữ ngữ cảnh luôn chỉ 1 lần một lúc, vì dùng chung một cuộc chat.
 - Cả office chạy tối đa 4 job cùng lúc (trước là 2), để vài lần chạy song song không chặn tin của bot.
+
+## ADR-083: Agent gửi ảnh và file vào chat của bot
+- Thêm công cụ `send_file(path, caption)` (MCP của office). Công cụ chỉ hiện trong cuộc chat của bot (`purpose = channel`) và gửi ngay lúc gọi, vào đúng kênh hoặc thread của lượt đó. Kênh được tìm từ job của lượt; không có thì lấy job bot gần nhất của cuộc chat.
+- Ảnh (png, jpg, gif, webp) hiện dạng ảnh; file khác gửi dạng tài liệu.
+  - Discord: tin kèm `files[0]`, tối đa 10 MB.
+  - Telegram: `sendPhoto` (ảnh tới 10 MB) hoặc `sendDocument` (tới 50 MB).
+- **An toàn:** chỉ gửi file trong thư mục làm việc của lượt (worktree hoặc project), sau khi resolve symlink. Không gửi `.env*`, `*.pem`, `*.key` hay file trong `.git`. File quá cỡ thì báo lại cho agent.
+- Bỏ ô "Thư mục đọc thêm" khỏi giao diện (chỉ hiện khi đã bật toàn quyền, mà lúc đó agent vốn đọc được mọi nơi). Backend giữ nguyên.

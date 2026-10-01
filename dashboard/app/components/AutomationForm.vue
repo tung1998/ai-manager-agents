@@ -109,8 +109,6 @@ const effectiveAgent = computed(() => {
   return agents.find(a => a.tier === 'lead') ?? agents[0]
 })
 const effectiveFullAccess = computed(() => form.permission_mode === 'override' ? !!form.override_full_access : !!effectiveAgent.value?.permissions.full_access)
-function addOverrideDir() { form.override_extra_dirs = [...(form.override_extra_dirs ?? []), ''] }
-function removeOverrideDir(i: number) { form.override_extra_dirs = (form.override_extra_dirs ?? []).filter((_, j) => j !== i) }
 
 const promptEl = ref<{ textareaRef?: HTMLTextAreaElement } | null>(null)
 function insert(p: string) {
@@ -328,7 +326,6 @@ async function testRun() {
       <p v-if="form.permission_mode !== 'override'" class="text-xs text-(--ui-text-muted)">
         <template v-if="effectiveAgent">
           {{ effectiveAgent.permissions.full_access ? t('auto.permEffectiveAdmin', { name: effectiveAgent.name }) : t('auto.permEffectiveNormal', { name: effectiveAgent.name }) }}
-          <template v-if="effectiveAgent.permissions.extra_dirs?.length">{{ t('auto.permEffectiveDirs', { dirs: effectiveAgent.permissions.extra_dirs.join(', ') }) }}</template>
         </template>
       </p>
       <template v-else-if="isAdmin">
@@ -339,23 +336,6 @@ async function testRun() {
             <span v-if="form.override_full_access && form.override_admin_by" class="block text-xs text-(--ui-text-muted) italic">{{ t('org.agent.fullAccessBy', { who: form.override_admin_by }) }}</span>
           </span>
         </label>
-        <div v-if="form.override_full_access" class="space-y-1.5">
-          <p class="flex items-center gap-1 text-xs font-medium">
-            {{ t('org.agent.extraDirs') }}
-            <UTooltip :text="t('org.agent.extraDirsFullAccessHint')">
-              <UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" />
-            </UTooltip>
-          </p>
-          <div v-for="(dir, i) in (form.override_extra_dirs ?? [])" :key="i" class="flex items-center gap-2">
-            <UInput :model-value="dir" class="flex-1 font-mono text-xs" @update:model-value="(v: string | number) => { (form.override_extra_dirs ??= [])[i] = String(v) }" />
-            <button type="button" class="rounded-md p-1 text-(--ui-text-muted) hover:bg-(--ui-bg-elevated) hover:text-(--ui-text)" @click="removeOverrideDir(i)">
-              <UIcon name="i-lucide-trash-2" class="size-4" />
-            </button>
-          </div>
-          <button type="button" class="w-full rounded-md border border-dashed border-(--ui-border) px-2 py-1.5 text-xs text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)" @click="addOverrideDir">
-            {{ t('org.agent.addDir') }}
-          </button>
-        </div>
       </template>
       <p v-else class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
         <UIcon name="i-lucide-lock" class="size-4" />{{ t('org.agent.permissionsLocked') }}

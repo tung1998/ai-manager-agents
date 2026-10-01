@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/chat"
@@ -985,5 +986,63 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 	}
 	if len(admin) != 2 || !admin["7"] || admin["8"] {
 		t.Fatalf("admin by sender = %v (9, not listed, must not be there)", admin)
+	}
+}
+
+// fileBot is a bot that takes files.
+type fileBot struct {
+	fakeBot
+	files chan string
+}
+
+func (b *fileBot) SendFile(_ context.Context, chatID, name string, data []byte, caption string) (string, error) {
+	b.files <- chatID + "|" + name + "|" + string(data) + "|" + caption
+	return "f1", nil
+}
+func (b *fileBot) MaxFile() int64 { return 1 << 20 }
+
+// ADR-083: a bot's chat run posts a file of its folder to that chat; nothing
+// outside it, no secret's file.
+func TestSendFileFor(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "shot.png"), []byte("PNG"), 0o644)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("SECRET=1"), 0o644)
+	outside := filepath.Join(t.TempDir(), "x.png")
+	os.WriteFile(outside, []byte("X"), 0o644)
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: dir})
+	bot := &fileBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, files: make(chan string, 4)}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", UserID: "7"})
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Payload: string(payload), Status: "running"})
+	sc := actions.Scope{ProjectID: project.ID, JobID: job.ID}
+	if _, err := m.SendFileFor(ctx, sc, "shot.png", "trang chủ"); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-bot.files; got != "c2|shot.png|PNG|trang chủ" {
+		t.Fatalf("sent = %q", got)
+	}
+	for _, bad := range []string{".env", outside, "../x.png"} {
+		if _, err := m.SendFileFor(ctx, sc, bad, ""); err == nil {
+			t.Errorf("%s was sent", bad)
+		}
+	}
+	if _, err := m.SendFileFor(ctx, actions.Scope{ProjectID: project.ID}, "shot.png", ""); err == nil {
+		t.Error("sent from a run that is no bot's chat")
 	}
 }

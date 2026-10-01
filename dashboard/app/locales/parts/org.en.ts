@@ -265,9 +265,6 @@ const en: Record<keyof typeof vi, string> = {
   'org.agent.fullAccess': 'Run as administrator',
   'org.agent.fullAccessHint': 'This agent runs with full access permissions (all files, commands, containers). Only admins can enable it, and it only applies when the chat is in Operate mode.',
   'org.agent.fullAccessBy': 'enabled by {who}',
-  'org.agent.extraDirs': 'Extra read directories',
-  'org.agent.extraDirsFullAccessHint': 'This agent runs as administrator: these directories are no longer read-only, the agent can edit/delete in them.',
-  'org.agent.addDir': '+ Add directory',
   'org.agent.permissionsLocked': 'Only admins can edit these permissions',
 }
 export default en
