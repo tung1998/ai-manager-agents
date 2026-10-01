@@ -285,5 +285,16 @@ export default {
   'auto.cardReplyDesc': 'Agent trả lời ngay trong cuộc chat đó',
   'auto.cardScriptChannelDesc': 'Output của script là câu trả lời, không tốn token',
   'auto.replyNoTools': 'Agent trả lời bằng quyền của chính nó (đọc code, công cụ, MCP… theo cài đặt agent). Ai trong danh sách được nhắn bot đều dùng được quyền đó.',
-  'auto.promptChannelPlaceholder': 'Trống = gửi nguyên tin nhắn cho agent. VD: Khách {{user}} hỏi: {{message}}. Trả lời ngắn gọn, thân thiện.'
+  'auto.promptChannelPlaceholder': 'Trống = gửi nguyên tin nhắn cho agent. VD: Khách {{user}} hỏi: {{message}}. Trả lời ngắn gọn, thân thiện.',
+
+  // ADR-074: permission mode (agent vs override)
+  'auto.permTitle': 'Quyền',
+  'auto.permModeAgent': 'Dùng của agent',
+  'auto.permModeOverride': 'Ghi đè',
+  'auto.permEffectiveAdmin': 'Agent {name} chạy toàn quyền (administrator)',
+  'auto.permEffectiveNormal': 'Agent {name} chạy quyền thường',
+  'auto.permEffectiveDirs': '· thư mục đọc thêm: {dirs}',
+  'auto.permBudgetWarning': 'Chạy toàn quyền cần đặt Trần chi phí/ngày và Tự tắt sau N lần lỗi ở mục Giới hạn bên dưới.',
+  'auto.adminBadge': 'Admin',
+  'auto.adminBadgeHint': 'Chạy toàn quyền administrator'
 } as const

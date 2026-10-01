@@ -21,8 +21,11 @@ type officeExecutor struct {
 func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, conversationID, prompt, editMode string) (string, string, error) {
 	ctx = chat.WithModelTier(ctx, trigger.ModelTierOf(ctx)) // the automation's model choice
 	ctx = chat.WithSkill(chat.WithInstructions(ctx, trigger.InstructionsOf(ctx)), trigger.SkillOf(ctx))
-	if trigger.FullAccessOf(ctx) { // administrator mode of a bot's chat
+	if trigger.FullAccessOf(ctx) { // administrator mode of a bot's chat, or an automation's override (ADR-074)
 		ctx = chat.WithFullAccess(ctx)
+	}
+	if dirs := trigger.ExtraDirsOf(ctx); len(dirs) > 0 { // an automation's own override of extra read dirs (ADR-074)
+		ctx = chat.WithExtraDirs(ctx, dirs)
 	}
 	untrusted := trigger.UntrustedOf(ctx)
 	if untrusted { // outsiders drove it (a bot's escalation): no tools, read only

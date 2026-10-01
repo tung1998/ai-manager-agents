@@ -101,3 +101,36 @@ func TestClaudeArgsFullAccess(t *testing.T) {
 		t.Fatalf("default args = %v", b)
 	}
 }
+
+// Extra directories (an agent's own, or an automation's override — ADR-074)
+// become --add-dir flags of the run.
+func TestClaudeArgsExtraDirs(t *testing.T) {
+	dir := t.TempDir()
+	bin, argsLog := filepath.Join(dir, "claude"), filepath.Join(dir, "args")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+printf '%s\n' "$@" >`+argsLog+`
+cat >/dev/null
+echo '{"type":"result","subtype":"success","result":"ok"}'
+`), 0o755)
+	extra := t.TempDir()
+	req := RunRequest{Bin: bin, WorkDir: dir, Prompt: "hi", ExtraDirs: []string{extra, " ", ""}}
+	var r claudeRunner
+	if _, err := r.Run(context.Background(), req, func(Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(argsLog)
+	got := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	i := slices.Index(got, "--add-dir")
+	if i < 0 || i+1 >= len(got) || got[i+1] != extra {
+		t.Fatalf("--add-dir missing for extra dirs: %v", got)
+	}
+	n := 0
+	for _, a := range got {
+		if a == "--add-dir" {
+			n++
+		}
+	}
+	if n != 1 { // blank entries are skipped
+		t.Fatalf("blank extra dirs were not skipped: %v", got)
+	}
+}

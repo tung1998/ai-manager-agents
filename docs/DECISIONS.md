@@ -1608,6 +1608,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Rút gọn ghi nhớ chạy trong một transaction và giữ những ghi nhớ thêm vào trong lúc model đang rút gọn. Thông báo thay đổi của một transaction chỉ gửi sau khi commit.
 - Diff PR từ fork lấy từ `refs/pull/N/head` (GitHub).
 
+<<<<<<< HEAD
 ## ADR-075: Bỏ giới hạn lượt khi người dùng nhắn trực tiếp
 - Giới hạn của ADR-044 (2 lượt giao việc, 4 lượt trả lời cho mỗi tin) làm đứt vòng làm việc bình thường: Lập kế hoạch giao cho Code Worker, Code Worker báo lại, Lập kế hoạch giao tiếp.
 - Tin của người dùng (web `human:`, Discord, Telegram) chỉ còn giới hạn an toàn chống vòng lặp: 10 lượt giao việc và 20 lượt trả lời. Người dùng có mặt để dừng các agent khi cần.
@@ -1621,3 +1622,38 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - `POST /api/system/processes/{pid}/stop|kill` (admin, ghi Nhật ký). Chỉ nhận PID nằm trong cây của office và không phải chính office.
   - Đóng: lượt agent được hủy đúng cách, tiến trình project dừng qua trình quản lý của nó, còn lại nhận SIGTERM.
   - Kill: buộc dừng tiến trình và mọi tiến trình con, con sâu nhất dừng trước.
+=======
+---
+
+## ADR-074: Quyền administrator đặt trên Agent, automation kế thừa hoặc ghi đè
+
+**Bối cảnh.** Mặc định, một agent chạy dưới `dontAsk` (Read/Glob/Grep/Skill + Edit/Write), không đọc ngoài worktree hay dùng Bash/Task ngoài được duyệt. Chat administrator (ADR-059, ADR-071) chạy `bypassPermissions`. Automation theo lịch/webhook muốn có quyền tương đương phải có cách bật riêng.
+
+Bản đầu của ADR này đặt `full_access`/`admin_by`/`extra_dirs` thẳng trên **Automation**. Sai hướng: quyền "chạy như administrator" là thuộc tính của **agent** (nó chạy ở mọi nơi — chat dashboard, chat kênh, automation — với cùng một mức quyền), không phải của riêng một automation. Bản sửa chuyển đúng chỗ.
+
+**Quyết định.**
+1. **Agent** (`storage.Permissions`, vốn đã là một cột JSON — không cần migration riêng) có thêm:
+   - `FullAccess bool` — chạy `bypassPermissions` (mọi công cụ, sửa ở bất kỳ đâu).
+   - `FullAccessBy string` — ai bật; chỉ còn hiệu lực khi người đó **vẫn** là admin lúc chạy (kiểm tra lại mỗi lần, không chỉ lúc lưu).
+   - `ExtraDirs []string` — thư mục tuyệt đối, chỉ đọc thêm (vd. migrate/sync dữ liệu từ repo khác).
+   - Chỉ admin được set hai trường trên; một save không phải admin giữ nguyên giá trị cũ (không báo lỗi, không xóa).
+   - `FullAccess` chỉ có hiệu lực khi mức quyền hiệu lực của lượt chạy (`perm.Effective`, đã gồm chat/task mode) đã là **Operate** — một chat ở "Chỉ đọc" không bao giờ leo quyền dù agent được cấu hình full access.
+   - Áp dụng ở **mọi nơi** agent chạy: chat dashboard, chat kênh (bot), automation — tính một lần trong `chat.Engine.run` (nơi duy nhất mọi lượt chạy đi qua), không phải ở từng nơi gọi.
+2. **Automation** có `PermissionMode`: `"agent"` (mặc định, dùng đúng quyền hiệu lực của agent nó gọi) hoặc `"override"` (chỉ admin chọn được, **thay thế hẳn** — không cộng dồn — bằng `OverrideFullAccess`/`OverrideAdminBy`/`OverrideExtraDirs` của riêng automation).
+3. Bất kể agent hay override, nếu quyền hiệu lực là full access thì automation đó bắt buộc đặt giới hạn chi phí/ngày > 0 và tự tắt khi lỗi > 0 lần (rào chắn vì chạy nền, không người giám sát).
+4. Skill được gắn cho automation lịch/webhook (ADR-049 trước đó chỉ gắn cho kênh), để tự động hóa gọi lệnh như Chat.
+5. Agent/automation tạo qua đề xuất (`internal/actions`) không đi qua các trường này: `trigger.Spec` không có `PermissionMode`/`FullAccess`/`ExtraDirs`, nên một agent không tự cấp quyền này cho mình qua `propose_automation`/`propose_change`.
+
+**Lý do.**
+- Quyền administrator là tính chất của agent (ai chạy), không phải của từng automation (khi nào chạy) — đặt đúng chỗ tránh một bộ field thứ hai trùng ý nghĩa, và tự động làm mọi nơi agent xuất hiện nhất quán (sửa một chỗ, có hiệu lực khắp nơi).
+- Override ở automation vẫn cần, vì có automation muốn quyền khác agent gốc của nó (ít hơn hoặc nhiều hơn) mà không muốn đổi agent dùng chung cho chat thường — override *thay thế* để không ai nhầm "cộng dồn quyền".
+- Kiểm tra lại admin mỗi lần chạy (không chỉ lúc lưu): một admin bị hạ quyền sau đó không được để lại một agent chạy mãi với quyền họ không còn có.
+- Rào chắn ngân sách bắt buộc vì sai lầm ở chế độ không giám sát có thể tốn kém hoặc phá dữ liệu.
+
+**Phương án đã loại.**
+| Phương án | Lý do loại |
+|---|---|
+| Giữ field trên Automation (bản đầu) | Sai mô hình: hai automation cùng gọi một agent sẽ phải cấu hình lại quyền hai lần, và quyền agent dùng trong chat dashboard không được hưởng dù là agent tương tự. |
+| Cấp full quyền mặc định, không rào chắn | Không an toàn: automation/agent chạy nền, lỗi code có thể phá máy. |
+| Override cộng dồn vào quyền agent thay vì thay thế | Dễ gây hiểu lầm về quyền thực tế đang chạy; thay thế rõ ràng hơn khi đọc lại cấu hình. |
+>>>>>>> 143662e (agent-office: thay đổi trong worktree)

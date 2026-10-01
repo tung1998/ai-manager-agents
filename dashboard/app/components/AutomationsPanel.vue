@@ -53,6 +53,14 @@ function botMenu(b: BotRow) {
   ]
 }
 const agentName = (id: string) => agentsData.value?.agents.find(a => a.id === id)?.name ?? t('auto.lead')
+// ADR-074: an automation's effective permission is full access when it
+// overrides to one, or when it follows an agent that itself has one.
+function isFullAccess(a: Automation): boolean {
+  if (a.permission_mode === 'override') return !!a.override_full_access
+  const agents = agentsData.value?.agents ?? []
+  const agent = a.agent_id ? agents.find(x => x.id === a.agent_id) : (agents.find(x => x.tier === 'lead') ?? agents[0])
+  return !!agent?.permissions.full_access
+}
 const when = (d?: string | null) => d ? new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : t('auto.never')
 
 
@@ -147,6 +155,7 @@ async function runNow(a: Automation) {
             · {{ a.action === 'script' ? t('auto.toScript') : t('auto.toChat', { agent: agentName(a.agent_id) }) }}
           </span>
         </NuxtLink>
+        <UBadge v-if="isFullAccess(a)" color="warning" variant="subtle" size="sm" icon="i-lucide-shield-alert" :label="t('auto.adminBadge')" :title="t('auto.adminBadgeHint')" />
         <UBadge v-if="a.disabled_code" color="error" variant="subtle" size="sm" icon="i-lucide-circle-alert" :label="t('auto.disabledBy', { reason: a.disabled_reason })" class="max-w-64 truncate" />
         <UBadge v-else-if="a.bot_status?.last_error" color="error" variant="subtle" size="sm" icon="i-lucide-bot" :label="a.bot_status.last_error" :title="a.bot_status.last_error" class="max-w-64 truncate" />
         <span v-else class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">

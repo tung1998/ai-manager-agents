@@ -59,6 +59,8 @@ type RunRequest struct {
 	// project in direct mode), except DenyPaths.
 	Write     bool
 	DenyPaths []string
+	// ExtraDirs: additional directories the agent may read (ADR-074)
+	ExtraDirs []string
 	// UserMCP lets it use the MCP servers of the person's own setup
 	// (perm.CapUserMCP); otherwise only office's tools.
 	UserMCP bool

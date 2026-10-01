@@ -19,6 +19,16 @@ import (
 // the job waits a minute and tries again, for at most busyTimeout.
 var ErrBusy = errors.New("project đang bận")
 
+// isAdminEmail: that email is still an admin of the office (ADR-074: an
+// override an admin turned on only holds while they still are one).
+func (r *Runner) isAdminEmail(ctx context.Context, email string) bool {
+	if email == "" {
+		return false
+	}
+	u, err := r.store.Users().GetByEmail(ctx, email)
+	return err == nil && u.Role == storage.RoleAdmin && !u.Disabled
+}
+
 const (
 	busyRetry   = time.Minute
 	busyTimeout = 30 * time.Minute
@@ -333,6 +343,10 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		prompt, instr = replyPrompt(a, j, now, loc)
 		actx = WithSkill(WithInstructions(actx, instr), a.Config.Skill)
 	}
+	// gắn skill cho cả lịch/webhook (ADR-074)
+	if !fromChannel && a.Config.Skill != "" {
+		actx = WithSkill(actx, a.Config.Skill)
+	}
 	keptConv, text := "", ""
 	conv := ""
 	if a.KeepContext {
@@ -345,6 +359,17 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		actx = WithAttachments(actx, channelPayloadOf(origin).Attachments)
 		if channelPayloadOf(origin).FullAccess {
 			actx = WithFullAccess(actx)
+		}
+	}
+	// quyền chạy: mặc định theo agent (chat.Engine tự tính từ Permissions của
+	// agent); "override" thay thế hẳn bằng quyền riêng của automation, chỉ
+	// còn hiệu lực khi người bật nó vẫn còn là admin (ADR-074)
+	if a.PermissionMode == "override" {
+		if a.OverrideFullAccess && r.isAdminEmail(ctx, a.OverrideAdminBy) {
+			actx = WithFullAccess(actx)
+		}
+		if len(a.OverrideExtraDirs) > 0 {
+			actx = WithExtraDirs(actx, a.OverrideExtraDirs)
 		}
 	}
 	if fromChannel && r.onProgress != nil { // what it is doing, while it does it
@@ -617,6 +642,21 @@ func WithFullAccess(ctx context.Context) context.Context {
 }
 
 func FullAccessOf(ctx context.Context) bool { v, _ := ctx.Value(fullAccessKey{}).(bool); return v }
+
+type extraDirsKey struct{}
+
+// WithExtraDirs allows the executor to read additional directories (ADR-074).
+func WithExtraDirs(ctx context.Context, dirs []string) context.Context {
+	if len(dirs) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, extraDirsKey{}, dirs)
+}
+
+func ExtraDirsOf(ctx context.Context) []string {
+	dirs, _ := ctx.Value(extraDirsKey{}).([]string)
+	return dirs
+}
 
 type progressKey struct{}
 

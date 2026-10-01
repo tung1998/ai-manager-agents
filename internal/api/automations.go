@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -68,7 +69,13 @@ type automationDTO struct {
 	BotStatus      *automationBotStatus       `json:"bot_status,omitempty"` // …and how that bot is doing
 	LastJob        *jobDTO                    `json:"last_job"`
 	CreatedAt      time.Time                  `json:"created_at"`
-	Version        string                     `json:"version"` // what an edit is made from (ADR-072)
+	// PermissionMode: "agent" (default, follows the agent's own Permissions) or
+	// "override" (admin only, replaces them for this automation) — ADR-074.
+	PermissionMode     string   `json:"permission_mode"`
+	OverrideFullAccess bool     `json:"override_full_access"`
+	OverrideAdminBy    string   `json:"override_admin_by"`
+	OverrideExtraDirs  []string `json:"override_extra_dirs"`
+	Version            string   `json:"version"` // what an edit is made from (ADR-072)
 }
 
 func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automationDTO {
@@ -85,7 +92,8 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 	}
 	d := automationDTO{ID: a.ID, ProjectID: a.ProjectID, Name: a.Name, Enabled: a.Enabled, Source: a.Source, Config: cfg, Action: a.Action,
 		AgentID: a.AgentID, Prompt: a.Prompt, EditMode: a.EditMode, ModelTier: a.ModelTier, KeepContext: a.KeepContext, Limits: a.Limits, Script: a.Script, Escalate: a.Escalate, Failures: a.Failures,
-		DisabledCode: a.DisabledCode, DisabledReason: a.DisabledReason, LastRunAt: a.LastRunAt, NextRunAt: a.NextRunAt, CreatedAt: a.CreatedAt}
+		DisabledCode: a.DisabledCode, DisabledReason: a.DisabledReason, LastRunAt: a.LastRunAt, NextRunAt: a.NextRunAt, CreatedAt: a.CreatedAt,
+		PermissionMode: a.PermissionMode, OverrideFullAccess: a.OverrideFullAccess, OverrideAdminBy: a.OverrideAdminBy, OverrideExtraDirs: a.OverrideExtraDirs}
 	d.Version = automationVersion(a)
 	if a.Source == "webhook" {
 		d.WebhookURL = "/hooks/" + a.ID
@@ -119,6 +127,10 @@ type automationInput struct {
 	ConversationID string `json:"conversation_id"`
 	// Bot: telegram | discord, the bot's own settings (a new one without channel_id)
 	Bot *botInput `json:"bot"`
+	// PermissionMode: "agent" (default) or "override" (admin only) — ADR-074
+	PermissionMode     string   `json:"permission_mode"`
+	OverrideFullAccess bool     `json:"override_full_access"`
+	OverrideExtraDirs  []string `json:"override_extra_dirs"`
 }
 
 // apply validates in and puts it on a (the secret hash and state stay).
@@ -126,6 +138,39 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" {
 		return errors.New("hãy đặt tên cho tự động hóa")
+	}
+	user := userFrom(r)
+	isAdmin := user.Role == storage.RoleAdmin
+	// PermissionMode: "agent" (default, follows the agent's own Permissions) or
+	// "override" (admin only, replaces them) — ADR-074
+	in.PermissionMode = strings.TrimSpace(in.PermissionMode)
+	if in.PermissionMode != "override" {
+		in.PermissionMode = "agent"
+	}
+	if in.PermissionMode == "override" && !isAdmin {
+		return errors.New("chỉ admin được ghi đè quyền của tự động hóa")
+	}
+	if in.PermissionMode == "override" {
+		for _, dir := range in.OverrideExtraDirs {
+			dir = strings.TrimSpace(dir)
+			if dir == "" {
+				continue
+			}
+			if !filepath.IsAbs(dir) {
+				return errors.New("thư mục phải là đường dẫn tuyệt đối: " + dir)
+			}
+			if _, err := os.Stat(dir); err != nil {
+				return errors.New("thư mục không tồn tại: " + dir)
+			}
+		}
+		a.PermissionMode, a.OverrideExtraDirs = "override", in.OverrideExtraDirs
+		if in.OverrideFullAccess {
+			a.OverrideFullAccess, a.OverrideAdminBy = true, user.Email
+		} else {
+			a.OverrideFullAccess, a.OverrideAdminBy = false, ""
+		}
+	} else {
+		a.PermissionMode, a.OverrideFullAccess, a.OverrideAdminBy, a.OverrideExtraDirs = "agent", false, "", nil
 	}
 	if in.Source != "schedule" && in.Source != "webhook" && !trigger.IsChannel(in.Source) {
 		return errors.New("nguồn phải là lịch chạy, webhook hoặc tin nhắn kênh (telegram, discord)")
@@ -214,6 +259,22 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	lim.MaxRunsPerHour, lim.DisableAfterFailures = max(lim.MaxRunsPerHour, 0), max(lim.DisableAfterFailures, 0)
 	lim.DebounceSeconds, lim.DebounceMaxSeconds = min(max(lim.DebounceSeconds, 0), 3600), min(max(lim.DebounceMaxSeconds, 0), 6*3600)
 	lim.DailyCostUSD = max(lim.DailyCostUSD, 0)
+	// a full-access run (the agent's own, or an override) must bound itself:
+	// a daily cost cap and an auto-disable after failures (ADR-074)
+	effectiveFullAccess := a.PermissionMode == "override" && a.OverrideFullAccess
+	if !effectiveFullAccess && in.AgentID != "" {
+		if ag, err := s.cfg.Store.Agents().Get(r.Context(), in.AgentID); err == nil {
+			effectiveFullAccess = ag.Permissions.FullAccess
+		}
+	}
+	if effectiveFullAccess {
+		if lim.DailyCostUSD <= 0 {
+			return errors.New("tự động hóa chạy quyền administrator phải đặt giới hạn chi phí/ngày > 0")
+		}
+		if lim.DisableAfterFailures <= 0 {
+			return errors.New("tự động hóa chạy quyền administrator phải đặt tự tắt khi lỗi > 0 lần")
+		}
+	}
 	a.Name, a.Source, a.Action, a.AgentID, a.Prompt, a.KeepContext = in.Name, in.Source, in.Action, in.AgentID, in.Prompt, in.KeepContext
 	a.EditMode, a.Config, a.Limits = s.allowedEditMode(r, in.EditMode), cfg, lim
 	a.Script, a.Escalate = storage.AutomationScript{}, storage.AutomationEscalate{} // a script calls no agent in (ADR-057)

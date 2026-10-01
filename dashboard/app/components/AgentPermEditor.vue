@@ -2,9 +2,11 @@
 import type { Permissions } from '~/composables/useOffice'
 // An agent's permissions: pick a package (a preset), then switch single
 // capabilities on or off and narrow the commands it may run by itself.
+// ADR-074: admin-only full access and extra directories.
 const perms = defineModel<Permissions>({ required: true })
 const props = defineProps<{ projectId?: string, disabled?: boolean }>()
 const { t } = useLang()
+const { isAdmin } = useAuth()
 
 const level = computed(() => agentLevel(perms.value))
 const caps = computed(() => agentCaps(perms.value))
@@ -84,6 +86,48 @@ function toggleIn(key: 'processes' | 'containers', current: string[], v: string,
 
 <template>
   <div class="space-y-3">
+    <!-- ADR-074: full access (admin-only) -->
+    <div v-if="isAdmin" class="rounded-lg border border-(--ui-border) p-3">
+      <label class="flex cursor-pointer items-start gap-2.5">
+        <USwitch size="sm" class="mt-0.5" :model-value="perms.full_access ?? false" @update:model-value="(v: boolean) => perms.full_access = v" />
+        <span class="min-w-0 flex-1">
+          <span class="text-sm font-medium">{{ t('org.agent.fullAccess') }}</span>
+          <span class="block text-xs text-(--ui-text-muted)">{{ t('org.agent.fullAccessHint') }}</span>
+          <span v-if="perms.full_access && perms.full_access_by" class="block text-xs text-(--ui-text-muted) italic">{{ t('org.agent.fullAccessBy', { who: perms.full_access_by }) }}</span>
+        </span>
+      </label>
+      <div v-if="perms.full_access" class="mt-3 space-y-2 border-t border-(--ui-border) pt-3">
+        <p class="text-xs font-medium">{{ t('org.agent.extraDirs') }}</p>
+        <div class="space-y-1.5">
+          <div v-for="(dir, i) in (perms.extra_dirs ?? [])" :key="i" class="flex items-center gap-2">
+            <UInput
+              :model-value="dir" :disabled="disabled" class="flex-1 font-mono text-xs" placeholder="/abs/path"
+              @update:model-value="(v: string | number) => { (perms.extra_dirs ??= [])[i] = String(v) }"
+            />
+            <button
+              v-if="!disabled" type="button" :disabled="disabled"
+              class="rounded-md p-1 text-(--ui-text-muted) hover:bg-(--ui-bg-elevated) hover:text-(--ui-text)"
+              @click="perms.extra_dirs = perms.extra_dirs?.filter((_, j) => j !== i) ?? []"
+            >
+              <UIcon name="i-lucide-trash-2" class="size-4" />
+            </button>
+          </div>
+          <button
+            v-if="!disabled" type="button" :disabled="disabled"
+            class="w-full rounded-md border border-dashed border-(--ui-border) px-2 py-1.5 text-xs text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)"
+            @click="perms.extra_dirs = [...(perms.extra_dirs ?? []), '']"
+          >
+            {{ t('org.agent.addDir') }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <div v-else-if="perms.full_access || perms.extra_dirs?.length" class="rounded-lg border border-(--ui-border) bg-(--ui-bg-elevated)/50 p-3 opacity-60">
+      <p class="flex items-center gap-1.5 text-xs font-medium text-(--ui-text-muted)">
+        <UIcon name="i-lucide-lock" class="size-4" />{{ t('org.agent.permissionsLocked') }}
+      </p>
+    </div>
+
     <!-- packages -->
     <div class="flex flex-wrap gap-1 rounded-lg bg-(--ui-bg-elevated) p-1">
       <button

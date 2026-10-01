@@ -270,4 +270,12 @@ export default {
   'agentPage.restore': 'Quay về trước lần sửa này',
   'agentPage.restoreConfirm': 'Đưa agent về trạng thái trước lần sửa lúc {when}? Các lần sửa sau đó cũng bị bỏ (vẫn khôi phục lại được).',
   'agentPage.restored': 'Đã khôi phục agent',
+
+  // ADR-074: agent full access and extra directories
+  'org.agent.fullAccess': 'Chạy như administrator',
+  'org.agent.fullAccessHint': 'Agent này chạy với quyền truy cập đầy đủ (tất cả file, lệnh, container). Chỉ admin bật được, và chỉ có tác dụng khi chat ở chế độ Vận hành.',
+  'org.agent.fullAccessBy': 'bật bởi {who}',
+  'org.agent.extraDirs': 'Thư mục đọc thêm',
+  'org.agent.addDir': '+ Thêm thư mục',
+  'org.agent.permissionsLocked': 'Quyền này chỉ admin sửa được',
 } as const

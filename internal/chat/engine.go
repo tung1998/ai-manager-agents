@@ -174,7 +174,16 @@ func (e *Engine) SetAssistant(id func(ctx context.Context) string) { e.assistant
 // isAdmin: who ("human:<email>") is an admin of the office.
 func (e *Engine) isAdmin(ctx context.Context, who string) bool {
 	email, ok := strings.CutPrefix(who, "human:")
-	if !ok || email == "" {
+	if !ok {
+		return false
+	}
+	return e.isAdminEmail(ctx, email)
+}
+
+// isAdminEmail: that email is still an admin of the office (ADR-074: a
+// FullAccess an admin turned on only holds while they still are one).
+func (e *Engine) isAdminEmail(ctx context.Context, email string) bool {
+	if email == "" {
 		return false
 	}
 	u, err := e.store.Users().GetByEmail(ctx, email)
@@ -637,6 +646,14 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	policy := perm.LoadPolicy(ctx, e.store, project.ID)
 	acc := perm.Resolve(agent, conv.Mode, policy)
 	level := acc.Level
+	// an agent's own administrator permissions (ADR-074): only once the run's
+	// level is already Operate (a Chỉ đọc chat/task never leaks it), and only
+	// while whoever turned it on is still an admin.
+	agentFull := agent.Permissions.FullAccess && perm.AtLeast(level, perm.Operate) && e.isAdminEmail(ctx, agent.Permissions.FullAccessBy)
+	agentExtraDirs := extraDirsOf(ctx) // an automation's own override (ADR-074)
+	if perm.AtLeast(level, perm.Operate) {
+		agentExtraDirs = append(append([]string{}, agent.Permissions.ExtraDirs...), agentExtraDirs...)
+	}
 	pl, err := e.placeFor(ctx, project, policy, acc, e.chatTree(ctx, conv, agent), true, conv.EditMode)
 	if err != nil {
 		fail(err)
@@ -674,7 +691,10 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	req := RunRequest{
 		Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: text,
 		System: systemPrompt(project, agent, e.office != nil, acc, pl), History: HistoryFor(history, agent.Name), Attachments: files,
-		Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP),
+		Write: pl.write, DenyPaths: policy.DenyPaths, ExtraDirs: agentExtraDirs, UserMCP: acc.Can(perm.CapUserMCP),
+	}
+	if agentFull {
+		req.FullAccess = true
 	}
 	if conv.Purpose == "automation" {
 		req.System += automationGuide
@@ -714,6 +734,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if fullAccess(ctx) && power == "" { // a bot's chat in administrator mode (ADR-071)
 		req.FullAccess = true
 		req.System += "\n\n## Quyền: administrator\nBạn chạy được mọi lệnh trên máy cài office (Bash, sửa file ở bất kỳ đâu), không cần thẻ duyệt: tự làm tới khi xong rồi mới báo. Cẩn trọng: nói rõ trước khi làm việc có thể mất dữ liệu (xóa, ghi đè, force push, dừng dịch vụ production) và hỏi lại với những việc như vậy."
+	}
+	if agentFull && power == "" && !fullAccess(ctx) { // the agent's own administrator permission (ADR-074)
+		req.System += "\n\n## Quyền: administrator\nAgent này được admin cấu hình chạy quyền administrator (ADR-074): bạn chạy được mọi lệnh trên máy cài office (Bash, sửa file ở bất kỳ đâu), không cần thẻ duyệt. Cẩn trọng: nói rõ trước khi làm việc có thể mất dữ liệu (xóa, ghi đè, force push, dừng dịch vụ production) và hỏi lại với những việc như vậy."
 	}
 	if noTools(ctx) { // untrusted text (a scope filter's YES/NO): the conversation only
 		// a bot's chats are not this: they run with their agent's own rights, as chosen

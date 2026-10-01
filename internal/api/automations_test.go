@@ -102,6 +102,74 @@ func TestScriptAutomationAPI(t *testing.T) { // ADR-041
 	}
 }
 
+func TestAutomationPermissionAPI(t *testing.T) { // ADR-074
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
+	teamTpl := ""
+	for _, x := range body["templates"].([]any) {
+		if m := x.(map[string]any); m["key"] == "team" {
+			teamTpl = m["id"].(string)
+		}
+	}
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": teamTpl}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	agents := body["project"].(map[string]any)["model"].(map[string]any)["agents"].([]any)
+	agentID := agents[0].(map[string]any)["id"].(string)
+
+	base := map[string]any{"name": "a", "source": "schedule", "action": "chat", "agent_id": agentID, "prompt": "x",
+		"config": map[string]any{"every_minutes": 60}}
+
+	// override without a budget is rejected
+	in := map[string]any{}
+	for k, v := range base {
+		in[k] = v
+	}
+	in["permission_mode"], in["override_full_access"] = "override", true
+	if resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", in, nil); resp.StatusCode != 400 {
+		t.Fatalf("override without budget = %d %v", resp.StatusCode, body)
+	}
+	// with a budget, saved and stamped with who enabled it
+	in["limits"] = map[string]any{"daily_cost_usd": 5, "disable_after_failures": 3}
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", in, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("override with budget = %d %v", resp.StatusCode, body)
+	}
+	a := body["automation"].(map[string]any)
+	if a["permission_mode"] != "override" || a["override_admin_by"] != "admin@x.io" {
+		t.Fatalf("override fields = %v", a)
+	}
+
+	// the default "agent" mode needs no budget of its own
+	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", base, nil)
+	if resp.StatusCode != 201 || body["automation"].(map[string]any)["permission_mode"] != "agent" {
+		t.Fatalf("default agent mode = %d %v", resp.StatusCode, body)
+	}
+
+	// a member cannot override, even with a budget set
+	member := e.client(t)
+	login(t, e, member, "member@x.io", "member-password")
+	if resp, _ := do(t, member, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", in, nil); resp.StatusCode != 403 {
+		t.Fatalf("member override = %d", resp.StatusCode)
+	}
+
+	// once the agent itself has FullAccess, "agent" mode also needs the budget
+	_, agentBody := do(t, admin, "GET", e.srv.URL+"/api/agents/"+agentID, nil, nil)
+	ag := agentBody["agent"].(map[string]any)
+	ag["permissions"] = map[string]any{"full_access": true}
+	resp, body = do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+agentID, stripID(ag), nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("set agent full access = %d %v", resp.StatusCode, body)
+	}
+	if body["agent"].(map[string]any)["permissions"].(map[string]any)["full_access_by"] != "admin@x.io" {
+		t.Fatalf("full_access_by not stamped = %v", body["agent"])
+	}
+	if resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", base, nil); resp.StatusCode != 400 {
+		t.Fatalf("agent full access without budget = %d %v", resp.StatusCode, body)
+	}
+}
+
 func TestAutomationBuilderAPI(t *testing.T) { // ADR-042
 	e := setup(t)
 	admin := e.client(t)

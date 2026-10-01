@@ -260,5 +260,13 @@ const en: Record<keyof typeof vi, string> = {
   'agentPage.restore': 'Go back to before this change',
   'agentPage.restoreConfirm': 'Put the agent back to how it was before the change at {when}? Later changes are dropped too (this can be undone).',
   'agentPage.restored': 'Agent restored',
+
+  // ADR-074: agent full access and extra directories
+  'org.agent.fullAccess': 'Run as administrator',
+  'org.agent.fullAccessHint': 'This agent runs with full access permissions (all files, commands, containers). Only admins can enable it, and it only applies when the chat is in Operate mode.',
+  'org.agent.fullAccessBy': 'enabled by {who}',
+  'org.agent.extraDirs': 'Extra read directories',
+  'org.agent.addDir': '+ Add directory',
+  'org.agent.permissionsLocked': 'Only admins can edit these permissions',
 }
 export default en

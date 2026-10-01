@@ -56,10 +56,12 @@ const tiles = computed(() => {
 
 const kindIcon: Record<Group['kind'], string> = { agent: 'i-lucide-bot', automation: 'i-lucide-zap', project: 'i-lucide-play', other: 'i-lucide-terminal' }
 const open = ref<Record<number, boolean>>({})
-const acting = ref('')
+const acting = reactive(new Set<string>())
 async function act(p: { pid: number, name: string }, force: boolean) {
   if (force && !confirm(t('sys.killConfirm', { name: p.name, pid: p.pid }))) return
-  acting.value = `${p.pid}${force}`
+  const key = `${p.pid}${force}`
+  if (acting.has(key)) return
+  acting.add(key)
   try {
     await $fetch(`/api/system/processes/${p.pid}/${force ? 'kill' : 'stop'}`, { method: 'POST' })
     toast.add({ title: force ? t('sys.killed') : t('sys.stopped'), color: 'success' })
@@ -67,7 +69,7 @@ async function act(p: { pid: number, name: string }, force: boolean) {
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
-    acting.value = ''
+    acting.delete(key)
   }
 }
 </script>
@@ -123,8 +125,8 @@ async function act(p: { pid: number, name: string }, force: boolean) {
                 v-if="g.conversation_id && g.project_id" size="xs" color="neutral" variant="ghost" icon="i-lucide-message-square" :aria-label="t('sys.openChat')" :title="t('sys.openChat')"
                 :to="`/projects/${g.project_id}?tab=chat&c=${g.conversation_id}`"
               />
-              <UButton size="xs" color="neutral" variant="outline" :label="t('sys.stop')" :title="t('sys.stopTip')" :loading="acting === `${g.pid}false`" @click="act({ pid: g.pid, name: g.label }, false)" />
-              <UButton size="xs" color="error" variant="soft" :label="t('sys.kill')" :title="t('sys.killTip')" :loading="acting === `${g.pid}true`" @click="act({ pid: g.pid, name: g.label }, true)" />
+              <UButton size="xs" color="neutral" variant="outline" :label="t('sys.stop')" :title="t('sys.stopTip')" :loading="acting.has(`${g.pid}false`)" @click="act({ pid: g.pid, name: g.label }, false)" />
+              <UButton size="xs" color="error" variant="soft" :label="t('sys.kill')" :title="t('sys.killTip')" :loading="acting.has(`${g.pid}true`)" @click="act({ pid: g.pid, name: g.label }, true)" />
             </div>
           </div>
           <div v-if="open[g.pid]" class="bg-(--ui-bg-muted)/40 pb-1">

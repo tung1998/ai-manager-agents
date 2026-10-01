@@ -663,7 +663,11 @@ type agentInput struct {
 	Sort         *int                `json:"sort"`
 }
 
-func (in agentInput) apply(a *storage.Agent) {
+// applyAgent validates in and puts it on a. FullAccess/ExtraDirs are admin
+// only (ADR-074): a non-admin save keeps whatever a already had for them.
+func (s *server) applyAgent(r *http.Request, in agentInput, a *storage.Agent) error {
+	isAdmin := userFrom(r).Role == storage.RoleAdmin
+	keepFullAccess, keepFullAccessBy, keepExtraDirs := a.Permissions.FullAccess, a.Permissions.FullAccessBy, a.Permissions.ExtraDirs
 	a.Key, a.Name, a.Tier, a.Role = strings.TrimSpace(in.Key), strings.TrimSpace(in.Name), in.Tier, in.Role
 	a.Description, a.ReportsTo, a.ProviderID = in.Description, in.ReportsTo, in.ProviderID
 	a.ModelTier, a.LLMModel, a.Instructions, a.Permissions = in.ModelTier, strings.TrimSpace(in.LLMModel), in.Instructions, in.Permissions
@@ -680,6 +684,27 @@ func (in agentInput) apply(a *storage.Agent) {
 		a.Permissions.Level = perm.Agent(*a)
 	}
 	a.Permissions.ReadOnly = perm.Agent(*a) == perm.Read // the legacy flag follows
+	if isAdmin {
+		if a.Permissions.FullAccess {
+			a.Permissions.FullAccessBy = userFrom(r).Email
+		} else {
+			a.Permissions.FullAccessBy = ""
+		}
+		for _, dir := range a.Permissions.ExtraDirs {
+			dir = strings.TrimSpace(dir)
+			if dir == "" {
+				continue
+			}
+			if !filepath.IsAbs(dir) {
+				return errors.New("thư mục phải là đường dẫn tuyệt đối: " + dir)
+			}
+			if _, err := os.Stat(dir); err != nil {
+				return errors.New("thư mục không tồn tại: " + dir)
+			}
+		}
+	} else { // not admin: these fields stay as they were
+		a.Permissions.FullAccess, a.Permissions.FullAccessBy, a.Permissions.ExtraDirs = keepFullAccess, keepFullAccessBy, keepExtraDirs
+	}
 	if in.Sort != nil {
 		a.Sort = *in.Sort
 	}
@@ -689,6 +714,7 @@ func (in agentInput) apply(a *storage.Agent) {
 	if a.ModelTier == "" {
 		a.ModelTier = storage.TierBalanced
 	}
+	return nil
 }
 
 func (s *server) checkProvider(r *http.Request, id string) error {
@@ -716,7 +742,10 @@ func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := storage.Agent{OrgModelID: r.PathValue("id")}
-	in.apply(&a)
+	if err := s.applyAgent(r, in, &a); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	a, err := s.cfg.Org.SaveAgent(r.Context(), a)
 	if err != nil {
 		s.writeDomainError(w, r, err)
@@ -749,7 +778,10 @@ func (s *server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	old := a
-	in.apply(&a)
+	if err := s.applyAgent(r, in, &a); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	a, err = s.cfg.Org.SaveAgent(r.Context(), a)
 	if err != nil {
 		s.writeDomainError(w, r, err)

@@ -138,6 +138,13 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 	for _, d := range dirs {
 		args = append(args, "--add-dir", d)
 	}
+	// thêm extra directories từ automation (ADR-074)
+	for _, d := range req.ExtraDirs {
+		d = strings.TrimSpace(d)
+		if d != "" {
+			args = append(args, "--add-dir", d)
+		}
+	}
 	if req.Office != nil && !req.NoTools {
 		// the office MCP server; the token goes in a private temp file, not argv
 		cfg, err := writeMCPConfig(req.Office)

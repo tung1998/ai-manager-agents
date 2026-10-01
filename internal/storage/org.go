@@ -116,6 +116,15 @@ type Permissions struct {
 	Processes        *[]string `json:"processes,omitempty"`
 	Containers       *[]string `json:"containers,omitempty"`
 	RequiresApproval bool      `json:"requires_approval,omitempty"` // side effects need a human
+	// FullAccess: admin only (ADR-074), the agent runs with administrator
+	// permissions (bypassPermissions) wherever it runs, once the run's level is
+	// already Operate (it never raises a lower chat/task mode).
+	FullAccess bool `json:"full_access,omitempty"`
+	// FullAccessBy: who turned FullAccess on; it must still be an admin at run
+	// time, or the agent falls back to its normal level.
+	FullAccessBy string `json:"full_access_by,omitempty"`
+	// ExtraDirs: admin only, additional read-allowed directories (absolute paths).
+	ExtraDirs []string `json:"extra_dirs,omitempty"`
 }
 
 // Agent belongs to one org model.

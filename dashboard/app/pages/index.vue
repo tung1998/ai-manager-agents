@@ -1,5 +1,15 @@
 <script setup lang="ts">
 const { user, isAdmin } = useAuth()
+// three tabs, the one open in the URL: the work, how it went, the machine (admin)
+const route = useRoute()
+type HomeTab = 'work' | 'stats' | 'machine'
+const tab = computed<HomeTab>({
+  get: () => {
+    const q = route.query.tab
+    return q === 'stats' || (q === 'machine' && isAdmin.value) ? q : 'work'
+  },
+  set: v => navigateTo({ query: { ...route.query, tab: v === 'work' ? undefined : v } }, { replace: true })
+})
 const { t, dateLocale } = useLang()
 
 const _f2 = useLiveFetch<{ providers: Provider[] }>('/api/providers', { lazy: true })
@@ -33,9 +43,11 @@ const { data: stats } = _f7
 // what can be done from the list: decide a card; try again, let go or
 // investigate something that went wrong
 const toast = useToast()
-const acting = ref('')
+const acting = reactive(new Set<string>()) // each button on its own: several can run at once
 async function act(x: Incident, what: 'approve' | 'reject' | 'retry' | 'dismiss') {
-  acting.value = x.key + what
+  const key = x.key + what
+  if (acting.has(key)) return
+  acting.add(key)
   try {
     if ((what === 'approve' || what === 'reject') && x.kind === 'patch') await $fetch(`/api/patches/${x.id}/${what}`, { method: 'POST' })
     else if (what === 'approve' || what === 'reject') await $fetch(`/api/actions/${x.id}/${what}`, { method: 'POST', body: {} })
@@ -47,7 +59,7 @@ async function act(x: Incident, what: 'approve' | 'reject' | 'retry' | 'dismiss'
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
-    acting.value = ''
+    acting.delete(key)
   }
 }
 // Điều tra: the project's lead looks into it in a new chat
@@ -111,7 +123,17 @@ const steps = computed(() => [
 
 <template>
   <PageShell :title="t('nav.overview')">
-    <div class="space-y-6">
+    <UTabs
+      v-model="tab" :content="false" variant="link" class="mb-4"
+      :items="[
+        { value: 'work', label: t('home.tabWork'), icon: 'i-lucide-list-checks', badge: incData?.count ? { label: String(incData.count), color: 'error', variant: 'subtle' } : undefined },
+        { value: 'stats', label: t('home.tabStats'), icon: 'i-lucide-chart-column' },
+        ...(isAdmin ? [{ value: 'machine', label: t('home.tabMachine'), icon: 'i-lucide-cpu' }] : [])
+      ]"
+    />
+    <SystemPanel v-if="tab === 'machine'" />
+    <OverviewCharts v-else-if="tab === 'stats'" />
+    <div v-else class="space-y-6">
 
       <!-- what needs a person now -->
       <UCard :ui="{ body: 'p-0 sm:p-0' }">
@@ -147,14 +169,14 @@ const steps = computed(() => [
             <!-- what to do about it, right here -->
             <div v-if="isAdmin" class="flex shrink-0 flex-wrap items-center gap-1 max-sm:w-full max-sm:ps-7">
               <template v-if="x.kind === 'approval' || x.kind === 'patch'">
-                <UButton size="xs" icon="i-lucide-check" :label="t('home.approve')" :loading="acting === x.key + 'approve'" @click="act(x, 'approve')" />
-                <UButton size="xs" color="neutral" variant="ghost" :label="t('home.reject')" :loading="acting === x.key + 'reject'" @click="act(x, 'reject')" />
+                <UButton size="xs" icon="i-lucide-check" :label="t('home.approve')" :loading="acting.has(x.key + 'approve')" @click="act(x, 'approve')" />
+                <UButton size="xs" color="neutral" variant="ghost" :label="t('home.reject')" :loading="acting.has(x.key + 'reject')" @click="act(x, 'reject')" />
               </template>
               <template v-else>
                 <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-eye" :label="t('home.view')" :to="x.link" />
-                <UButton v-if="canRetry(x.kind)" size="xs" color="neutral" variant="outline" icon="i-lucide-rotate-cw" :label="t('home.retry')" :loading="acting === x.key + 'retry'" @click="act(x, 'retry')" />
+                <UButton v-if="canRetry(x.kind)" size="xs" color="neutral" variant="outline" icon="i-lucide-rotate-cw" :label="t('home.retry')" :loading="acting.has(x.key + 'retry')" @click="act(x, 'retry')" />
                 <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-search-check" :label="t('home.investigate')" @click="investigate(x)" />
-                <UButton size="xs" color="neutral" variant="ghost" :label="t('home.dismiss')" :loading="acting === x.key + 'dismiss'" @click="act(x, 'dismiss')" />
+                <UButton size="xs" color="neutral" variant="ghost" :label="t('home.dismiss')" :loading="acting.has(x.key + 'dismiss')" @click="act(x, 'dismiss')" />
               </template>
             </div>
           </div>
@@ -183,9 +205,6 @@ const steps = computed(() => [
         </NuxtLink>
       </div>
 
-      <!-- the machine and what office runs on it (admin) -->
-      <SystemPanel v-if="isAdmin" />
-
       <UCard v-if="prov && proj && tpl && !setupDone">
         <template #header>
           <p class="font-medium">{{ t('home.setupTitle') }}</p>
@@ -211,9 +230,6 @@ const steps = computed(() => [
           </li>
         </ol>
       </UCard>
-
-      <!-- the office over the last days -->
-      <OverviewCharts />
 
       <UCard v-if="!chatData || recentChats.length" :ui="{ body: 'p-0 sm:p-0' }">
         <template #header>
@@ -263,9 +279,9 @@ const steps = computed(() => [
       <template #actions>
         <UButton color="neutral" variant="outline" icon="i-lucide-eye" :label="t('home.view')" :to="shown.link" />
         <template v-if="isAdmin">
-          <UButton v-if="canRetry(shown.kind)" color="neutral" variant="outline" icon="i-lucide-rotate-cw" :label="t('home.retry')" :loading="acting === shown.key + 'retry'" @click="act(shown, 'retry')" />
+          <UButton v-if="canRetry(shown.kind)" color="neutral" variant="outline" icon="i-lucide-rotate-cw" :label="t('home.retry')" :loading="acting.has(shown.key + 'retry')" @click="act(shown, 'retry')" />
           <UButton color="neutral" variant="outline" icon="i-lucide-search-check" :label="t('home.investigate')" @click="investigate(shown)" />
-          <UButton color="neutral" variant="ghost" :label="t('home.dismiss')" :loading="acting === shown.key + 'dismiss'" @click="act(shown, 'dismiss').then(() => { shown = null })" />
+          <UButton color="neutral" variant="ghost" :label="t('home.dismiss')" :loading="acting.has(shown.key + 'dismiss')" @click="act(shown, 'dismiss').then(() => { shown = null })" />
         </template>
       </template>
     </WorkDetailModal>

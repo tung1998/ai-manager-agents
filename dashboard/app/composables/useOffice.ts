@@ -104,6 +104,10 @@ export interface Permissions {
   processes?: string[] | null
   containers?: string[] | null
   requires_approval?: boolean
+  // ADR-074: agent full access as administrator
+  full_access?: boolean
+  full_access_by?: string
+  extra_dirs?: string[]
 }
 
 export interface Agent {

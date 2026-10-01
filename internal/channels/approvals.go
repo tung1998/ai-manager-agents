@@ -315,15 +315,28 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	return strings.Join(lines, "\n")
 }
 
-// DirectApprover (for actions.SetAutoApprover): a proposal from a bot's chat
-// in direct mode is approved at once, in the name of who turned it on, unless
-// it must always be asked (push, stop, settings, delete…) or runs unattended.
+// DirectApprover (for actions.SetAutoApprover): a proposal is approved at
+// once, in the name of who turned it on, when either:
+//   - a bot's chat is in direct/admin mode (ADR-054), or
+//   - the run's own permission is already full access — the agent's own
+//     (ADR-074: wherever it runs — chat, bot, automation), or an automation's
+//     own override of it.
+//
+// Either way, what must always be asked stays asked (push, stop, settings,
+// delete…), and so does creating/running an automation — an unattended run
+// never grants itself more automations.
 func (m *Manager) DirectApprover(ctx context.Context, a storage.Action) (string, bool) {
 	if a.JobID == "" {
 		return "", false
 	}
 	job, err := m.store.Jobs().Get(ctx, a.JobID)
-	if err != nil || !trigger.IsChannel(job.Trigger) {
+	if err != nil {
+		return "", false
+	}
+	if by, ok := m.fullAccessApprover(ctx, job, a); ok {
+		return by, true
+	}
+	if !trigger.IsChannel(job.Trigger) {
 		return "", false
 	}
 	var p trigger.ChannelPayload
@@ -343,6 +356,44 @@ func (m *Manager) DirectApprover(ctx context.Context, a storage.Action) (string,
 		return am.By, true
 	}
 	return "", false
+}
+
+// fullAccessApprover (ADR-074): the job's automation overrides to full
+// access, or its own agent has FullAccess — either way only while whoever
+// turned it on is still an admin.
+func (m *Manager) fullAccessApprover(ctx context.Context, job storage.Job, a storage.Action) (string, bool) {
+	if a.Kind == "create_automation" || a.Kind == "run_automation" || mustAsk(proposal{Action: a.Kind, Target: a.Target}) {
+		return "", false
+	}
+	if job.Origin == "automation" {
+		au, err := m.store.Automations().Get(ctx, job.OriginID)
+		if err == nil && au.PermissionMode == "override" {
+			if au.OverrideFullAccess && m.isAdminEmail(ctx, au.OverrideAdminBy) {
+				return au.OverrideAdminBy, true
+			}
+			return "", false // overriding but not to full access: never fall back to the agent's own
+		}
+	}
+	if job.AgentID == "" {
+		return "", false
+	}
+	ag, err := m.store.Agents().Get(ctx, job.AgentID)
+	if err != nil || !ag.Permissions.FullAccess || !m.isAdminEmail(ctx, ag.Permissions.FullAccessBy) {
+		return "", false
+	}
+	return ag.Permissions.FullAccessBy, true
+}
+
+// isAdminEmail: that email is still an admin of the office (ADR-074: a
+// FullAccess/override an admin turned on only holds while they still are
+// one). Mirrors trigger.Runner.isAdminEmail (unexported there, so copied
+// here rather than shared).
+func (m *Manager) isAdminEmail(ctx context.Context, email string) bool {
+	if email == "" {
+		return false
+	}
+	u, err := m.store.Users().GetByEmail(ctx, email)
+	return err == nil && u.Role == storage.RoleAdmin && !u.Disabled
 }
 
 // FullAccessFor: a message of userID in chatID runs with the machine (Bash,

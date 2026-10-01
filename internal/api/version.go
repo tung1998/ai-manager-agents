@@ -40,12 +40,13 @@ func automationVersion(a storage.Automation) string {
 	c := a.Config
 	c.ConversationID, c.SecretHash = "", "" // kept by office, not edited
 	return versionOf(struct {
-		Name, Source, Action, AgentID, Prompt, EditMode, ModelTier string
-		Enabled, KeepContext                                       bool
-		Config                                                     storage.AutomationConfig
-		Limits                                                     storage.AutomationLimits
-		Script                                                     storage.AutomationScript
-	}{a.Name, a.Source, a.Action, a.AgentID, a.Prompt, a.EditMode, a.ModelTier, a.Enabled, a.KeepContext, c, a.Limits, a.Script})
+		Name, Source, Action, AgentID, Prompt, EditMode, ModelTier, PermissionMode string
+		Enabled, KeepContext, OverrideFullAccess                                   bool
+		Config                                                                     storage.AutomationConfig
+		Limits                                                                     storage.AutomationLimits
+		Script                                                                     storage.AutomationScript
+		OverrideExtraDirs                                                          []string
+	}{a.Name, a.Source, a.Action, a.AgentID, a.Prompt, a.EditMode, a.ModelTier, a.PermissionMode, a.Enabled, a.KeepContext, a.OverrideFullAccess, c, a.Limits, a.Script, a.OverrideExtraDirs})
 }
 
 func agentVersion(d agentDTO) string {

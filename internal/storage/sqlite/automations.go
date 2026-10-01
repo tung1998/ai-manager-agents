@@ -13,7 +13,8 @@ import (
 type automationRepo struct{ db dbtx }
 
 const automationCols = `id, project_id, name, enabled, source, config, action, agent_id, prompt, edit_mode, keep_context, limits,
-	failures, disabled_code, disabled_reason, last_run_at, next_run_at, created_by, created_at, updated_at, script, escalate, model_tier`
+	failures, disabled_code, disabled_reason, last_run_at, next_run_at, created_by, created_at, updated_at, script, escalate, model_tier,
+	permission_mode, override_full_access, override_admin_by, override_extra_dirs`
 
 func scanAutomation(row scanner) (storage.Automation, error) {
 	var (
@@ -22,9 +23,11 @@ func scanAutomation(row scanner) (storage.Automation, error) {
 		script, escalate string
 		last, next       sql.NullString
 		created, updated string
+		extraDirs        sql.NullString
 	)
 	if err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Enabled, &a.Source, &cfg, &a.Action, &a.AgentID, &a.Prompt, &a.EditMode, &a.KeepContext,
-		&limits, &a.Failures, &a.DisabledCode, &a.DisabledReason, &last, &next, &a.CreatedBy, &created, &updated, &script, &escalate, &a.ModelTier); err != nil {
+		&limits, &a.Failures, &a.DisabledCode, &a.DisabledReason, &last, &next, &a.CreatedBy, &created, &updated, &script, &escalate, &a.ModelTier,
+		&a.PermissionMode, &a.OverrideFullAccess, &a.OverrideAdminBy, &extraDirs); err != nil {
 		return a, notFound(err)
 	}
 	if err := json.Unmarshal([]byte(script), &a.Script); err != nil {
@@ -38,6 +41,14 @@ func scanAutomation(row scanner) (storage.Automation, error) {
 	}
 	if err := json.Unmarshal([]byte(limits), &a.Limits); err != nil {
 		return a, err
+	}
+	if extraDirs.Valid && extraDirs.String != "" {
+		if err := json.Unmarshal([]byte(extraDirs.String), &a.OverrideExtraDirs); err != nil {
+			return a, err
+		}
+	}
+	if a.PermissionMode == "" {
+		a.PermissionMode = "agent"
 	}
 	for _, x := range []struct {
 		src sql.NullString
@@ -63,10 +74,10 @@ func (r automationRepo) Create(ctx context.Context, a storage.Automation) (stora
 	if a.EditMode == "" {
 		a.EditMode = "worktree"
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO automations (`+automationCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO automations (`+automationCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.ProjectID, a.Name, a.Enabled, a.Source, toJSON(a.Config), a.Action, a.AgentID, a.Prompt, a.EditMode, a.KeepContext, toJSON(a.Limits),
 		a.Failures, a.DisabledCode, a.DisabledReason, optTime(a.LastRunAt), optTime(a.NextRunAt), a.CreatedBy, fmtTime(now), fmtTime(now),
-		toJSON(a.Script), toJSON(a.Escalate), a.ModelTier)
+		toJSON(a.Script), toJSON(a.Escalate), a.ModelTier, a.PermissionMode, a.OverrideFullAccess, a.OverrideAdminBy, toJSON(a.OverrideExtraDirs))
 	return a, err
 }
 
@@ -76,9 +87,11 @@ func (r automationRepo) Get(ctx context.Context, id string) (storage.Automation,
 
 func (r automationRepo) Update(ctx context.Context, a storage.Automation) error {
 	return execOne(ctx, r.db, `UPDATE automations SET name=?, enabled=?, source=?, config=?, action=?, agent_id=?, prompt=?, edit_mode=?,
-		keep_context=?, limits=?, failures=?, disabled_code=?, disabled_reason=?, last_run_at=?, next_run_at=?, updated_at=?, script=?, escalate=?, model_tier=? WHERE id=?`,
+		keep_context=?, limits=?, failures=?, disabled_code=?, disabled_reason=?, last_run_at=?, next_run_at=?, updated_at=?, script=?, escalate=?, model_tier=?,
+		permission_mode=?, override_full_access=?, override_admin_by=?, override_extra_dirs=? WHERE id=?`,
 		a.Name, a.Enabled, a.Source, toJSON(a.Config), a.Action, a.AgentID, a.Prompt, a.EditMode, a.KeepContext, toJSON(a.Limits),
-		a.Failures, a.DisabledCode, a.DisabledReason, optTime(a.LastRunAt), optTime(a.NextRunAt), fmtTime(time.Now()), toJSON(a.Script), toJSON(a.Escalate), a.ModelTier, a.ID)
+		a.Failures, a.DisabledCode, a.DisabledReason, optTime(a.LastRunAt), optTime(a.NextRunAt), fmtTime(time.Now()), toJSON(a.Script), toJSON(a.Escalate), a.ModelTier,
+		a.PermissionMode, a.OverrideFullAccess, a.OverrideAdminBy, toJSON(a.OverrideExtraDirs), a.ID)
 }
 
 func (r automationRepo) Delete(ctx context.Context, id string) error {

@@ -81,6 +81,11 @@ export interface Automation {
   last_job: Job | null
   created_at: string
   version?: string // what an edit is made from (409 when changed since)
+  // ADR-074: permission override
+  permission_mode?: 'agent' | 'override'
+  override_full_access?: boolean
+  override_admin_by?: string
+  override_extra_dirs?: string[]
 }
 
 // A bot's settings as a form edits them (the token only when a new one is pasted).
@@ -91,12 +96,18 @@ export interface AutomationBody {
   name: string, enabled: boolean, source: Automation['source'], action: Automation['action'], agent_id: string, prompt: string,
   edit_mode: Automation['edit_mode'], model_tier: NonNullable<Automation['model_tier']>, keep_context: boolean,
   config: AutomationConfig, limits: AutomationLimits, script: AutomationScript, escalate: AutomationEscalate, bot?: BotDraft, version?: string
+  // ADR-074: permission override
+  permission_mode?: 'agent' | 'override'
+  override_full_access?: boolean
+  override_admin_by?: string
+  override_extra_dirs?: string[]
 }
 
-export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'model_tier' | 'keep_context' | 'limits' | 'script' | 'escalate'> & { bot?: BotDraft }): AutomationBody {
+export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'model_tier' | 'keep_context' | 'limits' | 'script' | 'escalate' | 'permission_mode' | 'override_full_access' | 'override_admin_by' | 'override_extra_dirs'> & { bot?: BotDraft }): AutomationBody {
   const body: AutomationBody = {
     name: a.name, enabled: a.enabled, source: a.source, action: a.action, agent_id: a.agent_id, prompt: a.prompt,
-    edit_mode: a.edit_mode, model_tier: '', keep_context: a.keep_context, config: a.config, limits: a.limits, script: a.script, escalate: a.escalate
+    edit_mode: a.edit_mode, model_tier: '', keep_context: a.keep_context, config: a.config, limits: a.limits, script: a.script, escalate: a.escalate,
+    permission_mode: a.permission_mode, override_full_access: a.override_full_access, override_admin_by: a.override_admin_by, override_extra_dirs: a.override_extra_dirs
   }
   if (isChannelSource(a.source) && a.bot) body.bot = { allow: a.bot.allow, refusal: a.bot.refusal, ...(a.bot.token ? { token: a.bot.token } : {}) }
   return body
@@ -152,7 +163,9 @@ export function emptyDraft(): AutomationDraft {
     action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', model_tier: '', keep_context: false,
     script: { lang: 'bash', body: '', timeout_s: 300 },
     escalate: { when: 'never', action: 'chat', agent_id: '', prompt: '' }, // a script calls no agent in (ADR-057)
-    limits: { max_runs_per_hour: 0, daily_cost_usd: 0, disable_after_failures: 5, debounce_seconds: 0, debounce_key: '', debounce_max_seconds: 0 }
+    limits: { max_runs_per_hour: 0, daily_cost_usd: 0, disable_after_failures: 5, debounce_seconds: 0, debounce_key: '', debounce_max_seconds: 0 },
+    // ADR-074: "agent" follows the agent's own permissions; only "override" needs these
+    permission_mode: 'agent', override_full_access: false, override_admin_by: '', override_extra_dirs: []
   }
 }
 

@@ -125,6 +125,64 @@ func TestTemplatesReposAgentsAPI(t *testing.T) {
 	}
 }
 
+// Only an admin may set an agent's FullAccess/ExtraDirs (ADR-074); a member's
+// save keeps them as they were. ExtraDirs must be absolute, existing paths.
+func TestAgentFullAccessPermissionAPI(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
+	solo := ""
+	for _, x := range body["templates"].([]any) {
+		if m := x.(map[string]any); m["key"] == "solo" {
+			solo = m["id"].(string)
+		}
+	}
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	agents := body["project"].(map[string]any)["model"].(map[string]any)["agents"].([]any)
+	agentID := agents[0].(map[string]any)["id"].(string)
+
+	// a relative or missing directory is rejected
+	_, agentBody := do(t, admin, "GET", e.srv.URL+"/api/agents/"+agentID, nil, nil)
+	ag := agentBody["agent"].(map[string]any)
+	ag["permissions"] = map[string]any{"extra_dirs": []string{"relative/path"}}
+	if resp, body := do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+agentID, stripID(ag), nil); resp.StatusCode != 400 {
+		t.Fatalf("relative extra dir = %d %v", resp.StatusCode, body)
+	}
+	dir := t.TempDir()
+	ag["permissions"] = map[string]any{"extra_dirs": []string{dir + "/nope"}}
+	if resp, body := do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+agentID, stripID(ag), nil); resp.StatusCode != 400 {
+		t.Fatalf("missing extra dir = %d %v", resp.StatusCode, body)
+	}
+	// a real absolute directory, and full access, are accepted and stamped
+	ag["permissions"] = map[string]any{"extra_dirs": []string{dir}, "full_access": true}
+	resp, body := do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+agentID, stripID(ag), nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("valid extra dir = %d %v", resp.StatusCode, body)
+	}
+	perms := body["agent"].(map[string]any)["permissions"].(map[string]any)
+	if perms["full_access_by"] != "admin@x.io" || perms["extra_dirs"].([]any)[0] != dir {
+		t.Fatalf("permissions not saved = %v", perms)
+	}
+
+	// a member cannot even reach the route (admin-only), full access stays
+	member := e.client(t)
+	login(t, e, member, "member@x.io", "member-password")
+	ag2 := map[string]any{}
+	for k, v := range ag {
+		ag2[k] = v
+	}
+	ag2["permissions"] = map[string]any{"full_access": false, "extra_dirs": []string{}}
+	ag2["version"] = body["agent"].(map[string]any)["version"]
+	if resp, _ := do(t, member, "PATCH", e.srv.URL+"/api/agents/"+agentID, stripID(ag2), nil); resp.StatusCode != 403 {
+		t.Fatalf("member patch agent = %d", resp.StatusCode)
+	}
+	_, again := do(t, admin, "GET", e.srv.URL+"/api/agents/"+agentID, nil, nil)
+	if p := again["agent"].(map[string]any)["permissions"].(map[string]any); p["full_access"] != true {
+		t.Fatalf("full access changed by a rejected request: %v", p)
+	}
+}
+
 func stripID(a map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, v := range a {

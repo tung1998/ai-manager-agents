@@ -761,6 +761,115 @@ func TestDirectApprover(t *testing.T) {
 	}
 }
 
+// An agent with FullAccess (ADR-074) approves a proposal at once, wherever
+// its job ran (here a plain dashboard chat turn, not a bot's chat); a push
+// still asks, so does creating/running an automation, and losing admin ends it.
+func TestFullAccessApproverAgent(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	agents, _ := engine.Agents(ctx, project.ID)
+	agent := agents[0]
+
+	st.Users().Create(ctx, storage.User{Email: "admin@x.io", Role: storage.RoleAdmin, PasswordHash: "h"})
+	full, _ := st.Agents().Get(ctx, agent.ID)
+	full.Permissions.FullAccess, full.Permissions.FullAccessBy = true, "admin@x.io"
+	st.Agents().Update(ctx, full)
+
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "user", Trigger: "ui", AgentID: agent.ID, Status: "running"})
+
+	if by, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job.ID}); !ok || by != "admin@x.io" {
+		t.Fatalf("full access agent = %q %v", by, ok)
+	}
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin fix", JobID: job.ID}); ok {
+		t.Fatal("a push was approved under full access")
+	}
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "create_automation", Target: "x", JobID: job.ID}); ok {
+		t.Fatal("create_automation was approved under full access")
+	}
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_automation", Target: "x", JobID: job.ID}); ok {
+		t.Fatal("run_automation was approved under full access")
+	}
+
+	// a second agent, FullAccess enabled by someone no longer an admin
+	st.Users().Create(ctx, storage.User{Email: "member@x.io", Role: storage.RoleMember, PasswordHash: "h"})
+	st.Agents().Create(ctx, storage.Agent{OrgModelID: agent.OrgModelID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast"})
+	devs, _ := engine.Agents(ctx, project.ID)
+	var dev storage.Agent
+	for _, a := range devs {
+		if a.Key == "dev" {
+			dev, _ = st.Agents().Get(ctx, a.ID)
+		}
+	}
+	dev.Permissions.FullAccess, dev.Permissions.FullAccessBy = true, "member@x.io"
+	st.Agents().Update(ctx, dev)
+	job2, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "user", Trigger: "ui", AgentID: dev.ID, Status: "running"})
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job2.ID}); ok {
+		t.Fatal("full access approved though its enabler is not an admin")
+	}
+}
+
+// An automation's own permission override (ADR-074) approves at once, in the
+// name of who enabled it; its default ("agent" mode, no override) falls back
+// to the agent's own — pending here since that agent has no FullAccess.
+func TestFullAccessApproverAutomationOverride(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	agents, _ := engine.Agents(ctx, project.ID)
+	agent := agents[0] // no FullAccess of its own
+
+	st.Users().Create(ctx, storage.User{Email: "admin@x.io", Role: storage.RoleAdmin, PasswordHash: "h"})
+	st.Users().Create(ctx, storage.User{Email: "member@x.io", Role: storage.RoleMember, PasswordHash: "h"})
+
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
+
+	override, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Sync", Source: "schedule", Action: "chat",
+		AgentID: agent.ID, Enabled: true, PermissionMode: "override", OverrideFullAccess: true, OverrideAdminBy: "admin@x.io"})
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", OriginID: override.ID, Trigger: "schedule", AgentID: agent.ID, Status: "running"})
+	if by, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job.ID}); !ok || by != "admin@x.io" {
+		t.Fatalf("automation override = %q %v", by, ok)
+	}
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin fix", JobID: job.ID}); ok {
+		t.Fatal("a push was approved under an automation's override")
+	}
+
+	// the default: no override, falls back to the agent (no FullAccess of its own)
+	plain, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Plain", Source: "schedule", Action: "chat",
+		AgentID: agent.ID, Enabled: true})
+	job2, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", OriginID: plain.ID, Trigger: "schedule", AgentID: agent.ID, Status: "running"})
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job2.ID}); ok {
+		t.Fatal("agent mode without FullAccess was approved")
+	}
+
+	// an override whose enabler is no longer an admin: never approved
+	revoked, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Revoked", Source: "schedule", Action: "chat",
+		AgentID: agent.ID, Enabled: true, PermissionMode: "override", OverrideFullAccess: true, OverrideAdminBy: "member@x.io"})
+	job3, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", OriginID: revoked.ID, Trigger: "schedule", AgentID: agent.ID, Status: "running"})
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job3.ID}); ok {
+		t.Fatal("override held though its enabler is not an admin")
+	}
+}
+
 // /mode admin: everything the agent proposes is approved at once (a push
 // too), and the runs of those who may approve get the machine (full access).
 func TestAdminMode(t *testing.T) {

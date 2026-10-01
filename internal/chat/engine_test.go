@@ -20,6 +20,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -868,5 +869,101 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 	b, _ := os.ReadFile(argsLog)
 	if a := string(b); !strings.Contains(a, "--permission-mode bypassPermissions") || !strings.Contains(a, "administrator") {
 		t.Fatalf("args = %s", a)
+	}
+}
+
+func fullAccessFakeBin(t *testing.T, tmp string) (bin, argsLog string) {
+	t.Helper()
+	bin, argsLog = filepath.Join(tmp, "claude"), filepath.Join(tmp, "args")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+echo "$*" >> `+argsLog+`
+cat >/dev/null
+echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"sess-1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	return bin, argsLog
+}
+
+// An agent an admin configured with "Chạy như administrator" (ADR-074) runs
+// with the machine, once the chat/task is at Vận hành (Operate).
+func TestAgentFullAccessPermission(t *testing.T) {
+	bin, argsLog := fullAccessFakeBin(t, t.TempDir())
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		return p
+	})
+	ctx := actor.With(context.Background(), "human:admin@x.io")
+	if _, err := f.st.Users().Create(ctx, storage.User{Email: "admin@x.io", Role: storage.RoleAdmin, PasswordHash: "h"}); err != nil {
+		t.Fatal(err)
+	}
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	f.engine.SetMode(ctx, conv.ID, perm.Operate)
+	agent, err := f.st.Agents().Get(ctx, conv.AgentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.Permissions.Level, agent.Permissions.FullAccess, agent.Permissions.FullAccessBy = perm.Operate, true, "admin@x.io"
+	if err := f.st.Agents().Update(ctx, agent); err != nil {
+		t.Fatal(err)
+	}
+	turn, _, err := f.engine.Send(ctx, conv.ID, "chạy lệnh", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	b, _ := os.ReadFile(argsLog)
+	if a := string(b); !strings.Contains(a, "--permission-mode bypassPermissions") || !strings.Contains(a, "administrator") {
+		t.Fatalf("agent full access args = %s", a)
+	}
+}
+
+// A chat left at Chỉ đọc never escalates, even when its agent has FullAccess.
+func TestAgentFullAccessDoesNotEscalatePastReadMode(t *testing.T) {
+	bin, argsLog := fullAccessFakeBin(t, t.TempDir())
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		return p
+	})
+	ctx := actor.With(context.Background(), "human:admin@x.io")
+	f.st.Users().Create(ctx, storage.User{Email: "admin@x.io", Role: storage.RoleAdmin, PasswordHash: "h"})
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	f.engine.SetMode(ctx, conv.ID, perm.Read) // Chỉ đọc
+	agent, _ := f.st.Agents().Get(ctx, conv.AgentID)
+	agent.Permissions.Level, agent.Permissions.FullAccess, agent.Permissions.FullAccessBy = perm.Operate, true, "admin@x.io"
+	f.st.Agents().Update(ctx, agent)
+	turn, _, err := f.engine.Send(ctx, conv.ID, "chạy lệnh", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	b, _ := os.ReadFile(argsLog)
+	if a := string(b); strings.Contains(a, "bypassPermissions") {
+		t.Fatalf("Chỉ đọc chat escalated to full access: %s", a)
+	}
+}
+
+// If whoever turned FullAccess on is no longer an admin, the agent falls
+// back to its normal level (ADR-074).
+func TestAgentFullAccessRevokedWhenEnablerNotAdmin(t *testing.T) {
+	bin, argsLog := fullAccessFakeBin(t, t.TempDir())
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		return p
+	})
+	ctx := actor.With(context.Background(), "human:member@x.io")
+	f.st.Users().Create(ctx, storage.User{Email: "member@x.io", Role: storage.RoleMember, PasswordHash: "h"}) // no longer admin
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	f.engine.SetMode(ctx, conv.ID, perm.Operate)
+	agent, _ := f.st.Agents().Get(ctx, conv.AgentID)
+	agent.Permissions.Level, agent.Permissions.FullAccess, agent.Permissions.FullAccessBy = perm.Operate, true, "member@x.io"
+	f.st.Agents().Update(ctx, agent)
+	turn, _, err := f.engine.Send(ctx, conv.ID, "chạy lệnh", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	b, _ := os.ReadFile(argsLog)
+	if a := string(b); strings.Contains(a, "bypassPermissions") {
+		t.Fatalf("full access held after enabler lost admin: %s", a)
 	}
 }

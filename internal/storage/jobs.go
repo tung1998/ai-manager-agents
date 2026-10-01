@@ -130,6 +130,13 @@ type Automation struct {
 	CreatedBy      string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	// PermissionMode: "agent" (default) uses the agent's own Permissions
+	// (FullAccess/ExtraDirs); "override" replaces them with the fields below
+	// (ADR-074). Override never adds to the agent's own rights, it replaces them.
+	PermissionMode     string
+	OverrideFullAccess bool
+	OverrideAdminBy    string // who enabled OverrideFullAccess (must be admin at run time)
+	OverrideExtraDirs  []string
 }
 
 // AutomationConfig depends on the source.

@@ -286,7 +286,18 @@ const en: Record<keyof typeof vi, string> = {
   'auto.cardReplyDesc': 'An agent answers right in that chat',
   'auto.cardScriptChannelDesc': "The script's output is the reply, no tokens",
   'auto.replyNoTools': 'The agent answers with its own rights (code, tools, MCP… as the agent is set). Everyone allowed to message the bot uses them.',
-  'auto.promptChannelPlaceholder': 'Empty = the message as it is. e.g. {{user}} asks: {{message}}. Answer briefly and kindly.'
+  'auto.promptChannelPlaceholder': 'Empty = the message as it is. e.g. {{user}} asks: {{message}}. Answer briefly and kindly.',
+
+  // ADR-074: permission mode (agent vs override)
+  'auto.permTitle': 'Permissions',
+  'auto.permModeAgent': "Use the agent's own",
+  'auto.permModeOverride': 'Override',
+  'auto.permEffectiveAdmin': 'Agent {name} runs with full access (administrator)',
+  'auto.permEffectiveNormal': 'Agent {name} runs with normal access',
+  'auto.permEffectiveDirs': '· extra directories: {dirs}',
+  'auto.permBudgetWarning': 'A full-access run needs a Daily cost cap and Disable after N failures set below (Limits).',
+  'auto.adminBadge': 'Admin',
+  'auto.adminBadgeHint': 'Runs with full administrator access'
 }
 
 export default en
