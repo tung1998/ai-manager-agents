@@ -82,6 +82,16 @@ func (r monitorRepo) Update(ctx context.Context, m storage.Monitor) error {
 }
 
 func (r monitorRepo) SaveStatus(ctx context.Context, m storage.Monitor) error {
+	// the same result as last time: only when it was checked, and quietly (the
+	// leading comment keeps it from the dashboard's live notices, ADR-072)
+	res, err := r.db.ExecContext(ctx, `/* quiet */ UPDATE monitors SET last_checked_at=?, last_latency_ms=?, last_ping_at=? WHERE id=? AND status=? AND fails=? AND last_message=? AND last_change_at IS ?`,
+		optTime(m.LastCheckedAt), m.LastLatencyMS, optTime(m.LastPingAt), m.ID, m.Status, m.Fails, m.LastMessage, optTime(m.LastChangeAt))
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return nil
+	}
 	return execOne(ctx, r.db, `UPDATE monitors SET status=?, fails=?, last_checked_at=?, last_change_at=?, last_latency_ms=?, last_message=?, last_ping_at=? WHERE id=?`,
 		m.Status, m.Fails, optTime(m.LastCheckedAt), optTime(m.LastChangeAt), m.LastLatencyMS, m.LastMessage, optTime(m.LastPingAt), m.ID)
 }

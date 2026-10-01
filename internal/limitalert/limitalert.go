@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -41,6 +42,7 @@ type Notify func(ctx context.Context, channelID, chatID, text string) error
 type Alerter struct {
 	store  storage.Store
 	notify Notify
+	mu     sync.Mutex // runs ending together: one of them tells
 }
 
 func New(st storage.Store, n Notify) *Alerter { return &Alerter{store: st, notify: n} }
@@ -67,10 +69,13 @@ func (a *Alerter) Check(ctx context.Context, providerID, providerName, window st
 	}
 	seen := "limit_alerted/" + providerID + "/" + window + "/" + strconv.FormatInt(resetsAt.Unix()/60, 10)
 	var told int
+	a.mu.Lock()
 	if _, _ = a.store.Settings().Get(ctx, seen, &told); told >= level {
+		a.mu.Unlock()
 		return
 	}
 	_ = a.store.Settings().Set(ctx, seen, level)
+	a.mu.Unlock()
 	name := WindowNames[window]
 	if name == "" {
 		name = "giới hạn " + window // i18n-ignore

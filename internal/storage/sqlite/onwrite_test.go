@@ -61,3 +61,35 @@ func TestOnWriteKeepsTransactions(t *testing.T) {
 		t.Fatalf("replace = %v, told %v", err, got)
 	}
 }
+
+// A monitor checked again with the same result writes its check time
+// quietly: the dashboard is told only when its status or message changes.
+func TestMonitorCheckQuiet(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	m, err := st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "api", Type: "http", Target: "http://x", IntervalS: 30, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	st.(*sqlite.Store).OnWrite(func(table string) { got = append(got, table) })
+	now := time.Now().UTC()
+	m.Status, m.LastMessage, m.LastCheckedAt = "up", "200 OK", &now
+	st.Monitors().SaveStatus(ctx, m)
+	if len(got) != 1 {
+		t.Fatalf("a change: told %v", got)
+	}
+	later := now.Add(30 * time.Second)
+	m.LastCheckedAt, m.LastLatencyMS = &later, 42
+	if err := st.Monitors().SaveStatus(ctx, m); err != nil || len(got) != 1 {
+		t.Fatalf("the same result: told %v (%v)", got, err)
+	}
+	if x, _ := st.Monitors().Get(ctx, m.ID); x.LastCheckedAt == nil || !x.LastCheckedAt.Equal(later.Truncate(time.Microsecond)) && x.LastLatencyMS != 42 {
+		t.Fatalf("check time not kept: %+v", x)
+	}
+	m.Status = "down"
+	st.Monitors().SaveStatus(ctx, m)
+	if len(got) != 2 {
+		t.Fatalf("down: told %v", got)
+	}
+}
