@@ -382,8 +382,9 @@ async function send() {
     if (switching && picked.value && current.value) current.value = { ...current.value, agent_id: picked.value.id, agent_name: picked.value.name }
     draft.value = ''
     draftFiles.value = []
-    const first = !messages.value.length
-    messages.value.push(res.message)
+    const first = !messages.value.some(m => m.id !== res.message.id)
+    // the server's push of this message may have come first (ADR-078): once only
+    if (!messages.value.some(m => m.id === res.message.id)) messages.value.push(res.message)
     if (first) refreshConvs() // the server titles a conversation from its first message
     follow(res.turn_id)
     scrollDown()
