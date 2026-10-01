@@ -102,6 +102,47 @@ func (s *Sampler) Machine(ctx context.Context) Machine {
 	return m
 }
 
+// Quick is CPU and memory only (the header's figures): cheap enough to ask often.
+func (s *Sampler) Quick(ctx context.Context) (cpuPercent float64, memUsed, memTotal uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.cpuWarm {
+		_, _ = cpu.PercentWithContext(ctx, 200*time.Millisecond, false)
+		s.cpuWarm = true
+	}
+	if p, err := cpu.PercentWithContext(ctx, 0, false); err == nil && len(p) > 0 {
+		cpuPercent = p[0]
+	}
+	if v, err := mem.VirtualMemoryWithContext(ctx); err == nil {
+		memUsed, memTotal = v.Used, v.Total
+	}
+	return
+}
+
+// Count is how many processes are under root.
+func Count(ctx context.Context, root int32) int {
+	all, err := process.ProcessesWithContext(ctx)
+	if err != nil {
+		return 0
+	}
+	kids := map[int32][]int32{}
+	for _, p := range all {
+		if pp, err := p.PpidWithContext(ctx); err == nil {
+			kids[pp] = append(kids[pp], p.Pid)
+		}
+	}
+	n := 0
+	var walk func(int32)
+	walk = func(pid int32) {
+		for _, k := range kids[pid] {
+			n++
+			walk(k)
+		}
+	}
+	walk(root)
+	return n
+}
+
 // Tree is root and every process under it (each child after its parent).
 func (s *Sampler) Tree(ctx context.Context, root int32) (Proc, []Proc, error) {
 	all, err := process.ProcessesWithContext(ctx)

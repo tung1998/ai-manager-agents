@@ -225,5 +225,9 @@ export default {
   'sys.stopped': 'Đã gửi lệnh dừng',
   'sys.killed': 'Đã buộc dừng',
   'sys.openChat': 'Mở chat',
-  'sys.procs': '{n} tiến trình'
+  'sys.procs': '{n} tiến trình',
+  'hdr.incidents': '{n} việc cần xử lý',
+  'hdr.agents': '{n} agent đang chạy · {p} tiến trình',
+  'hdr.cpu': 'CPU của máy',
+  'hdr.ram': 'RAM của máy'
 } as const

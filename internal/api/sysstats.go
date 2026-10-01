@@ -51,6 +51,19 @@ func (s *server) systemStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"machine": machine, "office": officeProc{self, runtime.NumGoroutine()}, "groups": groups})
 }
 
+// systemSummary: the header's figures (admin): CPU, memory, agents answering
+// and processes office runs.
+func (s *server) systemSummary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	cpuPct, used, total := s.sys.Quick(ctx)
+	agents := 0
+	if s.cfg.Chat != nil {
+		agents = s.cfg.Chat.RunningCount()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"cpu_percent": cpuPct, "mem_used": used, "mem_total": total,
+		"procs": sysinfo.Count(ctx, int32(os.Getpid())), "agents": agents})
+}
+
 func (s *server) officeGroups(ctx context.Context) (sysinfo.Proc, []procGroup, error) {
 	self, list, err := s.sys.Tree(ctx, int32(os.Getpid()))
 	if err != nil {

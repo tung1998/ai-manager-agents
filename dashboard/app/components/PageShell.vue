@@ -1,5 +1,6 @@
 <script setup lang="ts">
 defineProps<{ title: string }>()
+const { isAdmin } = useAuth()
 </script>
 
 <template>
@@ -22,6 +23,7 @@ defineProps<{ title: string }>()
         </template>
         <template #right>
           <slot name="actions" />
+          <HeaderStats v-if="isAdmin" />
         </template>
       </UDashboardNavbar>
     </template>

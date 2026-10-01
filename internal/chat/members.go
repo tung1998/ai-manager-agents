@@ -123,6 +123,13 @@ func (e *Engine) Running(conversationID string) []RunningTurn {
 	return out
 }
 
+// RunningCount is how many answers run now, in every chat.
+func (e *Engine) RunningCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.active) + len(e.bg)
+}
+
 // turnSpec is a turn to start in a chat.
 type turnSpec struct {
 	agent      storage.Agent

@@ -28,7 +28,7 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
 
 // what needs a person, and the last day in numbers
 interface Incident { kind: string, severity: 'error' | 'warning', project_id: string, project_name: string, title: string, detail: string, link: string, id: string, key: string }
-const _f6 = useLiveFetch<{ incidents: Incident[], count: number }>('/api/incidents', { lazy: true })
+const _f6 = useLiveFetch<{ incidents: Incident[], count: number }>('/api/incidents', { key: 'incidents', lazy: true })
 const { data: incData, refresh: refreshInc } = _f6
 let incTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => { incTimer = setInterval(() => refreshInc(), 30000) })

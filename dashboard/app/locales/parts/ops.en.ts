@@ -226,6 +226,10 @@ const en: Record<keyof typeof vi, string> = {
   'sys.stopped': 'Asked to stop',
   'sys.killed': 'Killed',
   'sys.openChat': 'Open chat',
-  'sys.procs': '{n} processes'
+  'sys.procs': '{n} processes',
+  'hdr.incidents': '{n} things need you',
+  'hdr.agents': '{n} agents running · {p} processes',
+  'hdr.cpu': 'Machine CPU',
+  'hdr.ram': 'Machine memory'
 }
 export default en
