@@ -22,8 +22,8 @@ const { isAdmin } = useAuth()
           </div>
         </template>
         <template #right>
-          <slot name="actions" />
           <HeaderStats v-if="isAdmin" />
+          <slot name="actions" />
         </template>
       </UDashboardNavbar>
     </template>
