@@ -131,7 +131,7 @@ async function loadOlder() {
 // open chat (a Discord message, a hand-off's answer) is put in place; a
 // chat's row replaces the old one in the list (a new one: the list again)
 const nearEnd = () => { const el = listEl.value; return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120 }
-const held: Message[] = [] // what came while an answer streams: its own end brings it
+const held: Message[] = [] // an agent's answer that came while one streams: the stream's own end brings it
 function place(m: Message) {
   if (messages.value.some(x => x.id === m.id)) return
   const stay = nearEnd()
@@ -140,7 +140,9 @@ function place(m: Message) {
 }
 onLiveEvent<{ conversation_id: string, message: Message }>('message', ({ conversation_id: id, message }) => {
   if (current.value?.id !== id || loadingMsgs.value) return
-  if (streaming.value) held.push(message)
+  // a person's message shows at once (it often comes just after its answer
+  // started streaming here); only an answer waits, not to show twice
+  if (streaming.value && message.role === 'assistant') held.push(message)
   else place(message)
 })
 watch(streaming, (s) => { if (!s) held.splice(0).forEach(place) })
