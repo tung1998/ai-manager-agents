@@ -379,7 +379,7 @@ type SearchFilter struct {
 	Author     string // only messages by this one ("" = anyone)
 	// HideOthersIn: in this project (the assistant's), only chats made by Me
 	HideOthersIn, Me string
-	Limit             int
+	Limit            int
 }
 
 type ChatRepo interface {

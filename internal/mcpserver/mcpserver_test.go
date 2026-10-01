@@ -56,7 +56,7 @@ func TestMCP(t *testing.T) {
 		t.Fatalf("notification: %d", code)
 	}
 	_, list := call(tok, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
-	if n := len(list["result"].(map[string]any)["tools"].([]any)); n != 8 { // + read_link
+	if n := len(list["result"].(map[string]any)["tools"].([]any)); n != 9 { // + read_link, search_history
 		t.Fatalf("tools: %d", n)
 	}
 	_, ov := call(tok, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ops_overview","arguments":{}}}`)
