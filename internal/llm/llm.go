@@ -49,6 +49,11 @@ type Client interface {
 // ErrNoAPIKey means an API provider has no key configured.
 var ErrNoAPIKey = errors.New("llm: provider has no API key")
 
+// ErrNeedsLogin means a CLI provider is installed but its account is signed
+// out (or the session expired): the office can sign in from the dashboard
+// instead of asking the person to open a terminal.
+var ErrNeedsLogin = errors.New("chưa đăng nhập")
+
 // Options tweak construction (tests inject an HTTP client).
 type Options struct {
 	HTTPClient *http.Client

@@ -234,10 +234,12 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 					IsError   bool            `json:"is_error"`
 				} `json:"content"`
 			} `json:"message"`
-			Result       string  `json:"result"`
-			IsError      bool    `json:"is_error"`
-			TotalCostUSD float64 `json:"total_cost_usd"`
-			Usage        struct {
+			Result         string   `json:"result"`
+			Errors         []string `json:"errors"`
+			APIErrorStatus string   `json:"api_error_status"`
+			IsError        bool     `json:"is_error"`
+			TotalCostUSD   float64  `json:"total_cost_usd"`
+			Usage          struct {
 				InputTokens         int `json:"input_tokens"`
 				OutputTokens        int `json:"output_tokens"`
 				CacheReadTokens     int `json:"cache_read_input_tokens"`
@@ -298,12 +300,33 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 			res.Usage.CostUSD = ev.TotalCostUSD
 			res.Usage.Model = req.Model
 			if ev.IsError || ev.Subtype != "success" {
-				resErr = fmt.Errorf("claude: %s", firstNonEmpty(ev.Result, ev.Subtype))
+				// the subtype alone ("error_during_execution") says nothing:
+				// keep whatever the CLI did explain, stderr included
+				why := []string{}
+				for _, m := range append(append([]string{ev.Result}, ev.Errors...), ev.APIErrorStatus) {
+					if m = strings.TrimSpace(m); m != "" && !slices.Contains(why, m) {
+						why = append(why, m)
+					}
+				}
+				if msg := strings.TrimSpace(stderr.String()); msg != "" && !slices.Contains(why, msg) {
+					why = append(why, truncate(msg, 300))
+				}
+				if len(why) == 0 {
+					why = append(why, ev.Subtype)
+				} else if ev.Subtype != "" && ev.Subtype != "error" {
+					why = append(why, "("+ev.Subtype+")")
+				}
+				resErr = fmt.Errorf("claude: %s", strings.Join(why, " · "))
 			}
 		}
 	}
 	werr := cmd.Wait()
 	res.Usage.DurationMS = time.Since(start).Milliseconds()
+	// A signed-out CLI fails before any API call: say what to do instead of
+	// leaving the chat with the CLI's own wording.
+	if (resErr != nil || werr != nil) && ctx.Err() == nil && res.Usage.InputTokens == 0 && !claudeSignedIn(bin) {
+		return res, errors.New("Claude Code trên máy chưa đăng nhập (hoặc phiên hết hạn). Vào Cài đặt → Nhà cung cấp, bấm Kiểm tra rồi Đăng nhập")
+	}
 	switch {
 	case resErr != nil:
 		return res, resErr
@@ -317,6 +340,33 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 		return res, fmt.Errorf("claude: %s", truncate(msg, 500))
 	}
 	return res, nil
+}
+
+// claudeSignedIn reports whether the CLI has an account; a version too old for
+// `auth status` (no JSON answer) counts as signed in, so nothing regresses.
+func claudeSignedIn(bin string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "auth", "status", "--json").Output()
+	if err != nil && len(out) == 0 {
+		return true
+	}
+	var st struct {
+		LoggedIn bool `json:"loggedIn"`
+	}
+	if json.Unmarshal([]byte(firstJSONObject(string(out))), &st) != nil {
+		return true
+	}
+	return st.LoggedIn
+}
+
+// firstJSONObject pulls the JSON object out of output that may carry warnings.
+func firstJSONObject(s string) string {
+	i, j := strings.Index(s, "{"), strings.LastIndex(s, "}")
+	if i >= 0 && j > i {
+		return s[i : j+1]
+	}
+	return s
 }
 
 // toolSummary turns a tool input into a short label for the chat ("Đọc src/app.vue").

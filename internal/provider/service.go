@@ -226,6 +226,21 @@ type TestResult struct {
 	Version  string           `json:"version,omitempty"`
 	Response *llm.Result      `json:"response,omitempty"`
 	Provider storage.Provider `json:"-"`
+	// NeedsLogin marks a CLI provider whose account is signed out; CLITool is
+	// the tool the dashboard can sign in without a terminal (claude | codex).
+	NeedsLogin bool   `json:"needs_login,omitempty"`
+	CLITool    string `json:"cli_tool,omitempty"`
+}
+
+// cliToolOf names the CLI the dashboard can install and sign in for p.
+func cliToolOf(p storage.Provider) string {
+	switch p.Kind {
+	case storage.ProviderClaudeCLI:
+		return "claude"
+	case storage.ProviderCodexCLI:
+		return "codex"
+	}
+	return ""
 }
 
 // Test checks connectivity (no tokens) and, when prompt is set, sends it to model
@@ -237,7 +252,11 @@ func (s *Service) Test(ctx context.Context, id, prompt, model string) (TestResul
 	}
 	fail := func(err error) (TestResult, error) {
 		_ = s.store.Providers().SetStatus(ctx, id, "error", err.Error(), nil, s.now())
-		return TestResult{OK: false, Detail: err.Error()}, nil
+		res := TestResult{OK: false, Detail: err.Error()}
+		if errors.Is(err, llm.ErrNeedsLogin) {
+			res.NeedsLogin, res.CLITool = true, cliToolOf(p)
+		}
+		return res, nil
 	}
 	client, err := s.Client(p)
 	if err != nil {
@@ -270,6 +289,9 @@ func (s *Service) Test(ctx context.Context, id, prompt, model string) (TestResul
 			return TestResult{OK: false, Detail: err.Error()}, nil
 		}
 		if err != nil {
+			if errors.Is(err, llm.ErrNeedsLogin) {
+				return fail(err) // "connected" would be misleading: it is the account, not the tool
+			}
 			return fail(fmt.Errorf("kết nối được nhưng gửi prompt lỗi: %w", err))
 		}
 		res.Response = &out

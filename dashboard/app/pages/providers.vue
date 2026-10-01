@@ -132,7 +132,7 @@ const testOpen = ref(false)
 const testTarget = ref<Provider | null>(null)
 const testPrompt = ref(t('prov.defaultTestPrompt'))
 const testModel = ref('')
-const testResult = ref<{ ok: boolean, detail: string, models: string[], response?: { text: string, model: string, input_tokens: number, output_tokens: number, cost_usd?: number, duration_ms: number } } | null>(null)
+const testResult = ref<{ ok: boolean, detail: string, models: string[], needs_login?: boolean, cli_tool?: 'claude' | 'codex', response?: { text: string, model: string, input_tokens: number, output_tokens: number, cost_usd?: number, duration_ms: number } } | null>(null)
 
 async function runTest(p: Provider, prompt = '') {
   testing.value = p.id
@@ -147,6 +147,12 @@ async function runTest(p: Provider, prompt = '') {
     }
     if (prompt) {
       testResult.value = res
+    } else if (res!.needs_login) {
+      // the tool is installed, the account is signed out: sign in from here
+      testTarget.value = p
+      testModel.value = p.tier_models.balanced || ''
+      testResult.value = res
+      testOpen.value = true
     } else {
       toast.add({ title: res!.ok ? t('prov.savedGood', { name: p.name }) : t('prov.testError', { name: p.name }), description: res!.detail, color: res!.ok ? 'success' : 'error' })
     }
@@ -164,6 +170,14 @@ function openPromptTest(p: Provider) {
   testModel.value = p.tier_models.balanced || ''
   testResult.value = null
   testOpen.value = true
+}
+
+// After signing a CLI back in, run the test again so the provider turns green
+// without the person hunting for the button.
+function onCliReady(ok: boolean) {
+  if (!ok || !testResult.value?.needs_login || !testTarget.value) return
+  testResult.value = null
+  runTest(testTarget.value, testPrompt.value)
 }
 
 async function setDefault(p: Provider) {
@@ -480,6 +494,10 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
             <UTextarea v-model="testPrompt" :rows="3" class="w-full" />
           </UFormField>
           <UAlert v-if="testResult && !testResult.ok" color="error" variant="subtle" :description="testResult.detail" />
+          <CliSetup
+            v-if="testResult?.needs_login && testResult.cli_tool" :key="testResult.cli_tool"
+            :tool="testResult.cli_tool" @ready="onCliReady"
+          />
           <div v-if="testResult?.response" class="rounded-md bg-(--ui-bg-muted) p-3 text-sm">
             <p class="whitespace-pre-wrap">{{ testResult.response.text }}</p>
             <p class="mt-2 text-xs text-(--ui-text-muted)">

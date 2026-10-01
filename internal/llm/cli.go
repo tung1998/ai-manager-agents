@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -25,16 +26,70 @@ func run(ctx context.Context, bin string, stdin string, args ...string) (string,
 		return "", fmt.Errorf("không tìm thấy lệnh %q trong PATH", bin)
 	}
 	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = strings.TrimSpace(stdout.String())
-		}
-		if len(msg) > 400 {
-			msg = msg[:400] + "…"
-		}
-		return "", fmt.Errorf("%s: %v: %s", bin, err, msg)
+		return stdout.String(), fmt.Errorf("%s: %v: %s", bin, err, cliFailure(stdout.String(), stderr.String()))
 	}
 	return stdout.String(), nil
+}
+
+// cliFailure turns a failed run's output into one readable line. CLIs print
+// their result as JSON whose reason (result/subtype/errors) sits at the END of
+// a long object, so a plain prefix cut would throw away the only useful part.
+func cliFailure(stdout, stderr string) string {
+	var res struct {
+		Result  string   `json:"result"`
+		Subtype string   `json:"subtype"`
+		Errors  []string `json:"errors"`
+		Error   string   `json:"error"`
+	}
+	if j := lastJSONObject(stdout); j != "" && json.Unmarshal([]byte(j), &res) == nil {
+		parts := []string{}
+		for _, p := range append([]string{res.Result, res.Error}, res.Errors...) {
+			if p = strings.TrimSpace(p); p != "" && !slices.Contains(parts, p) {
+				parts = append(parts, p)
+			}
+		}
+		if len(parts) == 0 && res.Subtype != "" {
+			parts = append(parts, res.Subtype)
+		}
+		if len(parts) > 0 {
+			return clip(strings.Join(parts, " · "), 400)
+		}
+	}
+	if msg := strings.TrimSpace(stderr); msg != "" {
+		return clip(msg, 400)
+	}
+	return clip(strings.TrimSpace(stdout), 400)
+}
+
+// clip keeps the tail of a long line: the reason a CLI failed is usually there.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
+}
+
+// claudeLoggedIn reads `claude auth status --json`. ok is false only when the
+// CLI answers and says it is signed out, so a version too old for the
+// subcommand never turns a working setup into a sign-in prompt.
+func claudeLoggedIn(ctx context.Context, bin string) (ok bool, account string) {
+	out, err := run(ctx, bin, "", "auth", "status", "--json")
+	if err != nil && strings.TrimSpace(out) == "" {
+		return true, ""
+	}
+	var st struct {
+		LoggedIn bool   `json:"loggedIn"`
+		Email    string `json:"email"`
+		OrgName  string `json:"orgName"`
+	}
+	if json.Unmarshal([]byte(lastJSONObject(out)), &st) != nil {
+		return true, ""
+	}
+	account = st.Email
+	if st.OrgName != "" && account != "" {
+		account += " · " + st.OrgName
+	}
+	return st.LoggedIn, account
 }
 
 // ---- Claude Code ----
@@ -47,7 +102,19 @@ func (c *claudeCLI) Check(ctx context.Context) (CheckResult, error) {
 		return CheckResult{}, err
 	}
 	v := strings.TrimSpace(out)
+	// The binary answering says nothing about the account: an expired session
+	// only shows up when a prompt is sent, which used to read as "connected".
+	if ok, account := claudeLoggedIn(ctx, c.bin); !ok {
+		return CheckResult{}, fmt.Errorf("%s · %w: hãy bấm Đăng nhập để ký lại phiên Claude Code%s", v, ErrNeedsLogin, orPrefix(" (tài khoản cũ: ", account, ")"))
+	}
 	return CheckResult{Version: v, Models: DefaultModelsClaude, Detail: v}, nil
+}
+
+func orPrefix(prefix, s, suffix string) string {
+	if s == "" {
+		return ""
+	}
+	return prefix + s + suffix
 }
 
 // DefaultModelsClaude are offered for CLI providers, which cannot list models.
@@ -65,6 +132,11 @@ func (c *claudeCLI) Complete(ctx context.Context, req Request) (Result, error) {
 	// The prompt goes on stdin: argv is visible in ps and has a size limit.
 	out, err := run(ctx, c.bin, req.Prompt, args...)
 	if err != nil {
+		// A signed-out CLI fails before any API call (zero tokens, no cost);
+		// say so, so the dashboard can offer to sign in.
+		if ok, _ := claudeLoggedIn(ctx, c.bin); !ok {
+			return Result{}, fmt.Errorf("%w: phiên Claude Code đã hết hạn, hãy đăng nhập lại", ErrNeedsLogin)
+		}
 		return Result{}, err
 	}
 	var res struct {
@@ -100,6 +172,9 @@ func (c *codexCLI) Check(ctx context.Context) (CheckResult, error) {
 		return CheckResult{}, err
 	}
 	v := strings.TrimSpace(out)
+	if st, _ := run(ctx, c.bin, "", "login", "status"); strings.Contains(strings.ToLower(st), "not logged in") {
+		return CheckResult{}, fmt.Errorf("%s · %w: hãy bấm Đăng nhập để ký lại phiên Codex", v, ErrNeedsLogin)
+	}
 	return CheckResult{Version: v, Detail: v}, nil
 }
 
