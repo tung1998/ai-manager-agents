@@ -17,7 +17,7 @@ import (
 // fix it: a monitor down, a process crashed, an automation office turned off,
 // a bot that lost its connection, tasks and runs that failed, a card waiting.
 type incident struct {
-	Kind        string    `json:"kind"`     // monitor | process | automation | bot | jobs | approval | patch
+	Kind        string    `json:"kind"`     // monitor | process | automation | bot | jobs | approval | patch | unread
 	Severity    string    `json:"severity"` // error | warning
 	ProjectID   string    `json:"project_id"`
 	ProjectName string    `json:"project_name"`
@@ -141,6 +141,27 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 					Title: strings.Join(p.Files, ", "), Detail: c.Title, At: p.CreatedAt, Link: "/projects/" + c.ProjectID + "?tab=chat&c=" + c.ID + "&m=" + p.MessageID,
 					ID: p.ID, Key: "patch:" + p.ID})
 			}
+		}
+	}
+	// the person's chats an agent answered since they last looked (theirs alone)
+	if ids, err := s.cfg.Store.Chat().Unread(ctx, userFrom(r).ID, "human:"+userFrom(r).Email); err == nil {
+		for _, id := range ids {
+			c, err := s.cfg.Store.Chat().GetConversation(ctx, id)
+			if err != nil {
+				continue
+			}
+			name := c.ProjectID
+			for _, x := range projects {
+				if x.ID == c.ProjectID {
+					name = x.Name
+				}
+			}
+			link := "/projects/" + c.ProjectID + "?tab=chat&c=" + c.ID
+			if c.ProjectID == hidden {
+				link = "/assistant"
+			}
+			out = append(out, incident{Kind: "unread", Severity: "info", ProjectID: c.ProjectID, ProjectName: name,
+				Title: c.Title, At: c.UpdatedAt, Link: link, ID: c.ID, Key: "unread:" + c.ID})
 		}
 	}
 	for _, it := range s.limitIncidents(ctx) { // an AI connection close to its limit

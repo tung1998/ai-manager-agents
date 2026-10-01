@@ -81,6 +81,7 @@ const en: Record<keyof typeof vi, string> = {
   'draft.stale': 'This was just changed elsewhere (someone else or an agent). Reload to see it; what you are editing is dropped.',
   'draft.reload': 'Reload',
   'incidents.kind.patch': 'diff to review',
+  'incidents.kind.unread': 'unread',
   'incidents.kind.approval': 'waiting',
 
   'projects.title': 'Projects',

@@ -80,6 +80,7 @@ export default {
   'draft.stale': 'Dữ liệu vừa được thay đổi ở nơi khác (người khác hoặc agent). Tải lại để xem bản mới; những gì bạn đang sửa sẽ mất.',
   'draft.reload': 'Tải lại',
   'incidents.kind.patch': 'diff chờ duyệt',
+  'incidents.kind.unread': 'tin chưa xem',
   'incidents.kind.approval': 'chờ duyệt',
 
   'projects.title': 'Project',

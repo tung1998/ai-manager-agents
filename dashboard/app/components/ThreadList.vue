@@ -4,7 +4,7 @@ import type { DropdownMenuItem } from '@nuxt/ui'
 // The chats of a project, newest first: the chat's side column on a wide
 // screen, a drawer on a phone.
 interface Thread { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, source?: Source, purpose?: string }
-defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, menu: (c: Thread) => DropdownMenuItem[][] }>()
+defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, unread?: Set<string>, menu: (c: Thread) => DropdownMenuItem[][] }>()
 const origin = defineModel<'all' | Source>('origin', { default: 'all' })
 const emit = defineEmits<{ open: [Thread], new: [] }>()
 const { t, dateLocale } = useLang()
@@ -34,7 +34,10 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
           <UIcon :name="kindIcon(c)" class="size-3.5" />
         </span>
         <div class="min-w-0 flex-1">
-          <p class="truncate">{{ c.title || t('chat.newThreadTitle') }}</p>
+          <p class="flex items-center gap-1.5" :class="unread?.has(c.id) && 'font-semibold'">
+            <span v-if="unread?.has(c.id)" class="size-2 shrink-0 rounded-full bg-primary" :title="t('chat.unread')" />
+            <span class="truncate">{{ c.title || t('chat.newThreadTitle') }}</span>
+          </p>
           <p class="flex items-center gap-1 truncate text-xs text-(--ui-text-muted)">
             <AgentAvatar :agent="agents.find(a => a.id === c.agent_id) ?? { id: c.agent_id, name: c.agent_name }" size="2xs" class="shrink-0" />
             <span class="truncate">{{ c.agent_name }} · {{ when(c.updated_at) }}</span>

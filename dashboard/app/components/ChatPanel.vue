@@ -247,10 +247,27 @@ const router = useRouter()
 const ownsUrl = computed(() => !single.value && !props.compact)
 const copy = useCopy()
 const chatLink = (id: string, messageId?: string) => `${location.origin}/projects/${props.projectId}?tab=chat&c=${id}${messageId ? `&m=${messageId}` : ''}`
+// unread: an agent answered since the person last looked. The open chat is
+// seen (also an answer that comes while it shows), unless they marked it unread.
+const unread = useUnread()
+const keptUnread = ref('')
+watch([() => current.value?.id, unread.ids], ([id]) => {
+  if (!id || id === keptUnread.value || !unread.ids.value.has(id) || document.visibilityState !== 'visible') return
+  void unread.mark(id, true).catch(() => {})
+})
+watch(() => current.value?.id, (id) => { if (id !== keptUnread.value) keptUnread.value = '' })
+function markRead(c: Conversation, seen: boolean) {
+  keptUnread.value = seen ? '' : c.id
+  void unread.mark(c.id, seen).catch(e => toast.add({ title: apiError(e), color: 'error' }))
+}
 function threadMenu(c: Conversation) {
+  const isUnread = unread.ids.value.has(c.id)
   const items: { label: string, icon: string, onSelect: () => unknown }[] = [
     { label: t('chat.copyLink'), icon: 'i-lucide-link', onSelect: () => copy(chatLink(c.id)) },
-    { label: t('chat.copyId'), icon: 'i-lucide-hash', onSelect: () => copy(c.id) }
+    { label: t('chat.copyId'), icon: 'i-lucide-hash', onSelect: () => copy(c.id) },
+    isUnread
+      ? { label: t('chat.markSeen'), icon: 'i-lucide-mail-open', onSelect: () => markRead(c, true) }
+      : { label: t('chat.markUnread'), icon: 'i-lucide-mail', onSelect: () => markRead(c, false) }
   ]
   // a Discord/Telegram chat: where it is there (its thread, once it has one)
   if (c.external_url) items.unshift({ label: c.source === 'telegram' ? t('chat.openInTelegram') : t('chat.openInDiscord'), icon: 'i-lucide-external-link', onSelect: () => { window.open(c.external_url, '_blank', 'noopener') } })
@@ -500,13 +517,13 @@ onBeforeUnmount(() => {
   >
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
-      <ThreadList :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :menu="threadMenu" @open="open" @new="newConversation(pick)" />
+      <ThreadList :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :menu="threadMenu" @open="open" @new="newConversation(pick)" />
     </aside>
     <!-- a phone: the chats in a drawer -->
     <USlideover v-if="!single && !compact" v-model:open="threadsOpen" side="left" :title="t('chat.threads')" :ui="{ content: 'max-w-xs', body: 'p-0 sm:p-0 flex flex-col' }">
       <template #body>
         <ThreadList
-          :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :menu="threadMenu"
+          :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :menu="threadMenu"
           @open="(c) => { threadsOpen = false; open(c) }" @new="threadsOpen = false; newConversation(pick)"
         />
       </template>

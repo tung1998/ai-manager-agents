@@ -300,3 +300,35 @@ func (r chatRepo) Members(ctx context.Context, conversationID string) ([]storage
 func (r chatRepo) SetConversationContext(ctx context.Context, id string, tokens, window int) error {
 	return execOne(ctx, r.db, `UPDATE conversations SET context_tokens=?, context_window=? WHERE id=?`, tokens, window, id)
 }
+
+func (r chatRepo) MarkSeen(ctx context.Context, userID, conversationID string, seen bool) error {
+	if !seen {
+		_, err := r.db.ExecContext(ctx, `DELETE FROM conversation_reads WHERE user_id=? AND conversation_id=?`, userID, conversationID)
+		return err
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO conversation_reads (user_id, conversation_id, seen_at) VALUES (?,?,?)
+		ON CONFLICT (user_id, conversation_id) DO UPDATE SET seen_at=excluded.seen_at`, userID, conversationID, fmtTime(time.Now()))
+	return err
+}
+
+func (r chatRepo) Unread(ctx context.Context, userID, author string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT c.id FROM conversations c
+		JOIN (SELECT conversation_id, max(created_at) AS at FROM messages WHERE role='assistant' GROUP BY conversation_id) a ON a.conversation_id=c.id
+		LEFT JOIN conversation_reads s ON s.conversation_id=c.id AND s.user_id=?
+		WHERE a.at > coalesce(s.seen_at, '')
+		  AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.author=?)
+		ORDER BY a.at DESC LIMIT 100`, userID, author)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

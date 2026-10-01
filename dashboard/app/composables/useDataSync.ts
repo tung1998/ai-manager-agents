@@ -19,7 +19,7 @@ const routes: [RegExp, string[]][] = [
   [/\/jobs/, ['jobs', 'automations']],
   [/\/limit-alert/, ['settings', 'channels']],
   [/\/channels/, ['channels']],
-  [/\/incidents/, ['jobs', 'actions', 'patches', 'channels', 'automations', 'monitors', 'processes', 'providers']],
+  [/\/incidents/, ['jobs', 'actions', 'patches', 'channels', 'automations', 'monitors', 'processes', 'providers', 'messages', 'conversation_reads']],
   [/\/providers|\/usage|\/budget/, ['providers', 'runs', 'jobs', 'settings']],
   [/\/agents|\/org-models|\/templates/, ['agents', 'org_models']],
   [/\/processes|\/compose|\/monitors|\/monitor-events/, ['processes', 'monitors', 'monitor_events']],

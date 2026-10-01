@@ -222,6 +222,7 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		s.chatError(w, r, err)
 		return
 	}
+	_ = s.cfg.Store.Chat().MarkSeen(r.Context(), userFrom(r).ID, r.PathValue("id"), true) // writing in it: seen
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"turn_id": turn.ID,
 		"message": chat.MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Attachments: msg.Attachments, Author: msg.Author, CreatedAt: msg.CreatedAt,
@@ -452,4 +453,21 @@ func (s *server) recentConversations(w http.ResponseWriter, r *http.Request) {
 		out = append(out, s.toConvDTO(c))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"conversations": out, "projects": names})
+}
+
+// markSeen: the person looked at the chat ({"seen": true}, also the default)
+// or wants it back as unread ({"seen": false}).
+func (s *server) markSeen(w http.ResponseWriter, r *http.Request) {
+	in := struct {
+		Seen *bool `json:"seen"`
+	}{}
+	if r.ContentLength > 0 && !decode(w, r, &in) {
+		return
+	}
+	seen := in.Seen == nil || *in.Seen
+	if err := s.cfg.Store.Chat().MarkSeen(r.Context(), userFrom(r).ID, r.PathValue("id"), seen); err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

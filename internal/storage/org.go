@@ -357,6 +357,11 @@ type Patch struct {
 
 // ChatRepo stores conversations, messages and patches.
 type ChatRepo interface {
+	// MarkSeen: the person looked at the chat now (seen) or wants it unread again.
+	MarkSeen(ctx context.Context, userID, conversationID string, seen bool) error
+	// Unread: the chats the person wrote in (as author) that an agent
+	// answered after they last looked, newest first.
+	Unread(ctx context.Context, userID, author string) ([]string, error)
 	CreateConversation(ctx context.Context, c Conversation) (Conversation, error)
 	UpdateConversation(ctx context.Context, c Conversation) error
 	GetConversation(ctx context.Context, id string) (Conversation, error)

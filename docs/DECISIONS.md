@@ -1657,3 +1657,10 @@ Bản đầu của ADR này đặt `full_access`/`admin_by`/`extra_dirs` thẳng
 | Cấp full quyền mặc định, không rào chắn | Không an toàn: automation/agent chạy nền, lỗi code có thể phá máy. |
 | Override cộng dồn vào quyền agent thay vì thay thế | Dễ gây hiểu lầm về quyền thực tế đang chạy; thay thế rõ ràng hơn khi đọc lại cấu hình. |
 >>>>>>> 143662e (agent-office: thay đổi trong worktree)
+
+## ADR-077: Tin chưa xem nằm trong "Cần xử lý"
+- Bảng `conversation_reads (user_id, conversation_id, seen_at)` ghi lần cuối mỗi người mở mỗi cuộc chat. Migration 00043 coi mọi cuộc chat đang có là đã xem.
+- Một cuộc chat là "chưa xem" với một người khi: người đó từng nhắn trong cuộc chat (tác giả `human:<email>`), và agent trả lời sau `seen_at`. Mỗi người chỉ thấy tin chưa xem của mình.
+- Cuộc chat chưa xem là loại `unread` trong `GET /api/incidents` (mức `info`), nên được tính vào số "Cần xử lý" ở header và tab Công việc. Mỗi dòng có nút Xem và Đánh dấu đã xem.
+- `POST /api/conversations/{id}/seen` nhận `{seen: true|false}`. Mở cuộc chat, có câu trả lời mới trong lúc đang mở, hay gửi tin đều tính là đã xem. Menu của cuộc chat (cạnh Copy ID) có mục Đánh dấu chưa xem / đã xem. Cuộc chat vừa bị đánh dấu chưa xem thì không tự chuyển lại thành đã xem khi vẫn đang mở.
+- Danh sách chat có chấm và chữ đậm ở cuộc chat chưa xem.

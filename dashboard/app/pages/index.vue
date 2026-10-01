@@ -27,7 +27,7 @@ const recentChats = computed(() => chatData.value?.conversations ?? [])
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // what needs a person, and the last day in numbers
-interface Incident { kind: string, severity: 'error' | 'warning', project_id: string, project_name: string, title: string, detail: string, link: string, id: string, key: string }
+interface Incident { kind: string, severity: 'error' | 'warning' | 'info', project_id: string, project_name: string, title: string, detail: string, link: string, id: string, key: string }
 const _f6 = useLiveFetch<{ incidents: Incident[], count: number }>('/api/incidents', { key: 'incidents', lazy: true })
 const { data: incData, refresh: refreshInc } = _f6
 let incTimer: ReturnType<typeof setInterval> | undefined
@@ -44,6 +44,18 @@ const { data: stats } = _f7
 // investigate something that went wrong
 const toast = useToast()
 const acting = reactive(new Set<string>()) // each button on its own: several can run at once
+async function seen(x: Incident) {
+  const key = x.key + 'seen'
+  acting.add(key)
+  try {
+    await $fetch(`/api/conversations/${x.id}/seen`, { method: 'POST', body: { seen: true } })
+    await refreshInc()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    acting.delete(key)
+  }
+}
 async function act(x: Incident, what: 'approve' | 'reject' | 'retry' | 'dismiss') {
   const key = x.key + what
   if (acting.has(key)) return
@@ -71,7 +83,7 @@ function investigate(x: Incident) {
 // a failure opened in place: what happened, its failed runs, its logs or checks
 const shown = ref<Incident | null>(null)
 const shownOpen = computed({ get: () => !!shown.value, set: (v: boolean) => { if (!v) shown.value = null } })
-const isDecision = (x: Incident) => x.kind === 'approval' || x.kind === 'patch'
+const isDecision = (x: Incident) => x.kind === 'approval' || x.kind === 'patch' || x.kind === 'unread' // a link: where to act on it
 const runsQuery = (x: Incident) => ({
   jobs: `project=${x.project_id}&status=failed&since=24h&limit=30`,
   automation: `origin_id=${x.id}&limit=20`,
@@ -90,7 +102,7 @@ watch(shown, async (x) => {
 const canRetry = (k: string) => ['monitor', 'process', 'automation', 'bot', 'jobs'].includes(k)
 const incIcon: Record<string, string> = {
   monitor: 'i-lucide-activity', process: 'i-lucide-square-terminal', automation: 'i-lucide-alarm-clock-off',
-  bot: 'i-lucide-bot', jobs: 'i-lucide-circle-x', approval: 'i-lucide-stamp', patch: 'i-lucide-file-diff', limit: 'i-lucide-gauge'
+  bot: 'i-lucide-bot', jobs: 'i-lucide-circle-x', approval: 'i-lucide-stamp', patch: 'i-lucide-file-diff', limit: 'i-lucide-gauge', unread: 'i-lucide-message-square-dot'
 }
 
 const providers = computed(() => prov.value?.providers ?? [])
@@ -157,7 +169,7 @@ const steps = computed(() => [
               :is="isDecision(x) ? 'NuxtLink' : 'button'" :to="isDecision(x) ? x.link : undefined" :type="isDecision(x) ? undefined : 'button'"
               class="flex min-w-0 flex-1 basis-60 items-center gap-3 text-left" @click="!isDecision(x) && (shown = x)"
             >
-              <UIcon :name="incIcon[x.kind] ?? 'i-lucide-circle-alert'" class="size-4 shrink-0" :class="x.severity === 'error' ? 'text-(--ui-error)' : 'text-(--ui-warning)'" />
+              <UIcon :name="incIcon[x.kind] ?? 'i-lucide-circle-alert'" class="size-4 shrink-0" :class="x.severity === 'error' ? 'text-(--ui-error)' : x.severity === 'info' ? 'text-primary' : 'text-(--ui-warning)'" />
               <span class="min-w-0 flex-1">
                 <span class="flex items-center gap-2">
                   <span class="truncate text-sm font-medium hover:underline">{{ x.title }}</span>
@@ -166,8 +178,13 @@ const steps = computed(() => [
                 <span class="block truncate text-xs text-(--ui-text-muted)">{{ x.project_name }}<template v-if="x.detail"> · {{ x.detail }}</template></span>
               </span>
             </component>
+            <!-- a chat answered since the person looked: theirs, whoever they are -->
+            <div v-if="x.kind === 'unread'" class="flex shrink-0 items-center gap-1 max-sm:w-full max-sm:ps-7">
+              <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-eye" :label="t('home.view')" :to="x.link" />
+              <UButton size="xs" color="neutral" variant="ghost" :label="t('chat.markSeen')" :loading="acting.has(x.key + 'seen')" @click="seen(x)" />
+            </div>
             <!-- what to do about it, right here -->
-            <div v-if="isAdmin" class="flex shrink-0 flex-wrap items-center gap-1 max-sm:w-full max-sm:ps-7">
+            <div v-else-if="isAdmin" class="flex shrink-0 flex-wrap items-center gap-1 max-sm:w-full max-sm:ps-7">
               <template v-if="x.kind === 'approval' || x.kind === 'patch'">
                 <UButton size="xs" icon="i-lucide-check" :label="t('home.approve')" :loading="acting.has(x.key + 'approve')" @click="act(x, 'approve')" />
                 <UButton size="xs" color="neutral" variant="ghost" :label="t('home.reject')" :loading="acting.has(x.key + 'reject')" @click="act(x, 'reject')" />
