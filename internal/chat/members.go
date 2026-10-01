@@ -16,12 +16,24 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
-// Group chat limits (ADR-044): hand-offs agents make per message of the
-// person, and replies in all.
+// Group chat limits (ADR-044): hand-offs agents make per message, and replies
+// in all. A person chatting (web, Discord, Telegram) is there to stop them, so
+// only a safety cap against a loop; what runs unattended keeps the small one.
 const (
-	maxHops    = 2
-	maxAnswers = 4
+	maxHops          = 2
+	maxAnswers       = 4
+	maxHopsPerson    = 10
+	maxAnswersPerson = 20
 )
+
+// limitsFor is the hand-offs and replies a message of who allows.
+func limitsFor(who string) (hops, answers int) {
+	switch via, _, _ := strings.Cut(who, ":"); via {
+	case "human", "discord", "telegram":
+		return maxHopsPerson, maxAnswersPerson
+	}
+	return maxHops, maxAnswers
+}
 
 // delegation is a task an agent gave another with the delegate tool.
 type delegation struct {
@@ -130,8 +142,8 @@ type turnSpec struct {
 // is already working in this chat, the chat is busy, the message had its
 // replies (maxAnswers), or the budget is spent.
 func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s turnSpec) (*Turn, string) {
-	if s.total != nil && s.total.Load() >= maxAnswers {
-		return nil, fmt.Sprintf("Đã đủ %d lượt trả lời cho một tin nhắn nên %s không trả lời tiếp. Hãy nhắn lại nếu cần.", maxAnswers, s.agent.Name)
+	if _, most := limitsFor(s.actor); s.total != nil && s.total.Load() >= int32(most) {
+		return nil, fmt.Sprintf("Đã đủ %d lượt trả lời cho một tin nhắn nên %s không trả lời tiếp. Hãy nhắn lại nếu cần.", most, s.agent.Name)
 	}
 	if e.usage != nil {
 		if err := e.usage.Check(context.Background(), project.ID); err != nil {
@@ -210,9 +222,10 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 	e.mu.Unlock()
 	if teamChat(conv) {
 		var notes []string
+		most, _ := limitsFor(prev.actor)
 		for _, d := range given {
-			if hops >= maxHops {
-				notes = append(notes, fmt.Sprintf("Đã dừng giao việc cho %s: quá %d lượt agent giao việc cho nhau trong một tin nhắn. Hãy tag lại nếu cần.", d.agent.Name, maxHops))
+			if hops >= most {
+				notes = append(notes, fmt.Sprintf("Đã dừng giao việc cho %s: quá %d lượt agent giao việc cho nhau trong một tin nhắn. Hãy tag lại nếu cần.", d.agent.Name, most))
 				continue
 			}
 			started, why := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor, total: prev.total, tier: prev.tier,

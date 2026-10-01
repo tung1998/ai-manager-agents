@@ -1607,3 +1607,8 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Nút Duyệt/Từ chối mang id đề xuất chứ không mang số thứ tự, vì số được đánh lại khi mọi thứ đã được quyết.
 - Rút gọn ghi nhớ chạy trong một transaction và giữ những ghi nhớ thêm vào trong lúc model đang rút gọn. Thông báo thay đổi của một transaction chỉ gửi sau khi commit.
 - Diff PR từ fork lấy từ `refs/pull/N/head` (GitHub).
+
+## ADR-075: Bỏ giới hạn lượt khi người dùng nhắn trực tiếp
+- Giới hạn của ADR-044 (2 lượt giao việc, 4 lượt trả lời cho mỗi tin) làm đứt vòng làm việc bình thường: Lập kế hoạch giao cho Code Worker, Code Worker báo lại, Lập kế hoạch giao tiếp.
+- Tin của người dùng (web `human:`, Discord, Telegram) chỉ còn giới hạn an toàn chống vòng lặp: 10 lượt giao việc và 20 lượt trả lời. Người dùng có mặt để dừng các agent khi cần.
+- Việc chạy không có người theo dõi (tự động hóa, monitor) giữ giới hạn cũ 2/4.
