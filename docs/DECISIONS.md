@@ -1769,3 +1769,16 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - Tắt thì việc đang làm thành tạm dừng và giữ worktree; bật lại thì làm tiếp việc đó trước. Chạm giới hạn kết nối AI thì chờ tới lúc reset.
 - Giờ tắt mặc định là lần reset hạn mức tuần (`seven_day.resets_at`) của kết nối AI; không có dữ liệu thì sau 8 giờ.
 - Trang Burn là tab admin trong project: trạng thái, đếm ngược, bật (qua hộp xác nhận) và tắt, ngăn cài đặt, bảng việc theo cột.
+
+## ADR-088: Trạng thái kết nối MCP
+- `automation.MCPHealth` chạy `claude mcp list` (mất khoảng 30 giây) trong nền, ở thư mục của project hoặc thư mục home khi kiểm tra toàn máy. Kết quả mới nhất của mỗi thư mục được giữ trong bộ nhớ. Mỗi lúc chỉ chạy một lần kiểm tra cho một thư mục.
+- Dòng kết quả có dạng `tên: đích - ✔ Connected`. Bộ đọc nhận ra 3 trạng thái: `connected`, `needs_auth` (dấu `!`), `failed` (dấu `✘`).
+- API admin:
+  - `GET /api/automation/mcp/status?path=` trả kết quả mới nhất.
+  - `POST /api/automation/mcp/status/check` bắt đầu kiểm tra.
+  - `path` chỉ nhận `""` hoặc thư mục của một project đã đăng ký. Kiểm tra xong thì đẩy event `mcp.status` cho admin.
+- Tab MCP (của project và trang Thư viện) có:
+  - Thanh trạng thái: số đã kết nối, cần đăng nhập, lỗi; giờ kiểm tra; nút Kiểm tra.
+  - Nhãn trạng thái trên từng server, rê chuột xem chi tiết lỗi hoặc cách đăng nhập.
+  - Mục thu gọn "Kết nối khác" cho các server Claude thấy nhưng không có trong danh sách cài (connector claude.ai, plugin).
+- Mở tab thì tự kiểm tra lại nếu kết quả cũ hơn 10 phút.

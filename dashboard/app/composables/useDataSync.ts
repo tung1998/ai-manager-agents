@@ -57,7 +57,7 @@ export function onLiveEvent<T = any>(name: string, fn: (data: T) => void) { // e
   eventListeners.get(name)!.add(fn)
   if (getCurrentInstance()) onBeforeUnmount(() => eventListeners.get(name)?.delete(fn))
 }
-const pushed = ['message', 'conversation', 'conversation.deleted', 'incidents']
+const pushed = ['message', 'conversation', 'conversation.deleted', 'incidents', 'mcp.status']
 let nuxtApp: ReturnType<typeof tryUseNuxtApp> = null
 
 // onLiveChange hears every notice as it comes (the chat's own merging).

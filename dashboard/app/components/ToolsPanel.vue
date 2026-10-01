@@ -9,9 +9,29 @@ const props = defineProps<{ kind: ItemKind, projectPath?: string, projectId?: st
 const scoped = computed(() => props.projectPath !== undefined)
 const fixedTarget = computed(() => (scoped.value ? (props.projectPath || '__user') : undefined))
 const toast = useToast()
-const { t } = useLang()
+const { t, dateLocale } = useLang()
 const { inv, loading, scan } = useInventory()
 const meta = computed(() => kindMeta[props.kind])
+
+// MCP health: the project folder, or machine-wide on the Thư viện page
+const mcp = props.kind === 'mcp' ? useMcpStatus(() => props.projectPath ?? '') : null
+const mcpBadge = computed(() => ({
+  connected: { color: 'success' as const, label: t('tools.mcpConnected'), icon: 'i-lucide-circle-check', cls: 'text-success' },
+  needs_auth: { color: 'warning' as const, label: t('tools.mcpNeedsAuth'), icon: 'i-lucide-key-round', cls: 'text-warning' },
+  failed: { color: 'error' as const, label: t('tools.mcpFailed'), icon: 'i-lucide-circle-x', cls: 'text-error' },
+  unknown: { color: 'neutral' as const, label: '?', icon: 'i-lucide-circle-help', cls: 'text-(--ui-text-muted)' }
+}))
+const mcpTip = (st: MCPState) => st.status === 'needs_auth' ? `${st.detail}. ${t('tools.mcpAuthHint')}` : st.detail
+function countOf(list: MCPState[]) {
+  const c = { connected: 0, needs_auth: 0, failed: 0 }
+  for (const i of list) if (i.status in c) c[i.status as keyof typeof c]++
+  return c
+}
+const mcpKnown = computed(() => new Set(items.value.map(i => i.name)))
+const mcpCounts = computed(() => countOf((mcp?.check.value?.items ?? []).filter(i => mcpKnown.value.has(i.name))))
+// servers claude sees that the inventory does not list (claude.ai connectors, plugins)
+const mcpOthers = computed(() => (mcp?.check.value?.items ?? []).filter(i => !mcpKnown.value.has(i.name)))
+const othersCounts = computed(() => countOf(mcpOthers.value))
 
 const tabs = computed(() => [
   { label: scoped.value ? t('tools.tabInstalledScoped') : t('tools.tabInstalled'), value: 'installed', icon: 'i-lucide-hard-drive' },
@@ -278,6 +298,23 @@ const summary = (tpl: MCPTemplate) => {
           <USelect v-if="!scoped" v-model="where" :items="whereOptions" class="w-64" />
           <span class="self-center text-sm text-(--ui-text-muted)">{{ t('tools.itemCount', { n: groups.reduce((a, g) => a + g.items.length, 0) }) }}</span>
         </div>
+        <div v-if="mcp" class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-(--ui-border) px-3 py-2 text-sm">
+          <template v-if="mcp.checked.value">
+            <span v-for="k in (['connected', 'needs_auth', 'failed'] as const)" v-show="mcpCounts[k]" :key="k" class="inline-flex items-center gap-1">
+              <UIcon :name="mcpBadge[k].icon" :class="mcpBadge[k].cls" />{{ mcpCounts[k] }} {{ mcpBadge[k].label.toLowerCase() }}
+            </span>
+          </template>
+          <span class="text-(--ui-text-muted)">
+            <template v-if="mcp.check.value?.running">{{ t('tools.mcpChecking') }}</template>
+            <template v-else-if="mcp.checked.value">{{ t('tools.mcpCheckedAt', { time: new Date(mcp.check.value!.checked_at).toLocaleTimeString(dateLocale, { hour: '2-digit', minute: '2-digit' }) }) }}</template>
+            <template v-else>{{ t('tools.mcpNeverChecked') }}</template>
+          </span>
+          <span v-if="mcp.check.value?.error" class="text-(--ui-error)">{{ mcp.check.value.error }}</span>
+          <UTooltip :text="t('tools.mcpCheckInfo')">
+            <UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" />
+          </UTooltip>
+          <UButton class="ms-auto" size="xs" color="neutral" variant="outline" icon="i-lucide-refresh-cw" :label="t('tools.mcpCheck')" :loading="mcp.check.value?.running" @click="mcp.recheck()" />
+        </div>
         <div v-if="loading && !inv" class="py-10 text-center text-(--ui-text-muted)">{{ t('tools.scanning') }}</div>
         <div v-else-if="!groups.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
           <UIcon :name="meta.icon" class="mx-auto size-8 text-(--ui-text-dimmed)" />
@@ -305,12 +342,35 @@ const summary = (tpl: MCPTemplate) => {
                 </p>
               </div>
               <UBadge v-if="i.meta?.tools" color="neutral" variant="subtle" size="sm" :label="i.meta.tools" class="hidden max-w-48 truncate md:inline-flex" />
+              <UTooltip v-if="mcp?.byName.value.get(i.name)" :text="mcpTip(mcp.byName.value.get(i.name)!)">
+                <UBadge :color="mcpBadge[mcp.byName.value.get(i.name)!.status].color" variant="subtle" size="sm" :icon="mcpBadge[mcp.byName.value.get(i.name)!.status].icon" :label="mcpBadge[mcp.byName.value.get(i.name)!.status].label" />
+              </UTooltip>
               <UDropdownMenu :items="itemMenu(i)" :content="{ align: 'end' }">
                 <UButton color="neutral" variant="ghost" icon="i-lucide-ellipsis" :aria-label="t('common.actions')" />
               </UDropdownMenu>
             </div>
           </div>
         </section>
+        <details v-if="mcpOthers.length" class="group space-y-2">
+          <summary class="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
+            <UIcon name="i-lucide-chevron-right" class="text-(--ui-text-muted) transition group-open:rotate-90" />
+            {{ t('tools.mcpOthers', { n: mcpOthers.length }) }}
+            <span v-for="k in (['connected', 'needs_auth', 'failed'] as const)" v-show="othersCounts[k]" :key="k" class="inline-flex items-center gap-1 text-xs font-normal text-(--ui-text-muted)">
+              <UIcon :name="mcpBadge[k].icon" :class="mcpBadge[k].cls" />{{ othersCounts[k] }}
+            </span>
+          </summary>
+          <div class="mt-2 divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
+            <div v-for="o in mcpOthers" :key="o.name" class="flex items-center gap-3 px-4 py-2">
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium">{{ o.name }}</p>
+                <p class="truncate font-mono text-xs text-(--ui-text-muted)">{{ o.target }}</p>
+              </div>
+              <UTooltip :text="mcpTip(o)">
+                <UBadge :color="mcpBadge[o.status].color" variant="subtle" size="sm" :icon="mcpBadge[o.status].icon" :label="mcpBadge[o.status].label" />
+              </UTooltip>
+            </div>
+          </div>
+        </details>
       </template>
 
       <!-- library -->

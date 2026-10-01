@@ -14,6 +14,7 @@ type Service struct {
 	Library   Library
 	Installer Installer
 	Registry  Registry
+	Health    *MCPHealth // nil: no MCP health checks
 	// Projects returns registered office projects: path → id.
 	Projects func(ctx context.Context) map[string]string
 }

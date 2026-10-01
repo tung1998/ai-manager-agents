@@ -193,6 +193,16 @@ const en: Record<keyof typeof vi, string> = {
   'prov.defaultTestPrompt': 'Hi, briefly introduce yourself and which model you are.',
   'tools.libraryPageTitle': 'Library',
   'tools.skillsTab': 'Skills',
-  'tools.mcpTab': 'MCP servers'
+  'tools.mcpTab': 'MCP servers',
+  'tools.mcpConnected': 'Connected',
+  'tools.mcpNeedsAuth': 'Needs sign-in',
+  'tools.mcpFailed': 'Connection failed',
+  'tools.mcpChecking': 'Checking connections…',
+  'tools.mcpNeverChecked': 'Connections not checked yet',
+  'tools.mcpCheckedAt': 'Checked at {time}',
+  'tools.mcpCheck': 'Check',
+  'tools.mcpCheckInfo': 'The office runs `claude mcp list` to try each MCP server (about 30 seconds). It checks again when you open the page if the result is older than 10 minutes.',
+  'tools.mcpOthers': 'Other connections (claude.ai, plugins) · {n}',
+  'tools.mcpAuthHint': 'To sign in: open Claude Code, type /mcp and pick this server.',
 }
 export default en

@@ -109,6 +109,11 @@ func New(cfg Config) http.Handler {
 	s := &server{cfg: cfg, origins: map[string]bool{}, log: cfg.Logger, sys: sysinfo.New(cmp.Or(cfg.System.HomeDir, "/"))}
 	s.startStats()
 	s.startLiveData()
+	if cfg.Automation != nil && cfg.Automation.Health != nil && cfg.Events != nil {
+		cfg.Automation.Health.OnDone = func(c automation.MCPCheck) {
+			cfg.Events.Send(events.Event{Name: "mcp.status", Data: c}, admins)
+		}
+	}
 	// the config registry behind propose_change and the generic tools (ADR-045)
 	if cfg.Actions != nil {
 		cfg.Actions.SetConfig(s)

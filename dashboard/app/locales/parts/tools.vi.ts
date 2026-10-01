@@ -197,5 +197,15 @@ export default {
   // library.vue page
   'tools.libraryPageTitle': 'Thư viện',
   'tools.skillsTab': 'Skills',
-  'tools.mcpTab': 'MCP servers'
+  'tools.mcpTab': 'MCP servers',
+  'tools.mcpConnected': 'Đã kết nối',
+  'tools.mcpNeedsAuth': 'Cần đăng nhập',
+  'tools.mcpFailed': 'Lỗi kết nối',
+  'tools.mcpChecking': 'Đang kiểm tra kết nối…',
+  'tools.mcpNeverChecked': 'Chưa kiểm tra kết nối',
+  'tools.mcpCheckedAt': 'Kiểm tra lúc {time}',
+  'tools.mcpCheck': 'Kiểm tra',
+  'tools.mcpCheckInfo': 'Office chạy `claude mcp list` để thử kết nối từng MCP (mất khoảng 30 giây). Tự kiểm tra lại khi mở trang nếu kết quả cũ hơn 10 phút.',
+  'tools.mcpOthers': 'Kết nối khác (claude.ai, plugin) · {n}',
+  'tools.mcpAuthHint': 'Đăng nhập: mở Claude Code, gõ /mcp và chọn server này.',
 } as const

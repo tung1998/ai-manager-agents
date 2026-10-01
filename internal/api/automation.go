@@ -21,6 +21,8 @@ func (s *server) automationRoutes(mux *http.ServeMux, admin func(http.HandlerFun
 	mux.Handle("DELETE /api/automation/library/{kind}/{name}", admin(s.libDelete))
 	mux.Handle("GET /api/automation/mcp/catalog", admin(s.mcpCatalog))
 	mux.Handle("GET /api/automation/mcp/registry", admin(s.mcpRegistry))
+	mux.Handle("GET /api/automation/mcp/status", admin(s.mcpStatus))
+	mux.Handle("POST /api/automation/mcp/status/check", admin(s.mcpStatusCheck))
 }
 
 func validKind(k string) bool { return k == "skill" || k == "agent" || k == "mcp" }
@@ -235,4 +237,41 @@ func (s *server) mcpRegistry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": list})
+}
+
+// mcpPath accepts "" (machine-wide) or a registered project's folder, so the
+// client cannot make the office run `claude mcp list` anywhere.
+func (s *server) mcpPath(w http.ResponseWriter, r *http.Request, path string) (string, bool) {
+	if s.cfg.Automation.Health == nil {
+		writeError(w, http.StatusNotFound, "không có kiểm tra MCP")
+		return "", false
+	}
+	if path == "" {
+		return "", true
+	}
+	if s.cfg.Automation.Projects != nil {
+		if _, ok := s.cfg.Automation.Projects(r.Context())[path]; ok {
+			return path, true
+		}
+	}
+	writeError(w, http.StatusBadRequest, "thư mục không phải project của office")
+	return "", false
+}
+
+func (s *server) mcpStatus(w http.ResponseWriter, r *http.Request) {
+	if path, ok := s.mcpPath(w, r, r.URL.Query().Get("path")); ok {
+		writeJSON(w, http.StatusOK, s.cfg.Automation.Health.Get(path))
+	}
+}
+
+func (s *server) mcpStatusCheck(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Path string `json:"path"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if path, ok := s.mcpPath(w, r, in.Path); ok {
+		writeJSON(w, http.StatusOK, s.cfg.Automation.Health.Check(path))
+	}
 }

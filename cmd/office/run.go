@@ -290,12 +290,12 @@ func newAutomation(a *app, h home.Home) *automation.Service {
 		return nil
 	}
 	trash := filepath.Join(h.Dir, "trash")
+	claude := func() string { return a.cli.LookPath("claude") }
 	return &automation.Service{
+		Health:  &automation.MCPHealth{Home: userHome, Claude: claude},
 		Home:    userHome,
 		Library: automation.Library{Dir: filepath.Join(h.Dir, "library"), Trash: trash},
-		Installer: automation.Installer{Home: userHome, Trash: trash, Claude: func() string {
-			return a.cli.LookPath("claude")
-		}},
+		Installer: automation.Installer{Home: userHome, Trash: trash, Claude: claude},
 		Projects: func(ctx context.Context) map[string]string {
 			out := map[string]string{}
 			if list, err := a.store.Repos().List(ctx); err == nil {
