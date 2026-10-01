@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
 // OnWrite calls fn with the table of every write (INSERT, UPDATE, DELETE,
@@ -14,6 +16,10 @@ func (s *Store) OnWrite(fn func(table string)) {
 	s.onWrite = fn
 	s.q = hooked{s.q, fn}
 }
+
+// OnChat calls fn with each chat written: a message (with it), a
+// conversation made, changed or deleted. Set before anything writes.
+func (s *Store) OnChat(fn func(storage.Change)) { s.onChat = fn }
 
 // hooked is a dbtx that tells what it wrote.
 type hooked struct {

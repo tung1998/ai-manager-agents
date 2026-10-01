@@ -1608,7 +1608,6 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Rút gọn ghi nhớ chạy trong một transaction và giữ những ghi nhớ thêm vào trong lúc model đang rút gọn. Thông báo thay đổi của một transaction chỉ gửi sau khi commit.
 - Diff PR từ fork lấy từ `refs/pull/N/head` (GitHub).
 
-<<<<<<< HEAD
 ## ADR-075: Bỏ giới hạn lượt khi người dùng nhắn trực tiếp
 - Giới hạn của ADR-044 (2 lượt giao việc, 4 lượt trả lời cho mỗi tin) làm đứt vòng làm việc bình thường: Lập kế hoạch giao cho Code Worker, Code Worker báo lại, Lập kế hoạch giao tiếp.
 - Tin của người dùng (web `human:`, Discord, Telegram) chỉ còn giới hạn an toàn chống vòng lặp: 10 lượt giao việc và 20 lượt trả lời. Người dùng có mặt để dừng các agent khi cần.
@@ -1622,8 +1621,6 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - `POST /api/system/processes/{pid}/stop|kill` (admin, ghi Nhật ký). Chỉ nhận PID nằm trong cây của office và không phải chính office.
   - Đóng: lượt agent được hủy đúng cách, tiến trình project dừng qua trình quản lý của nó, còn lại nhận SIGTERM.
   - Kill: buộc dừng tiến trình và mọi tiến trình con, con sâu nhất dừng trước.
-=======
----
 
 ## ADR-074: Quyền administrator đặt trên Agent, automation kế thừa hoặc ghi đè
 
@@ -1656,7 +1653,6 @@ Bản đầu của ADR này đặt `full_access`/`admin_by`/`extra_dirs` thẳng
 | Giữ field trên Automation (bản đầu) | Sai mô hình: hai automation cùng gọi một agent sẽ phải cấu hình lại quyền hai lần, và quyền agent dùng trong chat dashboard không được hưởng dù là agent tương tự. |
 | Cấp full quyền mặc định, không rào chắn | Không an toàn: automation/agent chạy nền, lỗi code có thể phá máy. |
 | Override cộng dồn vào quyền agent thay vì thay thế | Dễ gây hiểu lầm về quyền thực tế đang chạy; thay thế rõ ràng hơn khi đọc lại cấu hình. |
->>>>>>> 143662e (agent-office: thay đổi trong worktree)
 
 ## ADR-077: Tin chưa xem nằm trong "Cần xử lý"
 - Bảng `conversation_reads (user_id, conversation_id, seen_at)` ghi lần cuối mỗi người mở mỗi cuộc chat. Migration 00043 coi mọi cuộc chat đang có là đã xem.
@@ -1664,3 +1660,18 @@ Bản đầu của ADR này đặt `full_access`/`admin_by`/`extra_dirs` thẳng
 - Cuộc chat chưa xem là loại `unread` trong `GET /api/incidents` (mức `info`), nên được tính vào số "Cần xử lý" ở header và tab Công việc. Mỗi dòng có nút Xem và Đánh dấu đã xem.
 - `POST /api/conversations/{id}/seen` nhận `{seen: true|false}`. Mở cuộc chat, có câu trả lời mới trong lúc đang mở, hay gửi tin đều tính là đã xem. Menu của cuộc chat (cạnh Copy ID) có mục Đánh dấu chưa xem / đã xem. Cuộc chat vừa bị đánh dấu chưa xem thì không tự chuyển lại thành đã xem khi vẫn đang mở.
 - Danh sách chat có chấm và chữ đậm ở cuộc chat chưa xem.
+
+## ADR-078: Server đẩy dữ liệu, không hỏi định kỳ
+- Vẫn một kết nối SSE `/api/events` cho mỗi tab. Event đầu tiên là `hello {sid}`. Mỗi event có tên và dữ liệu riêng; `change {tables}` cũ vẫn giữ cho những trang chưa chuyển.
+- **Số liệu máy:**
+  - Trong lúc có admin mở dashboard, server tự đo 3 giây một lần và đẩy `stats` (CPU, RAM, agent đang chạy, số tiến trình) cho mọi trang admin.
+  - Một lượt agent bắt đầu hoặc kết thúc, hay một tiến trình bị đóng/kill, thì đẩy ngay.
+  - Toàn cảnh tiến trình `machine` chỉ đẩy cho trang đang mở tab Máy. Trang bật chủ đề này qua `POST /api/events/topics {sid, topic: "machine", on}`.
+  - Không có ai xem thì server không đo gì. Header và tab Máy dùng chung một nguồn, không còn polling.
+- **Chat:**
+  - Store báo kèm dữ liệu qua `OnChat`: thêm tin nhắn, tạo/sửa/xóa cuộc chat.
+  - Server đẩy `message` (nguyên tin nhắn), `conversation` (cả dòng cuộc chat, gồm `active_turn`) và `conversation.deleted` tới đúng người được xem (chat của Trợ lý office chỉ người tạo nhận).
+  - Chat đang mở chèn tin mới vào chỗ của nó; danh sách thay đúng dòng đó. Cuộc chat mới thì tải lại danh sách một lần, vì server mới biết nó thuộc danh sách nào.
+  - Tin đến lúc đang stream được giữ lại, stream xong mới thêm.
+- **Cần xử lý:** khi dữ liệu liên quan đổi, server tính lại cho từng người đang xem và đẩy `incidents` nếu khác lần trước; trang vừa mở cũng nhận ngay. Bỏ hẳn việc tự tải lại mỗi 30 giây.
+- Event chạy theo thứ tự trong một hàng đợi riêng, không chặn lệnh ghi. Kết nối lại thì tải lại tất cả một lần, vì có thể đã lỡ event.

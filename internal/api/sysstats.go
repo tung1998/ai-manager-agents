@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"runtime"
 	"slices"
 	"strconv"
 	"time"
@@ -41,14 +40,12 @@ type officeProc struct {
 
 // systemStats: the machine, office itself and what it runs (admin).
 func (s *server) systemStats(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	machine := s.sys.Machine(ctx)
-	self, groups, err := s.officeGroups(ctx)
+	full, err := s.fullStats(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"machine": machine, "office": officeProc{self, runtime.NumGoroutine()}, "groups": groups})
+	writeJSON(w, http.StatusOK, full)
 }
 
 // systemSummary: the header's figures (admin): CPU, memory, agents answering
@@ -56,12 +53,15 @@ func (s *server) systemStats(w http.ResponseWriter, r *http.Request) {
 func (s *server) systemSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	cpuPct, used, total := s.sys.Quick(ctx)
+	writeJSON(w, http.StatusOK, s.summaryOf(cpuPct, used, total, sysinfo.Count(ctx, int32(os.Getpid()))))
+}
+
+func (s *server) summaryOf(cpuPct float64, used, total uint64, procs int) map[string]any {
 	agents := 0
 	if s.cfg.Chat != nil {
 		agents = s.cfg.Chat.RunningCount()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"cpu_percent": cpuPct, "mem_used": used, "mem_total": total,
-		"procs": sysinfo.Count(ctx, int32(os.Getpid())), "agents": agents})
+	return map[string]any{"cpu_percent": cpuPct, "mem_used": used, "mem_total": total, "procs": procs, "agents": agents}
 }
 
 func (s *server) officeGroups(ctx context.Context) (sysinfo.Proc, []procGroup, error) {
@@ -164,6 +164,7 @@ func (s *server) stopProcess(force bool) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.kickStats() // the pages see it gone
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

@@ -93,6 +93,8 @@ type SystemInfo struct {
 type server struct {
 	cfg     Config
 	sys     *sysinfo.Sampler // the machine and office's processes (overview)
+	live    liveStats        // its figures pushed to admins' open pages (ADR-078)
+	push    livePush         // chats and "Cần xử lý" pushed with their data (ADR-078)
 	origins map[string]bool
 	log     *slog.Logger
 }
@@ -103,6 +105,8 @@ func New(cfg Config) http.Handler {
 		cfg.Logger = slog.Default()
 	}
 	s := &server{cfg: cfg, origins: map[string]bool{}, log: cfg.Logger, sys: sysinfo.New(cmp.Or(cfg.System.HomeDir, "/"))}
+	s.startStats()
+	s.startLiveData()
 	// the config registry behind propose_change and the generic tools (ADR-045)
 	if cfg.Actions != nil {
 		cfg.Actions.SetConfig(s)

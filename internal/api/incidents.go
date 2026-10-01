@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -32,11 +33,19 @@ type incident struct {
 func dismissKey(key string) string { return "incident_dismissed/" + key }
 
 func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	projects, err := s.cfg.Store.Repos().List(ctx)
+	out, err := s.incidentsFor(r.Context(), userFrom(r))
 	if err != nil {
 		s.internal(w, r, err)
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"incidents": out, "count": len(out)})
+}
+
+// incidentsFor is what needs u now (also pushed to their open pages, ADR-078).
+func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, error) {
+	projects, err := s.cfg.Store.Repos().List(ctx)
+	if err != nil {
+		return nil, err
 	}
 	hidden := assistant.ID(ctx, s.cfg.Store)
 	day := time.Now().UTC().Add(-24 * time.Hour)
@@ -104,7 +113,7 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if userFrom(r).Role == storage.RoleAdmin { // cards waiting for a person
+	if u.Role == storage.RoleAdmin { // cards waiting for a person
 		if acts, err := s.cfg.Store.Actions().Pending(ctx, 100); err == nil {
 			for _, a := range acts {
 				name := a.ProjectID
@@ -124,7 +133,7 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if userFrom(r).Role == storage.RoleAdmin { // chats' diffs waiting for a person
+	if u.Role == storage.RoleAdmin { // chats' diffs waiting for a person
 		if ps, err := s.cfg.Store.Chat().PendingPatches(ctx, 100); err == nil {
 			for _, p := range ps {
 				c, err := s.cfg.Store.Chat().GetConversation(ctx, p.ConversationID)
@@ -144,7 +153,7 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// the person's chats an agent answered since they last looked (theirs alone)
-	if ids, err := s.cfg.Store.Chat().Unread(ctx, userFrom(r).ID, "human:"+userFrom(r).Email); err == nil {
+	if ids, err := s.cfg.Store.Chat().Unread(ctx, u.ID, "human:"+u.Email); err == nil {
 		for _, id := range ids {
 			c, err := s.cfg.Store.Chat().GetConversation(ctx, id)
 			if err != nil {
@@ -177,7 +186,7 @@ func (s *server) incidents(w http.ResponseWriter, r *http.Request) {
 		}
 		return out[i].At.After(out[j].At)
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"incidents": out, "count": len(out)})
+	return out, nil
 }
 
 // dismissIncident lets an incident go (Bỏ qua): it shows again only when it

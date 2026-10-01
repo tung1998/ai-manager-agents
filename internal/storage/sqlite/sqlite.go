@@ -33,6 +33,7 @@ type Store struct {
 	db      *sql.DB
 	q       dbtx // db, or the open transaction inside InTx
 	onWrite func(table string)
+	onChat  func(storage.Change) // a chat written, with what (ADR-078)
 }
 
 // dbtx is what repositories need; *sql.DB and *sql.Tx both satisfy it.
@@ -92,7 +93,7 @@ func (s *Store) Repos() storage.RepoRepo             { return repoRepo{s.q} }
 func (s *Store) Revisions() storage.RevisionRepo     { return revisionRepo{s.q} }
 func (s *Store) Runs() storage.RunRepo               { return runRepo{s.q} }
 func (s *Store) Settings() storage.SettingRepo       { return settingRepo{s.q} }
-func (s *Store) Chat() storage.ChatRepo              { return chatRepo{s.q} }
+func (s *Store) Chat() storage.ChatRepo              { return chatRepo{s.q, s.onChat} }
 func (s *Store) Tasks() storage.TaskRepo             { return taskRepo{s.q} }
 func (s *Store) Processes() storage.ProcessRepo      { return processRepo{s.q} }
 func (s *Store) Monitors() storage.MonitorRepo       { return monitorRepo{s.q} }
@@ -111,7 +112,7 @@ func (s *Store) InTx(ctx context.Context, fn func(storage.Store) error) error {
 		return err
 	}
 	w := deferred(s.onWrite)
-	inner := &Store{db: s.db, q: wrap(tx, w.add), onWrite: s.onWrite}
+	inner := &Store{db: s.db, q: wrap(tx, w.add), onWrite: s.onWrite, onChat: s.onChat}
 	if err := fn(inner); err != nil {
 		_ = tx.Rollback()
 		return err

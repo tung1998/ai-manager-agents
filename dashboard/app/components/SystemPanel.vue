@@ -2,33 +2,11 @@
 // The machine office runs on and what office runs now (admin, on the
 // overview): agents' answers, automations, project processes, each with the
 // processes under it, to stop or kill.
-interface Proc { pid: number, ppid: number, name: string, cmd: string, cpu: number, mem: number, started_at: string, depth: number }
-interface Group {
-  kind: 'agent' | 'automation' | 'project' | 'other', label: string, sub?: string, pid: number, turn_id?: string, conversation_id?: string,
-  project_id?: string, process_id?: string, cpu: number, mem: number, started_at: string, procs: Proc[]
-}
-interface Stats {
-  machine: { cpu_percent: number, cores: number[], mem_total: number, mem_used: number, disk_path: string, disk_total: number, disk_used: number, load?: number[], uptime_s: number, net_rx: number, net_tx: number, host: string, os: string }
-  office: Proc & { goroutines: number }
-  groups: Group[]
-}
+type Group = SysGroup
 const { t } = useLang()
 const toast = useToast()
 
-const data = ref<Stats | null>(null)
-async function load() {
-  try {
-    data.value = await $fetch<Stats>('/api/system/stats')
-  } catch { /* the next look tries again */ }
-}
-// every 3 seconds while the page shows (not a database change: no live notice)
-let timer: ReturnType<typeof setInterval> | undefined
-const start = () => { clearInterval(timer); void load(); timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, 3000) }
-const stop = () => clearInterval(timer)
-onMounted(start)
-onActivated(start)
-onDeactivated(stop)
-onBeforeUnmount(stop)
+const { stats: data } = useSystemStats('full') // pushed by the server: no asking
 
 const m = computed(() => data.value?.machine)
 const pct = (used: number, total: number) => total ? Math.round(used / total * 100) : 0
@@ -65,7 +43,6 @@ async function act(p: { pid: number, name: string }, force: boolean) {
   try {
     await $fetch(`/api/system/processes/${p.pid}/${force ? 'kill' : 'stop'}`, { method: 'POST' })
     toast.add({ title: force ? t('sys.killed') : t('sys.stopped'), color: 'success' })
-    setTimeout(load, 600)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {

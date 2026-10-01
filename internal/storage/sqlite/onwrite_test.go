@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -91,5 +92,26 @@ func TestMonitorCheckQuiet(t *testing.T) {
 	st.Monitors().SaveStatus(ctx, m)
 	if len(got) != 2 {
 		t.Fatalf("down: told %v", got)
+	}
+}
+
+// A chat written says what: the message itself, the conversation made,
+// changed or deleted.
+func TestOnChat(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	var got []storage.Change
+	st.(*sqlite.Store).OnChat(func(c storage.Change) { got = append(got, c) })
+	c, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p.ID, Title: "x"})
+	st.Chat().AddMessage(ctx, storage.Message{ConversationID: c.ID, Role: "user", Content: "hi"})
+	c.Title = "y"
+	st.Chat().UpdateConversation(ctx, c)
+	st.Chat().DeleteConversation(ctx, c.ID)
+	kinds := []string{}
+	for _, x := range got {
+		kinds = append(kinds, x.Kind)
+	}
+	if strings.Join(kinds, ",") != "conversation,message,conversation,conversation.deleted" || got[1].Message == nil || got[1].Message.ID == "" || got[1].Message.Content != "hi" {
+		t.Fatalf("changes = %+v", got)
 	}
 }

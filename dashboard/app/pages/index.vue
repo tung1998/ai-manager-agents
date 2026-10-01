@@ -30,9 +30,6 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
 interface Incident { kind: string, severity: 'error' | 'warning' | 'info', project_id: string, project_name: string, title: string, detail: string, link: string, id: string, key: string }
 const _f6 = useLiveFetch<{ incidents: Incident[], count: number }>('/api/incidents', { key: 'incidents', lazy: true })
 const { data: incData, refresh: refreshInc } = _f6
-let incTimer: ReturnType<typeof setInterval> | undefined
-onMounted(() => { incTimer = setInterval(() => refreshInc(), 30000) })
-onBeforeUnmount(() => clearInterval(incTimer))
 const incidents = computed(() => incData.value?.incidents ?? [])
 // the kind of each, as a word next to it
 const incKind = (k: string) => t(`incidents.kind.${k}` as 'incidents.kind.monitor')

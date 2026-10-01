@@ -19,7 +19,6 @@ const routes: [RegExp, string[]][] = [
   [/\/jobs/, ['jobs', 'automations']],
   [/\/limit-alert/, ['settings', 'channels']],
   [/\/channels/, ['channels']],
-  [/\/incidents/, ['jobs', 'actions', 'patches', 'channels', 'automations', 'monitors', 'processes', 'providers', 'messages', 'conversation_reads']],
   [/\/providers|\/usage|\/budget/, ['providers', 'runs', 'jobs', 'settings']],
   [/\/agents|\/org-models|\/templates/, ['agents', 'org_models']],
   [/\/processes|\/compose|\/monitors|\/monitor-events/, ['processes', 'monitors', 'monitor_events']],
@@ -39,6 +38,26 @@ export function useLive(tables: string[] | (() => string[]), fn: () => unknown) 
   listeners.add(l)
   if (getCurrentInstance()) onBeforeUnmount(() => listeners.delete(l))
 }
+
+// usePushedFetch is useFetch for data the server pushes as it changes
+// (ADR-078): the page puts each change in place; loaded again only back
+// online (what came meanwhile may be missed).
+export const usePushedFetch = ((url: MaybeRefOrGetter<string>, opts?: object) => {
+  const res = useFetch(url as never, opts as never)
+  useLive(['*'], () => res.refresh())
+  return res
+}) as typeof useFetch
+
+// onLiveEvent hears an event the server pushes with its data (ADR-078):
+// message, conversation, conversation.deleted, incidents…
+const eventListeners = new Map<string, Set<(data: any) => void>>() // eslint-disable-line @typescript-eslint/no-explicit-any
+export function onLiveEvent<T = any>(name: string, fn: (data: T) => void) { // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (!eventListeners.has(name)) eventListeners.set(name, new Set())
+  eventListeners.get(name)!.add(fn)
+  if (getCurrentInstance()) onBeforeUnmount(() => eventListeners.get(name)?.delete(fn))
+}
+const pushed = ['message', 'conversation', 'conversation.deleted', 'incidents']
+let nuxtApp: ReturnType<typeof tryUseNuxtApp> = null
 
 // onLiveChange hears every notice as it comes (the chat's own merging).
 export function onLiveChange(fn: (tables: string[]) => void) {
@@ -77,6 +96,16 @@ export function liveChanged(tables: string[]) {
 // startLive opens the server's change stream once (signed in); it reconnects
 // on its own, and a reconnect (office restarted, laptop woke) refreshes all.
 let source: EventSource | null = null
+let sid: number | null = null // this stream's id, for the topics it turns on
+
+// liveTopic turns a topic of this tab's stream on or off (once it is open;
+// a new stream turns them on again).
+export async function liveTopic(topic: string, on: boolean) {
+  if (sid === null) return
+  try {
+    await $fetch('/api/events/topics', { method: 'POST', body: { sid, topic, on } })
+  } catch { /* the stream may be reconnecting: it asks again */ }
+}
 let retry: ReturnType<typeof setTimeout> | undefined
 let backoff = 1000
 export function startLive() {
@@ -98,6 +127,29 @@ export function startLive() {
     retry = setTimeout(startLive, backoff)
     backoff = Math.min(backoff * 2, 30000)
   })
+  es.addEventListener('hello', (e) => {
+    try { sid = JSON.parse((e as MessageEvent).data).sid } catch { sid = null }
+    onSysStream()
+  })
+  // "Cần xử lý", worked out by the server for this person: put in place
+  // (once: a reconnect runs this again, outside any component)
+  if (!nuxtApp) {
+    nuxtApp = tryUseNuxtApp()
+    if (!eventListeners.has('incidents')) eventListeners.set('incidents', new Set())
+    eventListeners.get('incidents')!.add((d) => { void nuxtApp?.runWithContext(() => { useNuxtData('incidents').data.value = d }) })
+  }
+  for (const name of pushed) {
+    es.addEventListener(name, (e) => {
+      let data: unknown
+      try { data = JSON.parse((e as MessageEvent).data) } catch { return }
+      eventListeners.get(name)?.forEach((fn) => { try { fn(data) } catch { /* its own */ } })
+    })
+  }
+  for (const name of ['stats', 'machine']) {
+    es.addEventListener(name, (e) => {
+      try { onSysEvent(name, JSON.parse((e as MessageEvent).data)) } catch { /* a bad one: the next comes */ }
+    })
+  }
   es.addEventListener('change', (e) => {
     let tables: string[] = ['*']
     try { tables = JSON.parse((e as MessageEvent).data).tables ?? ['*'] } catch { /* a bad notice: refresh all */ }
@@ -107,6 +159,7 @@ export function startLive() {
 
 // stopLive closes the stream (signing out).
 export function stopLive() {
+  sid = null
   clearTimeout(retry)
   source?.close()
   source = null

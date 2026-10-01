@@ -356,6 +356,14 @@ type Patch struct {
 }
 
 // ChatRepo stores conversations, messages and patches.
+// Change is a chat written, for the dashboard's live data (ADR-078): a
+// message added (with it), a conversation made, changed or deleted.
+type Change struct {
+	Kind           string // message | conversation | conversation.deleted
+	ConversationID string
+	Message        *Message
+}
+
 type ChatRepo interface {
 	// MarkSeen: the person looked at the chat now (seen) or wants it unread again.
 	MarkSeen(ctx context.Context, userID, conversationID string, seen bool) error

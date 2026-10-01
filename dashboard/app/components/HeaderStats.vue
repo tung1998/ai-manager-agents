@@ -2,21 +2,9 @@
 // The few figures worth a glance on every page (admin): what waits for a
 // person, the agents at work, the machine's CPU and memory. Each opens its
 // tab of the overview.
-interface Summary { cpu_percent: number, mem_used: number, mem_total: number, procs: number, agents: number }
 const { t } = useLang()
 const { data: inc } = useLiveFetch<{ count: number }>('/api/incidents', { key: 'incidents', lazy: true })
-
-// shared by every page's header: one look every 5 seconds, while the tab shows
-const sum = useState<Summary | null>('header-stats', () => null)
-async function load() {
-  if (document.visibilityState !== 'visible') return
-  try {
-    sum.value = await $fetch<Summary>('/api/system/summary')
-  } catch { /* the next look tries again */ }
-}
-let timer: ReturnType<typeof setInterval> | undefined
-onMounted(() => { void load(); timer = setInterval(load, 5000) })
-onBeforeUnmount(() => clearInterval(timer))
+const { summary: sum } = useSystemStats('summary') // the Máy tab's look feeds it too: never two
 
 const memPct = computed(() => sum.value?.mem_total ? Math.round(sum.value.mem_used / sum.value.mem_total * 100) : 0)
 const hot = (p: number) => p >= 90 ? 'text-(--ui-error)' : p >= 75 ? 'text-(--ui-warning)' : ''

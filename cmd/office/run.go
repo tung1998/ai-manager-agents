@@ -82,6 +82,7 @@ func serveCmd() *cobra.Command {
 			liveBus := events.New(300 * time.Millisecond)
 			if sq, ok := a.store.(*sqlite.Store); ok {
 				sq.OnWrite(liveBus.Wrote)
+				sq.OnChat(liveBus.Chat) // a message or chat, pushed with its data (ADR-078)
 			}
 
 			proxies, err := parsePrefixes(trustedProxies)

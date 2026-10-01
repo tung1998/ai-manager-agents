@@ -138,6 +138,7 @@ type Engine struct {
 	providers *provider.Service
 	usage     *usage.Service
 	files     attach.Store
+	onRunning func(conversationID string) // an answer started or ended there (the dashboard's live data)
 	onLimits  func(p storage.Provider, l Limits)
 	office    *officetools.Toolbox
 	mcp       *mcpserver.Server
@@ -295,6 +296,15 @@ func ToActionDTO(a storage.Action) ActionDTO {
 
 // SetAttachments sets where attached files are stored.
 func (e *Engine) SetAttachments(s attach.Store) { e.files = s }
+
+// SetOnRunning tells fn each time an answer starts or ends, with its chat.
+func (e *Engine) SetOnRunning(fn func(conversationID string)) { e.onRunning = fn }
+
+func (e *Engine) running(conversationID string) {
+	if e.onRunning != nil {
+		go e.onRunning(conversationID)
+	}
+}
 
 // Attachments returns the attachment store.
 func (e *Engine) Attachments() attach.Store { return e.files }
@@ -546,6 +556,7 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	turn.total.Store(1)
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn
 	e.mu.Unlock()
+	e.running(conv.ID)
 
 	history, err := e.store.Chat().ListMessages(ctx, conv.ID)
 	if err != nil {
@@ -606,6 +617,7 @@ func (e *Engine) finish(t *Turn) {
 		delete(e.bg, k)
 	}
 	e.mu.Unlock()
+	e.running(t.ConversationID)
 	// keep the turn for late subscribers, then forget it
 	time.AfterFunc(10*time.Minute, func() {
 		e.mu.Lock()

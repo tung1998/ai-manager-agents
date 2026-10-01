@@ -10,7 +10,16 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
-type chatRepo struct{ db dbtx }
+type chatRepo struct {
+	db      dbtx
+	changed func(storage.Change) // nil: nobody follows
+}
+
+func (r chatRepo) tell(c storage.Change) {
+	if r.changed != nil {
+		r.changed(c)
+	}
+}
 
 const convCols = `id, project_id, agent_id, agent_name, title, session_id, runtime, mode, task_id, created_by, created_at, updated_at, edit_mode, purpose, automation_id, context_tokens, context_window`
 
@@ -41,6 +50,9 @@ func (r chatRepo) CreateConversation(ctx context.Context, c storage.Conversation
 	}
 	_, err := r.db.ExecContext(ctx, `INSERT INTO conversations (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.ID, c.ProjectID, nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.Mode, nullStr(c.TaskID), c.CreatedBy, fmtTime(now), fmtTime(now), c.EditMode, c.Purpose, c.AutomationID, c.ContextTokens, c.ContextWindow)
+	if err == nil {
+		r.tell(storage.Change{Kind: "conversation", ConversationID: c.ID})
+	}
 	return c, err
 }
 
@@ -51,8 +63,12 @@ func (r chatRepo) UpdateConversation(ctx context.Context, c storage.Conversation
 	if c.EditMode == "" {
 		c.EditMode = "worktree"
 	}
-	return execOne(ctx, r.db, `UPDATE conversations SET agent_id=?, agent_name=?, title=?, session_id=?, runtime=?, mode=?, edit_mode=?, context_tokens=?, context_window=?, updated_at=? WHERE id=?`,
+	err := execOne(ctx, r.db, `UPDATE conversations SET agent_id=?, agent_name=?, title=?, session_id=?, runtime=?, mode=?, edit_mode=?, context_tokens=?, context_window=?, updated_at=? WHERE id=?`,
 		nullStr(c.AgentID), c.AgentName, c.Title, c.SessionID, c.Runtime, c.Mode, c.EditMode, c.ContextTokens, c.ContextWindow, fmtTime(time.Now()), c.ID)
+	if err == nil {
+		r.tell(storage.Change{Kind: "conversation", ConversationID: c.ID})
+	}
+	return err
 }
 
 func (r chatRepo) GetConversation(ctx context.Context, id string) (storage.Conversation, error) {
@@ -100,7 +116,11 @@ func (r chatRepo) ListConversationsFrom(ctx context.Context, projectID, source s
 }
 
 func (r chatRepo) DeleteConversation(ctx context.Context, id string) error {
-	return execOne(ctx, r.db, `DELETE FROM conversations WHERE id=?`, id)
+	err := execOne(ctx, r.db, `DELETE FROM conversations WHERE id=?`, id)
+	if err == nil {
+		r.tell(storage.Change{Kind: "conversation.deleted", ConversationID: id})
+	}
+	return err
 }
 
 func (r chatRepo) AddMessage(ctx context.Context, m storage.Message) (storage.Message, error) {
@@ -120,6 +140,7 @@ func (r chatRepo) AddMessage(ctx context.Context, m storage.Message) (storage.Me
 		m.ID, m.ConversationID, m.Role, m.Content, toJSON(m.Tools), toJSON(m.Attachments), nullStr(m.RunID), m.Author, fmtTime(m.CreatedAt), m.Context)
 	if err == nil {
 		_, _ = r.db.ExecContext(ctx, `UPDATE conversations SET updated_at=? WHERE id=?`, fmtTime(m.CreatedAt), m.ConversationID)
+		r.tell(storage.Change{Kind: "message", ConversationID: m.ConversationID, Message: &m})
 	}
 	return m, err
 }
@@ -257,6 +278,9 @@ func (r chatRepo) LinkAutomation(ctx context.Context, conversationID, automation
 	err := execOne(ctx, r.db, `UPDATE conversations SET automation_id=?, purpose='automation' WHERE id=?`, automationID, conversationID)
 	if isUnique(err) {
 		return storage.ErrConflict // the automation has its chat already
+	}
+	if err == nil {
+		r.tell(storage.Change{Kind: "conversation", ConversationID: conversationID})
 	}
 	return err
 }

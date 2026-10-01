@@ -86,6 +86,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	acts := actions.New(st, nil)
 	bus := events.New(20 * time.Millisecond)
 	st.OnWrite(bus.Wrote)
+	st.OnChat(bus.Chat)
 	mem := memory.New(st, func(_ context.Context, _, _ string, items []storage.Memory) ([]string, error) {
 		return []string{fmt.Sprintf("gộp %d ghi nhớ", len(items))}, nil
 	})

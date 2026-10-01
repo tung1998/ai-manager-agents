@@ -186,6 +186,7 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 	}
 	e.turns[t.ID] = t
 	e.mu.Unlock()
+	e.running(conv.ID)
 	release := func() {
 		cancel()
 		e.finish(t)

@@ -28,6 +28,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/system", auth(s.system))
 	mux.Handle("GET /api/system/stats", admin(s.systemStats))
 	mux.Handle("GET /api/system/summary", admin(s.systemSummary))
+	mux.Handle("POST /api/events/topics", auth(s.eventTopic))
 	mux.Handle("POST /api/system/processes/{pid}/stop", admin(s.stopProcess(false)))
 	mux.Handle("POST /api/system/processes/{pid}/kill", admin(s.stopProcess(true)))
 

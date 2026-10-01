@@ -16,7 +16,7 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
+interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message, next_turn_id?: string }
 // the agents in a chat and the answers in progress (ADR-044)
 interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
@@ -40,7 +40,8 @@ const _f1 = useLiveFetch<{ agents: Agent[] }>(() => `/api/projects/${props.proje
 const { data: agentsData } = _f1
 // where the chats started: the dashboard, a bot, an automation
 const origin = ref<'all' | Source>('all')
-const _f2 = useLiveFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value, lazy: true })
+// the server pushes each chat as it changes (ADR-078): the list is loaded again only back online
+const _f2 = usePushedFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value, lazy: true })
 const { data: convData, refresh: refreshConvs, pending: convsLoading } = _f2
 // not awaited: the chat shows at once with its skeletons (a phone over a VPN)
 // every agent of the project: the person picks who answers, by its rights
@@ -126,12 +127,49 @@ async function loadOlder() {
   }
 }
 
-// what changed elsewhere (a Discord message into this chat, an agent's answer
-// in the background): the list, and the open chat's latest messages
+// what changed elsewhere, pushed with its data (ADR-078): a message into the
+// open chat (a Discord message, a hand-off's answer) is put in place; a
+// chat's row replaces the old one in the list (a new one: the list again)
 const nearEnd = () => { const el = listEl.value; return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120 }
+const held: Message[] = [] // what came while an answer streams: its own end brings it
+function place(m: Message) {
+  if (messages.value.some(x => x.id === m.id)) return
+  const stay = nearEnd()
+  messages.value.push(m)
+  if (stay) scrollDown()
+}
+onLiveEvent<{ conversation_id: string, message: Message }>('message', ({ conversation_id: id, message }) => {
+  if (current.value?.id !== id || loadingMsgs.value) return
+  if (streaming.value) held.push(message)
+  else place(message)
+})
+watch(streaming, (s) => { if (!s) held.splice(0).forEach(place) })
+onLiveEvent<{ conversation: Conversation }>('conversation', ({ conversation: c }) => {
+  if (c.project_id !== props.projectId) return
+  c = { ...c, active_turn: c.active_turn || undefined } // not answering: the field is left out, so say so
+  if (current.value?.id === c.id) {
+    current.value = { ...current.value, ...c }
+    if (c.active_turn && !streaming.value) follow(c.active_turn) // an answer started elsewhere (a bot's message here)
+  }
+  const list = convData.value?.conversations
+  if (!list || single.value) return
+  const i = list.findIndex(x => x.id === c.id)
+  if (i < 0) {
+    if (origin.value === 'all' || c.source === origin.value) refreshConvs() // a new chat: which list it belongs in is the server's to say
+    return
+  }
+  const [old] = list.splice(i, 1)
+  list.unshift({ ...old, ...c }) // the newest on top
+})
+onLiveEvent<{ id: string }>('conversation.deleted', ({ id }) => {
+  const list = convData.value?.conversations
+  const i = list?.findIndex(x => x.id === id) ?? -1
+  if (list && i >= 0) list.splice(i, 1)
+})
+// a diff or proposal decided, who is in the chat: still the table's notice
 onLiveChange(async (tables) => {
-  if (!tables.includes('*') && !tables.some(t => ['messages', 'conversations', 'patches', 'actions', 'conversation_agents'].includes(t))) return // '*': back online
-  if (!single.value && !tables.includes('conversations') && !tables.includes('*')) refreshConvs() // the list's own fetch refreshes on those
+  if (!tables.includes('*') && !tables.some(t => ['patches', 'actions', 'conversation_agents'].includes(t))) return // '*': back online
+  if (!single.value && tables.includes('*')) refreshConvs()
   const c = current.value
   if (!c || streaming.value || loadingMsgs.value) return
   try {
