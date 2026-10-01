@@ -2,15 +2,33 @@
 
 ## 1. Tổng quan
 
-`agent-office` mô phỏng một phòng ban gồm các AI agent phân cấp, giám sát và phân tích hệ thống phần mềm của một project.
+`agent-office` là **văn phòng AI cá nhân**: mỗi người có một đội agent chạy trên máy của mình, làm việc như nhân viên. Họ nhận việc qua chat, tự làm, giao việc cho nhau, và chỉ hỏi người khi cần duyệt.
+
+### Tầm nhìn: nhiều mảng việc, code đi trước
+
+| Mảng | Mục tiêu | Nền đã có | Còn thiếu |
+|---|---|---|---|
+| **Code** (ưu tiên) | tính năng, lỗi, review, vận hành dev/build/container, Burn | chat + worktree, quyền, duyệt diff, Vận hành, Giám sát, Burn | cổng MCP chung |
+| Lên kế hoạch | lộ trình, chia việc, kế hoạch tuần, theo dõi tiến độ | chat, trí nhớ, `search_history` | nơi lưu kế hoạch và việc ngoài code, nhắc việc |
+| Trao đổi khách hàng | đọc và trả lời tin nhắn, theo dõi hội thoại | bot Discord/Telegram, duyệt qua chat | Connector (Messenger, Zalo OA, Email, Slack), hộp thư gộp |
+| Nội dung | bài Facebook, blog, tài liệu | chat, gửi file/ảnh | Connector đăng bài, lịch đăng, bản nháp chờ duyệt |
+| Tự động hóa | việc định kỳ, phản ứng theo sự kiện | lịch, webhook, tin nhắn kênh | trigger từ Connector |
+
+**Nguyên tắc chung:**
+- **Một nền cho mọi mảng:** agent và mô hình tổ chức, chat, quyền theo hành động, duyệt, nhật ký, trí nhớ, tự động hóa. Mảng mới chủ yếu thêm công cụ (Connector) và cách hiển thị, không thêm hệ thống riêng.
+- **Code được ưu tiên** về thứ tự làm và độ hoàn thiện. Khi một tính năng chung phải chọn, chọn trước cho code (ví dụ Burn mặc định đi theo lộ trình code). Thiết kế vẫn để ngỏ cho mảng khác, không gắn chết vào git/repo.
+- **Hành động ra ngoài cần duyệt:** đăng bài, gửi tin cho khách, push, xóa. Toàn quyền là lựa chọn rõ ràng của admin cho từng agent.
+- **Chạy trên máy người dùng,** bằng tài khoản AI của họ. Office là cổng duy nhất ra bên ngoài (MCP, Connector), để quyền và nhật ký nằm ở một chỗ.
+
+### Mô hình tổ chức
+
+Agent được xếp theo mô hình tổ chức (solo, team, tam quyền, hoặc tự tạo). Thiết kế ban đầu là ba cấp:
 
 | Cấp | Vai trò | Được làm | Không được làm |
 |---|---|---|---|
 | L1 Director | Điều phối, tổng hợp, chốt kết luận, báo cáo người | Giao việc cho manager, mở debate, viết kết luận | Tự gọi tool lấy dữ liệu |
 | L2 Manager | Một góc nhìn (Tech Lead, Data Analyst, Risk/Security…) | Phân tích, đặt giả thuyết, giao worker, phản biện | Tự gọi tool lấy dữ liệu |
 | L3 Worker | Lấy dữ liệu qua MCP/tool | Trả JSON chuẩn, lưu raw data | Kết luận, side effect khi chưa duyệt |
-
-Framework tổng quát: áp dụng cho project mới chỉ bằng `office.config.json` và role template, không sửa core.
 
 Tài liệu liên quan: [ARCHITECTURE](ARCHITECTURE.md), [DATA_MODEL](DATA_MODEL.md), [INTERFACES](INTERFACES.md), [CLI](CLI.md), [UI](UI.md), [DECISIONS](DECISIONS.md).
 

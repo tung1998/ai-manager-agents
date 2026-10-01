@@ -1,10 +1,23 @@
 # agent-office
 
-Framework multi-agent mô phỏng một phòng ban: **Director → Managers → Workers** giám sát và phân tích hệ thống phần mềm của một project, trao đổi và phản biện qua blackboard, áp dụng cho project mới chỉ bằng config.
+**Văn phòng AI của riêng mỗi người.** Bạn có một đội nhân viên AI (agent) chạy trên máy của mình, mỗi người một vai trò. Họ nhận việc qua chat (dashboard, Discord, Telegram), tự làm, tự giao việc cho nhau, và chỉ hỏi bạn khi cần duyệt.
+
+Việc mà office làm được:
+
+| Mảng | Ví dụ | Trạng thái |
+|---|---|---|
+| **Code (ưu tiên)** | viết tính năng, sửa lỗi, review PR, chạy và giám sát dev/build/container, Burn tự tìm việc và làm | đang dùng hằng ngày |
+| Lên kế hoạch | chia việc, lộ trình, kế hoạch tuần | qua chat; chưa có công cụ riêng |
+| Trao đổi khách hàng | đọc tin nhắn, soạn câu trả lời, theo dõi hội thoại | bot Discord/Telegram; các kênh khác chờ Connector |
+| Nội dung | bài đăng Facebook, blog, tài liệu | chờ Connector |
+| Tự động hóa | lịch chạy, webhook, tin nhắn kênh kích hoạt agent | đang dùng |
+
+Nguyên tắc:
+- **Code là mảng được ưu tiên.** Nó chín nhất và được làm trước khi phải chọn. Các mảng khác dùng chung cùng một nền: agent, chat, quyền, duyệt, trí nhớ, tự động hóa.
+- **Việc gửi ra ngoài luôn cần người duyệt.** Đăng bài, trả lời khách hay push code đều như vậy, trừ khi bạn tự cấp toàn quyền cho agent.
+- **Chạy trên máy của bạn.** Dùng tài khoản AI của bạn (Claude Code, Codex, API), dữ liệu nằm trong office. Office nối ra thế giới bên ngoài qua MCP, và sau này qua Connector.
 
 > Dự án độc lập, xây từ đầu. `senprints-agents` chỉ dùng để tham khảo ý tưởng, không extend và không copy code.
->
-> Trạng thái: **M0 đang làm**. Đã có server Go, đăng nhập tài khoản và dashboard quản trị. Pilot đầu tiên: `storefront-v5`.
 
 ## Chạy thử
 
@@ -40,7 +53,7 @@ Test: `make test` (Go) và `make ui-build` (typecheck + build dashboard).
 
 | File | Nội dung |
 |---|---|
-| [docs/PLAN.md](docs/PLAN.md) | Tổng quan, stack, giả định, milestone M0–M5, rủi ro |
+| [docs/PLAN.md](docs/PLAN.md) | Tầm nhìn, stack, tiến độ, lộ trình |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Thành phần, luồng dữ liệu, sơ đồ Mermaid |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Schema DB: memory, blackboard, runs, incidents, costs |
 | [docs/INTERFACES.md](docs/INTERFACES.md) | RuntimeAdapter, StorageAdapter, NotifyAdapter, output schema |

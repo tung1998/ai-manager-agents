@@ -1792,3 +1792,9 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Burn tự tạo worktree trước mỗi lượt làm; không tạo được thì việc đó thất bại, không chạy. Burn chỉ bật được trên project là git repo.
   - `SweepWorktrees` giữ lại `burn-<việc>` và `burn-scan-<phiên>` khi việc hoặc phiên đó còn tồn tại.
 - Thay đổi agent đã làm trong sự cố được chuyển sang nhánh của từng việc: `burn/fx0843kb-…` (xong) và `burn/3km4ad6h-…` (dở). Không có gì lên `main`.
+
+## ADR-090: Văn phòng AI cá nhân, code đi trước
+- **Tầm nhìn:** office là văn phòng AI của mỗi người, không chỉ là công cụ cho project code. Các mảng việc: code, lên kế hoạch, trao đổi khách hàng, nội dung (bài Facebook, blog), tự động hóa. README và PLAN §1 đã viết lại theo hướng này.
+- **Code được ưu tiên** về thứ tự làm và độ hoàn thiện. Tính năng chung phải chọn thì chọn trước cho code.
+- **Thiết kế để ngỏ cho mảng khác:** khái niệm chung (agent, chat, quyền, duyệt, nhật ký, Burn, tự động hóa) không gắn chết vào git/repo. Mảng mới chủ yếu thêm công cụ qua cổng MCP/Connector, không dựng hệ thống riêng.
+- Hành động ra ngoài (đăng bài, gửi tin cho khách, push) luôn cần duyệt, trừ khi admin cấp toàn quyền cho agent.
