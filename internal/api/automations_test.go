@@ -213,20 +213,16 @@ func TestAutomationPermissionAPI(t *testing.T) { // ADR-074
 	base := map[string]any{"name": "a", "source": "schedule", "action": "chat", "agent_id": agentID, "prompt": "x",
 		"config": map[string]any{"every_minutes": 60}}
 
-	// override without a budget is rejected
+	// full access needs no budget: limits are the admin's own choice
 	in := map[string]any{}
 	for k, v := range base {
 		in[k] = v
 	}
 	in["permission_mode"], in["override_full_access"] = "override", true
-	if resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", in, nil); resp.StatusCode != 400 {
-		t.Fatalf("override without budget = %d %v", resp.StatusCode, body)
-	}
-	// with a budget, saved and stamped with who enabled it
-	in["limits"] = map[string]any{"daily_cost_usd": 5, "disable_after_failures": 3}
+	in["limits"] = map[string]any{"daily_cost_usd": 0, "disable_after_failures": 0}
 	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", in, nil)
 	if resp.StatusCode != 201 {
-		t.Fatalf("override with budget = %d %v", resp.StatusCode, body)
+		t.Fatalf("override without budget = %d %v", resp.StatusCode, body)
 	}
 	a := body["automation"].(map[string]any)
 	if a["permission_mode"] != "override" || a["override_admin_by"] != "admin@x.io" {
@@ -246,7 +242,7 @@ func TestAutomationPermissionAPI(t *testing.T) { // ADR-074
 		t.Fatalf("member override = %d", resp.StatusCode)
 	}
 
-	// once the agent itself has FullAccess, "agent" mode also needs the budget
+	// once the agent itself has FullAccess, "agent" mode needs no budget either
 	_, agentBody := do(t, admin, "GET", e.srv.URL+"/api/agents/"+agentID, nil, nil)
 	ag := agentBody["agent"].(map[string]any)
 	ag["permissions"] = map[string]any{"full_access": true}
@@ -257,7 +253,7 @@ func TestAutomationPermissionAPI(t *testing.T) { // ADR-074
 	if body["agent"].(map[string]any)["permissions"].(map[string]any)["full_access_by"] != "admin@x.io" {
 		t.Fatalf("full_access_by not stamped = %v", body["agent"])
 	}
-	if resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", base, nil); resp.StatusCode != 400 {
+	if resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", base, nil); resp.StatusCode != 201 {
 		t.Fatalf("agent full access without budget = %d %v", resp.StatusCode, body)
 	}
 }

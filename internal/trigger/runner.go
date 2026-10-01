@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -221,15 +220,6 @@ func (r *Runner) effectivePermissions(ctx context.Context, a storage.Automation,
 		Override: override, OverrideFull: a.OverrideFullAccess, OverrideFullBy: a.OverrideAdminBy,
 		IsAdminEmail: func(email string) bool { return r.isAdminEmail(ctx, email) },
 	})
-	// re-checked at run time, not just when the automation was saved (ADR-074):
-	// its Limits may have been lowered to 0 since, or the agent given full
-	// access after the automation was last saved with nothing to re-validate
-	// it — a full-access run without a cost cap or an auto-disable runs
-	// unsupervised and unbounded, so it is downgraded to normal access instead.
-	if full && (a.Limits.DailyCostUSD <= 0 || a.Limits.DisableAfterFailures <= 0) {
-		slog.Warn("trigger: hạ xuống quyền thường vì thiếu rào chắn ngân sách lúc chạy", "automation", a.ID, "full_access_by", fullBy)
-		full, fullBy = false, ""
-	}
 	if !perm.AtLeast(level, perm.Operate) {
 		return full, fullBy, nil
 	}

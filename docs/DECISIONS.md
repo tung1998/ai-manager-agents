@@ -1710,3 +1710,8 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Phiên đã quá 90% thì compact bằng model mức strong.
   - Không compact được thì mở phiên mới, nạp kèm lịch sử gần đây.
 - **Báo lỗi đúng nguyên nhân:** gặp "Prompt is too long" thì báo rõ phiên đã quá lớn so với model X, và lượt sau tự mở phiên mới.
+
+## ADR-080: Toàn quyền không bắt buộc đặt giới hạn
+- Thay mục 3 và phần "rào chắn ngân sách bắt buộc" của ADR-074 (theo quyết định của người dùng): tự động hóa chạy toàn quyền **không còn phải** có Trần chi phí/ngày và Tự tắt sau N lần lỗi. Lúc lưu không chặn, lúc chạy cũng không hạ xuống quyền thường.
+- Giới hạn do người dùng tự đặt nếu muốn. Form chỉ còn một dòng gợi ý nên đặt, không bắt buộc.
+- Các rào chắn khác giữ nguyên: webhook, PR và tin từ bot không bao giờ được toàn quyền; chạy lại không cao hơn job gốc; người bật phải còn là admin.

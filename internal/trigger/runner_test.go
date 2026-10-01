@@ -341,29 +341,19 @@ func TestOverrideFullAccessWithBudgetGetsFullAccess(t *testing.T) {
 	}
 }
 
-// ADR-074 security fix: budget guardrails are re-checked at RUN time, not
-// just when the automation was saved — if Limits is lowered to 0 afterwards
-// (bypassing the API, as storage alone would allow), a run started after
-// that is downgraded to normal access instead of running unsupervised with
-// no cost cap or auto-disable.
-func TestFullAccessDowngradedWhenBudgetMissingAtRunTime(t *testing.T) {
+// Full access needs no budget (the admin sets limits if they want them): an
+// automation with none still runs with it.
+func TestFullAccessWithoutBudget(t *testing.T) {
 	ctx := context.Background()
 	st, p := openStore(t)
 	ag := fullAccessAgent(t, ctx, st, p)
 	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "daily", Source: "schedule", Action: "chat", Enabled: true,
-		AgentID: ag.ID, PermissionMode: "override", OverrideFullAccess: true, OverrideAdminBy: "admin@x.io",
-		Limits: storage.AutomationLimits{DailyCostUSD: 5, DisableAfterFailures: 3}})
-	// the budget is lowered to 0 directly in storage, after the automation
-	// was saved (as if the API's own validation had been bypassed)
-	a.Limits = storage.AutomationLimits{}
-	if err := st.Automations().Update(ctx, a); err != nil {
-		t.Fatal(err)
-	}
+		AgentID: ag.ID, PermissionMode: "override", OverrideFullAccess: true, OverrideAdminBy: "admin@x.io"})
 	job, _, err := trigger.New(st, &fakeExec{}).Enqueue(ctx, a, "schedule", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if job.FullAccess || job.FullAccessBy != "" {
-		t.Fatalf("full access was not downgraded despite no budget at run time: %+v", job)
+	if !job.FullAccess || job.FullAccessBy != "admin@x.io" {
+		t.Fatalf("no budget took full access away: %+v", job)
 	}
 }

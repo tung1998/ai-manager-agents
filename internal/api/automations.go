@@ -265,26 +265,7 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	lim.MaxRunsPerHour, lim.DisableAfterFailures = max(lim.MaxRunsPerHour, 0), max(lim.DisableAfterFailures, 0)
 	lim.DebounceSeconds, lim.DebounceMaxSeconds = min(max(lim.DebounceSeconds, 0), 3600), min(max(lim.DebounceMaxSeconds, 0), 6*3600)
 	lim.DailyCostUSD = max(lim.DailyCostUSD, 0)
-	// a full-access run (the agent's own, or an override) must bound itself:
-	// a daily cost cap and an auto-disable after failures (ADR-074). An
-	// override REPLACES the agent's own full access entirely (even to turn it
-	// off) — while PermissionMode=="override", never fall back to the agent's
-	// FullAccess here, or an override meant to turn full access off would
-	// wrongly be forced to set a budget it will never need.
-	effectiveFullAccess := a.PermissionMode == "override" && a.OverrideFullAccess
-	if a.PermissionMode != "override" && in.AgentID != "" {
-		if ag, err := s.cfg.Store.Agents().Get(r.Context(), in.AgentID); err == nil {
-			effectiveFullAccess = ag.Permissions.FullAccess
-		}
-	}
-	if effectiveFullAccess {
-		if lim.DailyCostUSD <= 0 {
-			return errors.New("tự động hóa chạy quyền administrator phải đặt giới hạn chi phí/ngày > 0")
-		}
-		if lim.DisableAfterFailures <= 0 {
-			return errors.New("tự động hóa chạy quyền administrator phải đặt tự tắt khi lỗi > 0 lần")
-		}
-	}
+	// full access needs no limits: a cost cap or an auto-disable are the admin's own choice
 	a.Name, a.Source, a.Action, a.AgentID, a.Prompt, a.KeepContext = in.Name, in.Source, in.Action, in.AgentID, in.Prompt, in.KeepContext
 	a.EditMode, a.Config, a.Limits = s.allowedEditMode(r, in.EditMode), cfg, lim
 	a.Script, a.Escalate = storage.AutomationScript{}, storage.AutomationEscalate{} // a script calls no agent in (ADR-057)
