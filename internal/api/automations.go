@@ -131,6 +131,9 @@ type automationInput struct {
 	PermissionMode     string   `json:"permission_mode"`
 	OverrideFullAccess bool     `json:"override_full_access"`
 	OverrideExtraDirs  []string `json:"override_extra_dirs"`
+	// read back from the automation as the dashboard got it: ignored, the
+	// server stamps who turned full access on (the admin saving it)
+	OverrideAdminBy string `json:"override_admin_by"`
 }
 
 // apply validates in and puts it on a (the secret hash and state stay).

@@ -86,7 +86,7 @@ export interface Automation {
   // ADR-074: permission override
   permission_mode?: 'agent' | 'override'
   override_full_access?: boolean
-  override_admin_by?: string
+  override_admin_by?: string // who turned full access on (the server stamps it)
   override_extra_dirs?: string[]
 }
 
@@ -101,15 +101,14 @@ export interface AutomationBody {
   // ADR-074: permission override
   permission_mode?: 'agent' | 'override'
   override_full_access?: boolean
-  override_admin_by?: string
   override_extra_dirs?: string[]
 }
 
-export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'model_tier' | 'keep_context' | 'limits' | 'script' | 'escalate' | 'permission_mode' | 'override_full_access' | 'override_admin_by' | 'override_extra_dirs'> & { bot?: BotDraft }): AutomationBody {
+export function automationBody(a: Pick<Automation, 'name' | 'enabled' | 'source' | 'config' | 'action' | 'agent_id' | 'prompt' | 'edit_mode' | 'model_tier' | 'keep_context' | 'limits' | 'script' | 'escalate' | 'permission_mode' | 'override_full_access' | 'override_extra_dirs'> & { bot?: BotDraft }): AutomationBody {
   const body: AutomationBody = {
     name: a.name, enabled: a.enabled, source: a.source, action: a.action, agent_id: a.agent_id, prompt: a.prompt,
     edit_mode: a.edit_mode, model_tier: '', keep_context: a.keep_context, config: a.config, limits: a.limits, script: a.script, escalate: a.escalate,
-    permission_mode: a.permission_mode, override_full_access: a.override_full_access, override_admin_by: a.override_admin_by, override_extra_dirs: a.override_extra_dirs
+    permission_mode: a.permission_mode, override_full_access: a.override_full_access, override_extra_dirs: a.override_extra_dirs
   }
   if (isChannelSource(a.source) && a.bot) body.bot = { allow: a.bot.allow, refusal: a.bot.refusal, ...(a.bot.token ? { token: a.bot.token } : {}) }
   return body

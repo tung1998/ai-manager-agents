@@ -339,3 +339,29 @@ func TestAutomationConversationIsOneEvenAtOnce(t *testing.T) { // review I2
 		t.Fatalf("got %d conversations for one automation: %v", len(ids), ids)
 	}
 }
+
+// The dashboard sends the automation back as it read it, override_admin_by
+// included: saving must work (2026-10-01: every save was 400 "invalid JSON
+// body"), and the field is never taken from the client.
+func TestAutomationSaveIgnoresOverrideAdminBy(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	in := map[string]any{"name": "sched", "source": "schedule", "action": "chat", "prompt": "x", "config": map[string]any{"every_minutes": 20},
+		"permission_mode": "agent", "override_full_access": false, "override_admin_by": "", "override_extra_dirs": []string{}}
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", in, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create = %d %v", resp.StatusCode, body)
+	}
+	id := body["automation"].(map[string]any)["id"].(string)
+	in["permission_mode"], in["override_full_access"], in["override_admin_by"] = "override", true, "someone@else.io"
+	resp, body = do(t, admin, "PATCH", e.srv.URL+"/api/automations/"+id, in, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("save = %d %v", resp.StatusCode, body)
+	}
+	if by := body["automation"].(map[string]any)["override_admin_by"]; by != "admin@x.io" {
+		t.Fatalf("override_admin_by = %v, want the admin who saved", by)
+	}
+}
