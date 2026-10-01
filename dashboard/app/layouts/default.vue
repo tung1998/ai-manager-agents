@@ -20,7 +20,11 @@ async function loadProjects() {
 }
 watch(() => route.path, loadProjects, { immediate: true })
 useLive(['repos', 'org_models'], loadProjects) // added, renamed, removed: without leaving the page
-onMounted(() => { if (!bareLayout.value) startLive() }) // what changes elsewhere shows up here (ADR-072)
+// what changes elsewhere shows up here (ADR-072): opened once signed in —
+// also right after the login page, where this layout stays mounted
+onMounted(() => {
+  watch(() => !bareLayout.value && !!user.value, (on) => { if (on) startLive() }, { immediate: true })
+})
 
 // pages below a project (/projects/:id/<child>/…) belong to one of its sections
 const childSection: Record<string, string> = { agents: 'model', automations: 'automations' }
