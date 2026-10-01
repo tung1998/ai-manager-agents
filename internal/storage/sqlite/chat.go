@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/ids"
@@ -364,6 +365,71 @@ func (r chatRepo) Unread(ctx context.Context, userID, author string) ([]string, 
 			return nil, err
 		}
 		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// ftsQuery makes the person's words an FTS5 query: every word must be there,
+// each one quoted (nothing in it is FTS syntax), the last a prefix.
+func ftsQuery(q string) string {
+	var words []string
+	for _, w := range strings.Fields(q) {
+		w = strings.Trim(w, `"'.,;:!?()[]{}`)
+		if w != "" {
+			words = append(words, `"`+strings.ReplaceAll(w, `"`, `""`)+`"`)
+		}
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	words[len(words)-1] += "*"
+	return strings.Join(words, " ")
+}
+
+func (r chatRepo) SearchMessages(ctx context.Context, query string, f storage.SearchFilter) ([]storage.MessageHit, error) {
+	q := ftsQuery(query)
+	if q == "" || len(f.ProjectIDs) == 0 {
+		return []storage.MessageHit{}, nil
+	}
+	if f.Limit <= 0 || f.Limit > 50 {
+		f.Limit = 10
+	}
+	sql := `SELECT m.id, m.conversation_id, c.project_id, c.title, m.author, m.role, m.created_at,
+		snippet(messages_fts, 0, '«', '»', '…', 24)
+		FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid JOIN conversations c ON c.id = m.conversation_id
+		WHERE messages_fts MATCH ? AND c.project_id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(f.ProjectIDs)), ",") + `)`
+	args := []any{q}
+	for _, p := range f.ProjectIDs {
+		args = append(args, p)
+	}
+	if !f.Since.IsZero() {
+		sql += ` AND m.created_at >= ?`
+		args = append(args, fmtTime(f.Since))
+	}
+	if f.Author != "" {
+		sql += ` AND m.author LIKE ?`
+		args = append(args, "%"+f.Author+"%")
+	}
+	if f.HideOthersIn != "" {
+		sql += ` AND (c.project_id != ? OR c.created_by = ?)`
+		args = append(args, f.HideOthersIn, f.Me)
+	}
+	sql += ` ORDER BY rank LIMIT ?`
+	args = append(args, f.Limit)
+	rows, err := r.db.QueryContext(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []storage.MessageHit{}
+	for rows.Next() {
+		var h storage.MessageHit
+		var at string
+		if err := rows.Scan(&h.MessageID, &h.ConversationID, &h.ProjectID, &h.Title, &h.Author, &h.Role, &at, &h.Snippet); err != nil {
+			return nil, err
+		}
+		h.CreatedAt, _ = parseTime(at)
+		out = append(out, h)
 	}
 	return out, rows.Err()
 }

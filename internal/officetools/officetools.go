@@ -8,6 +8,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/gitops"
 	"bitbucket.org/senprints/agent-office/internal/perm"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -175,6 +176,13 @@ func (t *Toolbox) Tools() []Tool {
 				}, "resource", "op", "reason")},
 		)
 	}
+	list = append(list, Tool{Name: "search_history", Description: "Tìm trong lịch sử các cuộc chat (web, Discord, Telegram, tự động hóa) theo từ khóa, không phân biệt dấu. " +
+		"Dùng khi người dùng nhắc tới việc cũ (\"gần đây mình có nhờ bạn…\", \"lần trước bạn sửa…\"): tìm trước, đừng đoán. Kết quả có link; đọc kỹ một cuộc chat bằng read_link.",
+		Schema: obj(map[string]any{
+			"query":  map[string]any{"type": "string", "description": "Từ khóa, vài chữ là đủ"},
+			"days":   map[string]any{"type": "integer", "description": "Trong bao nhiêu ngày gần đây (mặc định 30, tối đa 365)"},
+			"author": map[string]any{"type": "string", "description": "Chỉ tin của người/agent này (không bắt buộc)"},
+		}, "query")})
 	list = append(list, Tool{Name: "read_link", Description: "Đọc nội dung một liên kết của office mà người dùng dán vào: một cuộc chat (…?tab=chat&c=…), một tin nhắn (&m=…) hoặc một Việc (…?tab=tasks&task=…) của project này.",
 		Schema: obj(map[string]any{"url": map[string]any{"type": "string", "description": "Liên kết dashboard của office"}}, "url")})
 	if t.sendFile != nil {
@@ -261,6 +269,8 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		Message  string          `json:"message"`
 		Files    []string        `json:"files"`
 		Path     string          `json:"path"`
+		Query    string          `json:"query"`
+		Author   string          `json:"author"`
 		Caption  string          `json:"caption"`
 		Branch   string          `json:"branch"`
 		Command  string          `json:"command"`
@@ -356,6 +366,8 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		}
 	case "read_link":
 		out, err = t.readLink(ctx, sc, in.URL)
+	case "search_history":
+		out, err = t.searchHistory(ctx, sc, in.Query, in.Days, in.Author)
 	case "send_file":
 		if t.sendFile == nil || !t.botChat(sc) {
 			return "send_file chỉ dùng trong cuộc chat của bot Discord/Telegram", true
@@ -621,4 +633,56 @@ func (t *Toolbox) botChat(sc Scope) bool {
 	}
 	c, err := t.store.Chat().GetConversation(context.Background(), sc.ConversationID)
 	return err == nil && c.Purpose == "channel"
+}
+
+// searchHistory finds what was said in the chats (ADR-086): the project's,
+// or every project's for the office assistant — never someone else's private
+// chat with the assistant.
+func (t *Toolbox) searchHistory(ctx context.Context, sc Scope, query string, days int, author string) (string, error) {
+	if strings.TrimSpace(query) == "" {
+		return "", errors.New("hãy ghi từ khóa cần tìm")
+	}
+	if days <= 0 {
+		days = 30
+	}
+	f := storage.SearchFilter{Since: time.Now().UTC().AddDate(0, 0, -min(days, 365)), Author: strings.TrimSpace(author), Limit: 10}
+	assistant := ""
+	if t.assistant != nil {
+		assistant = t.assistant(ctx)
+	}
+	if sc.Office {
+		repos, err := t.store.Repos().List(ctx)
+		if err != nil {
+			return "", err
+		}
+		for _, r := range repos {
+			f.ProjectIDs = append(f.ProjectIDs, r.ID)
+		}
+	} else {
+		f.ProjectIDs = []string{sc.ProjectID}
+	}
+	if assistant != "" { // the assistant's chats are each person's own
+		f.HideOthersIn = assistant
+		if c, err := t.store.Chat().GetConversation(ctx, sc.ConversationID); err == nil {
+			f.Me = c.CreatedBy
+		}
+	}
+	hits, err := t.store.Chat().SearchMessages(ctx, query, f)
+	if err != nil {
+		return "", err
+	}
+	if len(hits) == 0 {
+		return fmt.Sprintf("Không thấy \"%s\" trong %d ngày gần đây.", query, days), nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d kết quả cho \"%s\" (mới nhất trong %d ngày):\n", len(hits), query, days)
+	for _, h := range hits {
+		who := h.Author
+		if who == "" {
+			who = h.Role
+		}
+		fmt.Fprintf(&b, "- %s · %s · %s: %s\n  /projects/%s?tab=chat&c=%s&m=%s\n", h.CreatedAt.Local().Format("02/01 15:04"), cmp.Or(h.Title, "(chưa đặt tên)"), who,
+			strings.ReplaceAll(h.Snippet, "\n", " "), h.ProjectID, h.ConversationID, h.MessageID)
+	}
+	return b.String(), nil
 }

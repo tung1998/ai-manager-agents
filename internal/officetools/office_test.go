@@ -119,3 +119,20 @@ func TestAnswerOnlyHasNoProposals(t *testing.T) {
 		t.Fatal("answer only still reads the office")
 	}
 }
+
+// ADR-086: search_history finds the project's chats by their words, with a
+// link to read them.
+func TestSearchHistory(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	p, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop"})
+	tb := New(st, nil, nil)
+	c, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p.ID, Title: "Thanh toán", CreatedBy: "human:a@x.io"})
+	m, _ := st.Chat().AddMessage(ctx, storage.Message{ConversationID: c.ID, Role: "user", Author: "human:a@x.io", Content: "sửa lỗi thanh toán PayPal"})
+	out, isErr := tb.Call(ctx, Scope{ProjectID: p.ID, ConversationID: c.ID}, "search_history", []byte(`{"query":"thanh toan paypal"}`))
+	if isErr || !strings.Contains(out, "Thanh toán") || !strings.Contains(out, "&m="+m.ID) {
+		t.Fatalf("search = %v %s", isErr, out)
+	}
+}

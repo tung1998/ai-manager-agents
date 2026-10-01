@@ -1752,3 +1752,10 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 ## ADR-085: Danh sách chat tải theo trang
 - `GET /api/projects/{id}/conversations` trả 20 cuộc chat mới nhất kèm `has_more`. Trang sau gọi `?before=<updated_at của cuộc cuối>` (`ListConversationsBefore`).
 - Cuối danh sách có nút "Xem thêm". Một cuộc chat mới (qua event) thì tải lại trang đầu.
+
+## ADR-086: Agent tìm trong lịch sử chat (`search_history`)
+- Công cụ MCP `search_history(query, days=30, author?)` có trong mọi chat. Trả tối đa 10 tin khớp, mỗi tin gồm ngày, tiêu đề, người nói, đoạn trích và link `…?tab=chat&c=…&m=…`; đọc kỹ thì dùng `read_link`.
+  - Phạm vi: các cuộc chat của project (web, bot, tự động hóa). Trợ lý office tìm trên mọi project.
+  - Chat riêng với trợ lý của người khác không bao giờ hiện.
+- Chỉ mục FTS5 `messages_fts` (migration 00046, `unicode61 remove_diacritics 2`, nên tìm không dấu vẫn ra), tự cập nhật bằng trigger khi thêm hoặc xóa tin; tin cũ được đánh chỉ mục một lần. Từ khóa được bọc trong ngoặc kép từng chữ (không lọt cú pháp FTS), chữ cuối tìm theo tiền tố.
+- Prompt hệ thống dặn: khi người dùng nhắc việc cũ thì tìm trước, đừng đoán.

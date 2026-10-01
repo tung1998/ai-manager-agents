@@ -364,7 +364,27 @@ type Change struct {
 	Message        *Message
 }
 
+// MessageHit is a message found by a search of the chats (ADR-086).
+type MessageHit struct {
+	MessageID, ConversationID, ProjectID string
+	Title, Author, Role, Snippet         string
+	CreatedAt                            time.Time
+}
+
+// SearchFilter narrows a search: the projects searched, from when, and
+// whose private chats (the office assistant's) may show.
+type SearchFilter struct {
+	ProjectIDs []string
+	Since      time.Time
+	Author     string // only messages by this one ("" = anyone)
+	// HideOthersIn: in this project (the assistant's), only chats made by Me
+	HideOthersIn, Me string
+	Limit             int
+}
+
 type ChatRepo interface {
+	// SearchMessages finds messages matching the words of query, best first.
+	SearchMessages(ctx context.Context, query string, f SearchFilter) ([]MessageHit, error)
 	// MarkSeen: the person looked at the chat now (seen) or wants it unread again.
 	MarkSeen(ctx context.Context, userID, conversationID string, seen bool) error
 	// Unread: the chats the person wrote in (as author) that an agent
