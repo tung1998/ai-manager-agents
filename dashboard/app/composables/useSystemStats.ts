@@ -2,7 +2,7 @@
 // comes to every admin page by itself; the whole picture (processes) while a
 // page shows the Máy tab, which turns the "machine" topic on for its stream.
 // Nothing here asks every few seconds.
-export interface SysSummary { cpu_percent: number, mem_used: number, mem_total: number, procs: number, agents: number }
+export interface SysSummary { cpu_percent: number, mem_used: number, mem_total: number, procs: number, agents: number, tasks?: string[] }
 export interface SysProc { pid: number, ppid: number, name: string, cmd: string, cpu: number, mem: number, started_at: string, depth: number }
 export interface SysGroup {
   kind: 'agent' | 'automation' | 'project' | 'other', label: string, sub?: string, pid: number, turn_id?: string, conversation_id?: string,

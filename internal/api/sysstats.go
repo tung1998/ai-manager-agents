@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"sort"
 	"strconv"
 	"time"
 
@@ -61,7 +62,15 @@ func (s *server) summaryOf(cpuPct float64, used, total uint64, procs int) map[st
 	if s.cfg.Chat != nil {
 		agents = s.cfg.Chat.RunningCount()
 	}
-	return map[string]any{"cpu_percent": cpuPct, "mem_used": used, "mem_total": total, "procs": procs, "agents": agents}
+	// the project processes started from Vận hành (dev, build, terminal…)
+	tasks := []string{}
+	if s.cfg.Ops != nil {
+		for _, p := range s.cfg.Ops.Running() {
+			tasks = append(tasks, p.Name)
+		}
+	}
+	sort.Strings(tasks)
+	return map[string]any{"cpu_percent": cpuPct, "mem_used": used, "mem_total": total, "procs": procs, "agents": agents, "tasks": tasks}
 }
 
 func (s *server) officeGroups(ctx context.Context) (sysinfo.Proc, []procGroup, error) {

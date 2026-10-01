@@ -229,5 +229,7 @@ export default {
   'hdr.incidents': '{n} việc cần xử lý',
   'hdr.agents': '{n} agent đang chạy · {p} tiến trình',
   'hdr.cpu': 'CPU của máy',
-  'hdr.ram': 'RAM của máy'
+  'hdr.ram': 'RAM của máy',
+  'hdr.tasks': '{n} tiến trình đang chạy: {names}',
+  'hdr.noTasks': 'Không có tiến trình nào đang chạy (dev, build, terminal)'
 } as const

@@ -230,6 +230,8 @@ const en: Record<keyof typeof vi, string> = {
   'hdr.incidents': '{n} things need you',
   'hdr.agents': '{n} agents running · {p} processes',
   'hdr.cpu': 'Machine CPU',
-  'hdr.ram': 'Machine memory'
+  'hdr.ram': 'Machine memory',
+  'hdr.tasks': '{n} processes running: {names}',
+  'hdr.noTasks': 'No processes running (dev, build, terminal)'
 }
 export default en
