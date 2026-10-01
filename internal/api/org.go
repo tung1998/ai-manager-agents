@@ -27,6 +27,11 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/system", auth(s.system))
 	mux.Handle("GET /api/system/stats", admin(s.systemStats))
+	mux.Handle("GET /api/projects/{id}/burn", admin(s.getBurn))
+	mux.Handle("PUT /api/projects/{id}/burn", admin(s.saveBurn))
+	mux.Handle("POST /api/projects/{id}/burn/start", admin(s.startBurn))
+	mux.Handle("POST /api/projects/{id}/burn/stop", admin(s.stopBurn))
+	mux.Handle("POST /api/burn-items/{item}/{action}", admin(s.burnItemAction))
 	mux.Handle("GET /api/system/summary", admin(s.systemSummary))
 	mux.Handle("POST /api/events/topics", auth(s.eventTopic))
 	mux.Handle("POST /api/system/processes/{pid}/stop", admin(s.stopProcess(false)))

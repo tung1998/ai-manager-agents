@@ -35,6 +35,7 @@ type Toolbox struct {
 	// delegate hands a task to another agent of the chat (ADR-044), set by the chat engine
 	delegate func(ctx context.Context, sc Scope, agent, task string) (string, error)
 	sendFile func(ctx context.Context, sc Scope, path, caption string) (string, error)
+	burn     func(ctx context.Context, sc Scope, name string, in BurnInput) (string, error)
 	// config reads settings for describe/list/get (the API's registry, ADR-045)
 	config ConfigReader
 	// assistant is the office assistant's own project (hidden from the list)
@@ -57,6 +58,14 @@ func (t *Toolbox) SetConfig(c ConfigReader) { t.config = c }
 // SetDelegate turns on the delegate tool (the chat engine runs hand-offs).
 func (t *Toolbox) SetDelegate(fn func(ctx context.Context, sc Scope, agent, task string) (string, error)) {
 	t.delegate = fn
+}
+
+// BurnInput is what the burn_* tools take.
+type BurnInput struct{ Title, Kind, Detail, Item, Summary, Reason string }
+
+// SetBurn turns on the burn_* tools (a Burn's conversation only).
+func (t *Toolbox) SetBurn(fn func(ctx context.Context, sc Scope, name string, in BurnInput) (string, error)) {
+	t.burn = fn
 }
 
 // SetSendFile turns on the send_file tool (a bot's chat posts the file, ADR-083).
@@ -185,6 +194,20 @@ func (t *Toolbox) Tools() []Tool {
 		}, "query")})
 	list = append(list, Tool{Name: "read_link", Description: "Đọc nội dung một liên kết của office mà người dùng dán vào: một cuộc chat (…?tab=chat&c=…), một tin nhắn (&m=…) hoặc một Việc (…?tab=tasks&task=…) của project này.",
 		Schema: obj(map[string]any{"url": map[string]any{"type": "string", "description": "Liên kết dashboard của office"}}, "url")})
+	if t.burn != nil {
+		item := map[string]any{"type": "string", "description": "Mã việc (bit_…)"}
+		list = append(list,
+			Tool{Name: "burn_add", Description: "Burn: ghi một việc tìm thấy (không ghi trùng).", Schema: obj(map[string]any{
+				"title":  map[string]any{"type": "string", "description": "Tiêu đề ngắn"},
+				"kind":   map[string]any{"type": "string", "enum": []string{"unfinished", "upgrade", "bug"}},
+				"detail": map[string]any{"type": "string", "description": "Đủ để làm: ở đâu, vì sao, làm thế nào là xong"},
+			}, "title", "kind")},
+			Tool{Name: "burn_pick", Description: "Burn: chọn việc làm tiếp theo.", Schema: obj(map[string]any{"item": item}, "item")},
+			Tool{Name: "burn_skip", Description: "Burn: bỏ qua một việc không đáng làm.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
+			Tool{Name: "burn_done", Description: "Burn: báo xong việc đang làm.", Schema: obj(map[string]any{"item": item, "summary": map[string]any{"type": "string", "description": "Đã làm gì, kiểm chứng ra sao"}}, "item", "summary")},
+			Tool{Name: "burn_fail", Description: "Burn: báo không làm được việc đang làm.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
+		)
+	}
 	if t.sendFile != nil {
 		list = append(list, Tool{Name: "send_file", Description: "Gửi một file (ảnh png/jpg/gif/webp hiện dạng ảnh; file khác dạng tài liệu) vào cuộc chat Discord/Telegram đang nói chuyện, ngay lúc gọi. " +
 			"Dùng khi người dùng cần xem ảnh chụp màn hình, biểu đồ, file log… File phải nằm trong thư mục làm việc của project (chép vào đó trước nếu cần).",
@@ -212,6 +235,9 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 	for _, x := range t.Tools() {
 		if (x.Name == "propose_action" || x.Name == "propose_automation") && !perm.AtLeast(sc.Level, perm.Propose) {
 			continue
+		}
+		if strings.HasPrefix(x.Name, "burn_") && !t.burnChat(sc) {
+			continue // a Burn's conversation only
 		}
 		if x.Name == "send_file" && !t.botChat(sc) {
 			continue // only a bot's chat has somewhere to post it
@@ -270,6 +296,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		Files    []string        `json:"files"`
 		Path     string          `json:"path"`
 		Query    string          `json:"query"`
+		Title    string          `json:"title"`
+		Kind     string          `json:"kind"`
+		Detail   string          `json:"detail"`
+		Item     string          `json:"item"`
+		Summary  string          `json:"summary"`
 		Author   string          `json:"author"`
 		Caption  string          `json:"caption"`
 		Branch   string          `json:"branch"`
@@ -368,6 +399,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		out, err = t.readLink(ctx, sc, in.URL)
 	case "search_history":
 		out, err = t.searchHistory(ctx, sc, in.Query, in.Days, in.Author)
+	case "burn_add", "burn_pick", "burn_skip", "burn_done", "burn_fail":
+		if t.burn == nil || !t.burnChat(sc) {
+			return "Các công cụ burn_* chỉ dùng trong hội thoại Burn", true
+		}
+		out, err = t.burn(ctx, sc, name, BurnInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason})
 	case "send_file":
 		if t.sendFile == nil || !t.botChat(sc) {
 			return "send_file chỉ dùng trong cuộc chat của bot Discord/Telegram", true
@@ -685,4 +721,13 @@ func (t *Toolbox) searchHistory(ctx context.Context, sc Scope, query string, day
 			strings.ReplaceAll(h.Snippet, "\n", " "), h.ProjectID, h.ConversationID, h.MessageID)
 	}
 	return b.String(), nil
+}
+
+// burnChat: the run is a Burn's conversation, where the burn_* tools work.
+func (t *Toolbox) burnChat(sc Scope) bool {
+	if sc.ConversationID == "" {
+		return false
+	}
+	c, err := t.store.Chat().GetConversation(context.Background(), sc.ConversationID)
+	return err == nil && c.Purpose == "burn"
 }

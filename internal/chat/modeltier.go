@@ -100,6 +100,23 @@ func withTimeout(ctx context.Context, d time.Duration) (context.Context, context
 	return context.WithTimeout(ctx, d)
 }
 
+type treeKey struct{}
+
+type treeOpt struct {
+	name    string
+	noPatch bool
+}
+
+// WithTree runs the turn in the worktree name (a Burn item's own) instead of
+// the chat's; noPatch: its changes stay there (committed by the caller), no
+// diff to approve.
+func WithTree(ctx context.Context, name string, noPatch bool) context.Context {
+	return context.WithValue(ctx, treeKey{}, treeOpt{name, noPatch})
+}
+
+func treeOf(ctx context.Context) string { o, _ := ctx.Value(treeKey{}).(treeOpt); return o.name }
+func noPatch(ctx context.Context) bool  { o, _ := ctx.Value(treeKey{}).(treeOpt); return o.noPatch }
+
 type ceilingKey struct{}
 
 // WithCeiling caps a turn's rights at level, whatever the agent's and the

@@ -5,6 +5,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/automation"
+	"bitbucket.org/senprints/agent-office/internal/burn"
 	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/events"
 	"bitbucket.org/senprints/agent-office/internal/home"
@@ -102,7 +103,8 @@ func serveCmd() *cobra.Command {
 			chatEngine := chat.NewEngine(a.store, a.providers, a.usage)
 			chatEngine.SetAttachments(attach.Store{Dir: filepath.Join(h.Dir, "attachments")})
 			// agents edit and check in their own git worktrees (ADR-037)
-			chatEngine.SetWorktrees(worktree.New(filepath.Join(h.Dir, "worktrees")))
+			trees := worktree.New(filepath.Join(h.Dir, "worktrees"))
+			chatEngine.SetWorktrees(trees)
 			go chatEngine.SweepWorktrees(ctx, 14*24*time.Hour)
 			procs := ops.NewManager(a.store, filepath.Join(h.Dir, "logs"), a.cli.Env())
 			defer procs.Shutdown() // project processes stop with the office
@@ -158,6 +160,12 @@ func serveCmd() *cobra.Command {
 			bots.SetDecider(chatDecider{store: a.store, chat: chatEngine, acts: acts}) // proposals decided from the chat (ADR-054)
 			office.SetSendFile(bots.SendFileFor)                                       // an agent in a bot's chat posts images and files there (ADR-083)
 			chatEngine.SetOnBotDecided(bots.DecidedOnDashboard)                        // a bot chat's card decided on the dashboard: the bot goes on (ADR-084)
+			// a project's agent running on its own, finding work (spec 2026-10-01-burn-design)
+			burner := burn.New(a.store, chatEngine, trees)
+			office.SetBurn(func(ctx context.Context, sc officetools.Scope, name string, in officetools.BurnInput) (string, error) {
+				return burner.Tool(ctx, sc, name, burn.ToolInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason})
+			})
+			burner.Start(ctx)
 			bots.Start(ctx)
 
 			// self-update: only under the supervisor and when the source is here
@@ -189,6 +197,7 @@ func serveCmd() *cobra.Command {
 				Usage:      a.usage,
 				CLITools:   cliTools,
 				Chat:       chatEngine,
+				Burn:       burner,
 				Trigger:    runner,
 				Automation: newAutomation(a, h),
 				Ops:        procs,

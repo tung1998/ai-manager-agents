@@ -120,6 +120,8 @@ type Store interface {
 	Automations() AutomationRepo
 	// Memories are each agent's long-term notes in a project (ADR-068).
 	Memories() MemoryRepo
+	// Burn is a project's agent running on its own, finding work (spec 2026-10-01-burn-design).
+	Burn() BurnRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error

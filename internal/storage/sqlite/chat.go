@@ -96,7 +96,9 @@ func (r chatRepo) ListConversationsBefore(ctx context.Context, projectID, source
 	where := `purpose IN ('','skill','template')`
 	switch source {
 	case "all":
-		where = `purpose IN ('','skill','template','channel')`
+		where = `purpose IN ('','skill','template','channel','burn')`
+	case "burn":
+		where = `purpose='burn'`
 	case "web":
 		where = `purpose IN ('','skill','template') AND created_by LIKE 'human:%'`
 	case "auto":

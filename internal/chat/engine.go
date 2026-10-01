@@ -554,6 +554,9 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	if c := ceilingOf(ctx); c != "" { // a bot's Người dùng: proposals at most
 		base = WithCeiling(base, c)
 	}
+	if t := treeOf(ctx); t != "" { // a Burn item: its own worktree, its changes its own (no diff)
+		base = WithTree(base, t, noPatch(ctx))
+	}
 	turnID := fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano())
 	base = proctrack.With(base, proctrack.Info{Kind: "agent", TurnID: turnID, ConversationID: conv.ID, ProjectID: conv.ProjectID, Label: agent.Name})
 	limit := turnTimeout(ctx) // 20 minutes, or an automation's own (0: none, ADR-082)
@@ -708,7 +711,11 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			agentFull, agentFullBy, agentExtraDirs = job.FullAccess, job.FullAccessBy, job.ExtraDirs
 		}
 	}
-	pl, err := e.placeFor(ctx, project, policy, acc, e.chatTree(ctx, conv, agent), true, conv.EditMode)
+	tree := e.chatTree(ctx, conv, agent)
+	if t := treeOf(ctx); t != "" { // a Burn item's own worktree
+		tree = t
+	}
+	pl, err := e.placeFor(ctx, project, policy, acc, tree, true, conv.EditMode)
 	if err != nil {
 		fail(err)
 		return
@@ -875,7 +882,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			turn.emit(Event{Type: "action", Action: &ad})
 		}
 	}
-	if pl.tree != "" {
+	if pl.tree != "" && !noPatch(ctx) { // a Burn item's changes are committed to its branch instead
 		// what the agent changed in its worktree, all pending changes in one diff
 		if pt, ok := e.treePatch(ctx, conv, msg.ID, pl.dir, pl.tree, policy); ok {
 			saved, err := e.store.Chat().AddPatch(context.Background(), pt)
