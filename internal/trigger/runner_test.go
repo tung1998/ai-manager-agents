@@ -413,3 +413,26 @@ func TestScheduleRunsInParallelUpToItsLimit(t *testing.T) {
 		t.Fatal("a kept conversation ran in parallel")
 	}
 }
+
+// A bot rule that names no agent answers with the project's lead (or the
+// conversation's agent): its full access counts for an admin's message.
+func TestChannelAdminWithDefaultAgent(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	ag := fullAccessAgent(t, ctx, st, p) // the project's lead
+	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "@bot", Source: "discord", Action: "chat", Enabled: true})
+	r := trigger.New(st, &fakeExec{})
+	admin, _ := json.Marshal(trigger.ChannelPayload{Message: "hi", UserID: "7", ChatID: "c1", ChannelID: "chn_1", Admin: true})
+	j, _, err := r.Enqueue(ctx, a, "discord", string(admin), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !j.FullAccess {
+		t.Fatal("the lead's full access did not count for an admin, the rule naming no agent")
+	}
+	conv, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p.ID, AgentID: ag.ID, Purpose: "channel"})
+	inConv, _ := json.Marshal(trigger.ChannelPayload{Message: "tiếp", UserID: "7", ChatID: "c1", ChannelID: "chn_1", Admin: true, ConversationID: conv.ID})
+	if j, _, _ := r.Enqueue(ctx, a, "discord", string(inConv), "", ""); !j.FullAccess {
+		t.Fatal("the conversation's agent's full access did not count")
+	}
+}

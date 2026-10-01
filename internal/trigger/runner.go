@@ -217,12 +217,12 @@ func (r *Runner) Retry(ctx context.Context, a storage.Automation, origTrigger st
 // PermissionMode=="override" REPLACES the agent's own full access and extra
 // dirs entirely (even to turn full access off or to no extra dirs); it never
 // adds to or falls back to the agent's own.
-func (r *Runner) effectivePermissions(ctx context.Context, a storage.Automation, trig string, forceUntrusted, channelAdmin bool) (full bool, fullBy string, dirs []string) {
-	if a.Action != "chat" || a.AgentID == "" {
+func (r *Runner) effectivePermissions(ctx context.Context, a storage.Automation, trig, payload string, forceUntrusted, channelAdmin bool) (full bool, fullBy string, dirs []string) {
+	if a.Action != "chat" {
 		return false, "", nil
 	}
-	ag, err := r.store.Agents().Get(ctx, a.AgentID)
-	if err != nil {
+	ag, ok := r.answerer(ctx, a, trig, payload)
+	if !ok {
 		return false, "", nil
 	}
 	level := perm.Agent(ag) // an automation's chat runs uncapped at Operate
@@ -263,7 +263,7 @@ func (r *Runner) enqueueAt(ctx context.Context, now time.Time, a storage.Automat
 	// a bot's message from someone in its Admin list runs as the agent's own
 	// (full access too, when the agent has it); anyone else never (ADR-081)
 	channelAdmin := IsChannel(trig) && channelPayloadOf(storage.Job{Payload: payload}).Admin
-	full, fullBy, dirs := r.effectivePermissions(ctx, a, trig, forceUntrusted, channelAdmin)
+	full, fullBy, dirs := r.effectivePermissions(ctx, a, trig, payload, forceUntrusted, channelAdmin)
 	if debounce != "" && a.Limits.DebounceSeconds > 0 {
 		wait := time.Duration(a.Limits.DebounceSeconds) * time.Second
 		next := now.Add(wait)
@@ -789,4 +789,36 @@ func UntrustedOf(ctx context.Context) bool {
 func ModelTierOf(ctx context.Context) string {
 	s, _ := ctx.Value(modelTierKey{}).(string)
 	return s
+}
+
+// answerer is the agent that will answer a's run: a bot message's
+// conversation's own agent, else the agent a names, else the project's lead
+// (a rule naming none answers with it).
+func (r *Runner) answerer(ctx context.Context, a storage.Automation, trig, payload string) (storage.Agent, bool) {
+	id := a.AgentID
+	if IsChannel(trig) {
+		if conv := channelPayloadOf(storage.Job{Payload: payload}).ConversationID; conv != "" {
+			if c, err := r.store.Chat().GetConversation(ctx, conv); err == nil && c.AgentID != "" {
+				id = c.AgentID
+			}
+		}
+	}
+	if id != "" {
+		ag, err := r.store.Agents().Get(ctx, id)
+		return ag, err == nil
+	}
+	m, err := r.store.OrgModels().GetForRepo(ctx, a.ProjectID)
+	if err != nil {
+		return storage.Agent{}, false
+	}
+	agents, err := r.store.Agents().List(ctx, m.ID)
+	if err != nil {
+		return storage.Agent{}, false
+	}
+	for _, ag := range agents {
+		if ag.Tier == storage.TierLead {
+			return ag, true
+		}
+	}
+	return storage.Agent{}, false
 }
