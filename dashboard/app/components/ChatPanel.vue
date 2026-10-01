@@ -39,7 +39,7 @@ const { t, dateLocale } = useLang()
 const _f1 = useLiveFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const { data: agentsData } = _f1
 // where the chats started: the dashboard, a bot, an automation
-const origin = ref<'all' | Source>('all')
+const origin = ref<ChatFilter>('all')
 // the server pushes each chat as it changes (ADR-078): the list is loaded again only back online
 const _f2 = usePushedFetch<{ conversations: Conversation[], has_more?: boolean }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value, lazy: true })
 const { data: convData, refresh: refreshConvs, pending: convsLoading } = _f2
@@ -176,7 +176,7 @@ onLiveEvent<{ conversation: Conversation }>('conversation', ({ conversation: c }
   if (!list || single.value) return
   const i = list.findIndex(x => x.id === c.id)
   if (i < 0) {
-    if (origin.value === 'all' || c.source === origin.value) refreshConvs() // a new chat: which list it belongs in is the server's to say
+    if (origin.value === 'all' || (origin.value === 'burn' ? c.purpose === 'burn' : c.source === origin.value)) refreshConvs() // a new chat: which list it belongs in is the server's to say
     return
   }
   const [old] = list.splice(i, 1)

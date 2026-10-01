@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // Filters a list by where its items came from ('all' = every source): a row
 // of small icons, the name on hover.
-const model = defineModel<'all' | Source>({ default: 'all' })
+const model = defineModel<ChatFilter>({ default: 'all' })
+const props = defineProps<{ burn?: boolean }>()
 const { t } = useLang()
 const items = computed(() => [
   { value: 'all' as const, icon: 'i-lucide-layers', label: t('source.all') },
-  ...sources.map(s => ({ value: s, icon: sourceIcon[s], label: t(`source.${s}`) }))
+  ...sources.map(s => ({ value: s as ChatFilter, icon: sourceIcon[s], label: t(`source.${s}`) })),
+  ...(props.burn ? [{ value: 'burn' as const, icon: 'i-lucide-flame', label: t('burn.title') }] : [])
 ])
 </script>
 

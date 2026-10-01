@@ -121,8 +121,22 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Trang tạo/sửa tự động hóa chia đôi form và chat (AI điền form, Chạy thử); chat ở góc là Chat của project kèm ngữ cảnh trang (ADR-042 gđ1) | Xong |
 | Nhật ký thay đổi: ai làm (người/agent/tự động hóa), ai duyệt, từ chat/job/việc nào, kênh nào, trước/sau; trang Nhật ký, tab trong project, thống kê (ADR-043) | Xong |
 | Chat tag @agent kéo vào nhóm (phiên riêng mỗi agent, chỉ nhận tin mới); agent giao việc cho agent chạy nền như subagent, xong thì người giao báo lại; lead mặc định Vận hành (ADR-044) | Xong |
-| Trợ lý office ngoài project (chip phạm vi, công cụ cấu hình chung) và MCP cho Claude Code CLI (ADR-042 gđ2; spec `docs/superpowers/specs/2026-09-28-office-assistant-design.md`, phần 2–4) | Chưa làm |
-| Tự động: Telegram và Discord hai chiều (ADR-040 giai đoạn 2–3) | Chưa làm |
+| Trợ lý office ngoài project (chip phạm vi, công cụ cấu hình chung) và MCP cho Claude Code CLI (ADR-042 gđ2, ADR-045–047) | Xong |
+| Tự động: Telegram và Discord hai chiều, tin nhắn kênh là nguồn của tự động hóa (ADR-048, ADR-049) | Xong |
+| Soạn skill trong office có AI; skill và mô hình soạn bằng chat có theo dõi (ADR-050, ADR-061, ADR-062) | Xong |
+| Bot: giao việc cho đội, duyệt qua chat và nút bấm, thread Discord, file, báo đang làm, gửi ảnh/file (ADR-053, ADR-054, ADR-063–067, ADR-083) | Xong |
+| Bỏ Việc, mọi thứ là Chat; worktree của chat theo kịp project (ADR-055–058) | Xong |
+| Trí nhớ dài hạn của agent, cảnh báo hạn mức AI, review Pull Request (ADR-068–070) | Xong |
+| Quyền administrator đặt trên Agent, automation kế thừa hoặc ghi đè; không bắt buộc giới hạn (ADR-074, ADR-080) | Xong |
+| Bot chỉ còn danh sách Admin và Người dùng, không còn chế độ (ADR-071, ADR-081) | Xong |
+| Tổng quan: máy và tiến trình của office (đóng/kill), Cần xử lý gộp tin chưa xem (ADR-076, ADR-077) | Xong |
+| Server đẩy dữ liệu qua một kết nối SSE, không polling (ADR-072, ADR-078) | Xong |
+| Giao việc chạy độc lập, phiên đầy tự compact; tự động hóa chạy song song (ADR-079, ADR-082) | Xong |
+| Duyệt xong agent tự làm tiếp (bot và web); danh sách chat theo trang; `search_history` (ADR-084–086) | Xong |
+| Burn: agent chạy liên tục trong project, worktree mỗi việc, tạm dừng/làm tiếp, hẹn giờ tắt (ADR-087) | Xong, đang chạy thử |
+| Trạng thái kết nối MCP (ADR-088) | Xong |
+| Cổng MCP chung qua office: office giữ MCP, đăng nhập OAuth, chuyển tiếp cho mọi AI, chuyển kết nối sẵn có (spec `docs/superpowers/specs/2026-10-01-mcp-gateway-design.md`) | Đang thiết kế |
+| Connector: gom MCP, bot và connector tự code (Messenger, Zalo OA, Slack, Email) | Ý tưởng, làm sau cổng MCP |
 | Cảnh báo, `doctor` | Chưa làm |
 
 ### M0: Nền móng

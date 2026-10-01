@@ -12,6 +12,7 @@ Nuxt 4 + @nuxt/ui, app riêng trong `dashboard/` (ADR-010). Gọi REST + SSE c�
 | `/incidents` | Incidents | Danh sách + chi tiết: timeline debate theo round, kết luận, confidence, phương án, rủi ro, evidence | **Duyệt / Từ chối** từng option có side effect, ghi chú |
 | `/costs` | Chi phí | Token và USD theo agent/ngày, theo incident, so với budget, dự báo cuối ngày | Chỉnh budget (ghi config) |
 | `/projects/:id?tab=chat\|tasks\|ops\|config` | Project | Thanh tiêu đề gọn (menu `⋯` cho sửa, thiết lập AI, đổi mô hình), một dòng thông tin (đường dẫn · git · mô tả rút gọn). 4 tab: Chat, Việc, **Vận hành** (Tiến trình · Container · Giám sát, có số lượng và chấm đỏ khi lỗi), **Cấu hình** (Mô hình · Skills · MCP; link cũ `tab=model|tools` vẫn chạy). Skills/MCP (đang dùng: của project, riêng máy, kế thừa từ toàn máy; thêm từ thư viện, MCP phổ biến, MCP Registry, chỉ cài vào project này) | |
+| `/projects/:id?tab=burn` | Burn (admin) | Trạng thái phiên, đếm ngược tới giờ tắt, cài đặt (agent, mức model, số subagent, nhánh riêng/diff, trọng tâm), bảng việc theo cột: Tìm thấy · Đang làm · Tạm dừng · Xong · Thất bại/Bỏ qua (ADR-087) | Bật (qua hộp xác nhận, chọn giờ tắt), Tắt, ưu tiên/bỏ qua việc, copy `git switch`, xóa worktree, mở hội thoại |
 | `/library` | Thư viện | Skills / MCP servers: **Đã cài** (mọi nơi trên máy, nhóm theo nơi cài), **Thư viện**, MCP **Phổ biến**, **Tìm MCP** | Xem, cài vào nơi khác, lưu vào thư viện, gỡ, tạo và sửa |
 
 Sidebar: mục **Project** có 5 project người xem mở nhiều nhất (đếm trong localStorage), mỗi project có mục con Chat, Việc, Vận hành, Cấu hình; "Xem tất cả" mở `/projects`. Việc gần đây của mọi project nằm ở Tổng quan.
@@ -114,6 +115,8 @@ Tạo/sửa kết nối nhận thêm `preset`.
 | GET/PUT/DELETE | `/api/automation/library/:kind[/:name]` | thư viện |
 | GET | `/api/automation/mcp/catalog` | MCP phổ biến |
 | GET | `/api/automation/mcp/registry?q=` | tìm trong MCP Registry |
+| GET | `/api/automation/mcp/status?path=` | kết quả `claude mcp list` mới nhất của thư mục (`""` = toàn máy) (ADR-088) |
+| POST | `/api/automation/mcp/status/check` | `{path}` → bắt đầu kiểm tra; xong thì đẩy event `mcp.status` |
 | GET | `/api/jobs` | Việc của mọi project (mọi user) |
 
 ### Skill và đính kèm trong Chat/Việc (đã làm, ADR-025)
@@ -229,13 +232,27 @@ Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-star
 | GET | `/api/status` | Giống `office status` |
 | GET | `/api/doctor` | Giống `office doctor` |
 
-### Realtime (SSE)
-| Path | Event |
-|---|---|
-| `GET /api/stream` | `agent.status`, `run.started`, `run.finished`, `finding.created`, `incident.updated`, `approval.created`, `cost.updated` |
-| `GET /api/runs/:id/stream` | `run.event` (log từng dòng) |
+### Burn (đã làm, admin, ADR-087)
 
-Mỗi event có `id` tăng dần để client nối lại bằng `Last-Event-ID`.
+| Method | Path | Mô tả |
+|---|---|---|
+| GET/PUT | `/api/projects/:id/burn` | phiên + việc / lưu cài đặt |
+| POST | `/api/projects/:id/burn/start` | cài đặt kèm `ends_at?`, `no_end?`; mặc định tắt lúc reset hạn mức tuần, không có thì sau 8 giờ |
+| POST | `/api/projects/:id/burn/stop` | tắt, việc đang làm thành tạm dừng |
+| POST | `/api/burn-items/:item/skip\|first\|drop-worktree` | thao tác trên một việc |
+
+### Realtime (SSE, ADR-072, ADR-078)
+Một kết nối `GET /api/events` mỗi tab. Event đầu tiên là `hello {sid}`.
+
+| Event | Nội dung |
+|---|---|
+| `change` | `{tables}`: bảng vừa đổi, trang tự tải lại phần liên quan |
+| `stats`, `machine` | số liệu máy (admin); `machine` chỉ khi bật chủ đề qua `POST /api/events/topics` |
+| `message`, `conversation`, `conversation.deleted` | dữ liệu chat, gửi đúng người được xem |
+| `incidents` | Cần xử lý của từng người |
+| `mcp.status` | kết quả kiểm tra MCP (admin) |
+
+Kết nối lại thì tải lại tất cả một lần.
 
 ### Webhook (không cho UI)
 | Method | Path | Mô tả |

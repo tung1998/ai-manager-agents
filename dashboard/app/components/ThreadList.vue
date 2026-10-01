@@ -5,7 +5,7 @@ import type { DropdownMenuItem } from '@nuxt/ui'
 // screen, a drawer on a phone.
 interface Thread { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, source?: Source, purpose?: string }
 defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, unread?: Set<string>, hasMore?: boolean, loadingMore?: boolean, menu: (c: Thread) => DropdownMenuItem[][] }>()
-const origin = defineModel<'all' | Source>('origin', { default: 'all' })
+const origin = defineModel<ChatFilter>('origin', { default: 'all' })
 const emit = defineEmits<{ open: [Thread], new: [], more: [] }>()
 const { t, dateLocale } = useLang()
 // a skill's or template's editor chat, else where it started (web, a bot, an automation)
@@ -18,7 +18,7 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="space-y-1.5 border-b border-(--ui-border) p-2">
       <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" block class="justify-start" @click="emit('new')" />
-      <SourceFilter v-model="origin" />
+      <SourceFilter v-model="origin" burn />
     </div>
     <div class="flex-1 overflow-y-auto p-1">
       <LoadingRows v-if="loading && !conversations.length" :n="6" />

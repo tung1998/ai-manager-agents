@@ -361,6 +361,12 @@ Unique: `key` khi `repo_id IS NULL`; `repo_id` khi khác null (một mô hình m
 
 Append-only. Không có API update/delete.
 
+### `burn_sessions` / `burn_items` (ADR-087)
+
+Mỗi project có một phiên Burn (`project_id` UNIQUE): `conversation_id` (chat `purpose = burn`), `agent_id`, `model_tier`, `max_subagents`, `result_mode` (`branch` | `patch`), `focus`, `ends_at` (null = không hẹn), `state` (`running` | `stopped` | `waiting_limit`), `waiting_until`, `started_by`.
+
+Việc của phiên: `title`, `kind` (`unfinished` | `upgrade` | `bug`), `detail`, `status` (`found` | `queued` | `doing` | `paused` | `done` | `failed` | `skipped`), `priority`, `branch`, `worktree`, `summary`, `subagents`, `cost_usd`.
+
 ## Khác biệt SQLite / Postgres
 
 | Điểm | SQLite | Postgres |
