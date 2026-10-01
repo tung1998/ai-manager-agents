@@ -43,7 +43,10 @@ watch(procs, (list) => {
 
 // states refresh while the tab is open (logs of the selected one stream via SSE)
 let poll: ReturnType<typeof setInterval> | undefined
-onMounted(() => { poll = setInterval(() => { refresh(); refreshMon() }, 3000) })
+const startPoll = () => { clearInterval(poll); poll = setInterval(() => { refresh(); refreshMon() }, 3000) }
+onMounted(startPoll)
+onActivated(() => { refresh(); refreshMon(); startPoll() }) // another tab: no polling
+onDeactivated(() => clearInterval(poll))
 onBeforeUnmount(() => clearInterval(poll))
 
 // ---- actions ----
@@ -149,7 +152,10 @@ const statusMeta = computed<Record<ProcState['status'], { label: string, color: 
 }))
 const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | undefined
-onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 1000) })
+const startClock = () => { clearInterval(clock); clock = setInterval(() => { now.value = Date.now() }, 1000) }
+onMounted(startClock)
+onActivated(startClock)
+onDeactivated(() => clearInterval(clock))
 onBeforeUnmount(() => clearInterval(clock))
 function uptime(p: Proc) {
   if (p.state.status !== 'running' || !p.state.started_at) return ''

@@ -149,9 +149,15 @@ onLiveChange(async (tables) => {
   } catch { /* gone, or offline: the next change tries again */ }
 })
 
-async function scrollDown() {
+let scrollQueued = false
+async function scrollDown() { // once a frame, however many tokens came in it
+  if (scrollQueued) return
+  scrollQueued = true
   await nextTick()
-  listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
+  requestAnimationFrame(() => {
+    scrollQueued = false
+    listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
+  })
 }
 // a chat just opened shows its last message at once (no scrolling down from
 // the top); it stays there while what it shows settles (markdown, images)
