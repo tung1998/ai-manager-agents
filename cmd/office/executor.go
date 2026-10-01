@@ -27,6 +27,9 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 	if c := trigger.CeilingOf(ctx); c != "" { // a bot's Người dùng: no higher than proposing (ADR-081)
 		ctx = chat.WithCeiling(ctx, c)
 	}
+	if d, ok := trigger.TimeLimitOf(ctx); ok { // the automation's own limit (0: none, ADR-082)
+		ctx = chat.WithTurnTimeout(ctx, d)
+	}
 	// extra read dirs: internal/chat.Engine reads them straight off the job
 	// (computed once when it was created, ADR-074 security fix) — not from ctx.
 	untrusted := trigger.UntrustedOf(ctx)

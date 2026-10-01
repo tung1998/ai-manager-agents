@@ -145,6 +145,7 @@ type turnSpec struct {
 	total      *atomic.Int32 // replies to the person's message so far, hand-offs included
 	tier       string        // model tier for this turn ("" = the agent's)
 	ceiling    string        // the most the person's message may have run (ADR-081)
+	limit      time.Duration // how long it may take (0: none; <0: a chat's 20 minutes) — the message's, ADR-082
 }
 
 // startTurn starts an agent's answer; nil and why when it cannot: the agent
@@ -164,9 +165,13 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 	if s.ceiling != "" {
 		base = WithCeiling(base, s.ceiling)
 	}
-	runCtx, cancel := context.WithTimeout(WithModelTier(base, s.tier), 20*time.Minute)
+	limit := s.limit
+	if limit < 0 { // not said: a chat's turn
+		limit = defaultTurnTimeout
+	}
+	runCtx, cancel := withTimeout(WithModelTier(base, s.tier), limit)
 	t := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor, total: s.total, tier: s.tier, ceiling: s.ceiling,
+		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor, total: s.total, tier: s.tier, ceiling: s.ceiling, limit: limit,
 		agentID: s.agent.ID, agentName: s.agent.Name, background: s.background, delegator: s.delegator}
 	e.mu.Lock()
 	key := conv.ID + "/" + s.agent.ID
@@ -243,7 +248,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 				notes = append(notes, fmt.Sprintf("Đã dừng giao việc cho %s: quá %d lượt agent giao việc cho nhau trong một tin nhắn. Hãy tag lại nếu cần.", d.agent.Name, most))
 				continue
 			}
-			started, why := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor, total: prev.total, tier: prev.tier, ceiling: prev.ceiling,
+			started, why := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor, total: prev.total, tier: prev.tier, ceiling: prev.ceiling, limit: prev.limit,
 				title:  agent.Name + " → " + d.agent.Name,
 				prompt: fmt.Sprintf("%s giao việc cho bạn:\n%s\n\nLàm phần này rồi báo kết quả ngắn gọn.", agent.Name, d.task)})
 			if started == nil {
@@ -263,7 +268,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 			if tier == "" && agents[i].ModelTier == storage.TierStrong && agents[i].LLMModel == "" {
 				tier = storage.TierBalanced
 			}
-			_, why := e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, total: prev.total, tier: tier, ceiling: prev.ceiling, title: agent.Name + " → " + agents[i].Name,
+			_, why := e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, total: prev.total, tier: tier, ceiling: prev.ceiling, limit: prev.limit, title: agent.Name + " → " + agents[i].Name,
 				prompt: fmt.Sprintf("%s đã làm xong phần việc bạn giao (xem tin gần nhất). Báo lại kết quả cho người dùng ngắn gọn và làm tiếp nếu cần.", agent.Name)})
 			e.note(conv, why)
 		}
@@ -272,7 +277,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 	// the next agent the person tagged; one that cannot answer is skipped with a note
 	for i, q := range prev.queue {
 		next, why := e.startTurn(conv, project, turnSpec{agent: q.agent, queue: prev.queue[i+1:], hops: hops, answered: prev.answered + 1, actor: prev.actor,
-			replace: prev, total: prev.total, tier: prev.tier, ceiling: prev.ceiling, title: q.from + " → " + q.agent.Name,
+			replace: prev, total: prev.total, tier: prev.tier, ceiling: prev.ceiling, limit: prev.limit, title: q.from + " → " + q.agent.Name,
 			prompt: fmt.Sprintf("%s vừa tag bạn trong cuộc chat. Trả lời phần dành cho bạn trong tin gần nhất.", q.from)})
 		if next != nil {
 			return next.ID

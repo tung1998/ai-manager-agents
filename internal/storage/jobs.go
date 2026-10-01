@@ -182,6 +182,20 @@ type AutomationLimits struct {
 	DebounceSeconds      int     `json:"debounce_seconds,omitempty"`
 	DebounceKey          string  `json:"debounce_key,omitempty"`
 	DebounceMaxSeconds   int     `json:"debounce_max_seconds,omitempty"`
+	// MaxParallel: runs of it at once (0 = 1). At its time with that many
+	// still running, no new one starts — the running ones go on (ADR-082).
+	MaxParallel int `json:"max_parallel,omitempty"`
+	// MaxMinutes: how long one run may take (0 = no limit).
+	MaxMinutes int `json:"max_minutes,omitempty"`
+}
+
+// Parallel is how many runs of a may run at once: a kept conversation is
+// one chat, answered one turn at a time.
+func (a Automation) Parallel() int {
+	if a.KeepContext || a.Limits.MaxParallel < 1 {
+		return 1
+	}
+	return a.Limits.MaxParallel
 }
 
 // AutomationScript is code an automation runs, without AI (ADR-041).

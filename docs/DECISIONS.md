@@ -1725,3 +1725,12 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Không có trong cả hai danh sách: bot không trả lời.
 - Không còn tự duyệt theo chế độ. Đề xuất chỉ được duyệt tự động khi chính lượt đó đã có toàn quyền (ADR-074).
 - `/create-thread` có ô nhập tên thread (không bắt buộc) trong menu `/` của Discord.
+
+## ADR-082: Tự động hóa chạy song song, không giới hạn thời gian
+- **Bối cảnh:** "migrate mỗi 20 phút" lỗi `context deadline exceeded` sau đúng 20 phút, vì mỗi lượt agent bị cắt cứng ở 20 phút. Tới giờ mà lần trước chưa xong thì lịch bỏ qua, trình chạy job cũng chỉ cho một job mỗi tự động hóa chạy cùng lúc.
+- `Limits.MaxMinutes` (thời gian tối đa mỗi lần, 0 = không giới hạn): tự động hóa mặc định không giới hạn; chat thường vẫn 20 phút. Giá trị đi qua `trigger.WithTimeLimit` → `chat.WithTurnTimeout` và áp cho cả các lượt giao việc của lần chạy đó.
+- `Limits.MaxParallel` (mặc định 1, tối đa 10):
+  - Tới giờ, nếu số lần đang chạy ít hơn N thì mở thêm một lần mới bên cạnh. Đủ N thì bỏ qua lần này, không dừng lần nào đang chạy.
+  - Trình chạy đếm số job đang chạy của từng tự động hóa (`busy`), cho tới N.
+  - Tự động hóa giữ ngữ cảnh luôn chỉ 1 lần một lúc, vì dùng chung một cuộc chat.
+- Cả office chạy tối đa 4 job cùng lúc (trước là 2), để vài lần chạy song song không chặn tin của bot.

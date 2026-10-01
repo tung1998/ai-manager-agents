@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
@@ -71,6 +72,33 @@ func WithNoTools(ctx context.Context) context.Context {
 }
 
 func noTools(ctx context.Context) bool { v, _ := ctx.Value(noToolsKey{}).(bool); return v }
+
+type turnTimeoutKey struct{}
+
+// WithTurnTimeout is how long a turn may take (0: no limit) instead of the
+// chat's 20 minutes: an automation's own (ADR-082); its hand-offs keep it.
+func WithTurnTimeout(ctx context.Context, d time.Duration) context.Context {
+	return context.WithValue(ctx, turnTimeoutKey{}, d)
+}
+
+// turnTimeout is the turn's limit (0: none).
+func turnTimeout(ctx context.Context) time.Duration {
+	if d, ok := ctx.Value(turnTimeoutKey{}).(time.Duration); ok {
+		return d
+	}
+	return defaultTurnTimeout
+}
+
+// defaultTurnTimeout: a chat's turn, when nothing says otherwise.
+const defaultTurnTimeout = 20 * time.Minute
+
+// withTimeout bounds ctx by d (0: only cancelled).
+func withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if d <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, d)
+}
 
 type ceilingKey struct{}
 

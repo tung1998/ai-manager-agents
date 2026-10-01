@@ -378,3 +378,38 @@ func TestChannelAdminGetsAgentFullAccess(t *testing.T) {
 		t.Fatalf("admin full = %v, user full = %v", ja.FullAccess, ju.FullAccess)
 	}
 }
+
+// ADR-082: at its time, with fewer runs going than it may have at once, a
+// new one starts beside them; with as many, none — and none is stopped.
+func TestScheduleRunsInParallelUpToItsLimit(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	r := trigger.New(st, &fakeExec{})
+	past := time.Now().UTC().Add(-time.Minute)
+	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "migrate", Source: "schedule", Action: "chat", Enabled: true,
+		Prompt: "x", Config: storage.AutomationConfig{EveryMinutes: 20}, NextRunAt: &past, Limits: storage.AutomationLimits{MaxParallel: 2}})
+	running := func() {
+		st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: a.ID, Trigger: "schedule", Status: "running"})
+	}
+	count := func() int {
+		jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID})
+		return len(jobs)
+	}
+	running() // the last run is still going
+	r.Tick(ctx, time.Now().UTC())
+	if count() != 2 {
+		t.Fatalf("one running of 2 allowed: jobs = %d, want a new one beside it", count())
+	}
+	a, _ = st.Automations().Get(ctx, a.ID)
+	a.NextRunAt = &past
+	st.Automations().Update(ctx, a)
+	running() // now as many as it may have
+	before := count()
+	r.Tick(ctx, time.Now().UTC())
+	if count() != before {
+		t.Fatalf("at its limit a new run started: %d → %d", before, count())
+	}
+	if (storage.Automation{KeepContext: true, Limits: storage.AutomationLimits{MaxParallel: 3}}).Parallel() != 1 {
+		t.Fatal("a kept conversation ran in parallel")
+	}
+}

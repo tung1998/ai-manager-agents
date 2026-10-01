@@ -377,6 +377,13 @@ async function testRun() {
         <UFormField :label="t('auto.dailyCost')"><UInputNumber v-model="form.limits.daily_cost_usd" :min="0" :step="0.5" class="w-full" /></UFormField>
         <UFormField :label="t('auto.disableAfter')"><UInputNumber v-model="form.limits.disable_after_failures" :min="0" class="w-full" /></UFormField>
       </div>
+      <!-- runs at once and how long each (ADR-082): at its time with as many still going, none more and none stopped -->
+      <div class="mt-3 grid gap-3 @lg:grid-cols-3">
+        <UFormField :label="t('auto.maxParallel')" :help="form.keep_context ? t('auto.maxParallelKept') : t('auto.maxParallelHelp')">
+          <UInputNumber v-model="form.limits.max_parallel" :min="1" :max="10" :disabled="form.keep_context" class="w-full" />
+        </UFormField>
+        <UFormField :label="t('auto.maxMinutes')" :help="t('auto.maxMinutesHelp')"><UInputNumber v-model="form.limits.max_minutes" :min="0" class="w-full" /></UFormField>
+      </div>
       <div v-if="form.source === 'webhook'" class="mt-3 grid gap-3 @lg:grid-cols-3">
         <UFormField :label="t('auto.debounce')"><UInputNumber v-model="form.limits.debounce_seconds" :min="0" :max="3600" class="w-full" /></UFormField>
         <UFormField :label="t('auto.debounceKey')" :help="t('auto.debounceKeyHelp')"><UInput v-model="form.limits.debounce_key" class="w-full font-mono" placeholder="issue.key" /></UFormField>

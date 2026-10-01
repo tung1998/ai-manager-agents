@@ -265,6 +265,7 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	lim.MaxRunsPerHour, lim.DisableAfterFailures = max(lim.MaxRunsPerHour, 0), max(lim.DisableAfterFailures, 0)
 	lim.DebounceSeconds, lim.DebounceMaxSeconds = min(max(lim.DebounceSeconds, 0), 3600), min(max(lim.DebounceMaxSeconds, 0), 6*3600)
 	lim.DailyCostUSD = max(lim.DailyCostUSD, 0)
+	lim.MaxParallel, lim.MaxMinutes = min(max(lim.MaxParallel, 0), 10), max(lim.MaxMinutes, 0) // runs at once, minutes each (ADR-082)
 	// full access needs no limits: a cost cap or an auto-disable are the admin's own choice
 	a.Name, a.Source, a.Action, a.AgentID, a.Prompt, a.KeepContext = in.Name, in.Source, in.Action, in.AgentID, in.Prompt, in.KeepContext
 	a.EditMode, a.Config, a.Limits = s.allowedEditMode(r, in.EditMode), cfg, lim

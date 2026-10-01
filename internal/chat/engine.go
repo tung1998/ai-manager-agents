@@ -85,11 +85,12 @@ type Turn struct {
 
 	// the agents still to answer this message of the person (ADR-044)
 	queue    []queued
-	hops     int    // hand-offs agents made so far
-	answered int    // replies given so far
-	actor    string // who sent the message
-	tier     string // the model tier asked for ("" = each agent's)
-	ceiling  string // the most the message's sender may have run ("" = none): its hand-offs keep it (ADR-081)
+	hops     int           // hand-offs agents made so far
+	answered int           // replies given so far
+	actor    string        // who sent the message
+	tier     string        // the model tier asked for ("" = each agent's)
+	ceiling  string        // the most the message's sender may have run ("" = none): its hand-offs keep it (ADR-081)
+	limit    time.Duration // how long each of its turns may take (0: no limit), its hand-offs too (ADR-082)
 	total    *atomic.Int32
 
 	agentID, agentName string // who answers in this turn
@@ -554,9 +555,10 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	}
 	turnID := fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano())
 	base = proctrack.With(base, proctrack.Info{Kind: "agent", TurnID: turnID, ConversationID: conv.ID, ProjectID: conv.ProjectID, Label: agent.Name})
-	runCtx, cancel := context.WithTimeout(WithInstructions(WithModelTier(base, ModelTierFrom(ctx)), instructionsOf(ctx)), 20*time.Minute)
+	limit := turnTimeout(ctx) // 20 minutes, or an automation's own (0: none, ADR-082)
+	runCtx, cancel := withTimeout(WithInstructions(WithModelTier(base, ModelTierFrom(ctx)), instructionsOf(ctx)), limit)
 	turn := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx)}
+		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx), limit: limit}
 	turn.total.Store(1)
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn
 	e.mu.Unlock()

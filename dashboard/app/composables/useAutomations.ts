@@ -44,6 +44,8 @@ export interface AutomationConfig {
   notify_channel_id?: string, notify_chat_id?: string // what a run answers goes to this bot's chat too
 }
 export interface AutomationLimits {
+  max_parallel?: number // runs at once (ADR-082)
+  max_minutes?: number // how long one run may take (0 = no limit)
   max_runs_per_hour?: number
   daily_cost_usd?: number
   disable_after_failures?: number
@@ -163,7 +165,7 @@ export function emptyDraft(): AutomationDraft {
     action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', model_tier: '', keep_context: false,
     script: { lang: 'bash', body: '', timeout_s: 300 },
     escalate: { when: 'never', action: 'chat', agent_id: '', prompt: '' }, // a script calls no agent in (ADR-057)
-    limits: { max_runs_per_hour: 0, daily_cost_usd: 0, disable_after_failures: 5, debounce_seconds: 0, debounce_key: '', debounce_max_seconds: 0 },
+    limits: { max_parallel: 1, max_minutes: 0, max_runs_per_hour: 0, daily_cost_usd: 0, disable_after_failures: 5, debounce_seconds: 0, debounce_key: '', debounce_max_seconds: 0 },
     // ADR-074: "agent" follows the agent's own permissions; only "override" needs these
     permission_mode: 'agent', override_full_access: false, override_admin_by: '', override_extra_dirs: []
   }

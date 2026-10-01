@@ -53,7 +53,8 @@ type Runner struct {
 	slots      chan struct{}
 	startMu    sync.Mutex // one StartReady at a time: busy snapshot, claim and marking stay together
 	mu         sync.Mutex
-	busy       map[string]bool // origin ids with a job running now
+	busy       map[string]int // origin ids with jobs running now, how many
+	cap        map[string]int // and how many of each may run at once (an automation's Parallel)
 	wg         sync.WaitGroup
 	now        func() time.Time
 	onReply    OnReply
@@ -80,7 +81,8 @@ func (r *Runner) SetOnNotify(fn OnNotify) { r.onNotify = fn }
 
 // New builds a Runner.
 func New(store storage.Store, exec Executor) *Runner {
-	return &Runner{store: store, exec: exec, slots: make(chan struct{}, 2), busy: map[string]bool{}, now: time.Now}
+	// 4 jobs at once across the office: a few automations in parallel leave room for a bot's messages
+	return &Runner{store: store, exec: exec, slots: make(chan struct{}, 4), busy: map[string]int{}, cap: map[string]int{}, now: time.Now}
 }
 
 // Run ticks every 15 seconds until ctx ends.
@@ -110,8 +112,8 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) {
 		}
 		a.NextRunAt = &next
 		_ = r.store.Automations().Update(ctx, a)
-		if n, _ := r.store.Jobs().Active(ctx, "automation", a.ID); n > 0 {
-			continue // the last run is not over: no overlap
+		if n, _ := r.store.Jobs().Active(ctx, "automation", a.ID); n >= a.Parallel() {
+			continue // as many runs as it may have are still going: none more, none stopped (ADR-082)
 		}
 		_, _, _ = r.enqueueAt(ctx, now, a, "schedule", "", "", "", false)
 	}
@@ -138,8 +140,10 @@ reserve:
 	}
 	r.mu.Lock()
 	busy := make([]string, 0, len(r.busy))
-	for id := range r.busy {
-		busy = append(busy, id)
+	for id, n := range r.busy {
+		if n >= max(r.cap[id], 1) { // at its limit: its next waits
+			busy = append(busy, id)
+		}
 	}
 	r.mu.Unlock()
 	jobs, err := r.store.Jobs().Claim(ctx, now, free, busy)
@@ -150,9 +154,16 @@ reserve:
 		<-r.slots // not needed this time
 	}
 	for _, j := range jobs {
+		limit := 1
+		if j.Origin == "automation" && j.OriginID != "" {
+			if a, err := r.store.Automations().Get(ctx, j.OriginID); err == nil {
+				limit = a.Parallel()
+			}
+		}
 		r.mu.Lock()
 		if j.OriginID != "" {
-			r.busy[j.OriginID] = true
+			r.busy[j.OriginID]++
+			r.cap[j.OriginID] = limit
 		}
 		r.mu.Unlock()
 		r.wg.Add(1)
@@ -160,7 +171,10 @@ reserve:
 			defer r.wg.Done()
 			r.execute(context.WithoutCancel(ctx), j)
 			r.mu.Lock()
-			delete(r.busy, j.OriginID)
+			if r.busy[j.OriginID]--; r.busy[j.OriginID] <= 0 {
+				delete(r.busy, j.OriginID)
+				delete(r.cap, j.OriginID)
+			}
 			r.mu.Unlock()
 			<-r.slots
 			r.StartReady(ctx, r.now().UTC()) // a slot is free: take the next one now
@@ -400,6 +414,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		}
 	}
 	actx := WithModelTier(actor.With(jctx, who), a.ModelTier)
+	actx = WithTimeLimit(actx, time.Duration(a.Limits.MaxMinutes)*time.Minute)                                                 // 0: as long as it takes (ADR-082)
 	actx = proctrack.With(actx, proctrack.Info{Kind: "automation", ProjectID: a.ProjectID, AutomationID: a.ID, Label: a.Name}) // a chat it runs says its agent instead
 	if fromChannel {                                                                                                           // a reply: the admin's words go to the system prompt
 		var instr string
@@ -696,6 +711,19 @@ type followUpKey struct{}
 // WithFollowUp gives a chat run where to send what comes after its answer:
 // the reports of the agents it gave work to (a bot's chat: back to the channel).
 type fullAccessKey struct{}
+
+type timeLimitKey struct{}
+
+// WithTimeLimit is how long the run's agent may take (0: no limit).
+func WithTimeLimit(ctx context.Context, d time.Duration) context.Context {
+	return context.WithValue(ctx, timeLimitKey{}, d)
+}
+
+// TimeLimitOf is the run's limit, and whether it set one at all.
+func TimeLimitOf(ctx context.Context) (time.Duration, bool) {
+	d, ok := ctx.Value(timeLimitKey{}).(time.Duration)
+	return d, ok
+}
 
 type ceilingKey struct{}
 
