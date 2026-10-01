@@ -1084,3 +1084,26 @@ func TestDecidedGoesOn(t *testing.T) {
 		t.Fatal("the agent was run twice for one batch")
 	}
 }
+
+// A bot chat's decisions go to its bot (its answer goes back to the chat), not
+// to a turn on the dashboard.
+func TestDecidedInBotChatGoesToTheBot(t *testing.T) {
+	g := newGroup(t)
+	ctx := context.Background()
+	conv, _ := g.f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: g.f.project.ID, AgentID: g.lead, Purpose: "channel"})
+	got := make(chan string, 1)
+	g.engine.SetOnBotDecided(func(_ context.Context, id, who string, lines []string) { got <- id + "|" + who + "|" + strings.Join(lines, ";") })
+	g.engine.SetDecidedWait(50 * time.Millisecond)
+	g.engine.Decided(conv.ID, "admin@x.io", "✅ ok")
+	select {
+	case s := <-got:
+		if s != conv.ID+"|admin@x.io|✅ ok" {
+			t.Fatalf("to the bot = %q", s)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("not handed to the bot")
+	}
+	if _, err := os.Stat(filepath.Join(g.dir, "call1.args")); err == nil {
+		t.Fatal("a turn ran on the dashboard for a bot's chat")
+	}
+}

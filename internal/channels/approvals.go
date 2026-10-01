@@ -252,7 +252,7 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	// the agent's answer is over: it goes on with what was decided (it would
 	// otherwise stand still until someone wrote again)
 	for conv, done := range decided {
-		m.resume(ctx, ch, in, conv, done)
+		m.resume(ctx, ch, in, conv, done, MayDecide(ch, in.UserID))
 	}
 	// all decided: numbers start again
 	if !slices.ContainsFunc(list, func(p proposal) bool { return m.still(ctx, p) }) {
@@ -312,7 +312,7 @@ func (m *Manager) isAdminEmail(ctx context.Context, email string) bool {
 // resume runs a conversation's agent again once a person decided what it
 // proposed from the bot's chat (ADR-084): what was decided, and its results,
 // as the message to go on from — in that same conversation, as its bot rule.
-func (m *Manager) resume(ctx context.Context, ch storage.Channel, in Incoming, conv string, done []string) {
+func (m *Manager) resume(ctx context.Context, ch storage.Channel, in Incoming, conv string, done []string, admin bool) {
 	jobs, err := m.store.Jobs().List(ctx, storage.JobFilter{ConversationID: conv, Limit: 20})
 	if err != nil {
 		return
@@ -332,12 +332,38 @@ func (m *Manager) resume(ctx context.Context, ch storage.Channel, in Incoming, c
 	who := firstNonEmpty(in.UserName, in.UserID)
 	text := "[office] " + who + " đã quyết các đề xuất của bạn:\n" + strings.Join(done, "\n") +
 		"\n\nLàm tiếp việc đang dở theo kết quả trên (không đề xuất lại những gì đã duyệt); xong thì báo ngắn gọn."
-	p := trigger.ChannelPayload{Message: text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID, ConversationID: conv, Admin: MayDecide(ch, in.UserID)}
+	p := trigger.ChannelPayload{Message: text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID, ConversationID: conv, Admin: admin}
 	raw, _ := json.Marshal(p)
 	actx := actor.With(ctx, ch.Kind+":"+who)
-	if _, _, err := m.runner.Enqueue(actx, rule, ch.Kind, string(raw), "", ""); err != nil {
+	m.mu.Lock() // registered before the runner can answer
+	job, status, err := m.runner.Enqueue(actx, rule, ch.Kind, string(raw), "", "")
+	ad := m.adapters[ch.ID]
+	if err == nil && status == "queued" && ad != nil && m.root != nil { // the chat sees it at work, as for a message
+		tctx, stop := context.WithCancel(m.root)
+		m.waiting[job.ID] = waiter{typing: stop, chat: in.ChatID, started: time.Now()}
+		go typing(tctx, ad, in.ChatID)
+	}
+	m.mu.Unlock()
+	if err != nil {
 		slog.Error("channels: resume after approval", "channel", ch.ID, "err", err)
 		return
 	}
-	m.runner.StartReady(m.root, time.Now().UTC())
+	if m.root != nil {
+		m.runner.StartReady(m.root, time.Now().UTC())
+	}
+}
+
+// DecidedOnDashboard goes on with a bot chat's conversation after an office
+// admin decided its proposals on the dashboard (ADR-084): its agent answers
+// in that chat (the thread, the channel), as the bot's admins' messages run.
+func (m *Manager) DecidedOnDashboard(ctx context.Context, conversationID, who string, done []string) {
+	channelID, chatID := m.chatOf(ctx, actions.Scope{ConversationID: conversationID})
+	if channelID == "" {
+		return
+	}
+	ch, err := m.store.Channels().Get(ctx, channelID)
+	if err != nil || !ch.Enabled {
+		return
+	}
+	m.resume(ctx, ch, Incoming{ChatID: chatID, UserName: who}, conversationID, done, true)
 }

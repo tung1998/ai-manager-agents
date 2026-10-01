@@ -139,3 +139,38 @@ func TestAdminsAreNamed(t *testing.T) {
 		t.Fatal("the Admin list is not who decides")
 	}
 }
+
+// ADR-084: a bot chat's card decided on the dashboard: the bot goes on in
+// that chat, as its admins' messages run.
+func TestDecidedOnDashboard(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Approvers: []string{"7"}})
+	rule, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "@bot", Source: "discord", Action: "chat", Enabled: true, Config: storage.AutomationConfig{ChannelID: ch.ID}})
+	conv, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, Purpose: "channel"})
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "thread-9", UserID: "8", ConversationID: conv.ID})
+	st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", OriginID: rule.ID, Trigger: "discord", ConversationID: conv.ID, Payload: string(payload), Status: "done"})
+	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	m.DecidedOnDashboard(ctx, conv.ID, "admin@x.io", []string{"✅ Đã duyệt Chạy lệnh: pnpm test — ok"})
+	jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: rule.ID})
+	for _, j := range jobs {
+		var p trigger.ChannelPayload
+		if json.Unmarshal([]byte(j.Payload), &p) == nil && strings.Contains(p.Message, "pnpm test") {
+			if p.ChatID != "thread-9" || p.ConversationID != conv.ID || !p.Admin {
+				t.Fatalf("resumed = %+v", p)
+			}
+			return
+		}
+	}
+	t.Fatal("the bot did not go on")
+}

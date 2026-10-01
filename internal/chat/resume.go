@@ -26,6 +26,15 @@ type decisions struct {
 	mu      sync.Mutex
 	pending map[string]*decidedBatch
 	wait    time.Duration
+	// onBot goes on with a bot chat's conversation (its answer goes back to the chat)
+	onBot func(ctx context.Context, conversationID, who string, lines []string)
+}
+
+// SetOnBotDecided hands a bot chat's decisions to its bot (ADR-084).
+func (e *Engine) SetOnBotDecided(fn func(ctx context.Context, conversationID, who string, lines []string)) {
+	e.decided.mu.Lock()
+	e.decided.onBot = fn
+	e.decided.mu.Unlock()
 }
 
 // Decided notes that who (an office account's email) decided a proposal of
@@ -66,7 +75,17 @@ func (e *Engine) goOn(conversationID string) {
 		return
 	}
 	conv, err := e.store.Chat().GetConversation(ctx, conversationID)
-	if err != nil || conv.Purpose != "" || conv.TaskID != "" { // the project's own chats (a bot's goes on from the bot)
+	if err == nil && conv.Purpose == "channel" { // a bot's: it answers in its chat
+		e.dropDecided(conversationID)
+		d.mu.Lock()
+		onBot := d.onBot
+		d.mu.Unlock()
+		if onBot != nil {
+			onBot(ctx, conversationID, b.who, b.lines)
+		}
+		return
+	}
+	if err != nil || conv.Purpose != "" || conv.TaskID != "" { // the project's own chats
 		e.dropDecided(conversationID)
 		return
 	}

@@ -157,6 +157,7 @@ func serveCmd() *cobra.Command {
 			})
 			bots.SetDecider(chatDecider{store: a.store, chat: chatEngine, acts: acts}) // proposals decided from the chat (ADR-054)
 			office.SetSendFile(bots.SendFileFor)                                       // an agent in a bot's chat posts images and files there (ADR-083)
+			chatEngine.SetOnBotDecided(bots.DecidedOnDashboard)                        // a bot chat's card decided on the dashboard: the bot goes on (ADR-084)
 			bots.Start(ctx)
 
 			// self-update: only under the supervisor and when the source is here
