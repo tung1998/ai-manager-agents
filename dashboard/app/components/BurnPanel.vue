@@ -5,7 +5,7 @@
 // page shows its conversation.
 interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_subagents: number,
-  result_mode: 'branch' | 'patch', focus: string, ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit',
+  result_mode: 'branch' | 'patch', focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit',
   waiting_until?: string, started_by?: string, started_at?: string
 }
 interface Item {
@@ -40,9 +40,9 @@ function left(iso: string) {
 
 // settings (a drawer): saved as they are
 const settingsOpen = ref(false)
-const form = reactive({ agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_subagents: 2, result_mode: 'branch' as Burn['result_mode'], focus: '' })
+const form = reactive({ agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_subagents: 2, result_mode: 'branch' as Burn['result_mode'], order: 'roadmap' as Burn['order'], focus: '' })
 const { stale, reset: resync } = useDraft(burn, form, (b) => {
-  Object.assign(form, { agent_id: b.agent_id, model_tier: b.model_tier, max_subagents: b.max_subagents, result_mode: b.result_mode, focus: b.focus })
+  Object.assign(form, { agent_id: b.agent_id, model_tier: b.model_tier, max_subagents: b.max_subagents, result_mode: b.result_mode, order: b.order ?? 'roadmap', focus: b.focus })
 })
 const saving = ref(false)
 async function saveSettings() {
@@ -151,7 +151,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         </div>
       </div>
       <p class="text-xs text-(--ui-text-muted)">
-        {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_subagents, mode: t(`burn.mode.${form.result_mode}`) }) }}
+        {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_subagents, mode: t(`burn.mode.${form.result_mode}`) }) }} · {{ t(`burn.order.${form.order}`) }}
         <template v-if="items.length"> · {{ t('burn.cost', { usd: totalCost.toFixed(2), n: items.filter(i => i.status === 'done').length }) }}</template>
       </p>
       <p v-if="form.focus" class="text-xs"><span class="text-(--ui-text-muted)">{{ t('burn.focus') }}:</span> {{ form.focus }}</p>
@@ -200,6 +200,9 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
           </UFormField>
           <UFormField :label="t('burn.subagentsLabel')" :help="t('burn.subagentsHelp')">
             <UInputNumber v-model="form.max_subagents" :min="0" :max="5" class="w-full" />
+          </UFormField>
+          <UFormField :label="t('burn.orderLabel')">
+            <URadioGroup v-model="form.order" :items="(['roadmap', 'bugs', 'auto'] as const).map(o => ({ value: o, label: t(`burn.order.${o}`), description: t(`burn.order.${o}Help`) }))" />
           </UFormField>
           <UFormField :label="t('burn.modeLabel')">
             <URadioGroup v-model="form.result_mode" :items="[{ value: 'branch', label: t('burn.mode.branch'), description: t('burn.mode.branchHelp') }, { value: 'patch', label: t('burn.mode.patch'), description: t('burn.mode.patchHelp') }]" />

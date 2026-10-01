@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"errors"
 	"net/http"
 	"strings"
@@ -21,6 +22,7 @@ type burnDTO struct {
 	MaxSubagents   int        `json:"max_subagents"`
 	ResultMode     string     `json:"result_mode"`
 	Focus          string     `json:"focus"`
+	Order          string     `json:"order"`
 	EndsAt         *time.Time `json:"ends_at"`
 	State          string     `json:"state"`
 	WaitingUntil   *time.Time `json:"waiting_until,omitempty"`
@@ -44,14 +46,14 @@ type burnItemDTO struct {
 }
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
-	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxSubagents, b.ResultMode, b.Focus, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
+	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxSubagents, b.ResultMode, b.Focus, cmp.Or(b.Order, "roadmap"), b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
 func (s *server) burnSession(r *http.Request, projectID string) (storage.BurnSession, error) {
 	b, err := s.cfg.Store.Burn().Session(r.Context(), projectID)
 	if errors.Is(err, storage.ErrNotFound) {
-		b = storage.BurnSession{ProjectID: projectID, ModelTier: storage.TierBalanced, MaxSubagents: 2, ResultMode: "branch", State: "stopped"}
+		b = storage.BurnSession{ProjectID: projectID, ModelTier: storage.TierBalanced, MaxSubagents: 2, ResultMode: "branch", Order: "roadmap", State: "stopped"}
 		if agents, err := s.cfg.Chat.Agents(r.Context(), projectID); err == nil {
 			for _, a := range agents {
 				if a.Tier == storage.TierLead {
@@ -96,6 +98,7 @@ type burnInput struct {
 	MaxSubagents *int       `json:"max_subagents"`
 	ResultMode   *string    `json:"result_mode"`
 	Focus        *string    `json:"focus"`
+	Order        *string    `json:"order"`
 	EndsAt       *time.Time `json:"ends_at"`
 	NoEnd        bool       `json:"no_end"` // run until stopped by hand
 }
@@ -118,6 +121,9 @@ func (s *server) applyBurn(in burnInput, b *storage.BurnSession) {
 	}
 	if in.Focus != nil {
 		b.Focus = strings.TrimSpace(*in.Focus)
+	}
+	if in.Order != nil && (*in.Order == "roadmap" || *in.Order == "bugs" || *in.Order == "auto") {
+		b.Order = *in.Order
 	}
 	if in.NoEnd {
 		b.EndsAt = nil

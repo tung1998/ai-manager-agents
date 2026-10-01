@@ -73,6 +73,10 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 	if b.EndsAt != nil && !b.EndsAt.After(time.Now()) {
 		return b, errors.New("giờ tắt đã qua: hãy đặt giờ tắt mới")
 	}
+	// each piece runs in its own worktree: without git it would edit the folder itself
+	if p, err := s.store.Repos().Get(ctx, projectID); err != nil || p.Path == "" || !worktree.IsRepo(ctx, p.Path) {
+		return b, errors.New("Burn cần project là một git repo (mỗi việc chạy trong worktree riêng)")
+	}
 	if b.ConversationID == "" {
 		conv, err := s.chat.StartConversationPurpose(ctx, projectID, b.AgentID, "burn")
 		if err != nil {
@@ -291,8 +295,17 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	if it.Branch == "" {
 		it.Branch = branchName(it)
 	}
-	if s.trees != nil {
-		it.Worktree = s.trees.Path(b.ProjectID, tree)
+	// its worktree first: a run without one would write in the project's own folder
+	p, perr := s.store.Repos().Get(ctx, b.ProjectID)
+	if perr == nil && s.trees != nil {
+		it.Worktree, perr = s.trees.Ensure(ctx, p.Path, b.ProjectID, tree, nil)
+	} else if perr == nil {
+		perr = errors.New("office không có worktree")
+	}
+	if perr != nil {
+		it.Status, it.Summary = "failed", "không tạo được worktree: "+perr.Error()
+		_ = s.store.Burn().UpdateItem(ctx, it)
+		return false
 	}
 	_ = s.store.Burn().UpdateItem(ctx, it)
 	res, err := s.run(runCtx(ctx, b, tree, b.ResultMode != "patch"), b.ConversationID, workPrompt(b, it, again))
@@ -381,13 +394,25 @@ func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty int) stri
 	if empty > 0 {
 		fmt.Fprintf(&sb, "\nĐã có %d lần quét liên tiếp không ra việc. Đừng quét lại những vùng đã xem (xem các lượt trước trong hội thoại này); chọn vùng khác và đào sâu hơn.\n", empty)
 	}
+	roadmap := `   - Lộ trình: đọc tài liệu kế hoạch của project (PLAN, ROADMAP, TODO, spec, ADR) tìm tính năng ghi "chưa làm" hoặc làm dở. Bỏ qua mục chưa được duyệt (đang thiết kế, ý tưởng, nháp chờ duyệt). Tính năng lớn thì tự viết thiết kế ngắn dựa trên spec/ADR liên quan rồi chia thành các phần chạy được độc lập: mỗi phần một burn_add, tiêu đề "<tính năng>: phần 1", "phần 2"…, chi tiết gồm thiết kế, phạm vi phần đó và cách kiểm chứng; làm lần lượt từ phần 1.
+   - Việc dang dở khác: TODO/FIXME, nhánh làm dở, test/build đang fail, đề xuất còn treo trong các chat (dùng search_history).
+`
+	bugs := `   - Lỗi chi tiết: đi từng vùng (package, trang, API), đọc code tìm lỗi thật: xử lý lỗi bị bỏ qua, race/khóa, rò rỉ goroutine/bộ nhớ, trường hợp biên (rỗng, rất lớn, trùng, hủy giữa chừng), kiểm tra quyền, dữ liệu sai sau khi cập nhật.
+`
+	upgrades := `   - Nâng cấp: đường quan trọng chưa có test, chỗ chậm, giao diện khó dùng hoặc thiếu trạng thái (đang tải, lỗi, rỗng), chữ chưa dịch, tài liệu lệch với code.
+`
 	sb.WriteString(`
 Việc của lượt này:
-1. Nếu còn ít việc "found", QUÉT KỸ project. Build/test sạch và không có TODO chưa phải là hết việc; phải đọc code thật:
-   - Việc dang dở: TODO/FIXME, nhánh làm dở, test/build đang fail, đề xuất còn treo trong các chat (dùng search_history), tính năng trong docs/spec chưa làm xong.
-   - Lỗi chi tiết: đi từng vùng (package, trang, API), đọc code tìm lỗi thật: xử lý lỗi bị bỏ qua, race/khóa, rò rỉ goroutine/bộ nhớ, trường hợp biên (rỗng, rất lớn, trùng, hủy giữa chừng), kiểm tra quyền, dữ liệu sai sau khi cập nhật.
-   - Nâng cấp: đường quan trọng chưa có test, chỗ chậm, giao diện khó dùng hoặc thiếu trạng thái (đang tải, lỗi, rỗng), chữ chưa dịch, tài liệu lệch với code.
+1. Nếu còn ít việc "found", QUÉT KỸ project. Build/test sạch và không có TODO chưa phải là hết việc; phải đọc tài liệu và code thật.
 `)
+	switch b.Order {
+	case "bugs":
+		sb.WriteString("   Ưu tiên LỖI TRƯỚC, rồi tới lộ trình, rồi nâng cấp.\n" + bugs + roadmap + upgrades)
+	case "auto":
+		sb.WriteString("   Tự cân nhắc thứ tự theo lợi ích cho người dùng.\n" + roadmap + bugs + upgrades)
+	default: // roadmap
+		sb.WriteString("   Ưu tiên LỘ TRÌNH TRƯỚC: tính năng còn thiếu theo kế hoạch được chọn trước lỗi nhỏ và nâng cấp (lỗi nghiêm trọng như bảo mật, mất dữ liệu thì vẫn làm trước). Danh sách chưa có việc nào từ lộ trình thì quét lộ trình ngay, dù đã có nhiều việc khác.\n" + roadmap + bugs + upgrades)
+	}
 	if b.MaxSubagents > 0 {
 		fmt.Fprintf(&sb, "   Được dùng tối đa %d subagent (công cụ Agent/Task) để quét song song các vùng khác nhau; bạn tự gộp và lọc kết quả.\n", b.MaxSubagents)
 	}
@@ -415,6 +440,9 @@ func workPrompt(b storage.BurnSession, it storage.BurnItem, again bool) string {
 		sb.WriteString("lần này không dùng subagent; ")
 	}
 	sb.WriteString("không push, không merge. Sửa xong thì chạy build/test liên quan cho tới khi đạt.\n")
+	if it.Kind == "unfinished" {
+		sb.WriteString("Nếu đây là một phần của tính năng trong lộ trình: làm đúng phạm vi phần này, ghi quyết định thiết kế vào tài liệu của project (spec/ADR) và đánh dấu tiến độ trong tài liệu kế hoạch; phần sau để lượt sau.\n")
+	}
 	if b.ResultMode == "patch" {
 		sb.WriteString("Thay đổi trong worktree sẽ thành một diff chờ người dùng duyệt.\n")
 	} else {

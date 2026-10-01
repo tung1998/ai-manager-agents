@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -14,13 +15,13 @@ type burnRepo struct{ db dbtx }
 
 func (s *Store) Burn() storage.BurnRepo { return burnRepo{s.q} }
 
-const burnSessionCols = `id, project_id, conversation_id, agent_id, model_tier, max_subagents, result_mode, focus, ends_at, state, waiting_until, started_by, started_at, created_at, updated_at`
+const burnSessionCols = `id, project_id, conversation_id, agent_id, model_tier, max_subagents, result_mode, focus, work_order, ends_at, state, waiting_until, started_by, started_at, created_at, updated_at`
 
 func scanBurnSession(row interface{ Scan(...any) error }) (storage.BurnSession, error) {
 	var s storage.BurnSession
 	var ends, waiting, started sql.NullString
 	var created, updated string
-	err := row.Scan(&s.ID, &s.ProjectID, &s.ConversationID, &s.AgentID, &s.ModelTier, &s.MaxSubagents, &s.ResultMode, &s.Focus, &ends, &s.State, &waiting, &s.StartedBy, &started, &created, &updated)
+	err := row.Scan(&s.ID, &s.ProjectID, &s.ConversationID, &s.AgentID, &s.ModelTier, &s.MaxSubagents, &s.ResultMode, &s.Focus, &s.Order, &ends, &s.State, &waiting, &s.StartedBy, &started, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, storage.ErrNotFound
 	}
@@ -66,11 +67,11 @@ func (r burnRepo) SaveSession(ctx context.Context, s storage.BurnSession) (stora
 		s.CreatedAt = now
 	}
 	s.UpdatedAt = now
-	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_sessions (`+burnSessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_sessions (`+burnSessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (id) DO UPDATE SET conversation_id=excluded.conversation_id, agent_id=excluded.agent_id, model_tier=excluded.model_tier,
-		max_subagents=excluded.max_subagents, result_mode=excluded.result_mode, focus=excluded.focus, ends_at=excluded.ends_at, state=excluded.state,
+		max_subagents=excluded.max_subagents, result_mode=excluded.result_mode, focus=excluded.focus, work_order=excluded.work_order, ends_at=excluded.ends_at, state=excluded.state,
 		waiting_until=excluded.waiting_until, started_by=excluded.started_by, started_at=excluded.started_at, updated_at=excluded.updated_at`,
-		s.ID, s.ProjectID, s.ConversationID, s.AgentID, s.ModelTier, s.MaxSubagents, s.ResultMode, s.Focus, optTime(s.EndsAt), s.State, optTime(s.WaitingUntil),
+		s.ID, s.ProjectID, s.ConversationID, s.AgentID, s.ModelTier, s.MaxSubagents, s.ResultMode, s.Focus, cmp.Or(s.Order, "roadmap"), optTime(s.EndsAt), s.State, optTime(s.WaitingUntil),
 		s.StartedBy, optTime(s.StartedAt), fmtTime(s.CreatedAt), fmtTime(s.UpdatedAt))
 	if isUnique(err) {
 		return s, storage.ErrConflict

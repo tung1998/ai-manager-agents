@@ -42,6 +42,12 @@ func New(dir string) *Manager { return &Manager{Dir: dir, locks: map[string]*syn
 var safeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 // Path is where the worktree name of a project lives.
+// IsRepo: dir is (inside) a git repository.
+func IsRepo(ctx context.Context, dir string) bool {
+	_, err := git(ctx, dir, "rev-parse", "--git-dir")
+	return err == nil
+}
+
 func (m *Manager) Path(projectID, name string) string {
 	return filepath.Join(m.Dir, safeName.ReplaceAllString(projectID, "_"), safeName.ReplaceAllString(name, "_"))
 }

@@ -32,3 +32,33 @@ func TestPlanPromptDigsDeeper(t *testing.T) {
 		t.Errorf("repeat scan should say how many came back empty:\n%s", p2)
 	}
 }
+
+func TestPlanPromptOrder(t *testing.T) {
+	road := planPrompt(storage.BurnSession{Order: "roadmap"}, nil, 0)
+	for _, want := range []string{"LỘ TRÌNH TRƯỚC", "chưa được duyệt", "thiết kế ngắn", "phần 1"} {
+		if !strings.Contains(road, want) {
+			t.Errorf("roadmap prompt lacks %q", want)
+		}
+	}
+	if i, j := strings.Index(road, "Lộ trình"), strings.Index(road, "Lỗi chi tiết"); i < 0 || j < 0 || i > j {
+		t.Errorf("roadmap should come before bugs")
+	}
+	bugs := planPrompt(storage.BurnSession{Order: "bugs"}, nil, 0)
+	if i, j := strings.Index(bugs, "Lộ trình"), strings.Index(bugs, "Lỗi chi tiết"); i < 0 || j < 0 || j > i {
+		t.Errorf("bugs order should list bugs first")
+	}
+	if strings.Contains(bugs, "LỘ TRÌNH TRƯỚC") {
+		t.Error("bugs order should not push the roadmap first")
+	}
+	// an old row with no order behaves as roadmap
+	if !strings.Contains(planPrompt(storage.BurnSession{}, nil, 0), "LỘ TRÌNH TRƯỚC") {
+		t.Error("empty order should default to roadmap")
+	}
+}
+
+func TestWorkPromptFeature(t *testing.T) {
+	p := workPrompt(storage.BurnSession{}, storage.BurnItem{Kind: "unfinished", Title: "Thông báo sự cố: phần 1"}, false)
+	if !strings.Contains(p, "đánh dấu tiến độ") {
+		t.Errorf("a roadmap piece should update the roadmap docs:\n%s", p)
+	}
+}

@@ -216,12 +216,15 @@ type place struct {
 // worktree name (created from the project's current state) or, in direct
 // mode, in the project folder; others read the worktree when there is one
 // (reviewing the team's work) or the project. Without git: read and diffs.
-func (e *Engine) placeFor(ctx context.Context, project storage.Repo, policy perm.Policy, acc perm.Access, name string, write bool, editMode string) (place, error) {
+// full: the run has full access, so it writes whatever its level says; it
+// gets its worktree like a writer (never the project's own folder, unless
+// the conversation edits directly).
+func (e *Engine) placeFor(ctx context.Context, project storage.Repo, policy perm.Policy, acc perm.Access, name string, write bool, editMode string, full bool) (place, error) {
 	if project.Path == "" {
 		home, _ := os.UserHomeDir()
 		return place{dir: home}, nil
 	}
-	write = write && perm.AtLeast(acc.Level, perm.Propose)
+	write = write && (perm.AtLeast(acc.Level, perm.Propose) || full)
 	if editMode == perm.EditDirect {
 		return place{dir: project.Path, write: write, mode: perm.EditDirect}, nil
 	}
@@ -715,7 +718,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if t := treeOf(ctx); t != "" { // a Burn item's own worktree
 		tree = t
 	}
-	pl, err := e.placeFor(ctx, project, policy, acc, tree, true, conv.EditMode)
+	// every way this run gets full access (below): it writes, so it gets its worktree
+	runFull := agentFull || power == assistant.ModeAdmin || (power == "" && fullAccess(ctx))
+	pl, err := e.placeFor(ctx, project, policy, acc, tree, true, conv.EditMode, runFull)
 	if err != nil {
 		fail(err)
 		return
@@ -1150,7 +1155,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	}
 	policy := perm.LoadPolicy(ctx, e.store, project.ID)
 	acc := perm.Resolve(agent, "", policy)
-	pl, err := e.placeFor(ctx, project, policy, acc, "", false, "") // one read-only turn in the project
+	pl, err := e.placeFor(ctx, project, policy, acc, "", false, "", false) // one read-only turn in the project
 	if err != nil {
 		return InvokeResult{}, err
 	}
@@ -1347,6 +1352,15 @@ func (e *Engine) SweepWorktrees(ctx context.Context, maxAge time.Duration) {
 			continue
 		}
 		e.trees.Sweep(ctx, p.Path, p.ID, func(name string) bool {
+			// a Burn's: a piece's own (its work waits there while paused), and its scans
+			if id, ok := strings.CutPrefix(name, "burn-scan-"); ok {
+				_, err := e.store.Burn().SessionByID(ctx, id)
+				return err == nil
+			}
+			if id, ok := strings.CutPrefix(name, "burn-"); ok {
+				_, err := e.store.Burn().Item(ctx, id)
+				return err == nil
+			}
 			id, ok := strings.CutPrefix(name, "chat-")
 			if !ok {
 				return false

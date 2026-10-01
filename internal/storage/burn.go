@@ -12,6 +12,7 @@ type BurnSession struct {
 	MaxSubagents                           int
 	ResultMode                             string // branch | patch
 	Focus                                  string
+	Order                                  string // roadmap | bugs | auto: what it looks for first
 	EndsAt                                 *time.Time
 	State                                  string // running | stopped | waiting_limit
 	WaitingUntil                           *time.Time

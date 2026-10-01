@@ -14,6 +14,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -25,6 +26,8 @@ import (
 type fx struct {
 	st      storage.Store
 	svc     *burn.Service
+	engine  *chat.Engine
+	trees   *worktree.Manager
 	project storage.Repo
 	dir     string
 }
@@ -76,7 +79,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lư�
 	engine.SetWorktrees(trees)
 	svc := burn.New(st, engine, trees)
 	svc.SetIdle(50 * time.Millisecond)
-	return fx{st: st, svc: svc, project: project, dir: dir}
+	return fx{st: st, svc: svc, engine: engine, trees: trees, project: project, dir: dir}
 }
 
 func waitItem(t *testing.T, st storage.Store, id, status string) storage.BurnItem {
@@ -185,5 +188,74 @@ func TestBurnEndsAndToolsAreItsOwn(t *testing.T) {
 	}
 	if _, err := f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: "cnv_other"}, "burn_add", burn.ToolInput{Title: "x"}); err == nil {
 		t.Fatal("a burn tool worked outside its conversation")
+	}
+}
+
+// The real case (2026-10-01): a Burn whose agent may only read in its mode
+// still runs with full access, so it writes. It must write in its own
+// worktree, never in the project's folder.
+func TestBurnReadOnlyAgentStillWorksInItsWorktree(t *testing.T) {
+	f := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
+	agents, _ := f.st.Agents().List(ctx, m.ID)
+	for _, a := range agents {
+		a.Permissions.Level = perm.Read
+		f.st.Agents().Update(ctx, a)
+	}
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped"})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc chỉ đọc", Kind: "bug"})
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: items[0].ID})
+	it := waitItem(t, f.st, items[0].ID, "doing")
+	f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: it.ID, Summary: "xong"})
+	it = waitItem(t, f.st, it.ID, "done")
+	if _, err := os.Stat(filepath.Join(f.dir, "made-by-agent.txt")); err == nil {
+		t.Fatal("a read-only agent with full access wrote in the project's own folder")
+	}
+	if strings.Contains(it.Summary, "không commit được") {
+		t.Fatalf("not committed: %s", it.Summary)
+	}
+	f.svc.Stop(ctx, f.project.ID)
+}
+
+// Office starting sweeps worktrees whose chat is gone: a Burn piece's own is
+// not one of those (its work waits there while paused).
+func TestSweepKeepsBurnWorktrees(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	b, _ := f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ResultMode: "branch", State: "stopped"})
+	it, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "x", Kind: "bug", Status: "paused"})
+	for _, name := range []string{"burn-" + it.ID, "burn-scan-" + b.ID, "burn-bit_gone"} {
+		if _, err := f.trees.Ensure(ctx, f.dir, f.project.ID, name, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.engine.SweepWorktrees(ctx, 0)
+	for name, kept := range map[string]bool{"burn-" + it.ID: true, "burn-scan-" + b.ID: true, "burn-bit_gone": false} {
+		if got := f.trees.Exists(f.project.ID, name); got != kept {
+			t.Errorf("%s: exists=%v, want %v", name, got, kept)
+		}
+	}
+}
+
+// Without git there is no worktree: Burn would edit the project's own folder,
+// so it does not start.
+func TestBurnNeedsGit(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	plain, _ := f.st.Repos().Create(ctx, storage.Repo{Name: "plain", Path: t.TempDir()})
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: plain.ID, ResultMode: "branch", State: "stopped"})
+	_, err := f.svc.Begin(ctx, plain.ID, "admin@x.io")
+	if err == nil || !strings.Contains(err.Error(), "git") {
+		t.Fatalf("Burn on a folder without git: %v", err)
 	}
 }

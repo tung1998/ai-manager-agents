@@ -1770,6 +1770,7 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - Giờ tắt mặc định là lần reset hạn mức tuần (`seven_day.resets_at`) của kết nối AI; không có dữ liệu thì sau 8 giờ.
 - Trang Burn là tab admin trong project: trạng thái, đếm ngược, bật (qua hộp xác nhận) và tắt, ngăn cài đặt, bảng việc theo cột.
 - Lượt quét phải đọc code theo từng vùng (lỗi chi tiết, nâng cấp, việc dang dở), được dùng subagent để quét song song, và chỉ được nói "hết việc" khi đã liệt kê các vùng đã xem. Quét liên tiếp không ra việc thì chờ lâu dần (5 → 10 → 20 → 40 phút, tối đa 1 giờ) và được dặn chọn vùng khác.
+- Cài đặt **Ưu tiên** (`work_order`, migration 00048): `roadmap` (mặc định), `bugs` hoặc `auto`. Ở chế độ lộ trình, agent đọc PLAN/spec/ADR tìm tính năng "chưa làm", bỏ qua mục chưa duyệt (đang thiết kế, ý tưởng). Tính năng lớn thì tự viết thiết kế ngắn, chia thành "<tính năng>: phần 1, 2…" và làm lần lượt. Mỗi phần ghi quyết định vào spec/ADR và đánh dấu tiến độ trong kế hoạch. Lỗi nghiêm trọng (bảo mật, mất dữ liệu) vẫn được làm trước.
 
 ## ADR-088: Trạng thái kết nối MCP
 - `automation.MCPHealth` chạy `claude mcp list` (mất khoảng 30 giây) trong nền, ở thư mục của project hoặc thư mục home khi kiểm tra toàn máy. Kết quả mới nhất của mỗi thư mục được giữ trong bộ nhớ. Mỗi lúc chỉ chạy một lần kiểm tra cho một thư mục.
@@ -1783,3 +1784,11 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Nhãn trạng thái trên từng server, rê chuột xem chi tiết lỗi hoặc cách đăng nhập.
   - Mục thu gọn "Kết nối khác" cho các server Claude thấy nhưng không có trong danh sách cài (connector claude.ai, plugin).
 - Mở tab thì tự kiểm tra lại nếu kết quả cũ hơn 10 phút.
+
+## ADR-089: Lượt toàn quyền luôn chạy trong worktree
+- **Sự cố (2026-10-01):** phiên Burn sửa thẳng thư mục chính của project. Agent ở mode `operate` chỉ có quyền đọc, nên `placeFor` không tạo worktree. Nhưng lượt chạy có toàn quyền, nên Claude vẫn ghi được, và ghi ngay vào thư mục chính. Ngoài ra, lúc office khởi động `SweepWorktrees` còn xóa mọi worktree `burn-*`.
+- **Sửa:**
+  - Lượt có toàn quyền từ bất kỳ nguồn nào (quyền của agent, admin bot, Burn, trợ lý ở mức admin) được coi là có quyền ghi khi chọn chỗ chạy. Nhờ vậy nó luôn có worktree riêng, trừ khi cuộc chat tự bật sửa trực tiếp.
+  - Burn tự tạo worktree trước mỗi lượt làm; không tạo được thì việc đó thất bại, không chạy. Burn chỉ bật được trên project là git repo.
+  - `SweepWorktrees` giữ lại `burn-<việc>` và `burn-scan-<phiên>` khi việc hoặc phiên đó còn tồn tại.
+- Thay đổi agent đã làm trong sự cố được chuyển sang nhánh của từng việc: `burn/fx0843kb-…` (xong) và `burn/3km4ad6h-…` (dở). Không có gì lên `main`.
