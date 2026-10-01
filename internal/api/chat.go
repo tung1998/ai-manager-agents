@@ -93,10 +93,23 @@ func (s *server) chatAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
-	list, err := s.cfg.Store.Chat().ListConversationsFrom(r.Context(), r.PathValue("id"), r.URL.Query().Get("source"), 100)
+	// a page at a time (ADR-085): the newest 20, then ?before=<the last one's updated_at>
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	var before time.Time
+	if b := r.URL.Query().Get("before"); b != "" {
+		before, _ = time.Parse(time.RFC3339Nano, b)
+	}
+	list, err := s.cfg.Store.Chat().ListConversationsBefore(r.Context(), r.PathValue("id"), r.URL.Query().Get("source"), before, limit+1)
 	if err != nil {
 		s.internal(w, r, err)
 		return
+	}
+	more := len(list) > limit
+	if more {
+		list = list[:limit]
 	}
 	out := make([]conversationDTO, 0, len(list))
 	private := r.PathValue("id") == assistant.ID(r.Context(), s.cfg.Store) // assistant chats are each person's own
@@ -107,7 +120,7 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, s.toConvDTO(c))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"conversations": out})
+	writeJSON(w, http.StatusOK, map[string]any{"conversations": out, "has_more": more})
 }
 
 func (s *server) createConversation(w http.ResponseWriter, r *http.Request) {

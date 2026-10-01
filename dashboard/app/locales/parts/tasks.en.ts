@@ -30,6 +30,7 @@ const en: Record<keyof typeof vi, string> = {
   'filter.title': 'Filter',
   'chat.more': 'More',
   'chat.members': 'In this chat',
+  'chat.moreThreads': 'Show more',
   'chat.markSeen': 'Mark as read',
   'chat.markUnread': 'Mark as unread',
   'chat.unread': 'Unread answer',

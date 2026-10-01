@@ -84,6 +84,10 @@ func (r chatRepo) ListConversations(ctx context.Context, projectID string, limit
 }
 
 func (r chatRepo) ListConversationsFrom(ctx context.Context, projectID, source string, limit int) ([]storage.Conversation, error) {
+	return r.ListConversationsBefore(ctx, projectID, source, time.Time{}, limit)
+}
+
+func (r chatRepo) ListConversationsBefore(ctx context.Context, projectID, source string, before time.Time, limit int) ([]storage.Conversation, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -99,7 +103,14 @@ func (r chatRepo) ListConversationsFrom(ctx context.Context, projectID, source s
 	case "discord", "telegram":
 		where = `purpose='channel' AND created_by LIKE '` + source + `:%'`
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+convCols+` FROM conversations WHERE project_id=? AND task_id IS NULL AND `+where+` ORDER BY updated_at DESC LIMIT ?`, projectID, limit)
+	page := ""
+	args := []any{projectID}
+	if !before.IsZero() { // the next page: older than the last one shown
+		page = ` AND updated_at < ?`
+		args = append(args, fmtTime(before))
+	}
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+convCols+` FROM conversations WHERE project_id=? AND task_id IS NULL AND `+where+page+` ORDER BY updated_at DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}

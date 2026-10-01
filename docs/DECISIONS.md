@@ -1748,3 +1748,7 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - Mỗi đề xuất chờ duyệt nhớ cuộc chat của nó (`proposal.Conv`). Sau `/approve`, `/reject` hoặc nút bấm, mỗi cuộc chat có đề xuất vừa được quyết sẽ chạy lại agent qua đúng quy tắc bot đã trả lời ở đó (`ChannelPayload.ConversationID`).
 - Tin nhắn mở đầu lượt mới là kết quả từng đề xuất, kèm yêu cầu làm tiếp và không đề xuất lại những gì đã duyệt. Lượt chạy theo quyền của người vừa duyệt: họ là Admin, nên chạy theo quyền của agent.
 - Trên dashboard cũng vậy: duyệt hoặc từ chối thẻ (trong chat hay ở Cần xử lý) thì gọi `Engine.Decided`. Các quyết định của cùng cuộc chat được gom trong 3 giây thành một tin `[office] … đã quyết …`, gửi cho agent của cuộc chat để làm tiếp. Agent đang trả lời thì đợi xong (tối đa 10 phút). Chỉ áp cho chat web của project; chat bot làm tiếp qua bot.
+
+## ADR-085: Danh sách chat tải theo trang
+- `GET /api/projects/{id}/conversations` trả 20 cuộc chat mới nhất kèm `has_more`. Trang sau gọi `?before=<updated_at của cuộc cuối>` (`ListConversationsBefore`).
+- Cuối danh sách có nút "Xem thêm". Một cuộc chat mới (qua event) thì tải lại trang đầu.

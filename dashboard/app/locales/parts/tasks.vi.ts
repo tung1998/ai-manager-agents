@@ -29,6 +29,7 @@ export default {
   'filter.title': 'Lọc',
   'chat.more': 'Thêm',
   'chat.members': 'Trong chat',
+  'chat.moreThreads': 'Xem thêm',
   'chat.markSeen': 'Đánh dấu đã xem',
   'chat.markUnread': 'Đánh dấu chưa xem',
   'chat.unread': 'Có trả lời chưa xem',

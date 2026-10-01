@@ -378,6 +378,8 @@ type ChatRepo interface {
 	// ListConversationsFrom lists them by where they started: web, discord,
 	// telegram, auto, or all (with the bots' chats).
 	ListConversationsFrom(ctx context.Context, projectID, source string, limit int) ([]Conversation, error)
+	// ListConversationsBefore is the next page: those updated before (zero: the newest).
+	ListConversationsBefore(ctx context.Context, projectID, source string, before time.Time, limit int) ([]Conversation, error)
 	TaskConversation(ctx context.Context, taskID string) (Conversation, error)
 	// AutomationConversation is the chat that builds an automation.
 	AutomationConversation(ctx context.Context, automationID string) (Conversation, error)

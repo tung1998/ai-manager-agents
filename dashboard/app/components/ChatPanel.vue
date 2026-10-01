@@ -41,12 +41,31 @@ const { data: agentsData } = _f1
 // where the chats started: the dashboard, a bot, an automation
 const origin = ref<'all' | Source>('all')
 // the server pushes each chat as it changes (ADR-078): the list is loaded again only back online
-const _f2 = usePushedFetch<{ conversations: Conversation[] }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value, lazy: true })
+const _f2 = usePushedFetch<{ conversations: Conversation[], has_more?: boolean }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value, lazy: true })
 const { data: convData, refresh: refreshConvs, pending: convsLoading } = _f2
 // not awaited: the chat shows at once with its skeletons (a phone over a VPN)
 // every agent of the project: the person picks who answers, by its rights
 const agents = computed(() => agentsData.value?.agents ?? [])
 const conversations = computed(() => convData.value?.conversations ?? [])
+// 20 at a time (ADR-085): the next page from the last one shown
+const moreConvs = computed(() => !!convData.value?.has_more)
+const loadingMore = ref(false)
+async function loadMoreConvs() {
+  const list = convData.value?.conversations
+  const last = list?.[list.length - 1]
+  if (!list || !last || loadingMore.value) return
+  loadingMore.value = true
+  try {
+    const res = await $fetch<{ conversations: Conversation[], has_more?: boolean }>(`/api/projects/${props.projectId}/conversations`, { query: { source: origin.value, before: last.updated_at } })
+    const known = new Set(list.map(c => c.id))
+    list.push(...res.conversations.filter(c => !known.has(c.id)))
+    convData.value!.has_more = !!res.has_more
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    loadingMore.value = false
+  }
+}
 
 const current = ref<Conversation | null>(null)
 const threadsOpen = ref(false) // the chats drawer on a phone
@@ -558,13 +577,13 @@ onBeforeUnmount(() => {
   >
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
-      <ThreadList :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :menu="threadMenu" @open="open" @new="newConversation(pick)" />
+      <ThreadList :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :has-more="moreConvs" :loading-more="loadingMore" :menu="threadMenu" @open="open" @new="newConversation(pick)" @more="loadMoreConvs" />
     </aside>
     <!-- a phone: the chats in a drawer -->
     <USlideover v-if="!single && !compact" v-model:open="threadsOpen" side="left" :title="t('chat.threads')" :ui="{ content: 'max-w-xs', body: 'p-0 sm:p-0 flex flex-col' }">
       <template #body>
         <ThreadList
-          :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :menu="threadMenu"
+          :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :has-more="moreConvs" :loading-more="loadingMore" :menu="threadMenu" @more="loadMoreConvs"
           @open="(c) => { threadsOpen = false; open(c) }" @new="threadsOpen = false; newConversation(pick)"
         />
       </template>

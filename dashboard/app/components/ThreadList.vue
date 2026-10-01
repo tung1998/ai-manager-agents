@@ -4,9 +4,9 @@ import type { DropdownMenuItem } from '@nuxt/ui'
 // The chats of a project, newest first: the chat's side column on a wide
 // screen, a drawer on a phone.
 interface Thread { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, source?: Source, purpose?: string }
-defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, unread?: Set<string>, menu: (c: Thread) => DropdownMenuItem[][] }>()
+defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, unread?: Set<string>, hasMore?: boolean, loadingMore?: boolean, menu: (c: Thread) => DropdownMenuItem[][] }>()
 const origin = defineModel<'all' | Source>('origin', { default: 'all' })
-const emit = defineEmits<{ open: [Thread], new: [] }>()
+const emit = defineEmits<{ open: [Thread], new: [], more: [] }>()
 const { t, dateLocale } = useLang()
 // a skill's or template's editor chat, else where it started (web, a bot, an automation)
 const kindIcon = (c: Thread) => c.purpose === 'skill' ? 'i-lucide-sparkles' : c.purpose === 'template' ? 'i-lucide-network' : sourceIcon[c.source ?? 'web']
@@ -51,6 +51,10 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
           </button>
         </UDropdownMenu>
       </div>
+      <UButton
+        v-if="hasMore" block size="xs" color="neutral" variant="ghost" class="mt-1" icon="i-lucide-chevrons-down"
+        :label="t('chat.moreThreads')" :loading="loadingMore" @click="emit('more')"
+      />
     </div>
   </div>
 </template>

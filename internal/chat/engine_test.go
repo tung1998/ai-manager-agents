@@ -1092,7 +1092,9 @@ func TestDecidedInBotChatGoesToTheBot(t *testing.T) {
 	ctx := context.Background()
 	conv, _ := g.f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: g.f.project.ID, AgentID: g.lead, Purpose: "channel"})
 	got := make(chan string, 1)
-	g.engine.SetOnBotDecided(func(_ context.Context, id, who string, lines []string) { got <- id + "|" + who + "|" + strings.Join(lines, ";") })
+	g.engine.SetOnBotDecided(func(_ context.Context, id, who string, lines []string) {
+		got <- id + "|" + who + "|" + strings.Join(lines, ";")
+	})
 	g.engine.SetDecidedWait(50 * time.Millisecond)
 	g.engine.Decided(conv.ID, "admin@x.io", "✅ ok")
 	select {
