@@ -29,6 +29,7 @@ export default {
   'filter.title': 'Lọc',
   'chat.more': 'Thêm',
   'chat.members': 'Trong chat',
+  'chat.agentSettings': 'Cài đặt agent',
   'chat.working': '{name} đang làm…',
   'status.running': 'Đang chạy',
   'status.done': 'Xong',

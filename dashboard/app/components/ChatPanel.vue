@@ -256,6 +256,11 @@ function threadMenu(c: Conversation) {
   if (c.external_url) items.unshift({ label: c.source === 'telegram' ? t('chat.openInTelegram') : t('chat.openInDiscord'), icon: 'i-lucide-external-link', onSelect: () => { window.open(c.external_url, '_blank', 'noopener') } })
   return [items, [{ label: t('chat.delete'), icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => remove(c) }]]
 }
+// an agent's avatar opens onto its settings page
+function agentMenu(a?: { id?: string, name?: string }) {
+  if (!a?.id) return []
+  return [[{ label: t('chat.agentSettings'), icon: 'i-lucide-settings', to: `/projects/${props.projectId}/agents/${a.id}` }]]
+}
 function messageMenu(m: Message) {
   const items = [{ label: t('chat.copyText'), icon: 'i-lucide-copy', onSelect: () => copy(m.content) }]
   if (current.value) items.push({ label: t('chat.copyMessageLink'), icon: 'i-lucide-link', onSelect: () => copy(chatLink(current.value!.id, m.id)) })
@@ -532,7 +537,9 @@ onBeforeUnmount(() => {
           <span
             v-for="m in members" :key="m.agent_id" class="rounded-full ring-2 ring-(--ui-bg)"
             :title="`${m.agent_name} · ${permOf(m.level).label}${m.context_window ? ` · ${Math.round(m.context_tokens / m.context_window * 100)}% context` : ''}`"
-          ><AgentAvatar :agent="agents.find(a => a.id === m.agent_id) ?? { id: m.agent_id, name: m.agent_name }" size="xs" /></span>
+          ><UDropdownMenu :items="agentMenu({ id: m.agent_id })" :content="{ align: 'start' }">
+            <button type="button" class="block rounded-full" :aria-label="m.agent_name"><AgentAvatar :agent="agents.find(a => a.id === m.agent_id) ?? { id: m.agent_id, name: m.agent_name }" size="xs" /></button>
+          </UDropdownMenu></span>
         </div>
         <span v-for="b in background" :key="b.turn_id" class="flex items-center gap-1 rounded-full bg-(--ui-bg-elevated) py-0.5 ps-2 pe-1 text-(--ui-text-muted)">
           <UIcon name="i-lucide-loader-circle" class="size-3 animate-spin" />{{ t('chat.working', { name: b.agent_name }) }}
@@ -604,7 +611,10 @@ onBeforeUnmount(() => {
           </div>
           <div v-else :id="`m-${m.id}`" class="group/msg min-w-0 space-y-2 rounded-lg transition" :class="marked === m.id && 'ring-2 ring-primary/60 ring-offset-4 ring-offset-(--ui-bg)'">
             <div class="flex items-center gap-2 text-xs text-(--ui-text-muted)">
-              <AgentAvatar :agent="agents.find(a => a.name === m.author) ?? { name: m.author }" size="xs" />
+              <UDropdownMenu v-if="agents.some(a => a.name === m.author)" :items="agentMenu(agents.find(a => a.name === m.author))" :content="{ align: 'start' }">
+                <button type="button" class="block rounded-full" :aria-label="m.author"><AgentAvatar :agent="agents.find(a => a.name === m.author)!" size="xs" /></button>
+              </UDropdownMenu>
+              <AgentAvatar v-else :agent="{ name: m.author }" size="xs" />
               <span class="font-medium">{{ m.author }}</span>
               <span>{{ when(m.created_at) }}</span>
               <span v-if="m.cost_usd">· ${{ m.cost_usd.toFixed(3) }}</span>

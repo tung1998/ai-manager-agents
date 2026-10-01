@@ -30,6 +30,7 @@ const en: Record<keyof typeof vi, string> = {
   'filter.title': 'Filter',
   'chat.more': 'More',
   'chat.members': 'In this chat',
+  'chat.agentSettings': 'Agent settings',
   'chat.working': '{name} is working…',
   'status.running': 'Running',
   'status.done': 'Done',
