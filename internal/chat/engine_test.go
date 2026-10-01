@@ -1062,3 +1062,25 @@ func TestCeilingCapsTheTurn(t *testing.T) {
 		t.Fatalf("the cap was not applied:\n%s", args)
 	}
 }
+
+// ADR-084: proposals decided on the dashboard a moment apart send the chat's
+// agent one message with both results, and it goes on.
+func TestDecidedGoesOn(t *testing.T) {
+	g := newGroup(t)
+	g.sendAll(t, "chuẩn bị deploy")
+	g.engine.SetDecidedWait(150 * time.Millisecond)
+	g.engine.Decided(g.conv.ID, "admin@x.io", "✅ Đã duyệt Chạy lệnh: pnpm test — ok")
+	g.engine.Decided(g.conv.ID, "admin@x.io", "❌ Đã từ chối Push lên remote: origin main")
+	got := g.waitAuthors(t, 2)
+	if len(got) != 2 {
+		t.Fatalf("authors = %v", got)
+	}
+	_, in := call(t, g.dir, 2)
+	if !strings.Contains(in, "pnpm test") || !strings.Contains(in, "origin main") || !strings.Contains(in, "Làm tiếp") {
+		t.Fatalf("one message with both results:\n%s", in)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(g.dir, "call3.args")); err == nil {
+		t.Fatal("the agent was run twice for one batch")
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/chat"
@@ -312,6 +313,13 @@ func (s *server) decidePatch(w http.ResponseWriter, r *http.Request, approve boo
 		failed = errors.New(p.Detail)
 	}
 	s.audit(r, audit.Change{Action: action, ResourceID: p.ID, ProjectID: projectID, Detail: map[string]any{"files": p.Files, "detail": p.Detail}, Err: failed})
+	if cur, err := s.cfg.Store.Chat().GetPatch(r.Context(), p.ID); err == nil { // its agent goes on (ADR-084)
+		line := "❌ Đã từ chối diff: " + strings.Join(p.Files, ", ")
+		if approve {
+			line = "✅ Diff " + strings.Join(p.Files, ", ") + ": " + firstNonEmptyStr(p.Detail, p.Status)
+		}
+		s.cfg.Chat.Decided(cur.ConversationID, userFrom(r).Email, line)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"patch": p})
 }
 

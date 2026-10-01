@@ -51,6 +51,14 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 		}
 		s.audit(r, audit.Change{Action: verb, Resource: "action", ResourceID: a.ID, ProjectID: a.ProjectID,
 			Detail: map[string]any{"kind": a.Kind, "target": a.Target, "status": a.Status}, Err: runErr})
+		if s.cfg.Chat != nil { // its agent goes on (ADR-084)
+			label := firstNonEmptyStr(actions.Kinds[a.Kind], a.Kind) + ": " + a.Target
+			line := "❌ Đã từ chối " + label
+			if approve {
+				line = "✅ Đã duyệt " + label + " — " + firstNonEmptyStr(a.Detail, a.Status)
+			}
+			s.cfg.Chat.Decided(a.ConversationID, u.Email, line)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"action": chat.ToActionDTO(a)})
 	}
 }

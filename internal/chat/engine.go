@@ -141,6 +141,7 @@ type Engine struct {
 	usage     *usage.Service
 	files     attach.Store
 	onRunning func(conversationID string) // an answer started or ended there (the dashboard's live data)
+	decided   decisions                   // proposals a person decided on the dashboard: the agent goes on (ADR-084)
 	onLimits  func(p storage.Provider, l Limits)
 	office    *officetools.Toolbox
 	mcp       *mcpserver.Server
