@@ -1742,3 +1742,8 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Telegram: `sendPhoto` (ảnh tới 10 MB) hoặc `sendDocument` (tới 50 MB).
 - **An toàn:** chỉ gửi file trong thư mục làm việc của lượt (worktree hoặc project), sau khi resolve symlink. Không gửi `.env*`, `*.pem`, `*.key` hay file trong `.git`. File quá cỡ thì báo lại cho agent.
 - Bỏ ô "Thư mục đọc thêm" khỏi giao diện (chỉ hiện khi đã bật toàn quyền, mà lúc đó agent vốn đọc được mọi nơi). Backend giữ nguyên.
+
+## ADR-084: Duyệt trong chat bot xong thì agent làm tiếp
+- **Bối cảnh:** đề xuất được liệt kê sau khi lượt trả lời đã kết thúc. Admin duyệt xong, office chạy lệnh và báo kết quả, nhưng agent đứng yên cho tới khi có người nhắn tiếp.
+- Mỗi đề xuất chờ duyệt nhớ cuộc chat của nó (`proposal.Conv`). Sau `/approve`, `/reject` hoặc nút bấm, mỗi cuộc chat có đề xuất vừa được quyết sẽ chạy lại agent qua đúng quy tắc bot đã trả lời ở đó (`ChannelPayload.ConversationID`).
+- Tin nhắn mở đầu lượt mới là kết quả từng đề xuất, kèm yêu cầu làm tiếp và không đề xuất lại những gì đã duyệt. Lượt chạy theo quyền của người vừa duyệt: họ là Admin, nên chạy theo quyền của agent.

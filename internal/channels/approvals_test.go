@@ -82,6 +82,9 @@ func TestApprovalsFromChat(t *testing.T) {
 	}
 
 	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
+	// the bot's rule answered there: once decided, its agent goes on (ADR-084)
+	rule, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "@bot", Source: "discord", Action: "chat", Enabled: true, Config: storage.AutomationConfig{ChannelID: ch.ID}})
+	st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", OriginID: rule.ID, Trigger: "discord", ConversationID: conv.ID, Status: "done"})
 	act, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm lint", Status: "pending"})
 	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "42", ConversationID: conv.ID})
 	origin := storage.Job{ID: "job_1", Payload: string(payload)}
@@ -100,6 +103,19 @@ func TestApprovalsFromChat(t *testing.T) {
 	got = bot.wait(t, "42", 4)
 	if d := dec.list(); len(d) != 1 || d[0] != "approve:action:"+act.ID+":discord:an" || !strings.Contains(got[3], "Đã duyệt") {
 		t.Fatalf("approve = %v %q", d, got[3])
+	}
+	resumed := false
+	for deadline := time.Now().Add(3 * time.Second); !resumed && time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: rule.ID})
+		for _, j := range jobs {
+			var p trigger.ChannelPayload
+			if json.Unmarshal([]byte(j.Payload), &p) == nil && p.ConversationID == conv.ID && strings.Contains(p.Message, "pnpm lint") && strings.Contains(p.Message, "Làm tiếp") {
+				resumed = true
+			}
+		}
+	}
+	if !resumed {
+		t.Fatal("the agent was not run again with what was decided")
 	}
 	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/mode direct", Addressed: true}
 	if got = bot.wait(t, "42", 5); !strings.Contains(got[4], "không còn chế độ") {

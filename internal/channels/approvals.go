@@ -2,14 +2,19 @@ package channels
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
+	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
 
 // Decider decides a proposal (kind patch | action) in the name of by, the
@@ -30,6 +35,7 @@ type proposal struct {
 	Label  string `json:"label"`
 	Action string `json:"action,omitempty"` // the action's kind (git_push, run_command…)
 	Target string `json:"target,omitempty"`
+	Conv   string `json:"conv,omitempty"` // the conversation it waits in: its agent goes on once decided
 }
 
 func pendingKey(channelID, chatID string) string {
@@ -104,7 +110,7 @@ func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, 
 		if known[p.ID] {
 			continue
 		}
-		p.N, next = next, next+1
+		p.N, next, p.Conv = next, next+1, conversationID
 		list = append(list, p)
 		asked = true
 	}
@@ -229,6 +235,7 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 		return "Hãy ghi số đề xuất, ví dụ /approve 1 hoặc /approve all.\n" + m.pendingText(ctx, ch, list)
 	}
 	var lines []string
+	decided := map[string][]string{} // by conversation
 	for _, p := range picked {
 		if !m.still(ctx, p) {
 			if !all {
@@ -238,6 +245,14 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 		}
 		detail, err := m.decider.Decide(ctx, p.Kind, p.ID, approve, by)
 		lines = append(lines, outcome(p, approve, detail, err))
+		if p.Conv != "" {
+			decided[p.Conv] = append(decided[p.Conv], outcome(p, approve, detail, err))
+		}
+	}
+	// the agent's answer is over: it goes on with what was decided (it would
+	// otherwise stand still until someone wrote again)
+	for conv, done := range decided {
+		m.resume(ctx, ch, in, conv, done)
 	}
 	// all decided: numbers start again
 	if !slices.ContainsFunc(list, func(p proposal) bool { return m.still(ctx, p) }) {
@@ -292,4 +307,37 @@ func (m *Manager) isAdminEmail(ctx context.Context, email string) bool {
 	}
 	u, err := m.store.Users().GetByEmail(ctx, email)
 	return err == nil && u.Role == storage.RoleAdmin && !u.Disabled
+}
+
+// resume runs a conversation's agent again once a person decided what it
+// proposed from the bot's chat (ADR-084): what was decided, and its results,
+// as the message to go on from — in that same conversation, as its bot rule.
+func (m *Manager) resume(ctx context.Context, ch storage.Channel, in Incoming, conv string, done []string) {
+	jobs, err := m.store.Jobs().List(ctx, storage.JobFilter{ConversationID: conv, Limit: 20})
+	if err != nil {
+		return
+	}
+	var rule storage.Automation
+	for _, j := range jobs { // the bot's rule that answered there
+		if j.Origin == "automation" && trigger.IsChannel(j.Trigger) {
+			if a, err := m.store.Automations().Get(ctx, j.OriginID); err == nil && a.Enabled && a.Action == "chat" && a.Config.ChannelID == ch.ID {
+				rule = a
+				break
+			}
+		}
+	}
+	if rule.ID == "" {
+		return
+	}
+	who := firstNonEmpty(in.UserName, in.UserID)
+	text := "[office] " + who + " đã quyết các đề xuất của bạn:\n" + strings.Join(done, "\n") +
+		"\n\nLàm tiếp việc đang dở theo kết quả trên (không đề xuất lại những gì đã duyệt); xong thì báo ngắn gọn."
+	p := trigger.ChannelPayload{Message: text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID, ConversationID: conv, Admin: MayDecide(ch, in.UserID)}
+	raw, _ := json.Marshal(p)
+	actx := actor.With(ctx, ch.Kind+":"+who)
+	if _, _, err := m.runner.Enqueue(actx, rule, ch.Kind, string(raw), "", ""); err != nil {
+		slog.Error("channels: resume after approval", "channel", ch.ID, "err", err)
+		return
+	}
+	m.runner.StartReady(m.root, time.Now().UTC())
 }
