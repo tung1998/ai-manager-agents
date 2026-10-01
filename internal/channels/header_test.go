@@ -733,34 +733,6 @@ func TestNotify(t *testing.T) {
 	}
 }
 
-// A proposal from a chat in direct mode is approved at once; a push still asks;
-// a chat in ask mode asks.
-func TestDirectApprover(t *testing.T) {
-	ctx := context.Background()
-	tmp := t.TempDir()
-	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
-	defer st.Close()
-	st.Migrate(ctx)
-	box, _ := secrets.Load(filepath.Join(tmp, "k"))
-	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
-	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Approvers: []string{"7"}})
-	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
-	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2"})
-	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Payload: string(payload), Status: "running"})
-	run := storage.Action{Kind: "run_command", Target: "git fetch --all", JobID: job.ID}
-	if _, ok := m.DirectApprover(ctx, run); ok {
-		t.Fatal("ask mode approved")
-	}
-	st.Settings().Set(ctx, "channel_approval/"+ch.ID+"/c2", map[string]string{"mode": "direct", "by": "discord:an"})
-	if by, ok := m.DirectApprover(ctx, run); !ok || by != "discord:an" {
-		t.Fatalf("direct = %q %v", by, ok)
-	}
-	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin fix", JobID: job.ID}); ok {
-		t.Fatal("a push was approved without asking")
-	}
-}
-
 // An agent with FullAccess (ADR-074) approves a proposal at once, wherever
 // its job ran (here a plain dashboard chat turn, not a bot's chat); a push
 // still asks, so does creating/running an automation, and losing admin ends it.
@@ -957,21 +929,35 @@ func TestScheduledOverrideAutoApprovesButPushStillAsks(t *testing.T) {
 	}
 }
 
-// /mode admin: everything the agent proposes is approved at once (a push
-// too), and the runs of those who may approve get the machine (full access).
-func TestAdminMode(t *testing.T) {
+// A bot's two lists (ADR-081): a message from its Admin list runs as the
+// agent's own (marked admin), one from Người dùng is not; nobody else is
+// answered.
+func TestAdminAndUsers(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
 	defer st.Close()
 	st.Migrate(ctx)
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
-	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	provs := provider.NewService(st, box, llm.Options{})
+	u := usage.New(st, time.UTC)
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	bin := filepath.Join(tmp, "claude")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+cat >/dev/null
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	engine := chat.NewEngine(st, provs, u)
 	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
-	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"7"}, Header: "-"})
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"8"}, Approvers: []string{"7"}, Header: "-"})
+	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "@bot", Source: "discord", Action: "chat", Enabled: true, Config: storage.AutomationConfig{ChannelID: ch.ID}})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
-	m.SetDecider(&fakeDecider{})
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	m.Start(runCtx)
@@ -980,52 +966,24 @@ func TestAdminMode(t *testing.T) {
 			t.Fatal("the bot did not start")
 		}
 	}
-	bot.in <- channels.Incoming{ChatID: "c2", UserID: "8", Text: "/mode admin", Addressed: true}
-	if got := bot.wait(t, "c2", 1); strings.Contains(got[0], "administrator") {
-		t.Fatalf("someone who may not approve turned it on: %q", got[0])
+	for _, in := range []channels.Incoming{
+		{ChatID: "c1", MessageID: "m1", UserID: "7", UserName: "an", Text: "chào", Addressed: true},
+		{ChatID: "c2", MessageID: "m2", UserID: "8", UserName: "binh", Text: "chào", Addressed: true},
+		{ChatID: "c3", MessageID: "m3", UserID: "9", UserName: "la", Text: "chào", Addressed: true},
+	} {
+		bot.in <- in
 	}
-	bot.in <- channels.Incoming{ChatID: "c2", UserID: "7", UserName: "an", Text: "/mode admin", Addressed: true}
-	if got := bot.wait(t, "c2", 2); !strings.Contains(got[1], "administrator") {
-		t.Fatalf("mode admin = %q", got[1])
+	admin := map[string]bool{}
+	for deadline := time.Now().Add(5 * time.Second); len(admin) < 2 && time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		jobs, _ := st.Jobs().List(ctx, storage.JobFilter{ProjectID: project.ID})
+		for _, j := range jobs {
+			var p trigger.ChannelPayload
+			if json.Unmarshal([]byte(j.Payload), &p) == nil && p.UserID != "" {
+				admin[p.UserID] = p.Admin
+			}
+		}
 	}
-	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", UserID: "7"})
-	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Payload: string(payload), Status: "running"})
-	if by, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin fix", JobID: job.ID}); !ok || by != "discord:an" {
-		t.Fatalf("admin push = %q %v", by, ok)
-	}
-	// a message of someone who may not approve: direct rules only (a push asks)
-	other, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", UserID: "8"})
-	job2, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Payload: string(other), Status: "running"})
-	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin fix", JobID: job2.ID}); ok {
-		t.Fatal("admin mode approved a push for someone who may not approve")
-	}
-	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "git fetch", JobID: job2.ID}); !ok {
-		t.Fatal("someone who may not approve: direct rules still apply")
-	}
-	if !m.FullAccessFor(ctx, ch, "c2", "7") || m.FullAccessFor(ctx, ch, "c2", "8") {
-		t.Fatal("full access: only for who may approve, in admin mode")
-	}
-}
-
-// Administrator mode is for approvers named one by one: a bot set up as
-// admin by default whose approvers are "*" (anyone) gives nobody the machine.
-func TestAdminModeNeedsNamedApprovers(t *testing.T) {
-	ctx := context.Background()
-	tmp := t.TempDir()
-	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
-	defer st.Close()
-	st.Migrate(ctx)
-	box, _ := secrets.Load(filepath.Join(tmp, "k"))
-	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
-	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"*"}, Approval: "admin"})
-	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
-	if m.FullAccessFor(ctx, ch, "c2", "8") {
-		t.Fatal(`approvers "*" in admin mode gave a stranger the machine`)
-	}
-	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", UserID: "8"})
-	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Payload: string(payload), Status: "running"})
-	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin x", JobID: job.ID}); ok {
-		t.Fatal(`approvers "*" in admin mode approved a push for a stranger`)
+	if len(admin) != 2 || !admin["7"] || admin["8"] {
+		t.Fatalf("admin by sender = %v (9, not listed, must not be there)", admin)
 	}
 }

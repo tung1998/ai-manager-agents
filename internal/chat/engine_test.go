@@ -1046,3 +1046,19 @@ func TestAgentFullAccessDoesNotEscalateUnderAnswerOnlyAssistant(t *testing.T) {
 		t.Fatalf("answer-only assistant escalated to full access: %s", a)
 	}
 }
+
+// ADR-081: a turn capped at proposing (a bot's message from Người dùng) runs
+// at most there, whatever the chat's mode; its hand-offs keep the cap.
+func TestCeilingCapsTheTurn(t *testing.T) {
+	g := newGroup(t)
+	g.engine.SetMode(g.context, g.conv.ID, perm.Operate)
+	turn, _, err := g.engine.Send(chat.WithCeiling(g.context, perm.Propose), g.conv.ID, "chạy lệnh giúp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	args, _ := call(t, g.dir, 1)
+	if !strings.Contains(args, "Quyền của bạn trong lượt này: "+perm.Label(perm.Propose)) {
+		t.Fatalf("the cap was not applied:\n%s", args)
+	}
+}

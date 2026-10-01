@@ -2,6 +2,7 @@ package trigger_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -355,5 +356,25 @@ func TestFullAccessWithoutBudget(t *testing.T) {
 	}
 	if !job.FullAccess || job.FullAccessBy != "admin@x.io" {
 		t.Fatalf("no budget took full access away: %+v", job)
+	}
+}
+
+// ADR-081: a bot's message from its Admin list runs as the agent's own (its
+// full access too); from Người dùng, never.
+func TestChannelAdminGetsAgentFullAccess(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	ag := fullAccessAgent(t, ctx, st, p)
+	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "@bot", Source: "discord", Action: "chat", Enabled: true, AgentID: ag.ID})
+	r := trigger.New(st, &fakeExec{})
+	admin, _ := json.Marshal(trigger.ChannelPayload{Message: "hi", UserID: "7", ChatID: "c1", ChannelID: "chn_1", Admin: true})
+	user, _ := json.Marshal(trigger.ChannelPayload{Message: "hi", UserID: "8", ChatID: "c1", ChannelID: "chn_1"})
+	ja, _, err := r.Enqueue(ctx, a, "discord", string(admin), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ju, _, _ := r.Enqueue(ctx, a, "discord", string(user), "", "")
+	if !ja.FullAccess || ju.FullAccess {
+		t.Fatalf("admin full = %v, user full = %v", ja.FullAccess, ju.FullAccess)
 	}
 }

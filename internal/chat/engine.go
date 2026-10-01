@@ -89,6 +89,7 @@ type Turn struct {
 	answered int    // replies given so far
 	actor    string // who sent the message
 	tier     string // the model tier asked for ("" = each agent's)
+	ceiling  string // the most the message's sender may have run ("" = none): its hand-offs keep it (ADR-081)
 	total    *atomic.Int32
 
 	agentID, agentName string // who answers in this turn
@@ -545,14 +546,17 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	}
 	// the turn outlives the request: who, which model and the automation's instructions go with it
 	base := actor.With(context.Background(), actor.From(ctx))
-	if fullAccess(ctx) { // a bot's chat in administrator mode
+	if fullAccess(ctx) { // a bot's admin (ADR-081)
 		base = WithFullAccess(base)
+	}
+	if c := ceilingOf(ctx); c != "" { // a bot's Người dùng: proposals at most
+		base = WithCeiling(base, c)
 	}
 	turnID := fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano())
 	base = proctrack.With(base, proctrack.Info{Kind: "agent", TurnID: turnID, ConversationID: conv.ID, ProjectID: conv.ProjectID, Label: agent.Name})
 	runCtx, cancel := context.WithTimeout(WithInstructions(WithModelTier(base, ModelTierFrom(ctx)), instructionsOf(ctx)), 20*time.Minute)
 	turn := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx)}
+		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx)}
 	turn.total.Store(1)
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn
 	e.mu.Unlock()
@@ -656,7 +660,11 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		return
 	}
 	policy := perm.LoadPolicy(ctx, e.store, project.ID)
-	acc := perm.Resolve(agent, conv.Mode, policy)
+	mode := conv.Mode
+	if c := ceilingOf(ctx); c != "" && perm.AtLeast(mode, c) { // capped for this message's sender (ADR-081)
+		mode = c
+	}
+	acc := perm.Resolve(agent, mode, policy)
 	level := acc.Level
 	// the office assistant's rights, for the person asking (ADR-059); worked
 	// out here (not later) because full access below must never apply while

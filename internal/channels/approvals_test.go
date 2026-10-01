@@ -44,8 +44,8 @@ func (d *fakeDecider) list() []string {
 	return append([]string(nil), d.done...)
 }
 
-// Proposals are decided from the chat by commands, by the people allowed to;
-// /mode direct approves what comes next, except what must always be asked.
+// Proposals are decided from the chat by commands, by the bot's admins only;
+// there are no modes any more (ADR-081): what comes next waits as well.
 func TestApprovalsFromChat(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
@@ -93,7 +93,7 @@ func TestApprovalsFromChat(t *testing.T) {
 	// not an approver: refused
 	bot.in <- channels.Incoming{ChatID: "42", UserID: "8", UserName: "binh", Text: "/approve 1", Addressed: true}
 	got = bot.wait(t, "42", 3)
-	if len(dec.list()) != 0 || !strings.Contains(got[2], "không được duyệt") {
+	if len(dec.list()) != 0 || !strings.Contains(got[2], "danh sách Admin") {
 		t.Fatalf("an outsider decided: %v %q", dec.list(), got[2])
 	}
 	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve 1", Addressed: true}
@@ -101,28 +101,25 @@ func TestApprovalsFromChat(t *testing.T) {
 	if d := dec.list(); len(d) != 1 || d[0] != "approve:action:"+act.ID+":discord:an" || !strings.Contains(got[3], "Đã duyệt") {
 		t.Fatalf("approve = %v %q", d, got[3])
 	}
-	// direct: what comes next is approved, a push is still asked
 	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/mode direct", Addressed: true}
-	bot.wait(t, "42", 5)
+	if got = bot.wait(t, "42", 5); !strings.Contains(got[4], "không còn chế độ") {
+		t.Fatalf("/mode = %q", got[4])
+	}
 	a2, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm test", Status: "pending"})
-	push, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "git_push", Target: "origin fix", Status: "pending"})
 	m.Reply(ctx, storage.Job{ID: "job_2", Payload: string(payload)}, "Xong", nil, true)
-	got = bot.wait(t, "42", 8)
-	if d := dec.list(); len(d) != 2 || d[1] != "approve:action:"+a2.ID+":discord:an" {
-		t.Fatalf("direct = %v", d)
+	got = bot.wait(t, "42", 7)
+	if d := dec.list(); len(d) != 1 || !strings.Contains(got[6], "pnpm test") {
+		t.Fatalf("a proposal was approved by itself: %v %q", d, got[6])
 	}
-	if !strings.Contains(got[6], "pnpm test") || !strings.Contains(got[7], "origin fix") || strings.Contains(got[7], "pnpm test") {
-		t.Fatalf("after direct approvals = %q", got[6:])
-	}
-	_ = push
+	_ = a2
 }
 
-// "*" lets anyone who may message the bot decide.
-func TestApproversAnyone(t *testing.T) {
-	if !channels.MayDecide(storage.Channel{Approvers: []string{"*"}}, "8") {
-		t.Fatal("* did not let a user decide")
+// Admins are named one by one: "*" is nobody's admin (ADR-081).
+func TestAdminsAreNamed(t *testing.T) {
+	if channels.MayDecide(storage.Channel{Approvers: []string{"*"}}, "8") {
+		t.Fatal(`"*" made a user an admin`)
 	}
-	if channels.MayDecide(storage.Channel{Approvers: []string{"7"}}, "8") {
-		t.Fatal("a user not listed may decide")
+	if channels.MayDecide(storage.Channel{Approvers: []string{"7"}}, "8") || !channels.MayDecide(storage.Channel{Approvers: []string{"7"}}, "7") {
+		t.Fatal("the Admin list is not who decides")
 	}
 }

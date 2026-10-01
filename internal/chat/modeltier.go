@@ -72,6 +72,16 @@ func WithNoTools(ctx context.Context) context.Context {
 
 func noTools(ctx context.Context) bool { v, _ := ctx.Value(noToolsKey{}).(bool); return v }
 
+type ceilingKey struct{}
+
+// WithCeiling caps a turn's rights at level, whatever the agent's and the
+// chat's (a bot's message from someone not in its Admin list, ADR-081).
+func WithCeiling(ctx context.Context, level string) context.Context {
+	return context.WithValue(ctx, ceilingKey{}, level)
+}
+
+func ceilingOf(ctx context.Context) string { v, _ := ctx.Value(ceilingKey{}).(string); return v }
+
 type fullAccessKey struct{}
 
 // WithFullAccess runs the turn with the machine (bypassPermissions, every

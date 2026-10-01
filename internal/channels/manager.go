@@ -222,7 +222,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	if !in.Addressed && m.keep(ctx, ch.ID, in.ChatID) == "" {
 		return // not for the bot, and no kept conversation listening to this chat (a thread too: a tag, or /create-conversation there)
 	}
-	if !slices.Contains(ch.Allow, "*") && !slices.Contains(ch.Allow, in.ChatID) && !slices.Contains(ch.Allow, in.UserID) {
+	if !slices.Contains(ch.Allow, "*") && !slices.Contains(ch.Allow, in.ChatID) && !slices.Contains(ch.Allow, in.UserID) && !MayDecide(ch, in.UserID) { // Người dùng or Admin (ADR-081)
 		if in.Respond != nil { // a slash command waits for an answer
 			_, _ = in.Respond(ctx, "Bạn chưa được phép dùng bot này.")
 		}
@@ -309,7 +309,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		return
 	}
 	p := trigger.ChannelPayload{Message: in.Text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID,
-		FullAccess: m.FullAccessFor(ctx, ch, in.ChatID, in.UserID)}
+		Admin: MayDecide(ch, in.UserID)} // an admin runs as the agent's own; anyone else proposes (ADR-081)
 	if len(in.Files) > 0 && rule.Action == "chat" { // the files go to the agent with the message
 		var skipped []string
 		p.Attachments, skipped = m.saveFiles(actx, ch, in.Files, actor.From(actx))
@@ -389,7 +389,7 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 	if final && err == nil && p.ConversationID != "" { // after the answer: what it left waiting for a person
 		defer func() {
 			if ch, gerr := m.store.Channels().Get(context.WithoutCancel(ctx), p.ChannelID); gerr == nil {
-				m.announce(context.WithoutCancel(ctx), ch, ad, p.ChatID, p.UserID, p.ConversationID)
+				m.announce(context.WithoutCancel(ctx), ch, ad, p.ChatID, p.ConversationID)
 			}
 		}()
 	}

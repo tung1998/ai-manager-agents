@@ -15,18 +15,18 @@ type Command struct {
 	Name        string // a-z, 0-9, "-" (Telegram shows it with "_")
 	Description string
 	Arg         string // the text typed after it ("" = none)
+	Optional    bool   // the text may be left out
 }
 
 // Builtins are the commands every bot has.
 func Builtins() []Command {
 	return []Command{
-		{"create-conversation", "Bật hội thoại: tiếp tục từ câu trả lời gần nhất, không cần tag", ""},
-		{"close-conversation", "Kết thúc hội thoại: mỗi tin được trả lời riêng", ""},
-		{"create-thread", "Tạo thread từ câu trả lời gần nhất (chuột phải tin → Apps để chọn tin)", ""},
-		{"pending", "Xem những gì agent đề xuất đang chờ duyệt", ""},
-		{"approve", "Duyệt đề xuất theo số (hoặc all)", "number"},
-		{"reject", "Từ chối đề xuất theo số (hoặc all)", "number"},
-		{"mode", "Chế độ: ask (hỏi trước), direct (làm thẳng) hoặc admin (không hỏi, toàn quyền)", "ask, direct or admin"},
+		{"create-conversation", "Bật hội thoại: tiếp tục từ câu trả lời gần nhất, không cần tag", "", false},
+		{"close-conversation", "Kết thúc hội thoại: mỗi tin được trả lời riêng", "", false},
+		{"create-thread", "Tạo thread từ câu trả lời gần nhất, tên ở sau (chuột phải tin → Apps để chọn tin)", "tên thread", true},
+		{"pending", "Xem những gì agent đề xuất đang chờ duyệt", "", false},
+		{"approve", "Duyệt đề xuất theo số (hoặc all), chỉ Admin", "number", false},
+		{"reject", "Từ chối đề xuất theo số (hoặc all), chỉ Admin", "number", false},
 	}
 }
 

@@ -2,7 +2,6 @@ package channels
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -11,7 +10,6 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/storage"
-	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
 
 // Decider decides a proposal (kind patch | action) in the name of by, the
@@ -34,43 +32,14 @@ type proposal struct {
 	Target string `json:"target,omitempty"`
 }
 
-// approvalMode is how a chat takes proposals: ask (commands) or direct
-// (approved in the name of By, who turned it on).
-type approvalMode struct {
-	Mode string `json:"mode"`
-	By   string `json:"by"`
-}
-
 func pendingKey(channelID, chatID string) string {
 	return "channel_pending/" + channelID + "/" + chatID
 }
-func modeKey(channelID, chatID string) string { return "channel_approval/" + channelID + "/" + chatID }
 
 func (m *Manager) listing(ctx context.Context, channelID, chatID string) []proposal {
 	var list []proposal
 	_, _ = m.store.Settings().Get(ctx, pendingKey(channelID, chatID), &list)
 	return list
-}
-
-func (m *Manager) mode(ctx context.Context, ch storage.Channel, chatID string) approvalMode {
-	var am approvalMode
-	if ok, _ := m.store.Settings().Get(ctx, modeKey(ch.ID, chatID), &am); ok && am.Mode != "" {
-		return am
-	}
-	if ch.Approval == "direct" || ch.Approval == "admin" {
-		return approvalMode{Mode: ch.Approval, By: "bot:" + ch.Name} // the bot was set up that way
-	}
-	return approvalMode{Mode: "ask"}
-}
-
-// modeFor: the chat's mode for a message of userID — administrator only for
-// who may approve there; anyone else gets the direct rules.
-func (m *Manager) modeFor(ctx context.Context, ch storage.Channel, chatID, userID string) approvalMode {
-	am := m.mode(ctx, ch, chatID)
-	if am.Mode == "admin" && !mayAdmin(ch, userID) {
-		am.Mode = "direct"
-	}
-	return am
 }
 
 // proposals are what waits for a person in a conversation.
@@ -117,9 +86,9 @@ func mustAsk(p proposal) bool {
 	return false
 }
 
-// announce tells the chat what its answer left waiting: approved at once in
-// direct mode, else numbered for /approve and /reject.
-func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, chatID, userID, conversationID string) {
+// announce tells the chat what its answer left waiting, numbered for
+// /approve and /reject (and buttons): an admin of the bot decides (ADR-081).
+func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, chatID, conversationID string) {
 	if m.decider == nil || conversationID == "" {
 		return
 	}
@@ -130,16 +99,9 @@ func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, 
 		known[p.ID] = true
 		next = max(next, p.N+1)
 	}
-	am := m.modeFor(ctx, ch, chatID, userID)
-	var done []string
 	asked := false
 	for _, p := range m.proposals(ctx, conversationID) {
 		if known[p.ID] {
-			continue
-		}
-		if am.Mode == "admin" || am.Mode == "direct" && !mustAsk(p) { // admin: everything
-			detail, err := m.decider.Decide(ctx, p.Kind, p.ID, true, am.By)
-			done = append(done, outcome(p, true, detail, err))
 			continue
 		}
 		p.N, next = next, next+1
@@ -147,13 +109,6 @@ func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, 
 		asked = true
 	}
 	_ = m.store.Settings().Set(ctx, pendingKey(ch.ID, chatID), list)
-	if len(done) > 0 {
-		how := "chế độ làm thẳng"
-		if am.Mode == "admin" {
-			how = "chế độ administrator"
-		}
-		_, _ = ad.Send(ctx, chatID, "Tự duyệt ("+how+"):\n"+strings.Join(done, "\n"))
-	}
 	if asked {
 		m.sendPending(ctx, ch, ad, chatID, list)
 	}
@@ -228,19 +183,13 @@ func numbered(p proposal) string {
 	return fmt.Sprintf("%d. %s", p.N, p.Label)
 }
 
-// MayDecide: the user is among the bot's approvers ("*" = anyone who may
-// message it).
+// MayDecide: the user is in the bot's Admin list, named one by one ("*" is
+// never an admin: anyone who may message the bot would get the machine).
 func MayDecide(ch storage.Channel, userID string) bool {
-	return slices.Contains(ch.Approvers, "*") || slices.Contains(ch.Approvers, userID)
-}
-
-// mayAdmin: administrator mode is for the approvers named one by one —
-// "*" (anyone who may message the bot) never gets the machine.
-func mayAdmin(ch storage.Channel, userID string) bool {
 	return userID != "" && slices.Contains(ch.Approvers, userID)
 }
 
-// approvals answers /pending, /approve, /reject and /mode from a chat.
+// approvals answers /pending, /approve and /reject from a chat (an admin of the bot decides).
 func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming, cmd, arg, who string) string {
 	if m.decider == nil {
 		return "Office này chưa bật duyệt qua chat."
@@ -250,32 +199,11 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 		return m.pendingText(ctx, ch, list)
 	}
 	if !MayDecide(ch, in.UserID) {
-		return "Bạn không được duyệt qua chat ở bot này (xem ô \"Ai được duyệt\" khi cài bot)."
+		return "Chỉ người trong danh sách Admin của bot được duyệt."
 	}
 	by := ch.Kind + ":" + who
-	if cmd == "mode" {
-		switch CommandName(arg) {
-		case "thang", "lam-thang", "direct":
-			_ = m.store.Settings().Set(ctx, modeKey(ch.ID, in.ChatID), approvalMode{Mode: "direct", By: by})
-			return "Đã chuyển sang làm thẳng: những gì agent đề xuất ở đây được duyệt ngay, đứng tên " + who + ". Push, dừng dịch vụ, đổi cài đặt và lệnh xóa vẫn hỏi. Gõ /mode ask để quay lại."
-		case "duyet", "ask":
-			_ = m.store.Settings().Set(ctx, modeKey(ch.ID, in.ChatID), approvalMode{Mode: "ask"})
-			return "Đã chuyển sang hỏi trước: mỗi đề xuất chờ /approve."
-		case "admin", "administrator", "quan-tri":
-			if slices.Contains(ch.Approvers, "*") { // anyone would get the machine
-				return "Không bật administrator khi ai cũng được duyệt (\"*\"): hãy ghi rõ người được duyệt khi cài bot."
-			}
-			_ = m.store.Settings().Set(ctx, modeKey(ch.ID, in.ChatID), approvalMode{Mode: "admin", By: by})
-			return "Đã chuyển sang administrator: mọi đề xuất ở đây được duyệt ngay (cả push, dừng dịch vụ, đổi cài đặt), đứng tên " + who +
-				". Tin của người được duyệt chạy với toàn quyền trên máy cài office (Bash, sửa file ở bất kỳ đâu). Gõ /mode ask để quay lại."
-		}
-		switch m.mode(ctx, ch, in.ChatID).Mode {
-		case "direct":
-			return "Đang làm thẳng. Gõ /mode ask để hỏi trước mỗi đề xuất, /mode admin để không hỏi gì."
-		case "admin":
-			return "Đang administrator: không hỏi duyệt, toàn quyền trên máy. Gõ /mode ask để hỏi trước."
-		}
-		return "Đang hỏi trước từng đề xuất. Gõ /mode direct để làm thẳng, /mode admin để không hỏi gì."
+	if cmd == "mode" { // the modes are gone (ADR-081): the lists say who runs how
+		return "Bot không còn chế độ. Người trong danh sách Admin chạy theo quyền của agent; Người dùng thì đề xuất, chờ admin duyệt."
 	}
 	approve := cmd == "approve"
 	var picked []proposal
@@ -351,25 +279,6 @@ func (m *Manager) DirectApprover(ctx context.Context, a storage.Action) (string,
 		a.Kind != "create_automation" && a.Kind != "run_automation" && !mustAsk(proposal{Action: a.Kind, Target: a.Target}) {
 		return job.FullAccessBy, true
 	}
-	if !trigger.IsChannel(job.Trigger) {
-		return "", false
-	}
-	var p trigger.ChannelPayload
-	if json.Unmarshal([]byte(job.Payload), &p) != nil || p.ChannelID == "" {
-		return "", false
-	}
-	ch, err := m.store.Channels().Get(ctx, p.ChannelID)
-	if err != nil {
-		return "", false
-	}
-	am := m.modeFor(ctx, ch, p.ChatID, p.UserID)
-	switch {
-	case am.By == "":
-	case am.Mode == "admin": // administrator: nothing asked
-		return am.By, true
-	case am.Mode == "direct" && a.Kind != "create_automation" && a.Kind != "run_automation" && !mustAsk(proposal{Action: a.Kind, Target: a.Target}):
-		return am.By, true
-	}
 	return "", false
 }
 
@@ -383,10 +292,4 @@ func (m *Manager) isAdminEmail(ctx context.Context, email string) bool {
 	}
 	u, err := m.store.Users().GetByEmail(ctx, email)
 	return err == nil && u.Role == storage.RoleAdmin && !u.Disabled
-}
-
-// FullAccessFor: a message of userID in chatID runs with the machine (Bash,
-// any file): the chat is in administrator mode and the user may approve there.
-func (m *Manager) FullAccessFor(ctx context.Context, ch storage.Channel, chatID, userID string) bool {
-	return m.mode(ctx, ch, chatID).Mode == "admin" && mayAdmin(ch, userID)
 }

@@ -177,6 +177,11 @@ func TestDiscordSlashCommands(t *testing.T) {
 			t.Errorf("no %q in:\n%s", want, all)
 		}
 	}
+	// /create-thread takes the thread's name after it, which may be left out;
+	// /mode is gone (ADR-081)
+	if !strings.Contains(all, `"description":"tên thread","name":`) && !strings.Contains(all, `"description":"tên thread"`) || !strings.Contains(all, `"required":false`) || strings.Contains(all, `"name":"mode"`) {
+		t.Errorf("create-thread name / mode in:\n%s", all)
+	}
 }
 
 // Discord takes descriptions of at most 100 characters.

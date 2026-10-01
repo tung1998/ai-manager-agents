@@ -1716,3 +1716,12 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - Giới hạn do người dùng tự đặt nếu muốn. Form chỉ còn một dòng gợi ý nên đặt, không bắt buộc.
 - Các rào chắn khác giữ nguyên: webhook, PR và tin từ bot không bao giờ được toàn quyền; chạy lại không cao hơn job gốc; người bật phải còn là admin.
 - Bổ sung: chế độ administrator của bot chỉ áp cho người được **ghi đích danh** trong "Ai được duyệt". `*` (ai nhắn được bot) không bao giờ được toàn quyền: lúc chạy họ theo luật `direct`, lúc lưu thì không cho đặt mặc định admin khi danh sách duyệt có `*`. Sửa luôn lỗi tầng lưu trữ trước đây đổi mặc định admin thành `ask`, khiến chọn admin khi cài bot không có tác dụng.
+
+## ADR-081: Bot không còn chế độ, chỉ còn danh sách Admin và Người dùng
+- Thay ADR-054 (chế độ ask/direct) và ADR-071 (`/mode admin`). Bỏ lệnh `/mode`, bỏ chế độ mặc định khi cài bot. Gõ `/mode` thì bot chỉ báo là không còn chế độ.
+- Mỗi bot có 2 danh sách ID (giữ cột cũ: `approvers` thành **Admin**, `allow` thành **Người dùng**):
+  - **Admin** (ghi đích danh, không có `*`): tin chạy theo **quyền của agent ở mức cao nhất**. Agent bật "Chạy như administrator" thì toàn quyền máy (`ChannelPayload.Admin` → `effectivePermissions` coi là tin cậy). Không bật thì theo mức quyền của agent. Admin cũng là người duyệt đề xuất (`/approve`, nút).
+  - **Người dùng** (được phép `*`): quyền thấp hơn, tối đa mức Đề xuất (`WithCeiling(propose)`, đi theo cả các lượt giao việc). Mọi đề xuất chờ Admin duyệt. Không bao giờ toàn quyền.
+  - Không có trong cả hai danh sách: bot không trả lời.
+- Không còn tự duyệt theo chế độ. Đề xuất chỉ được duyệt tự động khi chính lượt đó đã có toàn quyền (ADR-074).
+- `/create-thread` có ô nhập tên thread (không bắt buộc) trong menu `/` của Discord.

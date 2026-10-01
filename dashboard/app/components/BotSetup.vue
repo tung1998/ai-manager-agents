@@ -20,7 +20,7 @@ useFollowBot(() => channel.value?.state === 'connecting', () => refreshCh())
 
 // the bot's settings
 const bot = reactive({ kind: (channel.value?.kind ?? 'discord') as 'telegram' | 'discord', token: '', allow: (channel.value?.allow ?? []).join('\n'), refusal: channel.value?.refusal ?? '',
-  approvers: (channel.value?.approvers ?? []).join('\n'), approval: (channel.value?.approval ?? 'ask') as 'ask' | 'direct' | 'admin',
+  approvers: (channel.value?.approvers ?? []).join('\n'),
   // the line on top of its answers ("" = the default, "-" = none)
   headerOn: channel.value?.header !== '-', header: channel.value?.header === '-' ? '' : (channel.value?.header ?? '') })
 const ids = (s: string) => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean)
@@ -155,7 +155,7 @@ async function save() {
       d.config.command = d.config.command ? commandName(d.config.command) : ''
       d.name = d.config.command ? `/${d.config.command}` : t('bot.tagName', { bot: botLabel.value })
       const body = { ...automationBody(d), version: c.version }
-      body.bot = i === 0 ? { token: bot.token || undefined, allow: ids(bot.allow), refusal: bot.refusal, approvers: ids(bot.approvers), approval: bot.approval, header: bot.headerOn ? bot.header.trim() : '-', version: botVersion } : undefined
+      body.bot = i === 0 ? { token: bot.token || undefined, allow: ids(bot.allow), refusal: bot.refusal, approvers: ids(bot.approvers), header: bot.headerOn ? bot.header.trim() : '-', version: botVersion } : undefined
       const res = c.id
         ? await $fetch<{ automation: Automation }>(`/api/automations/${c.id}`, { method: 'PATCH', body })
         : await $fetch<{ automation: Automation }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body })
@@ -231,30 +231,19 @@ async function save() {
                 :placeholder="isNew ? (bot.kind === 'discord' ? 'MTI3…' : '123456789:AAF…') : t('channels.tokenKept')"
               />
             </UFormField>
-            <UFormField :label="t('channels.allow')" :help="bot.kind === 'discord' ? t('channels.allowHelpDiscord') : t('channels.allowHelpTelegram')" required>
-              <UTextarea v-model="bot.allow" :rows="2" autoresize class="w-full font-mono text-xs" :placeholder="bot.kind === 'discord' ? '123456789012345678' : '123456789'" />
-            </UFormField>
-            <!-- the agents answer with their own rights: "*" gives those to anyone -->
-            <UAlert
-              v-if="bot.allow.split(/[\n,]/).some(s => s.trim() === '*')" color="error" variant="subtle" icon="i-lucide-shield-alert"
-              :title="t('bot.anyoneTitle')" :description="t('bot.anyoneDesc')"
-            />
-            <!-- deciding what agents propose from the chat (ADR-054) -->
-            <UFormField :label="t('bot.approvers')" :help="t('bot.approversHelp')">
+            <!-- two lists (ADR-081): admins run as the agent's own, users propose for an admin to approve -->
+            <UFormField :label="t('bot.admins')" :help="t('bot.adminsHelp')">
               <UTextarea v-model="bot.approvers" :rows="1" autoresize class="w-full font-mono text-xs" :placeholder="bot.kind === 'discord' ? '123456789012345678' : '123456789'" />
             </UFormField>
-            <!-- "*": anyone who may message the bot runs what agents propose -->
-            <UAlert
-              v-if="ids(bot.approvers).includes('*')" color="warning" variant="subtle" icon="i-lucide-shield-alert"
-              :title="t('bot.anyoneApproveTitle')" :description="t('bot.anyoneApproveDesc')"
-            />
-            <UFormField v-if="ids(bot.approvers).length" :label="t('bot.approval')" :help="t('bot.approvalHelp')">
-              <USelect
-                v-model="bot.approval" class="w-full"
-                :items="[{ label: t('bot.approvalAsk'), value: 'ask' }, { label: t('bot.approvalDirect'), value: 'direct' }, { label: t('bot.approvalAdmin'), value: 'admin' }]"
-              />
+            <UAlert v-if="ids(bot.approvers).includes('*')" color="error" variant="subtle" icon="i-lucide-shield-alert" :title="t('bot.adminsNoAnyone')" />
+            <UFormField :label="t('channels.allow')" :help="bot.kind === 'discord' ? t('channels.allowHelpDiscord') : t('channels.allowHelpTelegram')">
+              <UTextarea v-model="bot.allow" :rows="2" autoresize class="w-full font-mono text-xs" :placeholder="bot.kind === 'discord' ? '123456789012345678' : '123456789'" />
             </UFormField>
-            <UAlert v-if="bot.approval === 'admin'" color="error" variant="subtle" icon="i-lucide-shield-alert" :title="t('bot.adminTitle')" :description="t('bot.adminDesc')" />
+            <!-- "*": anyone may message it, proposing only -->
+            <UAlert
+              v-if="bot.allow.split(/[\n,]/).some(s => s.trim() === '*')" color="warning" variant="subtle" icon="i-lucide-shield-alert"
+              :title="t('bot.anyoneTitle')" :description="t('bot.anyoneDesc')"
+            />
             <!-- who answered, where: on top of each answer -->
             <UFormField :label="t('bot.header')" :help="bot.headerOn ? t('bot.headerHelp') : undefined">
               <div class="flex items-center gap-2">

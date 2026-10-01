@@ -203,7 +203,7 @@ func (r *Runner) Retry(ctx context.Context, a storage.Automation, origTrigger st
 // PermissionMode=="override" REPLACES the agent's own full access and extra
 // dirs entirely (even to turn full access off or to no extra dirs); it never
 // adds to or falls back to the agent's own.
-func (r *Runner) effectivePermissions(ctx context.Context, a storage.Automation, trig string, forceUntrusted bool) (full bool, fullBy string, dirs []string) {
+func (r *Runner) effectivePermissions(ctx context.Context, a storage.Automation, trig string, forceUntrusted, channelAdmin bool) (full bool, fullBy string, dirs []string) {
 	if a.Action != "chat" || a.AgentID == "" {
 		return false, "", nil
 	}
@@ -215,7 +215,7 @@ func (r *Runner) effectivePermissions(ctx context.Context, a storage.Automation,
 	override := a.PermissionMode == "override"
 	full, fullBy = perm.EffectiveFullAccess(perm.FullAccessInput{
 		Level:        level,
-		ActorTrusted: !forceUntrusted && trig != "webhook" && !IsChannel(trig),
+		ActorTrusted: !forceUntrusted && trig != "webhook" && (!IsChannel(trig) || channelAdmin),
 		AgentFull:    ag.Permissions.FullAccess, AgentFullBy: ag.Permissions.FullAccessBy,
 		Override: override, OverrideFull: a.OverrideFullAccess, OverrideFullBy: a.OverrideAdminBy,
 		IsAdminEmail: func(email string) bool { return r.isAdminEmail(ctx, email) },
@@ -246,7 +246,10 @@ func (r *Runner) enqueueAt(ctx context.Context, now time.Time, a storage.Automat
 			return j, "duplicate", nil
 		}
 	}
-	full, fullBy, dirs := r.effectivePermissions(ctx, a, trig, forceUntrusted)
+	// a bot's message from someone in its Admin list runs as the agent's own
+	// (full access too, when the agent has it); anyone else never (ADR-081)
+	channelAdmin := IsChannel(trig) && channelPayloadOf(storage.Job{Payload: payload}).Admin
+	full, fullBy, dirs := r.effectivePermissions(ctx, a, trig, forceUntrusted, channelAdmin)
 	if debounce != "" && a.Limits.DebounceSeconds > 0 {
 		wait := time.Duration(a.Limits.DebounceSeconds) * time.Second
 		next := now.Add(wait)
@@ -417,8 +420,8 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	}
 	if fromChannel { // the files sent with the message go to the agent with it
 		actx = WithAttachments(actx, channelPayloadOf(origin).Attachments)
-		if channelPayloadOf(origin).FullAccess {
-			actx = WithFullAccess(actx)
+		if !channelPayloadOf(origin).Admin { // a Người dùng: proposals, each waiting for an admin (ADR-081)
+			actx = WithCeiling(actx, perm.Propose)
 		}
 	}
 	// quyền chạy: j.FullAccess đã được tính một lần lúc job này được tạo
@@ -520,7 +523,7 @@ type ChannelPayload struct {
 	ChannelID      string   `json:"channel_id"`
 	ConversationID string   `json:"conversation_id,omitempty"` // action chat: the outside chat's conversation
 	Attachments    []string `json:"attachments,omitempty"`     // files sent with it (attachment ids)
-	FullAccess     bool     `json:"full_access,omitempty"`     // administrator mode, from someone who may approve: the machine
+	Admin          bool     `json:"admin,omitempty"`           // the sender is in the bot's Admin list: the agent's own rights, at its highest (ADR-081)
 }
 
 // IsChannel says whether a job's trigger is a chat channel.
@@ -693,6 +696,16 @@ type followUpKey struct{}
 // WithFollowUp gives a chat run where to send what comes after its answer:
 // the reports of the agents it gave work to (a bot's chat: back to the channel).
 type fullAccessKey struct{}
+
+type ceilingKey struct{}
+
+// WithCeiling caps the run's rights at level, whatever the agent's (a bot's
+// message from someone not in its Admin list, ADR-081).
+func WithCeiling(ctx context.Context, level string) context.Context {
+	return context.WithValue(ctx, ceilingKey{}, level)
+}
+
+func CeilingOf(ctx context.Context) string { v, _ := ctx.Value(ceilingKey{}).(string); return v }
 
 // WithFullAccess: this run has the machine (a bot's chat in administrator mode).
 func WithFullAccess(ctx context.Context) context.Context {

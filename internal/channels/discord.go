@@ -389,8 +389,8 @@ func (d *Discord) SetCommands(ctx context.Context, cmds []Command) {
 	var list []map[string]any
 	for _, c := range cmds {
 		cmd := map[string]any{"name": c.Name, "description": clip(firstNonEmpty(c.Description, c.Name), 100), "type": 1, "contexts": []int{0, 1, 2}}
-		if c.Arg != "" { // the text after the command (a string, required)
-			cmd["options"] = []map[string]any{{"type": 3, "name": argName(c.Arg), "description": clip(c.Arg, 100), "required": true}}
+		if c.Arg != "" { // the text after the command (a string; required unless Optional)
+			cmd["options"] = []map[string]any{{"type": 3, "name": argName(c.Arg), "description": clip(c.Arg, 100), "required": !c.Optional}}
 		}
 		list = append(list, cmd)
 	}

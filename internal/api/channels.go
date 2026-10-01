@@ -128,14 +128,9 @@ func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
 	if in.Header != nil {
 		c.Header = strings.TrimSpace(*in.Header)
 	}
-	if in.Approval != nil {
-		c.Approval = "ask"
-		if *in.Approval == "direct" || *in.Approval == "admin" {
-			c.Approval = *in.Approval
-		}
-	}
-	if c.Approval == "admin" && slices.Contains(c.Approvers, "*") { // anyone would get the machine
-		return errors.New(`chế độ administrator cần ghi rõ người được duyệt, không dùng "*"`)
+	c.Approval = "ask"                     // the modes are gone (ADR-081): the Admin and Người dùng lists say who runs how
+	if slices.Contains(c.Approvers, "*") { // anyone would run as the agent, with the machine when it has it
+		return errors.New(`danh sách Admin phải ghi rõ từng người, không dùng "*"`)
 	}
 	if in.Scope != nil {
 		c.Scope = strings.TrimSpace(*in.Scope)
