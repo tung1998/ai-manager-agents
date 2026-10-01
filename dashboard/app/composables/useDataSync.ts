@@ -10,6 +10,7 @@ const rawListeners = new Set<(tables: string[]) => void>()
 // tablesFor: the tables an API path shows ('*' = refresh on anything).
 const routes: [RegExp, string[]][] = [
   [/\/memories/, ['agent_memories']],
+  [/\/burn/, ['burn_sessions', 'burn_items']],
   [/\/audit/, ['audit_log']],
   [/\/stats\b/, ['runs', 'jobs']],
   [/\/assistant/, ['conversations', 'messages', 'settings']],

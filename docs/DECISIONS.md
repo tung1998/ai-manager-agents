@@ -1759,3 +1759,13 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Chat riêng với trợ lý của người khác không bao giờ hiện.
 - Chỉ mục FTS5 `messages_fts` (migration 00046, `unicode61 remove_diacritics 2`, nên tìm không dấu vẫn ra), tự cập nhật bằng trigger khi thêm hoặc xóa tin; tin cũ được đánh chỉ mục một lần. Từ khóa được bọc trong ngoặc kép từng chữ (không lọt cú pháp FTS), chữ cuối tìm theo tiền tố.
 - Prompt hệ thống dặn: khi người dùng nhắc việc cũ thì tìm trước, đừng đoán.
+
+## ADR-087: Burn — agent chạy liên tục trong một project
+- Thiết kế đầy đủ: `docs/superpowers/specs/2026-10-01-burn-design.md`.
+- Mỗi project có một phiên (`burn_sessions`) và danh sách việc (`burn_items`). Hội thoại có `purpose = "burn"`, hiện trong trang Chat với biểu tượng ngọn lửa.
+- `internal/burn` chạy vòng lặp: lượt điều phối (quét, `burn_add`/`burn_pick`/`burn_skip`), rồi lượt làm việc trong worktree `burn-<mã việc>` (`burn_done`/`burn_fail`).
+  - Toàn quyền, mức model chọn được, không giới hạn thời gian lượt.
+  - Chế độ nhánh riêng: commit lên `burn/<mã>-<tên>`, không push. Chế độ còn lại ra diff chờ duyệt.
+- Tắt thì việc đang làm thành tạm dừng và giữ worktree; bật lại thì làm tiếp việc đó trước. Chạm giới hạn kết nối AI thì chờ tới lúc reset.
+- Giờ tắt mặc định là lần reset hạn mức tuần (`seven_day.resets_at`) của kết nối AI; không có dữ liệu thì sau 8 giờ.
+- Trang Burn là tab admin trong project: trạng thái, đếm ngược, bật (qua hộp xác nhận) và tắt, ngăn cài đặt, bảng việc theo cột.

@@ -16,8 +16,8 @@ const templates = computed(() => tplData.value?.templates ?? [])
 
 // the tab lives in the URL so the sidebar can link to each section
 // (older links: tab=config&section=…, tab=tools, tab=channels: bots live in Automations now)
-type Tab = 'chat' | 'tasks' | 'automations' | 'ops' | 'model' | 'perm' | 'skill' | 'mcp' | 'info' | 'log'
-const tabs: Tab[] = ['chat', 'tasks', 'automations', 'ops', 'model', 'perm', 'skill', 'mcp', 'info', 'log']
+type Tab = 'chat' | 'tasks' | 'automations' | 'ops' | 'model' | 'perm' | 'skill' | 'mcp' | 'info' | 'log' | 'burn'
+const tabs: Tab[] = ['chat', 'tasks', 'automations', 'ops', 'model', 'perm', 'skill', 'mcp', 'info', 'log', 'burn']
 
 // "Hỏi agent" from Vận hành: open Chat with the log attached
 // send=true ("Sửa lỗi") starts a new conversation and sends right away
@@ -128,6 +128,7 @@ async function saveAsTemplate() {
 
 
       <AutomationsPanel v-if="tab === 'automations'" :project-id="project.id" />
+      <BurnPanel v-else-if="tab === 'burn' && isAdmin" :project-id="project.id" />
       <AuditLog v-else-if="tab === 'log' && isAdmin" :key="project.id" class="max-w-6xl" :filter="{ project: project.id }" show-filters />
       <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
       <template v-else-if="['info', 'model', 'perm', 'skill', 'mcp'].includes(tab)">
