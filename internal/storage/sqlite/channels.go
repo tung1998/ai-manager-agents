@@ -113,7 +113,7 @@ func normChannel(c *storage.Channel) {
 	if c.Approvers == nil {
 		c.Approvers = []string{}
 	}
-	if c.Approval != "direct" {
+	if c.Approval != "direct" && c.Approval != "admin" { // admin: the bot set up that way (ADR-071)
 		c.Approval = "ask"
 	}
 }

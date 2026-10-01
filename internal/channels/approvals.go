@@ -67,7 +67,7 @@ func (m *Manager) mode(ctx context.Context, ch storage.Channel, chatID string) a
 // who may approve there; anyone else gets the direct rules.
 func (m *Manager) modeFor(ctx context.Context, ch storage.Channel, chatID, userID string) approvalMode {
 	am := m.mode(ctx, ch, chatID)
-	if am.Mode == "admin" && !MayDecide(ch, userID) {
+	if am.Mode == "admin" && !mayAdmin(ch, userID) {
 		am.Mode = "direct"
 	}
 	return am
@@ -234,6 +234,12 @@ func MayDecide(ch storage.Channel, userID string) bool {
 	return slices.Contains(ch.Approvers, "*") || slices.Contains(ch.Approvers, userID)
 }
 
+// mayAdmin: administrator mode is for the approvers named one by one —
+// "*" (anyone who may message the bot) never gets the machine.
+func mayAdmin(ch storage.Channel, userID string) bool {
+	return userID != "" && slices.Contains(ch.Approvers, userID)
+}
+
 // approvals answers /pending, /approve, /reject and /mode from a chat.
 func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming, cmd, arg, who string) string {
 	if m.decider == nil {
@@ -382,5 +388,5 @@ func (m *Manager) isAdminEmail(ctx context.Context, email string) bool {
 // FullAccessFor: a message of userID in chatID runs with the machine (Bash,
 // any file): the chat is in administrator mode and the user may approve there.
 func (m *Manager) FullAccessFor(ctx context.Context, ch storage.Channel, chatID, userID string) bool {
-	return m.mode(ctx, ch, chatID).Mode == "admin" && MayDecide(ch, userID)
+	return m.mode(ctx, ch, chatID).Mode == "admin" && mayAdmin(ch, userID)
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -132,6 +133,9 @@ func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
 		if *in.Approval == "direct" || *in.Approval == "admin" {
 			c.Approval = *in.Approval
 		}
+	}
+	if c.Approval == "admin" && slices.Contains(c.Approvers, "*") { // anyone would get the machine
+		return errors.New(`chế độ administrator cần ghi rõ người được duyệt, không dùng "*"`)
 	}
 	if in.Scope != nil {
 		c.Scope = strings.TrimSpace(*in.Scope)

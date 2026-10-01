@@ -1715,3 +1715,4 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - Thay mục 3 và phần "rào chắn ngân sách bắt buộc" của ADR-074 (theo quyết định của người dùng): tự động hóa chạy toàn quyền **không còn phải** có Trần chi phí/ngày và Tự tắt sau N lần lỗi. Lúc lưu không chặn, lúc chạy cũng không hạ xuống quyền thường.
 - Giới hạn do người dùng tự đặt nếu muốn. Form chỉ còn một dòng gợi ý nên đặt, không bắt buộc.
 - Các rào chắn khác giữ nguyên: webhook, PR và tin từ bot không bao giờ được toàn quyền; chạy lại không cao hơn job gốc; người bật phải còn là admin.
+- Bổ sung: chế độ administrator của bot chỉ áp cho người được **ghi đích danh** trong "Ai được duyệt". `*` (ai nhắn được bot) không bao giờ được toàn quyền: lúc chạy họ theo luật `direct`, lúc lưu thì không cho đặt mặc định admin khi danh sách duyệt có `*`. Sửa luôn lỗi tầng lưu trữ trước đây đổi mặc định admin thành `ask`, khiến chọn admin khi cài bot không có tác dụng.

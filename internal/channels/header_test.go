@@ -1006,3 +1006,26 @@ func TestAdminMode(t *testing.T) {
 		t.Fatal("full access: only for who may approve, in admin mode")
 	}
 }
+
+// Administrator mode is for approvers named one by one: a bot set up as
+// admin by default whose approvers are "*" (anyone) gives nobody the machine.
+func TestAdminModeNeedsNamedApprovers(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"*"}, Approval: "admin"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
+	if m.FullAccessFor(ctx, ch, "c2", "8") {
+		t.Fatal(`approvers "*" in admin mode gave a stranger the machine`)
+	}
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "c2", UserID: "8"})
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", Payload: string(payload), Status: "running"})
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin x", JobID: job.ID}); ok {
+		t.Fatal(`approvers "*" in admin mode approved a push for a stranger`)
+	}
+}
