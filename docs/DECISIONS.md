@@ -1769,6 +1769,7 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - Tắt thì việc đang làm thành tạm dừng và giữ worktree; bật lại thì làm tiếp việc đó trước. Chạm giới hạn kết nối AI thì chờ tới lúc reset.
 - Giờ tắt mặc định là lần reset hạn mức tuần (`seven_day.resets_at`) của kết nối AI; không có dữ liệu thì sau 8 giờ.
 - Trang Burn là tab admin trong project: trạng thái, đếm ngược, bật (qua hộp xác nhận) và tắt, ngăn cài đặt, bảng việc theo cột.
+- Lượt quét phải đọc code theo từng vùng (lỗi chi tiết, nâng cấp, việc dang dở), được dùng subagent để quét song song, và chỉ được nói "hết việc" khi đã liệt kê các vùng đã xem. Quét liên tiếp không ra việc thì chờ lâu dần (5 → 10 → 20 → 40 phút, tối đa 1 giờ) và được dặn chọn vùng khác.
 
 ## ADR-088: Trạng thái kết nối MCP
 - `automation.MCPHealth` chạy `claude mcp list` (mất khoảng 30 giây) trong nền, ở thư mục của project hoặc thư mục home khi kiểm tra toàn máy. Kết quả mới nhất của mỗi thư mục được giữ trong bộ nhớ. Mỗi lúc chỉ chạy một lần kiểm tra cho một thư mục.

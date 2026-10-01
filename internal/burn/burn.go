@@ -151,6 +151,7 @@ func (s *Service) spawn(projectID string) {
 // none, the main agent looks for work and chooses; with nothing to do, it
 // waits a while.
 func (s *Service) loop(ctx context.Context, projectID string) {
+	empty := 0 // scans in a row that found nothing
 	for ctx.Err() == nil {
 		b, err := s.store.Burn().Session(ctx, projectID)
 		if err != nil || (b.State != "running" && b.State != "waiting_limit") {
@@ -177,7 +178,7 @@ func (s *Service) loop(ctx context.Context, projectID string) {
 			continue
 		}
 		before := len(items)
-		if err := s.plan(ctx, b, items); err != nil && ctx.Err() == nil {
+		if err := s.plan(ctx, b, items, empty); err != nil && ctx.Err() == nil {
 			slog.Warn("burn: plan", "project", projectID, "err", err)
 			if !s.waitLimit(ctx, b) {
 				sleep(ctx, time.Minute)
@@ -186,9 +187,21 @@ func (s *Service) loop(ctx context.Context, projectID string) {
 		}
 		after, _ := s.store.Burn().Items(ctx, b.ID)
 		if _, ok := next(after); !ok && len(after) == before {
-			sleep(ctx, s.idle) // nothing new, nothing chosen
+			empty++
+			sleep(ctx, s.idleAfter(empty)) // nothing new, nothing chosen: wait longer each time
+		} else {
+			empty = 0
 		}
 	}
+}
+
+// idleAfter is the wait after n empty scans in a row: idle, then doubling, at most an hour.
+func (s *Service) idleAfter(n int) time.Duration {
+	d := s.idle
+	for i := 1; i < n && d < time.Hour; i++ {
+		d *= 2
+	}
+	return min(d, time.Hour)
 }
 
 // next: a paused piece (it goes on), else the one chosen first.
@@ -340,15 +353,15 @@ func firstNonEmpty(v ...string) string {
 
 // plan: the main agent looks for work and chooses what is next (in a
 // scratch worktree: what it tries there is thrown away).
-func (s *Service) plan(ctx context.Context, b storage.BurnSession, items []storage.BurnItem) error {
-	res, err := s.run(runCtx(ctx, b, "burn-scan-"+b.ID, true), b.ConversationID, planPrompt(b, items))
+func (s *Service) plan(ctx context.Context, b storage.BurnSession, items []storage.BurnItem, empty int) error {
+	res, err := s.run(runCtx(ctx, b, "burn-scan-"+b.ID, true), b.ConversationID, planPrompt(b, items, empty))
 	if err == nil && res.failed != "" {
 		err = errors.New(res.failed)
 	}
 	return err
 }
 
-func planPrompt(b storage.BurnSession, items []storage.BurnItem) string {
+func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty int) string {
 	var sb strings.Builder
 	sb.WriteString("[Burn] Lượt điều phối. Bạn đang chạy Burn cho project này: tự tìm và làm việc, với toàn quyền.\n")
 	if b.Focus != "" {
@@ -365,12 +378,23 @@ func planPrompt(b storage.BurnSession, items []storage.BurnItem) string {
 		}
 		sb.WriteString("\n")
 	}
+	if empty > 0 {
+		fmt.Fprintf(&sb, "\nĐã có %d lần quét liên tiếp không ra việc. Đừng quét lại những vùng đã xem (xem các lượt trước trong hội thoại này); chọn vùng khác và đào sâu hơn.\n", empty)
+	}
 	sb.WriteString(`
 Việc của lượt này:
-1. Nếu còn ít việc "found", QUÉT project tìm thêm: việc dang dở (TODO/FIXME, nhánh làm dở, test/build đang fail, đề xuất còn treo trong các chat — dùng search_history), chỗ nâng cấp đáng làm, lỗi chi tiết (đọc code, chạy test, xem log). Ghi từng việc bằng burn_add (tiêu đề ngắn, kind unfinished|upgrade|bug, chi tiết đủ để làm). Không ghi trùng việc đã có.
+1. Nếu còn ít việc "found", QUÉT KỸ project. Build/test sạch và không có TODO chưa phải là hết việc; phải đọc code thật:
+   - Việc dang dở: TODO/FIXME, nhánh làm dở, test/build đang fail, đề xuất còn treo trong các chat (dùng search_history), tính năng trong docs/spec chưa làm xong.
+   - Lỗi chi tiết: đi từng vùng (package, trang, API), đọc code tìm lỗi thật: xử lý lỗi bị bỏ qua, race/khóa, rò rỉ goroutine/bộ nhớ, trường hợp biên (rỗng, rất lớn, trùng, hủy giữa chừng), kiểm tra quyền, dữ liệu sai sau khi cập nhật.
+   - Nâng cấp: đường quan trọng chưa có test, chỗ chậm, giao diện khó dùng hoặc thiếu trạng thái (đang tải, lỗi, rỗng), chữ chưa dịch, tài liệu lệch với code.
+`)
+	if b.MaxSubagents > 0 {
+		fmt.Fprintf(&sb, "   Được dùng tối đa %d subagent (công cụ Agent/Task) để quét song song các vùng khác nhau; bạn tự gộp và lọc kết quả.\n", b.MaxSubagents)
+	}
+	sb.WriteString(`   Ghi từng việc bằng burn_add (tiêu đề ngắn, kind unfinished|upgrade|bug, chi tiết kèm file:dòng và cách sửa). Chỉ ghi việc có thật, có lợi; không ghi trùng việc đã có.
 2. Chọn ĐÚNG MỘT việc đáng làm nhất bằng burn_pick; việc không đáng làm thì burn_skip kèm lý do.
-3. Không sửa code ở lượt này (worktree của lượt này bị bỏ). Không còn gì đáng làm thì nói ngắn "hết việc".
-Trả lời ngắn: tìm được gì, chọn việc nào và vì sao.`)
+3. Không sửa code ở lượt này (worktree của lượt này bị bỏ). Chỉ được nói "hết việc" sau khi đã xem kỹ, và phải liệt kê các vùng đã xem để lần sau quét vùng khác.
+Trả lời ngắn: các vùng đã xem, tìm được gì, chọn việc nào và vì sao.`)
 	return sb.String()
 }
 
