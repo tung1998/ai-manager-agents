@@ -103,8 +103,10 @@ async function cancel() {
 }
 
 async function copy(text: string) {
-  await navigator.clipboard?.writeText(text)
-  toast.add({ title: t('cli.copied'), color: 'neutral' })
+  // over plain HTTP there is no clipboard API: show the code to copy by hand
+  // rather than a "copied" that did nothing
+  if (await copyText(text)) toast.add({ title: t('cli.copied'), color: 'neutral' })
+  else toast.add({ title: text, color: 'neutral', duration: 0 })
 }
 
 const selectedMethod = computed(() => status.value?.methods.find(m => m.id === method.value))

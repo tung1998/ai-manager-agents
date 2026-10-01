@@ -124,10 +124,8 @@ function rowMenu(m: Monitor) {
   ], [{ label: t('monitor.menu.delete'), icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => remove(m) }]]
 }
 async function copy(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    toast.add({ title: t('monitor.copied'), color: 'success' })
-  } catch { /* clipboard blocked */ }
+  if (await copyText(text)) toast.add({ title: t('monitor.copied'), color: 'success' })
+  else toast.add({ title: text, color: 'neutral', duration: 0 })
 }
 
 // ---- form ----

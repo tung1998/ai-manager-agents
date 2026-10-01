@@ -17,8 +17,8 @@ const curl = computed(() => {
   return `curl -X POST -H '${h}' -H 'Content-Type: application/json' -d '{"hello":"world"}' ${v.url}`
 })
 async function copy(text: string) {
-  await navigator.clipboard.writeText(text)
-  toast.add({ title: t('auto.copied'), color: 'success' })
+  if (await copyText(text)) toast.add({ title: t('auto.copied'), color: 'success' })
+  else toast.add({ title: text, color: 'neutral', duration: 0 })
 }
 </script>
 
