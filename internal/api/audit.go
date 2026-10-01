@@ -103,6 +103,21 @@ func (s *server) agentProject(ctx context.Context, a storage.Agent) string {
 	return m.RepoID
 }
 
+// orgModelProjectPath is the filesystem path of the project an org model
+// belongs to ("" = a template, or a project without a path) — for validating
+// an agent's extra read dirs against it (ADR-074).
+func (s *server) orgModelProjectPath(ctx context.Context, orgModelID string) string {
+	m, err := s.cfg.Store.OrgModels().Get(ctx, orgModelID)
+	if err != nil || m.RepoID == "" {
+		return ""
+	}
+	repo, err := s.cfg.Store.Repos().Get(ctx, m.RepoID)
+	if err != nil {
+		return ""
+	}
+	return repo.Path
+}
+
 // repoSnapshot / modelSnapshot: the fields a person edits (no timestamps, so
 // a diff shows only what changed).
 func repoSnapshot(x storage.Repo) map[string]any {

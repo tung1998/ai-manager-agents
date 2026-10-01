@@ -6,12 +6,12 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
@@ -150,17 +150,23 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	if in.PermissionMode == "override" && !isAdmin {
 		return errors.New("chỉ admin được ghi đè quyền của tự động hóa")
 	}
+	// ADR-074 security fix: chỉ tự động hóa chạy theo lịch mới ghi đè được
+	// quyền administrator — webhook (ai có URL cũng gọi được), webhook PR
+	// (diff do người ngoài viết) và tin nhắn kênh không bao giờ đáng tin.
+	if in.PermissionMode == "override" && in.OverrideFullAccess && in.Source != "schedule" {
+		return errors.New("chỉ tự động hóa chạy theo lịch mới ghi đè được quyền administrator (webhook và tin nhắn kênh không đủ tin cậy)")
+	}
 	if in.PermissionMode == "override" {
+		projectPath := ""
+		if repo, err := s.cfg.Store.Repos().Get(r.Context(), a.ProjectID); err == nil {
+			projectPath = repo.Path
+		}
 		for _, dir := range in.OverrideExtraDirs {
-			dir = strings.TrimSpace(dir)
-			if dir == "" {
+			if dir = strings.TrimSpace(dir); dir == "" {
 				continue
 			}
-			if !filepath.IsAbs(dir) {
-				return errors.New("thư mục phải là đường dẫn tuyệt đối: " + dir)
-			}
-			if _, err := os.Stat(dir); err != nil {
-				return errors.New("thư mục không tồn tại: " + dir)
+			if err := perm.CheckExtraDir(projectPath, dir); err != nil {
+				return err
 			}
 		}
 		a.PermissionMode, a.OverrideExtraDirs = "override", in.OverrideExtraDirs
@@ -260,9 +266,13 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	lim.DebounceSeconds, lim.DebounceMaxSeconds = min(max(lim.DebounceSeconds, 0), 3600), min(max(lim.DebounceMaxSeconds, 0), 6*3600)
 	lim.DailyCostUSD = max(lim.DailyCostUSD, 0)
 	// a full-access run (the agent's own, or an override) must bound itself:
-	// a daily cost cap and an auto-disable after failures (ADR-074)
+	// a daily cost cap and an auto-disable after failures (ADR-074). An
+	// override REPLACES the agent's own full access entirely (even to turn it
+	// off) — while PermissionMode=="override", never fall back to the agent's
+	// FullAccess here, or an override meant to turn full access off would
+	// wrongly be forced to set a budget it will never need.
 	effectiveFullAccess := a.PermissionMode == "override" && a.OverrideFullAccess
-	if !effectiveFullAccess && in.AgentID != "" {
+	if a.PermissionMode != "override" && in.AgentID != "" {
 		if ag, err := s.cfg.Store.Agents().Get(r.Context(), in.AgentID); err == nil {
 			effectiveFullAccess = ag.Permissions.FullAccess
 		}
@@ -309,6 +319,31 @@ func (s *server) listAutomations(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"automations": out})
 }
 
+// auditAutomationFullAccess logs a dedicated entry when an automation's
+// permission override changed (ADR-074): easy to spot in Nhật ký, besides the
+// full before/after already on automation.create/automation.update.
+func (s *server) auditAutomationFullAccess(r *http.Request, old, a storage.Automation) {
+	// "" (never set) and "agent" (applyAutomation's explicit default) mean the
+	// same thing: no override — comparing the raw strings would log a change
+	// on every create/update of an automation that never used an override.
+	normalize := func(mode string) string {
+		if mode != "override" {
+			return "agent"
+		}
+		return mode
+	}
+	if normalize(old.PermissionMode) == normalize(a.PermissionMode) && old.OverrideFullAccess == a.OverrideFullAccess &&
+		old.OverrideAdminBy == a.OverrideAdminBy && slices.Equal(old.OverrideExtraDirs, a.OverrideExtraDirs) {
+		return
+	}
+	s.audit(r, audit.Change{Action: "automation.full_access", ResourceID: a.ID, ProjectID: a.ProjectID,
+		Before: map[string]any{"permission_mode": old.PermissionMode, "override_full_access": old.OverrideFullAccess,
+			"override_admin_by": old.OverrideAdminBy, "override_extra_dirs": old.OverrideExtraDirs},
+		After: map[string]any{"permission_mode": a.PermissionMode, "override_full_access": a.OverrideFullAccess,
+			"override_admin_by": a.OverrideAdminBy, "override_extra_dirs": a.OverrideExtraDirs},
+		Detail: map[string]any{"name": a.Name}})
+}
+
 func (s *server) createAutomation(w http.ResponseWriter, r *http.Request) {
 	var in automationInput
 	if !decode(w, r, &in) {
@@ -349,6 +384,7 @@ func (s *server) createAutomation(w http.ResponseWriter, r *http.Request) {
 	s.linkBuilder(r, a, in.ConversationID)
 	s.audit(r, audit.Change{Action: "automation.create", ResourceID: a.ID, ProjectID: p.ID, After: s.toAutomationDTO(r, a),
 		Detail: map[string]any{"name": a.Name, "source": a.Source}})
+	s.auditAutomationFullAccess(r, storage.Automation{}, a)
 	out := map[string]any{"automation": s.toAutomationDTO(r, a)}
 	if secret != "" {
 		out["secret"] = secret // shown once
@@ -415,6 +451,7 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 	}
 	s.linkBuilder(r, a, in.ConversationID)
 	s.audit(r, change)
+	s.auditAutomationFullAccess(r, old, a)
 	s.reloadBot(a)
 	if old.Config.ChannelID != a.Config.ChannelID {
 		s.releaseBot(r, old) // it moved to another bot, or off bots

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
@@ -1015,5 +1016,33 @@ func TestFullSessionIsCompacted(t *testing.T) {
 	}
 	if !strings.Contains(run, "--resume "+m.SessionID) {
 		t.Fatalf("the turn did not go on in its session: %s", run)
+	}
+}
+
+// The office assistant limited to "answer only" (ADR-059) never escalates to
+// full access either, even when its own agent has FullAccess (ADR-074 security fix).
+func TestAgentFullAccessDoesNotEscalateUnderAnswerOnlyAssistant(t *testing.T) {
+	bin, argsLog := fullAccessFakeBin(t, t.TempDir())
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		return p
+	})
+	ctx := actor.With(context.Background(), "human:admin@x.io")
+	f.st.Users().Create(ctx, storage.User{Email: "admin@x.io", Role: storage.RoleAdmin, PasswordHash: "h"})
+	f.engine.SetAssistant(func(context.Context) string { return f.project.ID })
+	assistant.SetMode(ctx, f.st, assistant.ModeAnswer)
+	conv, _ := f.engine.StartConversation(ctx, f.project.ID, "")
+	f.engine.SetMode(ctx, conv.ID, perm.Operate)
+	agent, _ := f.st.Agents().Get(ctx, conv.AgentID)
+	agent.Permissions.Level, agent.Permissions.FullAccess, agent.Permissions.FullAccessBy = perm.Operate, true, "admin@x.io"
+	f.st.Agents().Update(ctx, agent)
+	turn, _, err := f.engine.Send(ctx, conv.ID, "chạy lệnh", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	b, _ := os.ReadFile(argsLog)
+	if a := string(b); strings.Contains(a, "bypassPermissions") {
+		t.Fatalf("answer-only assistant escalated to full access: %s", a)
 	}
 }

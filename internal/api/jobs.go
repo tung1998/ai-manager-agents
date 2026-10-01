@@ -237,7 +237,10 @@ func (s *server) retryJob(w http.ResponseWriter, r *http.Request) {
 			s.writeDomainError(w, r, err)
 			return
 		}
-		nj, _, err := s.cfg.Trigger.Enqueue(r.Context(), a, "manual", j.Payload, "", "")
+		// chạy lại không bao giờ được quyền cao hơn quyền đã lưu trên job gốc
+		// (ADR-074 security fix): dù job gốc là "manual" (từ một lần chạy lại
+		// trước), chạy lại tiếp vẫn bị chặn nếu job đó chưa có toàn quyền.
+		nj, _, err := s.cfg.Trigger.Retry(r.Context(), a, j.Trigger, j.FullAccess, j.Payload)
 		if err != nil {
 			s.internal(w, r, err)
 			return

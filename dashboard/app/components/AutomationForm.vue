@@ -340,7 +340,12 @@ async function testRun() {
           </span>
         </label>
         <div v-if="form.override_full_access" class="space-y-1.5">
-          <p class="text-xs font-medium">{{ t('org.agent.extraDirs') }}</p>
+          <p class="flex items-center gap-1 text-xs font-medium">
+            {{ t('org.agent.extraDirs') }}
+            <UTooltip :text="t('org.agent.extraDirsFullAccessHint')">
+              <UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" />
+            </UTooltip>
+          </p>
           <div v-for="(dir, i) in (form.override_extra_dirs ?? [])" :key="i" class="flex items-center gap-2">
             <UInput :model-value="dir" class="flex-1 font-mono text-xs" @update:model-value="(v: string | number) => { (form.override_extra_dirs ??= [])[i] = String(v) }" />
             <button type="button" class="rounded-md p-1 text-(--ui-text-muted) hover:bg-(--ui-bg-elevated) hover:text-(--ui-text)" @click="removeOverrideDir(i)">

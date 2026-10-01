@@ -693,16 +693,13 @@ func (s *server) applyAgent(r *http.Request, in agentInput, a *storage.Agent) er
 		} else {
 			a.Permissions.FullAccessBy = ""
 		}
+		projectPath := s.orgModelProjectPath(r.Context(), a.OrgModelID)
 		for _, dir := range a.Permissions.ExtraDirs {
-			dir = strings.TrimSpace(dir)
-			if dir == "" {
+			if dir = strings.TrimSpace(dir); dir == "" {
 				continue
 			}
-			if !filepath.IsAbs(dir) {
-				return errors.New("thư mục phải là đường dẫn tuyệt đối: " + dir)
-			}
-			if _, err := os.Stat(dir); err != nil {
-				return errors.New("thư mục không tồn tại: " + dir)
+			if err := perm.CheckExtraDir(projectPath, dir); err != nil {
+				return err
 			}
 		}
 	} else { // not admin: these fields stay as they were
@@ -731,6 +728,20 @@ func (s *server) checkProvider(r *http.Request, id string) error {
 	return err
 }
 
+// auditAgentFullAccess logs a dedicated entry when an agent's FullAccess or
+// ExtraDirs changed (ADR-074): easy to spot in Nhật ký, besides the full
+// before/after already on agent.create/agent.update.
+func (s *server) auditAgentFullAccess(r *http.Request, old, a storage.Agent) {
+	op, np := old.Permissions, a.Permissions
+	if op.FullAccess == np.FullAccess && op.FullAccessBy == np.FullAccessBy && slices.Equal(op.ExtraDirs, np.ExtraDirs) {
+		return
+	}
+	s.audit(r, audit.Change{Action: "agent.full_access", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a),
+		Before: map[string]any{"full_access": op.FullAccess, "full_access_by": op.FullAccessBy, "extra_dirs": op.ExtraDirs},
+		After:  map[string]any{"full_access": np.FullAccess, "full_access_by": np.FullAccessBy, "extra_dirs": np.ExtraDirs},
+		Detail: map[string]any{"key": a.Key}})
+}
+
 func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 	var in agentInput
 	if !decode(w, r, &in) {
@@ -756,6 +767,7 @@ func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, audit.Change{Action: "agent.create", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a), After: toAgentDTO(a),
 		Detail: map[string]any{"key": a.Key, "org_model": a.OrgModelID}})
+	s.auditAgentFullAccess(r, storage.Agent{}, a)
 	writeJSON(w, http.StatusCreated, map[string]any{"agent": toAgentDTO(a)})
 }
 
@@ -792,6 +804,7 @@ func (s *server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, audit.Change{Action: "agent.update", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a),
 		Before: toAgentDTO(old), After: toAgentDTO(a), Detail: map[string]any{"key": a.Key}})
+	s.auditAgentFullAccess(r, old, a)
 	writeJSON(w, http.StatusOK, map[string]any{"agent": toAgentDTO(a)})
 }
 

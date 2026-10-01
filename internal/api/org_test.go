@@ -183,6 +183,37 @@ func TestAgentFullAccessPermissionAPI(t *testing.T) {
 	}
 }
 
+// ADR-074 security fix: an agent's extra read dirs are checked against the
+// dangerous folders (perm.CheckExtraDir) — a credentials folder like ~/.ssh
+// is always rejected, even for an admin.
+func TestAgentExtraDirRejectsSensitiveDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ssh := home + "/.ssh"
+	if err := os.MkdirAll(ssh, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
+	solo := ""
+	for _, x := range body["templates"].([]any) {
+		if m := x.(map[string]any); m["key"] == "solo" {
+			solo = m["id"].(string)
+		}
+	}
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	agents := body["project"].(map[string]any)["model"].(map[string]any)["agents"].([]any)
+	agentID := agents[0].(map[string]any)["id"].(string)
+	_, agentBody := do(t, admin, "GET", e.srv.URL+"/api/agents/"+agentID, nil, nil)
+	ag := agentBody["agent"].(map[string]any)
+	ag["permissions"] = map[string]any{"extra_dirs": []string{ssh}}
+	if resp, body := do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+agentID, stripID(ag), nil); resp.StatusCode != 400 {
+		t.Fatalf("extra dir = ~/.ssh: %d %v", resp.StatusCode, body)
+	}
+}
+
 func stripID(a map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, v := range a {

@@ -39,6 +39,12 @@ type Job struct {
 	Output         string // script: the last 64KB of stdout and stderr
 	ExitCode       *int   // script: its exit code
 	ParentJobID    string // escalation: the script job that asked for an agent
+	// ADR-074 security: effective full access for this run (computed once at job start)
+	FullAccess   bool   // agent or automation can run with full permissions
+	FullAccessBy string // the admin who enabled it (validated at compute time)
+	// ExtraDirs: extra directories this run may read, computed once at job
+	// start (an automation's override replaces the agent's own, never adds to it).
+	ExtraDirs []string
 }
 
 // JobFilter narrows a job listing; empty fields match everything.

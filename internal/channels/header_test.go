@@ -786,7 +786,11 @@ func TestFullAccessApproverAgent(t *testing.T) {
 	st.Agents().Update(ctx, full)
 
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
-	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "user", Trigger: "ui", AgentID: agent.ID, Status: "running"})
+	// job.FullAccess is computed once, when a job is created (ADR-074 security
+	// fix) — tests that create a job directly must set it themselves, as
+	// internal/chat.Engine or internal/trigger.Runner would have.
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "user", Trigger: "ui", AgentID: agent.ID, Status: "running",
+		FullAccess: true, FullAccessBy: "admin@x.io"})
 
 	if by, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job.ID}); !ok || by != "admin@x.io" {
 		t.Fatalf("full access agent = %q %v", by, ok)
@@ -819,6 +823,44 @@ func TestFullAccessApproverAgent(t *testing.T) {
 	}
 }
 
+// ADR-074 security fix: job.FullAccess/FullAccessBy are computed once, when
+// the job started, but a proposal can stay pending a while after that (queued
+// behind other jobs, or waiting on a human-in-the-loop approval) — if the
+// admin who enabled full access is demoted AFTER the job started but BEFORE
+// the proposal is decided, DirectApprover must re-check their admin status
+// right now, not just trust what was true when the job was created.
+func TestDirectApproverRechecksAdminAtDecisionTime(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	agents, _ := engine.Agents(ctx, project.ID)
+	agent := agents[0]
+
+	admin, _ := st.Users().Create(ctx, storage.User{Email: "admin@x.io", Role: storage.RoleAdmin, PasswordHash: "h"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
+	// the job was created while admin@x.io still was an admin
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "user", Trigger: "ui", AgentID: agent.ID, Status: "running",
+		FullAccess: true, FullAccessBy: "admin@x.io"})
+	if by, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job.ID}); !ok || by != "admin@x.io" {
+		t.Fatalf("still an admin: full access = %q %v", by, ok)
+	}
+
+	// demoted (disabled) after the job started, before the proposal is decided
+	st.Users().SetDisabled(ctx, admin.ID, true)
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job.ID}); ok {
+		t.Fatal("full access auto-approved though its enabler is no longer an admin")
+	}
+}
+
 // An automation's own permission override (ADR-074) approves at once, in the
 // name of who enabled it; its default ("agent" mode, no override) falls back
 // to the agent's own — pending here since that agent has no FullAccess.
@@ -845,7 +887,11 @@ func TestFullAccessApproverAutomationOverride(t *testing.T) {
 
 	override, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Sync", Source: "schedule", Action: "chat",
 		AgentID: agent.ID, Enabled: true, PermissionMode: "override", OverrideFullAccess: true, OverrideAdminBy: "admin@x.io"})
-	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", OriginID: override.ID, Trigger: "schedule", AgentID: agent.ID, Status: "running"})
+	// job.FullAccess is computed once, when a job is created (ADR-074 security
+	// fix) — tests that create a job directly must set it themselves, as
+	// internal/trigger.Runner would have (its schedule trigger is trusted).
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", OriginID: override.ID, Trigger: "schedule", AgentID: agent.ID, Status: "running",
+		FullAccess: true, FullAccessBy: "admin@x.io"})
 	if by, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job.ID}); !ok || by != "admin@x.io" {
 		t.Fatalf("automation override = %q %v", by, ok)
 	}
@@ -867,6 +913,47 @@ func TestFullAccessApproverAutomationOverride(t *testing.T) {
 	job3, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", OriginID: revoked.ID, Trigger: "schedule", AgentID: agent.ID, Status: "running"})
 	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job3.ID}); ok {
 		t.Fatal("override held though its enabler is not an admin")
+	}
+}
+
+// A scheduled automation with its override set to full access gets its job
+// created with FullAccess=true (through the real internal/trigger.Runner, not
+// set by hand), so a normal command it proposes is approved at once; a push
+// still waits (ADR-074).
+func TestScheduledOverrideAutoApprovesButPushStillAsks(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	agents, _ := engine.Agents(ctx, project.ID)
+	agent := agents[0] // no FullAccess of its own: only the override grants it
+
+	st.Users().Create(ctx, storage.User{Email: "admin@x.io", Role: storage.RoleAdmin, PasswordHash: "h"})
+	runner := trigger.New(st, chatExec{engine})
+	m := channels.NewManager(st, engine, runner, nil)
+
+	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Sync", Source: "schedule", Action: "chat", Enabled: true,
+		AgentID: agent.ID, PermissionMode: "override", OverrideFullAccess: true, OverrideAdminBy: "admin@x.io", Limits: storage.AutomationLimits{DailyCostUSD: 5, DisableAfterFailures: 3}})
+	job, _, err := runner.Enqueue(ctx, a, "schedule", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !job.FullAccess || job.FullAccessBy != "admin@x.io" {
+		t.Fatalf("scheduled override job = %+v", job)
+	}
+	if by, ok := m.DirectApprover(ctx, storage.Action{Kind: "run_command", Target: "ls", JobID: job.ID}); !ok || by != "admin@x.io" {
+		t.Fatalf("a normal command was not auto-approved: %q %v", by, ok)
+	}
+	if _, ok := m.DirectApprover(ctx, storage.Action{Kind: "git_push", Target: "origin fix", JobID: job.ID}); ok {
+		t.Fatal("a push was auto-approved under a scheduled override")
 	}
 }
 

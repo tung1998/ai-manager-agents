@@ -85,6 +85,18 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 			deny = append(deny, "Edit("+p+")", "Write("+p+")")
 		}
 	}
+	// extra read dirs (ADR-074): without full access, read only — Edit/Write
+	// there are denied even though --add-dir below lets the run read them.
+	for _, d := range req.ExtraDirs {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		// a single leading "/" is relative to the settings source (the working
+		// directory), not the filesystem root, in Claude Code's permission
+		// rules; an absolute path needs a second leading "/" (code.claude.com/docs/en/permissions)
+		deny = append(deny, "Edit(/"+d+"/**)", "Write(/"+d+"/**)")
+	}
 	if req.Write && GuardCommand != "" {
 		// Claude Code refuses writes in .claude/ under dontAsk: bypass, with the
 		// office's hook keeping edits in the folder (and MCP as before); the deny

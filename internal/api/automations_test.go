@@ -1,13 +1,105 @@
 package api_test
 
 import (
+	"context"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+// ADR-074 security fix: only a scheduled automation may override to full
+// (administrator) access — a webhook's caller is whoever has the URL.
+func TestOverrideFullAccessRejectedUnlessScheduled(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+
+	if resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
+		"name": "hook", "source": "webhook", "action": "chat", "prompt": "x",
+		"permission_mode": "override", "override_full_access": true,
+		"limits": map[string]any{"daily_cost_usd": 5, "disable_after_failures": 3},
+	}, nil); resp.StatusCode != 400 {
+		t.Fatalf("webhook override = %d %v", resp.StatusCode, body)
+	}
+	if resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
+		"name": "sched", "source": "schedule", "action": "chat", "prompt": "x", "config": map[string]any{"every_minutes": 60},
+		"permission_mode": "override", "override_full_access": true,
+		"limits": map[string]any{"daily_cost_usd": 5, "disable_after_failures": 3},
+	}, nil); resp.StatusCode != 201 {
+		t.Fatalf("schedule override = %d %v", resp.StatusCode, body)
+	}
+}
+
+// ADR-074 security fix: an override that turns full access OFF must never be
+// forced to set a budget — it replaces the agent's own full access entirely
+// (even when the underlying agent itself has FullAccess=true), so it never
+// needs the cost-cap/auto-disable guardrail that only a full-access run needs.
+func TestOverrideWithoutFullAccessNotRequiredToSetBudget(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
+	solo := ""
+	for _, x := range body["templates"].([]any) {
+		if m := x.(map[string]any); m["key"] == "solo" {
+			solo = m["id"].(string)
+		}
+	}
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	agents := body["project"].(map[string]any)["model"].(map[string]any)["agents"].([]any)
+	agentID := agents[0].(map[string]any)["id"].(string)
+
+	// the agent itself has full access (set directly in storage, as if an
+	// admin had turned it on earlier) — only the override's own fields decide
+	// whether this automation gets it, never a fallback to the agent's own.
+	ag, err := e.st.Agents().Get(context.Background(), agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag.Permissions.FullAccess, ag.Permissions.FullAccessBy = true, "admin@x.io"
+	if err := e.st.Agents().Update(context.Background(), ag); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
+		"name": "sched", "source": "schedule", "action": "chat", "prompt": "x", "config": map[string]any{"every_minutes": 60},
+		"agent_id": agentID, "permission_mode": "override", "override_full_access": false,
+		"limits": map[string]any{"daily_cost_usd": 0, "disable_after_failures": 0},
+	}, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("override off with no budget wrongly rejected: %d %v", resp.StatusCode, body)
+	}
+}
+
+// ADR-074 security fix: an override's extra read dirs are checked the same
+// way an agent's are — a credentials folder like ~/.ssh is always rejected.
+func TestOverrideExtraDirsRejectsSensitiveDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ssh := home + "/.ssh"
+	if err := os.MkdirAll(ssh, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	if resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
+		"name": "sched", "source": "schedule", "action": "chat", "prompt": "x", "config": map[string]any{"every_minutes": 60},
+		"permission_mode": "override", "override_extra_dirs": []string{ssh},
+		"limits": map[string]any{"daily_cost_usd": 5, "disable_after_failures": 3},
+	}, nil); resp.StatusCode != 400 {
+		t.Fatalf("override extra dir = ~/.ssh: %d %v", resp.StatusCode, body)
+	}
+}
 
 func TestAutomationsAPI(t *testing.T) {
 	e := setup(t)

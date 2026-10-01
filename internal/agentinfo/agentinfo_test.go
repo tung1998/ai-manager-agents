@@ -80,6 +80,36 @@ func TestHistoryAndRestore(t *testing.T) {
 	}
 }
 
+// ADR-074 security: restoring an agent to an earlier revision never turns
+// full access back on, even when the snapshot being restored to had it.
+func TestRestoreNeverTurnsOnFullAccess(t *testing.T) {
+	ctx := context.Background()
+	st, org, _, a := setup(t)
+	svc := agentinfo.New(st, org, time.UTC)
+
+	a.Permissions.FullAccess, a.Permissions.FullAccessBy, a.Permissions.ExtraDirs = true, "admin@x.io", []string{"/tmp/x"}
+	a, _ = org.SaveAgent(ctx, a) // live agent now has full access
+	a.Role = "Người review"      // a trivial change: its snapshot captures the full-access state above
+	a, err := org.SaveAgent(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// permView (what History shows) leaves full access out of the visible
+	// diff, so only the role change shows up — but its snapshot (taken right
+	// before it) still captures the agent's full state, full access included.
+	h, err := svc.History(ctx, a)
+	if err != nil || len(h) < 1 {
+		t.Fatalf("history = %+v, %v", h, err)
+	}
+	back, err := svc.Restore(ctx, a, h[0].RevisionID) // the snapshot with full access on
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Permissions.FullAccess || back.Permissions.FullAccessBy != "" || len(back.Permissions.ExtraDirs) != 0 {
+		t.Fatalf("restore turned full access back on: %+v", back.Permissions)
+	}
+}
+
 func TestStats(t *testing.T) {
 	ctx := context.Background()
 	st, org, project, a := setup(t)

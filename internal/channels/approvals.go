@@ -333,8 +333,17 @@ func (m *Manager) DirectApprover(ctx context.Context, a storage.Action) (string,
 	if err != nil {
 		return "", false
 	}
-	if by, ok := m.fullAccessApprover(ctx, job, a); ok {
-		return by, true
+	// ADR-074 (security fix): the job already carries whether this run has
+	// full (administrator) access and who enabled it, computed once when it
+	// started (internal/trigger.Runner or internal/chat.Engine) — never
+	// re-derived here from the agent or the automation. But a proposal can
+	// stay pending a while (a job queued behind others, a human-in-the-loop
+	// action waiting on an approval), so who enabled it is re-checked against
+	// admin status right now, at decision time — an admin stripped of the
+	// role after the job started must not have it auto-approve on their behalf.
+	if job.FullAccess && job.FullAccessBy != "" && m.isAdminEmail(ctx, job.FullAccessBy) &&
+		a.Kind != "create_automation" && a.Kind != "run_automation" && !mustAsk(proposal{Action: a.Kind, Target: a.Target}) {
+		return job.FullAccessBy, true
 	}
 	if !trigger.IsChannel(job.Trigger) {
 		return "", false
@@ -356,32 +365,6 @@ func (m *Manager) DirectApprover(ctx context.Context, a storage.Action) (string,
 		return am.By, true
 	}
 	return "", false
-}
-
-// fullAccessApprover (ADR-074): the job's automation overrides to full
-// access, or its own agent has FullAccess — either way only while whoever
-// turned it on is still an admin.
-func (m *Manager) fullAccessApprover(ctx context.Context, job storage.Job, a storage.Action) (string, bool) {
-	if a.Kind == "create_automation" || a.Kind == "run_automation" || mustAsk(proposal{Action: a.Kind, Target: a.Target}) {
-		return "", false
-	}
-	if job.Origin == "automation" {
-		au, err := m.store.Automations().Get(ctx, job.OriginID)
-		if err == nil && au.PermissionMode == "override" {
-			if au.OverrideFullAccess && m.isAdminEmail(ctx, au.OverrideAdminBy) {
-				return au.OverrideAdminBy, true
-			}
-			return "", false // overriding but not to full access: never fall back to the agent's own
-		}
-	}
-	if job.AgentID == "" {
-		return "", false
-	}
-	ag, err := m.store.Agents().Get(ctx, job.AgentID)
-	if err != nil || !ag.Permissions.FullAccess || !m.isAdminEmail(ctx, ag.Permissions.FullAccessBy) {
-		return "", false
-	}
-	return ag.Permissions.FullAccessBy, true
 }
 
 // isAdminEmail: that email is still an admin of the office (ADR-074: a

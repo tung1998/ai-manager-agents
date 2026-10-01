@@ -60,10 +60,15 @@ func Builtins() ([]Template, error) {
 }
 
 func (s AgentSpec) toAgent(orgID string, sort int) storage.Agent {
+	// ADR-074 security: FullAccess/ExtraDirs never come from a template, an
+	// import, a clone, or a model restore — only internal/api/org.go's
+	// applyAgent (admin only) may turn them on.
+	perms := s.Permissions
+	perms.FullAccess, perms.FullAccessBy, perms.ExtraDirs = false, "", nil
 	return storage.Agent{
 		OrgModelID: orgID, Key: s.Key, Name: s.Name, Tier: s.Tier, Role: s.Role, Description: s.Description,
 		ReportsTo: s.ReportsTo, ModelTier: s.ModelTier, LLMModel: s.LLMModel, Instructions: s.Instructions,
-		Permissions: s.Permissions, Sort: sort, ProviderID: s.ProviderID,
+		Permissions: perms, Sort: sort, ProviderID: s.ProviderID,
 	}
 }
 

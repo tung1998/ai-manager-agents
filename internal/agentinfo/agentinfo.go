@@ -507,6 +507,9 @@ func (s *Service) Restore(ctx context.Context, a storage.Agent, revisionID strin
 	}
 	a.Name, a.Tier, a.Role, a.Description, a.ReportsTo = spec.Name, spec.Tier, spec.Role, spec.Description, spec.ReportsTo
 	a.ModelTier, a.LLMModel, a.Instructions, a.Permissions = spec.ModelTier, spec.LLMModel, spec.Instructions, spec.Permissions
+	// ADR-074 security: restoring a snapshot never turns full access back on
+	// — only internal/api/org.go's applyAgent (admin only) may.
+	a.Permissions.FullAccess, a.Permissions.FullAccessBy, a.Permissions.ExtraDirs = false, "", nil
 	if spec.ProviderID == "" {
 		a.ProviderID = ""
 	} else if _, err := s.store.Providers().Get(ctx, spec.ProviderID); err == nil {

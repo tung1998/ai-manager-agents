@@ -16,7 +16,7 @@ type jobRepo struct{ db dbtx }
 
 const jobCols = `id, project_id, kind, origin, origin_id, trigger, created_by, conversation_id, message_id, task_id, status, error, error_code,
 	agent_id, title, cost_usd, input_tokens, output_tokens, duration_ms, dedupe_key, debounce_key, debounce_until, payload, reply,
-	next_attempt_at, created_at, started_at, finished_at, output, exit_code, parent_job_id`
+	next_attempt_at, created_at, started_at, finished_at, output, exit_code, parent_job_id, full_access, full_access_by, extra_dirs`
 
 func scanJob(row scanner) (storage.Job, error) {
 	var (
@@ -25,10 +25,11 @@ func scanJob(row scanner) (storage.Job, error) {
 		debounce, next, started, finished, reply sql.NullString
 		created                                  string
 		exit                                     sql.NullInt64
+		extraDirs                                string
 	)
 	if err := row.Scan(&j.ID, &j.ProjectID, &j.Kind, &j.Origin, &j.OriginID, &j.Trigger, &j.CreatedBy, &conv, &msg, &task, &j.Status, &j.Error,
 		&j.ErrorCode, &j.AgentID, &j.Title, &j.CostUSD, &j.InputTokens, &j.OutputTokens, &j.DurationMS, &j.DedupeKey, &j.DebounceKey,
-		&debounce, &j.Payload, &reply, &next, &created, &started, &finished, &j.Output, &exit, &j.ParentJobID); err != nil {
+		&debounce, &j.Payload, &reply, &next, &created, &started, &finished, &j.Output, &exit, &j.ParentJobID, &j.FullAccess, &j.FullAccessBy, &extraDirs); err != nil {
 		return j, notFound(err)
 	}
 	if exit.Valid {
@@ -38,6 +39,9 @@ func scanJob(row scanner) (storage.Job, error) {
 	j.ConversationID, j.MessageID, j.TaskID = conv.String, msg.String, task.String
 	if reply.Valid && reply.String != "" && reply.String != "{}" {
 		_ = json.Unmarshal([]byte(reply.String), &j.Reply)
+	}
+	if extraDirs != "" && extraDirs != "[]" {
+		_ = json.Unmarshal([]byte(extraDirs), &j.ExtraDirs)
 	}
 	var err error
 	if j.CreatedAt, err = parseTime(created); err != nil {
@@ -65,6 +69,13 @@ func replyJSON(r map[string]any) string {
 	return toJSON(r)
 }
 
+func extraDirsJSON(dirs []string) string {
+	if len(dirs) == 0 {
+		return "[]"
+	}
+	return toJSON(dirs)
+}
+
 func (r jobRepo) Create(ctx context.Context, j storage.Job) (storage.Job, error) {
 	if j.ID == "" {
 		j.ID = ids.New("job")
@@ -75,11 +86,11 @@ func (r jobRepo) Create(ctx context.Context, j storage.Job) (storage.Job, error)
 	if j.Trigger == "" {
 		j.Trigger = "ui"
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		j.ID, j.ProjectID, j.Kind, j.Origin, j.OriginID, j.Trigger, j.CreatedBy, nullStr(j.ConversationID), nullStr(j.MessageID), nullStr(j.TaskID),
 		j.Status, j.Error, j.ErrorCode, j.AgentID, j.Title, j.CostUSD, j.InputTokens, j.OutputTokens, j.DurationMS, j.DedupeKey, j.DebounceKey,
 		optTime(j.DebounceUntil), j.Payload, replyJSON(j.Reply), optTime(j.NextAttemptAt), fmtTime(j.CreatedAt), optTime(j.StartedAt), optTime(j.FinishedAt),
-		j.Output, exitArg(j.ExitCode), j.ParentJobID)
+		j.Output, exitArg(j.ExitCode), j.ParentJobID, j.FullAccess, j.FullAccessBy, extraDirsJSON(j.ExtraDirs))
 	if isUnique(err) {
 		return j, storage.ErrConflict
 	}
@@ -103,9 +114,9 @@ func (r jobRepo) Get(ctx context.Context, id string) (storage.Job, error) {
 
 func (r jobRepo) Update(ctx context.Context, j storage.Job) error {
 	return execOne(ctx, r.db, `UPDATE jobs SET conversation_id=?, message_id=?, task_id=?, status=?, error=?, error_code=?, agent_id=?, title=?,
-		debounce_until=?, payload=?, reply=?, next_attempt_at=?, started_at=? WHERE id=?`,
+		debounce_until=?, payload=?, reply=?, next_attempt_at=?, started_at=?, full_access=?, full_access_by=?, extra_dirs=? WHERE id=?`,
 		nullStr(j.ConversationID), nullStr(j.MessageID), nullStr(j.TaskID), j.Status, j.Error, j.ErrorCode, j.AgentID, j.Title,
-		optTime(j.DebounceUntil), j.Payload, replyJSON(j.Reply), optTime(j.NextAttemptAt), optTime(j.StartedAt), j.ID)
+		optTime(j.DebounceUntil), j.Payload, replyJSON(j.Reply), optTime(j.NextAttemptAt), optTime(j.StartedAt), j.FullAccess, j.FullAccessBy, extraDirsJSON(j.ExtraDirs), j.ID)
 }
 
 func (r jobRepo) Finish(ctx context.Context, id, status, errCode, errMsg string, at time.Time) (storage.Job, error) {

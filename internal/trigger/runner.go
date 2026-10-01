@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/usage"
@@ -112,7 +114,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) {
 		if n, _ := r.store.Jobs().Active(ctx, "automation", a.ID); n > 0 {
 			continue // the last run is not over: no overlap
 		}
-		_, _, _ = r.enqueueAt(ctx, now, a, "schedule", "", "", "")
+		_, _, _ = r.enqueueAt(ctx, now, a, "schedule", "", "", "", false)
 	}
 	r.StartReady(ctx, now)
 }
@@ -178,16 +180,83 @@ func kindOf(action string) string {
 // Enqueue records a run of automation a: queued, or folded into a pending
 // run (debounced), or recognised as a repeat (duplicate).
 func (r *Runner) Enqueue(ctx context.Context, a storage.Automation, trigger, payload, dedupe, debounce string) (storage.Job, string, error) {
-	return r.enqueueAt(ctx, r.now().UTC(), a, trigger, payload, dedupe, debounce)
+	return r.enqueueAt(ctx, r.now().UTC(), a, trigger, payload, dedupe, debounce, false)
 }
 
-func (r *Runner) enqueueAt(ctx context.Context, now time.Time, a storage.Automation, trigger, payload, dedupe, debounce string) (storage.Job, string, error) {
+// Retry re-queues automation a as "manual" (a person asked for it again), but
+// never more trusted than the job being retried was (ADR-074 security fix):
+// a retry of a job whose own trigger was a webhook or a channel message stays
+// untrusted — it must never gain the full access "manual" would otherwise get.
+// origFull is the job being retried's own FullAccess: a retry can never climb
+// above what the job it retries already had — so retrying a retry (itself
+// stored as trigger "manual") still can't launder a webhook/channel origin
+// into full access just because its own trigger looks trusted.
+func (r *Runner) Retry(ctx context.Context, a storage.Automation, origTrigger string, origFull bool, payload string) (storage.Job, string, error) {
+	untrusted := !origFull || origTrigger == "webhook" || IsChannel(origTrigger)
+	return r.enqueueAt(ctx, r.now().UTC(), a, "manual", payload, "", "", untrusted)
+}
+
+// effectivePermissions decides full (administrator) access and the extra
+// read dirs for an automation's chat run, once, when its job is created
+// (ADR-074 security fix): a webhook, a PR webhook, or a channel message
+// never gets full access, whatever the agent or the automation's override is
+// set to — only its schedule or a person running it by hand is trusted.
+// PermissionMode=="override" REPLACES the agent's own full access and extra
+// dirs entirely (even to turn full access off or to no extra dirs); it never
+// adds to or falls back to the agent's own.
+func (r *Runner) effectivePermissions(ctx context.Context, a storage.Automation, trig string, forceUntrusted bool) (full bool, fullBy string, dirs []string) {
+	if a.Action != "chat" || a.AgentID == "" {
+		return false, "", nil
+	}
+	ag, err := r.store.Agents().Get(ctx, a.AgentID)
+	if err != nil {
+		return false, "", nil
+	}
+	level := perm.Agent(ag) // an automation's chat runs uncapped at Operate
+	override := a.PermissionMode == "override"
+	full, fullBy = perm.EffectiveFullAccess(perm.FullAccessInput{
+		Level:        level,
+		ActorTrusted: !forceUntrusted && trig != "webhook" && !IsChannel(trig),
+		AgentFull:    ag.Permissions.FullAccess, AgentFullBy: ag.Permissions.FullAccessBy,
+		Override: override, OverrideFull: a.OverrideFullAccess, OverrideFullBy: a.OverrideAdminBy,
+		IsAdminEmail: func(email string) bool { return r.isAdminEmail(ctx, email) },
+	})
+	// re-checked at run time, not just when the automation was saved (ADR-074):
+	// its Limits may have been lowered to 0 since, or the agent given full
+	// access after the automation was last saved with nothing to re-validate
+	// it — a full-access run without a cost cap or an auto-disable runs
+	// unsupervised and unbounded, so it is downgraded to normal access instead.
+	if full && (a.Limits.DailyCostUSD <= 0 || a.Limits.DisableAfterFailures <= 0) {
+		slog.Warn("trigger: hạ xuống quyền thường vì thiếu rào chắn ngân sách lúc chạy", "automation", a.ID, "full_access_by", fullBy)
+		full, fullBy = false, ""
+	}
+	if !perm.AtLeast(level, perm.Operate) {
+		return full, fullBy, nil
+	}
+	switch {
+	case override:
+		dirs = a.OverrideExtraDirs // replaces the agent's own entirely, even when empty
+	default:
+		dirs = ag.Permissions.ExtraDirs
+	}
+	// re-check right before use (ADR-074 TOCTOU fix): a symlink saved as valid
+	// may have been repointed since (e.g. to ~/.ssh); drop anything now invalid
+	// instead of trusting the path as it was when it was saved.
+	projectPath := ""
+	if repo, err := r.store.Repos().Get(ctx, a.ProjectID); err == nil {
+		projectPath = repo.Path
+	}
+	return full, fullBy, perm.FilterValidExtraDirs(projectPath, dirs)
+}
+
+func (r *Runner) enqueueAt(ctx context.Context, now time.Time, a storage.Automation, trig, payload, dedupe, debounce string, forceUntrusted bool) (storage.Job, string, error) {
 	payload = truncateBytes(payload, maxPayload)
 	if dedupe != "" {
 		if j, err := r.store.Jobs().ByDedupe(ctx, a.ID, dedupe, now.Add(-dedupeTTL)); err == nil {
 			return j, "duplicate", nil
 		}
 	}
+	full, fullBy, dirs := r.effectivePermissions(ctx, a, trig, forceUntrusted)
 	if debounce != "" && a.Limits.DebounceSeconds > 0 {
 		wait := time.Duration(a.Limits.DebounceSeconds) * time.Second
 		next := now.Add(wait)
@@ -207,11 +276,12 @@ func (r *Runner) enqueueAt(ctx context.Context, now time.Time, a storage.Automat
 		}
 		until := now.Add(maxWait)
 		return r.create(ctx, a, dedupe, now, storage.Job{ProjectID: a.ProjectID, Kind: kindOf(a.Action), Origin: "automation", OriginID: a.ID,
-			Trigger: trigger, Status: "pending", Payload: payload, DedupeKey: dedupe, DebounceKey: debounce, DebounceUntil: &until,
-			NextAttemptAt: &next, Title: a.Name, AgentID: a.AgentID}, "debounced")
+			Trigger: trig, Status: "pending", Payload: payload, DedupeKey: dedupe, DebounceKey: debounce, DebounceUntil: &until,
+			NextAttemptAt: &next, Title: a.Name, AgentID: a.AgentID, FullAccess: full, FullAccessBy: fullBy, ExtraDirs: dirs}, "debounced")
 	}
 	return r.create(ctx, a, dedupe, now, storage.Job{ProjectID: a.ProjectID, Kind: kindOf(a.Action), Origin: "automation", OriginID: a.ID,
-		Trigger: trigger, Status: "pending", Payload: payload, DedupeKey: dedupe, NextAttemptAt: &now, Title: a.Name, AgentID: a.AgentID}, "queued")
+		Trigger: trig, Status: "pending", Payload: payload, DedupeKey: dedupe, NextAttemptAt: &now, Title: a.Name, AgentID: a.AgentID,
+		FullAccess: full, FullAccessBy: fullBy, ExtraDirs: dirs}, "queued")
 }
 
 // create adds a job. Two identical deliveries at once meet the unique index:
@@ -361,16 +431,14 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 			actx = WithFullAccess(actx)
 		}
 	}
-	// quyền chạy: mặc định theo agent (chat.Engine tự tính từ Permissions của
-	// agent); "override" thay thế hẳn bằng quyền riêng của automation, chỉ
-	// còn hiệu lực khi người bật nó vẫn còn là admin (ADR-074)
-	if a.PermissionMode == "override" {
-		if a.OverrideFullAccess && r.isAdminEmail(ctx, a.OverrideAdminBy) {
-			actx = WithFullAccess(actx)
-		}
-		if len(a.OverrideExtraDirs) > 0 {
-			actx = WithExtraDirs(actx, a.OverrideExtraDirs)
-		}
+	// quyền chạy: j.FullAccess đã được tính một lần lúc job này được tạo
+	// (effectivePermissions, ADR-074 security fix) — không tính lại từ
+	// agent/automation ở đây, để webhook/PR/tin kênh không bao giờ leo quyền
+	// dù agent hay override của automation có full access. j.ExtraDirs (cũng
+	// tính một lần ở đó, override thay thế hẳn thư mục của agent, không cộng
+	// dồn) được internal/chat.Engine đọc thẳng từ job, không qua ctx.
+	if j.FullAccess {
+		actx = WithFullAccess(actx)
 	}
 	if fromChannel && r.onProgress != nil { // what it is doing, while it does it
 		actx = WithProgress(actx, func(step string) { r.onProgress(context.WithoutCancel(ctx), origin, step) })
@@ -642,21 +710,6 @@ func WithFullAccess(ctx context.Context) context.Context {
 }
 
 func FullAccessOf(ctx context.Context) bool { v, _ := ctx.Value(fullAccessKey{}).(bool); return v }
-
-type extraDirsKey struct{}
-
-// WithExtraDirs allows the executor to read additional directories (ADR-074).
-func WithExtraDirs(ctx context.Context, dirs []string) context.Context {
-	if len(dirs) == 0 {
-		return ctx
-	}
-	return context.WithValue(ctx, extraDirsKey{}, dirs)
-}
-
-func ExtraDirsOf(ctx context.Context) []string {
-	dirs, _ := ctx.Value(extraDirsKey{}).([]string)
-	return dirs
-}
 
 type progressKey struct{}
 

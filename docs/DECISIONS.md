@@ -1628,24 +1628,42 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 
 Bản đầu của ADR này đặt `full_access`/`admin_by`/`extra_dirs` thẳng trên **Automation**. Sai hướng: quyền "chạy như administrator" là thuộc tính của **agent** (nó chạy ở mọi nơi — chat dashboard, chat kênh, automation — với cùng một mức quyền), không phải của riêng một automation. Bản sửa chuyển đúng chỗ.
 
+Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *lại* ở từng nơi dùng (mỗi lượt chat tự suy từ `agent.Permissions`) thay vì tính một lần duy nhất — kẽ hở này khiến bất kỳ ai nhắn một bot gắn agent có full access cũng chạy được `bypassPermissions`, webhook/PR cũng chiếm được quyền của agent, ghi đè hạ quyền (`OverrideFullAccess=false`) không có tác dụng nếu agent gốc đang bật, và thư mục đọc thêm hầu như không bị kiểm tra (có thể trỏ vào `~/.ssh`, home, hay chính project). Mục "Quyết định" dưới đây là bản đã vá; các nguyên tắc an toàn được nêu riêng ở cuối.
+
 **Quyết định.**
 1. **Agent** (`storage.Permissions`, vốn đã là một cột JSON — không cần migration riêng) có thêm:
    - `FullAccess bool` — chạy `bypassPermissions` (mọi công cụ, sửa ở bất kỳ đâu).
    - `FullAccessBy string` — ai bật; chỉ còn hiệu lực khi người đó **vẫn** là admin lúc chạy (kiểm tra lại mỗi lần, không chỉ lúc lưu).
-   - `ExtraDirs []string` — thư mục tuyệt đối, chỉ đọc thêm (vd. migrate/sync dữ liệu từ repo khác).
-   - Chỉ admin được set hai trường trên; một save không phải admin giữ nguyên giá trị cũ (không báo lỗi, không xóa).
+   - `ExtraDirs []string` — thư mục tuyệt đối, chỉ đọc thêm (vd. migrate/sync dữ liệu từ repo khác); phải qua `perm.CheckExtraDir` (mục 7).
+   - Chỉ API admin sửa agent (`internal/api/org.go` `applyAgent`) được set hai trường trên; một save không phải admin giữ nguyên giá trị cũ (không báo lỗi, không xóa) — xem mục 5 về các đường khác không được bật.
    - `FullAccess` chỉ có hiệu lực khi mức quyền hiệu lực của lượt chạy (`perm.Effective`, đã gồm chat/task mode) đã là **Operate** — một chat ở "Chỉ đọc" không bao giờ leo quyền dù agent được cấu hình full access.
-   - Áp dụng ở **mọi nơi** agent chạy: chat dashboard, chat kênh (bot), automation — tính một lần trong `chat.Engine.run` (nơi duy nhất mọi lượt chạy đi qua), không phải ở từng nơi gọi.
-2. **Automation** có `PermissionMode`: `"agent"` (mặc định, dùng đúng quyền hiệu lực của agent nó gọi) hoặc `"override"` (chỉ admin chọn được, **thay thế hẳn** — không cộng dồn — bằng `OverrideFullAccess`/`OverrideAdminBy`/`OverrideExtraDirs` của riêng automation).
-3. Bất kể agent hay override, nếu quyền hiệu lực là full access thì automation đó bắt buộc đặt giới hạn chi phí/ngày > 0 và tự tắt khi lỗi > 0 lần (rào chắn vì chạy nền, không người giám sát).
+2. **Automation** có `PermissionMode`: `"agent"` (mặc định, dùng đúng quyền hiệu lực của agent nó gọi) hoặc `"override"` (chỉ admin chọn được, **thay thế hẳn** — không cộng dồn, kể cả để **hạ quyền** — bằng `OverrideFullAccess`/`OverrideAdminBy`/`OverrideExtraDirs` của riêng automation). `override` với `OverrideFullAccess=false` luôn ra quyền thường, dù agent đang bật full access; tương tự `OverrideExtraDirs` luôn thay hẳn `agent.Permissions.ExtraDirs`, kể cả rỗng.
+3. Bất kể agent hay override, nếu quyền hiệu lực là full access thì automation đó bắt buộc đặt giới hạn chi phí/ngày > 0 và tự tắt khi lỗi > 0 lần (rào chắn vì chạy nền, không người giám sát). Chỉ nguồn `"schedule"` mới được `OverrideFullAccess=true` (mục 6).
 4. Skill được gắn cho automation lịch/webhook (ADR-049 trước đó chỉ gắn cho kênh), để tự động hóa gọi lệnh như Chat.
 5. Agent/automation tạo qua đề xuất (`internal/actions`) không đi qua các trường này: `trigger.Spec` không có `PermissionMode`/`FullAccess`/`ExtraDirs`, nên một agent không tự cấp quyền này cho mình qua `propose_automation`/`propose_change`.
+
+**Nguyên tắc an toàn (bản vá).**
+6. **Tính một lần, đọc lại khắp nơi.** `perm.EffectiveFullAccess` (`internal/perm/fullaccess.go`) là nơi duy nhất quyết định full access + thư mục đọc thêm hiệu lực cho một lượt chạy, gọi **một lần khi lượt chạy bắt đầu**, kết quả lưu thẳng vào `jobs.full_access` / `jobs.full_access_by` / `jobs.extra_dirs` (migration 00044, 00045):
+   - Automation (lịch, webhook, tin kênh): `trigger.Runner.effectivePermissions` tính lúc tạo job, trước khi lưu.
+   - Chat dashboard (`job.Origin=="user"`): `chat.Engine.run` tính ngay khi chạy (chưa có job sẵn lúc tạo vì mức quyền phụ thuộc mode của chat, biết sau), rồi ghi lại vào job.
+   - Mọi nơi khác (`DirectApprover`, `cmd/office/executor.go`, CLI argv) chỉ **đọc** `job.FullAccess`/`job.ExtraDirs` đã tính sẵn, không tự suy lại từ `agent.Permissions` hay `automation.Override*` nữa.
+   - Đầu vào quyết định gồm: mức quyền hiệu lực (≥ Operate), Trợ lý office không ở chế độ "chỉ trả lời", và **actor có đáng tin hay không** (mục 7).
+7. **Nguồn tin cậy (ActorTrusted).** Full access (kế thừa lẫn ghi đè) chỉ áp dụng khi actor khởi động lượt chạy đáng tin:
+   - Chat dashboard: actor phải có vai trò admin (`human:<email>`, kiểm tra lại mỗi lần — một admin bị hạ quyền sau đó mất quyền ngay).
+   - Automation theo lịch, hoặc admin bấm "chạy tay": đáng tin.
+   - Webhook, webhook Pull Request, hoặc automation chạy bởi tin nhắn kênh (Discord/Telegram): **không bao giờ** đáng tin, bất kể agent hay override cấu hình gì — không kiểm soát được ai gọi webhook hay ai nhắn bot.
+   - Tin nhắn trực tiếp tới bot (không qua automation, vd escalation cũ) cũng không bao giờ lấy được full access của agent: actor ở dạng không có tiền tố `human:` nên `isAdmin()` luôn `false`. Đây là nhánh **khác** với chế độ administrator của kênh (ADR-071, `FullAccessFor`/`MayDecide`) — cơ chế đó không đổi, vẫn chạy qua một cờ ngữ cảnh riêng (`chat.WithFullAccess` do người được duyệt bật ở `/mode admin`), không liên quan tới `agent.Permissions.FullAccess`.
+8. **Không bật ngầm.** Mọi đường chép `storage.Permissions` từ một nguồn khác — tạo agent từ template/org model (`orgmodel.AgentSpec.toAgent`), khôi phục phiên bản mô hình, khôi phục một agent (`agentinfo.Service.Restore`), import/clone — đều reset `FullAccess`/`FullAccessBy`/`ExtraDirs` trước khi lưu. Chỉ `applyAgent` (admin, mục 1) bật được. Mỗi lần `agent.Permissions.FullAccess`/`ExtraDirs` hay `automation.OverrideFullAccess`/`OverrideExtraDirs` đổi đều ghi một audit riêng (`agent.full_access` / `automation.full_access`, có before/after), ngoài audit chung `agent.update`/`automation.update`.
+9. **Thư mục đọc thêm phải an toàn.** `perm.CheckExtraDir(projectPath, dir)` kiểm tra mọi `ExtraDirs`/`OverrideExtraDirs` trước khi lưu (agent và automation dùng chung hàm): đường tuyệt đối, tồn tại, là thư mục, resolve qua `filepath.EvalSymlinks` (chặn cả symlink trỏ ra ngoài). Cấm `/`, thư mục home và mọi thư mục cha của home, thư mục project và mọi thư mục cha của nó, `.office` trong project, và các thư mục nhạy cảm dưới home (`.ssh`, `.aws`, `.gnupg`, `.config`, `.kube`, `.docker`, `.netrc`, `Library/Keychains`) kể cả mọi thứ nằm dưới chúng. Khi lượt chạy **không** có full access, các thư mục đọc thêm vẫn chỉ đọc được: `run_claude.go` thêm `Edit(<dir>/**)`/`Write(<dir>/**)` vào `--disallowedTools` cho từng dir.
+10. **Tự duyệt đề xuất chỉ dựa vào job.** `channels.DirectApprover` đọc thẳng `job.FullAccess`/`job.FullAccessBy` (mục 6) để tự duyệt — không tự tính lại từ agent/automation. Dù full access, một số thao tác luôn phải hỏi: push, dừng dịch vụ, đổi cài đặt, xóa, tạo/chạy automation (`mustAsk`, và riêng `create_automation`/`run_automation`).
 
 **Lý do.**
 - Quyền administrator là tính chất của agent (ai chạy), không phải của từng automation (khi nào chạy) — đặt đúng chỗ tránh một bộ field thứ hai trùng ý nghĩa, và tự động làm mọi nơi agent xuất hiện nhất quán (sửa một chỗ, có hiệu lực khắp nơi).
 - Override ở automation vẫn cần, vì có automation muốn quyền khác agent gốc của nó (ít hơn hoặc nhiều hơn) mà không muốn đổi agent dùng chung cho chat thường — override *thay thế* để không ai nhầm "cộng dồn quyền".
 - Kiểm tra lại admin mỗi lần chạy (không chỉ lúc lưu): một admin bị hạ quyền sau đó không được để lại một agent chạy mãi với quyền họ không còn có.
 - Rào chắn ngân sách bắt buộc vì sai lầm ở chế độ không giám sát có thể tốn kém hoặc phá dữ liệu.
+- Tính quyền nhiều lần ở nhiều nơi (bản đầu) là nguồn gốc của mọi lỗ hổng: mỗi nơi tự suy có thể quên một điều kiện (actor, nguồn tin cậy). Tính một lần, lưu vào job, đọc lại ở khắp nơi đảm bảo chỉ có **một** chỗ phải đúng.
+- Actor không đáng tin (webhook, PR, tin kênh) không bao giờ được full access vì đó là dữ liệu từ bên ngoài, có thể chứa chỉ dẫn giả danh (prompt injection) cố lừa agent chạy lệnh nguy hiểm.
 
 **Phương án đã loại.**
 | Phương án | Lý do loại |
@@ -1653,6 +1671,9 @@ Bản đầu của ADR này đặt `full_access`/`admin_by`/`extra_dirs` thẳng
 | Giữ field trên Automation (bản đầu) | Sai mô hình: hai automation cùng gọi một agent sẽ phải cấu hình lại quyền hai lần, và quyền agent dùng trong chat dashboard không được hưởng dù là agent tương tự. |
 | Cấp full quyền mặc định, không rào chắn | Không an toàn: automation/agent chạy nền, lỗi code có thể phá máy. |
 | Override cộng dồn vào quyền agent thay vì thay thế | Dễ gây hiểu lầm về quyền thực tế đang chạy; thay thế rõ ràng hơn khi đọc lại cấu hình. |
+| Tự suy quyền ở từng nơi dùng (bản đầu) | Mỗi nơi phải nhớ đúng mọi điều kiện (mức quyền, actor, nguồn); một chỗ quên là một lỗ hổng. Tính một lần, lưu vào job an toàn hơn. |
+| Cho tin kênh (MayDecide) hưởng cả full access của agent | Trộn hai cơ chế khác bản chất: chế độ admin của kênh (ADR-071) do người được duyệt tự bật qua lệnh, còn full access của agent là cấu hình admin đặt sẵn — không kiểm soát được ai nhắn bot nên không bao giờ cho qua nhánh agent. |
+| Guard hook tự nhận biết extra dirs để chặn ghi | Guard đã chặn mọi sửa ngoài thư mục làm việc từ trước (ADR-073); extra dir theo định nghĩa nằm ngoài đó nên đã bị chặn khi guard chạy. Việc còn lại (chặn khi guard *không* chạy, vd `dontAsk`) xử lý bằng deny list `--disallowedTools`, không cần sửa guard. |
 
 ## ADR-077: Tin chưa xem nằm trong "Cần xử lý"
 - Bảng `conversation_reads (user_id, conversation_id, seen_at)` ghi lần cuối mỗi người mở mỗi cuộc chat. Migration 00043 coi mọi cuộc chat đang có là đã xem.

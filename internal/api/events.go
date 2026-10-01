@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/events"
+	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
 // events streams what changed (ADR-072) to an open dashboard page: the
@@ -26,7 +27,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Accel-Buffering", "no")
 	h.Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
-	sub, stop := s.cfg.Events.Subscribe(events.Viewer{UserID: u.ID, Email: u.Email, Admin: u.Role == "admin"})
+	sub, stop := s.cfg.Events.Subscribe(events.Viewer{UserID: u.ID, Email: u.Email, Admin: u.Role == storage.RoleAdmin})
 	defer stop()
 	write := func(name string, data any) {
 		raw, _ := json.Marshal(data)

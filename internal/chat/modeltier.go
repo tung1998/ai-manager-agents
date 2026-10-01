@@ -81,18 +81,3 @@ func WithFullAccess(ctx context.Context) context.Context {
 }
 
 func fullAccess(ctx context.Context) bool { v, _ := ctx.Value(fullAccessKey{}).(bool); return v }
-
-type extraDirsKey struct{}
-
-// WithExtraDirs allows the runs of ctx to read additional directories (ADR-074).
-func WithExtraDirs(ctx context.Context, dirs []string) context.Context {
-	if len(dirs) == 0 {
-		return ctx
-	}
-	return context.WithValue(ctx, extraDirsKey{}, dirs)
-}
-
-func extraDirsOf(ctx context.Context) []string {
-	dirs, _ := ctx.Value(extraDirsKey{}).([]string)
-	return dirs
-}

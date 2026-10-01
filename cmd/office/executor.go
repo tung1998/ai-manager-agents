@@ -24,9 +24,8 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 	if trigger.FullAccessOf(ctx) { // administrator mode of a bot's chat, or an automation's override (ADR-074)
 		ctx = chat.WithFullAccess(ctx)
 	}
-	if dirs := trigger.ExtraDirsOf(ctx); len(dirs) > 0 { // an automation's own override of extra read dirs (ADR-074)
-		ctx = chat.WithExtraDirs(ctx, dirs)
-	}
+	// extra read dirs: internal/chat.Engine reads them straight off the job
+	// (computed once when it was created, ADR-074 security fix) — not from ctx.
 	untrusted := trigger.UntrustedOf(ctx)
 	if untrusted { // outsiders drove it (a bot's escalation): no tools, read only
 		ctx = chat.WithNoTools(ctx)

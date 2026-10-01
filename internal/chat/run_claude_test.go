@@ -134,3 +134,27 @@ echo '{"type":"result","subtype":"success","result":"ok"}'
 		t.Fatalf("blank extra dirs were not skipped: %v", got)
 	}
 }
+
+// Without full access, an extra dir is read only: Edit/Write there are denied
+// even though --add-dir lets the run read it (ADR-074 security fix). The rule
+// needs a SECOND leading "/" for an absolute path — a single "/" is relative
+// to the settings source (the working directory), not the filesystem root
+// (https://code.claude.com/docs/en/permissions).
+func TestClaudeArgsExtraDirsDeniesWriteWithoutFullAccess(t *testing.T) {
+	var r claudeRunner
+	extra := "/tmp/an-extra-dir"
+	a := r.args(RunRequest{Write: true, ExtraDirs: []string{extra}}, false)
+	i := slices.Index(a, "--disallowedTools")
+	if i < 0 || i+1 >= len(a) {
+		t.Fatalf("no --disallowedTools: %v", a)
+	}
+	deny := a[i+1]
+	if !strings.Contains(deny, "Edit(/"+extra+"/**)") || !strings.Contains(deny, "Write(/"+extra+"/**)") {
+		t.Fatalf("extra dir not denied with the absolute-path (double leading /) syntax: %q", deny)
+	}
+	// the single-leading-slash form (the old, wrong rule) must not be there
+	// instead — it would only deny a path relative to the working directory
+	if strings.Contains(deny, "Edit("+extra+"/**)") {
+		t.Fatalf("extra dir denied with the wrong (relative) syntax: %q", deny)
+	}
+}

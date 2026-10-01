@@ -97,7 +97,12 @@ function toggleIn(key: 'processes' | 'containers', current: string[], v: string,
         </span>
       </label>
       <div v-if="perms.full_access" class="mt-3 space-y-2 border-t border-(--ui-border) pt-3">
-        <p class="text-xs font-medium">{{ t('org.agent.extraDirs') }}</p>
+        <p class="flex items-center gap-1 text-xs font-medium">
+          {{ t('org.agent.extraDirs') }}
+          <UTooltip :text="t('org.agent.extraDirsFullAccessHint')">
+            <UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" />
+          </UTooltip>
+        </p>
         <div class="space-y-1.5">
           <div v-for="(dir, i) in (perms.extra_dirs ?? [])" :key="i" class="flex items-center gap-2">
             <UInput

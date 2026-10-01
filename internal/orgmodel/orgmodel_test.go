@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 )
@@ -278,5 +279,43 @@ func TestProviderSurvivesCloneAndRestore(t *testing.T) {
 	}
 	if got := mustList(t, st, clone.ID)[0].ProviderID; got != "" {
 		t.Fatalf("expected fallback to default, got %q", got)
+	}
+}
+
+// ADR-074 security: full access and extra dirs never come from a template —
+// applying one (a fresh instance, a replace, an import) always creates the
+// agent without them, however the source spec is set.
+func TestApplyTemplateNeverTurnsOnFullAccess(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	svc := orgmodel.NewService(st)
+	repo, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/shop"})
+	tpl := orgmodel.Template{Key: "x", Name: "X", Kind: storage.KindCustom, Agents: []orgmodel.AgentSpec{
+		{Key: "lead", Name: "L", Tier: storage.TierLead, ModelTier: "strong",
+			Permissions: storage.Permissions{Level: perm.Operate, FullAccess: true, FullAccessBy: "admin@x.io", ExtraDirs: []string{"/tmp/x"}}},
+	}}
+	inst, err := svc.ApplyTemplate(ctx, repo.ID, tpl, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := mustList(t, st, inst.ID)[0]
+	if a.Permissions.FullAccess || a.Permissions.FullAccessBy != "" || len(a.Permissions.ExtraDirs) != 0 {
+		t.Fatalf("agent created from template has full access: %+v", a.Permissions)
+	}
+
+	// also a custom (library) template: CreateTemplate, then CloneTemplate
+	created, err := svc.CreateTemplate(ctx, tpl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := mustList(t, st, created.ID)[0]; a.Permissions.FullAccess {
+		t.Fatalf("library template agent has full access: %+v", a.Permissions)
+	}
+	clone, err := svc.CloneTemplate(ctx, created.ID, "x-2", "X 2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := mustList(t, st, clone.ID)[0]; a.Permissions.FullAccess {
+		t.Fatalf("cloned template agent has full access: %+v", a.Permissions)
 	}
 }
