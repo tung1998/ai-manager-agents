@@ -1675,3 +1675,17 @@ Bản đầu của ADR này đặt `full_access`/`admin_by`/`extra_dirs` thẳng
   - Tin đến lúc đang stream được giữ lại, stream xong mới thêm.
 - **Cần xử lý:** khi dữ liệu liên quan đổi, server tính lại cho từng người đang xem và đẩy `incidents` nếu khác lần trước; trang vừa mở cũng nhận ngay. Bỏ hẳn việc tự tải lại mỗi 30 giây.
 - Event chạy theo thứ tự trong một hàng đợi riêng, không chặn lệnh ghi. Kết nối lại thì tải lại tất cả một lần, vì có thể đã lỡ event.
+
+## ADR-079: Giao việc chạy độc lập, phiên đầy thì tự compact
+- **Bối cảnh:**
+  - Mỗi lần giao việc, office mở lại đúng phiên cũ của agent nhận (`--resume`). Cả chuỗi giao việc dồn vào một phiên: Code Worker tới khoảng 549K token, mỗi lượt nạp lại 10–33 triệu token.
+  - Mức model còn đổi qua lại giữa các lượt (Sonnet 5 chứa 1M, Haiku 4.5 chỉ 200K). Lượt nào rơi vào Haiku là gặp "Prompt is too long". Agent chính đoán sai thành "lời giao việc quá dài".
+- **Lượt giao việc** (nền, có người giao) chỉ gồm đầu vào và đầu ra: việc cần làm và báo kết quả.
+  - Mỗi lần một phiên mới, không nạp lịch sử chat.
+  - Không ghi đè phiên riêng của agent trong chat: bạn tag trực tiếp thì agent vẫn nhớ mạch với bạn.
+  - Worktree vẫn dùng chung, nên các lần sửa code nối tiếp nhau.
+- **Phiên dài thì tự compact, như Claude Code:**
+  - Trước khi tiếp tục một phiên, nếu nó đã quá 70% sức chứa của model sắp chạy (`windowOf`: Haiku 200K, model "[1m]" 1M, còn lại theo lần chạy trước), office chạy `claude -p /compact --resume <phiên>`, rồi chạy tiếp trên chính phiên đó.
+  - Phiên đã quá 90% thì compact bằng model mức strong.
+  - Không compact được thì mở phiên mới, nạp kèm lịch sử gần đây.
+- **Báo lỗi đúng nguyên nhân:** gặp "Prompt is too long" thì báo rõ phiên đã quá lớn so với model X, và lượt sau tự mở phiên mới.

@@ -392,6 +392,7 @@ echo "$*" > `+dir+`/call$n.args
 cat > `+dir+`/call$n.in
 who=lead
 case "$*" in *"Bạn là Dev"*) who=dev;; esac
+case "$*" in *"-p /compact"*) echo '{"type":"system","subtype":"compact_boundary","compact_metadata":{"pre_tokens":150000,"post_tokens":4000}}'; echo '{"type":"result","subtype":"success","is_error":false,"result":""}'; exit 0;; esac
 if [ -f `+dir+`/fail-$who ]; then rm `+dir+`/fail-$who; echo '{"type":"system","subtype":"init","session_id":"sess-'$who'"}'; echo 'boom' >&2; exit 1; fi
 [ -f `+dir+`/sleep-$who ] && sleep $(cat `+dir+`/sleep-$who)
 reply=ok
@@ -965,5 +966,54 @@ func TestAgentFullAccessRevokedWhenEnablerNotAdmin(t *testing.T) {
 	b, _ := os.ReadFile(argsLog)
 	if a := string(b); strings.Contains(a, "bypassPermissions") {
 		t.Fatalf("full access held after enabler lost admin: %s", a)
+	}
+}
+
+// ADR-079: a task handed to another agent is its input and its result: a
+// session of its own (not the agent's chat session) and no chat history.
+func TestHandoffRunsOnItsOwn(t *testing.T) {
+	g := newGroup(t)
+	if got := g.sendAll(t, "@Dev xem giúp file api.go"); len(got) != 1 || got[0] != "Dev" {
+		t.Fatalf("authors = %v", got) // Dev has its own session in the chat now
+	}
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	turn, _, err := g.engine.Send(g.context, g.conv.ID, "bí mật trong lịch sử: CHUOI-RIENG", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.delegateDuring(t, "Dev", "chạy go vet và báo kết quả")
+	collect(t, turn)
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	g.waitAuthors(t, 4) // Dev, lead, Dev (the task), lead (its report)
+	args, in := call(t, g.dir, 3)
+	if !strings.Contains(in, "chạy go vet và báo kết quả") {
+		t.Fatalf("the task is not its input:\n%s", in)
+	}
+	if strings.Contains(args, "--resume") || strings.Contains(in, "CHUOI-RIENG") || strings.Contains(in, "xem giúp file api.go") {
+		t.Fatalf("the handed-over task got the chat's session or history:\nargs %s\nin %s", args, in)
+	}
+}
+
+// ADR-079: a session past 70% of what its model holds is compacted before
+// the turn resumes it, as Claude Code does itself.
+func TestFullSessionIsCompacted(t *testing.T) {
+	g := newGroup(t)
+	g.sendAll(t, "chào")
+	ctx := context.Background()
+	mems, _ := g.f.st.Chat().Members(ctx, g.conv.ID)
+	if len(mems) != 1 || mems[0].SessionID == "" {
+		t.Fatalf("members = %+v", mems)
+	}
+	m := mems[0]
+	m.ContextTokens, m.ContextWindow = 150_000, 200_000
+	g.f.st.Chat().UpsertMember(ctx, m)
+	g.sendAll(t, "tiếp")
+	compact, _ := call(t, g.dir, 2)
+	run, _ := call(t, g.dir, 3)
+	if !strings.Contains(compact, "-p /compact") || !strings.Contains(compact, "--resume "+m.SessionID) {
+		t.Fatalf("not compacted first: %s", compact)
+	}
+	if !strings.Contains(run, "--resume "+m.SessionID) {
+		t.Fatalf("the turn did not go on in its session: %s", run)
 	}
 }

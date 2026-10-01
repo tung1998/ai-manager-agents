@@ -1,8 +1,6 @@
 package chat
 
 import (
-	"bitbucket.org/senprints/agent-office/internal/mcpserver"
-	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bufio"
 	"bytes"
 	"context"
@@ -15,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -409,4 +409,79 @@ func writeMCPConfig(o *OfficeAccess) (string, error) {
 		return "", err
 	}
 	return f.Name(), nil
+}
+
+// compactClaude has Claude Code compact a session (its /compact), as it does
+// itself when a chat fills up: the session goes on, shorter. It returns the
+// tokens the session holds after.
+func compactClaude(ctx context.Context, bin, dir, model, session string) (int, error) {
+	if bin == "" {
+		bin = "claude"
+	}
+	args := []string{"-p", "/compact", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk",
+		"--setting-sources", "user,project,local", "--tools", "", "--strict-mcp-config", "--resume", session}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return 0, err
+	}
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	defer proctrack.Track(ctx, cmd.Process.Pid)()
+	post, compacted, fail := 0, false, ""
+	sc := bufio.NewScanner(out)
+	sc.Buffer(make([]byte, 1<<20), 16<<20)
+	for sc.Scan() {
+		var ev struct {
+			Type     string `json:"type"`
+			Subtype  string `json:"subtype"`
+			IsError  bool   `json:"is_error"`
+			Result   string `json:"result"`
+			Metadata struct {
+				PostTokens int `json:"post_tokens"`
+			} `json:"compact_metadata"`
+		}
+		if json.Unmarshal(sc.Bytes(), &ev) != nil {
+			continue
+		}
+		switch {
+		case ev.Type == "system" && ev.Subtype == "compact_boundary":
+			post, compacted = ev.Metadata.PostTokens, true
+		case ev.Type == "result" && (ev.IsError || ev.Subtype != "success"):
+			fail = firstNonEmpty(ev.Result, ev.Subtype)
+		}
+	}
+	werr := cmd.Wait()
+	switch {
+	case fail != "":
+		return 0, fmt.Errorf("claude: %s", fail)
+	case !compacted && werr != nil:
+		return 0, fmt.Errorf("claude: %v %s", werr, strings.TrimSpace(stderr.String()))
+	case !compacted:
+		return 0, errors.New("claude: không tóm gọn được phiên")
+	}
+	return post, nil
+}
+
+// windowOf is how many tokens a model holds: Haiku 200K, a "[1m]" model 1M,
+// else as its last run said (0: 200K, the safe guess).
+func windowOf(model string, seen int) int {
+	switch {
+	case strings.Contains(model, "haiku"):
+		return 200_000
+	case strings.Contains(model, "[1m]"):
+		return 1_000_000
+	case seen > 0:
+		return seen
+	}
+	return 200_000
 }

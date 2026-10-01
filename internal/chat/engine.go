@@ -700,9 +700,16 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			}
 		}
 	}
+	// a task another agent handed over (ADR-079): its input and its result,
+	// nothing else — a session of its own, not the chat's history
+	handoff := turn.background && turn.delegator != ""
+	hist := HistoryFor(history, agent.Name)
+	if handoff {
+		hist = nil
+	}
 	req := RunRequest{
 		Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: text,
-		System: systemPrompt(project, agent, e.office != nil, acc, pl), History: HistoryFor(history, agent.Name), Attachments: files,
+		System: systemPrompt(project, agent, e.office != nil, acc, pl), History: hist, Attachments: files,
 		Write: pl.write, DenyPaths: policy.DenyPaths, ExtraDirs: agentExtraDirs, UserMCP: acc.Can(perm.CapUserMCP),
 	}
 	if agentFull {
@@ -761,10 +768,13 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	// the agent's own session in this chat (ADR-044); coming back, it gets
 	// what the others said since its last answer
 	mem := e.member(ctx, conv, agent)
-	if mem.Runtime == string(p.Kind) && mem.SessionID != "" {
+	if !handoff && mem.Runtime == string(p.Kind) && mem.SessionID != "" {
 		req.SessionID = mem.SessionID
-		if more := newSince(history, mem.LastMessageID, agent.Name); more != "" {
-			req.Prompt = more + "Tin nhắn mới:\n" + req.Prompt
+		e.compactIfFull(ctx, turn, &mem, agent, p, model, pl.dir)
+		if req.SessionID = mem.SessionID; req.SessionID != "" {
+			if more := newSince(history, mem.LastMessageID, agent.Name); more != "" {
+				req.Prompt = more + "Tin nhắn mới:\n" + req.Prompt
+			}
 		}
 	}
 	turn.emit(Event{Type: "status", Text: fmt.Sprintf("%s đang trả lời (%s · %s)", agent.Name, p.Name, model)})
@@ -778,10 +788,17 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		}
 	}
 	e.keepLimits(p, res.Limits)
-	if res.SessionID != "" {
+	if runErr != nil && strings.Contains(runErr.Error(), "Prompt is too long") {
+		// the session outgrew the model: say so (not "the task is too long"),
+		// and start the next one afresh
+		runErr = fmt.Errorf("%s: phiên làm việc đã quá lớn (%dK token) so với model %s, lượt sau sẽ mở phiên mới (%w)", agent.Name, mem.ContextTokens/1000, model, runErr)
+		mem.SessionID, mem.ContextTokens = "", 0
+		res.SessionID = ""
+	}
+	if res.SessionID != "" && !handoff { // a handed-over task leaves the agent's own session as it was
 		mem.SessionID, mem.Runtime = res.SessionID, string(p.Kind)
 	}
-	if res.Context.Tokens > 0 {
+	if res.Context.Tokens > 0 && !handoff {
 		mem.ContextTokens, mem.ContextWindow = res.Context.Tokens, res.Context.Window
 		if agent.ID == conv.AgentID { // the chat shows its default agent's context
 			_ = e.store.Chat().SetConversationContext(context.Background(), conv.ID, mem.ContextTokens, mem.ContextWindow)
@@ -865,7 +882,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			}
 		}
 	}
-	mem.LastMessageID = msg.ID // it has seen everything up to its answer
+	if !handoff {
+		mem.LastMessageID = msg.ID // it has seen everything up to its answer
+	}
 	_ = e.store.Chat().UpsertMember(context.Background(), mem)
 	e.endJob(turn.JobID, msg.ID, nil, nil)
 	turn.emit(Event{Type: "done", Message: &dto, NextTurnID: e.nextTurn(ctx, turn, conv, project, agent, res.Text)})
@@ -1111,6 +1130,37 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 		return out, runErr
 	}
 	return out, nil
+}
+
+// compactIfFull compacts the agent's session before a turn resumes it, as
+// Claude Code does when a chat fills up (ADR-079): past 70% of what the model
+// about to run holds. A session already too big for that model is compacted
+// with the agent's strong model; one that cannot be compacted is left, and
+// the turn starts a new session (with the chat's recent history instead).
+func (e *Engine) compactIfFull(ctx context.Context, turn *Turn, mem *storage.ChatMember, agent storage.Agent, p storage.Provider, model, dir string) {
+	if p.Kind != storage.ProviderClaudeCLI || mem.ContextTokens == 0 {
+		return
+	}
+	win := windowOf(model, mem.ContextWindow)
+	if mem.ContextTokens < win*7/10 {
+		return
+	}
+	using := model
+	if mem.ContextTokens > win*9/10 { // too big for this model to read through: the strong one compacts it
+		strong := agent
+		strong.ModelTier, strong.LLMModel = storage.TierStrong, ""
+		if _, m, err := e.providers.ResolveModel(ctx, strong); err == nil {
+			using = m
+		}
+	}
+	turn.emit(Event{Type: "status", Text: fmt.Sprintf("%s: phiên đã dùng %dK/%dK token, đang tóm gọn…", agent.Name, mem.ContextTokens/1000, win/1000)})
+	post, err := compactClaude(ctx, e.providers.CLIBin(p), dir, using, mem.SessionID)
+	if err != nil {
+		mem.SessionID, mem.ContextTokens = "", 0 // a new session, the recent history in its prompt
+		return
+	}
+	mem.ContextTokens = post
+	_ = e.store.Chat().UpsertMember(context.Background(), *mem)
 }
 
 // CanPropose reports whether an agent may propose code changes.
