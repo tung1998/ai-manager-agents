@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -45,6 +46,7 @@ func (codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	if err := cmd.Start(); err != nil {
 		return RunResult{}, fmt.Errorf("không chạy được %s: %w", bin, err)
 	}
+	defer proctrack.Track(ctx, cmd.Process.Pid)()
 	res := RunResult{}
 	res.Usage.Model = req.Model
 	var answer []string

@@ -26,6 +26,9 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	admin := func(h http.HandlerFunc) http.Handler { return s.requireRole(storage.RoleAdmin, h) }
 
 	mux.Handle("GET /api/system", auth(s.system))
+	mux.Handle("GET /api/system/stats", admin(s.systemStats))
+	mux.Handle("POST /api/system/processes/{pid}/stop", admin(s.stopProcess(false)))
+	mux.Handle("POST /api/system/processes/{pid}/kill", admin(s.stopProcess(true)))
 
 	mux.Handle("GET /api/provider-kinds", auth(s.providerKinds))
 	mux.Handle("GET /api/providers", auth(s.listProviders))

@@ -12,6 +12,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/perm"
+	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
@@ -150,8 +151,10 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 			return nil, fmt.Sprintf("%s không trả lời: %v", s.agent.Name, err)
 		}
 	}
-	runCtx, cancel := context.WithTimeout(WithModelTier(actor.With(context.Background(), s.actor), s.tier), 20*time.Minute)
-	t := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
+	turnID := fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano())
+	base := proctrack.With(actor.With(context.Background(), s.actor), proctrack.Info{Kind: "agent", TurnID: turnID, ConversationID: conv.ID, ProjectID: conv.ProjectID, Label: s.agent.Name})
+	runCtx, cancel := context.WithTimeout(WithModelTier(base, s.tier), 20*time.Minute)
+	t := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
 		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor, total: s.total, tier: s.tier,
 		agentID: s.agent.ID, agentName: s.agent.Name, background: s.background, delegator: s.delegator}
 	e.mu.Lock()

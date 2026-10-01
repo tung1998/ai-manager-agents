@@ -454,3 +454,30 @@ func (m *Manager) RunSampler(ctx context.Context, every time.Duration) {
 		}
 	}
 }
+
+// Running is a project process that runs now, for the dashboard's process list.
+type Running struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+	Name      string `json:"name"`
+	PID       int    `json:"pid"`
+}
+
+// Running lists the project processes that run now.
+func (m *Manager) Running() []Running {
+	m.mu.Lock()
+	procs := make([]*proc, 0, len(m.procs))
+	for _, p := range m.procs {
+		procs = append(procs, p)
+	}
+	m.mu.Unlock()
+	var out []Running
+	for _, p := range procs {
+		p.mu.Lock()
+		if p.state.PID > 0 && (p.state.Status == "running" || p.state.Status == "stopping") {
+			out = append(out, Running{ID: p.def.ID, ProjectID: p.def.ProjectID, Name: p.def.Name, PID: p.state.PID})
+		}
+		p.mu.Unlock()
+	}
+	return out
+}

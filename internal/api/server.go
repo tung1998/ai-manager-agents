@@ -11,6 +11,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,6 +32,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/sysinfo"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
@@ -90,6 +92,7 @@ type SystemInfo struct {
 
 type server struct {
 	cfg     Config
+	sys     *sysinfo.Sampler // the machine and office's processes (overview)
 	origins map[string]bool
 	log     *slog.Logger
 }
@@ -99,7 +102,7 @@ func New(cfg Config) http.Handler {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	s := &server{cfg: cfg, origins: map[string]bool{}, log: cfg.Logger}
+	s := &server{cfg: cfg, origins: map[string]bool{}, log: cfg.Logger, sys: sysinfo.New(cmp.Or(cfg.System.HomeDir, "/"))}
 	// the config registry behind propose_change and the generic tools (ADR-045)
 	if cfg.Actions != nil {
 		cfg.Actions.SetConfig(s)

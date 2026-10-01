@@ -1612,3 +1612,12 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - Giới hạn của ADR-044 (2 lượt giao việc, 4 lượt trả lời cho mỗi tin) làm đứt vòng làm việc bình thường: Lập kế hoạch giao cho Code Worker, Code Worker báo lại, Lập kế hoạch giao tiếp.
 - Tin của người dùng (web `human:`, Discord, Telegram) chỉ còn giới hạn an toàn chống vòng lặp: 10 lượt giao việc và 20 lượt trả lời. Người dùng có mặt để dừng các agent khi cần.
 - Việc chạy không có người theo dõi (tự động hóa, monitor) giữ giới hạn cũ 2/4.
+
+## ADR-076: Máy và tiến trình của office trên Tổng quan
+- Thẻ "Máy" (chỉ admin) hiện CPU (cả từng nhân), RAM, ổ đĩa chứa office, tải, mạng vào/ra, RAM của office. Trang tải lại mỗi 3 giây khi đang mở, vì đây không phải thay đổi trong DB nên không có thông báo SSE. Số liệu đọc bằng `gopsutil` (`internal/sysinfo`), chạy được trên Mac, Linux và Windows.
+- Danh sách "Office đang chạy" chỉ gồm cây tiến trình con của chính office, không có tiến trình khác trên máy.
+  - Mỗi nhánh trực tiếp dưới office là một nhóm: lượt agent, script của tự động hóa, tiến trình project hoặc tiến trình khác. Nhóm hiện tổng CPU/RAM và mở ra được để xem từng tiến trình con.
+  - Nhãn của nhóm lấy từ `internal/proctrack`: lượt chat ghi kèm agent, cuộc chat và lượt vào context; nơi khởi chạy Claude/Codex/script ghi lại PID theo context đó. Tiến trình project lấy từ `ops.Manager.Running()`.
+- `POST /api/system/processes/{pid}/stop|kill` (admin, ghi Nhật ký). Chỉ nhận PID nằm trong cây của office và không phải chính office.
+  - Đóng: lượt agent được hủy đúng cách, tiến trình project dừng qua trình quản lý của nó, còn lại nhận SIGTERM.
+  - Kill: buộc dừng tiến trình và mọi tiến trình con, con sâu nhất dừng trước.

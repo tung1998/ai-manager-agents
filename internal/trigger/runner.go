@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
@@ -326,7 +327,8 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		}
 	}
 	actx := WithModelTier(actor.With(jctx, who), a.ModelTier)
-	if fromChannel { // a reply: the admin's words go to the system prompt
+	actx = proctrack.With(actx, proctrack.Info{Kind: "automation", ProjectID: a.ProjectID, AutomationID: a.ID, Label: a.Name}) // a chat it runs says its agent instead
+	if fromChannel {                                                                                                           // a reply: the admin's words go to the system prompt
 		var instr string
 		prompt, instr = replyPrompt(a, j, now, loc)
 		actx = WithSkill(WithInstructions(actx, instr), a.Config.Skill)

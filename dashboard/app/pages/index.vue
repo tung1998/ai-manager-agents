@@ -183,6 +183,9 @@ const steps = computed(() => [
         </NuxtLink>
       </div>
 
+      <!-- the machine and what office runs on it (admin) -->
+      <SystemPanel v-if="isAdmin" />
+
       <UCard v-if="prov && proj && tpl && !setupDone">
         <template #header>
           <p class="font-medium">{{ t('home.setupTitle') }}</p>

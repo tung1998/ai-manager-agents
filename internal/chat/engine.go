@@ -15,6 +15,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/perm"
+	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/worktree"
 	"context"
 	"encoding/json"
@@ -528,8 +529,10 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	if fullAccess(ctx) { // a bot's chat in administrator mode
 		base = WithFullAccess(base)
 	}
+	turnID := fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano())
+	base = proctrack.With(base, proctrack.Info{Kind: "agent", TurnID: turnID, ConversationID: conv.ID, ProjectID: conv.ProjectID, Label: agent.Name})
 	runCtx, cancel := context.WithTimeout(WithInstructions(WithModelTier(base, ModelTierFrom(ctx)), instructionsOf(ctx)), 20*time.Minute)
-	turn := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
+	turn := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
 		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx)}
 	turn.total.Store(1)
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -95,6 +96,7 @@ func RunScript(ctx context.Context, dir string, s storage.AutomationScript, env 
 	if err := cmd.Start(); err != nil {
 		return "", -1, false, fmt.Errorf("không chạy được %s: %w", argv[0], err)
 	}
+	defer proctrack.Track(ctx, cmd.Process.Pid)()
 	werr := cmd.Wait()
 	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
 	if timedOut {

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bufio"
 	"bytes"
 	"context"
@@ -166,6 +167,7 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 		}
 		return RunResult{}, err
 	}
+	defer proctrack.Track(ctx, cmd.Process.Pid)() // the dashboard's process list says whose it is
 	var (
 		res      RunResult
 		resErr   error
