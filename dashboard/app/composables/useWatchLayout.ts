@@ -63,14 +63,26 @@ export function useWatchLayout() {
   }
 
   // the first box, or one more to the right of the whole screen
-  function add(projectId: string) {
-    const fresh: WatchPane = { kind: 'pane', id: newId(), projectId }
+  function add(projectId: string, conversationId?: string) {
+    const fresh: WatchPane = { kind: 'pane', id: newId(), projectId, conversationId }
     const r = root.value
     if (!r) root.value = fresh
     else if (r.kind === 'split' && r.dir === 'row') {
       r.children.push(fresh)
       r.sizes = even(r.children.length)
     } else root.value = { kind: 'split', id: newId(), dir: 'row', children: [r, fresh], sizes: [50, 50] }
+  }
+
+  // a box across the whole screen, above or below everything
+  function addEdge(projectId: string, edge: 'top' | 'bottom') {
+    const fresh: WatchPane = { kind: 'pane', id: newId(), projectId }
+    const r = root.value
+    if (!r) root.value = fresh
+    else if (r.kind === 'split' && r.dir === 'col') {
+      if (edge === 'top') r.children.unshift(fresh)
+      else r.children.push(fresh)
+      r.sizes = even(r.children.length)
+    } else root.value = { kind: 'split', id: newId(), dir: 'col', children: edge === 'top' ? [fresh, r] : [r, fresh], sizes: [50, 50] }
   }
 
   function close(id: string) {
@@ -113,5 +125,5 @@ export function useWatchLayout() {
     return n(root.value)
   })
 
-  return { root, count, split, add, close, setPane, resize, clear }
+  return { root, count, split, add, addEdge, close, setPane, resize, clear }
 }
