@@ -7,6 +7,7 @@ package selfupdate
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -203,8 +204,13 @@ func (u *Updater) run(o Options) {
 	}
 	root := u.src.Root
 	newBin := filepath.Join(root, "bin", "office.new")
+	build := []string{"go", "build", "-o", newBin}
+	// stamp the source fingerprint so the update page can tell what changed
+	if fp, err := SourceFingerprint(context.Background(), root); err == nil {
+		build = append(build, "-ldflags", "-X "+fingerprintVar+"="+fp)
+	}
 	steps := []step{
-		{name: "Build server", dir: root, argv: []string{"go", "build", "-o", newBin, "./cmd/office"}},
+		{name: "Build server", dir: root, argv: append(build, "./cmd/office")},
 		{name: "Chạy test", dir: root, argv: []string{"go", "test", "./..."}, skip: !o.Test},
 	}
 	if u.src.UIDir != "" {

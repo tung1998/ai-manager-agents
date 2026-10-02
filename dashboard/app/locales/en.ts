@@ -43,6 +43,7 @@ const en: Record<MessageKey, string> = {
   'build.dirty': 'uncommitted changes',
   'build.noSubject': 'Unknown commit',
   'build.time': 'Built {time}',
+  'build.hasUpdate': 'The source has changes not built yet',
   'login.subtitle': 'Sign in to the admin dashboard',
   'login.noUsersTitle': 'No accounts yet',
   'login.noUsersDesc': 'Run this on the server to create the first admin: {cmd}',

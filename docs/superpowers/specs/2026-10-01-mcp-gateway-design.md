@@ -2,7 +2,9 @@
 
 > Trạng thái: đã chốt hướng làm (cổng chung, có chuyển kết nối sẵn có) và phần 1. Phần 2–4 chưa duyệt.
 >
-> **GĐ1 đã làm (ADR-091):** bảng `mcp_servers`, cổng `/mcp/s/<tên>` cho MCP HTTP (header/token tĩnh), kiểm tra như MCP client, API + dashboard, nối vào lượt chạy Claude CLI. Phạm vi chỉ `machine`, mọi agent đều dùng. Còn lại: stdio, OAuth, Codex/AI qua API, chuyển kết nối sẵn có (Phần 3), gán theo agent và nhật ký (Phần 4).
+> **GĐ1 đã làm (ADR-091):** bảng `mcp_servers`, cổng `/mcp/s/<tên>` cho MCP HTTP (header/token tĩnh), kiểm tra như MCP client, API + dashboard, nối vào lượt chạy Claude CLI. Phạm vi chỉ `machine`, mọi agent đều dùng. 
+>
+> **GĐ2 đã làm (ADR-092):** đăng nhập OAuth tự động (tìm máy chủ ủy quyền, tự đăng ký client, PKCE, tự làm mới token), MCP stdio do office tự chạy và tắt khi rảnh. Còn lại: Codex/AI qua API, chuyển kết nối sẵn có (Phần 3), gán theo agent và nhật ký (Phần 4).
 
 ## Mục tiêu
 

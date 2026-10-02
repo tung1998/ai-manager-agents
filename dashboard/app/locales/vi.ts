@@ -42,6 +42,7 @@ const vi = {
   'build.dirty': 'có sửa chưa commit',
   'build.noSubject': 'Không rõ commit',
   'build.time': 'Build lúc {time}',
+  'build.hasUpdate': 'Mã nguồn đã có thay đổi, chưa cập nhật',
   'login.subtitle': 'Đăng nhập trang quản trị',
   'login.noUsersTitle': 'Chưa có tài khoản',
   'login.noUsersDesc': 'Chạy lệnh sau trên máy chủ để tạo admin đầu tiên: {cmd}',

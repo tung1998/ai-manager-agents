@@ -133,11 +133,13 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		s.gitRoutes(mux, auth, admin)
 		mux.Handle("POST /api/actions/{id}/approve", admin(s.decideAction(true)))
 		mux.Handle("POST /api/actions/{id}/reject", admin(s.decideAction(false)))
+		mux.Handle("GET /api/actions/{id}/always", admin(s.alwaysPreview))
 	}
 	mux.Handle("GET /api/system/update", admin(s.updateStatus))
 	if s.cfg.Updater != nil {
 		mux.Handle("POST /api/system/update", admin(s.startUpdate))
 		mux.Handle("GET /api/system/update/stream", admin(s.streamUpdate))
+		mux.Handle("GET /api/system/update/changes", admin(s.updateChanges))
 	}
 	if s.cfg.MCP != nil {
 		mux.Handle("/mcp", s.cfg.MCP) // authenticated by its own per-run token

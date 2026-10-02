@@ -17,6 +17,14 @@ const buildTime = computed(() => {
   return at ? t('build.time', { time: new Date(at).toLocaleString(dateLocale.value) }) : ''
 })
 const buildInfoOpen = ref(false)
+// a dot when the source moved past the running build (admins, once per load)
+const hasUpdate = ref(false)
+watch(isAdmin, async (admin) => {
+  if (!admin || !import.meta.client) return
+  try {
+    hasUpdate.value = (await $fetch<{ changed: boolean }>('/api/system/update/changes')).changed
+  } catch { /* no source to compare with */ }
+}, { immediate: true })
 
 const bareLayout = computed(() => route.path === '/login')
 
@@ -151,8 +159,9 @@ const userMenu = computed<DropdownMenuItem[][]>(() => [
         <div class="flex w-full min-w-0 flex-col gap-1">
           <div v-if="buildLabel && !collapsed" class="flex min-w-0 items-center gap-1 px-2.5 text-xs text-(--ui-text-dimmed)">
             <!-- the update page is admin-only: members just read the line -->
-            <NuxtLink v-if="isAdmin" to="/admin/update" class="min-w-0 truncate hover:text-(--ui-text-muted)">
-              {{ buildText }}
+            <NuxtLink v-if="isAdmin" to="/admin/update" class="flex min-w-0 items-center gap-1 hover:text-(--ui-text-muted)">
+              <span v-if="hasUpdate" class="size-1.5 shrink-0 rounded-full bg-primary" :title="t('build.hasUpdate')" />
+              <span class="truncate">{{ buildText }}</span>
             </NuxtLink>
             <span v-else class="min-w-0 truncate">{{ buildText }}</span>
             <UTooltip v-model:open="buildInfoOpen" :content="{ side: 'top' }">

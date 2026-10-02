@@ -76,6 +76,17 @@ func (s *server) updateStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// updateChanges compares the source with the running build. It runs git, so
+// the dashboard asks only when the update page opens or on "Kiểm tra lại".
+func (s *server) updateChanges(w http.ResponseWriter, r *http.Request) {
+	c, err := s.cfg.Updater.Source().Changes(r.Context(), s.build.Revision)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
 // busyWork lists work an update restart would cut off.
 func (s *server) busyWork() map[string]int {
 	b := map[string]int{"chats": 0, "tasks": 0}

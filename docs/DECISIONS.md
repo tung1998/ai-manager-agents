@@ -1815,3 +1815,20 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **API admin:** `GET/POST /api/mcp/servers`, `PATCH/DELETE /api/mcp/servers/{id}`, `POST /api/mcp/servers/{id}/check`. Header trả về luôn đã che (`••••` + 4 ký tự cuối khi đủ dài). Sửa header: giá trị rỗng là giữ giá trị cũ, khóa bị bỏ là xóa. Thêm/sửa/xóa ghi change log (ADR-043) với giá trị đã che. Thêm hoặc đổi URL/header thì tự kiểm tra trong nền; kết quả kiểm tra đẩy event `mcp.gateway.status` cho admin.
 - **Lượt chạy Claude CLI:** `--mcp-config` có thêm mỗi server bật (`http`, `machine`) trỏ tới `http://<office>/mcp/s/<tên>` với token của lượt; `mcp__<tên>` vào `--allowedTools`; hook guard (lượt có quyền sửa) cho qua tool của các server này. Nhánh `NoTools` (`--strict-mcp-config`, không MCP) giữ nguyên.
 - **Dashboard:** tab MCP có nhóm "MCP của office": danh sách, trạng thái, bật/tắt, nút Kiểm tra hiện danh sách tool, form thêm/sửa gọn.
+
+## ADR-092: Cổng MCP giai đoạn 2: OAuth tự động và MCP stdio
+- Nối tiếp ADR-091, thiết kế ở `docs/superpowers/specs/2026-10-01-mcp-gateway-design.md` Phần 2.
+- **OAuth (MCP authorization 2025-06-18, tương thích 2025-03-26):**
+  - Lưu ở cột `mcp_servers.oauth_enc` (migration 00050), một JSON mã hóa: máy chủ ủy quyền tìm được, client, token. Tách khỏi các trường của form để đăng nhập không ghi đè lần sửa.
+  - Kiểm tra mà server trả 401 khi office chưa có token: office tự tìm máy chủ ủy quyền (resource metadata trong `WWW-Authenticate` hoặc `/.well-known/oauth-protected-resource`, rồi RFC 8414/OpenID), trạng thái thành `needs_login` ("cần đăng nhập: bấm Kết nối").
+  - Bấm **Kết nối**: `POST /api/mcp/servers/{id}/oauth/start` với địa chỉ người dùng đang mở office; office tự đăng ký client (RFC 7591) nếu được, không thì dùng client nhập tay trên form. Đăng nhập bằng PKCE S256 (máy chủ không hỗ trợ S256 thì từ chối). Callback `/api/mcp/oauth/callback` chỉ nhận `state` do chính người đó mở, trong 10 phút, dùng một lần.
+  - Token tự làm mới trước khi hết hạn 60 giây, hoặc khi server từ chối; làm mới thất bại thì về `needs_login` ("phiên hết hạn: bấm Kết nối lại"). Đăng xuất (`oauth/logout`) chỉ xóa token.
+  - Token không bao giờ ra khỏi office: API chỉ trả `required/logged_in/expired/expires_at` và client nhập tay (không trả secret).
+  - Mở office qua http bằng IP/Tailscale: máy chủ có thể từ chối callback không phải https/localhost; dashboard gợi ý mở qua `http://localhost` rồi bấm Kết nối.
+- **MCP stdio:**
+  - Office tự chạy lệnh (`npx`, `uvx`…) với args và env đã lưu mã hóa; một tiến trình mỗi server, dùng chung cho mọi lượt. Office giữ phiên MCP với tiến trình, trả `initialize` từ bộ nhớ đệm và đổi id của từng request sang id riêng để các lượt không lẫn nhau.
+  - Tự tắt sau 10 phút không ai gọi; chết thì lần gọi sau chạy lại, chết sớm liên tiếp thì chờ 1s, 2s, 4s… Tắt cả nhóm tiến trình con khi xóa/tắt server hoặc office tắt.
+  - Thiếu lệnh thì báo kèm gợi ý cài; lỗi kèm vài dòng stderr cuối, đã che giá trị env.
+  - Lượt Claude CLI nhận server stdio y như HTTP: qua `/mcp/s/<tên>` của office.
+- **Dashboard:** form chọn loại (HTTP / chạy lệnh), form stdio có lệnh, tham số (mỗi dòng một), biến môi trường; form HTTP có tùy chọn "OAuth client riêng". Danh sách có trạng thái "Cần đăng nhập", nút Kết nối/Kết nối lại, Đăng xuất.
+- **Cùng đợt (trang Cập nhật office):** "Cập nhật office" ghi dấu vân tay mã nguồn (hash của HEAD, diff chưa commit và file mới không bị ignore) vào bản build (`-ldflags -X selfupdate.Fingerprint`). `GET /api/system/update/changes` so dấu vân tay hiện tại với bản đang chạy (bản build tay thì so commit và file chưa commit), trả danh sách commit mới (tối đa 20). Chỉ hỏi khi mở trang, bấm "Kiểm tra lại", hoặc một lần khi tải dashboard (chấm báo ở dòng phiên bản trên sidebar). Không có thay đổi thì ẩn nút cập nhật, chỉ để link nhỏ "Vẫn build lại" (cho trường hợp dependency/toolchain đổi mà code không đổi).

@@ -73,6 +73,29 @@ function waitForRestart() {
   }, 1500)
 }
 
+// does the source differ from the running build? (git, so only on open and
+// on "check again"; null until known or when it cannot be told)
+interface Changes { changed: boolean, head: string, commits: { hash: string, subject: string, at: string }[], more: boolean, uncommitted: number, unknown?: boolean }
+const changes = ref<Changes | null>(null)
+const changesError = ref('')
+const checkingChanges = ref(false)
+async function checkChanges() {
+  if (!data.value?.source) return
+  checkingChanges.value = true
+  changesError.value = ''
+  try {
+    changes.value = await $fetch<Changes>('/api/system/update/changes')
+  } catch (e) {
+    changes.value = null
+    changesError.value = apiError(e)
+  } finally {
+    checkingChanges.value = false
+  }
+}
+onMounted(checkChanges)
+// the update button shows when something changed, or when that is unknown
+const upToDate = computed(() => changes.value?.changed === false)
+
 const lastMeta = computed(() => ({
   ok: { color: 'success' as const, icon: 'i-lucide-circle-check', title: t('admin.updateLastOk') },
   rolled_back: { color: 'warning' as const, icon: 'i-lucide-undo-2', title: t('admin.updateLastRolledBack') },
@@ -122,14 +145,41 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value)
               {{ t('admin.updateFromSourceDesc') }}
             </p>
           </div>
-          <UCheckbox v-model="runTests" :label="t('admin.updateRunTests')" :disabled="running" />
-          <p v-if="data.busy.chats || data.busy.tasks" class="text-sm text-(--ui-warning)">
-            <UIcon name="i-lucide-triangle-alert" class="align-middle" />
-            {{ t('admin.updateBusy', { chats: data.busy.chats, tasks: data.busy.tasks }) }}
-          </p>
-          <p class="text-xs text-(--ui-text-muted)">{{ t('admin.updateProcessNote') }}</p>
+          <div class="rounded-lg border border-(--ui-border) p-3 text-sm">
+            <div class="flex items-center gap-2">
+              <UIcon v-if="checkingChanges && !changes" name="i-lucide-loader-circle" class="size-4 animate-spin text-(--ui-text-muted)" />
+              <template v-else-if="changes">
+                <UIcon :name="upToDate ? 'i-lucide-circle-check' : 'i-lucide-circle-arrow-up'" class="size-4" :class="upToDate ? 'text-(--ui-success)' : 'text-primary'" />
+                <span class="font-medium">{{ upToDate ? t('admin.updateLatest') : t('admin.updateHasChanges') }}</span>
+              </template>
+              <span v-else-if="changesError" class="text-(--ui-text-muted)">{{ t('admin.updateChangesUnknown', { msg: changesError }) }}</span>
+              <UButton class="ms-auto" size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :label="t('admin.updateCheckAgain')" :loading="checkingChanges" :disabled="running" @click="checkChanges" />
+            </div>
+            <template v-if="changes && !upToDate">
+              <ul v-if="changes.commits.length" class="mt-2 space-y-1">
+                <li v-for="c in changes.commits" :key="c.hash" class="flex items-baseline gap-2 text-xs">
+                  <code class="shrink-0 text-(--ui-text-muted)">{{ c.hash }}</code>
+                  <span class="min-w-0 truncate">{{ c.subject }}</span>
+                  <span class="ms-auto shrink-0 text-(--ui-text-dimmed)">{{ when(c.at) }}</span>
+                </li>
+                <li v-if="changes.more" class="text-xs text-(--ui-text-dimmed)">{{ t('admin.updateMoreCommits') }}</li>
+              </ul>
+              <p v-if="changes.uncommitted" class="mt-2 text-xs text-(--ui-warning)">{{ t('admin.updateUncommitted', { n: changes.uncommitted }) }}</p>
+              <p v-if="changes.unknown" class="mt-2 text-xs text-(--ui-text-muted)">{{ t('admin.updateUnknownRevision') }}</p>
+            </template>
+          </div>
+          <template v-if="!upToDate">
+            <UCheckbox v-model="runTests" :label="t('admin.updateRunTests')" :disabled="running" />
+            <p v-if="data.busy.chats || data.busy.tasks" class="text-sm text-(--ui-warning)">
+              <UIcon name="i-lucide-triangle-alert" class="align-middle" />
+              {{ t('admin.updateBusy', { chats: data.busy.chats, tasks: data.busy.tasks }) }}
+            </p>
+            <p class="text-xs text-(--ui-text-muted)">{{ t('admin.updateProcessNote') }}</p>
+          </template>
           <div class="flex items-center gap-3">
-            <UButton icon="i-lucide-refresh-cw" :label="t('admin.updateStart')" :loading="starting || running" :disabled="restarting" @click="start()" />
+            <UButton v-if="!upToDate || running" icon="i-lucide-refresh-cw" :label="t('admin.updateStart')" :loading="starting || running" :disabled="restarting" @click="start()" />
+            <!-- up to date by the source; dependencies or the toolchain may still have moved -->
+            <UButton v-else size="xs" color="neutral" variant="link" :label="t('admin.updateRebuildAnyway')" :loading="starting" :disabled="restarting" @click="start()" />
             <span v-if="running" class="text-sm text-(--ui-text-muted)">{{ state?.step }}…</span>
             <span v-else-if="state?.status === 'failed'" class="text-sm text-(--ui-error)">{{ state.error }}</span>
           </div>
