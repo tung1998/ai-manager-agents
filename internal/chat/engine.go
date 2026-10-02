@@ -559,7 +559,19 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		}
 	}
 	if agent.Disabled && len(paused) == 0 { // the chat's own agent, not tagged
-		paused = []storage.Agent{agent}
+		// a project chat: another agent that is on takes it over from now on.
+		// A bot's chat keeps its rule's agent (the rule chose it and its rights).
+		if next, ok := e.standIn(ctx, conv); ok && conv.Purpose == "" && conv.TaskID == "" {
+			if err := e.SetAgent(ctx, conv.ID, next.ID); err != nil {
+				return nil, storage.Message{}, err
+			}
+			if conv, err = e.store.Chat().GetConversation(ctx, conv.ID); err != nil {
+				return nil, storage.Message{}, err
+			}
+			agent = next
+		} else {
+			paused = []storage.Agent{agent}
+		}
 	}
 	// "/skill request": the agent gets the skill's instructions; the
 	// conversation keeps what the person typed
@@ -663,6 +675,43 @@ func (e *Engine) agentFor(ctx context.Context, conv storage.Conversation) (stora
 		return storage.Agent{}, err
 	}
 	return firstLead(agents)
+}
+
+// standIn answers for a chat whose agent is paused: the agent that is on and
+// answered in it last, else the first lead that is on, else the first agent on.
+func (e *Engine) standIn(ctx context.Context, conv storage.Conversation) (storage.Agent, bool) {
+	agents, err := e.Agents(ctx, conv.ProjectID)
+	if err != nil {
+		return storage.Agent{}, false
+	}
+	on := storage.OnAgents(agents)
+	if len(on) == 0 {
+		return storage.Agent{}, false
+	}
+	byID := map[string]storage.Agent{}
+	for _, a := range on {
+		byID[a.ID] = a
+	}
+	var (
+		last storage.Agent
+		seen string
+	)
+	if list, err := e.store.Chat().Members(ctx, conv.ID); err == nil {
+		for _, m := range list {
+			if a, ok := byID[m.AgentID]; ok && m.LastMessageID > seen { // ids sort by time
+				last, seen = a, m.LastMessageID
+			}
+		}
+	}
+	if last.ID != "" {
+		return last, true
+	}
+	for _, a := range on {
+		if a.Tier == storage.TierLead {
+			return a, true
+		}
+	}
+	return on[0], true
 }
 
 // firstLead is the first lead that is not paused, else the first lead.

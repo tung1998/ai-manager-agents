@@ -76,9 +76,21 @@ const draftFiles = ref<Attachment[]>([])
 const editMode = ref<'worktree' | 'direct'>('worktree')
 // who answers: each agent's own rights decide what it may do (no separate mode)
 const pick = ref('')
-watch([() => current.value?.id, agents], () => {
+const isOn = (id?: string) => !!id && onAgents.value.some(a => a.id === id)
+// the chat's agent is paused: the one that is on and answered here last, else a lead (as the server)
+function standIn() {
+  const last = [...messages.value].reverse().find(m => m.role === 'assistant' && onAgents.value.some(a => a.name === m.author))
+  return onAgents.value.find(a => a.name === last?.author)?.id || onAgents.value.find(a => a.tier === 'lead')?.id || onAgents.value[0]?.id || ''
+}
+watch([() => current.value?.id, () => current.value?.agent_id, agents, () => messages.value.length], (now, before) => {
   editMode.value = current.value?.edit_mode ?? 'worktree'
-  pick.value = current.value?.agent_id || pick.value || onAgents.value.find(a => a.tier === 'lead')?.id || onAgents.value[0]?.id || ''
+  const own = current.value?.agent_id
+  if (isOn(own)) {
+    // a new message alone keeps what the person picked by hand
+    if (!before || now[0] !== before[0] || now[1] !== before[1] || now[2] !== before[2] || !isOn(pick.value)) pick.value = own!
+  } else {
+    pick.value = current.value || !isOn(pick.value) ? standIn() : pick.value
+  }
 }, { immediate: true })
 const picked = computed(() => agents.value.find(a => a.id === pick.value))
 const agentItems = computed(() => onAgents.value.map(a => ({ label: `${a.name} · ${permOf(agentLevel(a.permissions)).label}`, value: a.id, icon: permOf(agentLevel(a.permissions)).icon })))
