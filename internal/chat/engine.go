@@ -42,7 +42,7 @@ var (
 	ErrAgentBusy = errors.New("agent này đang làm việc được giao trong cuộc chat, đợi nó xong rồi tag lại")
 	ErrNoModel   = errors.New("project chưa có mô hình tổ chức")
 	ErrNoAgent   = errors.New("không tìm thấy agent để trò chuyện")
-	ErrDecided   = errors.New("đề xuất này đã được xử lý")
+	ErrDecided   = actions.ErrDecided // one for patches and actions: a bot tells it apart the same way
 	ErrNoFolder  = errors.New("project không gắn thư mục nên không áp được thay đổi")
 )
 
@@ -152,6 +152,7 @@ type Engine struct {
 	files     attach.Store
 	onRunning func(conversationID string) // an answer started or ended there (the dashboard's live data)
 	decided   decisions                   // proposals a person decided on the dashboard: the agent goes on (ADR-084)
+	deciding  sync.Map                    // patches being decided now: one decision applies a patch
 	onLimits  func(p storage.Provider, l Limits)
 	office    *officetools.Toolbox
 	mcp       *mcpserver.Server
@@ -1396,6 +1397,14 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 
 // DecidePatch applies (approve) or rejects a proposed change.
 func (e *Engine) DecidePatch(ctx context.Context, patchID string, approve bool) (PatchDTO, error) {
+	if _, busy := e.deciding.LoadOrStore(patchID, struct{}{}); busy { // the dashboard and a bot at once
+		p, err := e.store.Chat().GetPatch(ctx, patchID)
+		if err != nil {
+			return PatchDTO{}, err
+		}
+		return toPatchDTO(p), ErrDecided
+	}
+	defer e.deciding.Delete(patchID)
 	p, err := e.store.Chat().GetPatch(ctx, patchID)
 	if err != nil {
 		return PatchDTO{}, err
@@ -1489,23 +1498,24 @@ func (e *Engine) SweepWorktrees(ctx context.Context, maxAge time.Duration) {
 		if p.Path == "" {
 			continue
 		}
-		e.trees.Sweep(ctx, p.Path, p.ID, func(name string) bool {
-			// a Burn's: a piece's own (its work waits there while paused), and its scans
+		e.trees.Sweep(ctx, p.Path, p.ID, func(name string) (bool, bool) {
+			// a Burn's: a piece's own (its work waits there while paused, however
+			// long: kept until the piece is over), and its scans
 			if id, ok := strings.CutPrefix(name, "burn-scan-"); ok {
 				_, err := e.store.Burn().SessionByID(ctx, id)
-				return err == nil
+				return err == nil, false
 			}
 			if id, ok := strings.CutPrefix(name, "burn-"); ok {
-				_, err := e.store.Burn().Item(ctx, id)
-				return err == nil
+				it, err := e.store.Burn().Item(ctx, id)
+				return err == nil, err == nil && (it.Status == "doing" || it.Status == "paused")
 			}
 			id, ok := strings.CutPrefix(name, "chat-")
 			if !ok {
-				return false
+				return false, false
 			}
 			id, _, _ = strings.Cut(id, "--") // an agent's own tree in the chat
 			_, err := e.store.Chat().GetConversation(ctx, id)
-			return err == nil
+			return err == nil, false
 		}, maxAge)
 	}
 }

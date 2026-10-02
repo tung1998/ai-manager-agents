@@ -113,7 +113,7 @@ func TestStdio(t *testing.T) {
 		t.Fatal(err)
 	}
 	gw := &mcpgateway.Gateway{Store: st, Box: box, StdioIdle: 400 * time.Millisecond,
-		Auth: func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer run-token" }}
+		Identify: writerToken}
 	t.Cleanup(gw.Close)
 	mux := http.NewServeMux()
 	mux.Handle("/mcp/s/{name}", gw)

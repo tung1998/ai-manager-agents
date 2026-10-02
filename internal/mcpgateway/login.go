@@ -121,6 +121,9 @@ func (g *Gateway) StartLogin(ctx context.Context, m storage.MCPServer, user, ori
 	if m.Kind != "http" {
 		return "", errors.New("chỉ MCP HTTP mới đăng nhập OAuth")
 	}
+	lk := g.logins.lock(m.ID) // two logins at once register one client
+	lk.Lock()
+	defer lk.Unlock()
 	if fresh, err := g.Store.MCPServers().Get(ctx, m.ID); err == nil {
 		m = fresh // what an earlier login found
 	}
@@ -165,6 +168,9 @@ func (g *Gateway) FinishLogin(ctx context.Context, user, state, code, authErr st
 	if !ok {
 		return storage.MCPServer{}, ErrBadState
 	}
+	lk := g.logins.lock(p.server) // what is stored stays as read until the tokens are saved
+	lk.Lock()
+	defer lk.Unlock()
 	m, err := g.Store.MCPServers().Get(ctx, p.server)
 	if err != nil {
 		return m, err
@@ -199,6 +205,12 @@ func (g *Gateway) FinishLogin(ctx context.Context, user, state, code, authErr st
 
 // Logout forgets m's tokens (what was discovered and the client stay).
 func (g *Gateway) Logout(ctx context.Context, m storage.MCPServer) (storage.MCPServer, error) {
+	lk := g.logins.lock(m.ID)
+	lk.Lock()
+	defer lk.Unlock()
+	if fresh, err := g.Store.MCPServers().Get(ctx, m.ID); err == nil {
+		m = fresh
+	}
 	o, err := OpenOAuth(g.Box, m.OAuthEnc)
 	if err != nil {
 		o = OAuth{}

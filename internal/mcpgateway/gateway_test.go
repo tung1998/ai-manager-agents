@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/mcpgateway"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
@@ -138,6 +139,61 @@ func TestSecrets(t *testing.T) {
 	}
 }
 
+// writerToken: the run token of a person who may write.
+func writerToken(r *http.Request) (mcpgateway.Caller, bool) {
+	return mcpgateway.Caller{Kind: "person", CanWrite: true}, r.Header.Get("Authorization") == "Bearer run-token"
+}
+
+// With only Auth office does not know who calls: tools that read run, a
+// tool that writes is refused (fail closed, ADR-094).
+func TestGatewayAuthOnlyReadsOnly(t *testing.T) {
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	box, _ := secrets.Load(filepath.Join(t.TempDir(), "secret.key"))
+	var seen []string
+	srv := fakeMCP(t, false, &seen)
+	ctx := context.Background()
+	ro := true
+	enc, _ := mcpgateway.SealMap(box, map[string]string{"Authorization": upstreamSecret})
+	m, _ := st.MCPServers().Create(ctx, storage.MCPServer{Name: "plain", URL: srv.URL, HeadersEnc: enc, Enabled: true})
+	if err := st.MCPServers().SetCheck(ctx, m.ID, "ok", "", []storage.MCPTool{{Name: "read", ReadOnly: &ro}, {Name: "write"}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	gw := &mcpgateway.Gateway{Store: st, Box: box, Auth: func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer run-token" }}
+	mux := http.NewServeMux()
+	mux.Handle("/mcp/s/{name}", gw)
+	office := httptest.NewServer(mux)
+	t.Cleanup(office.Close)
+	call := func(body string) string {
+		req, _ := http.NewRequest("POST", office.URL+"/mcp/s/plain", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("Authorization", "Bearer run-token")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		return string(raw)
+	}
+	if body := call(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"write","arguments":{}}}`); !strings.Contains(body, "chỉ được đọc") || len(seen) != 0 {
+		t.Fatalf("write with only Auth = %s (seen %v)", body, seen)
+	}
+	if body := call(`[{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"write"}}]`); !strings.Contains(body, "batch") || len(seen) != 0 {
+		t.Fatalf("batch with only Auth = %s (seen %v)", body, seen)
+	}
+	if body := call(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"read","arguments":{}}}`); !strings.Contains(body, "hello read") {
+		t.Fatalf("read with only Auth = %s", body)
+	}
+}
+
 func TestGateway(t *testing.T) {
 	st, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
 	if err != nil {
@@ -156,7 +212,7 @@ func TestGateway(t *testing.T) {
 	st.MCPServers().Create(ctx, storage.MCPServer{Name: "streamy", URL: sseSrv.URL, HeadersEnc: enc, Enabled: true})
 	st.MCPServers().Create(ctx, storage.MCPServer{Name: "off", URL: jsonSrv.URL, HeadersEnc: enc})
 
-	gw := &mcpgateway.Gateway{Store: st, Box: box, Auth: func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer run-token" }}
+	gw := &mcpgateway.Gateway{Store: st, Box: box, Identify: writerToken}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp/s/{name}", gw)
 	office := httptest.NewServer(mux)

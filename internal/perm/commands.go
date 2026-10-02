@@ -83,7 +83,7 @@ func CleanPattern(p string) (string, error) {
 var riskyFlags = map[string][]string{
 	"go": {"exec", "toolexec", "o", "c", "C", "overlay", "modfile", "pkgdir", "pgo",
 		"coverprofile", "cpuprofile", "memprofile", "blockprofile", "mutexprofile", "trace", "outputdir"},
-	"git": {"output"},
+	"git": {"output", "no-index"},
 	"pytest": {"basetemp", "config-file", "inifile", "rootdir", "confcutdir", "override-ini",
 		"junitxml", "junit-xml", "resultlog", "result-log", "log-file", "debug"},
 }
@@ -125,11 +125,37 @@ var riskyShort = map[string]shortFlags{
 	"pytest": {risky: "pco", value: "pcokmrWn", harmless: map[rune]string{'p': "no:"}},
 }
 
-// riskyArg reports whether the arguments a " *" adds to args[0] carry a risky flag.
+// outside reports whether v names a path out of the project folder (the run's
+// working directory): absolute, from the home folder, or climbing out with
+// "..". A revision range ("HEAD~1..HEAD") is not a path that climbs out.
+func outside(v string) bool {
+	if v == "" {
+		return false
+	}
+	if filepath.IsAbs(v) || strings.HasPrefix(v, "/") || strings.HasPrefix(v, "~") {
+		return true
+	}
+	c := filepath.ToSlash(filepath.Clean(v))
+	return c == ".." || strings.HasPrefix(c, "../")
+}
+
+// riskyArg reports whether the arguments a " *" adds to args[0] carry a risky
+// flag or, for a command that reads files (git, go, pytest), a path out of
+// the project: "git diff --no-index /x ~/.ssh/id_rsa" would read any file.
 func riskyArg(cmd string, extra []string) bool {
 	flags := riskyFlags[cmd]
 	short, combined := riskyShort[cmd]
+	_, paths := riskyFlags[cmd]
 	for i, a := range extra {
+		if paths {
+			v := a
+			if strings.HasPrefix(a, "-") {
+				_, v, _ = strings.Cut(a, "=")
+			}
+			if outside(v) {
+				return true
+			}
+		}
 		if !strings.HasPrefix(a, "-") || a == "-" || a == "--" {
 			continue
 		}
@@ -145,6 +171,11 @@ func riskyArg(cmd string, extra []string) bool {
 		}
 		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
 		if slices.Contains(flags, name) {
+			return true
+		}
+		// git takes a long option by an unambiguous prefix ("--outp=x")
+		if cmd == "git" && strings.HasPrefix(a, "--") && len(name) >= 4 &&
+			slices.ContainsFunc(flags, func(f string) bool { return strings.HasPrefix(f, name) }) {
 			return true
 		}
 	}

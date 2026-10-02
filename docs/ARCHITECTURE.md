@@ -222,6 +222,21 @@ flowchart TD
 - API dashboard bind `127.0.0.1` mặc định, token bắt buộc khi bind ra ngoài.
 - Audit log append-only cho mọi run, approval và thay đổi config.
 
+### Mô hình quyền của cổng MCP
+
+Cổng `/mcp/s/<tên>` (ADR-091–094) giữ secret và token OAuth của từng MCP server. Agent và CLI không bao giờ thấy chúng.
+
+- **Người gọi** (`mcpgateway.Caller`), office xác định từ token mỗi lần gọi (`Identify`):
+  - lượt chạy của agent (`claude`, `codex`, `api`), kèm agent, project, cuộc chat;
+  - người dùng qua token cá nhân `ofc_…` (`person`).
+- **Thấy server nào:** server bật, phạm vi máy. Server có danh sách `agents` thì chỉ các agent đó (và trợ lý office) thấy; agent khác nhận 404. Người dùng thấy mọi server.
+- **Tool được gọi thế nào** (`decide`):
+  - **Đọc:** tool có `readOnlyHint` hoặc nằm trong `trusted_tools` thì chạy ngay, với mọi người gọi.
+  - **Ghi:** tool còn lại (kể cả tool chưa biết) chạy ngay khi người gọi có `CanWrite`. Agent có quyền `tools.mcp.write` (từ mức Vận hành), người dùng là admin.
+  - **Đề xuất:** không có `CanWrite` nhưng có `CanPropose` thì lần gọi thành đề xuất `mcp_call`; người duyệt xong thì office gọi và trả kết quả.
+  - Không có quyền nào thì bị từ chối. Gọi `tools/call` theo lô chỉ cho người có `CanWrite`.
+- **Fail-closed:** không xác định được người gọi (chỉ có `Auth`) thì chỉ được tool đọc. Token sai thì 401. Mỗi lần gọi đều ghi vào `mcp_calls`.
+
 ## 9. Quan sát
 
 - Mỗi run: agent, trigger, runtime, model, fallback_index, token (fresh/cache read/cache write/output), cost, duration, status, failure_class.

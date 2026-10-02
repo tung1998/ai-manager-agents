@@ -35,7 +35,7 @@ type Gateway struct {
 	Auth func(r *http.Request) bool
 	// Identify, when set, replaces Auth: it also says who calls, for the
 	// agent assignment and the tool policy (ADR-093). With only Auth every
-	// caller counts as a person.
+	// caller counts as a person who may only read (fail closed, ADR-094).
 	Identify func(r *http.Request) (Caller, bool)
 	// Propose turns a call of a tool that writes into a proposal (nil: such
 	// calls are refused for agents that may not write).
@@ -95,8 +95,8 @@ func (g *Gateway) caller(r *http.Request) (Caller, bool) {
 	if g.Identify != nil {
 		return g.Identify(r)
 	}
-	if g.Auth != nil && g.Auth(r) { // no identity: a trusted caller, as before ADR-093
-		return Caller{Kind: "person", CanWrite: true}, true
+	if g.Auth != nil && g.Auth(r) { // no identity: fail closed, only tools that read (ADR-094)
+		return Caller{Kind: "person"}, true
 	}
 	return Caller{}, false
 }
@@ -168,7 +168,11 @@ func (g *Gateway) checkHTTP(ctx context.Context, m *storage.MCPServer) ([]storag
 		return nil, fmt.Errorf("MCP cần đăng nhập nhưng %v; nếu nó dùng API key thì thêm ở header", derr)
 	}
 	// what is stored now: a login may have started (or ended) while this
-	// check waited on the network, its client and tokens must stay
+	// check waited on the network, its client and tokens must stay (and no
+	// login saves between this read and the save)
+	lk := g.logins.lock(m.ID)
+	lk.Lock()
+	defer lk.Unlock()
 	if fresh, ferr := g.Store.MCPServers().Get(ctx, m.ID); ferr == nil {
 		m.OAuthEnc = fresh.OAuthEnc
 	}

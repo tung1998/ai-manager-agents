@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -349,6 +350,10 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 			detail, err = ad.DecideAlways(ctx, p.ID, by)
 		} else {
 			detail, err = m.decider.Decide(ctx, p.Kind, p.ID, approve, by)
+		}
+		if errors.Is(err, actions.ErrDecided) { // decided meanwhile (on the dashboard): its agent goes on from there
+			lines = append(lines, fmt.Sprintf("%d. %s: đã được quyết trước đó.", p.N, p.Label))
+			continue
 		}
 		if skip {
 			if err == nil {

@@ -247,6 +247,74 @@ func TestSweepKeepsBurnWorktrees(t *testing.T) {
 	}
 }
 
+// Office's start sweeps worktrees idle for 14 days by their folder's time,
+// which does not move when only files inside change: a piece in progress
+// (paused, or doing) keeps its worktree however old; a piece that is over,
+// a scan of a session that is gone, an orphan go.
+func TestSweepOldKeepsWorkInProgress(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	b, _ := f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ResultMode: "branch", State: "stopped"})
+	paused, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "dở", Kind: "bug", Status: "paused"})
+	doing, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "đang làm", Kind: "bug", Status: "doing"})
+	done, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "xong", Kind: "bug", Status: "done"})
+	want := map[string]bool{"burn-" + paused.ID: true, "burn-" + doing.ID: true, "burn-" + done.ID: false,
+		"burn-scan-bse_gone": false, "burn-bit_gone": false}
+	month := time.Now().Add(-30 * 24 * time.Hour)
+	for name := range want {
+		dir, err := f.trees.Ensure(ctx, f.dir, f.project.ID, name, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Chtimes(dir, month, month)
+	}
+	f.engine.SweepWorktrees(ctx, 14*24*time.Hour)
+	for name, kept := range want {
+		if got := f.trees.Exists(f.project.ID, name); got != kept {
+			t.Errorf("%s: exists=%v, want %v", name, got, kept)
+		}
+	}
+}
+
+// Office restarted while a piece ran: started again, the piece waits (its
+// worktree and what it did there kept), then goes on first.
+func TestBurnGoesOnAfterRestart(t *testing.T) {
+	f := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b, _ := f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", State: "stopped"})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io") // its conversation; no loop yet (not started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	it, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "đang làm khi tắt", Kind: "bug", Status: "doing", Attempts: 1})
+	dir, err := f.trees.Ensure(ctx, f.dir, f.project.ID, "burn-"+it.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "half-done.txt"), []byte("dở\n"), 0o644)
+	it.Worktree = dir
+	f.st.Burn().UpdateItem(ctx, it)
+	// as office starts again: the sweep, then Burn
+	f.engine.SweepWorktrees(ctx, 14*24*time.Hour)
+	f.svc.Start(ctx)
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		if it, _ = f.st.Burn().Item(ctx, it.ID); it.Status == "doing" && it.Attempts == 2 {
+			break // its turn again, after the restart
+		}
+	}
+	if it.Status != "doing" || it.Attempts != 2 {
+		t.Fatalf("after restart = %s, attempts %d", it.Status, it.Attempts)
+	}
+	if it.Worktree != dir {
+		t.Fatalf("worktree = %s, want %s", it.Worktree, dir)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "half-done.txt")); err != nil {
+		t.Fatalf("what it did is gone: %v", err)
+	}
+	f.svc.Stop(ctx, f.project.ID)
+}
+
 // Without git there is no worktree: Burn would edit the project's own folder,
 // so it does not start.
 func TestBurnNeedsGit(t *testing.T) {

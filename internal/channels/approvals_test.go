@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
@@ -25,11 +26,21 @@ import (
 type fakeDecider struct {
 	mu   sync.Mutex
 	done []string // "approve:kind:id:by"
+	err  error    // what it answers from now on (nil: it decides)
+}
+
+func (d *fakeDecider) setErr(err error) {
+	d.mu.Lock()
+	d.err = err
+	d.mu.Unlock()
 }
 
 func (d *fakeDecider) Decide(_ context.Context, kind, id string, approve bool, by string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.err != nil {
+		return "", d.err
+	}
 	v := "reject"
 	if approve {
 		v = "approve"
@@ -128,6 +139,21 @@ func TestApprovalsFromChat(t *testing.T) {
 		t.Fatalf("a proposal was approved by itself: %v %q", d, got[6])
 	}
 	_ = a2
+	// decided on the dashboard meanwhile: the dashboard sends its agent on, the
+	// bot does not send it on a second time (ADR-084)
+	dec.setErr(actions.ErrDecided)
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve 1", Addressed: true}
+	if got = bot.wait(t, "42", 8); !strings.Contains(got[7], "đã được quyết trước đó") {
+		t.Fatalf("decided meanwhile = %q", got[7])
+	}
+	time.Sleep(200 * time.Millisecond)
+	jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: rule.ID})
+	for _, j := range jobs {
+		var p trigger.ChannelPayload
+		if json.Unmarshal([]byte(j.Payload), &p) == nil && strings.Contains(p.Message, "pnpm test") {
+			t.Fatalf("the agent went on again for a proposal decided elsewhere: %q", p.Message)
+		}
+	}
 }
 
 // Admins are named one by one: "*" is nobody's admin (ADR-081).

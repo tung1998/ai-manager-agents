@@ -113,6 +113,12 @@ func TestCommandsRiskyFlags(t *testing.T) {
 		"pytest --rootdir=/", "pytest -o addopts=-x", "pytest --override-ini=x", "pytest --junitxml=/etc/x",
 		"pytest -p=evil", "pytest -xc x.ini", "pytest -vo x=y", "pytest -p", "pytest -p evil -p no:cacheprovider",
 		"pytest -p no:x -p evil", "pytest -vpevil",
+		// files out of the project (ADR-094)
+		"git diff --no-index /x ~/.ssh/id_rsa", "git diff --no-index a b", "git diff --no-ind a b",
+		"git diff /etc/passwd /etc/hosts", "git diff HEAD -- ../other/secret", "git show HEAD -- /etc/passwd",
+		"git log -- internal/../../x", "git diff --outp=x", "git log ~/.ssh",
+		"go test ../other/...", "go test /abs/pkg", "go test -coverpkg=../x/... ./...",
+		"pytest /etc/x.py", "pytest ../tests", "pytest --deselect=/abs/x.py",
 	} {
 		args, err := SplitCommand(line)
 		if err != nil {
@@ -129,6 +135,11 @@ func TestCommandsRiskyFlags(t *testing.T) {
 		"pytest -p no:cacheprovider", "pytest -pno:cacheprovider", "pytest -vp no:randomly", "pytest -p=no:x",
 		"pytest -ktest_cache", "pytest -mslow_proc", "pytest -rp", "pytest -rfEp", "pytest -vrp tests",
 		"pytest -W error::DeprecationWarning", "pytest -n 4", "pytest -k 'not proc'",
+		// paths in the project
+		"git diff HEAD~1 -- internal/", "git log HEAD~3..HEAD", "git diff main...HEAD -- docs/a.md",
+		"git show HEAD~1:internal/x.go", "git diff -- internal/../go.mod", "git log --no-merges -3",
+		"go test ./internal/...", "go test -run TestX ./internal/perm/", "pytest tests/x.py", "pytest tests/x.py::test_a",
+		"docker compose logs --tail=50 web",
 	} {
 		args, _ := SplitCommand(line)
 		if _, ok := MatchCommand(pats, args); !ok {

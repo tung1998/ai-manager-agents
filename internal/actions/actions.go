@@ -13,6 +13,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/audit"
@@ -126,6 +127,9 @@ type Service struct {
 	memory Memory
 	direct AutoApprover
 	mcp    MCPCaller
+	// deciding holds the actions being decided now: the dashboard and a bot
+	// deciding one at once must not both run it
+	deciding sync.Map
 }
 
 // AutoApprover says whether the chat an action comes from approves it at once
@@ -346,8 +350,17 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 	return slices.Contains(acc.Containers, a.Target) && acc.Can(perm.CapContainer)
 }
 
-// Decide runs (approve) or rejects a pending action.
+// Decide runs (approve) or rejects a pending action. Only one decision of an
+// action runs; one made meanwhile gets ErrDecided.
 func (s *Service) Decide(ctx context.Context, id string, approve bool, by string) (storage.Action, error) {
+	if _, busy := s.deciding.LoadOrStore(id, struct{}{}); busy {
+		a, err := s.store.Actions().Get(ctx, id)
+		if err != nil {
+			return a, err
+		}
+		return a, ErrDecided
+	}
+	defer s.deciding.Delete(id)
 	a, err := s.store.Actions().Get(ctx, id)
 	if err != nil {
 		return a, err

@@ -431,8 +431,10 @@ func (m *Manager) remove(ctx context.Context, repo, dir string) error {
 }
 
 // Sweep removes the worktrees of a project that keep does not want (their
-// conversation or task is gone), and those untouched for maxAge.
-func (m *Manager) Sweep(ctx context.Context, repo, projectID string, keep func(name string) bool, maxAge time.Duration) {
+// conversation or task is gone), and those untouched for maxAge unless keep
+// pins them (work in progress there: the folder's own time does not change
+// when only files inside it do).
+func (m *Manager) Sweep(ctx context.Context, repo, projectID string, keep func(name string) (keep, pinned bool), maxAge time.Duration) {
 	root := filepath.Join(m.Dir, safeName.ReplaceAllString(projectID, "_"))
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -442,9 +444,10 @@ func (m *Manager) Sweep(ctx context.Context, repo, projectID string, keep func(n
 		if !e.IsDir() {
 			continue
 		}
+		kept, pinned := keep(e.Name())
 		info, err := e.Info()
-		old := err == nil && maxAge > 0 && time.Since(info.ModTime()) > maxAge
-		if !keep(e.Name()) || old {
+		old := err == nil && maxAge > 0 && time.Since(info.ModTime()) > maxAge && !pinned
+		if !kept || old {
 			_ = m.Remove(ctx, repo, projectID, e.Name())
 		}
 	}

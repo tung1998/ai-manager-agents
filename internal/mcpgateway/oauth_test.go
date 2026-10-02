@@ -188,7 +188,9 @@ func setupOAuth(t *testing.T) (*fakeAuth, *Gateway, storage.Store, storage.MCPSe
 		t.Fatal(err)
 	}
 	var heard []storage.MCPServer
-	gw := &Gateway{Store: st, Box: box, Auth: func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer run-token" },
+	gw := &Gateway{Store: st, Box: box, Identify: func(r *http.Request) (Caller, bool) {
+		return Caller{Kind: "person", CanWrite: true}, r.Header.Get("Authorization") == "Bearer run-token"
+	},
 		OnStatus: func(m storage.MCPServer) { heard = append(heard, m) }}
 	return f, gw, st, m, &heard
 }
@@ -323,6 +325,52 @@ func TestCheckKeepsLogin(t *testing.T) {
 	got, _ := st.MCPServers().Get(ctx, m.ID)
 	if o, _ := OpenOAuth(gw.Box, got.OAuthEnc); o.ClientID != "cid" || !o.LoggedIn() {
 		t.Fatalf("after a stale check = %+v", o)
+	}
+}
+
+// Checks and logins at once (two tabs, the background check): office keeps
+// the client registered, and registers it once for one address.
+func TestOAuthAtOnce(t *testing.T) {
+	f, gw, st, m, _ := setupOAuth(t)
+	ctx := context.Background()
+	m, _ = gw.CheckServer(ctx, m) // discovered, no client yet
+	var wg sync.WaitGroup
+	urls := make(chan string, 3)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i < 3 {
+				u, err := gw.StartLogin(ctx, m, "u1", "http://localhost:2704")
+				if err != nil {
+					t.Error(err)
+				}
+				urls <- u
+				return
+			}
+			if _, err := gw.CheckServer(ctx, m); err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(urls)
+	got, _ := st.MCPServers().Get(ctx, m.ID)
+	if o, _ := OpenOAuth(gw.Box, got.OAuthEnc); o.ClientID != "cid" {
+		t.Fatalf("client lost: %+v", o)
+	}
+	f.mu.Lock()
+	n := len(f.redirects)
+	f.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("registered %d times: %v", n, f.redirects)
+	}
+	// each login still finishes
+	for u := range urls {
+		state, code := f.authorize(t, u)
+		if _, err := gw.FinishLogin(ctx, "u1", state, code, ""); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

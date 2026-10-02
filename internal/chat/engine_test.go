@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -159,15 +160,43 @@ func TestAnthropicToolLoopAndPatch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
-	p, err := f.engine.DecidePatch(ctx, done.Patches[0].ID, true)
-	if err != nil || p.Status != "applied" || p.DecidedBy != "human:a@b.c" {
-		t.Fatalf("approve = %+v, %v", p, err)
+	// approved on the dashboard and from a bot at once: applied once, the
+	// others are told it was decided (ADR-084)
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		applied []chat.PatchDTO
+		dup     int
+	)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p, err := f.engine.DecidePatch(ctx, done.Patches[0].ID, true)
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == nil:
+				applied = append(applied, p)
+			case errors.Is(err, chat.ErrDecided):
+				dup++
+			default:
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if len(applied) != 1 || dup != 2 || applied[0].Status != "applied" || applied[0].DecidedBy != "human:a@b.c" {
+		t.Fatalf("approve at once = %+v, %d refused", applied, dup)
 	}
 	if b, _ := os.ReadFile(filepath.Join(f.dir, "hello.txt")); string(b) != "xin chào\nworld\n" {
 		t.Fatalf("file after approve = %q", b)
 	}
 	if _, err := f.engine.DecidePatch(ctx, done.Patches[0].ID, false); err != chat.ErrDecided {
 		t.Fatalf("second decision err = %v", err)
+	}
+	if p, _ := f.st.Chat().GetPatch(ctx, done.Patches[0].ID); p.Status != "applied" {
+		t.Fatalf("stored status = %s", p.Status)
 	}
 }
 
@@ -1082,6 +1111,32 @@ func TestDecidedGoesOn(t *testing.T) {
 	time.Sleep(400 * time.Millisecond)
 	if _, err := os.Stat(filepath.Join(g.dir, "call3.args")); err == nil {
 		t.Fatal("the agent was run twice for one batch")
+	}
+}
+
+// The chat's agents were paused meanwhile: decisions run no AI (the chat
+// gets the paused notice), and a later batch does not replay the old one.
+func TestDecidedPausedAgentDoesNotRun(t *testing.T) {
+	g := newGroup(t)
+	g.sendAll(t, "chuẩn bị deploy")
+	before := cliCalls(t, g.dir)
+	g.pause(t, g.lead)
+	g.pause(t, g.dev.ID)
+	g.engine.SetDecidedWait(50 * time.Millisecond)
+	g.engine.Decided(g.conv.ID, "admin@x.io", "✅ Đã duyệt Chạy lệnh: pnpm test — ok")
+	deadline := time.Now().Add(2 * time.Second)
+	for ; time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		msgs, _ := g.f.st.Chat().ListMessages(g.context, g.conv.ID)
+		if last := msgs[len(msgs)-1]; last.Role == "error" && strings.Contains(last.Content, "tạm nghỉ") {
+			break
+		}
+	}
+	if time.Now().After(deadline) {
+		t.Fatal("no paused notice")
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := cliCalls(t, g.dir); n != before {
+		t.Fatalf("AI ran %d times for paused agents", n-before)
 	}
 }
 
