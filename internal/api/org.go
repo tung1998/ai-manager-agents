@@ -93,6 +93,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/projects", auth(s.listRepos))
 	mux.Handle("POST /api/projects", admin(s.createRepo))
+	mux.Handle("POST /api/projects/clone", admin(s.cloneRepo))
 	mux.Handle("GET /api/projects/{id}", auth(s.getRepo))
 	mux.Handle("PATCH /api/projects/{id}", admin(s.updateRepo))
 	mux.Handle("DELETE /api/projects/{id}", admin(s.deleteRepo))
@@ -212,7 +213,10 @@ func conflictMsg(err error) string {
 }
 
 func (s *server) system(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.cfg.System)
+	writeJSON(w, http.StatusOK, struct {
+		SystemInfo
+		CloneRoot string `json:"clone_root"` // where "clone a repo" puts it by default
+	}{s.cfg.System, s.cloneRoot()})
 }
 
 // ---- providers ----
@@ -964,27 +968,102 @@ func (s *server) createRepo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Project không có thư mục cần đặt tên")
 		return
 	}
-	if in.Name != "" {
-		info.Name = strings.TrimSpace(in.Name)
+	s.registerRepo(w, r, info, in.Name, in.Description, in.TemplateID, nil)
+}
+
+// registerRepo adds a detected folder as a project (with its model, if one is
+// picked). It reports false when it wrote an error (nothing was registered).
+func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos.Info, name, desc, templateID string, extra map[string]any) bool {
+	if name = strings.TrimSpace(name); name != "" {
+		info.Name = name
 	}
-	if in.Description != "" {
-		info.Description = in.Description
+	if desc != "" {
+		info.Description = desc
 	}
 	x, err := s.cfg.Store.Repos().Create(r.Context(), storage.Repo{Name: info.Name, Path: info.Path, GitRemote: info.GitRemote, Description: info.Description})
 	if err != nil {
 		s.writeDomainError(w, r, err)
-		return
+		return false
 	}
-	if in.TemplateID != "" {
-		if _, err := s.cfg.Org.ApplyToRepo(r.Context(), x.ID, in.TemplateID, false); err != nil {
+	if templateID != "" {
+		if _, err := s.cfg.Org.ApplyToRepo(r.Context(), x.ID, templateID, false); err != nil {
 			_ = s.cfg.Store.Repos().Delete(r.Context(), x.ID)
 			s.writeDomainError(w, r, err)
-			return
+			return false
 		}
 	}
-	s.auditAction(r, "project.create", x.ID, map[string]any{"path": x.Path, "template": in.TemplateID})
+	detail := map[string]any{"path": x.Path, "template": templateID}
+	for k, v := range extra {
+		detail[k] = v
+	}
+	s.auditAction(r, "project.create", x.ID, detail)
 	d, _ := s.repoDTO(r, x, true)
 	writeJSON(w, http.StatusCreated, map[string]any{"project": d})
+	return true
+}
+
+// cloneRepo clones a pasted git link into a folder on this machine (by
+// default next to the folder holding this office) and adds it as a project.
+func (s *server) cloneRepo(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		URL        string `json:"url"`
+		Parent     string `json:"parent"`
+		Dir        string `json:"dir"`
+		Name       string `json:"name"`
+		TemplateID string `json:"template_id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	parent := strings.TrimSpace(in.Parent)
+	if parent == "" {
+		parent = s.cloneRoot()
+	}
+	dest, err := repos.Clone(r.Context(), in.URL, parent, strings.TrimSpace(in.Dir))
+	var ce *repos.CloneError
+	switch {
+	case errors.Is(err, repos.ErrCloneURL):
+		writeError(w, http.StatusBadRequest, "Link repo không hợp lệ: dùng https://…, ssh://… hoặc git@host:đường/dẫn.git")
+		return
+	case errors.Is(err, repos.ErrCloneDir):
+		writeError(w, http.StatusBadRequest, "Tên thư mục chỉ gồm chữ, số, dấu chấm, gạch ngang, gạch dưới")
+		return
+	case errors.Is(err, repos.ErrCloneExists):
+		writeError(w, http.StatusConflict, "Thư mục đích đã tồn tại: đổi tên thư mục hoặc nơi lưu")
+		return
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, repos.ErrNotDir):
+		writeError(w, http.StatusBadRequest, "Nơi lưu không tồn tại hoặc không phải thư mục")
+		return
+	case errors.Is(err, os.ErrPermission):
+		writeError(w, http.StatusForbidden, "Không có quyền ghi vào nơi lưu")
+		return
+	case errors.As(err, &ce):
+		writeError(w, http.StatusBadGateway, ce.Error())
+		return
+	case err != nil:
+		s.internal(w, r, err)
+		return
+	}
+	info, err := repos.Detect(dest)
+	if err == nil && s.registerRepo(w, r, info, in.Name, "", in.TemplateID, map[string]any{"cloned_from": repos.StripCredentials(strings.TrimSpace(in.URL))}) {
+		return
+	}
+	_ = os.RemoveAll(dest) // not registered: the clone does not stay behind
+	if err != nil {
+		s.internal(w, r, err)
+	}
+}
+
+// cloneRoot is where a cloned repo goes by default: next to the folder that
+// holds this office (its project), else the home folder.
+func (s *server) cloneRoot() string {
+	if s.cfg.System.ProjectRoot != "" {
+		return filepath.Dir(s.cfg.System.ProjectRoot)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	return "/"
 }
 
 func (s *server) getRepo(w http.ResponseWriter, r *http.Request) {
@@ -1074,13 +1153,7 @@ func (s *server) auditAction(r *http.Request, action, target string, detail map[
 func (s *server) listDirs(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
-		if s.cfg.System.ProjectRoot != "" {
-			path = filepath.Dir(s.cfg.System.ProjectRoot)
-		} else if home, err := os.UserHomeDir(); err == nil {
-			path = home
-		} else {
-			path = "/"
-		}
+		path = s.cloneRoot()
 	}
 	l, err := repos.ListDirs(path, r.URL.Query().Get("hidden") == "1")
 	switch {

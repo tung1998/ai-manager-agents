@@ -5,19 +5,27 @@ const _f1 = useLiveFetch<{ projects: Project[] }>('/api/projects')
 const { data, refresh } = _f1
 const _f2 = useLiveFetch<{ templates: OrgModel[] }>('/api/templates')
 const { data: tplData } = _f2
-const _f3 = useLiveFetch<{ mode: string, home_dir: string, project_root?: string }>('/api/system')
+const _f3 = useLiveFetch<{ mode: string, home_dir: string, project_root?: string, clone_root?: string }>('/api/system')
 const { data: sys } = _f3
 await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
 const projects = computed(() => data.value?.projects ?? [])
 const templates = computed(() => tplData.value?.templates ?? [])
 
 const addOpen = ref(false)
-const form = reactive({ scope: 'folder' as 'folder' | 'machine', path: '', name: '', template_id: '' })
+type Scope = 'folder' | 'clone' | 'machine'
+// clone: a pasted git link, cloned into parent/dir (dir from the link when empty)
+const form = reactive({ scope: 'folder' as Scope, path: '', name: '', template_id: '', url: '', dir: '', parent: '' })
 const error = ref('')
 const adding = ref(false)
+const urlDir = computed(() => form.url.trim().replace(/\/+$/, '').split(/[/:]/).pop()?.replace(/\.git$/, '') ?? '')
+const cloneDest = computed(() => {
+  const dir = form.dir.trim() || urlDir.value
+  return form.parent && dir ? `${form.parent.replace(/\/+$/, '')}/${dir}` : ''
+})
+const canAdd = computed(() => form.scope === 'folder' ? !!form.path : form.scope === 'clone' ? !!form.url.trim() && !!form.parent : !!form.name)
 
 function openAdd(path = '', name = '') {
-  Object.assign(form, { scope: 'folder', path, name, template_id: '__ai' })
+  Object.assign(form, { scope: 'folder', path, name, template_id: '__ai', url: '', dir: '', parent: sys.value?.clone_root ?? '' })
   error.value = ''
   addOpen.value = true
 }
@@ -55,10 +63,16 @@ async function add() {
   adding.value = true
   error.value = ''
   try {
-    const res = await $fetch<{ project: Project }>('/api/projects', {
-      method: 'POST',
-      body: { path: form.scope === 'folder' ? form.path : '', name: form.name, template_id: form.template_id === '__ai' ? '' : form.template_id }
-    })
+    const template_id = form.template_id === '__ai' ? '' : form.template_id
+    const res = form.scope === 'clone'
+      ? await $fetch<{ project: Project }>('/api/projects/clone', {
+          method: 'POST',
+          body: { url: form.url.trim(), parent: form.parent, dir: form.dir.trim(), name: form.name, template_id }
+        })
+      : await $fetch<{ project: Project }>('/api/projects', {
+          method: 'POST',
+          body: { path: form.scope === 'folder' ? form.path : '', name: form.name, template_id }
+        })
     addOpen.value = false
     await navigateTo(form.template_id === '__ai' ? `/projects/${res.project.id}/setup` : `/projects/${res.project.id}`)
   } catch (e) {
@@ -148,15 +162,16 @@ async function add() {
       <template #body>
         <form id="project-form" class="space-y-4" @submit.prevent="add">
           <UFormField :label="t('projects.scope')">
-            <div class="grid gap-2 sm:grid-cols-2">
+            <div class="grid gap-2 sm:grid-cols-3">
               <button
                 v-for="opt in [
                   { value: 'folder', icon: 'i-lucide-folder-git-2', title: t('projects.scopeFolderTitle'), text: t('projects.scopeFolderText') },
+                  { value: 'clone', icon: 'i-lucide-git-branch-plus', title: t('projects.scopeCloneTitle'), text: t('projects.scopeCloneText') },
                   { value: 'machine', icon: 'i-lucide-monitor', title: t('projects.scopeMachineTitle'), text: t('projects.scopeMachineText') }
                 ]" :key="opt.value" type="button"
                 class="flex items-start gap-3 rounded-lg border p-3 text-left transition"
                 :class="form.scope === opt.value ? 'border-(--ui-primary) bg-(--ui-primary)/5' : 'border-(--ui-border) hover:border-(--ui-border-accented)'"
-                @click="form.scope = opt.value as 'folder' | 'machine'"
+                @click="form.scope = opt.value as Scope"
               >
                 <UIcon :name="opt.icon" class="mt-0.5 size-5 shrink-0 text-primary" />
                 <div>
@@ -171,9 +186,23 @@ async function add() {
             <FolderTree v-model="form.path" />
           </UFormField>
 
+          <template v-if="form.scope === 'clone'">
+            <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
+              <UFormField :label="t('projects.cloneUrl')" :help="t('projects.cloneUrlHelp')" required>
+                <UInput v-model="form.url" class="w-full font-mono" icon="i-lucide-link" placeholder="https://github.com/org/repo.git" autofocus />
+              </UFormField>
+              <UFormField :label="t('projects.cloneDir')">
+                <UInput v-model="form.dir" class="w-full font-mono" :placeholder="urlDir" />
+              </UFormField>
+            </div>
+            <UFormField :label="t('projects.cloneParent')" :help="cloneDest ? t('projects.cloneInto', { path: cloneDest }) : undefined" required>
+              <FolderTree v-model="form.parent" />
+            </UFormField>
+          </template>
+
           <UFormField
             :label="t('projects.name')" :required="form.scope === 'machine'"
-            :help="form.scope === 'folder' ? t('projects.nameHelp') : undefined"
+            :help="form.scope !== 'machine' ? t('projects.nameHelp') : undefined"
           >
             <UInput v-model="form.name" class="w-full" :placeholder="form.scope === 'machine' ? t('projects.namePlaceholder') : ''" />
           </UFormField>
@@ -188,8 +217,9 @@ async function add() {
         <div class="flex w-full justify-end gap-2">
           <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="addOpen = false" />
           <UButton
-            type="submit" form="project-form" :loading="adding" :label="t('projects.add')"
-            :disabled="form.scope === 'folder' ? !form.path : !form.name"
+            type="submit" form="project-form" :loading="adding"
+            :label="form.scope !== 'clone' ? t('projects.add') : adding ? t('projects.cloning') : t('projects.cloneAction')"
+            :disabled="!canAdd"
           />
         </div>
       </template>

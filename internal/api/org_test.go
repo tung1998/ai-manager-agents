@@ -259,6 +259,33 @@ func TestFolderBrowserAPI(t *testing.T) {
 	}
 }
 
+func TestCloneProjectAPI(t *testing.T) {
+	e := setup(t)
+	member := e.client(t)
+	login(t, e, member, "member@x.io", "member-password")
+	if resp, _ := do(t, member, "POST", e.srv.URL+"/api/projects/clone", map[string]any{"url": "https://github.com/a/b.git"}, nil); resp.StatusCode != 403 {
+		t.Fatalf("member clone = %d", resp.StatusCode)
+	}
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	parent := t.TempDir()
+	for _, u := range []string{"", "/tmp/repo", "file:///tmp/repo", "--upload-pack=x"} {
+		if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/clone", map[string]any{"url": u, "parent": parent}, nil); resp.StatusCode != 400 {
+			t.Fatalf("clone %q = %d", u, resp.StatusCode)
+		}
+	}
+	os.MkdirAll(filepath.Join(parent, "b"), 0o755)
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/clone", map[string]any{"url": "https://github.com/a/b.git", "parent": parent}, nil); resp.StatusCode != 409 {
+		t.Fatalf("existing dir = %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/clone", map[string]any{"url": "https://github.com/a/b.git", "parent": filepath.Join(parent, "missing")}, nil); resp.StatusCode != 400 {
+		t.Fatalf("missing parent = %d", resp.StatusCode)
+	}
+	if _, body := do(t, admin, "GET", e.srv.URL+"/api/system", nil, nil); body["clone_root"] == "" || body["clone_root"] == nil {
+		t.Fatalf("system = %v", body)
+	}
+}
+
 func TestMachineWideProject(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
