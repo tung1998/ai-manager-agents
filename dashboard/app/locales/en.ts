@@ -7,8 +7,10 @@ import pages from './parts/pages.en'
 import auto from './parts/auto.en'
 import audit from './parts/audit.en'
 import limits from './parts/limits.en'
+import watchScreen from './parts/watch.en'
 
 const en: Record<MessageKey, string> = {
+  ...watchScreen,
   ...tasks,
   ...ops,
   ...org,

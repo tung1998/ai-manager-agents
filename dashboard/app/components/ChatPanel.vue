@@ -26,8 +26,10 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 // first send or opened by automationId; its answers may fill the form.
 // compact: no thread column (a picker instead), fills its container.
 // pageContext: what the person is looking at, sent with each message.
-const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill' | 'template', automationId?: string, compact?: boolean, pageContext?: () => string }>()
-const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'template-patch': [Record<string, unknown>], 'history': [Record<string, unknown>[]], 'conversation': [string], 'back': [] }>()
+// pane: one box of the watch screen (compact, no prefill, its own header
+// buttons in the #lead/#actions slots); conversationId: the chat it opens on.
+const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill' | 'template', automationId?: string, compact?: boolean, pane?: boolean, conversationId?: string, pageContext?: () => string }>()
+const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'template-patch': [Record<string, unknown>], 'history': [Record<string, unknown>[]], 'conversation': [string], 'current': [string], 'back': [] }>()
 const single = computed(() => !!props.purpose)
 // the chat page on a phone: the input stays behind a button until asked for,
 // so the messages get the whole screen
@@ -102,7 +104,7 @@ const prompt = ref<{ busy: boolean, focus?: () => void } | null>(null)
 const prefill = useState<{ text: string, files: Attachment[], send?: boolean, agentId?: string, conversationId?: string } | null>('chat-prefill', () => null)
 let tookPrefill = false // it already opened what it was given: the first chat / the URL's does not
 async function takePrefill() {
-  if (!prefill.value || single.value) return // a task's or an automation's own chat takes no prefill
+  if (!prefill.value || single.value || props.pane) return // a task's, an automation's or a watch box's own chat takes no prefill
   const p = prefill.value
   prefill.value = null
   tookPrefill = true
@@ -565,6 +567,7 @@ async function openEditorChat(id: string) {
 onMounted(() => {
   if (props.purpose === 'automation') openAutomation()
   else if (props.purpose === 'skill' || props.purpose === 'template') { if (typeof route.query.c === 'string') openEditorChat(route.query.c) }
+  else if (props.conversationId) open({ id: props.conversationId } as Conversation).catch(() => { openFirst.value = true }) // gone: the latest one
   else if (ownsUrl.value && typeof route.query.draft === 'string' && !tookPrefill) {
     // handed over by the office assistant: a new chat with the message ready to send
     draft.value = route.query.draft
@@ -579,6 +582,8 @@ watch([openFirst, convData], () => {
   openFirst.value = false
   if (!current.value && conversations.value[0] && !tookPrefill) open(conversations.value[0])
 })
+// the chat shown, for a box that keeps it (the watch screen)
+watch(() => current.value?.id, (id) => { if (id) emit('current', id) })
 onBeforeUnmount(() => {
   stopStream()
   stopBackground()
@@ -614,7 +619,8 @@ onBeforeUnmount(() => {
       </div>
       <!-- compact (the corner chat): back, this chat's title (click to switch), a new one -->
       <div v-if="compact && !single" class="flex items-center gap-1 border-b border-(--ui-border) p-2">
-        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-arrow-left" :aria-label="t('common.close')" @click="emit('back')" />
+        <slot v-if="pane" name="lead" />
+        <UButton v-else size="sm" color="neutral" variant="ghost" icon="i-lucide-arrow-left" :aria-label="t('common.close')" @click="emit('back')" />
         <UDropdownMenu :items="threadMenuItems" :content="{ align: 'start' }" :ui="{ content: 'max-h-80 w-72' }" class="min-w-0 flex-1">
           <button type="button" class="flex min-w-0 flex-1 items-center gap-1 rounded-md px-2 py-1 text-left hover:bg-(--ui-bg-elevated)">
             <span class="truncate font-semibold">{{ current?.title || t('chat.newThreadTitle') }}</span>
@@ -622,6 +628,7 @@ onBeforeUnmount(() => {
           </button>
         </UDropdownMenu>
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" :aria-label="t('chat.newThread')" @click="newConversation()" />
+        <slot v-if="pane" name="actions" />
       </div>
       <div v-if="!single && (members.length > 1 || background.length)" class="flex flex-wrap items-center gap-2 border-b border-(--ui-border) px-3 py-1.5 text-xs">
         <span class="text-(--ui-text-muted)">{{ t('chat.members') }}</span>

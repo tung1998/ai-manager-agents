@@ -6,8 +6,10 @@ import pages from './parts/pages.vi'
 import auto from './parts/auto.vi'
 import audit from './parts/audit.vi'
 import limits from './parts/limits.vi'
+import watchScreen from './parts/watch.vi'
 
 const vi = {
+  ...watchScreen,
   ...tasks,
   ...ops,
   ...org,

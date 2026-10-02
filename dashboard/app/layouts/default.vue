@@ -92,6 +92,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
     { label: t('nav.work'), type: 'label' },
     // one place to follow the office: what needs a person is counted here
     { label: t('assistant.title'), icon: 'i-lucide-sparkles', to: '/assistant' },
+    { label: t('watch.title'), icon: 'i-lucide-layout-grid', to: '/watch' },
     { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/', badge: attention.value || undefined },
     { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' }
   ]
