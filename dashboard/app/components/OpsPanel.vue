@@ -41,6 +41,34 @@ watch(procs, (list) => {
   if (!selectedId.value || !list.some(p => p.id === selectedId.value)) selectedId.value = list[0]?.id ?? null
 }, { immediate: true })
 
+// pinned = frequently used; once something is pinned the rest fold away so the
+// terminal stays in view. Per-viewer convenience, kept in localStorage.
+const pinKey = `office:ops-pins:${props.projectId}`
+const pins = ref<Set<string>>(new Set())
+onMounted(() => {
+  try {
+    pins.value = new Set(JSON.parse(localStorage.getItem(pinKey) ?? '[]'))
+  } catch { /* bad value: start empty */ }
+})
+function togglePin(p: Proc) {
+  const s = new Set(pins.value)
+  if (s.has(p.id)) s.delete(p.id)
+  else s.add(p.id)
+  pins.value = s
+  try {
+    localStorage.setItem(pinKey, JSON.stringify([...s]))
+  } catch { /* private mode: keep in memory */ }
+}
+const showOthers = ref(false)
+const isActive = (p: Proc) => ['running', 'restarting', 'stopping', 'crashed'].includes(p.state.status)
+// pinned first; running/crashed and the selected one never fold away
+const mainProcs = computed(() => {
+  if (!procs.value.some(p => pins.value.has(p.id))) return procs.value
+  const pinned = procs.value.filter(p => pins.value.has(p.id))
+  return [...pinned, ...procs.value.filter(p => !pins.value.has(p.id) && (isActive(p) || p.id === selectedId.value))]
+})
+const otherProcs = computed(() => procs.value.filter(p => !mainProcs.value.includes(p)))
+
 // states refresh while the tab is open (logs of the selected one stream via SSE)
 let poll: ReturnType<typeof setInterval> | undefined
 const startPoll = () => { clearInterval(poll); poll = setInterval(() => { refresh(); refreshMon() }, 3000) }
@@ -93,6 +121,7 @@ async function detect() {
     detection.value = await $fetch<Detection>(`/api/projects/${props.projectId}/ops/detect`)
     const have = new Set(procs.value.map(p => p.name))
     picked.value = new Set(detection.value.suggestions.filter(s => s.recommended && !have.has(s.name)).map(s => s.name))
+    detectShowAll.value = false
     detectOpen.value = true
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -107,6 +136,15 @@ function toggle(name: string) {
   picked.value = s
 }
 const existing = computed(() => new Set(procs.value.map(p => p.name)))
+// the usual ones (dev, build, test…) first; the rest behind "show more"
+const detectShowAll = ref(false)
+const commonSuggestions = computed(() => (detection.value?.suggestions ?? []).filter(s => s.recommended))
+const shownSuggestions = computed(() => {
+  const all = detection.value?.suggestions ?? []
+  if (detectShowAll.value || !commonSuggestions.value.length) return [...commonSuggestions.value, ...all.filter(s => !s.recommended)]
+  return commonSuggestions.value
+})
+const hiddenSuggestions = computed(() => (detection.value?.suggestions.length ?? 0) - shownSuggestions.value.length)
 async function addPicked() {
   const list = detection.value?.suggestions.filter(s => picked.value.has(s.name)) ?? []
   for (const s of list) {
@@ -196,10 +234,10 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
       </div>
 
       <div v-else class="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-        <!-- process list -->
-        <div class="space-y-2">
+        <!-- process list: scrolls on its own so the terminal beside it stays put -->
+        <div class="space-y-2 lg:max-h-[min(26rem,60vh)] lg:overflow-y-auto lg:pe-1">
           <div
-            v-for="p in procs" :key="p.id" role="button" tabindex="0"
+            v-for="p in showOthers ? [...mainProcs, ...otherProcs] : mainProcs" :key="p.id" role="button" tabindex="0"
             class="rounded-lg border p-3 transition"
             :class="p.id === selectedId ? 'border-(--ui-primary) bg-(--ui-primary)/5' : 'border-(--ui-border) hover:border-(--ui-border-accented)'"
             @click="selectedId = p.id" @keydown.enter="selectedId = p.id"
@@ -207,6 +245,12 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
             <div class="flex items-center gap-2">
               <span class="size-2 shrink-0 rounded-full" :class="[statusMeta[p.state.status].dot, { 'animate-pulse': p.state.status === 'running' || p.state.status === 'restarting' }]" />
               <p class="min-w-0 flex-1 truncate font-medium">{{ p.name }}</p>
+              <UButton
+                size="xs" color="neutral" variant="ghost" :icon="pins.has(p.id) ? 'i-lucide-pin-off' : 'i-lucide-pin'"
+                :class="pins.has(p.id) ? 'text-(--ui-primary)' : 'text-(--ui-text-dimmed)'"
+                :aria-label="pins.has(p.id) ? t('ops.unpin') : t('ops.pin')" :title="pins.has(p.id) ? t('ops.unpin') : t('ops.pin')"
+                @click.stop="togglePin(p)"
+              />
               <UBadge :color="statusMeta[p.state.status].color" variant="subtle" size="sm" :label="statusMeta[p.state.status].label + (p.state.status === 'crashed' || p.state.status === 'exited' ? ` (${p.state.exit_code})` : '')" />
             </div>
             <code class="mt-1 block truncate text-xs text-(--ui-text-muted)">{{ p.cwd !== '.' ? `${p.cwd} $ ` : '$ ' }}{{ p.command }}</code>
@@ -243,6 +287,12 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
               </UDropdownMenu>
             </div>
           </div>
+          <UButton
+            v-if="otherProcs.length" block size="sm" color="neutral" variant="ghost"
+            :icon="showOthers ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+            :label="showOthers ? t('ops.hideOthers') : t('ops.showOthers', { n: otherProcs.length })"
+            @click="showOthers = !showOthers"
+          />
         </div>
 
         <!-- logs -->
@@ -263,7 +313,7 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
           </p>
           <p v-if="!detection.suggestions.length" class="py-6 text-center text-(--ui-text-muted)">{{ t('ops.detect.none') }}</p>
           <div class="max-h-96 divide-y divide-(--ui-border) overflow-auto rounded-lg border border-(--ui-border)">
-            <label v-for="s in detection.suggestions" :key="s.name" class="flex cursor-pointer items-start gap-3 px-3 py-2" :class="{ 'opacity-50': existing.has(s.name) }">
+            <label v-for="s in shownSuggestions" :key="s.name" class="flex cursor-pointer items-start gap-3 px-3 py-2" :class="{ 'opacity-50': existing.has(s.name) }">
               <UCheckbox :model-value="picked.has(s.name)" :disabled="existing.has(s.name)" class="mt-0.5" @update:model-value="toggle(s.name)" />
               <div class="min-w-0 flex-1">
                 <p class="text-sm font-medium">
@@ -275,6 +325,9 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
               </div>
               <span class="shrink-0 text-xs text-(--ui-text-dimmed)">{{ s.source }}</span>
             </label>
+            <button v-if="hiddenSuggestions" type="button" class="flex w-full items-center justify-center gap-1 px-3 py-2 text-sm text-(--ui-text-muted) hover:text-(--ui-text)" @click="detectShowAll = true">
+              <UIcon name="i-lucide-chevron-down" class="size-4" />{{ t('ops.detect.showAll', { n: hiddenSuggestions }) }}
+            </button>
           </div>
           <UAlert
             v-if="detection.compose.length" color="info" variant="subtle" icon="i-lucide-container"
