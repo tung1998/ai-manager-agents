@@ -654,6 +654,77 @@ func TestPressedButtonsGoAway(t *testing.T) {
 	}
 }
 
+// Decided on the dashboard (Bỏ qua, Bỏ qua tất cả): the bot's message with
+// buttons keeps only those of what still waits, then none; no agent runs.
+func TestDashboardDecisionRedrawsButtons(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	bot := &editBot{buttonBot: buttonBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, rows: make(chan [][]channels.Button, 2)}, edits: make(chan buttonEdit, 4)}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"7"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	m.SetDecider(actionDecider{st.Actions()})
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
+	lint, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm lint", Status: "pending"})
+	test, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm test", Status: "pending"})
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "42", ConversationID: conv.ID})
+	st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", Trigger: "discord", ConversationID: conv.ID, Payload: string(payload), Status: "done"})
+	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Xong", nil, true)
+	select {
+	case <-bot.rows:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no buttons")
+	}
+	bot.mu.Lock()
+	msg := fmt.Sprint(len(bot.sent["42"])) // the message with buttons: the latest sent
+	bot.mu.Unlock()
+	edited := func() buttonEdit {
+		select {
+		case e := <-bot.edits:
+			return e
+		case <-time.After(3 * time.Second):
+			t.Fatal("the message was not changed")
+		}
+		return buttonEdit{}
+	}
+	lint.Status = "rejected"
+	st.Actions().Update(ctx, lint)
+	m.Redraw(ctx, conv.ID)
+	if e := edited(); e.msg != msg || len(e.rows) != 1 || e.rows[0][0].Data != "/approve "+test.ID {
+		t.Fatalf("after one = %+v", e)
+	}
+	test.Status = "rejected"
+	st.Actions().Update(ctx, test)
+	m.Redraw(ctx, conv.ID)
+	if e := edited(); e.msg != msg || len(e.rows) != 0 || !strings.Contains(e.text, "dashboard") {
+		t.Fatalf("after all = %+v", e)
+	}
+	// nothing left to redraw
+	m.Redraw(ctx, conv.ID)
+	select {
+	case e := <-bot.edits:
+		t.Fatalf("redrawn again %+v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 // alwaysDecider also approves "luôn cho phép", recording which.
 type alwaysDecider struct {
 	actionDecider

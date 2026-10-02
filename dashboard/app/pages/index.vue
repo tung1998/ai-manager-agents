@@ -53,13 +53,16 @@ async function seen(x: Incident) {
     acting.delete(key)
   }
 }
-async function act(x: Incident, what: 'approve' | 'reject' | 'retry' | 'dismiss') {
+// skip: rejected, and its agent is not run again about it
+async function act(x: Incident, what: 'approve' | 'reject' | 'skip' | 'retry' | 'dismiss') {
   const key = x.key + what
   if (acting.has(key)) return
   acting.add(key)
   try {
-    if ((what === 'approve' || what === 'reject') && x.kind === 'patch') await $fetch(`/api/patches/${x.id}/${what}`, { method: 'POST' })
-    else if (what === 'approve' || what === 'reject') await $fetch(`/api/actions/${x.id}/${what}`, { method: 'POST', body: {} })
+    const decide = what === 'skip' ? 'reject' : what
+    const body = what === 'skip' ? { skip: true } : {}
+    if ((decide === 'approve' || decide === 'reject') && x.kind === 'patch') await $fetch(`/api/patches/${x.id}/${decide}`, { method: 'POST', body })
+    else if (decide === 'approve' || decide === 'reject') await $fetch(`/api/actions/${x.id}/${decide}`, { method: 'POST', body })
     else if (what === 'dismiss') await $fetch('/api/incidents/dismiss', { method: 'POST', body: { key: x.key } })
     else if (x.kind === 'jobs') await $fetch(`/api/jobs/${x.id}/retry`, { method: 'POST' })
     else await $fetch('/api/incidents/retry', { method: 'POST', body: { kind: x.kind, id: x.id } })
@@ -69,6 +72,23 @@ async function act(x: Incident, what: 'approve' | 'reject' | 'retry' | 'dismiss'
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
     acting.delete(key)
+  }
+}
+// Bỏ qua tất cả: every card waiting, rejected at once (no agent goes on)
+const proposalsN = computed(() => incidents.value.filter(x => x.kind === 'approval' || x.kind === 'patch').length)
+const skipAllOpen = ref(false)
+const skippingAll = ref(false)
+async function skipAll() {
+  skippingAll.value = true
+  try {
+    const res = await $fetch<{ skipped: number }>('/api/proposals/skip-all', { method: 'POST', body: {} })
+    toast.add({ title: t('home.skipAllDone', { n: res.skipped }), color: 'success' })
+    skipAllOpen.value = false
+    await refreshInc()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    skippingAll.value = false
   }
 }
 // Điều tra: the project's lead looks into it in a new chat
@@ -153,7 +173,9 @@ const steps = computed(() => [
               {{ t('home.attention') }}
               <UBadge v-if="incData?.count" :label="String(incData.count)" color="error" variant="subtle" size="sm" />
             </p>
-
+            <UTooltip v-if="isAdmin && proposalsN >= 2" :text="t('action.skipInfo')">
+              <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-skip-forward" :label="t('home.skipAll')" @click="skipAllOpen = true" />
+            </UTooltip>
           </div>
         </template>
         <LoadingRows v-if="!incData" :n="2" />
@@ -185,6 +207,9 @@ const steps = computed(() => [
               <template v-if="x.kind === 'approval' || x.kind === 'patch'">
                 <UButton size="xs" icon="i-lucide-check" :label="t('home.approve')" :loading="acting.has(x.key + 'approve')" @click="act(x, 'approve')" />
                 <UButton size="xs" color="neutral" variant="ghost" :label="t('home.reject')" :loading="acting.has(x.key + 'reject')" @click="act(x, 'reject')" />
+                <UTooltip :text="t('action.skipInfo')">
+                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-skip-forward" :label="t('action.skip')" :loading="acting.has(x.key + 'skip')" @click="act(x, 'skip')" />
+                </UTooltip>
               </template>
               <template v-else>
                 <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-eye" :label="t('home.view')" :to="x.link" />
@@ -299,5 +324,13 @@ const steps = computed(() => [
         </template>
       </template>
     </WorkDetailModal>
+    <UModal v-model:open="skipAllOpen" :title="t('home.skipAllTitle', { n: proposalsN })" :description="t('home.skipAllDesc')">
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="skipAllOpen = false" />
+          <UButton color="error" icon="i-lucide-skip-forward" :label="t('home.skipAll')" :loading="skippingAll" @click="skipAll" />
+        </div>
+      </template>
+    </UModal>
   </PageShell>
 </template>

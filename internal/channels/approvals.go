@@ -147,8 +147,53 @@ func (m *Manager) sendPending(ctx context.Context, ch storage.Channel, ad Adapte
 		_, _ = ad.Send(ctx, chatID, text)
 		return
 	}
-	if _, err := bs.SendButtons(ctx, chatID, text, rows); err != nil {
+	ids, err := bs.SendButtons(ctx, chatID, text, rows)
+	if err != nil {
 		_, _ = ad.Send(ctx, chatID, text) // the commands, then
+		return
+	}
+	if len(ids) > 0 { // what a decision on the dashboard redraws
+		_ = m.store.Settings().Set(ctx, buttonsKey(ch.ID, chatID), ids[len(ids)-1])
+	}
+}
+
+func buttonsKey(channelID, chatID string) string {
+	return "channel_buttons/" + channelID + "/" + chatID
+}
+
+// Redraw: a proposal of a bot chat's conversation was decided on the
+// dashboard, so the chat's latest message with buttons keeps only those of
+// what still waits (none left: no button to press again). Its agent is not
+// run from here: DecidedOnDashboard does that, when the decision asks for it.
+func (m *Manager) Redraw(ctx context.Context, conversationID string) {
+	channelID, chatID := m.chatOf(ctx, actions.Scope{ConversationID: conversationID})
+	if channelID == "" {
+		return
+	}
+	var msgID string
+	if ok, _ := m.store.Settings().Get(ctx, buttonsKey(channelID, chatID), &msgID); !ok || msgID == "" {
+		return
+	}
+	ch, err := m.store.Channels().Get(ctx, channelID)
+	if err != nil {
+		return
+	}
+	m.mu.Lock()
+	ad := m.adapters[channelID]
+	m.mu.Unlock()
+	be, ok := ad.(ButtonEditor)
+	if !ok {
+		return
+	}
+	list := m.listing(ctx, channelID, chatID)
+	text, rows := m.pendingText(ctx, ch, list), m.pendingRows(ctx, list)
+	if len(rows) == 0 {
+		text = "Đã quyết trên dashboard."
+		_ = m.store.Settings().Set(ctx, pendingKey(channelID, chatID), []proposal{}) // numbers start again
+		_ = m.store.Settings().Set(ctx, buttonsKey(channelID, chatID), "")
+	}
+	if err := be.EditButtons(ctx, chatID, msgID, text, rows); err != nil {
+		slog.Warn("channels: buttons not redrawn", "channel", channelID, "err", err)
 	}
 }
 

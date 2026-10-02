@@ -312,6 +312,11 @@ func (s *server) cancelTurn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) decidePatch(w http.ResponseWriter, r *http.Request, approve bool) {
+	var in struct {
+		Skip bool `json:"skip"` // rejected, and its agent is not run again about it
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	skip := !approve && in.Skip
 	projectID := ""
 	if cur, err := s.cfg.Store.Chat().GetPatch(r.Context(), r.PathValue("id")); err == nil {
 		r, projectID = s.patchWho(r, cur, approve)
@@ -328,18 +333,24 @@ func (s *server) decidePatch(w http.ResponseWriter, r *http.Request, approve boo
 	action := "patch.reject"
 	if approve {
 		action = "patch." + p.Status
+	} else if skip {
+		action = "patch.skip"
 	}
 	var failed error
 	if p.Status == "failed" {
 		failed = errors.New(p.Detail)
 	}
 	s.audit(r, audit.Change{Action: action, ResourceID: p.ID, ProjectID: projectID, Detail: map[string]any{"files": p.Files, "detail": p.Detail}, Err: failed})
-	if cur, err := s.cfg.Store.Chat().GetPatch(r.Context(), p.ID); err == nil { // its agent goes on (ADR-084)
+	cur, err := s.cfg.Store.Chat().GetPatch(r.Context(), p.ID)
+	if err == nil && !skip { // its agent goes on (ADR-084); skipped, it does not
 		line := "❌ Đã từ chối diff: " + strings.Join(p.Files, ", ")
 		if approve {
 			line = "✅ Diff " + strings.Join(p.Files, ", ") + ": " + firstNonEmptyStr(p.Detail, p.Status)
 		}
 		s.cfg.Chat.Decided(cur.ConversationID, userFrom(r).Email, line)
+	}
+	if err == nil {
+		s.redrawBot(r.Context(), cur.ConversationID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"patch": p})
 }

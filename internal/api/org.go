@@ -117,6 +117,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/conversations/{id}/stop", auth(s.ownChat(s.stopConversation)))
 		mux.Handle("POST /api/patches/{id}/approve", admin(s.approvePatch))
 		mux.Handle("POST /api/patches/{id}/reject", admin(s.rejectPatch))
+		mux.Handle("POST /api/proposals/skip-all", admin(s.skipAllProposals))
 	}
 	if s.cfg.Automation != nil {
 		s.automationRoutes(mux, admin)

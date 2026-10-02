@@ -14,7 +14,7 @@ const emit = defineEmits<{ updated: [Patch] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
-const busy = ref<'' | 'approve' | 'reject'>('')
+const busy = ref<'' | 'approve' | 'reject' | 'skip'>('')
 const open = ref(props.patch.status === 'pending' || props.patch.status === 'failed')
 
 const lines = computed(() => props.patch.diff.split('\n').map((l) => {
@@ -36,10 +36,11 @@ const statusMeta = computed<Record<Patch['status'], { label: string, color: 'war
   failed: { label: t('patch.failed'), color: 'error', icon: 'i-lucide-triangle-alert' }
 }))
 
-async function decide(approve: boolean) {
-  busy.value = approve ? 'approve' : 'reject'
+// skip: rejected, and its agent is not run again about it
+async function decide(approve: boolean, skip = false) {
+  busy.value = approve ? 'approve' : skip ? 'skip' : 'reject'
   try {
-    const res = await $fetch<{ patch: Patch }>(`/api/patches/${props.patch.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: {} })
+    const res = await $fetch<{ patch: Patch }>(`/api/patches/${props.patch.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: skip ? { skip: true } : {} })
     emit('updated', res.patch)
     if (res.patch.status === 'applied') toast.add({ title: t('patch.appliedToast'), description: res.patch.files.join(', '), color: 'success' })
     if (res.patch.status === 'failed') toast.add({ title: t('patch.failedToast'), description: res.patch.detail, color: 'error' })
@@ -65,6 +66,9 @@ async function decide(approve: boolean) {
       <UBadge v-if="patch.origin === 'worktree'" color="neutral" variant="outline" size="sm" icon="i-lucide-git-branch" :label="t('patch.worktree')" :title="t('patch.worktreeHint')" />
       <UBadge v-if="patch.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('patch.auto')" :title="patch.decided_by.slice(5)" />
       <template v-if="patch.status === 'pending' && isAdmin">
+        <UTooltip :text="t('action.skipInfo')">
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-skip-forward" :label="t('action.skip')" :loading="busy === 'skip'" :disabled="!!busy" @click="decide(false, true)" />
+        </UTooltip>
         <UButton size="xs" color="neutral" variant="ghost" :label="t('patch.reject')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
         <UButton size="xs" icon="i-lucide-check" :label="patch.origin === 'worktree' ? t('patch.merge') : t('patch.approveApply')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
       </template>

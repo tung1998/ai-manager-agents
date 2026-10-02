@@ -86,6 +86,7 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 			}
 			s.cfg.Chat.Decided(a.ConversationID, u.Email, line)
 		}
+		s.redrawBot(r.Context(), a.ConversationID)
 		out := map[string]any{"action": chat.ToActionDTO(a)}
 		if allowed != nil {
 			out["always"] = allowed

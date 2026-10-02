@@ -43,6 +43,7 @@ type env struct {
 	st    storage.Store
 	acts  *actions.Service
 	provs *provider.Service
+	chat  *chat.Engine
 }
 
 // idleExec is an automation executor that does nothing (API tests only queue).
@@ -108,7 +109,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	if _, err := svc.CreateUser(ctx, auth.NewUser{Email: "member@x.io", Role: storage.RoleMember, Password: "member-password"}, "system"); err != nil {
 		t.Fatal(err)
 	}
-	return &env{srv: srv, auth: svc, st: st, acts: acts, provs: provs}
+	return &env{srv: srv, auth: svc, st: st, acts: acts, provs: provs, chat: chatEng}
 }
 
 func (e *env) client(t *testing.T) *http.Client {
