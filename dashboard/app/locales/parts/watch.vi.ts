@@ -2,11 +2,11 @@
 export default {
   'watch.title': 'Theo dõi',
   'watch.add': 'Thêm box',
-  'watch.empty': 'Chưa có box nào. Thêm box chat của một project để theo dõi.',
+  'watch.empty': 'Mở một chat để theo dõi',
   'watch.recent': 'Chat gần đây',
   'watch.noProjects': 'Chưa có project',
   'watch.project': 'Chọn project',
-  'watch.pickProject': 'Chọn project cho box này',
+  'watch.pickProject': 'Box mới',
   'watch.splitRight': 'Chia sang phải',
   'watch.splitDown': 'Chia xuống dưới',
   'watch.close': 'Đóng box',

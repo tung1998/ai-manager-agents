@@ -33,7 +33,9 @@ function reset() {
         <USkeleton class="h-full" /><USkeleton class="h-full" />
       </div>
       <WatchTree v-else-if="root" :node="root" :projects="projects" class="h-full" />
-      <WatchPicker v-else :projects="projects" :hint="t('watch.empty')" class="h-full" @pick="add" />
+      <div v-else class="flex h-full items-start justify-center pt-[8vh]">
+        <WatchPicker :projects="projects" :hint="t('watch.empty')" class="max-h-[70vh] w-full max-w-lg" @pick="add" />
+      </div>
     </template>
   </UDashboardPanel>
 </template>

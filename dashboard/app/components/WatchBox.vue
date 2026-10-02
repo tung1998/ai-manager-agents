@@ -33,12 +33,11 @@ const projectMenu = computed(() => [props.projects.map(p => ({
     </ChatPanel>
     <!-- a fresh split, or its project was removed: pick a project or a recent chat -->
     <WatchPicker
-      v-else :projects="projects" :hint="t('watch.pickProject')" icon="i-lucide-square-dashed"
-      class="h-full rounded-lg border border-dashed border-(--ui-border-accented)"
+      v-else :projects="projects" :hint="t('watch.pickProject')" class="h-full"
       @pick="(projectId, conversationId) => setPane(pane.id, { projectId, conversationId })"
     >
       <template #actions>
-        <UButton color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('watch.close')" :title="t('watch.close')" @click="close(pane.id)" />
+        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('watch.close')" :title="t('watch.close')" @click="close(pane.id)" />
       </template>
     </WatchPicker>
   </div>
