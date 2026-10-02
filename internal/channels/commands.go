@@ -31,7 +31,7 @@ func Builtins() []Command {
 }
 
 // Reserved are names a custom command may not take.
-var Reserved = []string{"job", "create-conversation", "close-conversation", "create-thread", "create-conversion", "close-conversion", "start", "help", "pending", "approve", "reject", "mode", "cho-duyet", "duyet", "tu-choi"}
+var Reserved = []string{"job", "create-conversation", "close-conversation", "create-thread", "create-conversion", "close-conversion", "start", "help", "pending", "approve", "approve-always", "reject", "mode", "cho-duyet", "duyet", "tu-choi"}
 
 // CommandName makes a name safe for Discord and Telegram menus: lower case,
 // no accents, words joined by "-", at most 32 characters ("" = nothing left).

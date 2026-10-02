@@ -256,7 +256,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	}
 	cmd, arg, isCmd := command(in.Text)
 	switch cmd {
-	case "pending", "approve", "reject", "mode": // deciding proposals from the chat (ADR-054)
+	case "pending", "approve", "approve-always", "reject", "mode": // deciding proposals from the chat (ADR-054)
 		if isCmd && cmd == "pending" && in.Respond == nil && m.decider != nil { // typed: with its buttons
 			m.sendPending(ctx, ch, ad, in.ChatID, m.listing(ctx, ch.ID, in.ChatID))
 			return
@@ -264,7 +264,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		if isCmd {
 			result := m.approvals(ctx, ch, in, cmd, arg, who)
 			say(result)
-			if (cmd == "approve" || cmd == "reject") && MayDecide(ch, in.UserID) { // a button pressed: its message loses what was decided
+			if cmd != "pending" && cmd != "mode" && MayDecide(ch, in.UserID) { // a button pressed: its message loses what was decided
 				m.redrawButtons(ctx, ch, ad, in, result)
 			}
 			return
@@ -587,6 +587,8 @@ func command(text string) (cmd, arg string, ok bool) {
 		return "pending", "", true
 	case "approve", "duyet":
 		return "approve", rest, true
+	case "approve-always":
+		return "approve-always", rest, true
 	case "reject", "tu-choi":
 		return "reject", rest, true
 	case "mode":

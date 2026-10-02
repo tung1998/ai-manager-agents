@@ -301,12 +301,19 @@ type ActionDTO struct {
 	By        string                `json:"proposed_by"`
 	DecidedBy string                `json:"decided_by"`
 	DecidedAt *time.Time            `json:"decided_at"`
+	// Always: run_command, the pattern "luôn cho phép" would add ("" = it can't)
+	Always string `json:"always,omitempty"`
 }
 
 // ToActionDTO converts a stored action.
 func ToActionDTO(a storage.Action) ActionDTO {
+	always := ""
+	if a.Kind == "run_command" {
+		always, _ = perm.SuggestPattern(a.Target)
+	}
 	return ActionDTO{ID: a.ID, MessageID: a.MessageID, TaskID: a.TaskID, Kind: a.Kind, Label: actions.Kinds[a.Kind], Target: a.Target, TargetID: a.TargetID,
-		Reason: a.Reason, Message: a.Args.Message, Files: a.Args.Files, Automation: a.Args.Automation, Change: a.Args.Change, Status: a.Status, Detail: a.Detail, By: a.ProposedBy, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt}
+		Reason: a.Reason, Message: a.Args.Message, Files: a.Args.Files, Automation: a.Args.Automation, Change: a.Args.Change, Status: a.Status, Detail: a.Detail, By: a.ProposedBy, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt,
+		Always: always}
 }
 
 // SetAttachments sets where attached files are stored.

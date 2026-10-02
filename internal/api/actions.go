@@ -10,6 +10,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/chat"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -20,6 +21,7 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 		// a provider's card: the key the person pasted goes straight to the change
 		var in struct {
 			APIKey string `json:"api_key"`
+			Always bool   `json:"always"` // run_command: and let its agent run the like of it on its own
 		}
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		if in.APIKey != "" {
@@ -32,7 +34,22 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 			}
 			r = r.WithContext(audit.With(r.Context(), who))
 		}
-		a, err := s.cfg.Actions.Decide(r.Context(), r.PathValue("id"), approve, u.Email)
+		var (
+			a       storage.Action
+			allowed *perm.Allowed
+			err     error
+		)
+		if approve && in.Always {
+			var x perm.Allowed
+			a, x, err = s.cfg.Actions.DecideAlways(r.Context(), r.PathValue("id"), u.Email)
+			allowed = &x
+		} else {
+			a, err = s.cfg.Actions.Decide(r.Context(), r.PathValue("id"), approve, u.Email)
+		}
+		if errors.Is(err, perm.ErrNotAlways) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if errors.Is(err, actions.ErrDecided) {
 			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "action": chat.ToActionDTO(a)})
 			return
@@ -49,18 +66,49 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 		if a.Status == "failed" {
 			runErr = errors.New(a.Detail)
 		}
-		s.audit(r, audit.Change{Action: verb, Resource: "action", ResourceID: a.ID, ProjectID: a.ProjectID,
-			Detail: map[string]any{"kind": a.Kind, "target": a.Target, "status": a.Status}, Err: runErr})
+		detail := map[string]any{"kind": a.Kind, "target": a.Target, "status": a.Status}
+		if allowed != nil {
+			detail["always"] = allowed.Pattern
+		}
+		s.audit(r, audit.Change{Action: verb, Resource: "action", ResourceID: a.ID, ProjectID: a.ProjectID, Detail: detail, Err: runErr})
 		if s.cfg.Chat != nil { // its agent goes on (ADR-084)
 			label := firstNonEmptyStr(actions.Kinds[a.Kind], a.Kind) + ": " + a.Target
 			line := "❌ Đã từ chối " + label
 			if approve {
 				line = "✅ Đã duyệt " + label + " — " + firstNonEmptyStr(a.Detail, a.Status)
 			}
+			if allowed != nil {
+				line += "\n" + actions.AlwaysNote(*allowed)
+			}
 			s.cfg.Chat.Decided(a.ConversationID, u.Email, line)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"action": chat.ToActionDTO(a)})
+		out := map[string]any{"action": chat.ToActionDTO(a)}
+		if allowed != nil {
+			out["always"] = allowed
+		}
+		writeJSON(w, http.StatusOK, out)
 	}
+}
+
+// alwaysPreview: what "luôn cho phép" would add for a proposed command, and
+// to which pack (empty pattern: it can't be allowed for good).
+func (s *server) alwaysPreview(w http.ResponseWriter, r *http.Request) {
+	a, err := s.cfg.Store.Actions().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	pattern, ok := perm.SuggestPattern(a.Target)
+	if a.Kind != "run_command" || !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"pattern": "", "pack": "", "new_pack": false})
+		return
+	}
+	root := ""
+	if p, err := s.cfg.Store.Repos().Get(r.Context(), a.ProjectID); err == nil {
+		root = p.Path
+	}
+	label, _, isNew := perm.PlanAlways(root, perm.LoadPolicy(r.Context(), s.cfg.Store, a.ProjectID), pattern)
+	writeJSON(w, http.StatusOK, map[string]any{"pattern": pattern, "pack": label, "new_pack": isNew})
 }
 
 // proposerWho: an approved proposal is the agent's change, approved by the

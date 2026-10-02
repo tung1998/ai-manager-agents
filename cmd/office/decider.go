@@ -79,6 +79,31 @@ func (d chatDecider) Decide(ctx context.Context, kind, id string, approve bool, 
 	return a.Detail, nil
 }
 
+// DecideAlways approves a command and lets its agent run the like of it on
+// its own from now on ("♾️ Luôn cho phép").
+func (d chatDecider) DecideAlways(ctx context.Context, id, by string) (string, error) {
+	cur, err := d.store.Actions().Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	via, _, _ := strings.Cut(by, ":")
+	ctx = audit.With(ctx, audit.Who{Kind: "agent", Name: cur.ProposedBy, ApprovedBy: by, Via: via, ConversationID: cur.ConversationID, JobID: cur.JobID, TaskID: cur.TaskID, ActionID: cur.ID})
+	a, allowed, err := d.acts.DecideAlways(ctx, id, by)
+	if err != nil { // refused before anything ran
+		return "", err
+	}
+	var runErr error
+	if a.Status == "failed" {
+		runErr = errors.New(a.Detail)
+	}
+	_ = audit.Record(ctx, d.store.Audit(), audit.Change{Action: "action.approve", Resource: "action", ResourceID: a.ID, ProjectID: a.ProjectID,
+		Detail: map[string]any{"kind": a.Kind, "target": a.Target, "status": a.Status, "always": allowed.Pattern}, Err: runErr})
+	if runErr != nil {
+		return "", runErr
+	}
+	return a.Detail + "\n" + actions.AlwaysNote(allowed), nil
+}
+
 // placeOf: a conversation's project and agent.
 func (d chatDecider) placeOf(ctx context.Context, conversationID string) (string, string) {
 	c, err := d.store.Chat().GetConversation(ctx, conversationID)

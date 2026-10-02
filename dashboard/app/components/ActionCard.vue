@@ -15,6 +15,8 @@ export interface ProposedAction {
   message?: string
   target_id?: string
   files?: string[]
+  // run_command: the pattern "luôn cho phép" would add (none: a risky command)
+  always?: string
   // config_change: a settings change (ADR-045)
   change?: { resource: string, op: 'create' | 'update' | 'delete', id?: string, patch?: Record<string, unknown>, before?: Record<string, unknown> }
   // create_automation / update_automation: the proposed automation
@@ -27,7 +29,21 @@ const emit = defineEmits<{ updated: [ProposedAction] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
-const busy = ref<'' | 'approve' | 'reject'>('')
+const busy = ref<'' | 'approve' | 'always' | 'reject'>('')
+
+// "Duyệt & luôn cho phép": the pattern it adds and the pack it goes to
+interface Allowed { pattern: string, pack: string, new_pack?: boolean, auto?: boolean, error?: string }
+const canAlways = computed(() => props.action.kind === 'run_command' && !!props.action.always && props.action.status === 'pending' && isAdmin.value)
+const plan = ref<Allowed | null>(null)
+watch(canAlways, async (on) => {
+  if (!on || plan.value) return
+  plan.value = await $fetch<Allowed>(`/api/actions/${props.action.id}/always`).catch(() => null)
+}, { immediate: true })
+const alwaysInfo = computed(() => {
+  const p = plan.value
+  if (!p?.pattern) return props.action.always ?? ''
+  return t(p.new_pack ? 'action.alwaysInfoNew' : 'action.alwaysInfo', { pattern: p.pattern, pack: p.pack })
+})
 
 const icon = computed(() => props.action.kind.endsWith('_automation') ? 'i-lucide-alarm-clock' : props.action.kind === 'git_commit' ? 'i-lucide-git-commit-horizontal'
   : props.action.kind === 'git_branch' ? 'i-lucide-git-branch'
@@ -93,12 +109,16 @@ const logUrl = computed(() => {
 })
 const hasLog = computed(() => props.action.status !== 'pending' && (props.action.kind === 'run_command' ? !!props.action.detail : !!logUrl.value))
 
-async function decide(approve: boolean) {
-  busy.value = approve ? 'approve' : 'reject'
+async function decide(approve: boolean, always = false) {
+  busy.value = always ? 'always' : approve ? 'approve' : 'reject'
   try {
-    const res = await $fetch<{ action: ProposedAction }>(`/api/actions/${props.action.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: approve && apiKey.value ? { api_key: apiKey.value } : {} })
+    const body = always ? { always: true } : approve && apiKey.value ? { api_key: apiKey.value } : {}
+    const res = await $fetch<{ action: ProposedAction, always?: Allowed }>(`/api/actions/${props.action.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body })
     emit('updated', res.action)
     if (res.action.status === 'failed') toast.add({ title: t('action.failedToast'), description: res.action.detail, color: 'error' })
+    const x = res.always
+    if (x?.error) toast.add({ title: t('action.alwaysError'), description: x.error, color: 'error' })
+    else if (x) toast.add({ title: t(x.auto ? 'action.alwaysDone' : 'action.alwaysNoAuto', { pattern: x.pattern }), color: x.auto ? 'success' : 'warning' })
   } catch (e) {
     const a = (e as { data?: { action?: ProposedAction } }).data?.action
     if (a) emit('updated', a)
@@ -157,6 +177,10 @@ async function decide(approve: boolean) {
     <UBadge v-if="action.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('action.auto')" :title="action.decided_by.slice(5)" />
     <template v-if="action.status === 'pending' && isAdmin">
       <UButton size="xs" icon="i-lucide-check" :label="t('action.approve')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
+      <span v-if="canAlways" class="inline-flex items-center gap-1">
+        <UButton size="xs" variant="soft" icon="i-lucide-infinity" :label="t('action.approveAlways')" :loading="busy === 'always'" :disabled="!!busy" @click="decide(true, true)" />
+        <UTooltip :text="alwaysInfo"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+      </span>
       <UButton size="xs" color="neutral" variant="ghost" :label="t('action.reject')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
     </template>
     <UButton

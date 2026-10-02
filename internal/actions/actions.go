@@ -374,6 +374,69 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 	return a, s.store.Actions().Update(ctx, a)
 }
 
+// DecideAlways approves a proposed command, then lets its agent run the like
+// of it on its own from now on (perm.SuggestPattern, perm.AllowAlways). Risky
+// commands and wrappers are refused before anything runs. An error means
+// nothing was decided; once it ran, a permission that could not be saved is
+// in Allowed.Error.
+func (s *Service) DecideAlways(ctx context.Context, id, by string) (storage.Action, perm.Allowed, error) {
+	a, err := s.store.Actions().Get(ctx, id)
+	if err != nil {
+		return a, perm.Allowed{}, err
+	}
+	if a.Status != "pending" {
+		return a, perm.Allowed{}, ErrDecided
+	}
+	pattern, ok := perm.SuggestPattern(a.Target)
+	if a.Kind != "run_command" || !ok {
+		return a, perm.Allowed{}, perm.ErrNotAlways
+	}
+	agentID, err := s.proposer(ctx, a)
+	if err != nil {
+		return a, perm.Allowed{}, err
+	}
+	done, err := s.Decide(ctx, id, true, by)
+	if err != nil {
+		return done, perm.Allowed{}, err
+	}
+	allowed, err := perm.AllowAlways(ctx, s.store, a.ProjectID, agentID, pattern)
+	via, _, _ := strings.Cut(by, ":")
+	if via == by {
+		via = "ui"
+	}
+	actx := audit.With(ctx, audit.Who{Kind: "human", Name: by, Via: via, ConversationID: a.ConversationID, JobID: a.JobID, TaskID: a.TaskID, ActionID: a.ID})
+	_ = audit.Record(actx, s.store.Audit(), audit.Change{Action: "agent.update", Resource: "agent", ResourceID: agentID, ProjectID: a.ProjectID,
+		Detail: map[string]any{"allow_always": allowed.Pattern, "pack": allowed.Pack, "new_pack": allowed.NewPack, "added_to_policy": allowed.Added, "approved_by": by, "command": a.Target}, Err: err})
+	if err != nil {
+		allowed.Pattern, allowed.Error = pattern, err.Error()
+	}
+	return done, allowed, nil
+}
+
+// AlwaysNote tells a person what "luôn cho phép" did.
+func AlwaysNote(x perm.Allowed) string {
+	switch {
+	case x.Error != "":
+		return "⚠️ Chưa lưu được quyền luôn cho phép: " + x.Error
+	case !x.Auto:
+		return "♾️ Đã thêm " + x.Pattern + " (gói " + x.Pack + "), nhưng mức hiện tại của agent chưa cho tự chạy lệnh ngoài danh sách an toàn (chỉ tự chạy trong worktree riêng)."
+	}
+	return "♾️ Lần sau agent tự chạy " + x.Pattern + " (gói " + x.Pack + ")."
+}
+
+// proposer is the project agent that proposed a: its run's agent, or the
+// agent of that name (a lead run keeps no agent id).
+func (s *Service) proposer(ctx context.Context, a storage.Action) (string, error) {
+	if a.JobID != "" {
+		if j, err := s.store.Jobs().Get(ctx, a.JobID); err == nil && j.AgentID != "" {
+			if ag, err := s.store.Agents().Get(ctx, j.AgentID); err == nil && ag.Name == a.ProposedBy {
+				return ag.ID, nil
+			}
+		}
+	}
+	return s.agentID(ctx, a.ProjectID, a.ProposedBy)
+}
+
 // checkGit validates a git action and fills its target: commit files must be
 // changed and allowed by the policy (none given = every allowed change).
 func (s *Service) checkGit(ctx context.Context, a *storage.Action) error {

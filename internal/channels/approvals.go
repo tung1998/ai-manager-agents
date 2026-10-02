@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
@@ -21,6 +21,21 @@ import (
 // person in the chat ("discord:an"); what it returns says how it went.
 type Decider interface {
 	Decide(ctx context.Context, kind, id string, approve bool, by string) (string, error)
+}
+
+// AlwaysDecider also approves a command and lets its agent run the like of
+// it on its own from now on ("luôn cho phép").
+type AlwaysDecider interface {
+	DecideAlways(ctx context.Context, id, by string) (string, error)
+}
+
+// alwaysable: a command proposal that may be allowed for good.
+func alwaysable(p proposal) bool {
+	if p.Kind != "action" || p.Action != "run_command" {
+		return false
+	}
+	_, ok := perm.SuggestPattern(p.Target)
+	return ok
 }
 
 // SetDecider lets the people allowed to decide proposals from the chat (ADR-054).
@@ -78,8 +93,6 @@ func (m *Manager) still(ctx context.Context, p proposal) bool {
 	return err == nil && x.Status == "pending"
 }
 
-var risky = regexp.MustCompile(`(?i)\brm\s|\bgit\s+(push|reset\s+--hard|clean|branch\s+-D)|\bdrop\s|\bdelete\b|\btruncate\b`)
-
 // mustAsk: what is always asked, even when the chat approves directly —
 // a push, stopping something, a setting, a command that deletes.
 func mustAsk(p proposal) bool {
@@ -87,7 +100,7 @@ func mustAsk(p proposal) bool {
 	case "git_push", "stop_process", "stop_container", "config_change", "update_automation":
 		return true
 	case "run_command", "run_process":
-		return risky.MatchString(p.Target)
+		return perm.Risky(p.Target)
 	}
 	return false
 }
@@ -152,7 +165,11 @@ func (m *Manager) pendingRows(ctx context.Context, list []proposal) [][]Button {
 		if len(rows) < 4 {
 			n := strconv.Itoa(p.N)
 			// by id: a number is given again once all is decided, an old button must not pick the new one
-			rows = append(rows, []Button{{Label: "✅ Duyệt " + n, Data: "/approve " + p.ID}, {Label: "❌ Từ chối " + n, Data: "/reject " + p.ID, Danger: true}})
+			row := []Button{{Label: "✅ Duyệt " + n, Data: "/approve " + p.ID}}
+			if _, ok := m.decider.(AlwaysDecider); ok && alwaysable(p) {
+				row = append(row, Button{Label: "♾️ Luôn cho phép " + n, Data: "/approve-always " + p.ID})
+			}
+			rows = append(rows, append(row, Button{Label: "❌ Từ chối " + n, Data: "/reject " + p.ID, Danger: true}))
 		}
 	}
 	if waiting > 1 {
@@ -236,9 +253,13 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	if cmd == "mode" { // the modes are gone (ADR-081): the lists say who runs how
 		return "Bot không còn chế độ. Người trong danh sách Admin chạy theo quyền của agent; Người dùng thì đề xuất, chờ admin duyệt."
 	}
-	approve := cmd == "approve"
+	always := cmd == "approve-always"
+	approve := cmd == "approve" || always
 	var picked []proposal
 	all := arg == "" && len(list) == 1 || strings.EqualFold(strings.TrimSpace(arg), "all") || strings.EqualFold(strings.TrimSpace(arg), "tat-ca")
+	if always {
+		all = false // one by one: each adds a permission
+	}
 	stale := 0 // a button of a proposal no longer listed: decided before
 	for _, f := range strings.FieldsFunc(arg, func(r rune) bool { return r == ',' || r == ' ' }) {
 		n, err := strconv.Atoi(f)
@@ -268,7 +289,20 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 			}
 			continue
 		}
-		detail, err := m.decider.Decide(ctx, p.Kind, p.ID, approve, by)
+		var (
+			detail string
+			err    error
+		)
+		if always {
+			ad, ok := m.decider.(AlwaysDecider)
+			if !ok || !alwaysable(p) {
+				lines = append(lines, fmt.Sprintf("%d. %s: không luôn cho phép được, hãy /approve %d.", p.N, p.Label, p.N))
+				continue
+			}
+			detail, err = ad.DecideAlways(ctx, p.ID, by)
+		} else {
+			detail, err = m.decider.Decide(ctx, p.Kind, p.ID, approve, by)
+		}
 		lines = append(lines, outcome(p, approve, detail, err))
 		if p.Conv != "" {
 			decided[p.Conv] = append(decided[p.Conv], outcome(p, approve, detail, err))

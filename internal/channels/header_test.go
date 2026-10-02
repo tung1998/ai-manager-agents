@@ -651,6 +651,85 @@ func TestPressedButtonsGoAway(t *testing.T) {
 	}
 }
 
+// alwaysDecider also approves "luôn cho phép", recording which.
+type alwaysDecider struct {
+	actionDecider
+	mu     sync.Mutex
+	always []string
+}
+
+func (d *alwaysDecider) DecideAlways(ctx context.Context, id, by string) (string, error) {
+	d.mu.Lock()
+	d.always = append(d.always, id)
+	d.mu.Unlock()
+	return d.Decide(ctx, "action", id, true, by)
+}
+
+// A command that may be allowed for good has a "♾️ Luôn cho phép" button;
+// a risky one has none, and its command is refused.
+func TestAlwaysButton(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	bot := &editBot{buttonBot: buttonBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, rows: make(chan [][]channels.Button, 2)}, edits: make(chan buttonEdit, 4)}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"7"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	dec := &alwaysDecider{actionDecider: actionDecider{st.Actions()}}
+	m.SetDecider(dec)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
+	sw, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "git switch main", Status: "pending"})
+	rm, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "rm -rf dist", Status: "pending"})
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "42", ConversationID: conv.ID})
+	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Xong", nil, true)
+	var rows [][]channels.Button
+	select {
+	case rows = <-bot.rows:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no buttons")
+	}
+	if len(rows) < 2 || len(rows[0]) != 3 || rows[0][1].Data != "/approve-always "+sw.ID || !strings.Contains(rows[0][1].Label, "Luôn cho phép") || len(rows[1]) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	edited := func() buttonEdit {
+		select {
+		case e := <-bot.edits:
+			return e
+		case <-time.After(3 * time.Second):
+			t.Fatal("the message was not changed")
+		}
+		return buttonEdit{}
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve-always " + sw.ID, Addressed: true, ButtonMsg: "m1"}
+	if e := edited(); len(e.rows) != 1 || e.rows[0][0].Data != "/approve "+rm.ID || strings.Contains(e.text, "git switch") {
+		t.Fatalf("after always = %+v", e)
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve-always " + rm.ID, Addressed: true, ButtonMsg: "m1"}
+	edited()
+	dec.mu.Lock()
+	got := append([]string(nil), dec.always...)
+	dec.mu.Unlock()
+	if a, _ := st.Actions().Get(ctx, rm.ID); a.Status != "pending" || len(got) != 1 || got[0] != sw.ID {
+		t.Fatalf("risky = %s, always = %v", a.Status, got)
+	}
+}
+
 // What waits for approval comes with Approve / Reject buttons (a press is the command).
 func TestPendingButtons(t *testing.T) {
 	ctx := context.Background()
