@@ -41,6 +41,9 @@ type Incoming struct {
 	InThread bool
 	// Files sent with it (fetched when office takes the message).
 	Files []InFile
+	// ButtonMsg: a button pressed, on that message of the bot (its buttons
+	// are redrawn once decided).
+	ButtonMsg string
 }
 
 // Button is one under a message: pressed, Data (a command) comes up as the
@@ -53,6 +56,12 @@ type Button struct {
 // ButtonSender is an adapter that can put buttons under a message.
 type ButtonSender interface {
 	SendButtons(ctx context.Context, chatID, text string, rows [][]Button) ([]string, error)
+}
+
+// ButtonEditor changes a message with buttons the bot sent: its text, and
+// its buttons (none: they are taken off).
+type ButtonEditor interface {
+	EditButtons(ctx context.Context, chatID, msgID, text string, rows [][]Button) error
 }
 
 // InFile is a file sent to the bot.
@@ -217,7 +226,8 @@ func (t *Telegram) Run(ctx context.Context, onReady func(string), onMessage func
 					Username string `json:"username"`
 				} `json:"from"`
 				Message *struct {
-					Chat struct {
+					MessageID int64 `json:"message_id"`
+					Chat      struct {
 						ID   int64  `json:"id"`
 						Type string `json:"type"`
 					} `json:"chat"`
@@ -250,8 +260,12 @@ func (t *Telegram) Run(ctx context.Context, onReady func(string), onMessage func
 				go func(id string) {
 					_ = t.call(context.WithoutCancel(ctx), "answerCallbackQuery", map[string]string{"callback_query_id": id}, nil)
 				}(c.ID)
-				onMessage(Incoming{ChatID: strconv.FormatInt(c.Message.Chat.ID, 10), UserID: strconv.FormatInt(c.From.ID, 10), UserName: c.From.Username,
-					Private: c.Message.Chat.Type == "private", Text: c.Data, Addressed: true})
+				in := Incoming{ChatID: strconv.FormatInt(c.Message.Chat.ID, 10), UserID: strconv.FormatInt(c.From.ID, 10), UserName: c.From.Username,
+					Private: c.Message.Chat.Type == "private", Text: c.Data, Addressed: true}
+				if c.Message.MessageID != 0 {
+					in.ButtonMsg = strconv.FormatInt(c.Message.MessageID, 10)
+				}
+				onMessage(in)
 			}
 		}
 	}
@@ -382,7 +396,29 @@ func (t *Telegram) SendButtons(ctx context.Context, chatID, text string, rows []
 	if err != nil {
 		return nil, errors.New("telegram: chat id không hợp lệ")
 	}
-	var kb [][]map[string]string
+	var sent struct {
+		MessageID int64 `json:"message_id"`
+	}
+	if err := t.call(ctx, "sendMessage", map[string]any{"chat_id": id, "text": text, "reply_markup": keyboard(rows)}, &sent); err != nil {
+		return nil, err
+	}
+	return []string{strconv.FormatInt(sent.MessageID, 10)}, nil
+}
+
+// EditButtons changes a message with buttons: its text, and its buttons
+// (none: an empty keyboard takes them off).
+func (t *Telegram) EditButtons(ctx context.Context, chatID, msgID, text string, rows [][]Button) error {
+	chat, err1 := strconv.ParseInt(chatID, 10, 64)
+	msg, err2 := strconv.ParseInt(msgID, 10, 64)
+	if err1 != nil || err2 != nil {
+		return errors.New("telegram: id không hợp lệ")
+	}
+	return t.call(ctx, "editMessageText", map[string]any{"chat_id": chat, "message_id": msg, "text": text, "reply_markup": keyboard(rows)}, nil)
+}
+
+// keyboard is Telegram's inline keyboard ([] when there are no buttons).
+func keyboard(rows [][]Button) map[string]any {
+	kb := [][]map[string]string{}
 	for _, r := range rows {
 		var row []map[string]string
 		for _, b := range r {
@@ -390,13 +426,7 @@ func (t *Telegram) SendButtons(ctx context.Context, chatID, text string, rows []
 		}
 		kb = append(kb, row)
 	}
-	var sent struct {
-		MessageID int64 `json:"message_id"`
-	}
-	if err := t.call(ctx, "sendMessage", map[string]any{"chat_id": id, "text": text, "reply_markup": map[string]any{"inline_keyboard": kb}}, &sent); err != nil {
-		return nil, err
-	}
-	return []string{strconv.FormatInt(sent.MessageID, 10)}, nil
+	return map[string]any{"inline_keyboard": kb}
 }
 
 func (t *Telegram) SetCommands(ctx context.Context, cmds []Command) {

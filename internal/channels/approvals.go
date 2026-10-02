@@ -129,6 +129,19 @@ func (m *Manager) sendPending(ctx context.Context, ch storage.Channel, ad Adapte
 		_, _ = ad.Send(ctx, chatID, text)
 		return
 	}
+	rows := m.pendingRows(ctx, list)
+	if len(rows) == 0 {
+		_, _ = ad.Send(ctx, chatID, text)
+		return
+	}
+	if _, err := bs.SendButtons(ctx, chatID, text, rows); err != nil {
+		_, _ = ad.Send(ctx, chatID, text) // the commands, then
+	}
+}
+
+// pendingRows are the Approve / Reject buttons of what still waits (none:
+// nothing waits).
+func (m *Manager) pendingRows(ctx context.Context, list []proposal) [][]Button {
 	var rows [][]Button
 	waiting := 0
 	for _, p := range list {
@@ -142,15 +155,27 @@ func (m *Manager) sendPending(ctx context.Context, ch storage.Channel, ad Adapte
 			rows = append(rows, []Button{{Label: "✅ Duyệt " + n, Data: "/approve " + p.ID}, {Label: "❌ Từ chối " + n, Data: "/reject " + p.ID, Danger: true}})
 		}
 	}
-	if waiting == 0 {
-		_, _ = ad.Send(ctx, chatID, text)
-		return
-	}
 	if waiting > 1 {
 		rows = append(rows, []Button{{Label: "✅ Duyệt tất cả", Data: "/approve all"}})
 	}
-	if _, err := bs.SendButtons(ctx, chatID, text, rows); err != nil {
-		_, _ = ad.Send(ctx, chatID, text) // the commands, then
+	return rows
+}
+
+// redrawButtons: a button was pressed and something decided, so the message
+// it was on keeps only the buttons of what still waits; once nothing does,
+// it shows what was decided, with no buttons left to press again.
+func (m *Manager) redrawButtons(ctx context.Context, ch storage.Channel, ad Adapter, in Incoming, result string) {
+	be, ok := ad.(ButtonEditor)
+	if !ok || in.ButtonMsg == "" {
+		return
+	}
+	list := m.listing(ctx, ch.ID, in.ChatID)
+	text, rows := m.pendingText(ctx, ch, list), m.pendingRows(ctx, list)
+	if len(rows) == 0 {
+		text = result
+	}
+	if err := be.EditButtons(ctx, in.ChatID, in.ButtonMsg, text, rows); err != nil {
+		slog.Warn("channels: buttons not redrawn", "channel", ch.ID, "err", err)
 	}
 }
 

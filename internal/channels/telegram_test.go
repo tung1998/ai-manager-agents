@@ -205,10 +205,13 @@ func TestTelegramButtons(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("no press")
 	}
-	if m.Text != "/approve 1" || m.ChatID != "-100" || m.UserID != "7" || !m.Addressed {
+	if m.Text != "/approve 1" || m.ChatID != "-100" || m.UserID != "7" || !m.Addressed || m.ButtonMsg != "3" {
 		t.Fatalf("press = %+v", m)
 	}
 	if _, err := tg.SendButtons(ctx, "-100", "Chờ duyệt", [][]Button{{{Label: "Duyệt 1", Data: "/approve 1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tg.EditButtons(ctx, "-100", "3", "✅ Đã duyệt 1", nil); err != nil { // decided: its buttons off
 		t.Fatal(err)
 	}
 	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) { // the press is answered in the background
@@ -222,7 +225,7 @@ func TestTelegramButtons(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	all := strings.Join(calls, "\n")
-	for _, want := range []string{"answerCallbackQuery", `"callback_data":"/approve 1"`, `"inline_keyboard"`, "callback_query"} {
+	for _, want := range []string{"answerCallbackQuery", `"callback_data":"/approve 1"`, `"inline_keyboard"`, "callback_query", `/botTOK/editMessageText {"chat_id":-100,"message_id":3,"reply_markup":{"inline_keyboard":[]},"text":"✅ Đã duyệt 1"}`} {
 		if !strings.Contains(all, want) {
 			t.Errorf("no %s in\n%s", want, all)
 		}

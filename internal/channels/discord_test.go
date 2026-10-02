@@ -571,7 +571,7 @@ func TestDiscordButtons(t *testing.T) {
 			return
 		}
 		send(`{"op":0,"s":1,"t":"READY","d":{"user":{"id":"99","username":"shopbot"},"application":{"id":"app1"}}}`)
-		send(`{"op":0,"s":2,"t":"INTERACTION_CREATE","d":{"id":"i1","token":"tk","type":3,"channel_id":"c2","guild_id":"g","data":{"custom_id":"office:/approve 2","component_type":2},"member":{"user":{"id":"8","username":"binh"}}}}`)
+		send(`{"op":0,"s":2,"t":"INTERACTION_CREATE","d":{"id":"i1","token":"tk","type":3,"channel_id":"c2","guild_id":"g","data":{"custom_id":"office:/approve 2","component_type":2},"message":{"id":"m7"},"member":{"user":{"id":"8","username":"binh"}}}}`)
 	})
 	defer gw.Close()
 	var mu sync.Mutex
@@ -595,16 +595,19 @@ func TestDiscordButtons(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("no click")
 	}
-	if m.Text != "/approve 2" || m.UserID != "8" || !m.Addressed || m.Respond == nil {
+	if m.Text != "/approve 2" || m.UserID != "8" || !m.Addressed || m.Respond == nil || m.ButtonMsg != "m7" {
 		t.Fatalf("click = %+v", m)
 	}
 	if _, err := d.SendButtons(ctx, "c2", "Chờ duyệt", [][]Button{{{Label: "Duyệt 1", Data: "/approve 1"}, {Label: "Từ chối 1", Data: "/reject 1", Danger: true}}}); err != nil {
 		t.Fatal(err)
 	}
+	if err := d.EditButtons(ctx, "c2", "m7", "✅ Đã duyệt 2", nil); err != nil { // decided: its buttons off
+		t.Fatal(err)
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	all := strings.Join(calls, "\n")
-	for _, want := range []string{`"custom_id":"office:/approve 1"`, `"style":4`, `"type":1`, `Chờ duyệt`} {
+	for _, want := range []string{`"custom_id":"office:/approve 1"`, `"style":4`, `"type":1`, `Chờ duyệt`, `PATCH /channels/c2/messages/m7 {"components":[],"content":"✅ Đã duyệt 2"}`} {
 		if !strings.Contains(all, want) {
 			t.Errorf("no %s in\n%s", want, all)
 		}

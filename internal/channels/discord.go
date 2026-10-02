@@ -429,7 +429,10 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 		Member *struct {
 			User user `json:"user"`
 		} `json:"member"`
-		User *user `json:"user"`
+		User    *user `json:"user"`
+		Message *struct {
+			ID string `json:"id"`
+		} `json:"message"` // the message whose button was pressed
 	}
 	if json.Unmarshal(raw, &x) != nil || (x.Type != 2 && x.Type != 3) || x.Token == "" {
 		return Incoming{}, false
@@ -446,6 +449,9 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 	}
 	if x.Type == 3 { // a button: the command it stands for
 		in.Text = strings.TrimPrefix(x.Data.CustomID, buttonPrefix)
+		if x.Message != nil {
+			in.ButtonMsg = x.Message.ID
+		}
 	}
 	for _, o := range x.Data.Options {
 		if s, ok := o.Value.(string); ok {
@@ -547,7 +553,24 @@ const buttonPrefix = "office:"
 
 // SendButtons posts text with buttons (5 a row, 5 rows at most).
 func (d *Discord) SendButtons(ctx context.Context, chatID, text string, rows [][]Button) ([]string, error) {
-	var comps []map[string]any
+	var sent struct {
+		ID string `json:"id"`
+	}
+	if err := d.do(ctx, "POST", "/channels/"+chatID+"/messages", map[string]any{"content": cut(text, 1900), "components": components(rows)}, &sent); err != nil {
+		return nil, err
+	}
+	return []string{sent.ID}, nil
+}
+
+// EditButtons changes a message with buttons: its text, and its buttons
+// (none: an empty list takes them off).
+func (d *Discord) EditButtons(ctx context.Context, chatID, msgID, text string, rows [][]Button) error {
+	return d.do(ctx, "PATCH", "/channels/"+chatID+"/messages/"+msgID, map[string]any{"content": cut(text, 1900), "components": components(rows)})
+}
+
+// components are the rows of buttons ([] when there are none).
+func components(rows [][]Button) []map[string]any {
+	comps := []map[string]any{}
 	for _, r := range rows[:min(len(rows), 5)] {
 		var row []map[string]any
 		for _, b := range r[:min(len(r), 5)] {
@@ -559,13 +582,7 @@ func (d *Discord) SendButtons(ctx context.Context, chatID, text string, rows [][
 		}
 		comps = append(comps, map[string]any{"type": 1, "components": row})
 	}
-	var sent struct {
-		ID string `json:"id"`
-	}
-	if err := d.do(ctx, "POST", "/channels/"+chatID+"/messages", map[string]any{"content": cut(text, 1900), "components": comps}, &sent); err != nil {
-		return nil, err
-	}
-	return []string{sent.ID}, nil
+	return comps
 }
 
 func (d *Discord) Typing(ctx context.Context, chatID string) {

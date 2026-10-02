@@ -554,6 +554,103 @@ func (b *buttonBot) SendButtons(ctx context.Context, chatID, text string, rows [
 	return b.Send(ctx, chatID, text)
 }
 
+// buttonEdit is a message with buttons changed.
+type buttonEdit struct {
+	msg, text string
+	rows      [][]channels.Button
+}
+
+// editBot also changes the buttons under its messages.
+type editBot struct {
+	buttonBot
+	edits chan buttonEdit
+}
+
+func (b *editBot) EditButtons(_ context.Context, chatID, msgID, text string, rows [][]channels.Button) error {
+	b.edits <- buttonEdit{msgID, text, rows}
+	return nil
+}
+
+// actionDecider decides actions for real (their status), as office does.
+type actionDecider struct{ actions storage.ActionRepo }
+
+func (d actionDecider) Decide(ctx context.Context, kind, id string, approve bool, by string) (string, error) {
+	a, err := d.actions.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	a.Status = "rejected"
+	if approve {
+		a.Status = "done"
+	}
+	return "Thành công", d.actions.Update(ctx, a)
+}
+
+// A button pressed takes the decided proposal's buttons off its message;
+// once nothing waits, no button is left on it.
+func TestPressedButtonsGoAway(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	bot := &editBot{buttonBot: buttonBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, rows: make(chan [][]channels.Button, 2)}, edits: make(chan buttonEdit, 4)}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"7"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	m.SetDecider(actionDecider{st.Actions()})
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
+	lint, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm lint", Status: "pending"})
+	test, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, Kind: "run_command", Target: "pnpm test", Status: "pending"})
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "42", ConversationID: conv.ID})
+	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Xong", nil, true)
+	select {
+	case <-bot.rows:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no buttons")
+	}
+	edited := func() buttonEdit {
+		select {
+		case e := <-bot.edits:
+			return e
+		case <-time.After(3 * time.Second):
+			t.Fatal("the message was not changed")
+		}
+		return buttonEdit{}
+	}
+	// one decided: only the other's buttons stay (no "all" for one)
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve " + lint.ID, Addressed: true, ButtonMsg: "m1"}
+	if e := edited(); e.msg != "m1" || len(e.rows) != 1 || e.rows[0][0].Data != "/approve "+test.ID || strings.Contains(e.text, "pnpm lint") {
+		t.Fatalf("after one = %+v", e)
+	}
+	// the last decided: no buttons, what was decided instead
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/reject " + test.ID, Addressed: true, ButtonMsg: "m1"}
+	if e := edited(); e.msg != "m1" || len(e.rows) != 0 || !strings.Contains(e.text, "Đã từ chối") {
+		t.Fatalf("after all = %+v", e)
+	}
+	// typed, with no button: no message to change
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve all", Addressed: true}
+	select {
+	case e := <-bot.edits:
+		t.Fatalf("typed command changed %+v", e)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
 // What waits for approval comes with Approve / Reject buttons (a press is the command).
 func TestPendingButtons(t *testing.T) {
 	ctx := context.Background()

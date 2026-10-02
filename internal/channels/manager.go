@@ -262,7 +262,11 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 			return
 		}
 		if isCmd {
-			say(m.approvals(ctx, ch, in, cmd, arg, who))
+			result := m.approvals(ctx, ch, in, cmd, arg, who)
+			say(result)
+			if (cmd == "approve" || cmd == "reject") && MayDecide(ch, in.UserID) { // a button pressed: its message loses what was decided
+				m.redrawButtons(ctx, ch, ad, in, result)
+			}
 			return
 		}
 	}
