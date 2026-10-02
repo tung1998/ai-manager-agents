@@ -29,7 +29,7 @@ const emit = defineEmits<{ updated: [ProposedAction] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
-const busy = ref<'' | 'approve' | 'always' | 'reject'>('')
+const busy = ref<'' | 'approve' | 'always' | 'reject' | 'skip'>('')
 
 // "Duyệt & luôn cho phép": the pattern it adds and the pack it goes to
 interface Allowed { pattern: string, pack: string, new_pack?: boolean, auto?: boolean, error?: string }
@@ -110,10 +110,11 @@ const logUrl = computed(() => {
 })
 const hasLog = computed(() => props.action.status !== 'pending' && (props.action.kind === 'run_command' ? !!props.action.detail : !!logUrl.value))
 
-async function decide(approve: boolean, always = false) {
-  busy.value = always ? 'always' : approve ? 'approve' : 'reject'
+// skip: rejected, and its agent is not run again about it
+async function decide(approve: boolean, always = false, skip = false) {
+  busy.value = always ? 'always' : approve ? 'approve' : skip ? 'skip' : 'reject'
   try {
-    const body = always ? { always: true } : approve && apiKey.value ? { api_key: apiKey.value } : {}
+    const body = always ? { always: true } : skip ? { skip: true } : approve && apiKey.value ? { api_key: apiKey.value } : {}
     const res = await $fetch<{ action: ProposedAction, always?: Allowed }>(`/api/actions/${props.action.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body })
     emit('updated', res.action)
     if (res.action.status === 'failed') toast.add({ title: t('action.failedToast'), description: res.action.detail, color: 'error' })
@@ -183,6 +184,9 @@ async function decide(approve: boolean, always = false) {
         <UTooltip :text="alwaysInfo"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
       </span>
       <UButton size="xs" color="neutral" variant="ghost" :label="t('action.reject')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
+      <UTooltip :text="t('action.skipInfo')">
+        <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-skip-forward" :label="t('action.skip')" :loading="busy === 'skip'" :disabled="!!busy" @click="decide(false, false, true)" />
+      </UTooltip>
     </template>
     <UButton
       v-else-if="hasLog" size="xs" color="neutral" variant="ghost" icon="i-lucide-terminal"

@@ -637,10 +637,13 @@ func TestPressedButtonsGoAway(t *testing.T) {
 	if e := edited(); e.msg != "m1" || len(e.rows) != 1 || e.rows[0][0].Data != "/approve "+test.ID || strings.Contains(e.text, "pnpm lint") {
 		t.Fatalf("after one = %+v", e)
 	}
-	// the last decided: no buttons, what was decided instead
-	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/reject " + test.ID, Addressed: true, ButtonMsg: "m1"}
-	if e := edited(); e.msg != "m1" || len(e.rows) != 0 || !strings.Contains(e.text, "Đã từ chối") {
+	// the last skipped: rejected, no buttons, what was decided instead
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/skip " + test.ID, Addressed: true, ButtonMsg: "m1"}
+	if e := edited(); e.msg != "m1" || len(e.rows) != 0 || !strings.Contains(e.text, "Đã bỏ qua") {
 		t.Fatalf("after all = %+v", e)
+	}
+	if a, _ := st.Actions().Get(ctx, test.ID); a.Status != "rejected" {
+		t.Fatalf("skipped = %s", a.Status)
 	}
 	// typed, with no button: no message to change
 	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve all", Addressed: true}
@@ -704,7 +707,7 @@ func TestAlwaysButton(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("no buttons")
 	}
-	if len(rows) < 2 || len(rows[0]) != 3 || rows[0][1].Data != "/approve-always "+sw.ID || !strings.Contains(rows[0][1].Label, "Luôn cho phép") || len(rows[1]) != 2 {
+	if len(rows) < 2 || len(rows[0]) != 4 || rows[0][1].Data != "/approve-always "+sw.ID || !strings.Contains(rows[0][1].Label, "Luôn cho phép") || rows[0][3].Data != "/skip "+sw.ID || len(rows[1]) != 3 {
 		t.Fatalf("rows = %+v", rows)
 	}
 	edited := func() buttonEdit {

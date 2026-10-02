@@ -105,6 +105,8 @@ export default {
   'action.approve': 'Duyệt',
   'action.reject': 'Từ chối',
   'action.approveAlways': 'Duyệt & luôn cho phép',
+  'action.skip': 'Bỏ qua',
+  'action.skipInfo': 'Từ chối, agent không chạy tiếp về đề xuất này',
   'action.alwaysInfo': 'Thêm {pattern} vào gói “{pack}”',
   'action.alwaysInfoNew': 'Thêm {pattern} vào gói mới “{pack}”',
   'action.alwaysDone': 'Lần sau agent tự chạy {pattern}',

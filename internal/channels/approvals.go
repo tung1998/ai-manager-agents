@@ -169,7 +169,9 @@ func (m *Manager) pendingRows(ctx context.Context, list []proposal) [][]Button {
 			if _, ok := m.decider.(AlwaysDecider); ok && alwaysable(p) {
 				row = append(row, Button{Label: "♾️ Luôn cho phép " + n, Data: "/approve-always " + p.ID})
 			}
-			rows = append(rows, append(row, Button{Label: "❌ Từ chối " + n, Data: "/reject " + p.ID, Danger: true}))
+			row = append(row, Button{Label: "❌ Từ chối " + n, Data: "/reject " + p.ID, Danger: true})
+			// skipped: rejected, and the agent is not run again about it
+			rows = append(rows, append(row, Button{Label: "⏭️ Bỏ qua " + n, Data: "/skip " + p.ID, Danger: true}))
 		}
 	}
 	if waiting > 1 {
@@ -207,7 +209,7 @@ func (m *Manager) pendingText(ctx context.Context, ch storage.Channel, list []pr
 	if len(lines) == 0 {
 		return "Không có gì chờ duyệt."
 	}
-	how := "Bấm nút bên dưới, hoặc gõ /approve 1 (/approve all) để duyệt, /reject 1 để từ chối."
+	how := "Bấm nút bên dưới, hoặc gõ /approve 1 (/approve all) để duyệt, /reject 1 để từ chối, /skip 1 để bỏ qua (agent không chạy tiếp)."
 	if len(ch.Approvers) == 0 {
 		how = "Bot này chưa có ai được duyệt qua chat: duyệt trên dashboard (Tổng quan → Cần xử lý)."
 	}
@@ -253,7 +255,7 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	if cmd == "mode" { // the modes are gone (ADR-081): the lists say who runs how
 		return "Bot không còn chế độ. Người trong danh sách Admin chạy theo quyền của agent; Người dùng thì đề xuất, chờ admin duyệt."
 	}
-	always := cmd == "approve-always"
+	always, skip := cmd == "approve-always", cmd == "skip"
 	approve := cmd == "approve" || always
 	var picked []proposal
 	all := arg == "" && len(list) == 1 || strings.EqualFold(strings.TrimSpace(arg), "all") || strings.EqualFold(strings.TrimSpace(arg), "tat-ca")
@@ -302,6 +304,14 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 			detail, err = ad.DecideAlways(ctx, p.ID, by)
 		} else {
 			detail, err = m.decider.Decide(ctx, p.Kind, p.ID, approve, by)
+		}
+		if skip {
+			if err == nil {
+				lines = append(lines, "⏭️ Đã bỏ qua "+numbered(p))
+			} else {
+				lines = append(lines, outcome(p, false, detail, err))
+			}
+			continue // the agent is not run again about it
 		}
 		lines = append(lines, outcome(p, approve, detail, err))
 		if p.Conv != "" {

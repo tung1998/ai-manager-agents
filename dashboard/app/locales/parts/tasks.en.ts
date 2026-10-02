@@ -106,6 +106,8 @@ const en: Record<keyof typeof vi, string> = {
   'action.approve': 'Approve',
   'action.reject': 'Reject',
   'action.approveAlways': 'Approve & always allow',
+  'action.skip': 'Skip',
+  'action.skipInfo': 'Reject, and the agent does not go on about it',
   'action.alwaysInfo': 'Adds {pattern} to the “{pack}” pack',
   'action.alwaysInfoNew': 'Adds {pattern} to a new “{pack}” pack',
   'action.alwaysDone': 'Next time the agent runs {pattern} on its own',

@@ -27,11 +27,12 @@ func Builtins() []Command {
 		{"pending", "Xem những gì agent đề xuất đang chờ duyệt", "", false},
 		{"approve", "Duyệt đề xuất theo số (hoặc all), chỉ Admin", "number", false},
 		{"reject", "Từ chối đề xuất theo số (hoặc all), chỉ Admin", "number", false},
+		{"skip", "Bỏ qua đề xuất theo số (hoặc all): từ chối, agent không chạy tiếp, chỉ Admin", "number", false},
 	}
 }
 
 // Reserved are names a custom command may not take.
-var Reserved = []string{"job", "create-conversation", "close-conversation", "create-thread", "create-conversion", "close-conversion", "start", "help", "pending", "approve", "approve-always", "reject", "mode", "cho-duyet", "duyet", "tu-choi"}
+var Reserved = []string{"job", "create-conversation", "close-conversation", "create-thread", "create-conversion", "close-conversion", "start", "help", "pending", "approve", "approve-always", "reject", "skip", "mode", "cho-duyet", "duyet", "tu-choi", "bo-qua"}
 
 // CommandName makes a name safe for Discord and Telegram menus: lower case,
 // no accents, words joined by "-", at most 32 characters ("" = nothing left).

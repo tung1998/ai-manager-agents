@@ -22,6 +22,7 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 		var in struct {
 			APIKey string `json:"api_key"`
 			Always bool   `json:"always"` // run_command: and let its agent run the like of it on its own
+			Skip   bool   `json:"skip"`   // rejected, and its agent is not run again about it
 		}
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		if in.APIKey != "" {
@@ -58,9 +59,12 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 			s.writeDomainError(w, r, err)
 			return
 		}
+		skip := !approve && in.Skip
 		verb := "action.reject"
 		if approve {
 			verb = "action.approve"
+		} else if skip {
+			verb = "action.skip"
 		}
 		var runErr error
 		if a.Status == "failed" {
@@ -71,7 +75,7 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 			detail["always"] = allowed.Pattern
 		}
 		s.audit(r, audit.Change{Action: verb, Resource: "action", ResourceID: a.ID, ProjectID: a.ProjectID, Detail: detail, Err: runErr})
-		if s.cfg.Chat != nil { // its agent goes on (ADR-084)
+		if s.cfg.Chat != nil && !skip { // its agent goes on (ADR-084); skipped, it does not
 			label := firstNonEmptyStr(actions.Kinds[a.Kind], a.Kind) + ": " + a.Target
 			line := "❌ Đã từ chối " + label
 			if approve {

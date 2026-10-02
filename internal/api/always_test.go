@@ -31,4 +31,11 @@ func TestApproveAlwaysAPI(t *testing.T) {
 	if a, _ := e.st.Actions().Get(ctx, rm.ID); a.Status != "pending" {
 		t.Fatalf("risky ran: %+v", a)
 	}
+	// "Bỏ qua": rejected (its agent is not run again about it)
+	if resp, b := do(t, admin, "POST", e.srv.URL+"/api/actions/"+rm.ID+"/reject", map[string]any{"skip": true}, nil); resp.StatusCode != 200 {
+		t.Fatalf("skip = %d %v", resp.StatusCode, b)
+	}
+	if a, _ := e.st.Actions().Get(ctx, rm.ID); a.Status != "rejected" {
+		t.Fatalf("skipped: %+v", a)
+	}
 }
