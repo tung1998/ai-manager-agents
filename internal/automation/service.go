@@ -2,10 +2,12 @@ package automation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // Service is what the API uses.
@@ -17,12 +19,18 @@ type Service struct {
 	Health    *MCPHealth // nil: no MCP health checks
 	// Projects returns registered office projects: path → id.
 	Projects func(ctx context.Context) map[string]string
+	// Stash keeps the MCP servers office turned off (nil: no switch).
+	Stash MCPStash
+	mu    sync.Mutex // one switch at a time
 }
 
 func (s *Service) env(ctx context.Context) Env {
 	e := Env{Home: s.Home, Projects: map[string]string{}}
 	if s.Projects != nil {
 		e.Projects = s.Projects(ctx)
+	}
+	if s.Stash != nil {
+		e.Disabled, _ = s.Stash.Load(ctx)
 	}
 	return e
 }
@@ -59,6 +67,12 @@ func (s *Service) Remove(ctx context.Context, r Ref) (string, error) {
 	if !it.Location.Editable {
 		return "", ErrNotAllowed
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if done, err := s.forgetDisabled(ctx, it); done || err != nil {
+		return "", err
+	}
+	it.Disabled = false
 	return s.Installer.Remove(ctx, it)
 }
 
@@ -86,6 +100,17 @@ func (s *Service) Content(ctx context.Context, r Ref) (LibraryItem, error) {
 // rawMCP reads an MCP server's unmasked config from its source file.
 func (s *Service) rawMCP(it Item) (map[string]any, error) {
 	var servers map[string]any
+	if it.Disabled && it.Location.Type == "user" && s.Stash != nil { // office keeps it while off
+		recs, err := s.Stash.Load(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		var c map[string]any
+		if rec, ok := recs[DisabledMCP{Type: "user", Name: it.Name}.Key()]; ok && json.Unmarshal(rec.Config, &c) == nil && c != nil {
+			return c, nil
+		}
+		return nil, ErrNotFound
+	}
 	switch it.Location.Type {
 	case "user", "cursor", "claude_desktop", "project":
 		m := readJSON(it.Location.Path)

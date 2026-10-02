@@ -126,6 +126,7 @@ type mcpCandidate struct {
 	Taken     bool           `json:"taken"`   // office already has a server of that name
 	MovedAs   string         `json:"moved_as,omitempty"`
 	Problem   string         `json:"problem,omitempty"` // why office cannot move it
+	Disabled  bool           `json:"disabled,omitempty"`
 }
 
 var badNameChars = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -169,7 +170,7 @@ func (s *server) mcpImportList(w http.ResponseWriter, r *http.Request) {
 		}
 		loc := it.Location
 		c := mcpCandidate{Ref: automation.Ref{Kind: "mcp", Name: it.Name, Type: loc.Type, Path: loc.Path, ProjectPath: loc.ProjectPath},
-			Name: it.Name, Suggested: suggestName(it.Name), Source: loc.Label}
+			Name: it.Name, Suggested: suggestName(it.Name), Source: loc.Label, Disabled: it.Disabled}
 		c.Transport, _ = it.Meta["transport"].(string)
 		c.Target, _ = it.Meta["url"].(string)
 		if c.Target == "" {

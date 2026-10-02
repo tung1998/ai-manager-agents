@@ -15,7 +15,10 @@ export interface AutoItem {
   location: AutoLocation
   meta?: Record<string, string>
   config?: Record<string, unknown>
+  disabled?: boolean // mcp: turned off, Claude Code does not load it
 }
+// MCP sources office can turn off and on (internal/automation/mcptoggle.go)
+export const mcpToggleable = (l: AutoLocation) => l.editable && (l.type === 'user' || l.type === 'project' || l.type === 'local')
 export interface MachineProject {
   path: string
   name: string

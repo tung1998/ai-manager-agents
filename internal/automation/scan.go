@@ -30,8 +30,9 @@ type Item struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	Location    Location       `json:"location"`
-	Meta        map[string]any `json:"meta,omitempty"`   // agent: tools, model; mcp: transport, command/url
-	Config      map[string]any `json:"config,omitempty"` // mcp config with secret values masked
+	Meta        map[string]any `json:"meta,omitempty"`     // agent: tools, model; mcp: transport, command/url
+	Config      map[string]any `json:"config,omitempty"`   // mcp config with secret values masked
+	Disabled    bool           `json:"disabled,omitempty"` // mcp: turned off, Claude Code does not load it
 }
 
 // MachineProject is a folder Claude Code has opened on this machine.
@@ -58,6 +59,16 @@ type Env struct {
 	Home string
 	// Registered office projects: path → id.
 	Projects map[string]string
+	// Disabled: the MCP servers office turned off (mcptoggle.go).
+	Disabled map[string]DisabledMCP
+}
+
+// markDisabled flags the items named in off.
+func markDisabled(items []Item, off map[string]bool) []Item {
+	for i := range items {
+		items[i].Disabled = off[items[i].Name]
+	}
+	return items
 }
 
 var frontmatterRe = regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n?`)
@@ -268,10 +279,11 @@ func Scan(env Env) Inventory {
 		inv.Items = append(inv.Items, scanAgents(d, Location{Type: "plugin", Label: "Plugin " + pluginName(d)})...)
 	}
 
-	cfg := readJSON(filepath.Join(env.Home, ".claude.json"))
-	if servers, ok := cfg["mcpServers"].(map[string]any); ok {
-		inv.Items = append(inv.Items, mcpItems(servers, Location{Type: "user", Label: "Toàn máy", Path: filepath.Join(env.Home, ".claude.json"), Editable: true})...)
-	}
+	claudeJSON := filepath.Join(env.Home, ".claude.json")
+	cfg := readJSON(claudeJSON)
+	userServers, _ := cfg["mcpServers"].(map[string]any)
+	inv.Items = append(inv.Items, mcpItems(userServers, Location{Type: "user", Label: "Toàn máy", Path: claudeJSON, Editable: true})...)
+	inv.Items = append(inv.Items, stashedUser(env.Disabled, claudeJSON, userServers)...)
 
 	// project folders: those Claude Code knows plus office projects
 	paths := map[string]bool{}
@@ -309,7 +321,8 @@ func Scan(env Env) Inventory {
 				if servers, ok := m["mcpServers"].(map[string]any); ok {
 					l := projLoc
 					l.Path = filepath.Join(p, ".mcp.json")
-					items = append(items, mcpItems(servers, l)...)
+					off := disabledNames(readJSON(settingsLocal(p)), "disabledMcpjsonServers")
+					items = append(items, markDisabled(mcpItems(servers, l), off)...)
 				}
 			}
 			_, e1 := os.Stat(filepath.Join(p, "CLAUDE.md"))
@@ -319,7 +332,7 @@ func Scan(env Env) Inventory {
 		if projects, ok := cfg["projects"].(map[string]any); ok {
 			if pc, ok := projects[p].(map[string]any); ok {
 				if servers, ok := pc["mcpServers"].(map[string]any); ok {
-					items = append(items, mcpItems(servers, localLoc)...)
+					items = append(items, markDisabled(mcpItems(servers, localLoc), disabledNames(pc, "disabledMcpServers"))...)
 				}
 			}
 		}

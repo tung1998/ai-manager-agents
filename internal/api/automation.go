@@ -1,11 +1,15 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/automation"
+	"bitbucket.org/senprints/agent-office/internal/secrets"
+	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
 func (s *server) automationRoutes(mux *http.ServeMux, admin func(http.HandlerFunc) http.Handler) {
@@ -23,6 +27,59 @@ func (s *server) automationRoutes(mux *http.ServeMux, admin func(http.HandlerFun
 	mux.Handle("GET /api/automation/mcp/registry", admin(s.mcpRegistry))
 	mux.Handle("GET /api/automation/mcp/status", admin(s.mcpStatus))
 	mux.Handle("POST /api/automation/mcp/status/check", admin(s.mcpStatusCheck))
+	mux.Handle("POST /api/automation/mcp/enabled", admin(s.mcpSetEnabled))
+}
+
+// mcpSetEnabled turns a machine MCP server off or on (automation/mcptoggle.go).
+func (s *server) mcpSetEnabled(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Ref     automation.Ref `json:"ref"`
+		Enabled bool           `json:"enabled"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := s.cfg.Automation.SetMCPEnabled(r.Context(), in.Ref, in.Enabled); err != nil {
+		s.autoError(w, r, err)
+		return
+	}
+	s.auditAction(r, "automation.mcp_enabled", "mcp:"+in.Ref.Name, map[string]any{"type": in.Ref.Type, "path": in.Ref.Path,
+		"project_path": in.Ref.ProjectPath, "enabled": in.Enabled, "how": automation.ToggleTypes[in.Ref.Type]})
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": in.Enabled})
+}
+
+// mcpStash keeps the records of the MCP servers office turned off in a
+// setting, encrypted (a user server's config holds its secrets).
+type mcpStash struct {
+	st  storage.Store
+	box *secrets.Box
+}
+
+const mcpStashKey = "mcp_disabled"
+
+func (m mcpStash) Load(ctx context.Context) (map[string]automation.DisabledMCP, error) {
+	out := map[string]automation.DisabledMCP{}
+	var sealed string
+	if ok, err := m.st.Settings().Get(ctx, mcpStashKey, &sealed); err != nil || !ok || sealed == "" {
+		return out, err
+	}
+	plain, err := m.box.Open(sealed)
+	if err != nil {
+		return nil, err
+	}
+	return out, json.Unmarshal([]byte(plain), &out)
+}
+
+func (m mcpStash) Save(ctx context.Context, recs map[string]automation.DisabledMCP) error {
+	raw, err := json.Marshal(recs)
+	if err != nil {
+		return err
+	}
+	sealed, err := m.box.Seal(string(raw))
+	if err != nil {
+		return err
+	}
+	return m.st.Settings().Set(ctx, mcpStashKey, sealed)
 }
 
 func validKind(k string) bool { return k == "skill" || k == "agent" || k == "mcp" }

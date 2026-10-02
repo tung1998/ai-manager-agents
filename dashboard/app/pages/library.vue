@@ -2,7 +2,7 @@
 // Skills and MCP servers kept by office, plus what is installed machine-wide.
 // Installing into a project is done from the project's "Skills & MCP" tab.
 const { t } = useLang()
-const kind = ref<ItemKind>('skill')
+const kind = ref<ItemKind>(useRoute().query.kind === 'mcp' ? 'mcp' : 'skill') // ?kind=mcp: the MCP tab (office's gateway)
 const tabs = computed(() => [
   { label: t('tools.skillsTab'), value: 'skill', icon: 'i-lucide-sparkles' },
   { label: t('tools.mcpTab'), value: 'mcp', icon: 'i-lucide-plug-zap' }

@@ -11,6 +11,82 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
+// One row of the machine MCP list: added to office as a copy (the row stays
+// and reads as already in office), then turned off and on through the API
+// (admin only, audited), the project's files back as they were.
+func TestMCPRowAddAndToggleAPI(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	dir := t.TempDir()
+	if _, err := e.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: dir}); err != nil {
+		t.Fatal(err)
+	}
+	mcpJSON := `{"mcpServers":{"docs_src":{"type":"http","url":"https://docs.example/mcp"}}}`
+	if err := os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(mcpJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	candidate := func() map[string]any {
+		_, body := do(t, admin, "GET", e.srv.URL+"/api/mcp/import", nil, nil)
+		for _, c := range body["candidates"].([]any) {
+			if c := c.(map[string]any); c["name"] == "docs_src" {
+				return c
+			}
+		}
+		t.Fatal("docs_src not a candidate")
+		return nil
+	}
+	c := candidate()
+	if c["movable"] != true || c["taken"] == true || c["moved_as"] != nil {
+		t.Fatalf("before = %v", c)
+	}
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/mcp/import", map[string]any{"items": []any{map[string]any{"ref": c["ref"], "name": c["suggested"]}}}, nil)
+	if resp.StatusCode != 200 || body["results"].([]any)[0].(map[string]any)["ok"] != true {
+		t.Fatalf("add = %d %v", resp.StatusCode, body)
+	}
+	if c = candidate(); c["taken"] != true || c["moved_as"] != "docs-src" {
+		t.Fatalf("after add = %v", c)
+	}
+	if list, _ := e.st.MCPServers().List(ctx); len(list) != 1 || list[0].Name != "docs-src" {
+		t.Fatalf("office servers = %v", list)
+	}
+
+	member := e.client(t)
+	login(t, e, member, "member@x.io", "member-password")
+	if resp, _ = do(t, member, "POST", e.srv.URL+"/api/automation/mcp/enabled", map[string]any{"ref": c["ref"], "enabled": false}, nil); resp.StatusCode != 403 {
+		t.Fatalf("member toggle = %d", resp.StatusCode)
+	}
+	if resp, body = do(t, admin, "POST", e.srv.URL+"/api/automation/mcp/enabled", map[string]any{"ref": c["ref"], "enabled": false}, nil); resp.StatusCode != 200 {
+		t.Fatalf("off = %d %v", resp.StatusCode, body)
+	}
+	if c = candidate(); c["disabled"] != true {
+		t.Fatalf("not off: %v", c)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, ".claude", "settings.local.json")); !strings.Contains(string(raw), "docs_src") {
+		t.Fatalf("settings.local.json = %s", raw)
+	}
+	if resp, body = do(t, admin, "POST", e.srv.URL+"/api/automation/mcp/enabled", map[string]any{"ref": c["ref"], "enabled": true}, nil); resp.StatusCode != 200 {
+		t.Fatalf("on = %d %v", resp.StatusCode, body)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, ".mcp.json")); string(raw) != mcpJSON {
+		t.Fatalf(".mcp.json = %s", raw)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude")); !os.IsNotExist(err) {
+		t.Fatal(".claude left behind")
+	}
+	rows, _ := e.st.Audit().List(ctx, storage.AuditFilter{Resource: "automation", ResourceID: "mcp:docs_src"})
+	if len(rows) != 2 {
+		t.Fatalf("audit rows = %d", len(rows))
+	}
+	// a source without a switch
+	ref := c["ref"].(map[string]any)
+	ref["type"] = "cursor"
+	if resp, _ = do(t, admin, "POST", e.srv.URL+"/api/automation/mcp/enabled", map[string]any{"ref": ref, "enabled": false}, nil); resp.StatusCode == 200 {
+		t.Fatal("toggled a server that is not there")
+	}
+}
+
 // ADR-093: a project's .mcp.json server moves into office (its secret into
 // the encrypted store, out of the file with a copy in trash), is given to
 // some agents, logs its calls, and goes back on request.

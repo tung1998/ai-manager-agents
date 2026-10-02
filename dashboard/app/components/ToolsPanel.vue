@@ -133,6 +133,65 @@ async function remove(i: AutoItem) {
   }
 }
 
+// ---- an MCP row and office's gateway: add it there (the import flow), off/on ----
+interface McpCandidate { ref: ReturnType<typeof refOf>, name: string, suggested: string, movable: boolean, taken: boolean, moved_as?: string, problem?: string }
+const candKey = (r: { type: string, path: string, project_path?: string, name: string }) => `${r.type}|${r.path}|${r.project_path ?? ''}|${r.name}`
+const candidates = ref(new Map<string, McpCandidate>())
+async function loadCandidates() {
+  if (props.kind !== 'mcp') return
+  try {
+    const r = await $fetch<{ candidates: McpCandidate[] }>('/api/mcp/import')
+    candidates.value = new Map(r.candidates.map(c => [candKey(c.ref), c]))
+  } catch {
+    candidates.value = new Map()
+  }
+}
+watch(inv, loadCandidates, { immediate: true })
+const candOf = (i: AutoItem) => candidates.value.get(candKey(refOf(i)))
+const inOffice = (c?: McpCandidate) => !!c && (!!c.moved_as || c.taken)
+const canAdd = (c: McpCandidate) => c.movable && !c.problem
+const addTip = (c: McpCandidate) => c.problem === 'sse' ? t('tools.gwImportSse') : !c.movable ? t('tools.mcpAddNotMovable') : t('tools.mcpAddInfo')
+const officeMcp = ref<{ refresh: () => Promise<void> } | null>(null)
+const busy = ref<Record<string, boolean>>({})
+async function addToOffice(i: AutoItem) {
+  const c = candOf(i)
+  if (!c) return
+  const k = candKey(c.ref)
+  busy.value = { ...busy.value, [k]: true }
+  try {
+    const r = await $fetch<{ results: { ok: boolean, name: string, error?: string, missing?: string[] }[] }>('/api/mcp/import', {
+      method: 'POST', body: { items: [{ ref: c.ref, name: c.suggested }] }
+    })
+    const res = r.results[0]
+    if (res?.ok) {
+      toast.add({ title: t('tools.mcpAdded', { name: res.name }), description: res.missing?.length ? t('tools.gwMissingVars', { vars: res.missing.join(', ') }) : t('tools.mcpAddedHint'), color: 'success' })
+    } else {
+      toast.add({ title: res?.error ?? t('tools.mcpAddFailed'), color: 'error' })
+    }
+    await officeMcp.value?.refresh()
+    await loadCandidates()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    busy.value = { ...busy.value, [k]: false }
+  }
+}
+// in a project, machine-wide servers are switched from the library page
+const canToggle = (i: AutoItem) => i.kind === 'mcp' && mcpToggleable(i.location) && !(scoped.value && i.location.type === 'user')
+async function setEnabled(i: AutoItem, on: boolean) {
+  const k = 'on|' + candKey(refOf(i))
+  busy.value = { ...busy.value, [k]: true }
+  try {
+    await $fetch('/api/automation/mcp/enabled', { method: 'POST', body: { ref: refOf(i), enabled: on } })
+    toast.add({ title: on ? t('tools.mcpTurnedOn', { name: i.name }) : t('tools.mcpTurnedOff', { name: i.name }), color: 'success' })
+    await scan()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    busy.value = { ...busy.value, [k]: false }
+  }
+}
+
 // ---- install ----
 const installOpen = ref(false)
 const installSource = ref<InstallSource | null>(null)
@@ -315,7 +374,7 @@ const summary = (tpl: MCPTemplate) => {
           </UTooltip>
           <UButton class="ms-auto" size="xs" color="neutral" variant="outline" icon="i-lucide-refresh-cw" :label="t('tools.mcpCheck')" :loading="mcp.check.value?.running" @click="mcp.recheck()" />
         </div>
-        <OfficeMcpServers v-if="kind === 'mcp'" />
+        <OfficeMcpServers v-if="kind === 'mcp'" ref="officeMcp" @changed="loadCandidates" />
         <div v-if="loading && !inv" class="py-10 text-center text-(--ui-text-muted)">{{ t('tools.scanning') }}</div>
         <div v-else-if="!groups.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
           <UIcon :name="meta.icon" class="mx-auto size-8 text-(--ui-text-dimmed)" />
@@ -334,8 +393,8 @@ const summary = (tpl: MCPTemplate) => {
           </h3>
           <div class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
             <div v-for="i in g.items" :key="i.location.path + i.name" class="flex items-center gap-3 px-4 py-2.5">
-              <UIcon :name="meta.icon" class="size-4 shrink-0 text-primary" />
-              <div class="min-w-0 flex-1">
+              <UIcon :name="meta.icon" class="size-4 shrink-0 text-primary" :class="{ 'opacity-50': i.disabled }" />
+              <div class="min-w-0 flex-1" :class="{ 'opacity-50': i.disabled }">
                 <p class="truncate font-mono text-sm font-medium">{{ i.name }}</p>
                 <p v-if="i.description" class="line-clamp-1 text-xs text-(--ui-text-muted)">{{ i.description }}</p>
                 <p v-else-if="i.meta?.url || i.meta?.command" class="truncate font-mono text-xs text-(--ui-text-muted)">
@@ -343,8 +402,26 @@ const summary = (tpl: MCPTemplate) => {
                 </p>
               </div>
               <UBadge v-if="i.meta?.tools" color="neutral" variant="subtle" size="sm" :label="i.meta.tools" class="hidden max-w-48 truncate md:inline-flex" />
-              <UTooltip v-if="mcp?.byName.value.get(i.name)" :text="mcpTip(mcp.byName.value.get(i.name)!)">
+              <UBadge v-if="i.disabled" color="neutral" variant="outline" size="sm" icon="i-lucide-pause" :label="t('tools.mcpOff')" />
+              <UTooltip v-else-if="mcp?.byName.value.get(i.name)" :text="mcpTip(mcp.byName.value.get(i.name)!)">
                 <UBadge :color="mcpBadge[mcp.byName.value.get(i.name)!.status].color" variant="subtle" size="sm" :icon="mcpBadge[mcp.byName.value.get(i.name)!.status].icon" :label="mcpBadge[mcp.byName.value.get(i.name)!.status].label" />
+              </UTooltip>
+              <template v-if="kind === 'mcp' && candOf(i)">
+                <UTooltip v-if="inOffice(candOf(i))" :text="t('tools.mcpInOfficeInfo', { name: candOf(i)!.moved_as || candOf(i)!.suggested })">
+                  <NuxtLink to="/library?kind=mcp#office-mcp">
+                    <UBadge color="primary" variant="subtle" size="sm" icon="i-lucide-network" :label="t('tools.mcpInOffice')" />
+                  </NuxtLink>
+                </UTooltip>
+                <UTooltip v-else :text="addTip(candOf(i)!)">
+                  <span>
+                    <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-arrow-right-to-line" :label="t('tools.mcpAddToOffice')"
+                             :disabled="!canAdd(candOf(i)!)" :loading="busy[candKey(candOf(i)!.ref)]" @click="addToOffice(i)" />
+                  </span>
+                </UTooltip>
+              </template>
+              <UTooltip v-if="canToggle(i)" :text="i.disabled ? t('tools.mcpOffInfo') : t('tools.mcpOnInfo')">
+                <USwitch :model-value="!i.disabled" size="sm" :loading="busy['on|' + candKey(refOf(i))]" :aria-label="t('tools.mcpSwitch')"
+                         @update:model-value="(v: boolean) => setEnabled(i, v)" />
               </UTooltip>
               <UDropdownMenu :items="itemMenu(i)" :content="{ align: 'end' }">
                 <UButton color="neutral" variant="ghost" icon="i-lucide-ellipsis" :aria-label="t('common.actions')" />

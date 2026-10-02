@@ -36,6 +36,12 @@ func (s *Service) MCPConfig(ctx context.Context, r Ref) (Item, map[string]any, e
 // TakeOutMCP removes a moved server from its source, keeping a copy of the
 // file in trash. It returns that copy.
 func (s *Service) TakeOutMCP(ctx context.Context, it Item) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if done, err := s.forgetDisabled(ctx, it); done || err != nil {
+		return "", err // a user server office kept while off: only office had it
+	}
+	it.Disabled = false
 	loc := it.Location
 	switch loc.Type {
 	case "user", "local":

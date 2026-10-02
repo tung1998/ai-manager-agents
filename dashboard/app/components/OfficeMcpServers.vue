@@ -20,7 +20,10 @@ const { t, dateLocale } = useLang()
 const toast = useToast()
 const { data, refresh } = await useLiveFetch<{ servers: GwServer[], stats: Record<string, GwStat> }>('/api/mcp/servers')
 const list = ref<GwServer[]>([])
-watch(data, (d) => { list.value = d?.servers ?? [] }, { immediate: true })
+// changed: the machine MCP list shows which servers office has
+const emit = defineEmits<{ changed: [] }>()
+watch(data, (d) => { list.value = d?.servers ?? []; emit('changed') }, { immediate: true })
+defineExpose({ refresh })
 const stat = (s: GwServer) => data.value?.stats?.[s.id]
 const fmt = (at: string) => new Date(at).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
@@ -196,7 +199,7 @@ async function save() {
 </script>
 
 <template>
-  <section class="space-y-2">
+  <section id="office-mcp" class="scroll-mt-20 space-y-2">
     <h3 class="flex items-center gap-2 text-sm font-semibold">
       <UIcon name="i-lucide-network" class="text-(--ui-text-muted)" />
       {{ t('tools.gwTitle') }}
