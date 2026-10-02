@@ -55,16 +55,31 @@ func Check(ctx context.Context, hc *http.Client, rawURL string, headers map[stri
 	ctx, cancel := context.WithTimeout(ctx, CheckTimeout)
 	defer cancel()
 	c := &client{http: hc, url: rawURL, headers: headers}
-	if _, err := c.call(ctx, "initialize", map[string]any{
-		"protocolVersion": protocolVersion,
-		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "agent-office", "version": "1"},
-	}); err != nil {
+	if _, err := c.call(ctx, "initialize", initParams()); err != nil {
 		return nil, err
 	}
 	if err := c.notify(ctx, "notifications/initialized"); err != nil {
 		return nil, err
 	}
+	tools, err := listTools(ctx, c.call)
+	if err != nil {
+		return nil, err
+	}
+	c.close()
+	return tools, nil
+}
+
+// initParams is what office sends as initialize, as a client.
+func initParams() map[string]any {
+	return map[string]any{
+		"protocolVersion": protocolVersion,
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "agent-office", "version": "1"},
+	}
+}
+
+// listTools pages through tools/list.
+func listTools(ctx context.Context, call func(ctx context.Context, method string, params any) (json.RawMessage, error)) ([]storage.MCPTool, error) {
 	tools := []storage.MCPTool{}
 	cursor := ""
 	for page := 0; page < 20; page++ {
@@ -72,7 +87,7 @@ func Check(ctx context.Context, hc *http.Client, rawURL string, headers map[stri
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
-		raw, err := c.call(ctx, "tools/list", params)
+		raw, err := call(ctx, "tools/list", params)
 		if err != nil {
 			return nil, err
 		}
@@ -96,7 +111,6 @@ func Check(ctx context.Context, hc *http.Client, rawURL string, headers map[stri
 			break
 		}
 	}
-	c.close()
 	return tools, nil
 }
 
@@ -127,7 +141,7 @@ func (c *client) post(ctx context.Context, body any) (*http.Response, error) {
 	}
 	if resp.StatusCode >= 300 {
 		resp.Body.Close()
-		return nil, statusError(resp.StatusCode)
+		return nil, &StatusError{Code: resp.StatusCode, WWWAuthenticate: resp.Header.Get("WWW-Authenticate")}
 	}
 	return resp, nil
 }
@@ -238,14 +252,21 @@ func readReply(resp *http.Response, id int) (rpcMessage, error) {
 	return rpcMessage{}, errors.New("phản hồi không phải MCP: kiểm tra URL")
 }
 
-func statusError(code int) error {
-	switch code {
+// StatusError is the server answering an HTTP error; a 401 carries where to
+// log in (WWW-Authenticate).
+type StatusError struct {
+	Code            int
+	WWWAuthenticate string
+}
+
+func (e *StatusError) Error() string {
+	switch e.Code {
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return fmt.Errorf("MCP từ chối (HTTP %d): token sai hoặc hết hạn, nhập lại token", code)
+		return fmt.Sprintf("MCP từ chối (HTTP %d): token sai hoặc hết hạn, nhập lại token", e.Code)
 	case http.StatusNotFound, http.StatusMethodNotAllowed:
-		return fmt.Errorf("không thấy MCP ở địa chỉ này (HTTP %d): kiểm tra URL", code)
+		return fmt.Sprintf("không thấy MCP ở địa chỉ này (HTTP %d): kiểm tra URL", e.Code)
 	}
-	return fmt.Errorf("MCP trả lỗi HTTP %d", code)
+	return fmt.Sprintf("MCP trả lỗi HTTP %d", e.Code)
 }
 
 // connError says why the server could not be reached, without the URL (it

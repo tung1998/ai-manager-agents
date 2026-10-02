@@ -75,7 +75,8 @@ func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"user": toDTO(userFrom(r))})
+	// build: which office is running, shown under the sidebar for everyone
+	writeJSON(w, http.StatusOK, map[string]any{"user": toDTO(userFrom(r)), "build": s.build})
 }
 
 func (s *server) changePassword(w http.ResponseWriter, r *http.Request) {

@@ -1,8 +1,9 @@
 // Package mcpgateway is the office's MCP gateway (ADR-091): each MCP server
 // office manages has its own address /mcp/s/<name>, so its tools keep their
 // names (mcp__<name>__*). Office checks the run's token, adds the server's
-// secrets and forwards the JSON-RPC as it is; answers come back as JSON or
-// an SSE stream.
+// secrets (or its OAuth token, ADR-092) and forwards the JSON-RPC as it is;
+// answers come back as JSON or an SSE stream. A stdio server is a process
+// office runs and shares between runs (ADR-092).
 package mcpgateway
 
 import (
@@ -32,6 +33,16 @@ type Gateway struct {
 	Auth   func(r *http.Request) bool
 	Client *http.Client // nil: a default one
 	Log    *slog.Logger
+	// OnStatus hears of a status office found on its own (a session that
+	// expired), for open pages.
+	OnStatus func(storage.MCPServer)
+	// Env is what stdio servers run with (nil: office's own environment).
+	Env []string
+	// StdioIdle stops a stdio server nobody called for this long (0: 10 minutes).
+	StdioIdle time.Duration
+
+	logins logins
+	pool   pool
 }
 
 func (g *Gateway) client() *http.Client {
@@ -48,8 +59,8 @@ func (g *Gateway) log() *slog.Logger {
 	return slog.Default()
 }
 
-// Names lists the servers agent runs get (GĐ1: every enabled HTTP server
-// of the machine, for every agent).
+// Names lists the servers agent runs get (every enabled server of the
+// machine, for every agent).
 func (g *Gateway) Names(ctx context.Context) []string {
 	list, err := g.Store.MCPServers().List(ctx)
 	if err != nil {
@@ -57,32 +68,31 @@ func (g *Gateway) Names(ctx context.Context) []string {
 	}
 	var out []string
 	for _, m := range list {
-		if m.Enabled && m.Kind == "http" && m.Scope == "machine" {
+		if m.Enabled && (m.Kind == "http" || m.Kind == "stdio") && m.Scope == "machine" {
 			out = append(out, m.Name)
 		}
 	}
 	return out
 }
 
-// CheckServer checks m and saves the result.
+// CheckServer checks m and saves the result. An HTTP server that wants an
+// OAuth login office does not have ends as needs_login.
 func (g *Gateway) CheckServer(ctx context.Context, m storage.MCPServer) (storage.MCPServer, error) {
 	var (
 		tools []storage.MCPTool
 		err   error
 	)
-	if m.Kind != "http" {
-		err = errors.New("office chưa chạy được MCP stdio")
+	if m.Kind == "stdio" {
+		tools, err = g.checkStdio(ctx, m)
 	} else {
-		var headers map[string]string
-		if headers, err = OpenMap(g.Box, m.HeadersEnc); err != nil {
-			err = errors.New("không mở được bí mật đã lưu: nhập lại header")
-		} else {
-			tools, err = Check(ctx, g.client(), m.URL, headers)
-		}
+		tools, err = g.checkHTTP(ctx, &m)
 	}
 	status, msg := "ok", ""
 	if err != nil {
 		status, msg, tools = "error", err.Error(), m.LastTools
+		if errors.Is(err, ErrNeedsLogin) || errors.Is(err, ErrSessionExpired) {
+			status = "needs_login"
+		}
 	}
 	now := time.Now().UTC()
 	if serr := g.Store.MCPServers().SetCheck(context.WithoutCancel(ctx), m.ID, status, msg, tools, now); serr != nil {
@@ -91,6 +101,50 @@ func (g *Gateway) CheckServer(ctx context.Context, m storage.MCPServer) (storage
 	m.LastCheckAt, m.LastCheckStatus, m.LastCheckError, m.LastTools = &now, status, msg, tools
 	g.log().Info("mcp gateway: check", "server", m.Name, "status", status, "tools", len(tools))
 	return m, nil
+}
+
+func (g *Gateway) checkHTTP(ctx context.Context, m *storage.MCPServer) ([]storage.MCPTool, error) {
+	headers, err := OpenMap(g.Box, m.HeadersEnc)
+	if err != nil {
+		return nil, errors.New("không mở được bí mật đã lưu: nhập lại header")
+	}
+	tok, err := g.bearer(ctx, m, false)
+	if err != nil {
+		return nil, err
+	}
+	with := func(tok string) map[string]string {
+		if tok != "" {
+			headers["Authorization"] = "Bearer " + tok
+		}
+		return headers
+	}
+	tools, err := Check(ctx, g.client(), m.URL, with(tok))
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusUnauthorized {
+		return tools, err
+	}
+	if tok != "" { // refused: refresh, then once more
+		if tok, err = g.bearer(ctx, m, true); err != nil {
+			return nil, err
+		}
+		tools, err = Check(ctx, g.client(), m.URL, with(tok))
+		if errors.As(err, &se) && se.Code == http.StatusUnauthorized {
+			return nil, ErrSessionExpired
+		}
+		return tools, err
+	}
+	// no token yet: a server with OAuth wants a login, not a typed token
+	o, derr := Discover(ctx, g.client(), m.URL, se.WWWAuthenticate)
+	if derr != nil {
+		return nil, err
+	}
+	if old, oerr := OpenOAuth(g.Box, m.OAuthEnc); oerr == nil && old.ClientManual {
+		o.ClientID, o.ClientSecret, o.ClientManual = old.ClientID, old.ClientSecret, true
+	}
+	if serr := g.saveOAuth(ctx, m, o); serr != nil {
+		return nil, serr
+	}
+	return nil, ErrNeedsLogin
 }
 
 // request headers passed on to the server (never the run's Authorization)
@@ -115,14 +169,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	name := r.PathValue("name")
 	m, err := g.Store.MCPServers().GetByName(r.Context(), name)
-	if err != nil || !m.Enabled || m.Kind != "http" {
+	if err != nil || !m.Enabled || (m.Kind != "http" && m.Kind != "stdio") {
 		http.Error(w, "office không có MCP "+name, http.StatusNotFound)
-		return
-	}
-	headers, err := OpenMap(g.Box, m.HeadersEnc)
-	if err != nil {
-		g.log().Error("mcp gateway: open secrets", "server", name, "err", err)
-		http.Error(w, "office không mở được bí mật của MCP "+name, http.StatusInternalServerError)
 		return
 	}
 	var body []byte
@@ -132,6 +180,16 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if m.Kind == "stdio" {
+		g.serveStdio(w, r, m, body)
+		return
+	}
+	headers, err := OpenMap(g.Box, m.HeadersEnc)
+	if err != nil {
+		g.log().Error("mcp gateway: open secrets", "server", name, "err", err)
+		http.Error(w, "office không mở được bí mật của MCP "+name, http.StatusInternalServerError)
+		return
+	}
 	rpc, tool := describe(body)
 
 	ctx, cancel := r.Context(), context.CancelFunc(func() {})
@@ -139,21 +197,23 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel = context.WithTimeout(ctx, CallTimeout)
 	}
 	defer cancel()
-	up, err := http.NewRequestWithContext(ctx, r.Method, m.URL, bytes.NewReader(body))
+	tok, err := g.bearer(ctx, &m, false)
 	if err != nil {
-		http.Error(w, "URL của MCP "+name+" không hợp lệ", http.StatusBadGateway)
+		// office's login, not the run's token: no WWW-Authenticate (the CLI
+		// would start a login against office)
+		http.Error(w, loginFail(name, err), http.StatusBadGateway)
 		return
 	}
-	for _, h := range passRequest {
-		if v := r.Header.Get(h); v != "" {
-			up.Header.Set(h, v)
-		}
-	}
-	for k, v := range headers {
-		up.Header.Set(k, v)
-	}
 	start := time.Now()
-	resp, err := g.client().Do(up)
+	resp, err := g.send(ctx, r, m.URL, body, headers, tok)
+	if err == nil && resp.StatusCode == http.StatusUnauthorized && tok != "" {
+		resp.Body.Close() // refused: refresh, then once more
+		if tok, err = g.bearer(ctx, &m, true); err != nil {
+			http.Error(w, loginFail(name, err), http.StatusBadGateway)
+			return
+		}
+		resp, err = g.send(ctx, r, m.URL, body, headers, tok)
+	}
 	if err != nil {
 		if r.Context().Err() == nil {
 			var ue *url.Error
@@ -168,8 +228,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	g.log().Info("mcp gateway", "server", name, "method", r.Method, "rpc", rpc, "tool", tool, "status", resp.StatusCode, "ms", time.Since(start).Milliseconds())
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		// the server refused office's secret: not the run's token, so no
-		// WWW-Authenticate (the CLI would start a login against office)
+		if tok != "" && resp.StatusCode == http.StatusUnauthorized {
+			o, _ := OpenOAuth(g.Box, m.OAuthEnc)
+			_ = g.expire(ctx, &m, o) // even a fresh token is refused
+			http.Error(w, loginFail(name, ErrSessionExpired), http.StatusBadGateway)
+			return
+		}
 		http.Error(w, "MCP "+name+" từ chối token đã lưu trong office (HTTP "+strconv.Itoa(resp.StatusCode)+"): sửa trên dashboard", http.StatusBadGateway)
 		return
 	}
@@ -184,6 +248,37 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// loginFail says why office could not use its OAuth token for name (the
+// person fixes it on the dashboard).
+func loginFail(name string, err error) string {
+	msg := "MCP " + name + ": " + err.Error()
+	if errors.Is(err, ErrNeedsLogin) || errors.Is(err, ErrSessionExpired) {
+		msg += " trên dashboard"
+	}
+	return msg
+}
+
+// send forwards one request to an HTTP server with its secrets and, when it
+// has one, office's OAuth token.
+func (g *Gateway) send(ctx context.Context, r *http.Request, target string, body []byte, headers map[string]string, tok string) (*http.Response, error) {
+	up, err := http.NewRequestWithContext(ctx, r.Method, target, bytes.NewReader(body))
+	if err != nil {
+		return nil, errors.New("URL không hợp lệ")
+	}
+	for _, h := range passRequest {
+		if v := r.Header.Get(h); v != "" {
+			up.Header.Set(h, v)
+		}
+	}
+	for k, v := range headers {
+		up.Header.Set(k, v)
+	}
+	if tok != "" {
+		up.Header.Set("Authorization", "Bearer "+tok)
+	}
+	return g.client().Do(up)
 }
 
 // stream copies an SSE body, flushing as events arrive.

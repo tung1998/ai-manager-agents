@@ -15,7 +15,7 @@ func (s *Store) MCPServers() storage.MCPServerRepo { return mcpServerRepo{s.q} }
 type mcpServerRepo struct{ db dbtx }
 
 const mcpServerCols = `id, name, kind, url, command, args, env_enc, headers_enc, scope, origin, enabled,
-	last_check_at, last_check_status, last_check_error, last_tools, created_at, updated_at`
+	last_check_at, last_check_status, last_check_error, last_tools, created_at, updated_at, oauth_enc`
 
 func scanMCPServer(row scanner) (storage.MCPServer, error) {
 	var (
@@ -25,7 +25,7 @@ func scanMCPServer(row scanner) (storage.MCPServer, error) {
 		created, updated string
 	)
 	if err := row.Scan(&m.ID, &m.Name, &m.Kind, &m.URL, &m.Command, &args, &m.EnvEnc, &m.HeadersEnc, &m.Scope, &m.Origin, &m.Enabled,
-		&last, &m.LastCheckStatus, &m.LastCheckError, &tools, &created, &updated); err != nil {
+		&last, &m.LastCheckStatus, &m.LastCheckError, &tools, &created, &updated, &m.OAuthEnc); err != nil {
 		return m, notFound(err)
 	}
 	_ = json.Unmarshal([]byte(args), &m.Args)
@@ -60,8 +60,8 @@ func (r mcpServerRepo) Create(ctx context.Context, m storage.MCPServer) (storage
 	now := time.Now().UTC()
 	m.ID, m.CreatedAt, m.UpdatedAt = ids.New("mcp"), now, now
 	normMCPServer(&m)
-	_, err := r.db.ExecContext(ctx, `INSERT INTO mcp_servers (`+mcpServerCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,'','','[]',?,?)`,
-		m.ID, m.Name, m.Kind, m.URL, m.Command, toJSON(m.Args), m.EnvEnc, m.HeadersEnc, m.Scope, m.Origin, m.Enabled, fmtTime(now), fmtTime(now))
+	_, err := r.db.ExecContext(ctx, `INSERT INTO mcp_servers (`+mcpServerCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,'','','[]',?,?,?)`,
+		m.ID, m.Name, m.Kind, m.URL, m.Command, toJSON(m.Args), m.EnvEnc, m.HeadersEnc, m.Scope, m.Origin, m.Enabled, fmtTime(now), fmtTime(now), m.OAuthEnc)
 	if isUnique(err) {
 		return storage.MCPServer{}, storage.ErrConflict
 	}
@@ -113,4 +113,8 @@ func (r mcpServerRepo) SetCheck(ctx context.Context, id, status, errMsg string, 
 	}
 	return execOne(ctx, r.db, `UPDATE mcp_servers SET last_check_at=?, last_check_status=?, last_check_error=?, last_tools=? WHERE id=?`,
 		fmtTime(at), status, errMsg, toJSON(tools), id)
+}
+
+func (r mcpServerRepo) SetOAuth(ctx context.Context, id, oauthEnc string) error {
+	return execOne(ctx, r.db, `UPDATE mcp_servers SET oauth_enc=? WHERE id=?`, oauthEnc, id)
 }

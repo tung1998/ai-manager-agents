@@ -2,8 +2,21 @@
 import type { DropdownMenuItem, NavigationMenuItem } from '@nuxt/ui'
 
 const route = useRoute()
-const { user, isAdmin, logout } = useAuth()
-const { t } = useLang()
+const { user, build, isAdmin, logout } = useAuth()
+const { t, dateLocale } = useLang()
+
+// which office is running, above the user (from /api/auth/me)
+const buildLabel = computed(() => {
+  const b = build.value
+  if (!b) return ''
+  return b.revision ? `${b.version} · ${b.revision.slice(0, 7)}` : b.version
+})
+const buildText = computed(() => build.value?.dirty ? `${buildLabel.value} · ${t('build.dirty')}` : buildLabel.value)
+const buildTime = computed(() => {
+  const at = build.value?.time
+  return at ? t('build.time', { time: new Date(at).toLocaleString(dateLocale.value) }) : ''
+})
+const buildInfoOpen = ref(false)
 
 const bareLayout = computed(() => route.path === '/login')
 
@@ -135,19 +148,39 @@ const userMenu = computed<DropdownMenuItem[][]>(() => [
       </template>
 
       <template #footer="{ collapsed }">
-        <UDropdownMenu :items="userMenu" :content="{ align: 'start' }" class="w-full">
-          <UButton
-            color="neutral"
-            variant="ghost"
-            block
-            :square="collapsed"
-            class="justify-start"
-            :avatar="{ alt: user?.name || user?.email }"
-            :label="collapsed ? undefined : (user?.name || user?.email)"
-            trailing-icon="i-lucide-chevrons-up-down"
-            :ui="{ trailingIcon: collapsed ? 'hidden' : 'ms-auto' }"
-          />
-        </UDropdownMenu>
+        <div class="flex w-full min-w-0 flex-col gap-1">
+          <div v-if="buildLabel && !collapsed" class="flex min-w-0 items-center gap-1 px-2.5 text-xs text-(--ui-text-dimmed)">
+            <!-- the update page is admin-only: members just read the line -->
+            <NuxtLink v-if="isAdmin" to="/admin/update" class="min-w-0 truncate hover:text-(--ui-text-muted)">
+              {{ buildText }}
+            </NuxtLink>
+            <span v-else class="min-w-0 truncate">{{ buildText }}</span>
+            <UTooltip v-model:open="buildInfoOpen" :content="{ side: 'top' }">
+              <button type="button" class="shrink-0" :aria-label="build?.subject || t('build.noSubject')" @click="buildInfoOpen = !buildInfoOpen">
+                <UIcon name="i-lucide-info" class="size-3.5" />
+              </button>
+              <template #content>
+                <div class="max-w-72 space-y-0.5 text-xs">
+                  <p class="font-medium">{{ build?.subject || t('build.noSubject') }}</p>
+                  <p v-if="buildTime" class="text-(--ui-text-muted)">{{ buildTime }}</p>
+                </div>
+              </template>
+            </UTooltip>
+          </div>
+          <UDropdownMenu :items="userMenu" :content="{ align: 'start' }" class="w-full">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              block
+              :square="collapsed"
+              class="justify-start"
+              :avatar="{ alt: user?.name || user?.email }"
+              :label="collapsed ? undefined : (user?.name || user?.email)"
+              trailing-icon="i-lucide-chevrons-up-down"
+              :ui="{ trailingIcon: collapsed ? 'hidden' : 'ms-auto' }"
+            />
+          </UDropdownMenu>
+        </div>
       </template>
     </UDashboardSidebar>
 

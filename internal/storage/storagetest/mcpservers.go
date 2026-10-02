@@ -44,6 +44,15 @@ func testMCPServers(t *testing.T, s storage.Store) {
 		got.LastCheckAt == nil || !got.LastCheckAt.Equal(now) || len(got.LastTools) != 1 || got.LastTools[0].ReadOnly == nil || !*got.LastTools[0].ReadOnly {
 		t.Fatalf("after updates = %+v", got)
 	}
+	if err := r.SetOAuth(ctx, got.ID, "oauth-enc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Update(ctx, got); err != nil { // an edit keeps the login
+		t.Fatal(err)
+	}
+	if got, _ = r.Get(ctx, got.ID); got.OAuthEnc != "oauth-enc" {
+		t.Fatalf("oauth after update = %q", got.OAuthEnc)
+	}
 	list, _ := r.List(ctx)
 	if len(list) != 2 || list[0].Name != "abc" {
 		t.Fatalf("List by name = %+v", list)

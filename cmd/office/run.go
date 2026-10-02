@@ -190,7 +190,8 @@ func serveCmd() *cobra.Command {
 			go monitors.Run(ctx)
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 			// the MCP servers office manages, at /mcp/s/<name> with the runs' tokens (ADR-091)
-			gateway := &mcpgateway.Gateway{Store: a.store, Box: a.providers.Box(), Auth: mcp.Authorized, Log: log}
+			gateway := &mcpgateway.Gateway{Store: a.store, Box: a.providers.Box(), Auth: mcp.Authorized, Log: log, Env: a.cli.Env()}
+			defer gateway.Close() // stdio servers office runs (ADR-092)
 			chatEngine.SetGateway(gateway.Names)
 			handler := api.New(api.Config{
 				Office: office, Channels: bots, Memory: mem, Events: liveBus,
@@ -238,6 +239,7 @@ func serveCmd() *cobra.Command {
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				_ = srv.Shutdown(shutdownCtx)
 				cancel()
+				gateway.Close()
 				procs.Shutdown()
 				a.Close()
 				os.Exit(selfupdate.RestartCode)

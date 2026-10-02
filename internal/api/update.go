@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
@@ -16,6 +19,27 @@ type buildInfo struct {
 	Revision string `json:"revision,omitempty"`
 	Time     string `json:"time,omitempty"`
 	Dirty    bool   `json:"dirty"`
+	Subject  string `json:"subject,omitempty"` // title of the commit at Revision
+}
+
+// loadBuild reads the build once at startup, with the commit title looked up
+// in the source folder ("" when there is no git or the revision is unknown).
+func loadBuild(version, root string) buildInfo {
+	b := currentBuild(version)
+	if root != "" && b.Revision != "" {
+		b.Subject = commitSubject(root, b.Revision)
+	}
+	return b
+}
+
+func commitSubject(root, rev string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "log", "-1", "--format=%s", rev, "--").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func currentBuild(version string) buildInfo {
@@ -40,7 +64,7 @@ func currentBuild(version string) buildInfo {
 func (s *server) updateStatus(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"supervised": s.cfg.Supervised,
-		"build":      currentBuild(s.cfg.Version),
+		"build":      s.build,
 		"last":       selfupdate.LoadResult(s.cfg.System.HomeDir),
 		"busy":       s.busyWork(),
 	}

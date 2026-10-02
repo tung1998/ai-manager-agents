@@ -222,11 +222,12 @@ type MCPServer struct {
 	Command              string // stdio
 	Args                 []string
 	EnvEnc, HeadersEnc   string // JSON objects, encrypted
+	OAuthEnc             string // its OAuth state and tokens, encrypted ("" = none; ADR-092)
 	Scope                string // machine | project:<id>
 	Origin               string // manual | claude | codex | mcp.json
 	Enabled              bool
 	LastCheckAt          *time.Time
-	LastCheckStatus      string // "" (never) | ok | error
+	LastCheckStatus      string // "" (never) | ok | error | needs_login
 	LastCheckError       string
 	LastTools            []MCPTool
 	CreatedAt, UpdatedAt time.Time
@@ -248,6 +249,8 @@ type MCPServerRepo interface {
 	List(ctx context.Context) ([]MCPServer, error)
 	Delete(ctx context.Context, id string) error
 	SetCheck(ctx context.Context, id, status, errMsg string, tools []MCPTool, at time.Time) error
+	// SetOAuth saves only the OAuth state (Update leaves it as it is).
+	SetOAuth(ctx context.Context, id, oauthEnc string) error
 }
 
 // Memory is one note an agent keeps across conversations (ADR-068).

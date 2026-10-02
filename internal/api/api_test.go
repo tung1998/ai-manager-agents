@@ -193,6 +193,9 @@ func TestLoginFlow(t *testing.T) {
 	if resp.StatusCode != 200 || body["user"].(map[string]any)["email"] != "admin@x.io" {
 		t.Fatalf("me = %d %v", resp.StatusCode, body)
 	}
+	if b, ok := body["build"].(map[string]any); !ok || b["version"] == nil {
+		t.Fatalf("me build = %v", body["build"])
+	}
 	resp, _ = do(t, c, "POST", e.srv.URL+"/api/auth/logout", map[string]string{}, nil)
 	if resp.StatusCode != 204 {
 		t.Fatalf("logout = %d", resp.StatusCode)

@@ -102,6 +102,7 @@ type server struct {
 	push    livePush         // chats and "Cần xử lý" pushed with their data (ADR-078)
 	origins map[string]bool
 	log     *slog.Logger
+	build   buildInfo // what is running, read once at startup
 }
 
 // New returns the root handler.
@@ -110,6 +111,11 @@ func New(cfg Config) http.Handler {
 		cfg.Logger = slog.Default()
 	}
 	s := &server{cfg: cfg, origins: map[string]bool{}, log: cfg.Logger, sys: sysinfo.New(cmp.Or(cfg.System.HomeDir, "/"))}
+	src := ""
+	if cfg.Updater != nil {
+		src = cfg.Updater.Source().Root
+	}
+	s.build = loadBuild(cfg.Version, src)
 	s.startStats()
 	s.startLiveData()
 	if cfg.Automation != nil && cfg.Automation.Health != nil && cfg.Events != nil {

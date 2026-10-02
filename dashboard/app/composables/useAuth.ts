@@ -8,6 +8,15 @@ export interface OfficeUser {
   last_login_at: string | null
 }
 
+/** The office build that is running (from /api/auth/me). */
+export interface OfficeBuild {
+  version: string
+  revision?: string
+  time?: string
+  dirty: boolean
+  subject?: string
+}
+
 /** Error message from the Go API ({ error: "..." }) or a generic fallback. */
 export function apiError(e: unknown, fallback?: string): string {
   const data = (e as { data?: { error?: string } })?.data
@@ -17,11 +26,13 @@ export function apiError(e: unknown, fallback?: string): string {
 export function useAuth() {
   const user = useState<OfficeUser | null>('auth:user', () => null)
   const loaded = useState('auth:loaded', () => false)
+  const build = useState<OfficeBuild | null>('auth:build', () => null)
 
   async function fetchMe() {
     try {
-      const res = await $fetch<{ user: OfficeUser }>('/api/auth/me')
+      const res = await $fetch<{ user: OfficeUser, build?: OfficeBuild }>('/api/auth/me')
       user.value = res.user
+      build.value = res.build ?? null
     } catch {
       user.value = null
     } finally {
@@ -48,5 +59,5 @@ export function useAuth() {
 
   const isAdmin = computed(() => user.value?.role === 'admin')
 
-  return { user, loaded, isAdmin, fetchMe, login, logout }
+  return { user, loaded, build, isAdmin, fetchMe, login, logout }
 }
