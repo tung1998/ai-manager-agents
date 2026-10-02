@@ -41,7 +41,8 @@ func TestPolicy(t *testing.T) {
 		"reader":   {Kind: "claude", Agent: "Reader", AgentID: "agt_r"},
 		"proposer": {Kind: "claude", Agent: "Dev", AgentID: "agt_d", CanPropose: true, ConversationID: "cnv_1"},
 		"writer":   {Kind: "codex", Agent: "Ops", AgentID: "agt_o", CanWrite: true},
-		"person":   {Kind: "person"},
+		"person":   {Kind: "person", CanWrite: true, CanPropose: true}, // an admin's token
+		"member":   {Kind: "person", Agent: "CLI (member)", CanPropose: true},
 	}
 	var proposed []string
 	gw := &mcpgateway.Gateway{Store: st, Box: box,
@@ -89,6 +90,10 @@ func TestPolicy(t *testing.T) {
 	if code, body := call("c7", "person", "write"); code != 200 || !strings.Contains(body, "hello write") {
 		t.Fatalf("person writes = %d %s", code, body)
 	}
+	// a member's token is a person too, but its writes wait for an approval
+	if code, body := call("c7", "member", "write"); code != 200 || !strings.Contains(body, "act_1") || len(proposed) != 2 || proposed[1] != `CLI (member):c7/write:{"x":1}` {
+		t.Fatalf("member writes = %d %s %v", code, body, proposed)
+	}
 	// only 3 calls reached the server: resolve, and the two allowed writes
 	// (each call opens no session of its own through the gateway)
 	if len(seen) != 3 {
@@ -123,11 +128,11 @@ func TestPolicy(t *testing.T) {
 	for _, c := range calls {
 		by[c.Status]++
 	}
-	if by["ok"] != 4 || by["denied"] != 1 || by["proposed"] != 1 {
+	if by["ok"] != 4 || by["denied"] != 1 || by["proposed"] != 2 {
 		t.Fatalf("log = %v (%+v)", by, calls)
 	}
 	for _, c := range calls {
-		if c.Status == "proposed" && (c.ActionID != "act_1" || c.Caller != "Dev" || c.ConversationID != "cnv_1") {
+		if c.Status == "proposed" && c.Caller != "CLI (member)" && (c.ActionID != "act_1" || c.Caller != "Dev" || c.ConversationID != "cnv_1") {
 			t.Fatalf("proposed call logged as %+v", c)
 		}
 	}

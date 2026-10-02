@@ -64,11 +64,10 @@ const (
 	deny
 )
 
-// decide says what happens to a call of tool by c.
+// decide says what happens to a call of tool by c. A person's CLI is no
+// exception: their token's rights (CanWrite for an admin) decide, so a member
+// never writes with the servers' credentials without an approval.
 func decide(m storage.MCPServer, c Caller, tool string, canPropose bool) verdict {
-	if c.Person() {
-		return pass // the person is the one calling
-	}
 	if ro, trusted := ToolReadOnly(m, tool); ro || trusted || c.CanWrite {
 		return pass
 	}

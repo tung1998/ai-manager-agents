@@ -95,8 +95,8 @@ func (g *Gateway) caller(r *http.Request) (Caller, bool) {
 	if g.Identify != nil {
 		return g.Identify(r)
 	}
-	if g.Auth != nil && g.Auth(r) {
-		return Caller{Kind: "person"}, true
+	if g.Auth != nil && g.Auth(r) { // no identity: a trusted caller, as before ADR-093
+		return Caller{Kind: "person", CanWrite: true}, true
 	}
 	return Caller{}, false
 }
@@ -223,7 +223,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write(reply)
 			return
 		}
-	} else if batchCalls(body) && !c.Person() {
+	} else if batchCalls(body) && !c.CanWrite {
 		http.Error(w, "office không nhận gọi tool theo lô (batch)", http.StatusBadRequest)
 		return
 	}

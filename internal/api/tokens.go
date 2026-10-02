@@ -90,9 +90,15 @@ func (s *server) tokenScope(ctx context.Context, tok string) (officetools.Scope,
 	if project == "" {
 		return officetools.Scope{}, false
 	}
-	// it proposes (a person approves on the dashboard); it never runs anything itself
+	// it proposes (a person approves on the dashboard); it never runs anything
+	// itself. Only an admin calls MCP tools that write through the gateway
+	// without asking; the role is read on every call, so a demotion counts at once.
+	caps := []string{perm.CapPropose}
+	if u.Role == storage.RoleAdmin {
+		caps = append(caps, perm.CapMCPWrite)
+	}
 	return officetools.Scope{ProjectID: project, Office: true, Agent: "Claude Code CLI (" + u.Email + ")",
-		RunRef: "cli-" + t.ID, Level: perm.Propose, Access: perm.Access{Level: perm.Propose, Caps: []string{perm.CapPropose}}}, true
+		RunRef: "cli-" + t.ID, Level: perm.Propose, Access: perm.Access{Level: perm.Propose, Caps: caps}}, true
 }
 
 // pendingActions is the approval inbox: every proposal waiting for a person

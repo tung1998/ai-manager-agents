@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	officesetup "bitbucket.org/senprints/agent-office/internal/setup"
@@ -99,7 +101,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
 		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chatEng,
 		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcp, Memory: mem, Events: bus, Automation: testAutomation(t, st),
-		Gateway: &mcpgateway.Gateway{Store: st, Box: box, Auth: mcp.Authorized}})
+		Gateway: &mcpgateway.Gateway{Store: st, Box: box, Auth: mcp.Authorized, Identify: testIdentify(mcp)}})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	ctx := context.Background()
@@ -110,6 +112,23 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 		t.Fatal(err)
 	}
 	return &env{srv: srv, auth: svc, st: st, acts: acts, provs: provs, chat: chatEng}
+}
+
+// testIdentify says who calls the gateway from the token's scope, the way
+// office's own does (cmd/office gatewayCaller), without agent lookups.
+func testIdentify(mcp *mcpserver.Server) func(r *http.Request) (mcpgateway.Caller, bool) {
+	return func(r *http.Request) (mcpgateway.Caller, bool) {
+		sc, ok := mcp.ScopeOf(r)
+		if !ok {
+			return mcpgateway.Caller{}, false
+		}
+		c := mcpgateway.Caller{Kind: "claude", Agent: sc.Agent, ProjectID: sc.ProjectID, Scope: sc,
+			CanWrite: sc.Access.Can(perm.CapMCPWrite), CanPropose: sc.Access.Can(perm.CapPropose)}
+		if strings.HasPrefix(sc.RunRef, "cli-") {
+			c.Kind = "person"
+		}
+		return c, true
+	}
 }
 
 func (e *env) client(t *testing.T) *http.Client {

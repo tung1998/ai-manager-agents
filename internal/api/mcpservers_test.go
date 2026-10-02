@@ -111,8 +111,8 @@ func TestMCPServersAPI(t *testing.T) {
 	}
 
 	// the gateway: a wrong token is refused, a personal token (ADR-047) goes through
-	call := func(token string) (int, string) {
-		req, _ := http.NewRequest("POST", e.srv.URL+"/mcp/s/context7", bytes.NewBufferString(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"resolve-library-id","arguments":{}}}`))
+	callTool := func(token, tool string) (int, string) {
+		req, _ := http.NewRequest("POST", e.srv.URL+"/mcp/s/context7", bytes.NewBufferString(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"`+tool+`","arguments":{}}}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 		r, err := http.DefaultClient.Do(req)
@@ -123,6 +123,7 @@ func TestMCPServersAPI(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		return r.StatusCode, string(b)
 	}
+	call := func(token string) (int, string) { return callTool(token, "resolve-library-id") }
 	if code, _ := call("wrong"); code != 401 {
 		t.Fatalf("wrong token = %d", code)
 	}
@@ -132,6 +133,27 @@ func TestMCPServersAPI(t *testing.T) {
 	_, tb := do(t, admin, "POST", e.srv.URL+"/api/me/tokens", map[string]any{"name": "cli"}, nil)
 	if code, out := call(tb["token"].(string)); code != 200 || !strings.Contains(out, "ok from upstream") {
 		t.Fatalf("personal token = %d %s", code, out)
+	}
+	// a tool not known to only read: an admin's token calls it, a member's
+	// reads but never writes with the server's credentials without an approval
+	if code, out := callTool(tb["token"].(string), "write-thing"); code != 200 || !strings.Contains(out, "ok from upstream") {
+		t.Fatalf("admin token writes = %d %s", code, out)
+	}
+	_, mt := do(t, member, "POST", e.srv.URL+"/api/me/tokens", map[string]any{"name": "cli"}, nil)
+	if code, out := call(mt["token"].(string)); code != 200 || !strings.Contains(out, "ok from upstream") {
+		t.Fatalf("member token reads = %d %s", code, out)
+	}
+	if code, out := callTool(mt["token"].(string), "write-thing"); code != 200 || strings.Contains(out, "ok from upstream") || !strings.Contains(out, "đề xuất") && !strings.Contains(out, "chỉ được đọc") {
+		t.Fatalf("member token writes = %d %s", code, out)
+	}
+	batch := `[{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"write-thing","arguments":{}}}]`
+	req, _ := http.NewRequest("POST", e.srv.URL+"/mcp/s/context7", bytes.NewBufferString(batch))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+mt["token"].(string))
+	if r, err := http.DefaultClient.Do(req); err != nil || r.StatusCode != 400 {
+		t.Fatalf("member batch = %v %v", r, err)
+	} else {
+		r.Body.Close()
 	}
 
 	if resp, _ := do(t, admin, "DELETE", base+"/"+id, nil, nil); resp.StatusCode != 204 {
