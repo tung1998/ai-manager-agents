@@ -31,15 +31,15 @@ const projectMenu = computed(() => [props.projects.map(p => ({
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('watch.close')" :title="t('watch.close')" @click="close(pane.id)" />
       </template>
     </ChatPanel>
-    <!-- no project yet, or it was removed: pick one -->
-    <div v-else class="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-(--ui-border) p-4 text-sm text-(--ui-text-muted)">
-      <p>{{ t('watch.pickProject') }}</p>
-      <div class="flex gap-1">
-        <UDropdownMenu :items="projectMenu" :content="{ align: 'center' }" :ui="{ content: 'max-h-80 w-60' }">
-          <UButton size="sm" icon="i-lucide-folder" :label="t('watch.project')" />
-        </UDropdownMenu>
-        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('watch.close')" @click="close(pane.id)" />
-      </div>
-    </div>
+    <!-- a fresh split, or its project was removed: pick a project or a recent chat -->
+    <WatchPicker
+      v-else :projects="projects" :hint="t('watch.pickProject')" icon="i-lucide-square-dashed"
+      class="h-full rounded-lg border border-dashed border-(--ui-border-accented)"
+      @pick="(projectId, conversationId) => setPane(pane.id, { projectId, conversationId })"
+    >
+      <template #actions>
+        <UButton color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('watch.close')" :title="t('watch.close')" @click="close(pane.id)" />
+      </template>
+    </WatchPicker>
   </div>
 </template>

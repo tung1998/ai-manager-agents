@@ -45,12 +45,12 @@ export function useWatchLayout() {
     else parent.children[parent.children.indexOf(old)] = next
   }
 
-  // a new box next to this one (right or below), on the same project
-  function split(paneId: string, dir: WatchDir, projectId?: string) {
+  // a new box next to this one (right or below), empty: it asks for a project or a recent chat
+  function split(paneId: string, dir: WatchDir) {
     const r = find(paneId)
     if (!r || r.node.kind !== 'pane') return
     const pane = r.node
-    const fresh: WatchPane = { kind: 'pane', id: newId(), projectId: projectId ?? pane.projectId }
+    const fresh: WatchPane = { kind: 'pane', id: newId(), projectId: '' }
     const p = r.parent
     if (p && p.dir === dir) {
       // same direction: one more box in that split, the space shared again
@@ -71,18 +71,6 @@ export function useWatchLayout() {
       r.children.push(fresh)
       r.sizes = even(r.children.length)
     } else root.value = { kind: 'split', id: newId(), dir: 'row', children: [r, fresh], sizes: [50, 50] }
-  }
-
-  // a box across the whole screen, above or below everything
-  function addEdge(projectId: string, edge: 'top' | 'bottom') {
-    const fresh: WatchPane = { kind: 'pane', id: newId(), projectId }
-    const r = root.value
-    if (!r) root.value = fresh
-    else if (r.kind === 'split' && r.dir === 'col') {
-      if (edge === 'top') r.children.unshift(fresh)
-      else r.children.push(fresh)
-      r.sizes = even(r.children.length)
-    } else root.value = { kind: 'split', id: newId(), dir: 'col', children: edge === 'top' ? [fresh, r] : [r, fresh], sizes: [50, 50] }
   }
 
   function close(id: string) {
@@ -125,5 +113,5 @@ export function useWatchLayout() {
     return n(root.value)
   })
 
-  return { root, count, split, add, addEdge, close, setPane, resize, clear }
+  return { root, count, split, add, close, setPane, resize, clear }
 }
