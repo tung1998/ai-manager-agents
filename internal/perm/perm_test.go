@@ -101,6 +101,42 @@ func TestCommands(t *testing.T) {
 	}
 }
 
+// A " *" pattern of a command that reads or checks never takes a flag that
+// writes files or runs a program of the caller's choice.
+func TestCommandsRiskyFlags(t *testing.T) {
+	pats := []string{"go test *", "git diff *", "git log *", "git show *", "pytest *", "docker compose logs *"}
+	for _, line := range []string{
+		"go test -exec /tmp/x ./...", "go test -exec=/tmp/x ./...", "go test --toolexec=x ./...",
+		"go test -o /tmp/bin ./x", "go test -c ./x", "go test -coverprofile=/etc/x ./...", "go test -overlay o.json ./...",
+		"git diff --output=/etc/passwd", "git log --output /tmp/x", "git show --output=x HEAD",
+		"pytest -p evil", "pytest -pevil", "pytest -vp evil", "pytest --basetemp=/home", "pytest -c other.ini",
+		"pytest --rootdir=/", "pytest -o addopts=-x", "pytest --override-ini=x", "pytest --junitxml=/etc/x",
+	} {
+		args, err := SplitCommand(line)
+		if err != nil {
+			t.Fatal(line, err)
+		}
+		if p, ok := MatchCommand(pats, args); ok {
+			t.Errorf("%q allowed by %q", line, p)
+		}
+	}
+	for _, line := range []string{
+		"go test ./...", "go test -run TestX -v -count=1 ./internal/...", "go test -race -cover ./x",
+		"git diff --stat HEAD~1", "git log --oneline -5", "git show HEAD",
+		"pytest -x -q tests", "pytest -k slow", "pytest --co", "docker compose logs -f web",
+	} {
+		args, _ := SplitCommand(line)
+		if _, ok := MatchCommand(pats, args); !ok {
+			t.Errorf("%q refused", line)
+		}
+	}
+	// an exact pattern still allows what it names
+	args, _ := SplitCommand("go test -c ./x")
+	if _, ok := MatchCommand([]string{"go test -c ./x"}, args); !ok {
+		t.Error("exact pattern")
+	}
+}
+
 func TestUserMCPAtEveryLevel(t *testing.T) { // MCP servers are tools, like Read
 	for _, l := range []string{Read, Propose, Check, Edit, Operate} {
 		if !slices.Contains(Preset(l), CapUserMCP) {

@@ -76,12 +76,49 @@ func CleanPattern(p string) (string, error) {
 	return p, nil
 }
 
+// riskyFlags are flags that turn a command that reads or checks into one that
+// writes files or runs a program of the caller's choice (go test -exec, git
+// diff --output=, pytest -p/--basetemp…). "pattern *" never allows them: a
+// command line naming one needs its own exact pattern.
+var riskyFlags = map[string][]string{
+	"go": {"exec", "toolexec", "o", "c", "C", "overlay", "modfile", "pkgdir", "pgo",
+		"coverprofile", "cpuprofile", "memprofile", "blockprofile", "mutexprofile", "trace", "outputdir"},
+	"git": {"output"},
+	"pytest": {"p", "c", "o", "basetemp", "config-file", "inifile", "rootdir", "confcutdir", "override-ini",
+		"junitxml", "junit-xml", "resultlog", "result-log", "log-file", "debug"},
+}
+
+// riskyShort: commands whose one-letter flags combine ("-vp x"), with the
+// risky letters among them.
+var riskyShort = map[string]string{"pytest": "pco"}
+
+// riskyArg reports whether the arguments a " *" adds to args[0] carry a risky flag.
+func riskyArg(cmd string, extra []string) bool {
+	flags := riskyFlags[cmd]
+	for _, a := range extra {
+		if !strings.HasPrefix(a, "-") || a == "-" || a == "--" {
+			continue
+		}
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if slices.Contains(flags, name) {
+			return true
+		}
+		if short := riskyShort[cmd]; short != "" && !strings.HasPrefix(a, "--") && strings.ContainsAny(name, short) {
+			return true
+		}
+	}
+	return false
+}
+
 // MatchCommand returns the pattern that allows args, if any.
 func MatchCommand(patterns []string, args []string) (string, bool) {
 	line := strings.Join(args, " ")
 	for _, p := range patterns {
 		if base, ok := strings.CutSuffix(p, " *"); ok {
 			if line == base || strings.HasPrefix(line, base+" ") {
+				if n := len(strings.Fields(base)); len(args) > n && riskyArg(args[0], args[n:]) {
+					continue
+				}
 				return p, true
 			}
 		} else if line == p {
