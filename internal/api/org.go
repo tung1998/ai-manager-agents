@@ -88,6 +88,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/agents/{id}/history", auth(s.agentHistory))
 	mux.Handle("POST /api/agents/{id}/restore", admin(s.restoreAgent))
 	mux.Handle("PATCH /api/agents/{id}", admin(s.updateAgent))
+	mux.Handle("PATCH /api/agents/{id}/enabled", admin(s.setAgentEnabled))
 	mux.Handle("DELETE /api/agents/{id}", admin(s.deleteAgent))
 
 	mux.Handle("GET /api/projects", auth(s.listRepos))
@@ -433,6 +434,7 @@ type agentDTO struct {
 	Permissions  storage.Permissions `json:"permissions"`
 	Avatar       storage.Avatar      `json:"avatar"`
 	Sort         int                 `json:"sort"`
+	Enabled      bool                `json:"enabled"` // false = paused (PATCH /api/agents/{id}/enabled)
 	Version      string              `json:"version"` // what an edit is made from (ADR-072)
 }
 
@@ -443,7 +445,7 @@ func toAgentDTO(a storage.Agent) agentDTO {
 	}
 	d := agentDTO{ID: a.ID, OrgModelID: a.OrgModelID, Key: a.Key, Name: a.Name, Tier: a.Tier, Role: a.Role,
 		Description: a.Description, ReportsTo: rt, ProviderID: a.ProviderID, ModelTier: a.ModelTier, LLMModel: a.LLMModel,
-		Instructions: a.Instructions, Permissions: a.Permissions, Avatar: a.Avatar, Sort: a.Sort}
+		Instructions: a.Instructions, Permissions: a.Permissions, Avatar: a.Avatar, Sort: a.Sort, Enabled: !a.Disabled}
 	d.Version = agentVersion(d)
 	return d
 }
@@ -674,6 +676,7 @@ type agentInput struct {
 	Permissions  storage.Permissions `json:"permissions"`
 	Avatar       *storage.Avatar     `json:"avatar"` // nil = keep
 	Sort         *int                `json:"sort"`
+	Enabled      *bool               `json:"enabled"` // nil = keep; false = paused
 }
 
 // applyAgent validates in and puts it on a. FullAccess/ExtraDirs are admin
@@ -775,6 +778,13 @@ func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	if in.Enabled != nil && !*in.Enabled {
+		if err := s.cfg.Store.Agents().SetEnabled(r.Context(), a.ID, false); err != nil {
+			s.writeDomainError(w, r, err)
+			return
+		}
+		a.Disabled = true
+	}
 	s.audit(r, audit.Change{Action: "agent.create", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a), After: toAgentDTO(a),
 		Detail: map[string]any{"key": a.Key, "org_model": a.OrgModelID}})
 	s.auditAgentFullAccess(r, storage.Agent{}, a)
@@ -812,9 +822,48 @@ func (s *server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	if in.Enabled != nil && *in.Enabled == a.Disabled { // changed (propose_change sends the whole agent)
+		if err := s.cfg.Store.Agents().SetEnabled(r.Context(), a.ID, *in.Enabled); err != nil {
+			s.writeDomainError(w, r, err)
+			return
+		}
+		a.Disabled = !*in.Enabled
+	}
 	s.audit(r, audit.Change{Action: "agent.update", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a),
 		Before: toAgentDTO(old), After: toAgentDTO(a), Detail: map[string]any{"key": a.Key}})
 	s.auditAgentFullAccess(r, old, a)
+	writeJSON(w, http.StatusOK, map[string]any{"agent": toAgentDTO(a)})
+}
+
+// setAgentEnabled is the switch on the agent list: {enabled} pauses or
+// resumes an agent (a paused one is left out of chat and gets no work).
+func (s *server) setAgentEnabled(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Enabled == nil {
+		writeError(w, http.StatusBadRequest, "thiếu enabled")
+		return
+	}
+	a, err := s.cfg.Store.Agents().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if a.Disabled != *in.Enabled { // already so
+		writeJSON(w, http.StatusOK, map[string]any{"agent": toAgentDTO(a)})
+		return
+	}
+	if err := s.cfg.Store.Agents().SetEnabled(r.Context(), a.ID, *in.Enabled); err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	s.audit(r, audit.Change{Action: "agent.enabled", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a),
+		Before: map[string]any{"enabled": !a.Disabled}, After: map[string]any{"enabled": *in.Enabled}, Detail: map[string]any{"key": a.Key}})
+	a.Disabled = !*in.Enabled
 	writeJSON(w, http.StatusOK, map[string]any{"agent": toAgentDTO(a)})
 }
 

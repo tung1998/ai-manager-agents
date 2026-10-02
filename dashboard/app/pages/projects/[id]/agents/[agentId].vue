@@ -202,6 +202,8 @@ async function restore(e: Entry) {
         <NuxtLink v-if="data?.project" :to="{ path: `/projects/${projectId}`, query: { tab: 'model' } }" class="hover:text-(--ui-text)">
           {{ data.project.name }} · {{ data.model.name }}
         </NuxtLink>
+        <AgentSwitch :agent="agent" @changed="refresh()" />
+        <UBadge v-if="agent.enabled === false" :label="t('org.editor.paused')" color="warning" variant="subtle" size="sm" icon="i-lucide-pause" />
         <UBadge :label="tierLabel[agent.tier]" color="neutral" variant="subtle" size="sm" />
         <UBadge :label="resolvedModel" color="neutral" variant="outline" size="sm" icon="i-lucide-cpu" class="font-mono" />
         <UBadge :label="permOf(agentLevel(agent.permissions)).label" :icon="permOf(agentLevel(agent.permissions)).icon" color="neutral" variant="outline" size="sm" />

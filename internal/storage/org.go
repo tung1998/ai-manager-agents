@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -144,8 +145,32 @@ type Agent struct {
 	Permissions  Permissions
 	Avatar       Avatar
 	Sort         int
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// Disabled: paused from the agent list (column enabled=0). Left out of
+	// chat; callers get agentinfo.OffNotice instead of a run. Zero value =
+	// on, so agents built in code stay on; only SetEnabled changes it.
+	Disabled  bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// OffNotice is what anyone calling a paused agent gets (chat, delegate, bots,
+// automations), instead of an AI run.
+func OffNotice(name string) string {
+	return "⏸️ " + name + " đang tạm nghỉ, chưa nhận việc. Bật lại trong danh sách agent."
+}
+
+// ErrAgentOff: the agent is paused (Agent.Disabled).
+var ErrAgentOff = errors.New("agent đang tạm nghỉ")
+
+// OnAgents are the agents that are not paused.
+func OnAgents(agents []Agent) []Agent {
+	out := make([]Agent, 0, len(agents))
+	for _, a := range agents {
+		if !a.Disabled {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // Avatar is how an agent looks: a color and an icon, or a small image
@@ -196,6 +221,8 @@ type AgentRepo interface {
 	Get(ctx context.Context, id string) (Agent, error)
 	List(ctx context.Context, orgModelID string) ([]Agent, error)
 	Delete(ctx context.Context, id string) error
+	// SetEnabled pauses or resumes an agent; Update never touches it.
+	SetEnabled(ctx context.Context, id string, enabled bool) error
 }
 
 // Revision is a snapshot of an org model taken before a change.

@@ -85,7 +85,7 @@ func cfgKinds() []cfgKind {
 				list, err := s.cfg.Store.Agents().List(ctx, m.ID)
 				out := []map[string]any{}
 				for _, a := range list {
-					out = append(out, map[string]any{"id": a.ID, "name": a.Name, "key": a.Key, "tier": a.Tier, "level": perm.Agent(a), "model_tier": a.ModelTier})
+					out = append(out, map[string]any{"id": a.ID, "name": a.Name, "key": a.Key, "tier": a.Tier, "level": perm.Agent(a), "model_tier": a.ModelTier, "enabled": !a.Disabled})
 				}
 				return out, err
 			},

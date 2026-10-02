@@ -387,6 +387,16 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		r.runScriptJob(ctx, a, j, now, answer)
 		return
 	}
+	// a paused agent does no work: the notice, no AI. A bot's message goes on to
+	// the chat, which answers with the notice unless it tags agents that are on.
+	if !fromChannel {
+		if ag, ok := r.answerer(ctx, a, j.Trigger, j.Payload); ok && ag.Disabled {
+			notice := storage.OffNotice(ag.Name)
+			finish("skipped", "agent_off", notice)
+			answer(notice, nil, true)
+			return
+		}
+	}
 	agentID, prompt := a.AgentID, promptFor(a, j, now, loc)
 	if a.Config.PullRequest { // the PR's diff, fetched now
 		var pr PR
@@ -815,9 +825,11 @@ func (r *Runner) answerer(ctx context.Context, a storage.Automation, trig, paylo
 	if err != nil {
 		return storage.Agent{}, false
 	}
-	for _, ag := range agents {
-		if ag.Tier == storage.TierLead {
-			return ag, true
+	for _, list := range [][]storage.Agent{storage.OnAgents(agents), agents} { // a lead that is on first, as the chat picks
+		for _, ag := range list {
+			if ag.Tier == storage.TierLead {
+				return ag, true
+			}
 		}
 	}
 	return storage.Agent{}, false

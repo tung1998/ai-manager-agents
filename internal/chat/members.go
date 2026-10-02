@@ -72,6 +72,9 @@ func (e *Engine) Delegate(ctx context.Context, sc officetools.Scope, agentName, 
 	if agents[i].Name == sc.Agent {
 		return "", errors.New("không tự giao việc cho chính mình")
 	}
+	if agents[i].Disabled {
+		return "", &OffError{Notice: storage.OffNotice(agents[i].Name) + " Hãy báo lại cho người dùng."}
+	}
 	e.mu.Lock()
 	e.handed[sc.RunRef] = append(e.handed[sc.RunRef], delegation{agent: agents[i], task: task})
 	e.mu.Unlock()
@@ -336,6 +339,7 @@ func newSince(history []storage.Message, lastID, self string) string {
 // groupBrief tells an agent who is in the chat and when to tag another.
 func (e *Engine) groupBrief(ctx context.Context, conv storage.Conversation, self storage.Agent) string {
 	agents, err := e.Agents(ctx, conv.ProjectID)
+	agents = storage.OnAgents(agents) // a paused agent is not offered
 	if err != nil || len(agents) < 2 {
 		return ""
 	}

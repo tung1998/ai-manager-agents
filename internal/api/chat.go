@@ -60,7 +60,7 @@ func (s *server) chatError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.As(err, &be):
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": be.Error(), "code": "budget"})
-	case errors.Is(err, chat.ErrBusy), errors.Is(err, chat.ErrAgentBusy):
+	case errors.Is(err, chat.ErrBusy), errors.Is(err, chat.ErrAgentBusy), errors.Is(err, storage.ErrAgentOff):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, chat.ErrNoModel), errors.Is(err, chat.ErrNoAgent), errors.Is(err, chat.ErrNoFolder), errors.Is(err, chat.ErrDecided), errors.Is(err, automation.ErrUnknownSkill),
 		errors.Is(err, attach.ErrNotFound), errors.Is(err, attach.ErrTooMany):
@@ -86,7 +86,7 @@ func (s *server) chatAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := make([]agentDTO, 0, len(agents))
-	for _, a := range agents {
+	for _, a := range agents { // paused ones too (enabled=false): their past messages keep their avatar
 		out = append(out, toAgentDTO(a))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"agents": out})
@@ -232,16 +232,24 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	turn, msg, err := s.cfg.Chat.SendWithContext(r.Context(), r.PathValue("id"), in.Text, in.Context, in.Attachments)
+	var off *chat.OffError
+	if errors.As(err, &off) && msg.ID != "" { // only paused agents were called: the message and the notice, no turn
+		_ = s.cfg.Store.Chat().MarkSeen(r.Context(), userFrom(r).ID, r.PathValue("id"), true)
+		writeJSON(w, http.StatusAccepted, map[string]any{"turn_id": "", "message": plainMessageDTO(msg), "notice": plainMessageDTO(off.Message)})
+		return
+	}
 	if err != nil {
 		s.chatError(w, r, err)
 		return
 	}
 	_ = s.cfg.Store.Chat().MarkSeen(r.Context(), userFrom(r).ID, r.PathValue("id"), true) // writing in it: seen
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"turn_id": turn.ID,
-		"message": chat.MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Attachments: msg.Attachments, Author: msg.Author, CreatedAt: msg.CreatedAt,
-			Tools: []storage.ToolCall{}, Patches: []chat.PatchDTO{}},
-	})
+	writeJSON(w, http.StatusAccepted, map[string]any{"turn_id": turn.ID, "message": plainMessageDTO(msg)})
+}
+
+// plainMessageDTO is a message just stored (no tools or diffs yet).
+func plainMessageDTO(m storage.Message) chat.MessageDTO {
+	return chat.MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Attachments: m.Attachments, Author: m.Author, CreatedAt: m.CreatedAt,
+		Tools: []storage.ToolCall{}, Patches: []chat.PatchDTO{}}
 }
 
 // streamTurn sends a turn's events as Server-Sent Events, replaying from

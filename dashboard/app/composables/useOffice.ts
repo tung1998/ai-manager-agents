@@ -126,6 +126,7 @@ export interface Agent {
   permissions: Permissions
   avatar?: AvatarSpec
   sort: number
+  enabled?: boolean // false = paused: out of chat, gets no work
 }
 
 export interface Governance {

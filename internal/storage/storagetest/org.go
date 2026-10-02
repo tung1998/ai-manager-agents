@@ -80,6 +80,33 @@ func testOrg(t *testing.T, s storage.Store) {
 	if len(agents) != 2 || agents[0].Key != "lead" || agents[1].ReportsTo[0] != "lead" || !agents[0].Permissions.ReadOnly {
 		t.Fatalf("agents = %+v", agents)
 	}
+	// on by default; paused/resumed only by SetEnabled, Update keeps it
+	if agents[0].Disabled || agents[1].Disabled {
+		t.Fatalf("new agents should be on: %+v", agents)
+	}
+	if err := s.Agents().SetEnabled(ctx, lead.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	off, _ := s.Agents().Get(ctx, lead.ID)
+	if !off.Disabled {
+		t.Fatalf("lead should be paused: %+v", off)
+	}
+	off.Name = "Lead 2"
+	if err := s.Agents().Update(ctx, off); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := s.Agents().Get(ctx, lead.ID); !a.Disabled || a.Name != "Lead 2" {
+		t.Fatalf("update changed paused state: %+v", a)
+	}
+	if err := s.Agents().SetEnabled(ctx, lead.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := s.Agents().Get(ctx, lead.ID); a.Disabled {
+		t.Fatalf("lead should be on again: %+v", a)
+	}
+	if err := s.Agents().SetEnabled(ctx, "agt_missing", false); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("SetEnabled missing err = %v", err)
+	}
 	// deleting the provider must not delete the agent, only unlink it
 	if err := s.Providers().Delete(ctx, prov.ID); err != nil {
 		t.Fatal(err)

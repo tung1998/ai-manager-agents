@@ -47,12 +47,21 @@ func (s *Service) maybeAnalyse(m storage.Monitor, ev storage.MonitorEvent) {
 		return
 	}
 	agents, err := s.engine.Agents(ctx, m.ProjectID)
-	var lead *storage.Agent
+	var lead, paused *storage.Agent
 	for i := range agents {
 		if agents[i].Tier == storage.TierLead {
-			lead = &agents[i]
-			break
+			if !agents[i].Disabled {
+				lead = &agents[i]
+				break
+			}
+			if paused == nil {
+				paused = &agents[i]
+			}
 		}
+	}
+	if err == nil && lead == nil && paused != nil { // a paused lead does no work
+		skip("Không phân tích: " + storage.OffNotice(paused.Name))
+		return
 	}
 	if err != nil || lead == nil {
 		skip("Không phân tích: project chưa có mô hình tổ chức (cần agent lead).")

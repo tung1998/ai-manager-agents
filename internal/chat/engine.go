@@ -46,6 +46,16 @@ var (
 	ErrNoFolder  = errors.New("project không gắn thư mục nên không áp được thay đổi")
 )
 
+// OffError: the message went to paused agents only, so nobody answers. The
+// person's message and the notice (Message) are in the chat; no AI ran.
+type OffError struct {
+	Notice  string
+	Message storage.Message // the notice as stored
+}
+
+func (e *OffError) Error() string        { return e.Notice }
+func (e *OffError) Is(target error) bool { return target == storage.ErrAgentOff }
+
 // MessageDTO is a message as the dashboard shows it.
 type MessageDTO struct {
 	ID          string               `json:"id"`
@@ -449,6 +459,9 @@ func (e *Engine) SetAgent(ctx context.Context, conversationID, agentID string) e
 	if i < 0 {
 		return ErrNoAgent
 	}
+	if agents[i].Disabled {
+		return &OffError{Notice: storage.OffNotice(agents[i].Name)}
+	}
 	// sessions stay with each agent (ADR-044): only who answers by default changes
 	conv.AgentID, conv.AgentName = agents[i].ID, agents[i].Name
 	m := e.member(ctx, conv, agents[i])
@@ -515,17 +528,34 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	if err != nil {
 		return nil, storage.Message{}, err
 	}
-	// @tags pull agents in (ADR-044): the first tagged answers, then the others
-	var queue []queued
+	// @tags pull agents in (ADR-044): the first tagged answers, then the others;
+	// a paused one gets a notice instead (paused)
+	var (
+		queue  []queued
+		paused []storage.Agent
+	)
 	if teamChat(conv) { // the web's chats and bots'
 		if agents, err := e.Agents(ctx, conv.ProjectID); err == nil {
 			if tagged := Mentions(text, agents); len(tagged) > 0 {
-				agent = tagged[0]
-				for _, a := range tagged[1:min(len(tagged), maxAnswers)] {
-					queue = append(queue, queued{agent: a, from: "Người dùng"}) // i18n-ignore
+				on := storage.OnAgents(tagged)
+				for _, a := range tagged {
+					if a.Disabled {
+						paused = append(paused, a)
+					}
+				}
+				if len(on) > 0 {
+					agent = on[0]
+					for _, a := range on[1:min(len(on), maxAnswers)] {
+						queue = append(queue, queued{agent: a, from: "Người dùng"}) // i18n-ignore
+					}
+				} else {
+					agent = paused[0]
 				}
 			}
 		}
+	}
+	if agent.Disabled && len(paused) == 0 { // the chat's own agent, not tagged
+		paused = []storage.Agent{agent}
 	}
 	// "/skill request": the agent gets the skill's instructions; the
 	// conversation keeps what the person typed
@@ -548,6 +578,9 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	files, err := e.files.Resolve(project.ID, attachmentIDs)
 	if err != nil {
 		return nil, storage.Message{}, err
+	}
+	if agent.Disabled { // only paused agents were called: the notice, no AI
+		return e.offReply(ctx, conv, text, pageContext, files, paused)
 	}
 	if e.usage != nil {
 		if err := e.usage.Check(ctx, project.ID); err != nil {
@@ -599,13 +632,9 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		e.finish(turn)
 		return nil, storage.Message{}, err
 	}
-	if conv.Title == "" {
-		title := text
-		if title == "" && len(files) > 0 {
-			title = files[0].Name
-		}
-		conv.Title = truncate(strings.Join(strings.Fields(title), " "), 80)
-		_ = e.store.Chat().UpdateConversation(ctx, conv)
+	e.titleFrom(ctx, &conv, text, files)
+	for _, a := range paused { // tagged with others that answer
+		e.note(conv, storage.OffNotice(a.Name))
 	}
 	job, err := e.beginJob(ctx, conv, agent.ID, truncate(strings.Join(strings.Fields(firstNonEmpty(text, conv.Title)), " "), 80))
 	if err != nil {
@@ -629,12 +658,52 @@ func (e *Engine) agentFor(ctx context.Context, conv storage.Conversation) (stora
 	if err != nil {
 		return storage.Agent{}, err
 	}
-	for _, a := range agents {
-		if a.Tier == storage.TierLead {
-			return a, nil
+	return firstLead(agents)
+}
+
+// firstLead is the first lead that is not paused, else the first lead.
+func firstLead(agents []storage.Agent) (storage.Agent, error) {
+	for _, list := range [][]storage.Agent{storage.OnAgents(agents), agents} {
+		for _, a := range list {
+			if a.Tier == storage.TierLead {
+				return a, nil
+			}
 		}
 	}
 	return storage.Agent{}, ErrNoAgent
+}
+
+// titleFrom names an untitled conversation after its first message.
+func (e *Engine) titleFrom(ctx context.Context, conv *storage.Conversation, text string, files []attach.File) {
+	if conv.Title != "" {
+		return
+	}
+	title := text
+	if title == "" && len(files) > 0 {
+		title = files[0].Name
+	}
+	conv.Title = truncate(strings.Join(strings.Fields(title), " "), 80)
+	_ = e.store.Chat().UpdateConversation(ctx, *conv)
+}
+
+// offReply keeps the person's message and answers with the notice of the
+// paused agents it went to; no AI runs, nothing is spent.
+func (e *Engine) offReply(ctx context.Context, conv storage.Conversation, text, pageContext string, files []attach.File, paused []storage.Agent) (*Turn, storage.Message, error) {
+	msg, err := e.store.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "user", Content: text, Attachments: attach.Refs(files), Author: actor.From(ctx), Context: pageContext})
+	if err != nil {
+		return nil, storage.Message{}, err
+	}
+	e.titleFrom(ctx, &conv, text, files)
+	lines := make([]string, 0, len(paused))
+	for _, a := range paused {
+		lines = append(lines, storage.OffNotice(a.Name))
+	}
+	notice := strings.Join(lines, "\n")
+	note, err := e.store.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "error", Content: notice})
+	if err != nil {
+		return nil, msg, err
+	}
+	return nil, msg, &OffError{Notice: notice, Message: note}
 }
 
 func (e *Engine) finish(t *Turn) {

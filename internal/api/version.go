@@ -50,7 +50,7 @@ func automationVersion(a storage.Automation) string {
 }
 
 func agentVersion(d agentDTO) string {
-	d.Version, d.Sort = "", 0
+	d.Version, d.Sort, d.Enabled = "", 0, false // pausing is its own switch: an open edit form stays valid
 	return versionOf(d)
 }
 

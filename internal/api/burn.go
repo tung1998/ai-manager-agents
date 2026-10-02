@@ -55,7 +55,7 @@ func (s *server) burnSession(r *http.Request, projectID string) (storage.BurnSes
 	if errors.Is(err, storage.ErrNotFound) {
 		b = storage.BurnSession{ProjectID: projectID, ModelTier: storage.TierBalanced, MaxSubagents: 2, ResultMode: "branch", Order: "roadmap", State: "stopped"}
 		if agents, err := s.cfg.Chat.Agents(r.Context(), projectID); err == nil {
-			for _, a := range agents {
+			for _, a := range storage.OnAgents(agents) {
 				if a.Tier == storage.TierLead {
 					b.AgentID = a.ID
 					break

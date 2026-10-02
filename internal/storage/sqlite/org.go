@@ -248,7 +248,7 @@ func (r orgModelRepo) Delete(ctx context.Context, id string) error {
 type agentRepo struct{ db dbtx }
 
 const agentCols = `id, org_model_id, key, name, tier, role, description, reports_to, provider_id, model_tier, llm_model,
-	instructions, permissions, sort, created_at, updated_at, avatar`
+	instructions, permissions, sort, created_at, updated_at, avatar, enabled`
 
 func scanAgent(row scanner) (storage.Agent, error) {
 	var (
@@ -257,12 +257,13 @@ func scanAgent(row scanner) (storage.Agent, error) {
 		avatar           string
 		provider         sql.NullString
 		created, updated string
+		enabled          bool
 	)
 	if err := row.Scan(&a.ID, &a.OrgModelID, &a.Key, &a.Name, &a.Tier, &a.Role, &a.Description, &reports, &provider, &a.ModelTier,
-		&a.LLMModel, &a.Instructions, &perms, &a.Sort, &created, &updated, &avatar); err != nil {
+		&a.LLMModel, &a.Instructions, &perms, &a.Sort, &created, &updated, &avatar, &enabled); err != nil {
 		return a, notFound(err)
 	}
-	a.ProviderID = provider.String
+	a.ProviderID, a.Disabled = provider.String, !enabled
 	if err := json.Unmarshal([]byte(reports), &a.ReportsTo); err != nil {
 		return a, err
 	}
@@ -282,9 +283,9 @@ func (r agentRepo) Create(ctx context.Context, a storage.Agent) (storage.Agent, 
 		a.ReportsTo = []string{}
 	}
 	a.CreatedAt, a.UpdatedAt = now, now
-	_, err := r.db.ExecContext(ctx, `INSERT INTO agents (`+agentCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO agents (`+agentCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.OrgModelID, a.Key, a.Name, a.Tier, a.Role, a.Description, toJSON(a.ReportsTo), nullStr(a.ProviderID), a.ModelTier,
-		a.LLMModel, a.Instructions, toJSON(a.Permissions), a.Sort, fmtTime(now), fmtTime(now), toJSON(a.Avatar))
+		a.LLMModel, a.Instructions, toJSON(a.Permissions), a.Sort, fmtTime(now), fmtTime(now), toJSON(a.Avatar), !a.Disabled)
 	if isUnique(err) {
 		return storage.Agent{}, storage.ErrConflict
 	}
@@ -329,6 +330,10 @@ func (r agentRepo) List(ctx context.Context, orgModelID string) ([]storage.Agent
 
 func (r agentRepo) Delete(ctx context.Context, id string) error {
 	return execOne(ctx, r.db, `DELETE FROM agents WHERE id=?`, id)
+}
+
+func (r agentRepo) SetEnabled(ctx context.Context, id string, enabled bool) error {
+	return execOne(ctx, r.db, `UPDATE agents SET enabled=?, updated_at=? WHERE id=?`, enabled, fmtTime(time.Now()), id)
 }
 
 // ---- repos ----

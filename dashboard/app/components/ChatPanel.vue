@@ -46,6 +46,7 @@ const { data: convData, refresh: refreshConvs, pending: convsLoading } = _f2
 // not awaited: the chat shows at once with its skeletons (a phone over a VPN)
 // every agent of the project: the person picks who answers, by its rights
 const agents = computed(() => agentsData.value?.agents ?? [])
+const onAgents = computed(() => agents.value.filter(a => a.enabled !== false)) // a paused agent is not offered (its past messages keep their avatar)
 const conversations = computed(() => convData.value?.conversations ?? [])
 // 20 at a time (ADR-085): the next page from the last one shown
 const moreConvs = computed(() => !!convData.value?.has_more)
@@ -77,10 +78,10 @@ const editMode = ref<'worktree' | 'direct'>('worktree')
 const pick = ref('')
 watch([() => current.value?.id, agents], () => {
   editMode.value = current.value?.edit_mode ?? 'worktree'
-  pick.value = current.value?.agent_id || pick.value || agents.value.find(a => a.tier === 'lead')?.id || agents.value[0]?.id || ''
+  pick.value = current.value?.agent_id || pick.value || onAgents.value.find(a => a.tier === 'lead')?.id || onAgents.value[0]?.id || ''
 }, { immediate: true })
 const picked = computed(() => agents.value.find(a => a.id === pick.value))
-const agentItems = computed(() => agents.value.map(a => ({ label: `${a.name} · ${permOf(agentLevel(a.permissions)).label}`, value: a.id, icon: permOf(agentLevel(a.permissions)).icon })))
+const agentItems = computed(() => onAgents.value.map(a => ({ label: `${a.name} · ${permOf(agentLevel(a.permissions)).label}`, value: a.id, icon: permOf(agentLevel(a.permissions)).icon })))
 const pickedLevel = computed(() => picked.value ? agentLevel(picked.value.permissions) : 'read')
 const prompt = ref<{ busy: boolean, focus?: () => void } | null>(null)
 
@@ -397,7 +398,7 @@ async function send() {
   const switching = !single.value && pick.value && pick.value !== current.value.agent_id ? pick.value : ''
   try {
     // mode operate: the agent's own rights are the limit (members are capped server-side)
-    const res = await $fetch<{ turn_id: string, message: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: 'operate', edit_mode: editMode.value, agent_id: switching, context: props.pageContext?.() ?? '' } })
+    const res = await $fetch<{ turn_id: string, message: Message, notice?: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: 'operate', edit_mode: editMode.value, agent_id: switching, context: props.pageContext?.() ?? '' } })
     if (switching && picked.value && current.value) current.value = { ...current.value, agent_id: picked.value.id, agent_name: picked.value.name }
     draft.value = ''
     draftFiles.value = []
@@ -405,7 +406,9 @@ async function send() {
     // the server's push of this message may have come first (ADR-078): once only
     if (!messages.value.some(m => m.id === res.message.id)) messages.value.push(res.message)
     if (first) refreshConvs() // the server titles a conversation from its first message
-    follow(res.turn_id)
+    // only paused agents were called: their notice, nothing streams
+    if (res.notice && !messages.value.some(m => m.id === res.notice!.id)) messages.value.push(res.notice)
+    if (res.turn_id) follow(res.turn_id)
     scrollDown()
   } catch (e) {
     const d = (e as { data?: { code?: string, error?: string } }).data
@@ -744,13 +747,13 @@ onBeforeUnmount(() => {
         <PromptInput
           ref="prompt" v-model="draft" v-model:attachments="draftFiles" :project-id="projectId"
           :placeholder="picked ? t('chat.placeholderWithAgent', { agent: picked.name }) : t('chat.placeholderNoAgent')"
-          :mentions="single ? [] : agents.map(a => ({ name: a.name, label: permOf(agentLevel(a.permissions)).label, icon: permOf(agentLevel(a.permissions)).icon }))"
+          :mentions="single ? [] : onAgents.map(a => ({ name: a.name, label: permOf(agentLevel(a.permissions)).label, icon: permOf(agentLevel(a.permissions)).icon }))"
           @submit="send"
         >
           <template #actions>
             <ContextMeter :tokens="current?.context_tokens" :window="current?.context_window" />
             <USelect
-              v-if="!single && agents.length > 1" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink"
+              v-if="!single && onAgents.length > 1" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink"
               :icon="permOf(pickedLevel).icon" :title="permOf(pickedLevel).description" :aria-label="t('chat.pickAgent')"
             />
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />

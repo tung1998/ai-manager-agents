@@ -220,23 +220,28 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
           <span class="h-px flex-1 bg-(--ui-border)" />
         </div>
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <button
-            v-for="a in row.agents" :key="a.id" type="button"
-            class="rounded-lg border border-(--ui-border) bg-(--ui-bg) p-3 text-left transition hover:border-(--ui-primary) hover:shadow-sm"
-            @click="openAgent(a)"
+          <!-- a div, not a button: the on/off switch sits inside -->
+          <div
+            v-for="a in row.agents" :key="a.id" role="button" tabindex="0"
+            class="cursor-pointer rounded-lg border border-(--ui-border) bg-(--ui-bg) p-3 text-left transition hover:border-(--ui-primary) hover:shadow-sm"
+            @click="openAgent(a)" @keydown.enter.self="openAgent(a)"
           >
             <div class="flex items-start justify-between gap-2">
-              <div class="flex min-w-0 items-center gap-2.5">
+              <div class="flex min-w-0 items-center gap-2.5" :class="a.enabled === false ? 'opacity-50' : ''">
                 <AgentAvatar :agent="a" size="md" />
                 <div class="min-w-0">
                   <p class="truncate font-medium">{{ a.name }}</p>
                   <p class="truncate font-mono text-xs text-(--ui-text-muted)">{{ a.key }}</p>
                 </div>
               </div>
-              <UBadge :label="modelTierLabel[a.model_tier]" :color="tierColor[a.tier]" variant="subtle" size="sm" />
+              <div class="flex shrink-0 items-center gap-1.5">
+                <UBadge v-if="a.enabled === false" :label="t('org.editor.paused')" color="warning" variant="subtle" size="sm" icon="i-lucide-pause" />
+                <UBadge v-else :label="modelTierLabel[a.model_tier]" :color="tierColor[a.tier]" variant="subtle" size="sm" />
+                <AgentSwitch v-if="model.repo_id" :agent="a" @changed="refresh(); emit('changed')" />
+              </div>
             </div>
             <p v-if="a.role" class="mt-2 line-clamp-2 text-sm text-(--ui-text-toned)">{{ a.role }}</p>
-            <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-(--ui-text-muted)">
+            <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-(--ui-text-muted)" :class="a.enabled === false ? 'opacity-50' : ''">
               <span class="font-mono">{{ resolvedModel(a) }}</span>
               <span class="inline-flex items-center gap-1" :class="permRank(agentLevel(a.permissions)) >= 2 ? 'text-(--ui-warning)' : ''" :title="permOf(agentLevel(a.permissions)).description">
                 <UIcon :name="a.permissions.caps ? 'i-lucide-sliders-horizontal' : permOf(agentLevel(a.permissions)).icon" class="size-3.5" />{{ a.permissions.caps ? t('org.editor.customCaps', { n: a.permissions.caps.length }) : permOf(agentLevel(a.permissions)).label }}
@@ -246,7 +251,7 @@ const tierColor: Record<AgentTier, 'primary' | 'info' | 'neutral'> = { lead: 'pr
             <div v-if="a.reports_to.length" class="mt-2 flex flex-wrap gap-1">
               <UBadge v-for="r in a.reports_to" :key="r" :label="t('org.editor.reportsTo', { name: nameOf(r) })" color="neutral" variant="outline" size="sm" />
             </div>
-          </button>
+          </div>
         </div>
         <div v-if="i < rows.length - 1" class="flex justify-center">
           <UIcon name="i-lucide-chevrons-down" class="size-4 text-(--ui-text-dimmed)" />

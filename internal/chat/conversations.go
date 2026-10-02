@@ -14,9 +14,16 @@ func (e *Engine) StartConversationFor(ctx context.Context, projectID, agentID st
 	if err != nil {
 		return storage.Conversation{}, err
 	}
+	pick := func(a storage.Agent) storage.Conversation {
+		return storage.Conversation{ProjectID: projectID, AgentID: a.ID, AgentName: a.Name, CreatedBy: actor.From(ctx)}
+	}
+	if agentID == "" { // the first lead that is not paused
+		a, err := firstLead(agents)
+		return pick(a), err
+	}
 	for _, a := range agents {
-		if (agentID == "" && a.Tier == storage.TierLead) || a.ID == agentID {
-			return storage.Conversation{ProjectID: projectID, AgentID: a.ID, AgentName: a.Name, CreatedBy: actor.From(ctx)}, nil
+		if a.ID == agentID { // even paused: its first message gets the notice
+			return pick(a), nil
 		}
 	}
 	return storage.Conversation{}, ErrNoAgent

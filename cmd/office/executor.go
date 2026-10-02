@@ -59,6 +59,10 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 	if errors.Is(err, chat.ErrBusy) {
 		return conversationID, "", trigger.ErrBusy
 	}
+	var off *chat.OffError
+	if errors.As(err, &off) { // tagged only paused agents: the notice is the answer, no AI ran
+		return conversationID, off.Notice, nil
+	}
 	if err != nil {
 		return conversationID, "", err
 	}

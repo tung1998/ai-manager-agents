@@ -494,7 +494,8 @@ func (m *Manager) pick(ctx context.Context, project storage.Repo, ch storage.Cha
 		}
 		if strings.TrimSpace(a.Config.Scope) != "" {
 			agent, err := m.agent(ctx, ch.ProjectID, a.AgentID)
-			if err != nil || !m.inScope(ctx, project, agent, a.Config.Scope, text) {
+			// a paused agent spends nothing on the filter: the chat answers with its notice
+			if err != nil || (!agent.Disabled && !m.inScope(ctx, project, agent, a.Config.Scope, text)) {
 				continue
 			}
 		}
@@ -509,9 +510,11 @@ func (m *Manager) agent(ctx context.Context, projectID, agentID string) (storage
 	if err != nil {
 		return storage.Agent{}, err
 	}
-	for _, a := range agents {
-		if (agentID != "" && a.ID == agentID) || (agentID == "" && a.Tier == storage.TierLead) {
-			return a, nil
+	for _, list := range [][]storage.Agent{storage.OnAgents(agents), agents} { // a lead that is on first
+		for _, a := range list {
+			if (agentID != "" && a.ID == agentID) || (agentID == "" && a.Tier == storage.TierLead) {
+				return a, nil
+			}
 		}
 	}
 	return storage.Agent{}, errors.New("không có agent cho quy tắc này")
