@@ -23,7 +23,7 @@ const list = ref<GwServer[]>([])
 // changed: the machine MCP list shows which servers office has
 const emit = defineEmits<{ changed: [] }>()
 watch(data, (d) => { list.value = d?.servers ?? []; emit('changed') }, { immediate: true })
-defineExpose({ refresh })
+defineExpose({ refresh, servers: list, openClientForm: (id: string, msg: string) => openClientForm(id, msg) })
 const stat = (s: GwServer) => data.value?.stats?.[s.id]
 const fmt = (at: string) => new Date(at).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
@@ -123,23 +123,15 @@ async function remove(s: GwServer) {
 }
 
 // ---- OAuth login ----
-// some authorization servers only accept an https or localhost callback
-const plainRemote = computed(() => import.meta.client && location.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname))
-const connecting = ref<Record<string, boolean>>({})
-async function connect(s: GwServer) {
-  // open the tab now: a tab opened after an await is blocked as a popup
-  const tab = window.open('', '_blank')
-  connecting.value = { ...connecting.value, [s.id]: true }
-  try {
-    const r = await $fetch<{ url: string }>(`/api/mcp/servers/${s.id}/oauth/start`, { method: 'POST', body: { origin: location.origin } })
-    if (tab) tab.location.href = r.url
-    else location.href = r.url
-  } catch (e) {
-    tab?.close()
-    toast.add({ title: apiError(e), description: plainRemote.value ? t('tools.gwLocalhostHint') : undefined, color: 'error' })
-  } finally {
-    connecting.value = { ...connecting.value, [s.id]: false }
-  }
+const { connect: startLogin, connecting, plainRemote } = useMcpLogin()
+const connect = (s: GwServer) => startLogin(s.id, s.id, openClientForm)
+// no dynamic registration: the form, with its client fields open
+function openClientForm(id: string, msg: string) {
+  const s = list.value.find(x => x.id === id)
+  if (!s) return
+  openForm(s)
+  form.value.clientOpen = true
+  formError.value = msg
 }
 async function logout(s: GwServer) {
   if (!confirm(t('tools.gwConfirmLogout', { name: s.name }))) return

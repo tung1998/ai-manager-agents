@@ -151,8 +151,57 @@ const candOf = (i: AutoItem) => candidates.value.get(candKey(refOf(i)))
 const inOffice = (c?: McpCandidate) => !!c && (!!c.moved_as || c.taken)
 const canAdd = (c: McpCandidate) => c.movable && !c.problem
 const addTip = (c: McpCandidate) => c.problem === 'sse' ? t('tools.gwImportSse') : !c.movable ? t('tools.mcpAddNotMovable') : t('tools.mcpAddInfo')
-const officeMcp = ref<{ refresh: () => Promise<void> } | null>(null)
+interface OfficeServer { id: string, name: string, last_check_status: string, tools: unknown[] }
+const officeMcp = ref<{ refresh: () => Promise<void>, servers: OfficeServer[], openClientForm: (id: string, msg: string) => void } | null>(null)
 const busy = ref<Record<string, boolean>>({})
+const officeNameOf = (c: McpCandidate) => c.moved_as || (c.taken ? c.suggested : '')
+const officeServerOf = (c?: McpCandidate) => c ? officeMcp.value?.servers.find(s => s.name === officeNameOf(c)) : undefined
+
+// ---- "Đăng nhập qua office": a row claude cannot use until someone logs in.
+// Office cannot log in for Claude Code (its tokens are in its own keychain),
+// so the server is copied into office (the row stays) and office logs in.
+const { connect: startLogin, connecting } = useMcpLogin()
+const canLoginViaOffice = (i: AutoItem) => {
+  const c = candOf(i)
+  if (i.kind !== 'mcp' || !i.meta?.url || mcp?.byName.value.get(i.name)?.status !== 'needs_auth' || !c || c.problem) return false
+  return inOffice(c) ? officeServerOf(c)?.last_check_status !== 'ok' : c.movable
+}
+const awaitingLogin = new Map<string, AutoItem>() // office server id → its row
+async function officeIdFor(i: AutoItem) {
+  const c = candOf(i)!
+  const have = officeServerOf(c)
+  if (have) return have.id
+  const r = await $fetch<{ results: { ok: boolean, name: string, error?: string, server?: { id: string } }[] }>('/api/mcp/import', {
+    method: 'POST', body: { take_out: false, items: [{ ref: c.ref, name: c.suggested }] }
+  })
+  const res = r.results[0]
+  if (!res?.ok || !res.server) {
+    toast.add({ title: res?.error ?? t('tools.mcpAddFailed'), color: 'error' })
+    return null
+  }
+  await officeMcp.value?.refresh()
+  await loadCandidates()
+  return res.server.id
+}
+async function loginViaOffice(i: AutoItem) {
+  let id = ''
+  const ok = await startLogin('login|' + candKey(refOf(i)), async () => (id = (await officeIdFor(i)) ?? ''),
+    (sid, msg) => officeMcp.value?.openClientForm(sid, msg))
+  if (ok) awaitingLogin.set(id, i)
+}
+// office checks the server once the login is back: ok = it works
+onLiveEvent<OfficeServer>('mcp.gateway.status', (s) => {
+  const i = awaitingLogin.get(s.id)
+  if (!i || s.last_check_status !== 'ok') return
+  awaitingLogin.delete(s.id)
+  const off = canToggle(i) && !i.disabled
+  toast.add({
+    title: t('tools.mcpLoginDone', { name: s.name, n: s.tools?.length ?? 0 }),
+    description: off ? t('tools.mcpLoginDoneHint') : undefined,
+    color: 'success',
+    actions: off ? [{ label: t('tools.mcpTurnOffSource'), onClick: () => { setEnabled(i, false) } }] : undefined
+  })
+})
 async function addToOffice(i: AutoItem) {
   const c = candOf(i)
   if (!c) return
@@ -405,6 +454,9 @@ const summary = (tpl: MCPTemplate) => {
               <UBadge v-if="i.disabled" color="neutral" variant="outline" size="sm" icon="i-lucide-pause" :label="t('tools.mcpOff')" />
               <UTooltip v-else-if="mcp?.byName.value.get(i.name)" :text="mcpTip(mcp.byName.value.get(i.name)!)">
                 <UBadge :color="mcpBadge[mcp.byName.value.get(i.name)!.status].color" variant="subtle" size="sm" :icon="mcpBadge[mcp.byName.value.get(i.name)!.status].icon" :label="mcpBadge[mcp.byName.value.get(i.name)!.status].label" />
+              </UTooltip>
+              <UTooltip v-if="!i.disabled && canLoginViaOffice(i)" :text="t('tools.mcpLoginViaOfficeInfo')">
+                <UButton size="xs" icon="i-lucide-log-in" :label="t('tools.mcpLoginViaOffice')" :loading="connecting['login|' + candKey(refOf(i))]" @click="loginViaOffice(i)" />
               </UTooltip>
               <template v-if="kind === 'mcp' && candOf(i)">
                 <UTooltip v-if="inOffice(candOf(i))" :text="t('tools.mcpInOfficeInfo', { name: candOf(i)!.moved_as || candOf(i)!.suggested })">

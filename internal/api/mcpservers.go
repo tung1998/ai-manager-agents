@@ -438,6 +438,10 @@ func (s *server) startMCPLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	authURL, err := s.cfg.Gateway.StartLogin(r.Context(), m, userFrom(r).ID, u.Scheme+"://"+u.Host)
+	if errors.Is(err, mcpgateway.ErrNeedsClient) { // the dashboard opens the form
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error(), "code": "needs_client"})
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return

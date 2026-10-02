@@ -52,6 +52,23 @@ func (o *OAuth) clearTokens() {
 	o.AccessToken, o.RefreshToken, o.ExpiresAt = "", "", time.Time{}
 }
 
+// keep carries over from old (what was stored) the client and the login a
+// fresh discovery does not know: a typed client always, a registered one and
+// its tokens while the token endpoint is the same.
+func (o *OAuth) keep(old OAuth) {
+	switch {
+	case old.ClientManual:
+		o.ClientID, o.ClientSecret, o.ClientManual = old.ClientID, old.ClientSecret, true
+	case old.ClientID != "" && old.TokenEndpoint == o.TokenEndpoint:
+		o.ClientID, o.ClientSecret, o.AuthMethod, o.RedirectURIs = old.ClientID, old.ClientSecret, old.AuthMethod, old.RedirectURIs
+	default:
+		return
+	}
+	if old.LoggedIn() && old.TokenEndpoint == o.TokenEndpoint {
+		o.AccessToken, o.RefreshToken, o.ExpiresAt, o.Expired = old.AccessToken, old.RefreshToken, old.ExpiresAt, old.Expired
+	}
+}
+
 // SealOAuth encrypts o ("" when there is nothing to keep).
 func SealOAuth(b Sealer, o OAuth) (string, error) {
 	if o.Discovered() || o.ClientID != "" || o.LoggedIn() {
@@ -260,13 +277,17 @@ func redirectHint(redirect string) string {
 	return fmt.Sprintf(": mở office qua http://localhost:%s rồi bấm Kết nối", port)
 }
 
+// ErrNeedsClient: the authorization server registers no client on its own,
+// the person types one (client_id, maybe a secret) on the form.
+var ErrNeedsClient = errors.New("máy chủ đăng nhập không cho đăng ký tự động: nhập client_id trên form")
+
 // Register registers office as a client (RFC 7591) for redirect.
 func Register(ctx context.Context, hc *http.Client, o *OAuth, redirect string) error {
 	if hc == nil {
 		hc = http.DefaultClient
 	}
 	if o.RegistrationEndpoint == "" {
-		return errors.New("máy chủ đăng nhập không cho đăng ký tự động: nhập client_id trên form")
+		return ErrNeedsClient
 	}
 	ctx, cancel := context.WithTimeout(ctx, oauthTimeout)
 	defer cancel()

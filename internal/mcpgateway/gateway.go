@@ -167,8 +167,13 @@ func (g *Gateway) checkHTTP(ctx context.Context, m *storage.MCPServer) ([]storag
 		}
 		return nil, fmt.Errorf("MCP cần đăng nhập nhưng %v; nếu nó dùng API key thì thêm ở header", derr)
 	}
-	if old, oerr := OpenOAuth(g.Box, m.OAuthEnc); oerr == nil && old.ClientManual {
-		o.ClientID, o.ClientSecret, o.ClientManual = old.ClientID, old.ClientSecret, true
+	// what is stored now: a login may have started (or ended) while this
+	// check waited on the network, its client and tokens must stay
+	if fresh, ferr := g.Store.MCPServers().Get(ctx, m.ID); ferr == nil {
+		m.OAuthEnc = fresh.OAuthEnc
+	}
+	if old, oerr := OpenOAuth(g.Box, m.OAuthEnc); oerr == nil {
+		o.keep(old)
 	}
 	if serr := g.saveOAuth(ctx, m, o); serr != nil {
 		return nil, serr

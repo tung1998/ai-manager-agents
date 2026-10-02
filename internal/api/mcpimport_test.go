@@ -3,9 +3,13 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -84,6 +88,96 @@ func TestMCPRowAddAndToggleAPI(t *testing.T) {
 	ref["type"] = "cursor"
 	if resp, _ = do(t, admin, "POST", e.srv.URL+"/api/automation/mcp/enabled", map[string]any{"ref": ref, "enabled": false}, nil); resp.StatusCode == 200 {
 		t.Fatal("toggled a server that is not there")
+	}
+}
+
+// "Đăng nhập qua office" on a machine MCP row: the server is copied into
+// office (the row stays), then its login starts. An Atlassian-like server
+// (no resource metadata, RFC 8414 at the origin, registration) gives a login
+// URL; one without a login server, or without registration, gives the error
+// the dashboard shows (needs_client: it opens the form).
+func TestMCPRowLoginViaOfficeAPI(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	var as *httptest.Server
+	var noDCR atomic.Bool
+	as = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-authorization-server":
+			meta := map[string]any{"issuer": as.URL, "authorization_endpoint": as.URL + "/v1/authorize", "token_endpoint": as.URL + "/v1/token",
+				"code_challenge_methods_supported": []string{"plain", "S256"}}
+			if !noDCR.Load() {
+				meta["registration_endpoint"] = as.URL + "/v1/register"
+			}
+			json.NewEncoder(w).Encode(meta)
+		case "/v1/mcp":
+			w.Header().Set("WWW-Authenticate", `Bearer realm="OAuth", error="invalid_token"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/v1/register":
+			w.WriteHeader(201)
+			json.NewEncoder(w).Encode(map[string]any{"client_id": "atl-client", "token_endpoint_auth_method": "none"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer as.Close()
+	bare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		http.Error(w, "no", http.StatusUnauthorized)
+	}))
+	defer bare.Close()
+	dir := t.TempDir()
+	if _, err := e.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: dir}); err != nil {
+		t.Fatal(err)
+	}
+	mcpJSON := `{"mcpServers":{"atlassian":{"type":"http","url":"` + as.URL + `/v1/mcp"},"bare":{"type":"http","url":"` + bare.URL + `/mcp"}}}`
+	if err := os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(mcpJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, body := do(t, admin, "GET", e.srv.URL+"/api/mcp/import", nil, nil)
+	refs := map[string]any{}
+	for _, c := range body["candidates"].([]any) {
+		c := c.(map[string]any)
+		refs[c["name"].(string)] = c["ref"]
+	}
+	copyIn := func(name string) string {
+		t.Helper()
+		resp, body := do(t, admin, "POST", e.srv.URL+"/api/mcp/import", map[string]any{"take_out": false,
+			"items": []any{map[string]any{"ref": refs[name], "name": name}}}, nil)
+		res := body["results"].([]any)[0].(map[string]any)
+		if resp.StatusCode != 200 || res["ok"] != true || res["taken_out"] == true {
+			t.Fatalf("copy %s = %d %v", name, resp.StatusCode, body)
+		}
+		return res["server"].(map[string]any)["id"].(string)
+	}
+	start := func(id string) (int, map[string]any) {
+		t.Helper()
+		resp, body := do(t, admin, "POST", e.srv.URL+"/api/mcp/servers/"+id+"/oauth/start", map[string]any{"origin": e.srv.URL}, nil)
+		return resp.StatusCode, body
+	}
+
+	id := copyIn("atlassian")
+	if raw, _ := os.ReadFile(filepath.Join(dir, ".mcp.json")); string(raw) != mcpJSON {
+		t.Fatalf("the row left the file: %s", raw)
+	}
+	code, body := start(id)
+	u, _ := body["url"].(string)
+	if code != 200 || !strings.HasPrefix(u, as.URL+"/v1/authorize?") || !strings.Contains(u, "client_id=atl-client") ||
+		!strings.Contains(u, url.QueryEscape(e.srv.URL+"/api/mcp/oauth/callback")) {
+		t.Fatalf("start = %d %v", code, body)
+	}
+
+	if code, body = start(copyIn("bare")); code != 502 || !strings.Contains(body["error"].(string), "không tìm thấy máy chủ đăng nhập") || body["code"] != nil {
+		t.Fatalf("no login server = %d %v", code, body)
+	}
+
+	noDCR.Store(true)
+	m, _ := e.st.MCPServers().Get(ctx, id)
+	_ = e.st.MCPServers().SetOAuth(ctx, m.ID, "") // discover again
+	if code, body = start(id); code != 502 || body["code"] != "needs_client" || !strings.Contains(body["error"].(string), "client_id") {
+		t.Fatalf("no registration = %d %v", code, body)
 	}
 }
 

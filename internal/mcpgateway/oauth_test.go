@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -232,6 +233,96 @@ func TestDiscover(t *testing.T) {
 	if o, err := Discover(context.Background(), nil, bare.URL+"/mcp", "Bearer"); err != nil || !o.Guessed ||
 		o.AuthEndpoint != bare.URL+"/authorize" || o.TokenEndpoint != bare.URL+"/token" || o.RegistrationEndpoint != bare.URL+"/register" {
 		t.Fatalf("discover defaults = %+v %v", o, err)
+	}
+}
+
+// atlassianLike answers like mcp.atlassian.com/v1/mcp (seen 2026-10): a 401
+// whose WWW-Authenticate names no resource metadata, no
+// oauth-protected-resource document, and RFC 8414 metadata at the origin
+// with endpoints under /v1 and a registration endpoint.
+func atlassianLike(t *testing.T) *httptest.Server {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-authorization-server":
+			json.NewEncoder(w).Encode(map[string]any{"issuer": srv.URL, "authorization_endpoint": srv.URL + "/v1/authorize",
+				"token_endpoint": srv.URL + "/v1/token", "registration_endpoint": srv.URL + "/v1/register",
+				"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
+				"code_challenge_methods_supported":      []string{"plain", "S256"}})
+		case "/v1/mcp":
+			w.Header().Set("WWW-Authenticate", `Bearer realm="OAuth", error="invalid_token", error_description="Missing or invalid access token"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"invalid_token"}`))
+		case "/v1/register":
+			w.WriteHeader(201)
+			json.NewEncoder(w).Encode(map[string]any{"client_id": "atl-client", "token_endpoint_auth_method": "none"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestDiscoverAtlassianLike(t *testing.T) {
+	srv := atlassianLike(t)
+	ctx := context.Background()
+	_, err := Check(ctx, nil, srv.URL+"/v1/mcp", nil)
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != 401 {
+		t.Fatalf("check = %v", err)
+	}
+	o, err := Discover(ctx, nil, srv.URL+"/v1/mcp", se.WWWAuthenticate)
+	if err != nil || o.Guessed || o.AuthEndpoint != srv.URL+"/v1/authorize" || o.TokenEndpoint != srv.URL+"/v1/token" ||
+		o.RegistrationEndpoint != srv.URL+"/v1/register" || o.Resource != srv.URL+"/v1/mcp" {
+		t.Fatalf("discover = %+v %v", o, err)
+	}
+	if err := Register(ctx, nil, &o, "http://localhost:2704"+CallbackPath); err != nil || o.ClientID != "atl-client" || o.AuthMethod != "none" {
+		t.Fatalf("register = %+v %v", o, err)
+	}
+}
+
+// The real server, by hand: OFFICE_LIVE_MCP_OAUTH=https://mcp.atlassian.com/v1/mcp go test -run Live ./internal/mcpgateway
+// (discovery only: nothing is registered).
+func TestDiscoverLive(t *testing.T) {
+	u := os.Getenv("OFFICE_LIVE_MCP_OAUTH")
+	if u == "" {
+		t.Skip("OFFICE_LIVE_MCP_OAUTH not set")
+	}
+	ctx := context.Background()
+	_, err := Check(ctx, nil, u, nil)
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != 401 {
+		t.Fatalf("check = %v", err)
+	}
+	o, err := Discover(ctx, nil, u, se.WWWAuthenticate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("issuer=%s authorize=%s token=%s register=%s guessed=%v", o.Issuer, o.AuthEndpoint, o.TokenEndpoint, o.RegistrationEndpoint, o.Guessed)
+}
+
+// A check that ran during a login (it saw no token, then discovered) must not
+// drop the client the login registered, nor the tokens it got.
+func TestCheckKeepsLogin(t *testing.T) {
+	f, gw, st, m, _ := setupOAuth(t)
+	ctx := context.Background()
+	authURL, err := gw.StartLogin(ctx, m, "u1", "http://localhost:2704")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := m // as the background check read it: before the login
+	state, code := f.authorize(t, authURL)
+	if _, err := gw.FinishLogin(ctx, "u1", state, code, ""); err != nil {
+		t.Fatal(err)
+	}
+	f.revoke() // the stale check gets a 401 and discovers again
+	if _, err := gw.CheckServer(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.MCPServers().Get(ctx, m.ID)
+	if o, _ := OpenOAuth(gw.Box, got.OAuthEnc); o.ClientID != "cid" || !o.LoggedIn() {
+		t.Fatalf("after a stale check = %+v", o)
 	}
 }
 
