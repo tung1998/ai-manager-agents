@@ -9,14 +9,68 @@ type GwStatus = '' | 'ok' | 'error' | 'needs_login'
 interface GwServer {
   id: string, name: string, kind: 'http' | 'stdio', url: string, headers: Record<string, string>,
   command: string, args: string[], env: Record<string, string>, oauth: GwOAuth | null, scope: string, origin: string,
-  enabled: boolean, path: string, last_check_at: string | null, last_check_status: GwStatus, last_check_error: string, tools: GwTool[]
+  enabled: boolean, path: string, last_check_at: string | null, last_check_status: GwStatus, last_check_error: string, tools: GwTool[],
+  agents: string[], trusted_tools: string[], moved_from: { type: string, label: string, name: string, moved_at: string, backup: boolean } | null
 }
+interface GwStat { calls: number, errors: number, proposed: number, last_at: string | null }
+interface GwAgent { id: string, name: string, project: string, ai: string }
+interface GwCall { id: string, tool: string, caller: string, caller_kind: string, status: string, error: string, duration_ms: number, created_at: string }
 
 const { t, dateLocale } = useLang()
 const toast = useToast()
-const { data, refresh } = await useLiveFetch<{ servers: GwServer[] }>('/api/mcp/servers')
+const { data, refresh } = await useLiveFetch<{ servers: GwServer[], stats: Record<string, GwStat> }>('/api/mcp/servers')
 const list = ref<GwServer[]>([])
 watch(data, (d) => { list.value = d?.servers ?? [] }, { immediate: true })
+const stat = (s: GwServer) => data.value?.stats?.[s.id]
+const fmt = (at: string) => new Date(at).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+
+// ---- which agents get a server, and its tools that write without asking (ADR-093) ----
+const { data: agentData } = await useFetch<{ agents: GwAgent[] }>('/api/mcp/agents')
+const agentItems = computed(() => (agentData.value?.agents ?? []).map(a => ({
+  value: a.id,
+  label: a.project ? `${a.name} · ${a.project}` : t('tools.gwAssistant')
+})))
+async function patch(s: GwServer, body: Record<string, unknown>) {
+  try {
+    put((await $fetch<{ server: GwServer }>(`/api/mcp/servers/${s.id}`, { method: 'PATCH', body })).server)
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+const setAgents = (s: GwServer, ids: string[]) => patch(s, { agents: ids })
+const trust = (s: GwServer, tool: string, on: boolean) =>
+  patch(s, { trusted_tools: on ? [...s.trusted_tools, tool] : s.trusted_tools.filter(x => x !== tool) })
+
+// ---- call log ----
+const calls = ref<Record<string, GwCall[]>>({})
+const keepDays = ref(30)
+async function loadCalls(s: GwServer) {
+  try {
+    const r = await $fetch<{ calls: GwCall[], keep_days: number }>(`/api/mcp/servers/${s.id}/calls`, { query: { limit: 50 } })
+    calls.value = { ...calls.value, [s.id]: r.calls }
+    keepDays.value = r.keep_days
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+const callColor = (st: string) => ({ ok: 'success', error: 'error', proposed: 'warning', denied: 'error' } as const)[st as 'ok'] ?? 'neutral'
+const callLabel = (st: string) => ({
+  ok: t('tools.gwCallOk'), error: t('tools.gwCallError'), proposed: t('tools.gwCallProposed'), denied: t('tools.gwCallDenied')
+})[st as 'ok'] ?? st
+
+// ---- moving in and back (ADR-093) ----
+const importOpen = ref(false)
+async function putBack(s: GwServer) {
+  if (!s.moved_from || !confirm(t('tools.gwConfirmPutBack', { name: s.name, to: s.moved_from.label }))) return
+  const del = confirm(t('tools.gwPutBackDelete', { name: s.name }))
+  try {
+    await $fetch(`/api/mcp/servers/${s.id}/put-back`, { method: 'POST', body: { delete: del } })
+    toast.add({ title: t('tools.gwPutBackDone', { name: s.name, to: s.moved_from.label }), color: 'success' })
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
 const put = (s: GwServer) => { list.value = list.value.map(x => (x.id === s.id ? s : x)) }
 onLiveEvent<GwServer>('mcp.gateway.status', put)
 
@@ -28,7 +82,7 @@ const badge = computed(() => ({
 }))
 const tip = (s: GwServer) => s.last_check_status === 'error' || s.last_check_status === 'needs_login'
   ? s.last_check_error
-  : s.last_check_at ? t('tools.mcpCheckedAt', { time: new Date(s.last_check_at).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) }) : ''
+  : s.last_check_at ? t('tools.mcpCheckedAt', { time: fmt(s.last_check_at) }) : ''
 const target = (s: GwServer) => s.kind === 'stdio' ? [s.command, ...s.args].join(' ') : s.url
 // a login is offered once office found the server's authorization server
 const canLogin = (s: GwServer) => s.kind === 'http' && (s.last_check_status === 'needs_login' || !!s.oauth?.required)
@@ -150,7 +204,8 @@ async function save() {
       <UTooltip :text="t('tools.gwInfo')">
         <UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" />
       </UTooltip>
-      <UButton class="ms-auto" size="xs" icon="i-lucide-plus" :label="t('tools.gwAdd')" @click="openForm()" />
+      <UButton class="ms-auto" size="xs" color="neutral" variant="outline" icon="i-lucide-arrow-right-to-line" :label="t('tools.gwImport')" @click="importOpen = true" />
+      <UButton size="xs" icon="i-lucide-plus" :label="t('tools.gwAdd')" @click="openForm()" />
     </h3>
     <p v-if="!list.length" class="rounded-lg border border-dashed border-(--ui-border) px-4 py-3 text-sm text-(--ui-text-muted)">{{ t('tools.gwEmpty') }}</p>
     <div v-else class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
@@ -158,11 +213,20 @@ async function save() {
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
           <UIcon :name="s.kind === 'stdio' ? 'i-lucide-terminal' : 'i-lucide-plug'" class="size-4 shrink-0 text-primary" />
           <div class="min-w-0 flex-1">
-            <p class="truncate font-mono text-sm font-medium">{{ s.name }}</p>
+            <p class="flex items-center gap-2 truncate font-mono text-sm font-medium">
+              {{ s.name }}
+              <UTooltip v-if="s.moved_from" :text="t('tools.gwMovedFromInfo', { name: s.moved_from.name, time: fmt(s.moved_from.moved_at) })">
+                <UBadge color="neutral" variant="subtle" size="sm" icon="i-lucide-arrow-right-to-line" :label="s.moved_from.label" class="font-sans" />
+              </UTooltip>
+              <UBadge v-if="s.agents.length" color="primary" variant="subtle" size="sm" icon="i-lucide-users" :label="t('tools.gwAgentsN', { n: s.agents.length })" class="font-sans" />
+            </p>
             <p class="truncate font-mono text-xs text-(--ui-text-muted)">{{ target(s) }}</p>
           </div>
           <div class="flex items-center gap-2">
-            <UButton v-if="s.tools.length" size="xs" color="neutral" variant="subtle" :label="t('tools.gwTools', { n: s.tools.length })"
+            <UTooltip v-if="stat(s)?.calls" :text="t('tools.gwStatInfo', { errors: stat(s)!.errors, proposed: stat(s)!.proposed })">
+              <UBadge :color="stat(s)!.errors ? 'warning' : 'neutral'" variant="outline" size="sm" icon="i-lucide-activity" :label="t('tools.gwCalls24h', { n: stat(s)!.calls })" />
+            </UTooltip>
+            <UButton size="xs" color="neutral" variant="subtle" :label="s.tools.length ? t('tools.gwTools', { n: s.tools.length }) : t('tools.gwDetails')"
                      :trailing-icon="open[s.id] ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" @click="open = { ...open, [s.id]: !open[s.id] }" />
             <UButton v-if="canLogin(s) && !loggedIn(s)" size="xs" icon="i-lucide-log-in" :loading="connecting[s.id]"
                      :label="s.oauth?.logged_in ? t('tools.gwReconnect') : t('tools.gwConnect')" @click="connect(s)" />
@@ -172,6 +236,7 @@ async function save() {
             <USwitch :model-value="s.enabled" size="sm" :aria-label="t('tools.gwEnabled')" @update:model-value="v => toggle(s, v)" />
             <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :aria-label="t('tools.mcpCheck')" :loading="checking[s.id]" @click="check(s)" />
             <UButton v-if="loggedIn(s)" size="xs" color="neutral" variant="ghost" icon="i-lucide-log-out" :aria-label="t('tools.gwLogout')" @click="logout(s)" />
+            <UButton v-if="s.moved_from" size="xs" color="neutral" variant="ghost" icon="i-lucide-undo-2" :aria-label="t('tools.gwPutBack')" @click="putBack(s)" />
             <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-pencil" :aria-label="t('common.edit')" @click="openForm(s)" />
             <UButton size="xs" color="error" variant="ghost" icon="i-lucide-trash-2" :aria-label="t('common.delete')" @click="remove(s)" />
           </div>
@@ -181,15 +246,45 @@ async function save() {
           {{ s.last_check_error }}
           <span v-if="canLogin(s) && plainRemote" class="text-(--ui-text-muted)"> · {{ t('tools.gwLocalhostHint') }}</span>
         </p>
-        <ul v-if="open[s.id] && s.tools.length" class="mt-2 space-y-1 ps-7">
-          <li v-for="tl in s.tools" :key="tl.name" class="flex items-baseline gap-2 text-xs">
-            <code class="shrink-0">mcp__{{ s.name }}__{{ tl.name }}</code>
-            <UBadge v-if="tl.read_only" color="neutral" variant="subtle" size="sm" :label="t('tools.gwReadOnly')" />
-            <span class="truncate text-(--ui-text-muted)">{{ tl.description }}</span>
-          </li>
-        </ul>
+        <div v-if="open[s.id]" class="mt-2 space-y-3 ps-7">
+          <UFormField :label="t('tools.gwAgents')">
+            <template #hint>
+              <UTooltip :text="t('tools.gwAgentsInfo')"><UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" /></UTooltip>
+            </template>
+            <USelectMenu :model-value="s.agents" :items="agentItems" value-key="value" multiple size="sm" class="w-full max-w-md"
+                         :placeholder="t('tools.gwAllAgents')" @update:model-value="(v: string[]) => setAgents(s, v)" />
+          </UFormField>
+          <ul v-if="s.tools.length" class="space-y-1">
+            <li v-for="tl in s.tools" :key="tl.name" class="flex items-center gap-2 text-xs">
+              <code class="shrink-0">mcp__{{ s.name }}__{{ tl.name }}</code>
+              <UBadge v-if="tl.read_only" color="neutral" variant="subtle" size="sm" :label="t('tools.gwReadOnly')" />
+              <UTooltip v-else :text="t('tools.gwTrustInfo')">
+                <USwitch :model-value="s.trusted_tools.includes(tl.name)" size="xs" :label="t('tools.gwTrust')"
+                         @update:model-value="v => trust(s, tl.name, v)" />
+              </UTooltip>
+              <span class="truncate text-(--ui-text-muted)">{{ tl.description }}</span>
+            </li>
+          </ul>
+          <div>
+            <UButton size="xs" color="neutral" variant="link" icon="i-lucide-history" class="px-0" :label="t('tools.gwCallLog')" @click="loadCalls(s)" />
+            <template v-if="calls[s.id]">
+              <p v-if="!calls[s.id]!.length" class="text-xs text-(--ui-text-muted)">{{ t('tools.gwNoCalls', { days: keepDays }) }}</p>
+              <ul v-else class="mt-1 space-y-0.5 text-xs">
+                <li v-for="c in calls[s.id]" :key="c.id" class="flex items-baseline gap-2">
+                  <span class="shrink-0 text-(--ui-text-muted)">{{ fmt(c.created_at) }}</span>
+                  <UBadge :color="callColor(c.status)" variant="subtle" size="sm" :label="callLabel(c.status)" />
+                  <code class="shrink-0">{{ c.tool }}</code>
+                  <span class="shrink-0 text-(--ui-text-muted)">{{ c.caller || t('tools.gwPerson') }}<template v-if="c.caller_kind"> · {{ c.caller_kind }}</template> · {{ c.duration_ms }}ms</span>
+                  <span v-if="c.error" class="truncate text-(--ui-error)">{{ c.error }}</span>
+                </li>
+              </ul>
+            </template>
+          </div>
+        </div>
       </div>
     </div>
+
+    <OfficeMcpImport v-model:open="importOpen" @done="refresh()" />
 
     <UModal v-model:open="formOpen" :title="editing ? t('tools.editTitle', { name: editing.name }) : t('tools.gwAddTitle')">
       <template #body>

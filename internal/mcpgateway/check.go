@@ -69,6 +69,30 @@ func Check(ctx context.Context, hc *http.Client, rawURL string, headers map[stri
 	return tools, nil
 }
 
+// callHTTP opens a session with an HTTP server and calls one tool (office
+// calling on behalf of an API run, or after a person approved the call).
+func callHTTP(ctx context.Context, hc *http.Client, rawURL string, headers map[string]string, tool string, args json.RawMessage) (json.RawMessage, error) {
+	if hc == nil {
+		hc = http.DefaultClient
+	}
+	c := &client{http: hc, url: rawURL, headers: headers}
+	defer c.close()
+	if _, err := c.call(ctx, "initialize", initParams()); err != nil {
+		return nil, err
+	}
+	if err := c.notify(ctx, "notifications/initialized"); err != nil {
+		return nil, err
+	}
+	return c.call(ctx, "tools/call", toolParams(tool, args))
+}
+
+func toolParams(tool string, args json.RawMessage) map[string]any {
+	if len(bytes.TrimSpace(args)) == 0 || string(bytes.TrimSpace(args)) == "null" {
+		args = json.RawMessage(`{}`)
+	}
+	return map[string]any{"name": tool, "arguments": args}
+}
+
 // initParams is what office sends as initialize, as a client.
 func initParams() map[string]any {
 	return map[string]any{
@@ -93,8 +117,9 @@ func listTools(ctx context.Context, call func(ctx context.Context, method string
 		}
 		var res struct {
 			Tools []struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
+				Name        string          `json:"name"`
+				Description string          `json:"description"`
+				InputSchema json.RawMessage `json:"inputSchema"`
 				Annotations struct {
 					ReadOnlyHint *bool `json:"readOnlyHint"`
 				} `json:"annotations"`
@@ -105,7 +130,11 @@ func listTools(ctx context.Context, call func(ctx context.Context, method string
 			return nil, errors.New("danh sách tool không đọc được")
 		}
 		for _, t := range res.Tools {
-			tools = append(tools, storage.MCPTool{Name: t.Name, Description: firstLine(t.Description, 300), ReadOnly: t.Annotations.ReadOnlyHint})
+			schema := t.InputSchema
+			if len(schema) > 32<<10 { // a schema this big is not worth keeping per tool
+				schema = nil
+			}
+			tools = append(tools, storage.MCPTool{Name: t.Name, Description: firstLine(t.Description, 300), ReadOnly: t.Annotations.ReadOnlyHint, InputSchema: schema})
 		}
 		if cursor = res.NextCursor; cursor == "" {
 			break

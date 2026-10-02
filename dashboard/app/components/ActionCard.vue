@@ -66,7 +66,8 @@ const kindLabels: Record<string, string> = {
   config_change: 'action.kind.config_change',
   start_task: 'action.kind.start_task',
   run_automation: 'action.kind.run_automation',
-  remember: 'action.kind.remember'
+  remember: 'action.kind.remember',
+  mcp_call: 'action.kind.mcp_call'
 }
 const kindLabel = computed(() => {
   const key = kindLabels[props.action.kind]

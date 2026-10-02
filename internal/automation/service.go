@@ -98,7 +98,7 @@ func (s *Service) rawMCP(it Item) (map[string]any, error) {
 			}
 		}
 	case "codex":
-		return nil, errors.New("chưa hỗ trợ sao chép MCP từ Codex")
+		return codexServer(it.Location.Path, it.Name)
 	}
 	c, ok := servers[it.Name].(map[string]any)
 	if !ok {

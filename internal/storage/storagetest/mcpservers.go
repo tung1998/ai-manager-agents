@@ -53,6 +53,16 @@ func testMCPServers(t *testing.T, s storage.Store) {
 	if got, _ = r.Get(ctx, got.ID); got.OAuthEnc != "oauth-enc" {
 		t.Fatalf("oauth after update = %q", got.OAuthEnc)
 	}
+	got.Agents, got.TrustedTools, got.OriginRef = []string{"agt_1"}, []string{"write"}, `{"type":"user"}`
+	if err := r.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = r.Get(ctx, got.ID); len(got.Agents) != 1 || got.Agents[0] != "agt_1" || len(got.TrustedTools) != 1 || got.OriginRef != `{"type":"user"}` {
+		t.Fatalf("assignment after update = %+v", got)
+	}
+	if b, _ = r.Get(ctx, b.ID); b.Agents == nil || len(b.Agents) != 0 || b.TrustedTools == nil {
+		t.Fatalf("defaults = %+v", b)
+	}
 	list, _ := r.List(ctx)
 	if len(list) != 2 || list[0].Name != "abc" {
 		t.Fatalf("List by name = %+v", list)
@@ -62,5 +72,42 @@ func testMCPServers(t *testing.T, s storage.Store) {
 	}
 	if _, err := r.Get(ctx, a.ID); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("Get deleted err = %v", err)
+	}
+}
+
+func testMCPCalls(t *testing.T, s storage.Store) {
+	ctx := context.Background()
+	r := s.MCPCalls()
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	for _, c := range []storage.MCPCall{
+		{ServerID: "m1", ServerName: "a", Tool: "t1", Status: "ok", CreatedAt: old},
+		{ServerID: "m1", ServerName: "a", Tool: "t2", Status: "error", Error: "boom"},
+		{ServerID: "m1", ServerName: "a", Tool: "t3", Status: "proposed", ActionID: "act_1"},
+		{ServerID: "m2", ServerName: "b", Tool: "t1", Status: "ok", Caller: "Dev", CallerKind: "claude"},
+	} {
+		if err := r.Add(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list, err := r.List(ctx, "m1", 10)
+	if err != nil || len(list) != 3 || list[2].Tool != "t1" {
+		t.Fatalf("List m1 = %+v %v", list, err)
+	}
+	if all, _ := r.List(ctx, "", 2); len(all) != 2 {
+		t.Fatalf("List limit = %+v", all)
+	}
+	stats, err := r.Stats(ctx, time.Now().UTC().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]storage.MCPCallStat{}
+	for _, st := range stats {
+		by[st.ServerID] = st
+	}
+	if st := by["m1"]; st.Calls != 2 || st.Errors != 1 || st.Proposed != 1 || st.LastAt == nil {
+		t.Fatalf("stats m1 = %+v", st)
+	}
+	if n, _ := r.Prune(ctx, time.Now().UTC().Add(-24*time.Hour)); n != 1 {
+		t.Fatalf("pruned %d", n)
 	}
 }

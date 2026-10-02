@@ -651,6 +651,15 @@ type ActionArgs struct {
 	Automation json.RawMessage `json:"automation,omitempty"`
 	// config_change: a settings change through the config registry (ADR-045)
 	Change *ConfigChange `json:"change,omitempty"`
+	// mcp_call: a call of an office MCP tool that writes (ADR-093)
+	MCP *MCPCallArgs `json:"mcp,omitempty"`
+}
+
+// MCPCallArgs is a tool call waiting for a person.
+type MCPCallArgs struct {
+	Server    string          `json:"server"`
+	Tool      string          `json:"tool"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
 // ConfigChange is a proposed change of one setting: create, update or delete

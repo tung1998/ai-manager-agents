@@ -76,6 +76,10 @@ func (s *Server) Authorized(r *http.Request) bool {
 	return ok
 }
 
+// ScopeOf is the scope of r's token: the gateway's tool policy and agent
+// assignment go by it (ADR-093).
+func (s *Server) ScopeOf(r *http.Request) (officetools.Scope, bool) { return s.scope(r) }
+
 func (s *Server) scope(r *http.Request) (officetools.Scope, bool) {
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || tok == "" {

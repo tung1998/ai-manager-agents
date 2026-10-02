@@ -6,6 +6,7 @@ package actions
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -38,7 +39,20 @@ var Kinds = map[string]string{
 	"config_change":     "Đổi cài đặt",
 	"run_automation":    "Chạy tự động hóa",
 	"remember":          "Ghi nhớ",
+	"mcp_call":          "Gọi tool MCP",
 }
+
+// MCPCaller calls an office MCP tool once a person approved it (the MCP
+// gateway, ADR-093).
+type MCPCaller interface {
+	CallTool(ctx context.Context, server, tool string, args json.RawMessage) (text string, isErr bool, err error)
+}
+
+// SetMCP turns on mcp_call proposals.
+func (s *Service) SetMCP(m MCPCaller) { s.mcp = m }
+
+// mcpResultMax bounds the tool result kept on the action.
+const mcpResultMax = 20000
 
 // Runner starts work the office assistant proposed (ADR-046).
 type Runner interface {
@@ -111,6 +125,7 @@ type Service struct {
 	runner Runner
 	memory Memory
 	direct AutoApprover
+	mcp    MCPCaller
 }
 
 // AutoApprover says whether the chat an action comes from approves it at once
@@ -164,6 +179,11 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 			return a, err
 		}
 		a.TargetID = id
+	} else if kind == "mcp_call" { // the gateway sends only calls its policy did not let through
+		if s.mcp == nil || a.Args.MCP == nil || a.Args.MCP.Server == "" || a.Args.MCP.Tool == "" {
+			return a, errors.New("không gọi tool MCP được ở đây")
+		}
+		a.Target = a.Args.MCP.Server + "/" + a.Args.MCP.Tool
 	} else if kind == "run_automation" { // costs tokens: a person always decides
 		if s.runner == nil {
 			return a, errors.New("không giao việc được ở đây")
@@ -232,7 +252,7 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 			return a, fmt.Errorf("%w: service %q", ErrTarget, target)
 		}
 	}
-	if sc.ConversationID != "" || sc.TaskID != "" {
+	if (sc.ConversationID != "" || sc.TaskID != "") && kind != "mcp_call" { // a tool call differs by its arguments
 		if list, err := s.store.Actions().List(ctx, sc.ConversationID, sc.TaskID, ""); err == nil {
 			for _, x := range list {
 				if x.Status == "pending" && x.Kind == a.Kind && x.Target == a.Target {
@@ -296,6 +316,8 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 		return s.memory != nil && s.memory.Auto(ctx, a.ProjectID)
 	case "create_automation", "update_automation", "config_change", "run_automation":
 		return false // code that runs unattended, or settings: a person always decides
+	case "mcp_call":
+		return false // the gateway already let through what the agent may call itself
 	case "git_commit":
 		return acc.Can(perm.CapCommit)
 	case "git_branch":
@@ -357,6 +379,23 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 		}
 		if out != "" {
 			a.Detail += "\n" + out
+		}
+		return a, s.store.Actions().Update(ctx, a)
+	}
+	if a.Kind == "mcp_call" {
+		a.Status, a.Detail = "done", ""
+		if s.mcp == nil || a.Args.MCP == nil {
+			a.Status, a.Detail = "failed", "office không gọi được tool MCP ở đây"
+		} else if text, isErr, err := s.mcp.CallTool(ctx, a.Args.MCP.Server, a.Args.MCP.Tool, a.Args.MCP.Arguments); err != nil {
+			a.Status, a.Detail = "failed", err.Error()
+		} else {
+			if isErr {
+				a.Status = "failed"
+			}
+			if r := []rune(text); len(r) > mcpResultMax {
+				text = string(r[:mcpResultMax]) + "\n… (đã cắt)"
+			}
+			a.Detail = text
 		}
 		return a, s.store.Actions().Update(ctx, a)
 	}

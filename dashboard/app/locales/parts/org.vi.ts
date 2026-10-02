@@ -26,6 +26,8 @@ export default {
   'avatar.badImage': 'Không đọc được ảnh này',
   'perm.cap.toolsMcp.label': 'Dùng MCP của bạn',
   'perm.cap.toolsMcp.description': 'Các MCP/connector trong Claude Code của bạn (Graylog, Jira, Discord…)',
+  'perm.cap.toolsMcpWrite.label': 'Tự gọi tool MCP có ghi',
+  'perm.cap.toolsMcpWrite.description': 'Gọi ngay tool có ghi của MCP qua office; không có thì mỗi lần gọi thành đề xuất chờ duyệt',
   'perm.cap.commandsRun.label': 'Tự chạy lệnh',
   'perm.cap.commandsRun.description': 'Chạy ngay các lệnh được chọn; lệnh khác phải đề xuất',
   'perm.cap.gitCommit.label': 'Tự commit',

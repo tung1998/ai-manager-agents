@@ -465,8 +465,10 @@ func truncate(s string, n int) string {
 func writeMCPConfig(o *OfficeAccess) (string, error) {
 	auth := map[string]string{"Authorization": "Bearer " + o.Token}
 	servers := map[string]any{mcpserver.ServerName: map[string]any{"type": "http", "url": o.MCPURL, "headers": auth}}
+	// which AI calls, for the call log (ADR-093)
+	gw := map[string]string{"Authorization": auth["Authorization"], ClientHeader: "claude"}
 	for _, n := range o.Gateway { // same token: the gateway adds each server's own secrets
-		servers[n] = map[string]any{"type": "http", "url": o.MCPURL + "/s/" + n, "headers": auth}
+		servers[n] = map[string]any{"type": "http", "url": o.MCPURL + "/s/" + n, "headers": gw}
 	}
 	raw, err := json.Marshal(map[string]any{"mcpServers": servers})
 	if err != nil {

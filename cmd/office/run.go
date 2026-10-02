@@ -189,10 +189,14 @@ func serveCmd() *cobra.Command {
 			}
 			go monitors.Run(ctx)
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-			// the MCP servers office manages, at /mcp/s/<name> with the runs' tokens (ADR-091)
-			gateway := &mcpgateway.Gateway{Store: a.store, Box: a.providers.Box(), Auth: mcp.Authorized, Log: log, Env: a.cli.Env()}
+			// the MCP servers office manages, at /mcp/s/<name> with the runs' tokens (ADR-091);
+			// who calls, and tools that write (ADR-093)
+			gateway := &mcpgateway.Gateway{Store: a.store, Box: a.providers.Box(), Auth: mcp.Authorized, Log: log, Env: a.cli.Env(),
+				Identify: gatewayIdentify(a.store, mcp), Propose: gatewayProposer(acts)}
 			defer gateway.Close() // stdio servers office runs (ADR-092)
-			chatEngine.SetGateway(gateway.Names)
+			// an approved mcp_call runs through it
+			acts.SetMCP(gateway)
+			chatEngine.SetGateway(gatewayFor(a.store, gateway))
 			handler := api.New(api.Config{
 				Office: office, Channels: bots, Memory: mem, Events: liveBus,
 				Store: st, Auth: a.auth, AllowedOrigins: origins,

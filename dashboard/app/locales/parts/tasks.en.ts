@@ -112,6 +112,7 @@ const en: Record<keyof typeof vi, string> = {
   'action.alwaysNoAuto': 'Added {pattern}, but the agent’s current level doesn’t let it run commands beyond the safe list on its own',
   'action.alwaysError': 'The command ran, but the always-allow permission was not saved',
   'action.kind.remember': 'Remember',
+  'action.kind.mcp_call': 'Call an MCP tool',
   'action.kind.config_change': 'Change a setting',
   'action.op.create': 'Create',
   'action.op.update': 'Update',

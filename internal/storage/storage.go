@@ -7,6 +7,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -124,6 +125,8 @@ type Store interface {
 	Burn() BurnRepo
 	// MCPServers are the MCP servers behind the office gateway (ADR-091).
 	MCPServers() MCPServerRepo
+	// MCPCalls log each tool call through the gateway (ADR-093).
+	MCPCalls() MCPCallRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error
@@ -230,14 +233,49 @@ type MCPServer struct {
 	LastCheckStatus      string // "" (never) | ok | error | needs_login
 	LastCheckError       string
 	LastTools            []MCPTool
+	Agents               []string // agent ids that get it; empty = every agent (ADR-093)
+	TrustedTools         []string // tools that write yet run without approval
+	OriginRef            string   // JSON of the config it was moved from ("" = made in office)
 	CreatedAt, UpdatedAt time.Time
 }
 
 // MCPTool is one tool a server listed at its last check.
 type MCPTool struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	ReadOnly    *bool  `json:"read_only,omitempty"` // its readOnlyHint, when it gave one
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	ReadOnly    *bool           `json:"read_only,omitempty"`    // its readOnlyHint, when it gave one
+	InputSchema json.RawMessage `json:"input_schema,omitempty"` // for AI called through an API
+}
+
+// MCPCall is one tool call through the gateway (ADR-093).
+type MCPCall struct {
+	ID, ServerID, ServerName, Tool string
+	Caller                         string // agent name, "" = a person's own CLI
+	CallerKind                     string // claude | codex | api | person
+	ProjectID, ConversationID      string
+	JobID, ActionID                string
+	Status                         string // ok | error | proposed | denied
+	Error                          string
+	DurationMS                     int64
+	CreatedAt                      time.Time
+}
+
+// MCPCallStat sums a server's calls since a time.
+type MCPCallStat struct {
+	ServerID string     `json:"server_id"`
+	Calls    int        `json:"calls"`
+	Errors   int        `json:"errors"`
+	Proposed int        `json:"proposed"`
+	LastAt   *time.Time `json:"last_at"`
+}
+
+// MCPCallRepo keeps the gateway's call log.
+type MCPCallRepo interface {
+	Add(ctx context.Context, c MCPCall) error
+	// List is newest first; serverID "" = every server.
+	List(ctx context.Context, serverID string, limit int) ([]MCPCall, error)
+	Stats(ctx context.Context, since time.Time) ([]MCPCallStat, error)
+	Prune(ctx context.Context, before time.Time) (int, error)
 }
 
 // MCPServerRepo stores the office's MCP servers.

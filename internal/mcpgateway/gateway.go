@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -30,9 +31,16 @@ type Gateway struct {
 	Store storage.Store
 	Box   Sealer
 	// Auth accepts the bearer token of a run (or a person's own CLI, ADR-047).
-	Auth   func(r *http.Request) bool
-	Client *http.Client // nil: a default one
-	Log    *slog.Logger
+	Auth func(r *http.Request) bool
+	// Identify, when set, replaces Auth: it also says who calls, for the
+	// agent assignment and the tool policy (ADR-093). With only Auth every
+	// caller counts as a person.
+	Identify func(r *http.Request) (Caller, bool)
+	// Propose turns a call of a tool that writes into a proposal (nil: such
+	// calls are refused for agents that may not write).
+	Propose Proposer
+	Client  *http.Client // nil: a default one
+	Log     *slog.Logger
 	// OnStatus hears of a status office found on its own (a session that
 	// expired), for open pages.
 	OnStatus func(storage.MCPServer)
@@ -43,6 +51,7 @@ type Gateway struct {
 
 	logins logins
 	pool   pool
+	logged atomic.Int64 // calls logged, to prune the log now and then
 }
 
 func (g *Gateway) client() *http.Client {
@@ -59,20 +68,36 @@ func (g *Gateway) log() *slog.Logger {
 	return slog.Default()
 }
 
-// Names lists the servers agent runs get (every enabled server of the
-// machine, for every agent).
+// Names lists every enabled server of the machine.
 func (g *Gateway) Names(ctx context.Context) []string {
+	return g.NamesFor(ctx, Caller{Kind: "person"})
+}
+
+// NamesFor lists the servers c's run gets: enabled, of the machine, and
+// given to its agent (ADR-093).
+func (g *Gateway) NamesFor(ctx context.Context, c Caller) []string {
 	list, err := g.Store.MCPServers().List(ctx)
 	if err != nil {
 		return nil
 	}
 	var out []string
 	for _, m := range list {
-		if m.Enabled && (m.Kind == "http" || m.Kind == "stdio") && m.Scope == "machine" {
+		if m.Enabled && (m.Kind == "http" || m.Kind == "stdio") && m.Scope == "machine" && Assigned(m, c) {
 			out = append(out, m.Name)
 		}
 	}
 	return out
+}
+
+// caller authenticates r and says who it is.
+func (g *Gateway) caller(r *http.Request) (Caller, bool) {
+	if g.Identify != nil {
+		return g.Identify(r)
+	}
+	if g.Auth != nil && g.Auth(r) {
+		return Caller{Kind: "person"}, true
+	}
+	return Caller{}, false
 }
 
 // CheckServer checks m and saves the result. An HTTP server that wants an
@@ -155,7 +180,8 @@ var passResponse = []string{"Content-Type", "Mcp-Session-Id", "Mcp-Protocol-Vers
 
 // ServeHTTP handles /mcp/s/{name}.
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if g.Auth == nil || !g.Auth(r) {
+	c, authed := g.caller(r)
+	if !authed {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -169,7 +195,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	name := r.PathValue("name")
 	m, err := g.Store.MCPServers().GetByName(r.Context(), name)
-	if err != nil || !m.Enabled || (m.Kind != "http" && m.Kind != "stdio") {
+	if err != nil || !m.Enabled || (m.Kind != "http" && m.Kind != "stdio") || !Assigned(m, c) {
 		http.Error(w, "office không có MCP "+name, http.StatusNotFound)
 		return
 	}
@@ -180,8 +206,35 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// the tool policy (ADR-093): a call that is not let through is answered here
+	callID, callTool, callArgs, isCall := callOf(body)
+	if isCall {
+		if reply, ok := g.gateCall(r.Context(), m, c, callID, callTool, callArgs); !ok {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(reply)
+			return
+		}
+	} else if batchCalls(body) && !c.Person() {
+		http.Error(w, "office không nhận gọi tool theo lô (batch)", http.StatusBadRequest)
+		return
+	}
+	start := time.Now()
+	logged := func(status int, errMsg string) {
+		if !isCall {
+			return
+		}
+		st := "ok"
+		if status >= 300 || errMsg != "" {
+			st = "error"
+			if errMsg == "" {
+				errMsg = "HTTP " + strconv.Itoa(status)
+			}
+		}
+		g.logCall(r.Context(), m, c, callTool, st, errMsg, time.Since(start).Milliseconds(), "")
+	}
 	if m.Kind == "stdio" {
 		g.serveStdio(w, r, m, body)
+		logged(http.StatusOK, "")
 		return
 	}
 	headers, err := OpenMap(g.Box, m.HeadersEnc)
@@ -201,14 +254,15 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// office's login, not the run's token: no WWW-Authenticate (the CLI
 		// would start a login against office)
+		logged(http.StatusBadGateway, loginFail(name, err))
 		http.Error(w, loginFail(name, err), http.StatusBadGateway)
 		return
 	}
-	start := time.Now()
 	resp, err := g.send(ctx, r, m.URL, body, headers, tok)
 	if err == nil && resp.StatusCode == http.StatusUnauthorized && tok != "" {
 		resp.Body.Close() // refused: refresh, then once more
 		if tok, err = g.bearer(ctx, &m, true); err != nil {
+			logged(http.StatusBadGateway, loginFail(name, err))
 			http.Error(w, loginFail(name, err), http.StatusBadGateway)
 			return
 		}
@@ -221,6 +275,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				err = ue.Err // the URL may carry a key
 			}
 			g.log().Warn("mcp gateway", "server", name, "rpc", rpc, "tool", tool, "err", err.Error(), "ms", time.Since(start).Milliseconds())
+			logged(http.StatusBadGateway, err.Error())
 			http.Error(w, "office không gọi được MCP "+name+": "+err.Error(), http.StatusBadGateway)
 		}
 		return
@@ -231,12 +286,15 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if tok != "" && resp.StatusCode == http.StatusUnauthorized {
 			o, _ := OpenOAuth(g.Box, m.OAuthEnc)
 			_ = g.expire(ctx, &m, o) // even a fresh token is refused
+			logged(resp.StatusCode, loginFail(name, ErrSessionExpired))
 			http.Error(w, loginFail(name, ErrSessionExpired), http.StatusBadGateway)
 			return
 		}
+		logged(resp.StatusCode, "")
 		http.Error(w, "MCP "+name+" từ chối token đã lưu trong office (HTTP "+strconv.Itoa(resp.StatusCode)+"): sửa trên dashboard", http.StatusBadGateway)
 		return
 	}
+	logged(resp.StatusCode, "")
 	for _, h := range passResponse {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)

@@ -7,6 +7,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,13 @@ func (s *server) mcpServerRoutes(mux *http.ServeMux, admin func(http.HandlerFunc
 	mux.Handle("POST /api/mcp/servers/{id}/oauth/start", admin(s.startMCPLogin))
 	mux.Handle("POST /api/mcp/servers/{id}/oauth/logout", admin(s.logoutMCP))
 	mux.Handle("GET "+mcpgateway.CallbackPath, admin(s.mcpLoginCallback))
+	// ADR-093: who gets each server, its call log, moving servers into office
+	mux.Handle("GET /api/mcp/agents", admin(s.mcpAgents))
+	mux.Handle("GET /api/mcp/servers/{id}/calls", admin(s.mcpCalls))
+	mux.Handle("GET /api/mcp/calls", admin(s.mcpCalls))
+	mux.Handle("GET /api/mcp/import", admin(s.mcpImportList))
+	mux.Handle("POST /api/mcp/import", admin(s.mcpImport))
+	mux.Handle("POST /api/mcp/servers/{id}/put-back", admin(s.mcpPutBack))
 	s.cfg.Gateway.OnStatus = func(m storage.MCPServer) { s.sendMCPStatus(s.mcpServerDTO(m)) }
 }
 
@@ -59,9 +67,28 @@ type mcpServerDTO struct {
 	LastCheckAt     *time.Time        `json:"last_check_at"`
 	LastCheckStatus string            `json:"last_check_status"`
 	LastCheckError  string            `json:"last_check_error"`
-	Tools           []storage.MCPTool `json:"tools"`
+	Tools           []mcpToolDTO      `json:"tools"`
+	Agents          []string          `json:"agents"`        // [] = every agent
+	TrustedTools    []string          `json:"trusted_tools"` // tools that write but run without approval
+	MovedFrom       *mcpOriginDTO     `json:"moved_from"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
+}
+
+// mcpToolDTO is a tool without its input schema (the list stays small).
+type mcpToolDTO struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	ReadOnly    *bool  `json:"read_only,omitempty"`
+}
+
+// mcpOriginDTO is where a moved server came from.
+type mcpOriginDTO struct {
+	Type    string `json:"type"`
+	Label   string `json:"label"`
+	Name    string `json:"name"`
+	MovedAt string `json:"moved_at"`
+	Backup  bool   `json:"backup"`
 }
 
 // mcpServerDTO never carries a secret: header and env values come masked,
@@ -87,16 +114,25 @@ func (s *server) mcpServerDTO(m storage.MCPServer) mcpServerDTO {
 			oa.ClientID = o.ClientID
 		}
 	}
+	tools := make([]mcpToolDTO, 0, len(m.LastTools))
+	for _, t := range m.LastTools {
+		tools = append(tools, mcpToolDTO{Name: t.Name, Description: t.Description, ReadOnly: t.ReadOnly})
+	}
+	var from *mcpOriginDTO
+	if o, ok := originOf(m); ok {
+		from = &mcpOriginDTO{Type: o.Type, Label: o.Label, Name: o.Name, MovedAt: o.MovedAt, Backup: o.Backup != ""}
+	}
 	return mcpServerDTO{ID: m.ID, Name: m.Name, Kind: m.Kind, URL: m.URL, Headers: mcpgateway.MaskMap(headers),
 		Command: m.Command, Args: m.Args, Env: mcpgateway.MaskMap(env), OAuth: oa, Scope: m.Scope, Origin: m.Origin,
 		Enabled: m.Enabled, Path: "/mcp/s/" + m.Name, LastCheckAt: m.LastCheckAt, LastCheckStatus: m.LastCheckStatus, LastCheckError: m.LastCheckError,
-		Tools: m.LastTools, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt}
+		Tools: tools, Agents: m.Agents, TrustedTools: m.TrustedTools, MovedFrom: from, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt}
 }
 
 // auditMCP is what the change log keeps of a server (masked, no check results).
 func (s *server) auditMCP(m storage.MCPServer) map[string]any {
 	d := s.mcpServerDTO(m)
-	out := map[string]any{"name": d.Name, "kind": d.Kind, "scope": d.Scope, "origin": d.Origin, "enabled": d.Enabled}
+	out := map[string]any{"name": d.Name, "kind": d.Kind, "scope": d.Scope, "origin": d.Origin, "enabled": d.Enabled,
+		"agents": d.Agents, "trusted_tools": d.TrustedTools}
 	if d.Kind == "stdio" {
 		out["command"], out["args"], out["env"] = d.Command, d.Args, d.Env
 	} else {
@@ -122,6 +158,20 @@ type mcpServerInput struct {
 	OAuthClientSecret *string `json:"oauth_client_secret"`
 	Scope             *string `json:"scope"`
 	Enabled           *bool   `json:"enabled"`
+	// ADR-093: agent ids that get it ([] = every agent), tools trusted to write
+	Agents       *[]string `json:"agents"`
+	TrustedTools *[]string `json:"trusted_tools"`
+}
+
+// cleanList trims, drops empties and duplicates.
+func cleanList(in []string) []string {
+	out := []string{}
+	for _, v := range in {
+		if v = strings.TrimSpace(v); v != "" && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // sealMerged applies an edit of a sealed map (headers, env).
@@ -187,6 +237,12 @@ func (s *server) applyMCPServer(in mcpServerInput, m *storage.MCPServer) error {
 	if in.Enabled != nil {
 		m.Enabled = *in.Enabled
 	}
+	if in.Agents != nil {
+		m.Agents = cleanList(*in.Agents)
+	}
+	if in.TrustedTools != nil {
+		m.TrustedTools = cleanList(*in.TrustedTools)
+	}
 	return nil
 }
 
@@ -239,7 +295,14 @@ func (s *server) listMCPServers(w http.ResponseWriter, r *http.Request) {
 	for _, m := range list {
 		out = append(out, s.mcpServerDTO(m))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"servers": out})
+	// calls of the last 24 hours per server (ADR-093)
+	stats := map[string]storage.MCPCallStat{}
+	if st, err := s.cfg.Store.MCPCalls().Stats(r.Context(), time.Now().UTC().Add(-24*time.Hour)); err == nil {
+		for _, x := range st {
+			stats[x.ServerID] = x
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"servers": out, "stats": stats})
 }
 
 func (s *server) createMCPServer(w http.ResponseWriter, r *http.Request) {

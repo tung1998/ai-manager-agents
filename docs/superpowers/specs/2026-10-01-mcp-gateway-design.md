@@ -1,10 +1,12 @@
 # Cổng MCP chung qua office (bản nháp)
 
-> Trạng thái: đã chốt hướng làm (cổng chung, có chuyển kết nối sẵn có) và phần 1. Phần 2–4 chưa duyệt.
+> Trạng thái: đã làm đủ Phần 1–4 (ADR-091, ADR-092, ADR-093).
 >
 > **GĐ1 đã làm (ADR-091):** bảng `mcp_servers`, cổng `/mcp/s/<tên>` cho MCP HTTP (header/token tĩnh), kiểm tra như MCP client, API + dashboard, nối vào lượt chạy Claude CLI. Phạm vi chỉ `machine`, mọi agent đều dùng. 
 >
-> **GĐ2 đã làm (ADR-092):** đăng nhập OAuth tự động (tìm máy chủ ủy quyền, tự đăng ký client, PKCE, tự làm mới token), MCP stdio do office tự chạy và tắt khi rảnh. Còn lại: Codex/AI qua API, chuyển kết nối sẵn có (Phần 3), gán theo agent và nhật ký (Phần 4).
+> **GĐ2 đã làm (ADR-092):** đăng nhập OAuth tự động (tìm máy chủ ủy quyền, tự đăng ký client, PKCE, tự làm mới token), MCP stdio do office tự chạy và tắt khi rảnh.
+>
+> **GĐ3–4 đã làm (ADR-093):** chuyển MCP sẵn có (Claude Code, `.mcp.json`, Codex) vào office, gỡ khỏi nguồn có bản sao và trả về được; gán server theo agent; tool có ghi thành đề xuất `mcp_call` trừ khi tin cậy hoặc agent có quyền `tools.mcp.write`; nhật ký gọi 30 ngày; Codex (`-c mcp_servers…`) và AI qua API.
 
 ## Mục tiêu
 

@@ -20,6 +20,7 @@ func Run(t *testing.T, newStore func(t *testing.T) storage.Store) {
 	t.Run("tx", func(t *testing.T) { testTx(t, newStore(t)) })
 	t.Run("helper projects", func(t *testing.T) { testHelperProjects(t, newStore(t)) })
 	t.Run("mcp servers", func(t *testing.T) { testMCPServers(t, newStore(t)) })
+	t.Run("mcp calls", func(t *testing.T) { testMCPCalls(t, newStore(t)) })
 }
 
 func testUsers(t *testing.T, s storage.Store) {

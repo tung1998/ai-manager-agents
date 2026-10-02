@@ -153,7 +153,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Duyệt xong agent tự làm tiếp (bot và web); danh sách chat theo trang; `search_history` (ADR-084–086) | Xong |
 | Burn: agent chạy liên tục trong project, worktree mỗi việc, tạm dừng/làm tiếp, hẹn giờ tắt (ADR-087) | Xong, đang chạy thử |
 | Trạng thái kết nối MCP (ADR-088) | Xong |
-| Cổng MCP chung qua office: office giữ MCP, đăng nhập OAuth, chuyển tiếp cho mọi AI, chuyển kết nối sẵn có (spec `docs/superpowers/specs/2026-10-01-mcp-gateway-design.md`) | Đang làm: GĐ1–2 xong (ADR-091, ADR-092), còn chuyển kết nối sẵn có và gán theo agent |
+| Cổng MCP chung qua office: office giữ MCP, đăng nhập OAuth, chuyển tiếp cho mọi AI, chuyển kết nối sẵn có (spec `docs/superpowers/specs/2026-10-01-mcp-gateway-design.md`) | Xong GĐ1–4 (ADR-091, ADR-092, ADR-093), đang chạy thử |
 | Connector: gom MCP, bot và connector tự code (Messenger, Zalo OA, Slack, Email) | Ý tưởng, làm sau cổng MCP |
 | Cảnh báo, `doctor` | Chưa làm |
 

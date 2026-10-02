@@ -111,6 +111,7 @@ export default {
   'action.alwaysNoAuto': 'Đã thêm {pattern}, nhưng mức hiện tại của agent chưa cho tự chạy lệnh ngoài danh sách an toàn',
   'action.alwaysError': 'Lệnh đã chạy, chưa lưu được quyền luôn cho phép',
   'action.kind.remember': 'Ghi nhớ',
+  'action.kind.mcp_call': 'Gọi tool MCP',
   'action.kind.config_change': 'Đổi cài đặt',
   'action.op.create': 'Tạo mới',
   'action.op.update': 'Cập nhật',

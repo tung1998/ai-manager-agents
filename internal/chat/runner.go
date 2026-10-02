@@ -4,6 +4,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"context"
+	"encoding/json"
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -77,8 +78,26 @@ type OfficeAccess struct {
 	Scope  officetools.Scope
 	Tools  *officetools.Toolbox
 	// Gateway: MCP servers office manages, reached at MCPURL/s/<name> with
-	// the same token (ADR-091; Claude Code only for now).
-	Gateway []string
+	// the same token (ADR-091): Claude Code and Codex through their MCP
+	// config, API runs through GatewayTools (ADR-093).
+	Gateway      []string
+	GatewayTools GatewayTools
+}
+
+// ClientHeader tells the gateway which AI calls (claude | codex).
+const ClientHeader = "X-Office-Client"
+
+// GatewayTools are the gateway's tools for an API run: office calls them
+// itself, under the same policy as a call through the gateway.
+type GatewayTools interface {
+	List(ctx context.Context) []GatewayTool
+	Call(ctx context.Context, name string, args json.RawMessage) (string, bool)
+}
+
+// GatewayTool is one of them, named mcp__<server>__<tool>.
+type GatewayTool struct {
+	Name, Description string
+	Schema            json.RawMessage
 }
 
 // RunResult is what the runtime produced.

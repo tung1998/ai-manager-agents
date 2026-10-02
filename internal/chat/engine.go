@@ -156,7 +156,7 @@ type Engine struct {
 	office    *officetools.Toolbox
 	mcp       *mcpserver.Server
 	mcpURL    string
-	gateway   func(ctx context.Context) []string // the gateway's MCP servers a run gets (ADR-091)
+	gateway   GatewayFor // the gateway's MCP servers a run gets (ADR-091, ADR-093)
 	trees     *worktree.Manager
 	assistant func(ctx context.Context) string
 
@@ -269,16 +269,20 @@ func (e *Engine) officeAccess(ctx context.Context, sc officetools.Scope) (*Offic
 		return nil, func() {}
 	}
 	token, revoke := e.mcp.Grant(sc, 30*time.Minute)
-	var gw []string
+	oa := &OfficeAccess{MCPURL: e.mcpURL, Token: token, Scope: sc, Tools: e.office}
 	if e.gateway != nil {
-		gw = e.gateway(ctx)
+		oa.Gateway, oa.GatewayTools = e.gateway(ctx, sc)
 	}
-	return &OfficeAccess{MCPURL: e.mcpURL, Token: token, Scope: sc, Tools: e.office, Gateway: gw}, revoke
+	return oa, revoke
 }
 
-// SetGateway gives runs the MCP servers office manages, behind its gateway
-// (ADR-091): names lists those a run gets.
-func (e *Engine) SetGateway(names func(ctx context.Context) []string) { e.gateway = names }
+// GatewayFor gives a run the MCP servers office manages, behind its gateway:
+// their names (Claude Code, Codex) and their tools for an API run (ADR-091,
+// ADR-093), those given to the run's agent.
+type GatewayFor func(ctx context.Context, sc officetools.Scope) ([]string, GatewayTools)
+
+// SetGateway gives runs the MCP servers office manages.
+func (e *Engine) SetGateway(fn GatewayFor) { e.gateway = fn }
 
 // Level is what agent may do under mode in project (see internal/perm).
 func (e *Engine) Level(ctx context.Context, projectID string, agent storage.Agent, mode string) string {

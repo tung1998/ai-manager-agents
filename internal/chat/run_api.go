@@ -65,10 +65,22 @@ func officeTools(req RunRequest) []officetools.Tool {
 	return req.Office.Tools.ToolsFor(req.Office.Scope)
 }
 
-// dispatchTool runs an office tool or a workspace tool.
+// gatewayTools are the office MCP servers' tools the run's agent gets
+// (ADR-093); office calls them itself.
+func gatewayTools(ctx context.Context, req RunRequest) []GatewayTool {
+	if req.Office == nil || req.Office.GatewayTools == nil || req.NoTools {
+		return nil
+	}
+	return req.Office.GatewayTools.List(ctx)
+}
+
+// dispatchTool runs an office tool, a gateway MCP tool or a workspace tool.
 func dispatchTool(ctx context.Context, req RunRequest, w Workspace, name string, raw json.RawMessage) (string, bool) {
 	if req.Office != nil && req.Office.Tools != nil && req.Office.Tools.Has(req.Office.Scope, name) {
 		return req.Office.Tools.Call(ctx, req.Office.Scope, name, raw)
+	}
+	if strings.HasPrefix(name, "mcp__") && req.Office != nil && req.Office.GatewayTools != nil && !req.NoTools {
+		return req.Office.GatewayTools.Call(ctx, name, raw)
 	}
 	return callTool(w, name, raw)
 }
@@ -165,6 +177,9 @@ func (anthropicRunner) Run(ctx context.Context, req RunRequest, emit func(Event)
 	for _, t := range officeTools(req) {
 		tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.Schema})
 	}
+	for _, t := range gatewayTools(ctx, req) {
+		tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.Schema})
+	}
 	messages := []any{}
 	for _, h := range req.History {
 		messages = append(messages, map[string]any{"role": h.Role, "content": h.Said()})
@@ -258,6 +273,9 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 		tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Schema}})
 	}
 	for _, t := range officeTools(req) {
+		tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Schema}})
+	}
+	for _, t := range gatewayTools(ctx, req) {
 		tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Schema}})
 	}
 	messages := []any{map[string]any{"role": "system", "content": req.System}}
