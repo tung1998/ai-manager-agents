@@ -86,6 +86,17 @@ func TestCommands(t *testing.T) {
 	if err != nil || len(args) != 4 || args[2] != "--format=%h %s" {
 		t.Fatalf("split: %q %v", args, err)
 	}
+	// a proposed command is stored joined, then split again when it runs
+	for _, want := range [][]string{
+		args,
+		{"sqlite3", "-readonly", "x.db", `SELECT a FROM m WHERE id='c 1' AND b="q"`},
+		{"echo", "", "it's", `say "hi"`},
+	} {
+		got, err := SplitCommand(JoinCommand(want))
+		if err != nil || !slices.Equal(got, want) {
+			t.Errorf("round trip %q: %q %v", want, got, err)
+		}
+	}
 	pats := []string{"go test *", "git status"}
 	if _, ok := MatchCommand(pats, []string{"go", "test", "./x"}); !ok {
 		t.Fatal("prefix")

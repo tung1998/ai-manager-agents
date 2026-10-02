@@ -66,6 +66,33 @@ func SplitCommand(line string) ([]string, error) {
 	return args, nil
 }
 
+// JoinCommand is the inverse of SplitCommand: arguments with spaces or quotes
+// are quoted so that SplitCommand(JoinCommand(args)) gives args back.
+func JoinCommand(args []string) string {
+	parts := make([]string, len(args))
+	for i, arg := range args {
+		if arg != "" && !strings.ContainsAny(arg, " \t'\"") {
+			parts[i] = arg
+			continue
+		}
+		var b strings.Builder
+		if arg == "" {
+			b.WriteString(`""`)
+		}
+		for _, seg := range strings.SplitAfter(arg, `"`) {
+			body, quoted := strings.CutSuffix(seg, `"`)
+			if body != "" {
+				b.WriteString(`"` + body + `"`)
+			}
+			if quoted {
+				b.WriteString(`'"'`)
+			}
+		}
+		parts[i] = b.String()
+	}
+	return strings.Join(parts, " ")
+}
+
 // CleanPattern normalises a pattern (single spaces) or rejects it.
 func CleanPattern(p string) (string, error) {
 	p = strings.Join(strings.Fields(p), " ")

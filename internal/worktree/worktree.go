@@ -78,7 +78,7 @@ func (m *Manager) Ensure(ctx context.Context, repo, projectID, name string, extr
 	if m.Exists(projectID, name) {
 		return dir, nil
 	}
-	if _, err := git(ctx, repo, "rev-parse", "--git-dir"); err != nil {
+	if !isRepoRoot(ctx, repo) {
 		return "", ErrNotGit
 	}
 	base, err := snapshot(ctx, repo)
@@ -97,6 +97,20 @@ func (m *Manager) Ensure(ctx context.Context, repo, projectID, name string, extr
 		return "", err
 	}
 	return dir, nil
+}
+
+// isRepoRoot: repo is the top of a git repository. A folder inside another
+// repo (the office assistant's under .office, often ignored there) is not
+// one: a worktree of the enclosing repo is not that folder, and git fails
+// listing ignored files from it.
+func isRepoRoot(ctx context.Context, repo string) bool {
+	top, err := git(ctx, repo, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return false
+	}
+	a, err1 := filepath.EvalSymlinks(strings.TrimSpace(top))
+	b, err2 := filepath.EvalSymlinks(repo)
+	return err1 == nil && err2 == nil && filepath.Clean(a) == filepath.Clean(b)
 }
 
 // snapshot commits the working tree of repo (tracked, modified and new files

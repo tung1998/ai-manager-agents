@@ -230,7 +230,7 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 		if _, err := s.projectPath(ctx, sc.ProjectID); err != nil {
 			return a, err
 		}
-		a.Target, a.Args.Dir = strings.Join(args, " "), sc.Dir
+		a.Target, a.Args.Dir = perm.JoinCommand(args), sc.Dir
 	} else if isProcess(kind) {
 		procs, err := s.store.Processes().List(ctx, sc.ProjectID)
 		if err != nil {

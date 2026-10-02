@@ -131,6 +131,14 @@ func TestNotGit(t *testing.T) {
 	if _, err := New(t.TempDir()).Ensure(context.Background(), t.TempDir(), "p", "x", nil); err != ErrNotGit {
 		t.Fatalf("err = %v", err)
 	}
+	// a folder inside another repo (the assistant's, under an ignored .office)
+	repo := setupRepo(t)
+	write(t, filepath.Join(repo, ".gitignore"), "node_modules/\n.env\n.office/\n")
+	inner := filepath.Join(repo, ".office", "assistant")
+	os.MkdirAll(inner, 0o755)
+	if _, err := New(t.TempDir()).Ensure(context.Background(), inner, "p", "x", nil); err != ErrNotGit {
+		t.Fatalf("inside a repo: err = %v", err)
+	}
 }
 
 // The project moved on after the worktree was made: Refresh puts what the
