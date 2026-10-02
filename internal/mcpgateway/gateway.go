@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime"
@@ -161,7 +162,10 @@ func (g *Gateway) checkHTTP(ctx context.Context, m *storage.MCPServer) ([]storag
 	// no token yet: a server with OAuth wants a login, not a typed token
 	o, derr := Discover(ctx, g.client(), m.URL, se.WWWAuthenticate)
 	if derr != nil {
-		return nil, err
+		if len(headers) > 0 {
+			return nil, err // a typed token, refused
+		}
+		return nil, fmt.Errorf("MCP cần đăng nhập nhưng %v; nếu nó dùng API key thì thêm ở header", derr)
 	}
 	if old, oerr := OpenOAuth(g.Box, m.OAuthEnc); oerr == nil && old.ClientManual {
 		o.ClientID, o.ClientSecret, o.ClientManual = old.ClientID, old.ClientSecret, true

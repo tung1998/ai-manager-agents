@@ -27,6 +27,7 @@ type OAuth struct {
 	RegistrationEndpoint string   `json:"registration_endpoint,omitempty"`
 	AuthMethods          []string `json:"auth_methods,omitempty"` // token_endpoint_auth_methods_supported
 	Scope                string   `json:"scope,omitempty"`
+	Guessed              bool     `json:"guessed,omitempty"` // no metadata: the default endpoints
 
 	ClientID     string   `json:"client_id,omitempty"`
 	ClientSecret string   `json:"client_secret,omitempty"`
@@ -196,7 +197,19 @@ func Discover(ctx context.Context, hc *http.Client, mcpURL, wwwAuth string) (OAu
 		}
 	}
 	if !found {
-		return o, errors.New("không tìm thấy máy chủ đăng nhập (OAuth) của MCP này")
+		// no metadata: the default endpoints of MCP 2025-03-26, at the
+		// authorization server's origin, if its /authorize is there at all (a
+		// server that only takes an API key has none)
+		u, err := url.Parse(issuer)
+		base := ""
+		if err == nil && u.Host != "" {
+			base = u.Scheme + "://" + u.Host
+		}
+		if base == "" || !exists(ctx, hc, base+"/authorize") {
+			return o, errors.New("không tìm thấy máy chủ đăng nhập (OAuth) của MCP này")
+		}
+		as.AuthorizationEndpoint, as.TokenEndpoint, as.RegistrationEndpoint = base+"/authorize", base+"/token", base+"/register"
+		o.Guessed = true
 	}
 	if len(as.CodeChallengeMethods) > 0 && !slices.Contains(as.CodeChallengeMethods, "S256") {
 		return o, errors.New("máy chủ đăng nhập không hỗ trợ PKCE S256, office không đăng nhập được")
@@ -205,6 +218,23 @@ func Discover(ctx context.Context, hc *http.Client, mcpURL, wwwAuth string) (OAu
 	o.AuthEndpoint, o.TokenEndpoint, o.RegistrationEndpoint = as.AuthorizationEndpoint, as.TokenEndpoint, as.RegistrationEndpoint
 	o.AuthMethods = as.TokenEndpointAuthMetho
 	return o, nil
+}
+
+// exists reports whether rawURL looks like a login page: a bare GET gets a
+// form, a redirect or a 400 (not a 401/404 like any other path).
+func exists(ctx context.Context, hc *http.Client, rawURL string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return false
+	}
+	c := *hc
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := c.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 400 || resp.StatusCode == http.StatusBadRequest
 }
 
 func cmpStr(a, b string) string {

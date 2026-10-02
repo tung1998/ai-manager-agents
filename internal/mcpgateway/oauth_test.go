@@ -220,6 +220,19 @@ func TestDiscover(t *testing.T) {
 	if _, err := Discover(context.Background(), nil, dead.URL+"/mcp", "Bearer"); err == nil {
 		t.Fatal("found an authorization server where there is none")
 	}
+	// no metadata but a login page: the default endpoints (MCP 2025-03-26)
+	bare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/authorize" {
+			http.Error(w, "missing client_id", http.StatusBadRequest)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer bare.Close()
+	if o, err := Discover(context.Background(), nil, bare.URL+"/mcp", "Bearer"); err != nil || !o.Guessed ||
+		o.AuthEndpoint != bare.URL+"/authorize" || o.TokenEndpoint != bare.URL+"/token" || o.RegistrationEndpoint != bare.URL+"/register" {
+		t.Fatalf("discover defaults = %+v %v", o, err)
+	}
 }
 
 func TestOAuthLogin(t *testing.T) {
