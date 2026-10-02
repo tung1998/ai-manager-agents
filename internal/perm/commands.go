@@ -84,26 +84,67 @@ var riskyFlags = map[string][]string{
 	"go": {"exec", "toolexec", "o", "c", "C", "overlay", "modfile", "pkgdir", "pgo",
 		"coverprofile", "cpuprofile", "memprofile", "blockprofile", "mutexprofile", "trace", "outputdir"},
 	"git": {"output"},
-	"pytest": {"p", "c", "o", "basetemp", "config-file", "inifile", "rootdir", "confcutdir", "override-ini",
+	"pytest": {"basetemp", "config-file", "inifile", "rootdir", "confcutdir", "override-ini",
 		"junitxml", "junit-xml", "resultlog", "result-log", "log-file", "debug"},
 }
 
-// riskyShort: commands whose one-letter flags combine ("-vp x"), with the
-// risky letters among them.
-var riskyShort = map[string]string{"pytest": "pco"}
+// shortFlags: one-letter flags of a command that combine ("-vp x"). A letter
+// that takes a value ends the cluster: what follows it (or the next argument)
+// is its value, not more flags ("-rp" is -r p, "-ktest_cache" is -k).
+type shortFlags struct {
+	risky    string          // letters that are risky
+	value    string          // letters that take a value
+	harmless map[rune]string // a risky letter whose value starts so is fine
+}
+
+func (s shortFlags) riskyIn(cluster, next string) bool {
+	for i, r := range cluster {
+		if !strings.ContainsRune(s.value, r) {
+			if strings.ContainsRune(s.risky, r) {
+				return true
+			}
+			continue
+		}
+		if !strings.ContainsRune(s.risky, r) {
+			return false
+		}
+		rest := cluster[i+len(string(r)):]
+		val := strings.TrimPrefix(rest, "=")
+		if rest == "" {
+			val = next
+		}
+		pre, ok := s.harmless[r]
+		return !ok || !strings.HasPrefix(val, pre)
+	}
+	return false
+}
+
+// riskyShort: pytest -p loads a plugin of the caller's choice, -c/-o change
+// its config; "-p no:x" only turns plugin x off.
+var riskyShort = map[string]shortFlags{
+	"pytest": {risky: "pco", value: "pcokmrWn", harmless: map[rune]string{'p': "no:"}},
+}
 
 // riskyArg reports whether the arguments a " *" adds to args[0] carry a risky flag.
 func riskyArg(cmd string, extra []string) bool {
 	flags := riskyFlags[cmd]
-	for _, a := range extra {
+	short, combined := riskyShort[cmd]
+	for i, a := range extra {
 		if !strings.HasPrefix(a, "-") || a == "-" || a == "--" {
+			continue
+		}
+		if combined && !strings.HasPrefix(a, "--") {
+			next := ""
+			if i+1 < len(extra) {
+				next = extra[i+1]
+			}
+			if short.riskyIn(a[1:], next) {
+				return true
+			}
 			continue
 		}
 		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
 		if slices.Contains(flags, name) {
-			return true
-		}
-		if short := riskyShort[cmd]; short != "" && !strings.HasPrefix(a, "--") && strings.ContainsAny(name, short) {
 			return true
 		}
 	}

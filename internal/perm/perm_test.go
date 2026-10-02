@@ -111,6 +111,8 @@ func TestCommandsRiskyFlags(t *testing.T) {
 		"git diff --output=/etc/passwd", "git log --output /tmp/x", "git show --output=x HEAD",
 		"pytest -p evil", "pytest -pevil", "pytest -vp evil", "pytest --basetemp=/home", "pytest -c other.ini",
 		"pytest --rootdir=/", "pytest -o addopts=-x", "pytest --override-ini=x", "pytest --junitxml=/etc/x",
+		"pytest -p=evil", "pytest -xc x.ini", "pytest -vo x=y", "pytest -p", "pytest -p evil -p no:cacheprovider",
+		"pytest -p no:x -p evil", "pytest -vpevil",
 	} {
 		args, err := SplitCommand(line)
 		if err != nil {
@@ -124,6 +126,9 @@ func TestCommandsRiskyFlags(t *testing.T) {
 		"go test ./...", "go test -run TestX -v -count=1 ./internal/...", "go test -race -cover ./x",
 		"git diff --stat HEAD~1", "git log --oneline -5", "git show HEAD",
 		"pytest -x -q tests", "pytest -k slow", "pytest --co", "docker compose logs -f web",
+		"pytest -p no:cacheprovider", "pytest -pno:cacheprovider", "pytest -vp no:randomly", "pytest -p=no:x",
+		"pytest -ktest_cache", "pytest -mslow_proc", "pytest -rp", "pytest -rfEp", "pytest -vrp tests",
+		"pytest -W error::DeprecationWarning", "pytest -n 4", "pytest -k 'not proc'",
 	} {
 		args, _ := SplitCommand(line)
 		if _, ok := MatchCommand(pats, args); !ok {
