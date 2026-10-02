@@ -14,7 +14,7 @@ func guardSays(t *testing.T, ev map[string]any, userMCP bool) string {
 	t.Helper()
 	b, _ := json.Marshal(ev)
 	var out bytes.Buffer
-	Guard(bytes.NewReader(b), &out, userMCP)
+	Guard(bytes.NewReader(b), &out, userMCP, []string{"context7"})
 	return out.String()
 }
 
@@ -49,6 +49,12 @@ func TestGuard(t *testing.T) {
 	}
 	if s := guardSays(t, mcp("mcp__office__propose_change"), false); s != "" {
 		t.Errorf("office MCP denied: %s", s)
+	}
+	if s := guardSays(t, mcp("mcp__context7__resolve"), false); s != "" { // the office's gateway (ADR-091)
+		t.Errorf("gateway MCP denied: %s", s)
+	}
+	if s := guardSays(t, mcp("mcp__context7x__resolve"), false); !strings.Contains(s, `"deny"`) {
+		t.Error("a name sharing the gateway's prefix allowed")
 	}
 }
 

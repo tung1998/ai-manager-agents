@@ -23,6 +23,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/llm"
+	"bitbucket.org/senprints/agent-office/internal/mcpgateway"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
@@ -93,9 +94,11 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	acts.SetMemory(mem)
 	office := officetools.New(st, nil, acts)
 	office.SetOffice(func(ctx context.Context) string { return assistant.ID(ctx, st) })
+	mcp := mcpserver.New(office, "test")
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
 		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chatEng,
-		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcpserver.New(office, "test"), Memory: mem, Events: bus, Automation: testAutomation(t, st)})
+		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcp, Memory: mem, Events: bus, Automation: testAutomation(t, st),
+		Gateway: &mcpgateway.Gateway{Store: st, Box: box, Auth: mcp.Authorized}})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	ctx := context.Background()

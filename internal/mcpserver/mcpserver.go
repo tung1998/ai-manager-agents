@@ -69,6 +69,13 @@ func (s *Server) Grant(scope officetools.Scope, ttl time.Duration) (token string
 	}
 }
 
+// Authorized reports whether r carries a run's token or a personal token:
+// the MCP gateway (/mcp/s/<name>) takes the same ones (ADR-091).
+func (s *Server) Authorized(r *http.Request) bool {
+	_, ok := s.scope(r)
+	return ok
+}
+
 func (s *Server) scope(r *http.Request) (officetools.Scope, bool) {
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || tok == "" {

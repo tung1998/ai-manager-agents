@@ -18,6 +18,7 @@ var Followed = map[string]bool{
 	"jobs": true, "automations": true, "channels": true, "repos": true, "org_models": true, "agents": true,
 	"processes": true, "monitors": true, "agent_memories": true, "providers": true, "users": true,
 	"runs": true, "org_revisions": true, "audit_log": true, "monitor_events": true, "settings": true, "conversation_reads": true, "burn_sessions": true, "burn_items": true,
+	"mcp_servers": true,
 }
 
 // Event is one notice: its name (change, stats, machine, message…) and data.

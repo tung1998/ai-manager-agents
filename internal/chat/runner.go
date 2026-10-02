@@ -76,6 +76,9 @@ type OfficeAccess struct {
 	Token  string
 	Scope  officetools.Scope
 	Tools  *officetools.Toolbox
+	// Gateway: MCP servers office manages, reached at MCPURL/s/<name> with
+	// the same token (ADR-091; Claude Code only for now).
+	Gateway []string
 }
 
 // RunResult is what the runtime produced.

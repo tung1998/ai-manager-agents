@@ -12,15 +12,19 @@ import (
 // hookCmd: what Claude Code calls back while an agent works (not for people).
 func hookCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "hook", Hidden: true}
-	var userMCP bool
+	var (
+		userMCP bool
+		gateway []string
+	)
 	guard := &cobra.Command{
 		Use: "guard", Short: "PreToolUse: sửa file trong thư mục project, MCP theo quyền",
 		RunE: func(*cobra.Command, []string) error {
-			chat.Guard(os.Stdin, os.Stdout, userMCP)
+			chat.Guard(os.Stdin, os.Stdout, userMCP, gateway)
 			return nil
 		},
 	}
 	guard.Flags().BoolVar(&userMCP, "user-mcp", false, "agent được dùng MCP của người dùng")
+	guard.Flags().StringArrayVar(&gateway, "mcp", nil, "MCP của office mà lượt chạy được dùng (qua cổng)")
 	cmd.AddCommand(guard)
 	return cmd
 }

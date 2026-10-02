@@ -122,6 +122,8 @@ type Store interface {
 	Memories() MemoryRepo
 	// Burn is a project's agent running on its own, finding work (spec 2026-10-01-burn-design).
 	Burn() BurnRepo
+	// MCPServers are the MCP servers behind the office gateway (ADR-091).
+	MCPServers() MCPServerRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error
@@ -209,6 +211,43 @@ type ChannelRepo interface {
 	// Prune lets go what ties outside chats to conversations quiet since
 	// before (their reply links and rules; the conversations stay).
 	Prune(ctx context.Context, before time.Time) (int, error)
+}
+
+// MCPServer is an MCP server office manages; agent runs reach it through
+// the office gateway /mcp/s/<Name> (ADR-091).
+type MCPServer struct {
+	ID, Name             string
+	Kind                 string // http | stdio
+	URL                  string // http
+	Command              string // stdio
+	Args                 []string
+	EnvEnc, HeadersEnc   string // JSON objects, encrypted
+	Scope                string // machine | project:<id>
+	Origin               string // manual | claude | codex | mcp.json
+	Enabled              bool
+	LastCheckAt          *time.Time
+	LastCheckStatus      string // "" (never) | ok | error
+	LastCheckError       string
+	LastTools            []MCPTool
+	CreatedAt, UpdatedAt time.Time
+}
+
+// MCPTool is one tool a server listed at its last check.
+type MCPTool struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	ReadOnly    *bool  `json:"read_only,omitempty"` // its readOnlyHint, when it gave one
+}
+
+// MCPServerRepo stores the office's MCP servers.
+type MCPServerRepo interface {
+	Create(ctx context.Context, m MCPServer) (MCPServer, error) // ErrConflict: the name is taken
+	Update(ctx context.Context, m MCPServer) error
+	Get(ctx context.Context, id string) (MCPServer, error)
+	GetByName(ctx context.Context, name string) (MCPServer, error)
+	List(ctx context.Context) ([]MCPServer, error)
+	Delete(ctx context.Context, id string) error
+	SetCheck(ctx context.Context, id, status, errMsg string, tools []MCPTool, at time.Time) error
 }
 
 // Memory is one note an agent keeps across conversations (ADR-068).

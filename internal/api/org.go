@@ -142,6 +142,9 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	if s.cfg.MCP != nil {
 		mux.Handle("/mcp", s.cfg.MCP) // authenticated by its own per-run token
 	}
+	if s.cfg.Gateway != nil {
+		s.mcpServerRoutes(mux, admin)
+	}
 	mux.Handle("GET /api/cli-tools", admin(s.cliTools))
 	if s.cfg.CLITools != nil {
 		mux.Handle("GET /api/cli-tools/{id}", admin(s.cliTool))

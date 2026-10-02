@@ -102,7 +102,11 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 		// office's hook keeping edits in the folder (and MCP as before); the deny
 		// rules below still hold, and --tools still bounds what exists
 		a[slices.Index(a, "dontAsk")] = "bypassPermissions"
-		a = append(a, "--settings", guardSettings(req.UserMCP))
+		var gw []string
+		if req.Office != nil {
+			gw = req.Office.Gateway
+		}
+		a = append(a, "--settings", guardSettings(req.UserMCP, gw))
 	} else if req.UserMCP {
 		// dontAsk denies tools it was not told about, and the user's MCP
 		// servers are not known up front: a hook allows every mcp__ tool
@@ -158,7 +162,8 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 		}
 	}
 	if req.Office != nil && !req.NoTools {
-		// the office MCP server; the token goes in a private temp file, not argv
+		// the office MCP server and the gateway's (ADR-091); the token goes in
+		// a private temp file, not argv
 		cfg, err := writeMCPConfig(req.Office)
 		if err != nil {
 			return RunResult{}, err
@@ -168,6 +173,9 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 		for i := range args {
 			if args[i] == "--allowedTools" && i+1 < len(args) {
 				args[i+1] += " mcp__" + mcpserver.ServerName
+				for _, n := range req.Office.Gateway {
+					args[i+1] += " mcp__" + n
+				}
 			}
 		}
 	}
@@ -455,9 +463,12 @@ func truncate(s string, n int) string {
 }
 
 func writeMCPConfig(o *OfficeAccess) (string, error) {
-	raw, err := json.Marshal(map[string]any{"mcpServers": map[string]any{
-		mcpserver.ServerName: map[string]any{"type": "http", "url": o.MCPURL, "headers": map[string]string{"Authorization": "Bearer " + o.Token}},
-	}})
+	auth := map[string]string{"Authorization": "Bearer " + o.Token}
+	servers := map[string]any{mcpserver.ServerName: map[string]any{"type": "http", "url": o.MCPURL, "headers": auth}}
+	for _, n := range o.Gateway { // same token: the gateway adds each server's own secrets
+		servers[n] = map[string]any{"type": "http", "url": o.MCPURL + "/s/" + n, "headers": auth}
+	}
+	raw, err := json.Marshal(map[string]any{"mcpServers": servers})
 	if err != nil {
 		return "", err
 	}

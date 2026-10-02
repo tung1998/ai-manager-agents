@@ -5,6 +5,7 @@ package api
 import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/events"
+	"bitbucket.org/senprints/agent-office/internal/mcpgateway"
 	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
@@ -67,6 +68,8 @@ type Config struct {
 	Monitors   *monitor.Service    // nil: health checks are off
 	// MCP serves the office tools to agent runs (bearer token per run, no session).
 	MCP http.Handler
+	// Gateway forwards runs to the MCP servers office manages, /mcp/s/<name> (ADR-091; nil = off).
+	Gateway *mcpgateway.Gateway
 	// Actions are operations agents proposed; admins approve or reject them.
 	Actions *actions.Service
 	// Memory keeps agents' long-term notes (ADR-068).
@@ -213,7 +216,7 @@ func (s *server) csrf(next http.Handler) http.Handler {
 			}
 		}
 		limit := int64(maxBody)
-		if r.URL.Path == "/api/transfer/import" || strings.HasPrefix(r.URL.Path, "/api/automation/") {
+		if r.URL.Path == "/api/transfer/import" || strings.HasPrefix(r.URL.Path, "/api/automation/") || strings.HasPrefix(r.URL.Path, "/mcp/s/") {
 			limit = 8 << 20
 		}
 		if strings.HasSuffix(r.URL.Path, "/attachments") {

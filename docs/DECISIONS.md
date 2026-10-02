@@ -1798,3 +1798,20 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Code được ưu tiên** về thứ tự làm và độ hoàn thiện. Tính năng chung phải chọn thì chọn trước cho code.
 - **Thiết kế để ngỏ cho mảng khác:** khái niệm chung (agent, chat, quyền, duyệt, nhật ký, Burn, tự động hóa) không gắn chết vào git/repo. Mảng mới chủ yếu thêm công cụ qua cổng MCP/Connector, không dựng hệ thống riêng.
 - Hành động ra ngoài (đăng bài, gửi tin cho khách, push) luôn cần duyệt, trừ khi admin cấp toàn quyền cho agent.
+
+## ADR-091: Cổng MCP chung qua office, giai đoạn 1
+- Thiết kế: `docs/superpowers/specs/2026-10-01-mcp-gateway-design.md` (Phần 1, một phần Phần 2).
+- **Dữ liệu:** bảng `mcp_servers` (migration 00049): tên duy nhất `[a-z0-9-]` (không dùng `office`), loại `http|stdio`, URL hoặc lệnh + args, env/header mã hóa bằng khóa của office (như key kết nối AI), `scope` (`machine` | `project:<id>`), nguồn gốc (`manual|claude|codex|mcp.json`), bật/tắt, kết quả kiểm tra gần nhất (trạng thái, lỗi, danh sách tool).
+- **Quyết định GĐ1:**
+  - Chỉ dùng phạm vi `machine`; mọi agent đều được dùng (gán theo agent để GĐ4).
+  - Chỉ loại HTTP (streamable HTTP, header/token tĩnh). Chưa có stdio, chưa có OAuth.
+- **Cổng** `internal/mcpgateway`, địa chỉ `/mcp/s/<tên>`:
+  - Xác thực bằng chính token theo lượt chạy của `internal/mcpserver` (hoặc token cá nhân, ADR-047); token sai trả 401 và không gọi tới server gốc.
+  - Chuyển tiếp JSON-RPC nguyên vẹn (tên tool giữ nguyên `mcp__<tên>__…`), chỉ chuyển các header MCP cần thiết, gắn header bí mật của server; không bao giờ chuyển token của lượt chạy đi.
+  - Trả về JSON hoặc luồng SSE (flush theo từng sự kiện). Mỗi request giới hạn 10 phút (GET luồng của server thì theo client).
+  - Server gốc từ chối token đã lưu (401/403) thì cổng trả 502 kèm lời nhắc sửa trên dashboard, không trả `WWW-Authenticate` (để Claude CLI không đi đăng nhập vào office).
+  - Nhật ký: tên server, method JSON-RPC, tên tool, mã trả về, thời gian; không ghi tham số hay bí mật, không ghi URL trong lỗi (URL có thể chứa key).
+- **Kiểm tra:** `Check` làm như MCP client (`initialize` → `notifications/initialized` → `tools/list`, có phân trang), tối đa 15 giây. Lỗi kèm gợi ý: 401/403 "token sai hoặc hết hạn", 404 hoặc không kết nối được "kiểm tra URL".
+- **API admin:** `GET/POST /api/mcp/servers`, `PATCH/DELETE /api/mcp/servers/{id}`, `POST /api/mcp/servers/{id}/check`. Header trả về luôn đã che (`••••` + 4 ký tự cuối khi đủ dài). Sửa header: giá trị rỗng là giữ giá trị cũ, khóa bị bỏ là xóa. Thêm/sửa/xóa ghi change log (ADR-043) với giá trị đã che. Thêm hoặc đổi URL/header thì tự kiểm tra trong nền; kết quả kiểm tra đẩy event `mcp.gateway.status` cho admin.
+- **Lượt chạy Claude CLI:** `--mcp-config` có thêm mỗi server bật (`http`, `machine`) trỏ tới `http://<office>/mcp/s/<tên>` với token của lượt; `mcp__<tên>` vào `--allowedTools`; hook guard (lượt có quyền sửa) cho qua tool của các server này. Nhánh `NoTools` (`--strict-mcp-config`, không MCP) giữ nguyên.
+- **Dashboard:** tab MCP có nhóm "MCP của office": danh sách, trạng thái, bật/tắt, nút Kiểm tra hiện danh sách tool, form thêm/sửa gọn.

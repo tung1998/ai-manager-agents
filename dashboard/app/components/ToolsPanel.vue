@@ -315,6 +315,7 @@ const summary = (tpl: MCPTemplate) => {
           </UTooltip>
           <UButton class="ms-auto" size="xs" color="neutral" variant="outline" icon="i-lucide-refresh-cw" :label="t('tools.mcpCheck')" :loading="mcp.check.value?.running" @click="mcp.recheck()" />
         </div>
+        <OfficeMcpServers v-if="kind === 'mcp'" />
         <div v-if="loading && !inv" class="py-10 text-center text-(--ui-text-muted)">{{ t('tools.scanning') }}</div>
         <div v-else-if="!groups.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
           <UIcon :name="meta.icon" class="mx-auto size-8 text-(--ui-text-dimmed)" />

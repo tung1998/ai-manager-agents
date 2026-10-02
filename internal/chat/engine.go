@@ -146,6 +146,7 @@ type Engine struct {
 	office    *officetools.Toolbox
 	mcp       *mcpserver.Server
 	mcpURL    string
+	gateway   func(ctx context.Context) []string // the gateway's MCP servers a run gets (ADR-091)
 	trees     *worktree.Manager
 	assistant func(ctx context.Context) string
 
@@ -253,13 +254,21 @@ func TaskTree(taskID string) string { return "task-" + taskID }
 
 // officeAccess grants one run the office tools, scoped to its project and
 // to the conversation/task its proposals belong to.
-func (e *Engine) officeAccess(sc officetools.Scope) (*OfficeAccess, func()) {
+func (e *Engine) officeAccess(ctx context.Context, sc officetools.Scope) (*OfficeAccess, func()) {
 	if e.office == nil || e.mcp == nil {
 		return nil, func() {}
 	}
 	token, revoke := e.mcp.Grant(sc, 30*time.Minute)
-	return &OfficeAccess{MCPURL: e.mcpURL, Token: token, Scope: sc, Tools: e.office}, revoke
+	var gw []string
+	if e.gateway != nil {
+		gw = e.gateway(ctx)
+	}
+	return &OfficeAccess{MCPURL: e.mcpURL, Token: token, Scope: sc, Tools: e.office, Gateway: gw}, revoke
 }
+
+// SetGateway gives runs the MCP servers office manages, behind its gateway
+// (ADR-091): names lists those a run gets.
+func (e *Engine) SetGateway(names func(ctx context.Context) []string) { e.gateway = names }
 
 // Level is what agent may do under mode in project (see internal/perm).
 func (e *Engine) Level(ctx context.Context, projectID string, agent storage.Agent, mode string) string {
@@ -812,7 +821,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		// a bot's chats are not this: they run with their agent's own rights, as chosen
 		req.NoTools, req.UserMCP, req.Write, req.FullAccess = true, false, false, false
 	} else {
-		office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Office: e.isAssistant(ctx, project.ID), AnswerOnly: power == assistant.ModeAnswer, Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
+		office, revoke := e.officeAccess(ctx, officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Office: e.isAssistant(ctx, project.ID), AnswerOnly: power == assistant.ModeAnswer, Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
 		defer revoke()
 		req.Office = office
 	}
@@ -1165,7 +1174,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	if noTools(ctx) { // untrusted text (a channel's scope filter): a plain answer
 		req.NoTools, req.UserMCP, req.Write = true, false, false
 	} else {
-		office, revoke := e.officeAccess(officetools.Scope{ProjectID: project.ID, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), JobID: usage.JobFrom(ctx), Agent: agent.Name, Level: acc.Level, Access: acc, Dir: treeDir(pl)})
+		office, revoke := e.officeAccess(ctx, officetools.Scope{ProjectID: project.ID, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), JobID: usage.JobFrom(ctx), Agent: agent.Name, Level: acc.Level, Access: acc, Dir: treeDir(pl)})
 		defer revoke()
 		req.Office = office
 	}

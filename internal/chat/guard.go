@@ -17,10 +17,15 @@ var GuardCommand string
 
 // guardSettings: under bypassPermissions (so an agent may add a skill in
 // .claude/skills) every file edit and MCP call goes through `office hook guard`.
-func guardSettings(userMCP bool) string {
+// gateway: the office's MCP servers the run gets (ADR-091), allowed like
+// office's own (their names are [a-z0-9-], safe on the command line).
+func guardSettings(userMCP bool, gateway []string) string {
 	cmd := GuardCommand
 	if userMCP {
 		cmd += " --user-mcp"
+	}
+	for _, n := range gateway {
+		cmd += " --mcp " + n
 	}
 	h := []map[string]any{{"type": "command", "command": cmd}}
 	b, _ := json.Marshal(map[string]any{"hooks": map[string]any{"PreToolUse": []map[string]any{
@@ -32,8 +37,9 @@ func guardSettings(userMCP bool) string {
 
 // Guard is a PreToolUse hook: an edit stays in the working folder (the
 // worktree or the project), an MCP tool is office's own unless the agent may
-// use the person's servers. Anything else it lets through.
-func Guard(in io.Reader, out io.Writer, userMCP bool) {
+// use the person's servers or it is one of gateway (the office's MCP servers
+// the run got, ADR-091). Anything else it lets through.
+func Guard(in io.Reader, out io.Writer, userMCP bool, gateway []string) {
 	var ev struct {
 		Cwd       string         `json:"cwd"`
 		ToolName  string         `json:"tool_name"`
@@ -44,9 +50,15 @@ func Guard(in io.Reader, out io.Writer, userMCP bool) {
 		return
 	}
 	if strings.HasPrefix(ev.ToolName, "mcp__") {
-		if !userMCP && !strings.HasPrefix(ev.ToolName, "mcp__"+mcpserver.ServerName+"__") {
-			deny(out, "agent-office: agent này không được dùng MCP của người dùng")
+		if userMCP {
+			return
 		}
+		for _, n := range append([]string{mcpserver.ServerName}, gateway...) {
+			if strings.HasPrefix(ev.ToolName, "mcp__"+n+"__") {
+				return
+			}
+		}
+		deny(out, "agent-office: agent này không được dùng MCP của người dùng")
 		return
 	}
 	p, _ := ev.ToolInput["file_path"].(string)

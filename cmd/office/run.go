@@ -10,6 +10,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/events"
 	"bitbucket.org/senprints/agent-office/internal/home"
 	"bitbucket.org/senprints/agent-office/internal/limitalert"
+	"bitbucket.org/senprints/agent-office/internal/mcpgateway"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bitbucket.org/senprints/agent-office/internal/monitor"
@@ -188,6 +189,9 @@ func serveCmd() *cobra.Command {
 			}
 			go monitors.Run(ctx)
 			log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+			// the MCP servers office manages, at /mcp/s/<name> with the runs' tokens (ADR-091)
+			gateway := &mcpgateway.Gateway{Store: a.store, Box: a.providers.Box(), Auth: mcp.Authorized, Log: log}
+			chatEngine.SetGateway(gateway.Names)
 			handler := api.New(api.Config{
 				Office: office, Channels: bots, Memory: mem, Events: liveBus,
 				Store: st, Auth: a.auth, AllowedOrigins: origins,
@@ -203,6 +207,7 @@ func serveCmd() *cobra.Command {
 				Ops:        procs,
 				Monitors:   monitors,
 				MCP:        mcp,
+				Gateway:    gateway,
 				Actions:    acts,
 				Updater:    updater,
 				Supervised: supervised,

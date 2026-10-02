@@ -1,6 +1,8 @@
 # Cổng MCP chung qua office (bản nháp)
 
 > Trạng thái: đã chốt hướng làm (cổng chung, có chuyển kết nối sẵn có) và phần 1. Phần 2–4 chưa duyệt.
+>
+> **GĐ1 đã làm (ADR-091):** bảng `mcp_servers`, cổng `/mcp/s/<tên>` cho MCP HTTP (header/token tĩnh), kiểm tra như MCP client, API + dashboard, nối vào lượt chạy Claude CLI. Phạm vi chỉ `machine`, mọi agent đều dùng. Còn lại: stdio, OAuth, Codex/AI qua API, chuyển kết nối sẵn có (Phần 3), gán theo agent và nhật ký (Phần 4).
 
 ## Mục tiêu
 
@@ -48,7 +50,7 @@
   - AI qua API: office tự gọi tool.
 - Mọi lần gọi tool đều đi qua office: nhật ký và quyền duyệt nằm ở một chỗ.
 
-**Câu hỏi còn mở:** MCP của office có chia theo project không, hay chỉ toàn máy rồi gán theo agent?
+**Đã chốt (ADR-091):** bảng có cột `scope` (`machine` | `project:<id>`), GĐ1 chỉ dùng `machine` và mọi agent đều dùng; gán theo agent để GĐ4.
 
 ## Phần 2: Đăng nhập và kiểm tra (chưa duyệt)
 
