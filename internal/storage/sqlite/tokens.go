@@ -11,16 +11,16 @@ import (
 
 type tokenRepo struct{ db dbtx }
 
-const tokenCols = `id, user_id, name, token_hash, created_at, last_used_at, revoked`
+const tokenCols = `id, user_id, name, token_hash, created_at, last_used_at, revoked, expires_at`
 
 func scanToken(row scanner) (storage.UserToken, error) {
 	var (
-		t       storage.UserToken
-		created string
-		used    sql.NullString
-		revoked int
+		t             storage.UserToken
+		created       string
+		used, expires sql.NullString
+		revoked       int
 	)
-	if err := row.Scan(&t.ID, &t.UserID, &t.Name, &t.TokenHash, &created, &used, &revoked); err != nil {
+	if err := row.Scan(&t.ID, &t.UserID, &t.Name, &t.TokenHash, &created, &used, &revoked, &expires); err != nil {
 		return t, notFound(err)
 	}
 	t.Revoked = revoked == 1
@@ -28,13 +28,17 @@ func scanToken(row scanner) (storage.UserToken, error) {
 	if t.CreatedAt, err = parseTime(created); err != nil {
 		return t, err
 	}
-	t.LastUsedAt, err = optParse(used)
+	if t.LastUsedAt, err = optParse(used); err != nil {
+		return t, err
+	}
+	t.ExpiresAt, err = optParse(expires)
 	return t, err
 }
 
 func (r tokenRepo) Create(ctx context.Context, t storage.UserToken) (storage.UserToken, error) {
 	t.ID, t.CreatedAt = ids.New("tok"), time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `INSERT INTO user_tokens (`+tokenCols+`) VALUES (?,?,?,?,?,NULL,0)`, t.ID, t.UserID, t.Name, t.TokenHash, fmtTime(t.CreatedAt))
+	_, err := r.db.ExecContext(ctx, `INSERT INTO user_tokens (`+tokenCols+`) VALUES (?,?,?,?,?,NULL,0,?)`,
+		t.ID, t.UserID, t.Name, t.TokenHash, fmtTime(t.CreatedAt), optTime(t.ExpiresAt))
 	return t, err
 }
 

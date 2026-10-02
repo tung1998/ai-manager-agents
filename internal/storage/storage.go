@@ -169,7 +169,13 @@ type UserToken struct {
 	ID, UserID, Name, TokenHash string
 	CreatedAt                   time.Time
 	LastUsedAt                  *time.Time
+	ExpiresAt                   *time.Time // nil: never
 	Revoked                     bool
+}
+
+// Expired reports whether the token can no longer be used at now.
+func (t UserToken) Expired(now time.Time) bool {
+	return t.ExpiresAt != nil && !now.Before(*t.ExpiresAt)
 }
 
 // TokenRepo stores personal tokens.

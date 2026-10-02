@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,17 +33,37 @@ func (s *server) listTokens(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(list))
 	for _, t := range list {
-		out = append(out, map[string]any{"id": t.ID, "name": t.Name, "created_at": t.CreatedAt, "last_used_at": t.LastUsedAt})
+		out = append(out, map[string]any{"id": t.ID, "name": t.Name, "created_at": t.CreatedAt, "last_used_at": t.LastUsedAt,
+			"expires_at": t.ExpiresAt, "expired": t.Expired(time.Now())})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tokens": out})
 }
 
+// tokenDays: how long a new token lasts, in days (0: never expires).
+var tokenDays = []int{30, 90, 365, 0}
+
+const defaultTokenDays = 90
+
 func (s *server) createToken(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name string `json:"name"`
+		Days *int   `json:"days"`
 	}
 	if !decode(w, r, &in) {
 		return
+	}
+	days := defaultTokenDays
+	if in.Days != nil {
+		days = *in.Days
+	}
+	if !slices.Contains(tokenDays, days) {
+		writeError(w, http.StatusBadRequest, "days: 30, 90, 365 hoặc 0 (không hạn)")
+		return
+	}
+	var expires *time.Time
+	if days > 0 {
+		at := time.Now().UTC().AddDate(0, 0, days)
+		expires = &at
 	}
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
@@ -54,13 +75,13 @@ func (s *server) createToken(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "Claude Code CLI"
 	}
-	t, err := s.cfg.Store.Tokens().Create(r.Context(), storage.UserToken{UserID: userFrom(r).ID, Name: name, TokenHash: hashToken(tok)})
+	t, err := s.cfg.Store.Tokens().Create(r.Context(), storage.UserToken{UserID: userFrom(r).ID, Name: name, TokenHash: hashToken(tok), ExpiresAt: expires})
 	if err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	s.auditAction(r, "token.create", t.ID, map[string]any{"name": name})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": t.ID, "name": t.Name, "token": tok}) // shown once
+	s.auditAction(r, "token.create", t.ID, map[string]any{"name": name, "days": days})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": t.ID, "name": t.Name, "token": tok, "expires_at": t.ExpiresAt}) // shown once
 }
 
 func (s *server) revokeToken(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +99,7 @@ func (s *server) tokenScope(ctx context.Context, tok string) (officetools.Scope,
 		return officetools.Scope{}, false
 	}
 	t, err := s.cfg.Store.Tokens().GetByHash(ctx, hashToken(tok))
-	if err != nil || t.Revoked {
+	if err != nil || t.Revoked || t.Expired(time.Now()) {
 		return officetools.Scope{}, false
 	}
 	u, err := s.cfg.Store.Users().GetByID(ctx, t.UserID)

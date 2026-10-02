@@ -3,10 +3,14 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
@@ -77,6 +81,70 @@ func TestPersonalTokenForCLI(t *testing.T) {
 	resp, body = do(t, admin, "GET", e.srv.URL+"/api/actions/pending", nil, nil)
 	if resp.StatusCode != 200 || len(body["actions"].([]any)) != 1 {
 		t.Fatalf("pending = %d %v", resp.StatusCode, body)
+	}
+}
+
+// A token past its expiry is refused on /mcp and /mcp/s/*; one made before
+// expiry existed (expires_at NULL) still works; new ones last 90 days.
+func TestPersonalTokenExpiry(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	if _, err := assistant.Ensure(ctx, e.st, orgmodel.NewService(e.st), t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	u, err := e.st.Users().GetByEmail(ctx, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := func(tok string, exp *time.Time) {
+		sum := sha256.Sum256([]byte(tok))
+		if _, err := e.st.Tokens().Create(ctx, storage.UserToken{UserID: u.ID, Name: tok, TokenHash: hex.EncodeToString(sum[:]), ExpiresAt: exp}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	past, future := time.Now().Add(-time.Minute), time.Now().Add(time.Hour)
+	put("ofc_old", nil)
+	put("ofc_expired", &past)
+	put("ofc_fresh", &future)
+	call := func(path, tok string) int {
+		req, _ := http.NewRequest("POST", e.srv.URL+path, bytes.NewReader([]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	for tok, want := range map[string]int{"ofc_old": 200, "ofc_fresh": 200, "ofc_expired": 401} {
+		if code := call("/mcp", tok); code != want {
+			t.Errorf("/mcp %s = %d, want %d", tok, code, want)
+		}
+	}
+	if code := call("/mcp/s/any", "ofc_expired"); code != 401 {
+		t.Errorf("/mcp/s expired = %d", code)
+	}
+
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/me/tokens", map[string]any{"name": "laptop"}, nil)
+	exp, _ := time.Parse(time.RFC3339, fmt.Sprint(body["expires_at"]))
+	if resp.StatusCode != 201 || exp.Sub(time.Now()) < 89*24*time.Hour || exp.Sub(time.Now()) > 91*24*time.Hour {
+		t.Fatalf("default expiry = %d %v", resp.StatusCode, body)
+	}
+	if resp, body = do(t, admin, "POST", e.srv.URL+"/api/me/tokens", map[string]any{"days": 0}, nil); resp.StatusCode != 201 || body["expires_at"] != nil {
+		t.Fatalf("no expiry = %d %v", resp.StatusCode, body)
+	}
+	if resp, _ = do(t, admin, "POST", e.srv.URL+"/api/me/tokens", map[string]any{"days": 7}, nil); resp.StatusCode != 400 {
+		t.Fatalf("days 7 = %d", resp.StatusCode)
+	}
+	_, body = do(t, admin, "GET", e.srv.URL+"/api/me/tokens", nil, nil)
+	for _, x := range body["tokens"].([]any) {
+		m := x.(map[string]any)
+		if (m["name"] == "ofc_expired") != (m["expired"] == true) {
+			t.Errorf("list expired flag: %v", m)
+		}
 	}
 }
 
