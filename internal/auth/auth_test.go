@@ -163,6 +163,56 @@ func TestLoginFailures(t *testing.T) {
 	}
 }
 
+// One IP guessing across many emails is locked out, other IPs are not.
+func TestLoginIPThrottle(t *testing.T) {
+	svc, _, _ := newService(t)
+	ctx := context.Background()
+	svc.CreateUser(ctx, auth.NewUser{Email: "ok@x.io", Role: storage.RoleMember, Password: "the-password"}, "system")
+	for i := 0; i < 20; i++ {
+		svc.Login(ctx, "guess"+strings.Repeat("x", i)+"@x.io", "nope-nope-nope", auth.ClientMeta{IP: "6.6.6.6"})
+	}
+	if _, err := svc.Login(ctx, "ok@x.io", "the-password", auth.ClientMeta{IP: "6.6.6.6"}); !errors.Is(err, auth.ErrThrottled) {
+		t.Fatalf("same IP err = %v", err)
+	}
+	if _, err := svc.Login(ctx, "ok@x.io", "the-password", auth.ClientMeta{IP: "7.7.7.7"}); err != nil {
+		t.Fatalf("other IP err = %v", err)
+	}
+}
+
+// blockingHasher holds every Verify until release is closed.
+type blockingHasher struct {
+	auth.Hasher
+	started chan struct{}
+	release chan struct{}
+}
+
+func (h blockingHasher) Verify(enc, pw string) (bool, error) {
+	h.started <- struct{}{}
+	<-h.release
+	return h.Hasher.Verify(enc, pw)
+}
+
+// Password checks beyond MaxHashing wait, then give up with ErrBusy.
+func TestLoginHashingBounded(t *testing.T) {
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	h := blockingHasher{Hasher: auth.FastHasherForTests(), started: make(chan struct{}, 4), release: make(chan struct{})}
+	svc := auth.NewService(st, auth.Options{Hasher: h, MaxHashing: 1, HashWait: 50 * time.Millisecond})
+	ctx := context.Background()
+	go svc.Login(ctx, "a@x.io", "whatever-pass", auth.ClientMeta{IP: "1.1.1.1"})
+	<-h.started
+	if _, err := svc.Login(ctx, "b@x.io", "whatever-pass", auth.ClientMeta{IP: "1.1.1.2"}); !errors.Is(err, auth.ErrBusy) {
+		t.Fatalf("second login err = %v", err)
+	}
+	close(h.release)
+}
+
 func TestSessionExpiry(t *testing.T) {
 	svc, _, c := newService(t)
 	ctx := context.Background()

@@ -2,6 +2,6 @@
 export default defineEventHandler((event) => {
   const { officeApiBase } = useRuntimeConfig(event)
   return proxyRequest(event, officeApiBase.replace(/\/+$/, '') + event.path, {
-    headers: { 'x-forwarded-for': getRequestIP(event, { xForwardedFor: true }) ?? '' }
+    headers: { 'x-forwarded-for': clientIP(event) }
   })
 })

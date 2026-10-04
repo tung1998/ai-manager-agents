@@ -5,8 +5,8 @@ export default defineEventHandler((event) => {
   return proxyRequest(event, officeApiBase.replace(/\/+$/, '') + event.path, {
     headers: {
       'x-forwarded-host': getRequestHost(event),
-      'x-forwarded-proto': getRequestProtocol(event),
-      'x-forwarded-for': getRequestIP(event, { xForwardedFor: true }) ?? ''
+      'x-forwarded-proto': clientProto(event),
+      'x-forwarded-for': clientIP(event)
     }
   })
 })

@@ -193,7 +193,19 @@ func (s *server) chatMembers(r *http.Request, conversationID string) []map[strin
 	return out
 }
 
+// deleteConversation: a member deletes only the chats they started; admins any.
 func (s *server) deleteConversation(w http.ResponseWriter, r *http.Request) {
+	if u := userFrom(r); u.Role != storage.RoleAdmin {
+		c, err := s.cfg.Store.Chat().GetConversation(r.Context(), r.PathValue("id"))
+		if err != nil {
+			s.writeDomainError(w, r, err)
+			return
+		}
+		if c.CreatedBy != "human:"+u.Email {
+			writeError(w, http.StatusForbidden, "chỉ xóa được cuộc trò chuyện do bạn tạo")
+			return
+		}
+	}
 	if err := s.cfg.Chat.DeleteConversation(r.Context(), r.PathValue("id")); err != nil {
 		s.writeDomainError(w, r, err)
 		return

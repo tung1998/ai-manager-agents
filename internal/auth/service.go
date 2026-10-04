@@ -26,6 +26,7 @@ import (
 var (
 	ErrInvalidCredentials = errors.New("auth: invalid email or password")
 	ErrThrottled          = errors.New("auth: too many failed attempts, try again later")
+	ErrBusy               = errors.New("auth: too many logins at once, try again")
 	ErrUnauthenticated    = errors.New("auth: not logged in")
 	ErrInvalidEmail       = errors.New("auth: invalid email")
 	ErrWeakPassword       = fmt.Errorf("auth: password must be at least %d characters", MinPasswordLen)
@@ -41,17 +42,24 @@ type Options struct {
 	SessionTTL    time.Duration // absolute lifetime, default 7 days
 	IdleTimeout   time.Duration // max gap between requests, default 24h
 	MaxFailures   int           // per email before lockout, default 5
+	MaxIPFailures int           // per client IP (any emails) before lockout, default 20
 	FailureWindow time.Duration // lockout window, default 15m
-	Now           func() time.Time
-	Hasher        Hasher
+	// MaxHashing bounds password checks running at once (argon2id takes 64 MiB
+	// each), default 2: a flood of logins waits instead of exhausting memory.
+	MaxHashing int
+	HashWait   time.Duration // how long a login waits for its turn, default 10s
+	Now        func() time.Time
+	Hasher     Hasher
 }
 
 // Service is the auth use-case layer used by the API and the CLI.
 type Service struct {
-	store    storage.Store
-	opts     Options
-	throttle *throttle
-	dummy    string // hash verified for unknown emails so timing does not leak existence
+	store      storage.Store
+	opts       Options
+	throttle   *throttle // by email
+	ipThrottle *throttle // by client IP: guessing across many emails
+	hashing    chan struct{}
+	dummy      string // hash verified for unknown emails so timing does not leak existence
 }
 
 // NewService builds a Service.
@@ -65,8 +73,17 @@ func NewService(store storage.Store, opts Options) *Service {
 	if opts.MaxFailures == 0 {
 		opts.MaxFailures = 5
 	}
+	if opts.MaxIPFailures == 0 {
+		opts.MaxIPFailures = 20
+	}
 	if opts.FailureWindow == 0 {
 		opts.FailureWindow = 15 * time.Minute
+	}
+	if opts.MaxHashing == 0 {
+		opts.MaxHashing = 2
+	}
+	if opts.HashWait == 0 {
+		opts.HashWait = 10 * time.Second
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -75,7 +92,23 @@ func NewService(store storage.Store, opts Options) *Service {
 		opts.Hasher = DefaultHasher()
 	}
 	dummy, _ := opts.Hasher.Hash("dummy-password-for-timing")
-	return &Service{store: store, opts: opts, throttle: newThrottle(opts.MaxFailures, opts.FailureWindow), dummy: dummy}
+	return &Service{store: store, opts: opts, throttle: newThrottle(opts.MaxFailures, opts.FailureWindow),
+		ipThrottle: newThrottle(opts.MaxIPFailures, opts.FailureWindow), hashing: make(chan struct{}, opts.MaxHashing), dummy: dummy}
+}
+
+// verify checks a password once a hashing slot is free (ErrBusy after HashWait).
+func (s *Service) verify(ctx context.Context, encoded, password string) (bool, error) {
+	t := time.NewTimer(s.opts.HashWait)
+	defer t.Stop()
+	select {
+	case s.hashing <- struct{}{}:
+	case <-t.C:
+		return false, ErrBusy
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+	defer func() { <-s.hashing }()
+	return s.opts.Hasher.Verify(encoded, password)
 }
 
 // SessionTTL exposes the absolute lifetime (for the cookie Max-Age).
@@ -149,20 +182,22 @@ func (s *Service) CreateUser(ctx context.Context, in NewUser, actor string) (sto
 func (s *Service) Login(ctx context.Context, email, password string, meta ClientMeta) (LoginResult, error) {
 	email = NormalizeEmail(email)
 	now := s.opts.Now()
-	if s.throttle.locked(email, now) {
+	if s.throttle.locked(email, now) || (meta.IP != "" && s.ipThrottle.locked(meta.IP, now)) {
 		s.audit(ctx, "anonymous", "auth.login_throttled", email, map[string]any{"ip": meta.IP})
 		return LoginResult{}, ErrThrottled
 	}
 	u, err := s.store.Users().GetByEmail(ctx, email)
 	switch {
 	case errors.Is(err, storage.ErrNotFound):
-		_, _ = s.opts.Hasher.Verify(s.dummy, password) // equalise timing
+		if _, err := s.verify(ctx, s.dummy, password); err != nil && !errors.Is(err, errBadHash) { // equalise timing
+			return LoginResult{}, err
+		}
 		s.fail(ctx, email, meta, "unknown_email")
 		return LoginResult{}, ErrInvalidCredentials
 	case err != nil:
 		return LoginResult{}, err
 	}
-	ok, err := s.opts.Hasher.Verify(u.PasswordHash, password)
+	ok, err := s.verify(ctx, u.PasswordHash, password)
 	if err != nil {
 		return LoginResult{}, err
 	}
@@ -305,6 +340,9 @@ func (s *Service) setPassword(ctx context.Context, userID, pw string) error {
 
 func (s *Service) fail(ctx context.Context, email string, meta ClientMeta, reason string) {
 	s.throttle.fail(email, s.opts.Now())
+	if meta.IP != "" {
+		s.ipThrottle.fail(meta.IP, s.opts.Now())
+	}
 	s.audit(ctx, "anonymous", "auth.login_failed", email, map[string]any{"ip": meta.IP, "reason": reason})
 }
 

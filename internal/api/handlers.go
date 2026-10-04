@@ -55,6 +55,10 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "900")
 		writeError(w, http.StatusTooManyRequests, "Đăng nhập sai quá nhiều lần, thử lại sau 15 phút")
 		return
+	case errors.Is(err, auth.ErrBusy):
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusServiceUnavailable, "Đang có nhiều lượt đăng nhập, thử lại sau ít giây")
+		return
 	case err != nil:
 		s.internal(w, r, err)
 		return

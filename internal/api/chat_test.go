@@ -102,4 +102,14 @@ func TestChatAPIWithSSE(t *testing.T) {
 	if p["status"] != "applied" || p["decided_by"] != "human:admin@x.io" {
 		t.Fatalf("patch in history = %v", p)
 	}
+
+	// a member deletes only the chats they started
+	if resp, _ := do(t, member, "DELETE", e.srv.URL+"/api/conversations/"+cid, nil, nil); resp.StatusCode != 403 {
+		t.Fatalf("member deletes admin's chat = %d", resp.StatusCode)
+	}
+	_, body = do(t, member, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{}, nil)
+	own := body["conversation"].(map[string]any)["id"].(string)
+	if resp, _ := do(t, member, "DELETE", e.srv.URL+"/api/conversations/"+own, nil, nil); resp.StatusCode != 204 {
+		t.Fatalf("member deletes own chat = %d", resp.StatusCode)
+	}
 }
