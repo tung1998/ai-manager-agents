@@ -63,6 +63,7 @@ function projectSections(id: string): NavigationMenuItem[] {
     { label: t('project.sectionPerm'), icon: 'i-lucide-shield', to: to('perm'), exactQuery: 'partial' },
     ...(isAdmin.value
       ? [
+          { label: t('files.section'), icon: 'i-lucide-folder-tree', to: to('files'), exactQuery: 'partial' as const },
           { label: t('project.sectionSkill'), icon: 'i-lucide-sparkles', to: to('skill'), exactQuery: 'partial' as const },
           { label: t('project.sectionMcp'), icon: 'i-lucide-plug-zap', to: to('mcp'), exactQuery: 'partial' as const },
           { label: t('project.sectionBurn'), icon: 'i-lucide-flame', to: to('burn'), exactQuery: 'partial' as const },

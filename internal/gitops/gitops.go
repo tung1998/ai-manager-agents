@@ -114,6 +114,23 @@ func Diff(ctx context.Context, root string, files []string, maxBytes int) (strin
 	return out, nil
 }
 
+// Ignored returns which of paths (relative, folders ending in "/") git ignores.
+// Not a git repo, or git missing: none.
+func Ignored(ctx context.Context, root string, paths []string) map[string]bool {
+	out := map[string]bool{}
+	if len(paths) == 0 {
+		return out
+	}
+	// exit 1 means "none ignored": the output is what counts
+	res, _ := git(ctx, root, append([]string{"-c", "core.quotePath=false", "check-ignore", "--"}, paths...)...)
+	for _, l := range strings.Split(res, "\n") {
+		if l != "" {
+			out[strings.Trim(l, `"`)] = true
+		}
+	}
+	return out
+}
+
 // Log returns the last n commits, one per line.
 func Log(ctx context.Context, root string, n int) (string, error) {
 	return git(ctx, root, "log", fmt.Sprintf("-%d", n), "--pretty=format:%h %ad %an: %s", "--date=short")

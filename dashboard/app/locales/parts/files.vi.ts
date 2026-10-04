@@ -1,0 +1,28 @@
+// Vietnamese strings for the project's file editor (source of truth for keys).
+export default {
+  'files.section': 'Files',
+  'files.showHidden': 'Hiện file ẩn',
+  'files.hiddenInfo': 'File trong .gitignore và file bí mật (.env, khóa…) bị ẩn mặc định',
+  'files.hiddenCount': '{n} mục ẩn',
+  'files.more': '… và {n} mục khác',
+  'files.empty': 'Thư mục trống',
+  'files.pick': 'Chọn một file để xem hoặc sửa',
+  'files.newFile': 'File mới',
+  'files.newPrompt': 'Đường dẫn file mới (tính từ thư mục project)',
+  'files.refresh': 'Tải lại',
+  'files.save': 'Lưu',
+  'files.revert': 'Bỏ thay đổi',
+  'files.saved': 'Đã lưu {path}',
+  'files.unsaved': 'Chưa lưu',
+  'files.changes': 'Thay đổi so với commit',
+  'files.noChanges': 'Không có thay đổi so với commit (hoặc file chưa được git theo dõi)',
+  'files.binary': 'File nhị phân, không sửa trên dashboard',
+  'files.tooLarge': 'File quá lớn ({size}) để mở trên dashboard',
+  'files.ignored': 'gitignore',
+  'files.secret': 'bí mật',
+  'files.protected': 'được bảo vệ',
+  'files.confirmSensitive': '{path} là file bí mật hoặc được project bảo vệ. Vẫn lưu?',
+  'files.conflict': 'File đã bị thay đổi sau khi mở',
+  'files.reload': 'Tải bản mới',
+  'files.leave': 'Có thay đổi chưa lưu. Bỏ qua?'
+}

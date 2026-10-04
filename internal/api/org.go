@@ -100,6 +100,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/projects/{id}/model", admin(s.applyRepoModel))
 
 	mux.Handle("GET /api/fs/dirs", admin(s.listDirs))
+	s.fileRoutes(mux, admin)
 
 	if s.cfg.Chat != nil {
 		mux.Handle("GET /api/projects/{id}/chat/agents", auth(s.chatAgents))

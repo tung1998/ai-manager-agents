@@ -9,6 +9,22 @@ import (
 	"testing"
 )
 
+func TestIgnored(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git missing")
+	}
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatal(string(out))
+	}
+	os.WriteFile(filepath.Join(root, ".gitignore"), []byte("dist/\n*.log\n"), 0o644)
+	os.MkdirAll(filepath.Join(root, "dist"), 0o755)
+	got := Ignored(context.Background(), root, []string{"dist/", "a.log", "a.txt"})
+	if !got["dist/"] || !got["a.log"] || got["a.txt"] {
+		t.Fatalf("ignored = %v", got)
+	}
+}
+
 func TestCommitAndStatus(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git missing")

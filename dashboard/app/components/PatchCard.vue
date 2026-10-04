@@ -17,17 +17,13 @@ const { t } = useLang()
 const busy = ref<'' | 'approve' | 'reject' | 'skip'>('')
 const open = ref(props.patch.status === 'pending' || props.patch.status === 'failed')
 
-const lines = computed(() => props.patch.diff.split('\n').map((l) => {
-  const kind = l.startsWith('+++') || l.startsWith('---') ? 'file'
-    : l.startsWith('@@') ? 'hunk'
-      : l.startsWith('+') ? 'add'
-        : l.startsWith('-') ? 'del' : 'ctx'
-  return { text: l, kind }
-}))
-const stats = computed(() => ({
-  add: lines.value.filter(l => l.kind === 'add').length,
-  del: lines.value.filter(l => l.kind === 'del').length
-}))
+const stats = computed(() => {
+  const lines = props.patch.diff.split('\n')
+  return {
+    add: lines.filter(l => l.startsWith('+') && !l.startsWith('+++')).length,
+    del: lines.filter(l => l.startsWith('-') && !l.startsWith('---')).length
+  }
+})
 
 const statusMeta = computed<Record<Patch['status'], { label: string, color: 'warning' | 'success' | 'neutral' | 'error', icon: string }>>(() => ({
   pending: { label: t('patch.pending'), color: 'warning', icon: 'i-lucide-clock' },
@@ -74,13 +70,6 @@ async function decide(approve: boolean, skip = false) {
       </template>
     </div>
     <p v-if="patch.detail && patch.status !== 'applied'" class="border-t border-(--ui-border) px-3 py-1.5 text-xs text-(--ui-error)">{{ patch.detail }}</p>
-    <pre v-if="open" class="max-h-96 overflow-auto border-t border-(--ui-border) py-1 text-xs leading-5"><code><span
-      v-for="(l, i) in lines" :key="i" class="block px-3"
-      :class="{
-        'bg-(--ui-success)/10 text-(--ui-success)': l.kind === 'add',
-        'bg-(--ui-error)/10 text-(--ui-error)': l.kind === 'del',
-        'text-(--ui-text-muted)': l.kind === 'hunk' || l.kind === 'file'
-      }"
-    >{{ l.text || ' ' }}</span></code></pre>
+    <DiffView v-if="open" :diff="patch.diff" class="max-h-96 border-t border-(--ui-border)" />
   </div>
 </template>

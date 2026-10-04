@@ -8,9 +8,11 @@ import auto from './parts/auto.en'
 import audit from './parts/audit.en'
 import limits from './parts/limits.en'
 import watchScreen from './parts/watch.en'
+import files from './parts/files.en'
 
 const en: Record<MessageKey, string> = {
   ...watchScreen,
+  ...files,
   ...tasks,
   ...ops,
   ...org,

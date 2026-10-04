@@ -16,8 +16,8 @@ const templates = computed(() => tplData.value?.templates ?? [])
 
 // the tab lives in the URL so the sidebar can link to each section
 // (older links: tab=config&section=…, tab=tools, tab=channels: bots live in Automations now)
-type Tab = 'chat' | 'tasks' | 'automations' | 'ops' | 'model' | 'perm' | 'skill' | 'mcp' | 'info' | 'log' | 'burn'
-const tabs: Tab[] = ['chat', 'tasks', 'automations', 'ops', 'model', 'perm', 'skill', 'mcp', 'info', 'log', 'burn']
+type Tab = 'chat' | 'tasks' | 'automations' | 'ops' | 'files' | 'model' | 'perm' | 'skill' | 'mcp' | 'info' | 'log' | 'burn'
+const tabs: Tab[] = ['chat', 'tasks', 'automations', 'ops', 'files', 'model', 'perm', 'skill', 'mcp', 'info', 'log', 'burn']
 
 // "Hỏi agent" from Vận hành: open Chat with the log attached
 // send=true ("Sửa lỗi") starts a new conversation and sends right away
@@ -30,7 +30,7 @@ const tab = computed<Tab>({
   get: () => {
     const q = route.query.tab === 'config' ? (route.query.section ?? 'info') : route.query.tab === 'tools' ? 'skill' : route.query.tab === 'channels' ? 'automations' : route.query.tab
     const found = tabs.find(t => t === q) ?? 'chat'
-    return found === 'log' && !isAdmin.value ? 'chat' : found // the change log is for admins
+    return (found === 'log' || found === 'files') && !isAdmin.value ? 'chat' : found // the change log and files are for admins
   },
   set: t => navigateTo({ query: { tab: t } }, { replace: true })
 })
@@ -123,12 +123,13 @@ async function saveAsTemplate() {
     </template>
 
     <!-- Chat fills the page height (the panel body is a bounded flex column) -->
-    <div v-if="project" :class="(tab === 'chat' || tab === 'tasks') && project.model ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4'">
+    <div v-if="project" :class="((tab === 'chat' || tab === 'tasks') && project.model) || tab === 'files' ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4'">
       <UAlert v-if="!project.exists" color="error" variant="subtle" icon="i-lucide-folder-x" :title="t('project.notFound')" />
 
 
       <AutomationsPanel v-if="tab === 'automations'" :project-id="project.id" />
       <BurnPanel v-else-if="tab === 'burn' && isAdmin" :project-id="project.id" />
+      <FilesPanel v-else-if="tab === 'files' && isAdmin && project.path" :project-id="project.id" />
       <AuditLog v-else-if="tab === 'log' && isAdmin" :key="project.id" class="max-w-6xl" :filter="{ project: project.id }" show-filters />
       <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
       <template v-else-if="['info', 'model', 'perm', 'skill', 'mcp'].includes(tab)">

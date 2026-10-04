@@ -35,6 +35,12 @@ var skipDirs = map[string]bool{".git": true, "node_modules": true, "vendor": tru
 
 var secretName = regexp.MustCompile(`(?i)(^\.env($|\.)|\.pem$|\.key$|\.p12$|\.pfx$|^id_(rsa|ed25519|ecdsa)|^secret\.key$|credentials\.json$|\.keystore$)`)
 
+// IsSecret reports a file name that may hold secrets (.env, keys…).
+func IsSecret(name string) bool { return secretName.MatchString(name) }
+
+// Resolve is resolve for callers outside the package (the dashboard's file editor).
+func (w Workspace) Resolve(rel string) (string, error) { return w.resolve(rel) }
+
 // resolve maps a relative path into Root, refusing escapes (including via symlinks).
 func (w Workspace) resolve(rel string) (string, error) {
 	rel = strings.TrimSpace(rel)
