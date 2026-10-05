@@ -22,11 +22,27 @@ type Discord struct {
 	GatewayURL string // "" = wss://gateway.discord.gg/?v=10&encoding=json
 	APIBase    string // "" = https://discord.com/api/v10
 	client     http.Client
+	idMu       sync.RWMutex // guards botID/appID: set from the read loop, read from goroutines a reconnect may outlive (SetCommands, interaction replies)
 	botID      string
 	appID      string // the application: its commands, its interactions' replies
 	menu       menu
 	threads    sync.Map // thread ids it knows of (made, open when it connected): their messages are InThread
 	botRoles   sync.Map // the bot's own roles (managed, one per server): tagging one tags the bot
+}
+
+// setIdentity records who the bot is (from READY), replacing a reconnect's
+// stale value atomically with respect to identity() readers.
+func (d *Discord) setIdentity(botID, appID string) {
+	d.idMu.Lock()
+	d.botID, d.appID = botID, appID
+	d.idMu.Unlock()
+}
+
+// identity is who the bot is, as last set by setIdentity.
+func (d *Discord) identity() (botID, appID string) {
+	d.idMu.RLock()
+	defer d.idMu.RUnlock()
+	return d.botID, d.appID
 }
 
 // intents: guilds (threads made), guild messages, direct messages, message content
@@ -169,7 +185,7 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 					} `json:"application"`
 				}
 				_ = json.Unmarshal(p.D, &r)
-				d.botID, d.appID = r.User.ID, r.Application.ID
+				d.setIdentity(r.User.ID, r.Application.ID)
 				ready = true
 				onReady(r.User.Username)
 			case "INTERACTION_CREATE":
@@ -204,11 +220,12 @@ func (d *Discord) session(ctx context.Context, onReady func(string), onMessage f
 					} `json:"roles"`
 				}
 				if json.Unmarshal(p.D, &g) == nil { // known before the next message is read
+					botID, _ := d.identity()
 					for _, th := range g.Threads {
 						d.threads.Store(th.ID, true)
 					}
 					for _, r := range g.Roles {
-						if r.Tags != nil && r.Tags.BotID != "" && r.Tags.BotID == d.botID {
+						if r.Tags != nil && r.Tags.BotID != "" && r.Tags.BotID == botID {
 							d.botRoles.Store(r.ID, true)
 						}
 					}
@@ -248,7 +265,8 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 			} `json:"author"`
 		} `json:"referenced_message"`
 	}
-	if json.Unmarshal(raw, &m) != nil || m.Author.Bot || m.Author.ID == d.botID {
+	botID, _ := d.identity()
+	if json.Unmarshal(raw, &m) != nil || m.Author.Bot || m.Author.ID == botID {
 		return Incoming{}, false
 	}
 	if m.Type != 0 && m.Type != 19 { // a person's message or reply; not "X started a thread", a pin, a join…
@@ -264,7 +282,7 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	}
 	tagged := false
 	for _, x := range m.Mentions {
-		if x.ID == d.botID && d.botID != "" {
+		if x.ID == botID && botID != "" {
 			tagged = true
 		}
 	}
@@ -275,7 +293,7 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 			roles = append(roles, "<@&"+r+">", "")
 		}
 	}
-	replied := m.Replied != nil && d.botID != "" && m.Replied.Author.ID == d.botID
+	replied := m.Replied != nil && botID != "" && m.Replied.Author.ID == botID
 	if replied {
 		in.ReplyTo = m.Replied.ID
 	}
@@ -283,8 +301,8 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	// it, a command typed without a tag); a kept conversation hears the rest
 	in.Addressed = in.Private || tagged || replied || d.menu.has(m.Content)
 	text := m.Content
-	if d.botID != "" {
-		text = strings.NewReplacer(append([]string{"<@" + d.botID + ">", "", "<@!" + d.botID + ">", ""}, roles...)...).Replace(text)
+	if botID != "" {
+		text = strings.NewReplacer(append([]string{"<@" + botID + ">", "", "<@!" + botID + ">", ""}, roles...)...).Replace(text)
 	}
 	in.Text = strings.TrimSpace(text)
 	return in, in.Text != "" || len(in.Files) > 0
@@ -386,7 +404,8 @@ func (d *Discord) joinOpen(ctx context.Context, raw json.RawMessage, onMessage f
 func (d *Discord) SetCommands(ctx context.Context, cmds []Command) {
 	cmds = capped(cmds)
 	d.menu.set(cmds)
-	if d.appID == "" {
+	_, appID := d.identity()
+	if appID == "" {
 		return
 	}
 	var list []map[string]any
@@ -402,7 +421,7 @@ func (d *Discord) SetCommands(ctx context.Context, cmds []Command) {
 			list = append(list, map[string]any{"name": threadMenu, "type": 3, "contexts": []int{0}})
 		}
 	}
-	if err := d.do(ctx, "PUT", "/applications/"+d.appID+"/commands", list); err != nil {
+	if err := d.do(ctx, "PUT", "/applications/"+appID+"/commands", list); err != nil {
 		slog.Warn("discord: slash commands not registered", "err", err)
 	}
 }
@@ -467,7 +486,8 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 	} else if x.User != nil {
 		in.UserID, in.UserName = x.User.ID, x.User.Username
 	}
-	app, token := d.appID, x.Token
+	_, app := d.identity()
+	token := x.Token
 	in.Respond = func(ctx context.Context, text string) (string, error) {
 		var sent struct {
 			ID string `json:"id"`
