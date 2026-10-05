@@ -65,6 +65,7 @@ const en: Record<keyof typeof vi, string> = {
   'chat.cleaned': 'This chat\'s data was cleaned up, so it takes no more messages. Open a new chat.',
   'chat.effort': 'This chat\'s thinking level (from the next message)',
   'chat.none': 'No conversations yet.',
+'chat.assistantLoadError': 'Could not load the office assistant',
   'chat.newThreadTitle': 'New conversation',
   'chat.deleteConfirm': 'Delete this conversation?',
   'chat.delete': 'Delete',

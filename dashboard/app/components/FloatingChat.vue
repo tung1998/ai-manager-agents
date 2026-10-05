@@ -4,10 +4,12 @@
 // assistant; elsewhere it is the office assistant.
 const route = useRoute()
 const { t } = useLang()
+const toast = useToast()
 const open = ref(false)
 const projectId = computed(() => (route.params.id as string) || '')
 const inProject = computed(() => !!projectId.value && route.path.startsWith(`/projects/${projectId.value}`))
-const { data: asst } = useLiveFetch<{ project_id: string }>('/api/assistant', { lazy: true, server: false })
+const { data: asst, error: asstError } = useLiveFetch<{ project_id: string }>('/api/assistant', { lazy: true, server: false })
+watch(asstError, (e) => { if (e) toast.add({ title: t('chat.assistantLoadError'), description: apiError(e), color: 'error' }) })
 const assistantId = computed(() => asst.value?.project_id ?? '')
 // the scope chip: the project, or the whole office
 const scope = ref<'project' | 'office'>('project')

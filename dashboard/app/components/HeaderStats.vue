@@ -3,7 +3,7 @@
 // person, the agents at work, the project processes (dev, build…), the machine's CPU and memory. Each opens its
 // tab of the overview.
 const { t } = useLang()
-const { data: inc } = useLiveFetch<{ count: number }>('/api/incidents', { key: 'incidents', lazy: true })
+const { data: inc, error: incErr } = useLiveFetch<{ count: number }>('/api/incidents', { key: 'incidents', lazy: true })
 const { summary: sum } = useSystemStats('summary') // the Máy tab's look feeds it too: never two
 
 const memPct = computed(() => sum.value?.mem_total ? Math.round(sum.value.mem_used / sum.value.mem_total * 100) : 0)
@@ -12,7 +12,7 @@ const items = computed(() => {
   const s = sum.value
   const n = inc.value?.count ?? 0
   return [
-    { key: 'inc', icon: 'i-lucide-siren', value: String(n), title: t('hdr.incidents', { n }), to: '/', cls: n ? 'text-(--ui-error)' : '', mobile: true },
+    { key: 'inc', icon: incErr.value ? 'i-lucide-triangle-alert' : 'i-lucide-siren', value: incErr.value ? '?' : String(n), title: incErr.value ? t('hdr.incidentsError') : t('hdr.incidents', { n }), to: '/', cls: incErr.value ? 'text-(--ui-warning)' : n ? 'text-(--ui-error)' : '', mobile: true },
     { key: 'agents', icon: 'i-lucide-bot', value: s ? String(s.agents) : '–', title: s ? t('hdr.agents', { n: s.agents, p: s.procs }) : '', to: '/?tab=machine', cls: s?.agents ? 'text-primary' : '', mobile: true },
     { key: 'tasks', icon: 'i-lucide-square-terminal', value: s ? String(s.tasks?.length ?? 0) : '–', title: s?.tasks?.length ? t('hdr.tasks', { n: s.tasks.length, names: s.tasks.slice(0, 5).join(', ') + (s.tasks.length > 5 ? '…' : '') }) : t('hdr.noTasks'), to: '/?tab=machine', cls: s?.tasks?.length ? 'text-primary' : '', mobile: true },
     { key: 'cpu', icon: 'i-lucide-cpu', value: s ? `${Math.round(s.cpu_percent)}%` : '–', title: t('hdr.cpu'), to: '/?tab=machine', cls: s ? hot(s.cpu_percent) : '', mobile: false },

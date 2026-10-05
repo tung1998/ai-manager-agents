@@ -233,6 +233,7 @@ const en: Record<keyof typeof vi, string> = {
   'sys.openChat': 'Open chat',
   'sys.procs': '{n} processes',
   'hdr.incidents': '{n} things need you',
+'hdr.incidentsError': 'Could not load the count of things needing you',
   'hdr.agents': '{n} agents running · {p} processes',
   'hdr.cpu': 'Machine CPU',
   'hdr.ram': 'Machine memory',

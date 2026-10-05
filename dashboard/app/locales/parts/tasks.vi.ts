@@ -64,6 +64,7 @@ export default {
   'chat.cleaned': 'Chat này đã được dọn dữ liệu nên không nhắn thêm được. Hãy mở chat mới.',
   'chat.effort': 'Mức suy nghĩ của chat này (từ tin nhắn tiếp theo)',
   'chat.none': 'Chưa có cuộc trò chuyện.',
+'chat.assistantLoadError': 'Không tải được trợ lý office',
   'chat.newThreadTitle': 'Cuộc trò chuyện mới',
   'chat.deleteConfirm': 'Xóa cuộc trò chuyện này?',
   'chat.delete': 'Xóa',

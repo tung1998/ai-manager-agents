@@ -7,7 +7,7 @@ const emit = defineEmits<{ pick: [projectId: string, conversationId?: string] }>
 const { t, dateLocale } = useLang()
 
 interface RecentChat { id: string, project_id: string, title: string, agent_name: string, source?: Source, updated_at: string, active_turn?: string }
-const { data: recentData } = useLiveFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 20 }, lazy: true, server: false })
+const { data: recentData, error: recentError } = useLiveFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 20 }, lazy: true, server: false })
 const recent = computed(() => recentData.value?.conversations ?? [])
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 </script>
@@ -29,7 +29,8 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
     </div>
     <div class="min-h-0 flex-1 overflow-y-auto p-2">
       <p class="px-2 pb-1 text-xs font-medium text-(--ui-text-dimmed)">{{ t('watch.recent') }}</p>
-      <LoadingRows v-if="!recentData" :n="4" />
+      <LoadingRows v-if="!recentData && !recentError" :n="4" />
+      <p v-else-if="recentError" class="px-2 py-1 text-sm text-(--ui-error)">{{ t('watch.recentError') }}</p>
       <p v-else-if="!recent.length" class="px-2 py-1 text-sm text-(--ui-text-muted)">{{ t('chat.none') }}</p>
       <button
         v-for="c in recent" :key="c.id" type="button"

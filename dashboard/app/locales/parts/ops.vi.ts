@@ -232,6 +232,7 @@ export default {
   'sys.openChat': 'Mở chat',
   'sys.procs': '{n} tiến trình',
   'hdr.incidents': '{n} việc cần xử lý',
+  'hdr.incidentsError': 'Không tải được số việc cần xử lý',
   'hdr.agents': '{n} agent đang chạy · {p} tiến trình',
   'hdr.cpu': 'CPU của máy',
   'hdr.ram': 'RAM của máy',

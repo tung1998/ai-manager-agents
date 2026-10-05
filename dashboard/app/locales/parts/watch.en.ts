@@ -12,7 +12,8 @@ const en: Record<keyof typeof vi, string> = {
   'watch.splitDown': 'Split down',
   'watch.close': 'Close box',
   'watch.clear': 'Clear all',
-  'watch.clearConfirm': 'Close every box? The chats stay.'
+  'watch.clearConfirm': 'Close every box? The chats stay.',
+  'watch.recentError': 'Could not load recent chats'
 }
 
 export default en
