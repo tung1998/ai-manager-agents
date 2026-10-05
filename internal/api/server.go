@@ -23,6 +23,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/auth"
@@ -105,6 +106,27 @@ type server struct {
 	origins map[string]bool
 	log     *slog.Logger
 	build   buildInfo // what is running, read once at startup
+
+	automationMu    sync.Mutex // guards automationLocks
+	automationLocks map[string]*sync.Mutex // one project's automation create/update at a time (ADR-049 command dedupe)
+}
+
+// lockAutomations serializes create/update of a project's automations, so
+// the check-then-write of a bot's custom /command (unique per channel) is
+// never raced by two requests reading "free" before either writes.
+func (s *server) lockAutomations(projectID string) func() {
+	s.automationMu.Lock()
+	if s.automationLocks == nil {
+		s.automationLocks = map[string]*sync.Mutex{}
+	}
+	lk := s.automationLocks[projectID]
+	if lk == nil {
+		lk = &sync.Mutex{}
+		s.automationLocks[projectID] = lk
+	}
+	s.automationMu.Unlock()
+	lk.Lock()
+	return lk.Unlock
 }
 
 // New returns the root handler.

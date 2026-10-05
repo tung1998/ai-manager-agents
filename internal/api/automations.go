@@ -363,6 +363,7 @@ func (s *server) createAutomation(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	defer s.lockAutomations(p.ID)()
 	a := storage.Automation{ProjectID: p.ID, Enabled: true, CreatedBy: userFrom(r).Email}
 	newBot, commitBot, err := s.saveBot(r, &in, p.ID)
 	if err != nil {
@@ -423,6 +424,7 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 	if conflicted(w, in.Version, automationVersion(a)) {
 		return
 	}
+	defer s.lockAutomations(a.ProjectID)()
 	old := a
 	wasWebhook := a.Source == "webhook"
 	newBot, commitBot, err := s.saveBot(r, &in, a.ProjectID)
