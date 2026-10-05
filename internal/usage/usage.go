@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
@@ -39,6 +40,8 @@ type Service struct {
 	store storage.Store
 	loc   *time.Location
 	now   func() time.Time
+
+	mu sync.Mutex // serializes Settings read-modify-write (SetProjectLimit, SaveSettings)
 }
 
 // New builds a Service; days are counted in loc (nil: local time).
@@ -54,6 +57,10 @@ func (s *Service) SetClock(now func() time.Time) { s.now = now }
 
 // Settings returns the current settings.
 func (s *Service) Settings(ctx context.Context) (Settings, error) {
+	return s.loadSettings(ctx)
+}
+
+func (s *Service) loadSettings(ctx context.Context) (Settings, error) {
 	var st Settings
 	_, err := s.store.Settings().Get(ctx, settingsKey, &st)
 	if st.WarnRatio == 0 {
@@ -62,8 +69,7 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	return st, err
 }
 
-// SaveSettings replaces the settings.
-func (s *Service) SaveSettings(ctx context.Context, st Settings) error {
+func (s *Service) saveSettings(ctx context.Context, st Settings) error {
 	if st.DailyLimitUSD < 0 {
 		return fmt.Errorf("ngân sách không được âm")
 	}
@@ -73,6 +79,39 @@ func (s *Service) SaveSettings(ctx context.Context, st Settings) error {
 		}
 	}
 	return s.store.Settings().Set(ctx, settingsKey, st)
+}
+
+// SaveSettings replaces the settings.
+func (s *Service) SaveSettings(ctx context.Context, st Settings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveSettings(ctx, st)
+}
+
+// SetProjectLimit sets one project's daily budget (0 clears it): the
+// read-modify-write is serialized by mu, so a concurrent change to another
+// field is not lost (the caller used to do Settings()+SaveSettings() itself,
+// unprotected).
+func (s *Service) SetProjectLimit(ctx context.Context, projectID string, dailyLimitUSD float64) (old float64, st Settings, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err = s.loadSettings(ctx)
+	if err != nil {
+		return 0, st, err
+	}
+	old = st.ProjectLimits[projectID]
+	if st.ProjectLimits == nil {
+		st.ProjectLimits = map[string]float64{}
+	}
+	if dailyLimitUSD > 0 {
+		st.ProjectLimits[projectID] = dailyLimitUSD
+	} else {
+		delete(st.ProjectLimits, projectID)
+	}
+	if err = s.saveSettings(ctx, st); err != nil {
+		return old, st, err
+	}
+	return old, st, nil
 }
 
 // StartOfDay is midnight today in the office timezone.

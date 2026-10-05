@@ -124,21 +124,8 @@ func (s *server) setProjectBudget(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	st, err := s.cfg.Usage.Settings(r.Context())
+	old, _, err := s.cfg.Usage.SetProjectLimit(r.Context(), id, in.DailyLimitUSD)
 	if err != nil {
-		s.internal(w, r, err)
-		return
-	}
-	old := st.ProjectLimits[id]
-	if st.ProjectLimits == nil {
-		st.ProjectLimits = map[string]float64{}
-	}
-	if in.DailyLimitUSD > 0 {
-		st.ProjectLimits[id] = in.DailyLimitUSD
-	} else {
-		delete(st.ProjectLimits, id)
-	}
-	if err := s.cfg.Usage.SaveSettings(r.Context(), st); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
