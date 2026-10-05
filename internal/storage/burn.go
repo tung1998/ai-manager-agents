@@ -42,6 +42,11 @@ type BurnRepo interface {
 	Running(ctx context.Context) ([]BurnSession, error)
 	AddItem(ctx context.Context, it BurnItem) (BurnItem, error)
 	UpdateItem(ctx context.Context, it BurnItem) error
+	// UpdateItemFrom saves it only if the item's current status still equals
+	// fromStatus (compare-and-swap); ErrConflict when it has since changed —
+	// two burn_pick (or other status change) calls racing for the same item
+	// must not both succeed.
+	UpdateItemFrom(ctx context.Context, it BurnItem, fromStatus string) error
 	Item(ctx context.Context, id string) (BurnItem, error)
 	Items(ctx context.Context, sessionID string) ([]BurnItem, error)
 }

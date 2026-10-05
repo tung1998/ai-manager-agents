@@ -24,6 +24,7 @@ func (s *Service) Tool(ctx context.Context, sc actions.Scope, name string, in To
 	if err != nil || it.SessionID != b.ID {
 		return "", fmt.Errorf("không có việc %q trong Burn này", in.Item)
 	}
+	fromStatus := it.Status
 	switch name {
 	case "burn_pick":
 		if it.Status != "found" {
@@ -42,7 +43,12 @@ func (s *Service) Tool(ctx context.Context, sc actions.Scope, name string, in To
 	default:
 		return "", fmt.Errorf("không có công cụ %s", name)
 	}
-	if err := s.store.Burn().UpdateItem(ctx, it); err != nil {
+	// compare-and-swap theo status đã đọc: 2 lệnh đổi trạng thái cùng item
+	// chạy gần như đồng thời (vd 2 burn_pick) không được phép cùng thành công
+	if err := s.store.Burn().UpdateItemFrom(ctx, it, fromStatus); err != nil {
+		if errors.Is(err, storage.ErrConflict) {
+			return "", fmt.Errorf("việc %s vừa đổi trạng thái ở nơi khác, hãy xem lại danh sách", it.ID)
+		}
 		return "", err
 	}
 	return fmt.Sprintf("Đã ghi: %s → %s.", it.Title, it.Status), nil
