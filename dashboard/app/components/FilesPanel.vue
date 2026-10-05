@@ -16,13 +16,16 @@ const showHidden = useCookie<boolean>('files-hidden', { default: () => false })
 const dirs = ref<Record<string, Listing>>({})
 const expanded = ref<Set<string>>(new Set(['']))
 const loadingDir = ref<Set<string>>(new Set())
+const rootError = ref('') // the root folder failed: said in the tree, not an endless skeleton
 
 async function loadDir(path: string) {
   loadingDir.value.add(path)
+  if (path === '') rootError.value = ''
   try {
     dirs.value[path] = await $fetch<Listing>(`${base.value}/files`, { query: { path, hidden: showHidden.value ? '1' : undefined } })
   } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
+    if (path === '') rootError.value = apiError(e)
+    else toast.add({ title: apiError(e), color: 'error' })
   } finally {
     loadingDir.value.delete(path)
   }
@@ -33,7 +36,6 @@ function reloadTree() {
   open.forEach(p => loadDir(p))
 }
 watch(showHidden, reloadTree)
-watch(() => props.projectId, () => { expanded.value = new Set(['']); file.value = null; reloadTree() }, { immediate: true })
 
 function toggleDir(e: Entry) {
   if (expanded.value.has(e.path)) {
@@ -68,6 +70,8 @@ const file = ref<OpenFile | null>(null)
 const draft = ref('')
 const saving = ref(false)
 const dirty = computed(() => !!file.value && file.value.content !== undefined && draft.value !== file.value.content)
+// after `file` exists: an immediate watcher runs during setup
+watch(() => props.projectId, () => { expanded.value = new Set(['']); file.value = null; reloadTree() }, { immediate: true })
 const showDiff = ref(false)
 const diff = ref<string | null>(null)
 
@@ -188,7 +192,11 @@ function badges(f: Flags) {
         <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :aria-label="t('files.refresh')" :title="t('files.refresh')" @click="reloadTree" />
       </div>
       <div class="min-h-0 flex-1 overflow-auto py-1 text-sm">
-        <LoadingRows v-if="!dirs['']" :n="6" />
+        <div v-if="rootError" class="space-y-2 p-3 text-sm">
+          <p class="text-(--ui-error)">{{ rootError }}</p>
+          <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-refresh-cw" :label="t('files.refresh')" @click="reloadTree" />
+        </div>
+        <LoadingRows v-else-if="!dirs['']" :n="6" />
         <template v-for="(r, i) in rows" :key="r.kind === 'entry' ? r.entry.path : `n${i}`">
           <button
             v-if="r.kind === 'entry'" type="button"
