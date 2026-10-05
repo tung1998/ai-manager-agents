@@ -202,6 +202,9 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 	release := func() {
 		cancel()
 		e.finish(t)
+		if s.total != nil {
+			s.total.Add(-1)
+		}
 	}
 	history, err := e.store.Chat().ListMessages(runCtx, conv.ID)
 	if err != nil {
