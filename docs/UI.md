@@ -4,21 +4,34 @@ Nuxt 4 + @nuxt/ui, app riêng trong `dashboard/` (ADR-010). Gọi REST + SSE c�
 
 ## Màn hình
 
+Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ đồ tổ chức/blackboard như bản thiết kế sơ khai; bảng dưới đây khớp code hiện tại.
+
 | Route | Màn hình | Nội dung chính | Hành động |
 |---|---|---|---|
-| `/` | Sơ đồ tổ chức | Cây Director → Manager → Worker. Mỗi node: trạng thái (idle/running/disabled), mode, next check, cost hôm nay | Kéo-thả worker vào manager để gán, click mở Agent detail |
-| `/agents/:id` | Agent detail | Tab **Cấu hình** (runtime, model, fallback, heartbeat), **Rules** (instructions, tools, strict mode, permission, timeout, retry, cost cap, notify, debounce, chain), **Prompt** (role template + override), **Memory** (3 layer, lịch sử version, diff), **Runs** (danh sách + log stream) | Lưu cấu hình (preview diff), chạy ngay, ép compaction, bật/tắt |
-| `/blackboard` | Blackboard | Feed thread dạng kênh chat nội bộ. Finding có màu theo loại, badge confidence, chip evidence mở được worker output | Lọc theo agent/loại/severity, trả lời thread (người đặt câu hỏi) |
-| `/projects/:id?tab=chat\|tasks\|ops\|config` | Project | Thanh tiêu đề gọn (menu `⋯` cho sửa, thiết lập AI, đổi mô hình), một dòng thông tin (đường dẫn · git · mô tả rút gọn). 4 tab: Chat, Việc, **Vận hành** (Tiến trình · Container · Giám sát, có số lượng và chấm đỏ khi lỗi), **Cấu hình** (Mô hình · Skills · MCP; link cũ `tab=model|tools` vẫn chạy). Skills/MCP (đang dùng: của project, riêng máy, kế thừa từ toàn máy; thêm từ thư viện, MCP phổ biến, MCP Registry, chỉ cài vào project này) | |
-| `/projects/:id?tab=burn` | Burn (admin) | Trạng thái phiên, đếm ngược tới giờ tắt, cài đặt (agent, mức model, số subagent, nhánh riêng/diff, trọng tâm), bảng việc theo cột: Tìm thấy · Đang làm · Tạm dừng · Xong · Thất bại/Bỏ qua (ADR-087) | Bật (qua hộp xác nhận, chọn giờ tắt), Tắt, ưu tiên/bỏ qua việc, copy `git switch`, xóa worktree, mở hội thoại |
-| `/library` | Thư viện | Skills / MCP servers: **Đã cài** (mọi nơi trên máy, nhóm theo nơi cài), **Thư viện**, MCP **Phổ biến**, **Tìm MCP** | Xem, cài vào nơi khác, lưu vào thư viện, gỡ, tạo và sửa |
+| `/` | Tổng quan | 3 tab qua `?tab=`: **Việc** (mặc định — cần xử lý mọi project trừ Trợ lý office, việc gần đây, badge đếm trên sidebar), **Thống kê** (chi phí/lượt chạy theo ngày · project · model, 7/30/90 ngày — ADR-060), **Máy** (admin: trạng thái máy, kết nối AI, bước thiết lập ban đầu) | |
+| `/projects` | Danh sách project | Project đang quản lý (ADR-017: có thư mục, clone git, hoặc không thư mục — toàn máy) | Thêm project (chọn mẫu mô hình tổ chức) |
+| `/projects/:id?tab=…` | Project | Thanh tiêu đề gọn (menu `⋯` sửa tên/mô tả, thiết lập AI, đổi mô hình), 1 dòng thông tin (đường dẫn · git · mô tả rút gọn). Tab: **Chat**, **Tự động hoá** (lịch/webhook/bot), **Vận hành** (Tiến trình · Container · Giám sát), **Mô hình** (sơ đồ agent), **Quyền** (lệnh, file cấm sửa); chỉ admin thấy thêm: **Files**, **Skill**, **MCP**, **Burn**, **Nhật ký sửa**; và **Thông tin** (budget, git, mô tả) | tuỳ tab |
+| `/projects/:id/setup` | Thiết lập AI | Quét project, đọc agent có sẵn, đề xuất mô hình tổ chức + tinh chỉnh agent (ADR-018) | Tạo / Chỉnh / Hủy |
+| `/projects/:id/agents/:agentId` | Agent | Số liệu (lượt chạy, chi phí, tỉ lệ lỗi theo ngày/model), việc + chat gần đây, lịch sử sửa cấu hình (khôi phục được) | Sửa cấu hình, từng thẻ tự lưu |
+| `/projects/:id/automations/new`, `/automations/:aid`, `/automations/:aid/edit` | Tự động hoá | Tạo/sửa 1 automation (lịch, webhook, điều kiện, script hoặc chat); xem 1 cái: trạng thái, bật/tắt, Việc đã chạy | Chạy thử, sửa, xoá, copy URL webhook |
+| `/projects/:id/bots/new`, `/bots/:bid`, `/bots/:bid/edit` | Bot (Discord/Telegram) | Kết nối bot (ADR-049), trạng thái, danh sách lệnh (mỗi lệnh là 1 automation riêng), Việc đã chạy | Kết nối/ngắt, thêm/sửa lệnh |
+| `/projects/:id/skills/edit?name=&scope=` | Soạn skill | Soạn skill của project hoặc riêng máy (`?scope=user`) bằng chat có theo dõi (ADR-062) | Lưu |
+| `/library` (admin) | Thư viện | Skills / MCP servers: **Đã cài** (mọi nơi trên máy, nhóm theo nơi cài), **Thư viện**, MCP **Phổ biến**, **Tìm MCP** | Xem, cài vào nơi khác, lưu vào thư viện, gỡ, tạo và sửa |
+| `/templates`, `/templates/new`, `/templates/:id` | Mẫu mô hình tổ chức | Danh sách mẫu (3 mẫu có sẵn + mẫu tự lưu từ project), tạo mới, sửa 1 mẫu | Tạo / Sửa / Xoá / Export |
+| `/jobs` | Job | Mọi lượt chạy (chat, Việc, automation) của mọi project: trạng thái, lọc theo project, lỗi 24h, chi phí 24h | |
+| `/providers` | Kết nối AI | Danh sách kết nối (Anthropic, OpenAI, API tương thích, CLI…), gửi thử, thống kê theo kết nối | Thêm / Sửa / Xoá / Đặt mặc định |
+| `/watch` | Theo dõi | Nhiều khung chat của các project cạnh nhau, chia dọc/ngang, lưu trong trình duyệt (không đồng bộ máy khác) | Thêm/xoá khung |
+| `/assistant` | Trợ lý office | Chat với trợ lý office (project ảo, không gắn thư mục, dùng để quản lý chính office) | |
+| `/account` | Tài khoản | Đổi tên/mật khẩu, ngôn ngữ, giao diện sáng/tối, cài CLI | |
+| `/admin/users` (admin) | Người dùng | Danh sách tài khoản, tạo, đặt lại mật khẩu, bật/tắt (tắt thu hồi session) | |
+| `/admin/audit` (admin) | Nhật ký thao tác | Lịch sử thay đổi cấu hình/quyền toàn máy | |
+| `/admin/transfer` (admin) | Chuyển máy | Export/import toàn bộ cấu hình (backup sang máy khác) | |
+| `/admin/update` (admin) | Cập nhật office | Build lại từ mã nguồn, xem log trực tiếp, tự quay về bản cũ nếu lỗi | Cập nhật, kiểm tra có bản mới |
+| `/login` | Đăng nhập | | |
 
-Sidebar: mục **Project** có 5 project người xem mở nhiều nhất (đếm trong localStorage), mỗi project có mục con Chat, Việc, Vận hành, Cấu hình; "Xem tất cả" mở `/projects`. Việc gần đây của mọi project nằm ở Tổng quan.
-| `/setup` | Setup wizard | Giao diện cho `init`: kết quả quét, runtime, đề xuất cơ cấu, diff | Tạo / Chỉnh / Hủy |
+`/costs` và `/incidents` đã bỏ, gộp vào Tổng quan (`/`): biểu đồ chi phí + danh sách cần xử lý (ADR-060, ADR-051); hai đường dẫn cũ chuyển hướng về `/`. Không có trang `/setup` (chỉ `/projects/:id/setup`), `/agents/:id` (thay bằng `/projects/:id/agents/:agentId`), `/blackboard`, hay `/ask` — đó là thiết kế sơ khai ban đầu, chưa từng lên app thật.
 
-`/costs` và `/incidents` đã bỏ, gộp vào Tổng quan (`/`): biểu đồ chi phí + danh sách cần xử lý (ADR-060, ADR-051); hai đường dẫn cũ chuyển hướng về `/`.
-
-Thêm: `/ask` (ô hỏi Director, stream kết quả) và badge "chờ duyệt" trên header.
+Sidebar 4 nhóm (xem `dashboard/app/layouts/default.vue`): **Project** (5 project mở nhiều nhất gần đây — đếm trong localStorage, mỗi project mở rộng ra các tab con; "Tất cả project" mở `/projects`); **Làm việc** (Trợ lý office, Theo dõi, Tổng quan có badge đếm, Job); **Cài đặt** (Kết nối AI, Mẫu mô hình tổ chức, Thư viện — chỉ admin); **Admin** (Người dùng, Nhật ký, Chuyển máy, Cập nhật).
 
 ## Luồng người dùng
 
@@ -30,8 +43,9 @@ Thêm: `/ask` (ô hỏi Director, stream kết quả) và badge "chờ duyệt" 
 5. Chuyển sang `/`, thấy org chart.
 
 **Hằng ngày.**
-1. Nhận Discord "incident mới" có link `/` (Tổng quan, mục cần xử lý — ADR-051).
-2. Mở mục ứng với sự cố, xử lý tại chỗ xảy ra (project, tự động hóa, bot…).
+1. Nhận Discord "incident mới" có link `/incidents/:id`.
+2. Đọc kết luận, mở evidence, xem debate.
+3. Duyệt hoặc từ chối option. Hành động được thực thi và kết quả hiện realtime.
 
 **Tinh chỉnh agent.**
 1. Từ org chart mở `/agents/tech-lead`.
@@ -224,12 +238,10 @@ Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-star
 | POST | `/api/init/propose` | Đề xuất (có gọi LLM) |
 
 ### Chi phí + trạng thái
-Trang Chi phí và Sự cố đã bỏ, gộp vào Tổng quan (`/`); xem ADR-060, ADR-051.
-
 | Method | Path | Mô tả |
 |---|---|---|
-| GET | `/api/usage/summary?days=` | Chi phí hôm nay, theo ngày, theo project/model (Tổng quan) |
-| GET | `/api/incidents?status=` | Danh sách cần xử lý (Tổng quan) |
+| GET | `/api/costs/daily?from=&to=&group=agent` | |
+| GET | `/api/costs/incidents?from=&to=` | |
 | GET | `/api/status` | Giống `office status` |
 | GET | `/api/doctor` | Giống `office doctor` |
 
