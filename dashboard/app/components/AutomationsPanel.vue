@@ -138,7 +138,7 @@ async function runNow(a: Automation) {
         <UBadge v-if="b.error" color="error" variant="subtle" size="sm" icon="i-lucide-bot" :label="b.error" :title="b.error" class="max-w-64 truncate" />
         <UBadge v-else-if="b.connecting" color="warning" variant="subtle" size="sm" icon="i-lucide-loader-circle" :label="t('channels.connecting')" />
         <span v-else class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
-          <JobStatusBadge v-if="b.last" :status="b.last.status" />
+          <JobStatusBadge v-if="b.last && b.last.status !== 'done'" :status="b.last.status" />
           {{ when(b.last?.created_at) }}
         </span>
         <USwitch v-if="isAdmin" :model-value="b.enabled" size="sm" @update:model-value="(v: boolean) => toggleBot(b, v)" />
@@ -155,11 +155,12 @@ async function runNow(a: Automation) {
             · {{ a.action === 'script' ? t('auto.toScript') : t('auto.toChat', { agent: agentName(a.agent_id) }) }}
           </span>
         </NuxtLink>
+        <span v-if="a.config.tags?.length" class="flex flex-wrap items-center gap-1"><ChatTags :tags="a.config.tags" /></span>
         <UBadge v-if="isFullAccess(a)" color="warning" variant="subtle" size="sm" icon="i-lucide-shield-alert" :label="t('auto.adminBadge')" :title="t('auto.adminBadgeHint')" />
         <UBadge v-if="a.disabled_code" color="error" variant="subtle" size="sm" icon="i-lucide-circle-alert" :label="t('auto.disabledBy', { reason: a.disabled_reason })" class="max-w-64 truncate" />
         <UBadge v-else-if="a.bot_status?.last_error" color="error" variant="subtle" size="sm" icon="i-lucide-bot" :label="a.bot_status.last_error" :title="a.bot_status.last_error" class="max-w-64 truncate" />
         <span v-else class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
-          <JobStatusBadge v-if="a.last_job" :status="a.last_job.status" />
+          <JobStatusBadge v-if="a.last_job && a.last_job.status !== 'done'" :status="a.last_job.status" />
           {{ when(a.last_job?.created_at) }}
         </span>
         <USwitch v-if="isAdmin" :model-value="a.enabled" size="sm" @update:model-value="(v: boolean) => toggle(a, v)" />

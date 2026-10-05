@@ -535,6 +535,12 @@ func (m *Manager) ConversationFor(ctx context.Context, ch storage.Channel, in In
 // agent. Tool-less, read only, not in the project's chat list.
 func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.Automation, agent storage.Agent, in Incoming) (string, error) {
 	if in.ReplyTo != "" { // a reply to one of the bot's answers: that answer's conversation
+		// an automation's notice: its run's chat, with that chat's own agent
+		if id, err := m.store.Channels().Thread(ctx, ch.ID, noteKey(in.ChatID, in.ReplyTo)); err == nil && id != "" {
+			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.ProjectID == ch.ProjectID {
+				return id, nil
+			}
+		}
 		if id, err := m.store.Channels().Thread(ctx, ch.ID, "msg:"+in.ChatID+":"+in.ReplyTo); err == nil && id != "" {
 			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
 				return id, nil

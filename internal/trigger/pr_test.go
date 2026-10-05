@@ -51,13 +51,15 @@ func git(t *testing.T, dir string, args ...string) {
 
 // notes records what was sent to a chat.
 type notes struct {
-	mu   sync.Mutex
-	sent []string
+	mu    sync.Mutex
+	sent  []string
+	convs []string // the chat each run talked in
 }
 
-func (n *notes) add(_ context.Context, channelID, chatID, text string) {
+func (n *notes) add(_ context.Context, channelID, chatID, text, convID string) {
 	n.mu.Lock()
 	n.sent = append(n.sent, channelID+"|"+chatID+"|"+text)
+	n.convs = append(n.convs, convID)
 	n.mu.Unlock()
 }
 
@@ -130,6 +132,9 @@ func TestPRReview(t *testing.T) {
 	defer n.mu.Unlock()
 	if len(n.sent) != 1 || !strings.HasPrefix(n.sent[0], "chn_1|c9|") || !strings.Contains(n.sent[0], "LGTM") || !strings.Contains(n.sent[0], "Review PR") {
 		t.Fatalf("sent = %q", n.sent)
+	}
+	if n.convs[0] != "cnv_x" { // a reply to the notice goes on in the run's chat
+		t.Fatalf("conversation = %q", n.convs[0])
 	}
 	jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID})
 	if len(jobs) != 1 {

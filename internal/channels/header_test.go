@@ -982,6 +982,30 @@ func TestNotify(t *testing.T) {
 	if err := m.Notify(ctx, off.ID, "c9", "x"); err == nil {
 		t.Fatal("an off bot sent")
 	}
+	// an automation's notice: a reply to it goes on in the run's chat, whatever the bot's agent
+	org := orgmodel.NewService(st)
+	org.SeedBuiltins(ctx)
+	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
+	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	agents, _ := engine.Agents(ctx, project.ID)
+	other, err := st.Agents().Create(ctx, storage.Agent{OrgModelID: agents[0].OrgModelID, Name: "Khác", Tier: agents[0].Tier, ModelTier: agents[0].ModelTier, Instructions: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, AgentID: other.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.NotifyConversation(ctx, ch.ID, "c9", "**Migrate**\nxong 3 route", run.ID); err != nil {
+		t.Fatal(err)
+	}
+	bot.wait(t, "c9", 2)
+	if got, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "c9", ReplyTo: "2", Text: "rebase master", Addressed: true}); got != run.ID {
+		t.Fatalf("reply to the notice went to %q, want the run's %q", got, run.ID)
+	}
+	if got, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "c9", ReplyTo: "1", Text: "x", Addressed: true}); got == run.ID {
+		t.Fatal("a reply to a plain alert went to the run's chat")
+	}
 }
 
 // An agent with FullAccess (ADR-074) approves a proposal at once, wherever

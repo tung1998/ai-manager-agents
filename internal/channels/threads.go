@@ -314,3 +314,28 @@ func (m *Manager) Notify(ctx context.Context, channelID, chatID, text string) er
 	_, err := ad.Send(ctx, chatID, text)
 	return err
 }
+
+func noteKey(chatID, msgID string) string { return "note:" + chatID + ":" + msgID } // an automation's notice → its chat
+
+// NotifyConversation posts an automation's answer; a reply to it goes on in
+// the chat the run talked in (convID), whichever agent the bot has.
+func (m *Manager) NotifyConversation(ctx context.Context, channelID, chatID, text, convID string) error {
+	m.mu.Lock()
+	ad := m.adapters[channelID]
+	m.mu.Unlock()
+	if ad == nil {
+		return errors.New("bot này đang tắt hoặc chưa kết nối")
+	}
+	ids, err := ad.Send(ctx, chatID, text)
+	if convID == "" {
+		return err
+	}
+	for _, id := range ids {
+		_ = m.store.Channels().SetThread(ctx, channelID, noteKey(chatID, id), convID)
+		_ = m.store.Channels().SetThread(ctx, channelID, msgKey(id), convID) // a thread from it goes on there too
+	}
+	if len(ids) > 0 {
+		_ = m.store.Settings().Set(ctx, lastKey(channelID, chatID), ids[len(ids)-1])
+	}
+	return err
+}

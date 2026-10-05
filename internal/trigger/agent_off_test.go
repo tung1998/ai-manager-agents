@@ -25,7 +25,7 @@ func TestAutomationOfPausedAgentIsSkipped(t *testing.T) {
 	var notified string
 	a.Config.NotifyChannelID, a.Config.NotifyChatID = "chn_1", "chat_1"
 	_ = st.Automations().Update(ctx, a)
-	r.SetOnNotify(func(_ context.Context, _, _, text string) { notified = text })
+	r.SetOnNotify(func(_ context.Context, _, _, text, _ string) { notified = text })
 	if _, _, err := r.Enqueue(ctx, a, "webhook", "{}", "1", ""); err != nil {
 		t.Fatal(err)
 	}

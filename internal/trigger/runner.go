@@ -74,8 +74,9 @@ type OnProgress func(ctx context.Context, origin storage.Job, step string)
 
 func (r *Runner) SetOnProgress(fn OnProgress) { r.onProgress = fn }
 
-// OnNotify sends an automation's answer to a bot's chat (its Notify settings).
-type OnNotify func(ctx context.Context, channelID, chatID, text string)
+// OnNotify sends an automation's answer to a bot's chat (its Notify settings);
+// convID is the chat the run talked in ("" = none): a reply goes on there.
+type OnNotify func(ctx context.Context, channelID, chatID, text, convID string)
 
 func (r *Runner) SetOnNotify(fn OnNotify) { r.onNotify = fn }
 
@@ -324,6 +325,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	spoke := false                        // this run answered (a script may answer, then an agent it calls in)
 	var notifyTo storage.AutomationConfig // set once the automation is read: where its answer goes
 	notifyHead := ""                      // …and what it is about (its name, the PR)
+	notifyConv := ""                      // …and the chat it talked in (a reply goes on there)
 	answer := func(text string, err error, final bool) {
 		if fromChannel && r.onReply != nil && !spoke {
 			spoke = true
@@ -337,7 +339,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 				msg = "⚠️ " + err.Error()
 			}
 			if msg != "" {
-				r.onNotify(context.WithoutCancel(ctx), notifyTo.NotifyChannelID, notifyTo.NotifyChatID, notifyHead+"\n"+msg)
+				r.onNotify(context.WithoutCancel(ctx), notifyTo.NotifyChannelID, notifyTo.NotifyChatID, notifyHead+"\n"+msg, notifyConv)
 			}
 		}
 	}
@@ -467,6 +469,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	}
 	var got string
 	got, text, err = r.exec.RunChat(actx, a.ProjectID, agentID, conv, prompt, a.EditMode)
+	notifyConv = got
 	if a.KeepContext && !fromChannel && got != "" && got != a.Config.ConversationID {
 		keptConv = got
 	}

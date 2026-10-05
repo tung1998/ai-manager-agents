@@ -84,7 +84,8 @@ async function remove() {
           <UBadge v-if="!a.config.command" :label="t('bot.basic')" color="neutral" variant="subtle" size="sm" />
           <span class="min-w-0 flex-1 truncate text-xs text-(--ui-text-muted)">→ {{ summary(a) }}</span>
           <UBadge v-if="!a.enabled" :label="t('auto.off')" color="neutral" variant="subtle" size="sm" />
-          <JobStatusBadge v-if="a.last_job" :status="a.last_job.status" />
+          <ChatTags v-if="a.config.tags?.length" :tags="a.config.tags" />
+          <JobStatusBadge v-if="a.last_job && a.last_job.status !== 'done'" :status="a.last_job.status" />
         </NuxtLink>
       </UCard>
 
