@@ -123,7 +123,7 @@ async function remove(s: GwServer) {
 }
 
 // ---- OAuth login ----
-const { connect: startLogin, connecting, plainRemote } = useMcpLogin()
+const { connect: startLogin, connecting } = useMcpLogin()
 const connect = (s: GwServer) => startLogin(s.id, s.id, openClientForm)
 // no dynamic registration: the form, with its client fields open
 function openClientForm(id: string, msg: string) {
@@ -239,7 +239,6 @@ async function save() {
         <p v-if="s.last_check_status === 'error' || s.last_check_status === 'needs_login'" class="mt-1 text-xs"
            :class="s.last_check_status === 'error' ? 'text-(--ui-error)' : 'text-(--ui-warning)'">
           {{ s.last_check_error }}
-          <span v-if="canLogin(s) && plainRemote" class="text-(--ui-text-muted)"> · {{ t('tools.gwLocalhostHint') }}</span>
         </p>
         <div v-if="open[s.id]" class="mt-2 space-y-3 ps-7">
           <UFormField :label="t('tools.gwAgents')">
@@ -280,6 +279,7 @@ async function save() {
     </div>
 
     <OfficeMcpImport v-model:open="importOpen" @done="refresh()" />
+    <McpLoginPaste />
 
     <UModal v-model:open="formOpen" :title="editing ? t('tools.editTitle', { name: editing.name }) : t('tools.gwAddTitle')">
       <template #body>

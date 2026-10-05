@@ -218,6 +218,17 @@ func TestMCPServersStdioOAuthAPI(t *testing.T) {
 	if r.StatusCode != 400 || !strings.Contains(string(page), "không hợp lệ") || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/html") {
 		t.Fatalf("bad state = %d %s", r.StatusCode, page)
 	}
+	// the pasted address of a localhost callback
+	finish := e.srv.URL + "/api/mcp/oauth/finish"
+	if resp, _ := do(t, member, "POST", finish, map[string]any{"url": "http://localhost:1/x?state=s&code=c"}, nil); resp.StatusCode != 403 {
+		t.Fatalf("member paste = %d", resp.StatusCode)
+	}
+	if resp, body := do(t, admin, "POST", finish, map[string]any{"url": "http://localhost:1/x?code=c"}, nil); resp.StatusCode != 400 || !strings.Contains(mustJSON(body), "state=") {
+		t.Fatalf("paste without state = %d %v", resp.StatusCode, body)
+	}
+	if resp, body := do(t, admin, "POST", finish, map[string]any{"url": " " + cb + " "}, nil); resp.StatusCode != 400 || !strings.Contains(mustJSON(body), "không hợp lệ") {
+		t.Fatalf("paste bad state = %d %v", resp.StatusCode, body)
+	}
 	resp, body = do(t, admin, "POST", base+"/"+id+"/oauth/logout", nil, nil)
 	if resp.StatusCode != 200 || body["server"].(map[string]any)["last_check_status"] != "needs_login" {
 		t.Fatalf("logout = %d %v", resp.StatusCode, body)

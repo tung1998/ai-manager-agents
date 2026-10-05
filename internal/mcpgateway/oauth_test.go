@@ -68,7 +68,7 @@ func (f *fakeAuth) serveAS(w http.ResponseWriter, r *http.Request) {
 			RedirectURIs []string `json:"redirect_uris"`
 		}
 		json.NewDecoder(r.Body).Decode(&in)
-		if len(in.RedirectURIs) == 1 && strings.HasPrefix(in.RedirectURIs[0], "http://office.lan") {
+		if len(in.RedirectURIs) == 1 && strings.HasPrefix(in.RedirectURIs[0], "https://office.lan") {
 			w.WriteHeader(400)
 			json.NewEncoder(w).Encode(map[string]any{"error": "invalid_redirect_uri", "error_description": "http only on localhost"})
 			return
@@ -388,7 +388,7 @@ func TestOAuthLogin(t *testing.T) {
 	}
 
 	// DCR refusing the callback address: a hint to open office on localhost
-	if _, err := gw.StartLogin(ctx, m, "u1", "http://office.lan:8787"); !errors.Is(err, ErrRedirectRejected) || !strings.Contains(err.Error(), "http://localhost:8787") {
+	if _, err := gw.StartLogin(ctx, m, "u1", "https://office.lan:8787"); !errors.Is(err, ErrRedirectRejected) || !strings.Contains(err.Error(), "http://localhost:8787") {
 		t.Fatalf("rejected redirect = %v", err)
 	}
 
@@ -513,11 +513,46 @@ func TestOAuthAuthError(t *testing.T) {
 	f, gw, _, m, _ := setupOAuth(t)
 	ctx := context.Background()
 	m, _ = gw.CheckServer(ctx, m)
-	authURL, _ := gw.StartLogin(ctx, m, "u1", "http://192.168.1.5:2704")
+	authURL, _ := gw.StartLogin(ctx, m, "u1", "https://192.168.1.5:2704")
 	state, _ := f.authorize(t, authURL)
 	_, err := gw.FinishLogin(ctx, "u1", state, "", "invalid_request")
 	if err == nil || !strings.Contains(err.Error(), "http://localhost:2704") {
 		t.Fatalf("auth error = %v", err)
+	}
+}
+
+func TestCallbackURL(t *testing.T) {
+	for origin, want := range map[string]string{
+		"http://localhost:2704":       "http://localhost:2704" + CallbackPath,
+		"http://127.0.0.1:2704/":      "http://127.0.0.1:2704" + CallbackPath,
+		"http://[::1]:2704":           "http://[::1]:2704" + CallbackPath,
+		"https://box.tail.ts.net":     "https://box.tail.ts.net" + CallbackPath,
+		"http://100.64.1.2:2704":      "http://localhost:2704" + CallbackPath,
+		"http://box.tail.ts.net":      "http://localhost" + CallbackPath,
+		"http://office.lan:8787/path": "http://localhost:8787" + CallbackPath,
+	} {
+		if got := CallbackURL(origin); got != want {
+			t.Errorf("CallbackURL(%q) = %q, want %q", origin, got, want)
+		}
+	}
+}
+
+// Office opened over plain http on another host: the login goes back to
+// localhost, and the pasted state/code finish it.
+func TestOAuthPasteBack(t *testing.T) {
+	f, gw, _, m, _ := setupOAuth(t)
+	ctx := context.Background()
+	m, _ = gw.CheckServer(ctx, m)
+	authURL, err := gw.StartLogin(ctx, m, "u1", "http://100.64.1.2:2704")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.redirects) != 1 || f.redirects[0] != "http://localhost:2704"+CallbackPath {
+		t.Fatalf("registered = %v", f.redirects)
+	}
+	state, code := f.authorize(t, authURL)
+	if _, err := gw.FinishLogin(ctx, "u1", state, code, ""); err != nil {
+		t.Fatal(err)
 	}
 }
 

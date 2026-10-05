@@ -28,6 +28,7 @@ func (s *server) mcpServerRoutes(mux *http.ServeMux, admin func(http.HandlerFunc
 	mux.Handle("POST /api/mcp/servers/{id}/oauth/start", admin(s.startMCPLogin))
 	mux.Handle("POST /api/mcp/servers/{id}/oauth/logout", admin(s.logoutMCP))
 	mux.Handle("GET "+mcpgateway.CallbackPath, admin(s.mcpLoginCallback))
+	mux.Handle("POST /api/mcp/oauth/finish", admin(s.finishMCPLoginPaste))
 	// ADR-093: who gets each server, its call log, moving servers into office
 	mux.Handle("GET /api/mcp/agents", admin(s.mcpAgents))
 	mux.Handle("GET /api/mcp/servers/{id}/calls", admin(s.mcpCalls))
@@ -437,7 +438,8 @@ func (s *server) startMCPLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	authURL, err := s.cfg.Gateway.StartLogin(r.Context(), m, userFrom(r).ID, u.Scheme+"://"+u.Host)
+	origin := u.Scheme + "://" + u.Host
+	authURL, err := s.cfg.Gateway.StartLogin(r.Context(), m, userFrom(r).ID, origin)
 	if errors.Is(err, mcpgateway.ErrNeedsClient) { // the dashboard opens the form
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error(), "code": "needs_client"})
 		return
@@ -447,15 +449,53 @@ func (s *server) startMCPLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAction(r, "mcp_server.login_start", m.ID, map[string]any{"name": m.Name})
-	writeJSON(w, http.StatusOK, map[string]any{"url": authURL})
+	// paste: the callback is localhost, which this browser cannot reach; the
+	// person pastes the address it lands on (finishMCPLoginPaste)
+	writeJSON(w, http.StatusOK, map[string]any{"url": authURL, "paste": mcpgateway.PasteBack(origin)})
+}
+
+// finishMCPLogin ends a login from the callback's query, telling open pages.
+func (s *server) finishMCPLogin(r *http.Request, q url.Values) (storage.MCPServer, error) {
+	m, err := s.cfg.Gateway.FinishLogin(r.Context(), userFrom(r).ID, q.Get("state"), q.Get("code"), q.Get("error"))
+	if err == nil {
+		s.auditAction(r, "mcp_server.login", m.ID, map[string]any{"name": m.Name})
+		s.sendMCPStatus(s.mcpServerDTO(m))
+		s.checkMCPLater(m)
+	} else if m.ID != "" {
+		if fresh, gerr := s.cfg.Store.MCPServers().Get(r.Context(), m.ID); gerr == nil {
+			s.sendMCPStatus(s.mcpServerDTO(fresh))
+		}
+	}
+	return m, err
+}
+
+// finishMCPLoginPaste ends a login whose callback went to localhost: the
+// person pastes the address the browser landed on (it carries state and code).
+func (s *server) finishMCPLoginPaste(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		URL string `json:"url"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	u, err := url.Parse(strings.TrimSpace(in.URL))
+	if err != nil || u.Query().Get("state") == "" {
+		writeError(w, http.StatusBadRequest, "link không đúng: dán nguyên địa chỉ trên thanh trình duyệt sau khi đăng nhập (có state=…)")
+		return
+	}
+	m, err := s.finishMCPLogin(r, u.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"server": s.mcpServerDTO(m)})
 }
 
 // mcpLoginCallback is where the authorization server sends the person back;
 // it answers with a small page that closes itself (or goes back to the MCP
 // tab).
 func (s *server) mcpLoginCallback(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	m, err := s.cfg.Gateway.FinishLogin(r.Context(), userFrom(r).ID, q.Get("state"), q.Get("code"), q.Get("error"))
+	m, err := s.finishMCPLogin(r, r.URL.Query())
 	ok := err == nil
 	msg := "Đã kết nối " + m.Name + ". Có thể đóng tab này."
 	if !ok {
@@ -464,15 +504,6 @@ func (s *server) mcpLoginCallback(w http.ResponseWriter, r *http.Request) {
 			msg += " " + m.Name
 		}
 		msg += ": " + err.Error()
-	} else {
-		s.auditAction(r, "mcp_server.login", m.ID, map[string]any{"name": m.Name})
-		s.sendMCPStatus(s.mcpServerDTO(m))
-		s.checkMCPLater(m)
-	}
-	if !ok && m.ID != "" {
-		if fresh, gerr := s.cfg.Store.MCPServers().Get(r.Context(), m.ID); gerr == nil {
-			s.sendMCPStatus(s.mcpServerDTO(fresh))
-		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

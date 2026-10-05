@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -113,10 +115,43 @@ func (g *Gateway) probe(ctx context.Context, m storage.MCPServer) (OAuth, error)
 	return OAuth{}, err
 }
 
+// PasteBack reports whether a login started from origin comes back by paste:
+// office opened over plain http on another host (Tailscale, LAN) gets a
+// localhost callback, which most authorization servers accept but the
+// person's browser cannot reach, so they paste the address it lands on.
+func PasteBack(origin string) bool {
+	u, err := url.Parse(origin)
+	return err == nil && u.Scheme == "http" && !loopback(u.Hostname())
+}
+
+func loopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// CallbackURL is where the authorization server sends the person back for a
+// login started from origin: origin itself, or localhost on the same port
+// when PasteBack.
+func CallbackURL(origin string) string {
+	origin = strings.TrimRight(origin, "/")
+	if PasteBack(origin) {
+		u, _ := url.Parse(origin)
+		host := "localhost"
+		if p := u.Port(); p != "" {
+			host += ":" + p
+		}
+		return "http://" + host + CallbackPath
+	}
+	return origin + CallbackPath
+}
+
 // StartLogin begins an OAuth login for m on behalf of user: it finds the
 // authorization server and registers office as a client when needed, then
 // returns the address to open in the browser. origin is the address the
-// person opened office with; the callback goes back there.
+// person opened office with; the callback goes to CallbackURL(origin).
 func (g *Gateway) StartLogin(ctx context.Context, m storage.MCPServer, user, origin string) (string, error) {
 	if m.Kind != "http" {
 		return "", errors.New("chỉ MCP HTTP mới đăng nhập OAuth")
@@ -141,7 +176,7 @@ func (g *Gateway) StartLogin(ctx context.Context, m storage.MCPServer, user, ori
 		}
 		o = found
 	}
-	redirect := strings.TrimRight(origin, "/") + CallbackPath
+	redirect := CallbackURL(origin)
 	if o.ClientManual {
 		o.AuthMethod = manualAuthMethod(o)
 	} else if o.ClientID == "" || !slices.Contains(o.RedirectURIs, redirect) {
