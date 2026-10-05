@@ -23,6 +23,7 @@ const showLog = ref(false)
 const streamKey = ref(0) // new stream per update
 
 let poll: ReturnType<typeof setInterval> | undefined
+let restartPoll: ReturnType<typeof setInterval> | undefined
 function watchUpdate() {
   clearInterval(poll)
   poll = setInterval(async () => {
@@ -34,7 +35,7 @@ function watchUpdate() {
   }, 1500)
 }
 onMounted(() => { if (running.value) { showLog.value = true; watchUpdate() } })
-onBeforeUnmount(() => clearInterval(poll))
+onBeforeUnmount(() => { clearInterval(poll); clearInterval(restartPoll) })
 
 async function start(force = false) {
   starting.value = true
@@ -62,11 +63,11 @@ function waitForRestart() {
   restarting.value = true
   clearInterval(poll)
   const started = Date.now()
-  const t = setInterval(async () => {
+  restartPoll = setInterval(async () => {
     try {
       const h = await $fetch<{ status: string }>('/api/health')
       if (h.status === 'ok' && Date.now() - started > 3000) {
-        clearInterval(t)
+        clearInterval(restartPoll)
         window.location.reload()
       }
     } catch { /* still restarting */ }
