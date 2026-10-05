@@ -439,6 +439,7 @@ type agentDTO struct {
 	Fallbacks    []string            `json:"fallback_provider_ids"` // tried next, top to bottom
 	ModelTier    string              `json:"model_tier"`
 	LLMModel     string              `json:"llm_model"`
+	Effort       string              `json:"effort"` // thinking level ("" = the CLI's own)
 	Instructions string              `json:"instructions"`
 	Permissions  storage.Permissions `json:"permissions"`
 	Avatar       storage.Avatar      `json:"avatar"`
@@ -458,7 +459,7 @@ func toAgentDTO(a storage.Agent) agentDTO {
 	}
 	d := agentDTO{ID: a.ID, OrgModelID: a.OrgModelID, Key: a.Key, Name: a.Name, Tier: a.Tier, Role: a.Role,
 		Description: a.Description, ReportsTo: rt, ProviderID: a.ProviderID, Fallbacks: fb, ModelTier: a.ModelTier, LLMModel: a.LLMModel,
-		Instructions: a.Instructions, Permissions: a.Permissions, Avatar: a.Avatar, Sort: a.Sort, Enabled: !a.Disabled}
+		Effort: a.Effort, Instructions: a.Instructions, Permissions: a.Permissions, Avatar: a.Avatar, Sort: a.Sort, Enabled: !a.Disabled}
 	d.Version = agentVersion(d)
 	return d
 }
@@ -686,6 +687,7 @@ type agentInput struct {
 	Fallbacks    *[]string           `json:"fallback_provider_ids"` // nil = keep
 	ModelTier    string              `json:"model_tier"`
 	LLMModel     string              `json:"llm_model"`
+	Effort       *string             `json:"effort"` // nil = keep; "" = the CLI's own
 	Instructions string              `json:"instructions"`
 	Permissions  storage.Permissions `json:"permissions"`
 	Avatar       *storage.Avatar     `json:"avatar"` // nil = keep
@@ -745,6 +747,12 @@ func (s *server) applyAgent(r *http.Request, in agentInput, a *storage.Agent) er
 				a.FallbackProviderIDs = append(a.FallbackProviderIDs, id)
 			}
 		}
+	}
+	if in.Effort != nil {
+		if !storage.ValidEffort(*in.Effort) {
+			return errors.New("mức suy nghĩ phải là low, medium, high, xhigh hoặc max")
+		}
+		a.Effort = *in.Effort
 	}
 	if a.ModelTier == "" {
 		a.ModelTier = storage.TierBalanced

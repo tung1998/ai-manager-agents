@@ -16,7 +16,7 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number, tags?: string[] }
+interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', effort?: string, context_tokens?: number, context_window?: number, tags?: string[] }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message, next_turn_id?: string }
 // the agents in a chat and the answers in progress (ADR-044)
 interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
@@ -105,6 +105,8 @@ const messages = ref<Message[]>([])
 const draft = ref('')
 const draftFiles = ref<Attachment[]>([])
 const editMode = ref<'worktree' | 'direct'>('worktree')
+// how hard it thinks in this chat ('' = the agent's own level)
+const effort = ref('')
 // who answers: each agent's own rights decide what it may do (no separate mode)
 const pick = ref('')
 const isOn = (id?: string) => !!id && onAgents.value.some(a => a.id === id)
@@ -115,6 +117,7 @@ function standIn() {
 }
 watch([() => current.value?.id, () => current.value?.agent_id, agents, () => messages.value.length], (now, before) => {
   editMode.value = current.value?.edit_mode ?? 'worktree'
+  if (!before || now[0] !== before[0]) effort.value = current.value?.effort ?? '' // another chat: its own level
   const own = current.value?.agent_id
   if (isOn(own)) {
     // a new message alone keeps what the person picked by hand
@@ -450,7 +453,7 @@ async function send() {
   const switching = !single.value && pick.value && pick.value !== current.value.agent_id ? pick.value : ''
   try {
     // mode operate: the agent's own rights are the limit (members are capped server-side)
-    const res = await $fetch<{ turn_id: string, message: Message, notice?: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: 'operate', edit_mode: editMode.value, agent_id: switching, context: props.pageContext?.() ?? '' } })
+    const res = await $fetch<{ turn_id: string, message: Message, notice?: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: 'operate', edit_mode: editMode.value, effort: effort.value, agent_id: switching, context: props.pageContext?.() ?? '' } })
     if (switching && picked.value && current.value) current.value = { ...current.value, agent_id: picked.value.id, agent_name: picked.value.name }
     draft.value = ''
     draftFiles.value = []
@@ -825,6 +828,7 @@ onBeforeUnmount(() => {
               v-if="!single && onAgents.length > 1" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink"
               :icon="permOf(pickedLevel).icon" :title="permOf(pickedLevel).description" :aria-label="t('chat.pickAgent')"
             />
+            <EffortSelect v-model="effort" :fallback="picked?.effort ?? ''" size="sm" class="min-w-0 max-w-44 shrink" :title="t('chat.effort')" :aria-label="t('chat.effort')" />
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
             <UButton v-else size="sm" type="submit" icon="i-lucide-send" class="shrink-0" :disabled="!draft.trim() && !draftFiles.length" />

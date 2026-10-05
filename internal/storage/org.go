@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -154,7 +155,15 @@ type Agent struct {
 	// FallbackProviderIDs: the connections tried next, top to bottom, when
 	// the agent's own one (ProviderID, or the default) fails or is over its limit.
 	FallbackProviderIDs []string
+	// Effort: how hard it thinks by default (ValidEffort; "" = the CLI's own).
+	Effort string
 }
+
+// Efforts are the thinking levels a turn may ask for, lowest first ("max" is
+// shown as Ultra); "" leaves it to the CLI or model.
+var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
+
+func ValidEffort(e string) bool { return e == "" || slices.Contains(Efforts, e) }
 
 // OffNotice is what anyone calling a paused agent gets (chat, delegate, bots,
 // automations), instead of an AI run.
@@ -320,6 +329,7 @@ type Conversation struct {
 	TaskID       string // set for the follow-up talk about one task
 	Purpose      string // "" = a chat of the project; "automation" = builds one automation (not listed)
 	AutomationID string // purpose automation: the automation it builds, once saved
+	Effort       string // this chat's thinking level over its agent's ("" = the agent's)
 	// how full the model's context was after the last answer (0 = unknown)
 	ContextTokens, ContextWindow int
 	CreatedBy                    string

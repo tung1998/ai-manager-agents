@@ -62,6 +62,7 @@ const en: Record<keyof typeof vi, string> = {
   'chat.newThread': 'New chat',
   'chat.filters': 'Filters',
   'chat.pickAgent': 'Pick an agent',
+  'chat.effort': 'This chat\'s thinking level (from the next message)',
   'chat.none': 'No conversations yet.',
   'chat.newThreadTitle': 'New conversation',
   'chat.deleteConfirm': 'Delete this conversation?',

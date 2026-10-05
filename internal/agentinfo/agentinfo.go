@@ -412,6 +412,7 @@ var fields = []struct {
 	{"fallback_provider_ids", func(x orgmodel.AgentSpec) any { return nonNil(x.Fallbacks) }},
 	{"model_tier", func(x orgmodel.AgentSpec) any { return x.ModelTier }},
 	{"llm_model", func(x orgmodel.AgentSpec) any { return x.LLMModel }},
+	{"effort", func(x orgmodel.AgentSpec) any { return x.Effort }},
 	{"instructions", func(x orgmodel.AgentSpec) any { return x.Instructions }},
 	{"permissions", func(x orgmodel.AgentSpec) any { return permView(x.Permissions) }},
 }
@@ -508,6 +509,9 @@ func (s *Service) Restore(ctx context.Context, a storage.Agent, revisionID strin
 	}
 	a.Name, a.Tier, a.Role, a.Description, a.ReportsTo = spec.Name, spec.Tier, spec.Role, spec.Description, spec.ReportsTo
 	a.ModelTier, a.LLMModel, a.Instructions, a.Permissions = spec.ModelTier, spec.LLMModel, spec.Instructions, spec.Permissions
+	if storage.ValidEffort(spec.Effort) {
+		a.Effort = spec.Effort
+	}
 	// ADR-074 security: restoring a snapshot never turns full access back on
 	// — only internal/api/org.go's applyAgent (admin only) may.
 	a.Permissions.FullAccess, a.Permissions.FullAccessBy, a.Permissions.ExtraDirs = false, "", nil

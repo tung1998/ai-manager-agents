@@ -34,6 +34,7 @@ type conversationDTO struct {
 	ActiveTurn   string    `json:"active_turn,omitempty"`
 	Mode         string    `json:"mode"`
 	EditMode     string    `json:"edit_mode"`
+	Effort       string    `json:"effort"` // the chat's thinking level ("" = its agent's)
 	Purpose      string    `json:"purpose"`
 	Source       string    `json:"source"` // where it started: web | discord | telegram | auto
 	AutomationID string    `json:"automation_id"`
@@ -45,7 +46,7 @@ type conversationDTO struct {
 }
 
 func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
-	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode, Purpose: c.Purpose, AutomationID: c.AutomationID,
+	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode, Effort: c.Effort, Purpose: c.Purpose, AutomationID: c.AutomationID,
 		ContextTokens: c.ContextTokens, ContextWindow: c.ContextWindow, Source: actor.Source(c.CreatedBy), Tags: c.Tags}
 	if d.Tags == nil {
 		d.Tags = []string{}
@@ -230,9 +231,16 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		EditMode    string   `json:"edit_mode"` // where it changes code from now on
 		Context     string   `json:"context"`   // the page the person is on (ADR-042)
 		AgentID     string   `json:"agent_id"`  // who answers from now on
+		Effort      *string  `json:"effort"`    // how hard it thinks from now on ("" = the agent's own; nil = keep)
 	}
 	if !decode(w, r, &in) {
 		return
+	}
+	if in.Effort != nil {
+		if err := s.cfg.Chat.SetEffort(r.Context(), r.PathValue("id"), *in.Effort); err != nil {
+			s.chatError(w, r, err)
+			return
+		}
 	}
 	if in.AgentID != "" {
 		if err := s.cfg.Chat.SetAgent(r.Context(), r.PathValue("id"), in.AgentID); err != nil {

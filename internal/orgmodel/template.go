@@ -30,6 +30,7 @@ type AgentSpec struct {
 	ReportsTo     []string            `json:"reports_to,omitempty"`
 	ModelTier     string              `json:"model_tier"`
 	LLMModel      string              `json:"llm_model,omitempty"`
+	Effort        string              `json:"effort,omitempty"`                // thinking level ("" = the CLI's own)
 	ProviderID    string              `json:"provider_id,omitempty"`           // this office's connection id
 	Provider      string              `json:"provider,omitempty"`              // connection name, used by export/import between offices
 	Fallbacks     []string            `json:"fallback_provider_ids,omitempty"` // this office's connection ids, tried next in order
@@ -70,8 +71,16 @@ func (s AgentSpec) toAgent(orgID string, sort int) storage.Agent {
 	return storage.Agent{
 		OrgModelID: orgID, Key: s.Key, Name: s.Name, Tier: s.Tier, Role: s.Role, Description: s.Description,
 		ReportsTo: s.ReportsTo, ModelTier: s.ModelTier, LLMModel: s.LLMModel, Instructions: s.Instructions,
-		Permissions: perms, Sort: sort, ProviderID: s.ProviderID, FallbackProviderIDs: s.Fallbacks,
+		Permissions: perms, Sort: sort, ProviderID: s.ProviderID, FallbackProviderIDs: s.Fallbacks, Effort: effortOf(s.Effort),
 	}
+}
+
+// effortOf keeps a known thinking level ("" otherwise: an import from elsewhere).
+func effortOf(e string) string {
+	if storage.ValidEffort(e) {
+		return e
+	}
+	return ""
 }
 
 // AgentSpecOf is an agent as a template spec (as snapshots store it).
@@ -81,7 +90,7 @@ func specFromAgent(a storage.Agent) AgentSpec {
 	return AgentSpec{
 		Key: a.Key, Name: a.Name, Tier: a.Tier, Role: a.Role, Description: a.Description, ReportsTo: a.ReportsTo,
 		ModelTier: a.ModelTier, LLMModel: a.LLMModel, Instructions: a.Instructions, Permissions: a.Permissions,
-		ProviderID: a.ProviderID, Fallbacks: a.FallbackProviderIDs,
+		ProviderID: a.ProviderID, Fallbacks: a.FallbackProviderIDs, Effort: a.Effort,
 	}
 }
 

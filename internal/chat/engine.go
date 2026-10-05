@@ -6,6 +6,8 @@
 package chat
 
 import (
+	"cmp"
+
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/attach"
@@ -490,6 +492,23 @@ func (e *Engine) SetEditMode(ctx context.Context, conversationID, mode string) e
 	return e.store.Chat().UpdateConversation(ctx, conv)
 }
 
+// SetEffort sets how hard the chat's agents think from the next answer on
+// ("" = each agent's own level).
+func (e *Engine) SetEffort(ctx context.Context, conversationID, effort string) error {
+	if !storage.ValidEffort(effort) {
+		return errors.New("mức suy nghĩ phải là low, medium, high, xhigh hoặc max")
+	}
+	conv, err := e.store.Chat().GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if conv.Effort == effort {
+		return nil
+	}
+	conv.Effort = effort
+	return e.store.Chat().UpdateConversation(ctx, conv)
+}
+
 // Send stores the person's message (with attached files) and starts the
 // agent's answer in the background.
 func (e *Engine) Send(ctx context.Context, conversationID, text string, attachmentIDs []string) (*Turn, storage.Message, error) {
@@ -896,6 +915,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		WorkDir: pl.dir, Prompt: text,
 		System: systemPrompt(project, agent, e.office != nil, acc, pl), History: hist, Attachments: files,
 		Write: pl.write, DenyPaths: policy.DenyPaths, ExtraDirs: agentExtraDirs, UserMCP: acc.Can(perm.CapUserMCP),
+		Effort: cmp.Or(conv.Effort, agent.Effort), // the chat's own choice, else its agent's
 	}
 	if agentFull {
 		req.FullAccess = true
@@ -1303,11 +1323,11 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	if err != nil {
 		return InvokeResult{}, err
 	}
-	req := RunRequest{WorkDir: pl.dir, Prompt: prompt,
+	req := RunRequest{WorkDir: pl.dir, Prompt: prompt, Effort: agent.Effort,
 		Attachments: files, Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP)}
 	req.System = systemPrompt(project, agent, e.office != nil, acc, pl)
 	if noTools(ctx) { // untrusted text (a channel's scope filter): a plain answer
-		req.NoTools, req.UserMCP, req.Write = true, false, false
+		req.NoTools, req.UserMCP, req.Write, req.Effort = true, false, false, "" // a YES/NO needs no deep thought
 	} else {
 		office, revoke := e.officeAccess(ctx, officetools.Scope{ProjectID: project.ID, RunRef: fmt.Sprintf("inv-%d", time.Now().UnixNano()), JobID: usage.JobFrom(ctx), Agent: agent.Name, Level: acc.Level, Access: acc, Dir: treeDir(pl)})
 		defer revoke()

@@ -46,6 +46,17 @@ func codexMCPArgs(req RunRequest) []string {
 	return out
 }
 
+// codexEffortArgs asks Codex to think this hard; its highest is xhigh.
+func codexEffortArgs(e string) []string {
+	if e == "" {
+		return nil
+	}
+	if e == "max" {
+		e = "xhigh"
+	}
+	return []string{"-c", "model_reasoning_effort=" + strconv.Quote(e)}
+}
+
 func (codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
 	bin := firstNonEmpty(req.Bin, "codex")
 	sandbox := "read-only"
@@ -56,6 +67,7 @@ func (codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	if req.Model != "" {
 		args = append(args, "-m", req.Model)
 	}
+	args = append(args, codexEffortArgs(req.Effort)...)
 	args = append(args, codexMCPArgs(req)...)
 	prompt, images := codexPrompt(req.Prompt, req.Attachments)
 	args = append(args, "-")

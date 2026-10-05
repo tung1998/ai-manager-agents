@@ -255,7 +255,7 @@ func idsOrEmpty(ids []string) []string {
 }
 
 const agentCols = `id, org_model_id, key, name, tier, role, description, reports_to, provider_id, model_tier, llm_model,
-	instructions, permissions, sort, created_at, updated_at, avatar, enabled, fallback_provider_ids`
+	instructions, permissions, sort, created_at, updated_at, avatar, enabled, fallback_provider_ids, effort`
 
 func scanAgent(row scanner) (storage.Agent, error) {
 	var (
@@ -267,7 +267,7 @@ func scanAgent(row scanner) (storage.Agent, error) {
 		enabled          bool
 	)
 	if err := row.Scan(&a.ID, &a.OrgModelID, &a.Key, &a.Name, &a.Tier, &a.Role, &a.Description, &reports, &provider, &a.ModelTier,
-		&a.LLMModel, &a.Instructions, &perms, &a.Sort, &created, &updated, &avatar, &enabled, &fallback); err != nil {
+		&a.LLMModel, &a.Instructions, &perms, &a.Sort, &created, &updated, &avatar, &enabled, &fallback, &a.Effort); err != nil {
 		return a, notFound(err)
 	}
 	a.ProviderID, a.Disabled = provider.String, !enabled
@@ -291,10 +291,10 @@ func (r agentRepo) Create(ctx context.Context, a storage.Agent) (storage.Agent, 
 		a.ReportsTo = []string{}
 	}
 	a.CreatedAt, a.UpdatedAt = now, now
-	_, err := r.db.ExecContext(ctx, `INSERT INTO agents (`+agentCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO agents (`+agentCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.OrgModelID, a.Key, a.Name, a.Tier, a.Role, a.Description, toJSON(a.ReportsTo), nullStr(a.ProviderID), a.ModelTier,
 		a.LLMModel, a.Instructions, toJSON(a.Permissions), a.Sort, fmtTime(now), fmtTime(now), toJSON(a.Avatar), !a.Disabled,
-		toJSON(idsOrEmpty(a.FallbackProviderIDs)))
+		toJSON(idsOrEmpty(a.FallbackProviderIDs)), a.Effort)
 	if isUnique(err) {
 		return storage.Agent{}, storage.ErrConflict
 	}
@@ -306,9 +306,9 @@ func (r agentRepo) Update(ctx context.Context, a storage.Agent) error {
 		a.ReportsTo = []string{}
 	}
 	err := execOne(ctx, r.db, `UPDATE agents SET key=?, name=?, tier=?, role=?, description=?, reports_to=?, provider_id=?,
-		model_tier=?, llm_model=?, instructions=?, permissions=?, sort=?, avatar=?, fallback_provider_ids=?, updated_at=? WHERE id=?`,
+		model_tier=?, llm_model=?, instructions=?, permissions=?, sort=?, avatar=?, fallback_provider_ids=?, effort=?, updated_at=? WHERE id=?`,
 		a.Key, a.Name, a.Tier, a.Role, a.Description, toJSON(a.ReportsTo), nullStr(a.ProviderID), a.ModelTier, a.LLMModel,
-		a.Instructions, toJSON(a.Permissions), a.Sort, toJSON(a.Avatar), toJSON(idsOrEmpty(a.FallbackProviderIDs)), fmtTime(time.Now()), a.ID)
+		a.Instructions, toJSON(a.Permissions), a.Sort, toJSON(a.Avatar), toJSON(idsOrEmpty(a.FallbackProviderIDs)), a.Effort, fmtTime(time.Now()), a.ID)
 	if isUnique(err) {
 		return storage.ErrConflict
 	}

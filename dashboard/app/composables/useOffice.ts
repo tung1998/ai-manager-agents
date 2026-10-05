@@ -124,11 +124,19 @@ export interface Agent {
   fallback_provider_ids?: string[] // tried next, top to bottom
   model_tier: ModelTier
   llm_model: string
+  effort?: string // thinking level by default (EFFORTS; '' = the CLI's own)
   instructions: string
   permissions: Permissions
   avatar?: AvatarSpec
   sort: number
   enabled?: boolean // false = paused: out of chat, gets no work
+}
+
+// how hard the model thinks, lowest first ('max' shows as Ultra)
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type Effort = typeof EFFORTS[number]
+export function effortLabel(e: string, t: (k: `effort.${Effort}`) => string) {
+  return (EFFORTS as readonly string[]).includes(e) ? t(`effort.${e as Effort}`) : e
 }
 
 export interface Governance {

@@ -69,7 +69,7 @@ const tiles = computed(() => {
 })
 
 // ---- config: three cards, each saved on its own ----
-const form = reactive({ name: '', key: '', tier: 'worker' as AgentTier, role: '', description: '', reports_to: [] as string[], instructions: '', provider_id: '', fallback_provider_ids: [] as string[], model_tier: 'balanced' as ModelTier, llm_model: '', permissions: { level: 'propose', read_only: false } as Permissions, avatar: {} as AvatarSpec })
+const form = reactive({ name: '', key: '', tier: 'worker' as AgentTier, role: '', description: '', reports_to: [] as string[], instructions: '', provider_id: '', fallback_provider_ids: [] as string[], model_tier: 'balanced' as ModelTier, llm_model: '', effort: '', permissions: { level: 'propose', read_only: false } as Permissions, avatar: {} as AvatarSpec })
 const editedFrom = ref('') // the agent as the form was filled: a save over someone else's change is refused
 const saveError = useSaveError()
 function load() {
@@ -78,7 +78,7 @@ function load() {
   editedFrom.value = (a as { version?: string }).version ?? ''
   Object.assign(form, JSON.parse(JSON.stringify({
     name: a.name, key: a.key, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, instructions: a.instructions,
-    provider_id: a.provider_id, fallback_provider_ids: a.fallback_provider_ids ?? [], model_tier: a.model_tier, llm_model: a.llm_model, permissions: a.permissions, avatar: a.avatar ?? {}
+    provider_id: a.provider_id, fallback_provider_ids: a.fallback_provider_ids ?? [], model_tier: a.model_tier, llm_model: a.llm_model, effort: a.effort ?? '', permissions: a.permissions, avatar: a.avatar ?? {}
   })))
 }
 const { stale, reset: resync } = useDraft(agent, form, () => load()) // never over what is being edited
@@ -96,14 +96,14 @@ const providerName = (id: string) => providers.value.find(p => p.id === id)?.nam
 const bossOptions = computed(() => others.value.filter(a => a.tier !== 'worker').map(a => ({ label: `${a.name} (${a.key})`, value: a.key })))
 const saving = ref('')
 const avatarEditing = ref(false)
-const cardFields = { role: ['key', 'name', 'tier', 'role', 'description', 'reports_to', 'instructions'], model: ['provider_id', 'fallback_provider_ids', 'model_tier', 'llm_model'], perm: ['permissions'], avatar: ['avatar'] } as const
+const cardFields = { role: ['key', 'name', 'tier', 'role', 'description', 'reports_to', 'instructions'], model: ['provider_id', 'fallback_provider_ids', 'model_tier', 'llm_model', 'effort'], perm: ['permissions'], avatar: ['avatar'] } as const
 async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
   const a = agent.value!
   // each card sends its own fields on top of the saved agent
   const base = { version: editedFrom.value, key: a.key, name: a.name, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, instructions: a.instructions, permissions: a.permissions }
   const body = card === 'role'
     ? { ...base, key: form.key, name: form.name, tier: form.tier, role: form.role, description: form.description, reports_to: form.tier === 'lead' ? [] : form.reports_to, instructions: form.instructions }
-    : card === 'model' ? { ...base, provider_id: form.provider_id, fallback_provider_ids: form.fallback_provider_ids.filter(id => id !== formProvider.value?.id), model_tier: form.model_tier, llm_model: form.llm_model }
+    : card === 'model' ? { ...base, provider_id: form.provider_id, fallback_provider_ids: form.fallback_provider_ids.filter(id => id !== formProvider.value?.id), model_tier: form.model_tier, llm_model: form.llm_model, effort: form.effort }
       : card === 'avatar' ? { ...base, avatar: form.avatar } : { ...base, permissions: form.permissions }
   saving.value = card
   try {
@@ -157,13 +157,14 @@ const statusColor = (s: string) => s === 'done' ? 'success' : s === 'running' ? 
 // ---- history ----
 const fieldLabel = (f: string) => ({
   name: t('org.form.name'), key: t('org.form.key'), tier: t('org.form.tier'), role: t('org.form.role'), description: t('org.settings.description'),
-  reports_to: t('org.form.reportsTo'), provider_id: t('org.form.provider'), fallback_provider_ids: t('org.form.fallbacks'), model_tier: t('org.form.modelTier'), llm_model: t('org.form.specificModel'),
+  reports_to: t('org.form.reportsTo'), provider_id: t('org.form.provider'), fallback_provider_ids: t('org.form.fallbacks'), model_tier: t('org.form.modelTier'), llm_model: t('org.form.specificModel'), effort: t('org.form.effort'),
   instructions: t('org.form.instructions'), permissions: t('org.form.permissions')
 } as Record<string, string>)[f] ?? f
 // connection ids read as their names (empty main connection = the default one)
 const showField = (f: string, v: unknown) => f === 'provider_id'
   ? (v ? providerName(String(v)) : t('org.form.providerDefault', { suffix: '' }))
-  : f === 'fallback_provider_ids' && Array.isArray(v) ? show(v.map(id => providerName(String(id)))) : show(v)
+  : f === 'fallback_provider_ids' && Array.isArray(v) ? show(v.map(id => providerName(String(id))))
+    : f === 'effort' ? (v ? effortLabel(String(v), t) : t('effort.default')) : show(v)
 const show = (v: unknown): string => v === '' || v == null ? '—' : typeof v === 'string' ? v : Array.isArray(v) ? (v.length ? v.join(', ') : '—') : JSON.stringify(v, null, 1)
 // line diff of long text: lines only before (−) and only after (+)
 function lines(before: unknown, after: unknown) {
@@ -345,7 +346,7 @@ async function restore(e: Entry) {
 
         <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
           <p class="text-sm font-medium">{{ t('agentPage.cardModel') }}</p>
-          <div class="grid gap-3 sm:grid-cols-3">
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <UFormField :label="t('org.form.provider')"><USelect v-model="providerChoice" :items="providerOptions" class="w-full" /></UFormField>
             <UFormField :label="t('org.form.modelTier')">
               <USelect v-model="form.model_tier" :items="Object.entries(modelTierLabel).map(([value, label]) => ({ label, value }))" class="w-full" />
@@ -353,6 +354,12 @@ async function restore(e: Entry) {
             <UFormField :label="t('org.form.specificModel')" :hint="formProvider?.tier_models[form.model_tier] || ''">
               <UInput v-model="form.llm_model" list="agent-page-models" class="w-full font-mono" />
               <datalist id="agent-page-models"><option v-for="m in formProvider?.models ?? []" :key="m" :value="m" /></datalist>
+            </UFormField>
+            <UFormField :label="t('org.form.effort')">
+              <template #hint>
+                <UTooltip :text="t('org.form.effortHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+              </template>
+              <EffortSelect v-model="form.effort" class="w-full" :disabled="!isAdmin" />
             </UFormField>
           </div>
           <FallbackPicker v-model="form.fallback_provider_ids" :providers="providers" :main-id="formProvider?.id" :disabled="!isAdmin" />

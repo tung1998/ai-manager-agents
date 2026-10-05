@@ -47,6 +47,7 @@ type RunRequest struct {
 	// office assistant as administrator, for an admin; Claude Code only)
 	FullAccess bool
 	Model      string
+	Effort     string // how hard it thinks (storage.Efforts; "" = the CLI's own): Claude Code and Codex, not API runs
 	System     string
 	History    []HistoryItem
 	Prompt     string

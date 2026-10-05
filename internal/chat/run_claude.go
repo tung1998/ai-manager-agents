@@ -32,6 +32,14 @@ var claudeReadTools = []string{"Read", "Glob", "Grep"}
 // (the person's own Claude Code setup), for agents with perm.CapUserMCP.
 const userMCPSettings = `{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"agent-office: MCP của người dùng\"}}'"}]}]}}`
 
+// withEffort asks Claude Code to think this hard (--effort: low … max).
+func withEffort(a []string, effort string) []string {
+	if effort == "" {
+		return a
+	}
+	return append(a, "--effort", effort)
+}
+
 func (claudeRunner) args(req RunRequest, resume bool) []string {
 	if req.NoTools { // answered from the conversation only
 		a := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "dontAsk",
@@ -40,6 +48,7 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 		if req.Model != "" {
 			a = append(a, "--model", req.Model)
 		}
+		a = withEffort(a, req.Effort)
 		if req.System != "" {
 			a = append(a, "--append-system-prompt", req.System)
 		}
@@ -54,6 +63,7 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 		if req.Model != "" {
 			a = append(a, "--model", req.Model)
 		}
+		a = withEffort(a, req.Effort)
 		if req.System != "" {
 			a = append(a, "--append-system-prompt", req.System)
 		}
@@ -120,6 +130,7 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 	if req.Model != "" {
 		a = append(a, "--model", req.Model)
 	}
+	a = withEffort(a, req.Effort)
 	if req.System != "" {
 		a = append(a, "--append-system-prompt", req.System)
 	}
