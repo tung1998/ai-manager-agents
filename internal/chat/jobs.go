@@ -43,6 +43,8 @@ func (e *Engine) endJob(jobID, messageID string, runErr, ctxErr error) {
 	switch {
 	case errors.Is(ctxErr, context.Canceled):
 		status, code = "cancelled", "cancelled"
+	case errors.Is(ctxErr, context.DeadlineExceeded):
+		status, code = "cancelled", "timeout"
 	case runErr != nil && errors.As(runErr, &be):
 		status, code, msg = "failed", "budget", runErr.Error()
 	case runErr != nil:
