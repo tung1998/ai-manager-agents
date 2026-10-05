@@ -12,6 +12,8 @@ package worktree
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -48,8 +50,16 @@ func IsRepo(ctx context.Context, dir string) bool {
 	return err == nil
 }
 
+// projectDir is where a project's worktrees live: the sanitized ID plus a
+// hash of the real one, so two IDs that collide once unsafe characters are
+// replaced (e.g. "a/b" and "a:b") never share a folder.
+func (m *Manager) projectDir(projectID string) string {
+	sum := sha1.Sum([]byte(projectID))
+	return filepath.Join(m.Dir, safeName.ReplaceAllString(projectID, "_")+"-"+hex.EncodeToString(sum[:])[:8])
+}
+
 func (m *Manager) Path(projectID, name string) string {
-	return filepath.Join(m.Dir, safeName.ReplaceAllString(projectID, "_"), safeName.ReplaceAllString(name, "_"))
+	return filepath.Join(m.projectDir(projectID), safeName.ReplaceAllString(name, "_"))
 }
 
 // Exists reports whether the worktree is there.
@@ -449,7 +459,7 @@ func (m *Manager) remove(ctx context.Context, repo, dir string) error {
 // pins them (work in progress there: the folder's own time does not change
 // when only files inside it do).
 func (m *Manager) Sweep(ctx context.Context, repo, projectID string, keep func(name string) (keep, pinned bool), maxAge time.Duration) {
-	root := filepath.Join(m.Dir, safeName.ReplaceAllString(projectID, "_"))
+	root := m.projectDir(projectID)
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
