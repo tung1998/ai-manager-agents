@@ -33,15 +33,23 @@ async function doClone() {
 
 async function reset(tpl: OrgModel) {
   if (!confirm(t('tpl.resetConfirm', { name: tpl.name }))) return
-  await $fetch(`/api/templates/${tpl.key}/reset`, { method: 'POST' })
-  await refresh()
-  toast.add({ title: t('tpl.resetDone', { name: tpl.name }), color: 'success' })
+  try {
+    await $fetch(`/api/templates/${tpl.key}/reset`, { method: 'POST' })
+    await refresh()
+    toast.add({ title: t('tpl.resetDone', { name: tpl.name }), color: 'success' })
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
 }
 
 async function remove(tpl: OrgModel) {
   if (!confirm(t('tpl.deleteConfirm', { name: tpl.name }))) return
-  await $fetch(`/api/org-models/${tpl.id}`, { method: 'DELETE' })
-  await refresh()
+  try {
+    await $fetch(`/api/org-models/${tpl.id}`, { method: 'DELETE' })
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
 }
 
 function menu(tpl: OrgModel) {
