@@ -59,10 +59,12 @@ async function setDisabled(u: OfficeUser, disabled: boolean) {
 const resetTarget = ref<OfficeUser | null>(null)
 const resetPassword = ref('')
 const resetError = ref('')
+const resetting = ref(false)
 
 async function doReset() {
-  if (!resetTarget.value) return
+  if (!resetTarget.value || resetting.value) return
   resetError.value = ''
+  resetting.value = true
   try {
     await $fetch(`/api/users/${resetTarget.value.id}/reset-password`, { method: 'POST', body: { password: resetPassword.value } })
     toast.add({ title: t('admin.usersResetDone', { email: resetTarget.value.email }), color: 'success' })
@@ -70,6 +72,8 @@ async function doReset() {
     resetPassword.value = ''
   } catch (e) {
     resetError.value = apiError(e)
+  } finally {
+    resetting.value = false
   }
 }
 
@@ -152,7 +156,7 @@ function rowActions(u: OfficeUser) {
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="resetTarget = null" />
-          <UButton type="submit" form="reset-pw" :label="t('admin.usersResetPassword')" />
+          <UButton type="submit" form="reset-pw" :label="t('admin.usersResetPassword')" :loading="resetting" :disabled="resetting" />
         </div>
       </template>
     </UModal>
