@@ -76,12 +76,12 @@ func (e *Engine) goOn(conversationID string) {
 	}
 	conv, err := e.store.Chat().GetConversation(ctx, conversationID)
 	if err == nil && conv.Purpose == "channel" { // a bot's: it answers in its chat
-		e.dropDecided(conversationID)
+		who, lines := e.takeDecided(conversationID)
 		d.mu.Lock()
 		onBot := d.onBot
 		d.mu.Unlock()
 		if onBot != nil {
-			onBot(ctx, conversationID, b.who, b.lines)
+			onBot(ctx, conversationID, who, lines)
 		}
 		return
 	}
@@ -100,10 +100,24 @@ func (e *Engine) goOn(conversationID string) {
 		e.dropDecided(conversationID)
 		return
 	}
-	e.dropDecided(conversationID)
-	text := "[office] " + b.who + " đã quyết các đề xuất của bạn:\n" + strings.Join(b.lines, "\n") +
+	who, lines := e.takeDecided(conversationID)
+	text := "[office] " + who + " đã quyết các đề xuất của bạn:\n" + strings.Join(lines, "\n") +
 		"\n\nLàm tiếp việc đang dở theo kết quả trên (không đề xuất lại những gì đã duyệt); xong thì báo ngắn gọn."
-	_, _, _ = e.Send(actor.With(ctx, "human:"+b.who), conversationID, text, nil)
+	_, _, _ = e.Send(actor.With(ctx, "human:"+who), conversationID, text, nil)
+}
+
+// takeDecided snapshots and removes a chat's pending decisions atomically, so
+// callers never read who/lines while Decided is still appending to them.
+func (e *Engine) takeDecided(conversationID string) (who string, lines []string) {
+	d := &e.decided
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if b := d.pending[conversationID]; b != nil {
+		who = b.who
+		lines = append([]string(nil), b.lines...)
+		delete(d.pending, conversationID)
+	}
+	return who, lines
 }
 
 func (e *Engine) dropDecided(conversationID string) {
