@@ -409,6 +409,7 @@ var fields = []struct {
 	{"description", func(x orgmodel.AgentSpec) any { return x.Description }},
 	{"reports_to", func(x orgmodel.AgentSpec) any { return nonNil(x.ReportsTo) }},
 	{"provider_id", func(x orgmodel.AgentSpec) any { return x.ProviderID }},
+	{"fallback_provider_ids", func(x orgmodel.AgentSpec) any { return nonNil(x.Fallbacks) }},
 	{"model_tier", func(x orgmodel.AgentSpec) any { return x.ModelTier }},
 	{"llm_model", func(x orgmodel.AgentSpec) any { return x.LLMModel }},
 	{"instructions", func(x orgmodel.AgentSpec) any { return x.Instructions }},
@@ -514,6 +515,12 @@ func (s *Service) Restore(ctx context.Context, a storage.Agent, revisionID strin
 		a.ProviderID = ""
 	} else if _, err := s.store.Providers().Get(ctx, spec.ProviderID); err == nil {
 		a.ProviderID = spec.ProviderID
+	}
+	a.FallbackProviderIDs = nil // a deleted connection in the list is skipped when it runs
+	for _, id := range spec.Fallbacks {
+		if _, err := s.store.Providers().Get(ctx, id); err == nil {
+			a.FallbackProviderIDs = append(a.FallbackProviderIDs, id)
+		}
 	}
 	return s.org.SaveAgent(ctx, a)
 }

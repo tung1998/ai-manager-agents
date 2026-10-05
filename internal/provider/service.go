@@ -323,6 +323,37 @@ func (s *Service) ResolveModel(ctx context.Context, a storage.Agent) (storage.Pr
 	return p, model, nil
 }
 
+// Choice is one connection an agent can run on, with the model it uses there.
+type Choice struct {
+	Provider storage.Provider
+	Model    string
+}
+
+// Chain is every connection an agent may run on, in the order to try them:
+// its own (ResolveModel) first, then its fallbacks top to bottom. A fallback
+// runs the agent's tier model of that connection (an explicit model belongs
+// to the first one); deleted, disabled or repeated ones are left out.
+func (s *Service) Chain(ctx context.Context, a storage.Agent) ([]Choice, error) {
+	p, model, err := s.ResolveModel(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	out := []Choice{{Provider: p, Model: model}}
+	seen := map[string]bool{p.ID: true}
+	for _, id := range a.FallbackProviderIDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		fp, err := s.store.Providers().Get(ctx, id)
+		if err != nil || !fp.Enabled {
+			continue
+		}
+		out = append(out, Choice{Provider: fp, Model: fp.TierModels[a.ModelTier]})
+	}
+	return out, nil
+}
+
 // Default returns the default provider.
 func (s *Service) Default(ctx context.Context) (storage.Provider, error) {
 	list, err := s.store.Providers().List(ctx)

@@ -151,6 +151,9 @@ type Agent struct {
 	Disabled  bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	// FallbackProviderIDs: the connections tried next, top to bottom, when
+	// the agent's own one (ProviderID, or the default) fails or is over its limit.
+	FallbackProviderIDs []string
 }
 
 // OffNotice is what anyone calling a paused agent gets (chat, delegate, bots,

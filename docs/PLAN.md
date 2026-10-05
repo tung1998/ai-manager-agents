@@ -120,7 +120,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Giám sát: HTTP, TCP, heartbeat, tiến trình, container; uptime/độ trễ/xu hướng/sự kiện; AI phân tích khi Down (bật/tắt, trần 24h, cooldown) (ADR-027) | Xong |
 | Thông báo sự cố (Discord/Telegram) | Chưa làm |
 | Kết nối AI: 18 nhà cung cấp bên thứ 3 có sẵn (OpenRouter, Gemini, DeepSeek, GLM, Kimi, Ollama…), thống kê 7 ngày theo kết nối (ADR-028) | Xong |
-| Kết nối AI: tự chuyển kết nối dự phòng khi lỗi/chạm trần | Chưa làm |
+| Kết nối AI: tự chuyển kết nối dự phòng khi lỗi/chạm trần — mỗi agent có danh sách kết nối dự phòng theo thứ tự (trang agent → Model), lượt chat/Việc lỗi trước khi làm gì thì thử lần lượt từ trên xuống; kết nối đang hết hạn mức xếp cuối (migration 00055) | Xong |
 | MCP nội bộ office (ops_overview, process_logs, container_logs, monitor_detail) cho Claude Code và agent API; nút "Sửa lỗi" (ADR-029) | Xong |
 | Agent đề xuất chạy/chạy lại/dừng tiến trình hoặc container, người duyệt mới chạy (ADR-030) | Xong |
 | Supervisor `office run` (API + dashboard), "Cập nhật office" từ mã nguồn, tự quay về bản cũ (ADR-031) | Xong |

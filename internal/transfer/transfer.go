@@ -136,6 +136,13 @@ func portable(t orgmodel.Template, names map[string]string) orgmodel.Template {
 	agents := make([]orgmodel.AgentSpec, len(t.Agents))
 	for i, a := range t.Agents {
 		a.Provider, a.ProviderID = names[a.ProviderID], ""
+		a.FallbackNames = nil
+		for _, id := range a.Fallbacks {
+			if n := names[id]; n != "" {
+				a.FallbackNames = append(a.FallbackNames, n)
+			}
+		}
+		a.Fallbacks = nil
 		agents[i] = a
 	}
 	t.Agents = agents
@@ -226,7 +233,13 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 			} else {
 				a.ProviderID = "" // unknown connection: use the default one
 			}
-			a.Provider = ""
+			a.Provider, a.Fallbacks = "", nil
+			for _, n := range a.FallbackNames { // unknown ones are left out
+				if p, ok := byName[n]; ok {
+					a.Fallbacks = append(a.Fallbacks, p.ID)
+				}
+			}
+			a.FallbackNames = nil
 			agents[i] = a
 		}
 		t.Agents = agents

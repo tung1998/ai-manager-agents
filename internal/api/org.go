@@ -436,6 +436,7 @@ type agentDTO struct {
 	Description  string              `json:"description"`
 	ReportsTo    []string            `json:"reports_to"`
 	ProviderID   string              `json:"provider_id"`
+	Fallbacks    []string            `json:"fallback_provider_ids"` // tried next, top to bottom
 	ModelTier    string              `json:"model_tier"`
 	LLMModel     string              `json:"llm_model"`
 	Instructions string              `json:"instructions"`
@@ -451,8 +452,12 @@ func toAgentDTO(a storage.Agent) agentDTO {
 	if rt == nil {
 		rt = []string{}
 	}
+	fb := a.FallbackProviderIDs
+	if fb == nil {
+		fb = []string{}
+	}
 	d := agentDTO{ID: a.ID, OrgModelID: a.OrgModelID, Key: a.Key, Name: a.Name, Tier: a.Tier, Role: a.Role,
-		Description: a.Description, ReportsTo: rt, ProviderID: a.ProviderID, ModelTier: a.ModelTier, LLMModel: a.LLMModel,
+		Description: a.Description, ReportsTo: rt, ProviderID: a.ProviderID, Fallbacks: fb, ModelTier: a.ModelTier, LLMModel: a.LLMModel,
 		Instructions: a.Instructions, Permissions: a.Permissions, Avatar: a.Avatar, Sort: a.Sort, Enabled: !a.Disabled}
 	d.Version = agentVersion(d)
 	return d
@@ -678,6 +683,7 @@ type agentInput struct {
 	Description  string              `json:"description"`
 	ReportsTo    []string            `json:"reports_to"`
 	ProviderID   string              `json:"provider_id"`
+	Fallbacks    *[]string           `json:"fallback_provider_ids"` // nil = keep
 	ModelTier    string              `json:"model_tier"`
 	LLMModel     string              `json:"llm_model"`
 	Instructions string              `json:"instructions"`
@@ -732,21 +738,39 @@ func (s *server) applyAgent(r *http.Request, in agentInput, a *storage.Agent) er
 	if in.Avatar != nil {
 		a.Avatar = *in.Avatar
 	}
+	if in.Fallbacks != nil {
+		a.FallbackProviderIDs = []string{}
+		for _, id := range *in.Fallbacks {
+			if id = strings.TrimSpace(id); id != "" && id != a.ProviderID && !slices.Contains(a.FallbackProviderIDs, id) {
+				a.FallbackProviderIDs = append(a.FallbackProviderIDs, id)
+			}
+		}
+	}
 	if a.ModelTier == "" {
 		a.ModelTier = storage.TierBalanced
 	}
 	return nil
 }
 
-func (s *server) checkProvider(r *http.Request, id string) error {
-	if id == "" {
-		return nil
+// checkProvider: the agent's connection and its fallbacks all exist.
+func (s *server) checkProvider(r *http.Request, id string, fallbacks *[]string) error {
+	ids := []string{id}
+	if fallbacks != nil {
+		ids = append(ids, *fallbacks...)
 	}
-	_, err := s.cfg.Store.Providers().Get(r.Context(), id)
-	if errors.Is(err, storage.ErrNotFound) {
-		return errBadInput
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id == "" {
+			continue
+		}
+		_, err := s.cfg.Store.Providers().Get(r.Context(), id)
+		if errors.Is(err, storage.ErrNotFound) {
+			return errBadInput
+		}
+		if err != nil {
+			return err
+		}
 	}
-	return err
+	return nil
 }
 
 // auditAgentFullAccess logs a dedicated entry when an agent's FullAccess or
@@ -772,7 +796,7 @@ func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.checkProvider(r, in.ProviderID); err != nil {
+	if err := s.checkProvider(r, in.ProviderID, in.Fallbacks); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
@@ -808,7 +832,7 @@ func (s *server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.checkProvider(r, in.ProviderID); err != nil {
+	if err := s.checkProvider(r, in.ProviderID, in.Fallbacks); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}

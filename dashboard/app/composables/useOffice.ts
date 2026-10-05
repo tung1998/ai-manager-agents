@@ -121,6 +121,7 @@ export interface Agent {
   description: string
   reports_to: string[]
   provider_id: string
+  fallback_provider_ids?: string[] // tried next, top to bottom
   model_tier: ModelTier
   llm_model: string
   instructions: string

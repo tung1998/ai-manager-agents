@@ -69,7 +69,7 @@ const tiles = computed(() => {
 })
 
 // ---- config: three cards, each saved on its own ----
-const form = reactive({ name: '', key: '', tier: 'worker' as AgentTier, role: '', description: '', reports_to: [] as string[], instructions: '', provider_id: '', model_tier: 'balanced' as ModelTier, llm_model: '', permissions: { level: 'propose', read_only: false } as Permissions, avatar: {} as AvatarSpec })
+const form = reactive({ name: '', key: '', tier: 'worker' as AgentTier, role: '', description: '', reports_to: [] as string[], instructions: '', provider_id: '', fallback_provider_ids: [] as string[], model_tier: 'balanced' as ModelTier, llm_model: '', permissions: { level: 'propose', read_only: false } as Permissions, avatar: {} as AvatarSpec })
 const editedFrom = ref('') // the agent as the form was filled: a save over someone else's change is refused
 const saveError = useSaveError()
 function load() {
@@ -78,7 +78,7 @@ function load() {
   editedFrom.value = (a as { version?: string }).version ?? ''
   Object.assign(form, JSON.parse(JSON.stringify({
     name: a.name, key: a.key, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, instructions: a.instructions,
-    provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, permissions: a.permissions, avatar: a.avatar ?? {}
+    provider_id: a.provider_id, fallback_provider_ids: a.fallback_provider_ids ?? [], model_tier: a.model_tier, llm_model: a.llm_model, permissions: a.permissions, avatar: a.avatar ?? {}
   })))
 }
 const { stale, reset: resync } = useDraft(agent, form, () => load()) // never over what is being edited
@@ -92,17 +92,31 @@ const providerOptions = computed(() => [
   ...providers.value.map(p => ({ label: p.name, value: p.id }))
 ])
 const formProvider = computed(() => providers.value.find(p => p.id === form.provider_id) ?? defaultProvider.value)
+// fallbacks, in the order they are tried; the main connection is not one of them
+const providerName = (id: string) => providers.value.find(p => p.id === id)?.name ?? id
+const fallbackOptions = computed(() => providers.value
+  .filter(p => p.id !== formProvider.value?.id && !form.fallback_provider_ids.includes(p.id))
+  .map(p => ({ label: p.name, value: p.id })))
+function addFallback(id: string) {
+  if (id) form.fallback_provider_ids = [...form.fallback_provider_ids, id]
+}
+function moveFallbackUp(i: number) {
+  const l = [...form.fallback_provider_ids]
+  ;[l[i - 1], l[i]] = [l[i]!, l[i - 1]!]
+  form.fallback_provider_ids = l
+}
+const removeFallback = (i: number) => { form.fallback_provider_ids = form.fallback_provider_ids.filter((_, j) => j !== i) }
 const bossOptions = computed(() => others.value.filter(a => a.tier !== 'worker').map(a => ({ label: `${a.name} (${a.key})`, value: a.key })))
 const saving = ref('')
 const avatarEditing = ref(false)
-const cardFields = { role: ['key', 'name', 'tier', 'role', 'description', 'reports_to', 'instructions'], model: ['provider_id', 'model_tier', 'llm_model'], perm: ['permissions'], avatar: ['avatar'] } as const
+const cardFields = { role: ['key', 'name', 'tier', 'role', 'description', 'reports_to', 'instructions'], model: ['provider_id', 'fallback_provider_ids', 'model_tier', 'llm_model'], perm: ['permissions'], avatar: ['avatar'] } as const
 async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
   const a = agent.value!
   // each card sends its own fields on top of the saved agent
   const base = { version: editedFrom.value, key: a.key, name: a.name, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, instructions: a.instructions, permissions: a.permissions }
   const body = card === 'role'
     ? { ...base, key: form.key, name: form.name, tier: form.tier, role: form.role, description: form.description, reports_to: form.tier === 'lead' ? [] : form.reports_to, instructions: form.instructions }
-    : card === 'model' ? { ...base, provider_id: form.provider_id, model_tier: form.model_tier, llm_model: form.llm_model }
+    : card === 'model' ? { ...base, provider_id: form.provider_id, fallback_provider_ids: form.fallback_provider_ids.filter(id => id !== formProvider.value?.id), model_tier: form.model_tier, llm_model: form.llm_model }
       : card === 'avatar' ? { ...base, avatar: form.avatar } : { ...base, permissions: form.permissions }
   saving.value = card
   try {
@@ -156,7 +170,7 @@ const statusColor = (s: string) => s === 'done' ? 'success' : s === 'running' ? 
 // ---- history ----
 const fieldLabel = (f: string) => ({
   name: t('org.form.name'), key: t('org.form.key'), tier: t('org.form.tier'), role: t('org.form.role'), description: t('org.settings.description'),
-  reports_to: t('org.form.reportsTo'), provider_id: t('org.form.provider'), model_tier: t('org.form.modelTier'), llm_model: t('org.form.specificModel'),
+  reports_to: t('org.form.reportsTo'), provider_id: t('org.form.provider'), fallback_provider_ids: t('org.form.fallbacks'), model_tier: t('org.form.modelTier'), llm_model: t('org.form.specificModel'),
   instructions: t('org.form.instructions'), permissions: t('org.form.permissions')
 } as Record<string, string>)[f] ?? f
 const show = (v: unknown) => v === '' || v == null ? '—' : typeof v === 'string' ? v : Array.isArray(v) ? (v.length ? v.join(', ') : '—') : JSON.stringify(v, null, 1)
@@ -350,6 +364,22 @@ async function restore(e: Entry) {
               <datalist id="agent-page-models"><option v-for="m in formProvider?.models ?? []" :key="m" :value="m" /></datalist>
             </UFormField>
           </div>
+          <UFormField :label="t('org.form.fallbacks')" :help="t('org.form.fallbacksHelp')">
+            <div class="space-y-1.5">
+              <div v-for="(id, i) in form.fallback_provider_ids" :key="id" class="flex items-center gap-2 rounded-md border border-(--ui-border) px-2 py-1 text-sm">
+                <span class="w-4 text-xs tabular-nums text-(--ui-text-muted)">{{ i + 1 }}</span>
+                <span class="min-w-0 flex-1 truncate">{{ providerName(id) }}</span>
+                <template v-if="isAdmin">
+                  <UButton v-if="i > 0" size="xs" color="neutral" variant="ghost" icon="i-lucide-arrow-up" :aria-label="t('org.form.fallbackUp')" @click="moveFallbackUp(i)" />
+                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('org.form.fallbackRemove')" @click="removeFallback(i)" />
+                </template>
+              </div>
+              <USelect
+                v-if="isAdmin && fallbackOptions.length" :model-value="undefined" :items="fallbackOptions" :placeholder="t('org.form.fallbackAdd')"
+                icon="i-lucide-plus" size="sm" class="w-full sm:w-72" @update:model-value="(v: string) => addFallback(v)"
+              />
+            </div>
+          </UFormField>
           <UButton v-if="isAdmin" size="sm" icon="i-lucide-save" :label="t('org.form.save')" :loading="saving === 'model'" @click="save('model')" />
         </UCard>
 

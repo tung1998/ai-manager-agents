@@ -22,18 +22,20 @@ type Template struct {
 
 // AgentSpec is an agent inside a Template.
 type AgentSpec struct {
-	Key          string              `json:"key"`
-	Name         string              `json:"name"`
-	Tier         string              `json:"tier"`
-	Role         string              `json:"role,omitempty"`
-	Description  string              `json:"description,omitempty"`
-	ReportsTo    []string            `json:"reports_to,omitempty"`
-	ModelTier    string              `json:"model_tier"`
-	LLMModel     string              `json:"llm_model,omitempty"`
-	ProviderID   string              `json:"provider_id,omitempty"` // this office's connection id
-	Provider     string              `json:"provider,omitempty"`    // connection name, used by export/import between offices
-	Instructions string              `json:"instructions,omitempty"`
-	Permissions  storage.Permissions `json:"permissions"`
+	Key           string              `json:"key"`
+	Name          string              `json:"name"`
+	Tier          string              `json:"tier"`
+	Role          string              `json:"role,omitempty"`
+	Description   string              `json:"description,omitempty"`
+	ReportsTo     []string            `json:"reports_to,omitempty"`
+	ModelTier     string              `json:"model_tier"`
+	LLMModel      string              `json:"llm_model,omitempty"`
+	ProviderID    string              `json:"provider_id,omitempty"`           // this office's connection id
+	Provider      string              `json:"provider,omitempty"`              // connection name, used by export/import between offices
+	Fallbacks     []string            `json:"fallback_provider_ids,omitempty"` // this office's connection ids, tried next in order
+	FallbackNames []string            `json:"fallback_providers,omitempty"`    // their names, used by export/import between offices
+	Instructions  string              `json:"instructions,omitempty"`
+	Permissions   storage.Permissions `json:"permissions"`
 }
 
 // Builtins returns the embedded templates in display order.
@@ -68,7 +70,7 @@ func (s AgentSpec) toAgent(orgID string, sort int) storage.Agent {
 	return storage.Agent{
 		OrgModelID: orgID, Key: s.Key, Name: s.Name, Tier: s.Tier, Role: s.Role, Description: s.Description,
 		ReportsTo: s.ReportsTo, ModelTier: s.ModelTier, LLMModel: s.LLMModel, Instructions: s.Instructions,
-		Permissions: perms, Sort: sort, ProviderID: s.ProviderID,
+		Permissions: perms, Sort: sort, ProviderID: s.ProviderID, FallbackProviderIDs: s.Fallbacks,
 	}
 }
 
@@ -79,7 +81,7 @@ func specFromAgent(a storage.Agent) AgentSpec {
 	return AgentSpec{
 		Key: a.Key, Name: a.Name, Tier: a.Tier, Role: a.Role, Description: a.Description, ReportsTo: a.ReportsTo,
 		ModelTier: a.ModelTier, LLMModel: a.LLMModel, Instructions: a.Instructions, Permissions: a.Permissions,
-		ProviderID: a.ProviderID,
+		ProviderID: a.ProviderID, Fallbacks: a.FallbackProviderIDs,
 	}
 }
 

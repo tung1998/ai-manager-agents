@@ -793,20 +793,12 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		turn.emit(Event{Type: "error", Text: err.Error(), Message: &dto, NextTurnID: e.nextTurn(ctx, turn, conv, project, agent, "")})
 	}
 
-	p, model, err := e.providers.ResolveModel(ctx, withTier(ctx, agent))
-	if errors.Is(err, storage.ErrNotFound) {
-		fail(errors.New("chưa có kết nối AI mặc định"))
-		return
-	}
+	cands, err := e.choices(ctx, withTier(ctx, agent))
 	if err != nil {
 		fail(err)
 		return
 	}
-	key, err := e.providers.APIKey(p)
-	if err != nil {
-		fail(err)
-		return
-	}
+	p, model := cands[0].Provider, cands[0].Model
 	policy := perm.LoadPolicy(ctx, e.store, project.ID)
 	mode := conv.Mode
 	if c := ceilingOf(ctx); c != "" && perm.AtLeast(mode, c) { // capped for this message's sender (ADR-081)
@@ -901,7 +893,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		hist = nil
 	}
 	req := RunRequest{
-		Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: text,
+		WorkDir: pl.dir, Prompt: text,
 		System: systemPrompt(project, agent, e.office != nil, acc, pl), History: hist, Attachments: files,
 		Write: pl.write, DenyPaths: policy.DenyPaths, ExtraDirs: agentExtraDirs, UserMCP: acc.Can(perm.CapUserMCP),
 	}
@@ -958,26 +950,46 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	// the agent's own session in this chat (ADR-044); coming back, it gets
 	// what the others said since its last answer
 	mem := e.member(ctx, conv, agent)
-	if !handoff && mem.Runtime == string(p.Kind) && mem.SessionID != "" {
-		req.SessionID = mem.SessionID
-		e.compactIfFull(ctx, turn, &mem, agent, p, model, pl.dir)
-		if req.SessionID = mem.SessionID; req.SessionID != "" {
-			if more := newSince(history, mem.LastMessageID, agent.Name); more != "" {
-				req.Prompt = more + "Tin nhắn mới:\n" + req.Prompt
+	prompt := req.Prompt
+	var (
+		res    RunResult
+		runErr error
+		runID  string
+		cost   *float64
+	)
+	// its connections top to bottom (its own, then its fallbacks) until one answers
+	for i, c := range cands {
+		p, model = c.Provider, c.Model
+		key, kerr := e.providers.APIKey(p)
+		if kerr == nil {
+			req.Provider, req.APIKey, req.Bin, req.Model = p, key, e.providers.CLIBin(p), model
+			req.Prompt, req.SessionID = prompt, ""
+			if !handoff && mem.Runtime == string(p.Kind) && mem.SessionID != "" {
+				req.SessionID = mem.SessionID
+				e.compactIfFull(ctx, turn, &mem, agent, p, model, pl.dir)
+				if req.SessionID = mem.SessionID; req.SessionID != "" {
+					if more := newSince(history, mem.LastMessageID, agent.Name); more != "" {
+						req.Prompt = more + "Tin nhắn mới:\n" + req.Prompt
+					}
+				}
 			}
+			turn.emit(Event{Type: "status", Text: fmt.Sprintf("%s đang trả lời (%s · %s)", agent.Name, p.Name, model)})
+			res, runErr = runnerFor(p.Kind).Run(ctx, req, turn.emit)
+			runID, cost = "", nil
+			if e.usage != nil {
+				if r, err := e.usage.Record(ctx, usage.Meta{Kind: "chat", ProjectID: project.ID, AgentID: agent.ID}, p, model, res.Usage, runErr); err == nil {
+					runID, cost = r.ID, r.CostUSD
+				}
+			}
+			e.keepLimits(p, res.Limits)
+		} else {
+			res, runErr = RunResult{}, kerr
 		}
-	}
-	turn.emit(Event{Type: "status", Text: fmt.Sprintf("%s đang trả lời (%s · %s)", agent.Name, p.Name, model)})
-
-	res, runErr := runnerFor(p.Kind).Run(ctx, req, turn.emit)
-	var runID string
-	var cost *float64
-	if e.usage != nil {
-		if r, err := e.usage.Record(ctx, usage.Meta{Kind: "chat", ProjectID: project.ID, AgentID: agent.ID}, p, model, res.Usage, runErr); err == nil {
-			runID, cost = r.ID, r.CostUSD
+		if i == len(cands)-1 || !tryNext(ctx, res, runErr) {
+			break
 		}
+		turn.emit(Event{Type: "status", Text: switchNote(agent.Name, c, cands[i+1], runErr)})
 	}
-	e.keepLimits(p, res.Limits)
 	if runErr != nil && strings.Contains(runErr.Error(), "Prompt is too long") {
 		// the session outgrew the model: say so (not "the task is too long"),
 		// and start the next one afresh
@@ -1276,10 +1288,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	if emit == nil {
 		emit = func(Event) {}
 	}
-	p, model, err := e.providers.ResolveModel(ctx, withTier(ctx, agent))
-	if errors.Is(err, storage.ErrNotFound) {
-		return InvokeResult{}, errors.New("chưa có kết nối AI mặc định")
-	}
+	cands, err := e.choices(ctx, withTier(ctx, agent))
 	if err != nil {
 		return InvokeResult{}, err
 	}
@@ -1288,17 +1297,13 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 			return InvokeResult{}, err
 		}
 	}
-	key, err := e.providers.APIKey(p)
-	if err != nil {
-		return InvokeResult{}, err
-	}
 	policy := perm.LoadPolicy(ctx, e.store, project.ID)
 	acc := perm.Resolve(agent, "", policy)
 	pl, err := e.placeFor(ctx, project, policy, acc, "", false, "", false) // one read-only turn in the project
 	if err != nil {
 		return InvokeResult{}, err
 	}
-	req := RunRequest{Provider: p, APIKey: key, Bin: e.providers.CLIBin(p), Model: model, WorkDir: pl.dir, Prompt: prompt,
+	req := RunRequest{WorkDir: pl.dir, Prompt: prompt,
 		Attachments: files, Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP)}
 	req.System = systemPrompt(project, agent, e.office != nil, acc, pl)
 	if noTools(ctx) { // untrusted text (a channel's scope filter): a plain answer
@@ -1308,13 +1313,32 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 		defer revoke()
 		req.Office = office
 	}
-	res, runErr := runnerFor(p.Kind).Run(ctx, req, emit)
-	e.keepLimits(p, res.Limits)
-	out := InvokeResult{Text: res.Text, Tools: res.Tools, Provider: p.Name, Model: firstNonEmpty(res.Usage.Model, model), Dir: treeDir(pl), Wrote: pl.write}
-	if e.usage != nil {
-		if r, err := e.usage.Record(ctx, usage.Meta{Kind: kind, ProjectID: project.ID, AgentID: agent.ID}, p, model, res.Usage, runErr); err == nil {
-			out.RunID, out.CostUSD = r.ID, r.CostUSD
+	var (
+		res    RunResult
+		runErr error
+		out    InvokeResult
+	)
+	for i, c := range cands { // its connections top to bottom until one answers
+		p, model := c.Provider, c.Model
+		out = InvokeResult{Provider: p.Name, Model: model, Dir: treeDir(pl), Wrote: pl.write}
+		key, kerr := e.providers.APIKey(p)
+		if kerr == nil {
+			req.Provider, req.APIKey, req.Bin, req.Model = p, key, e.providers.CLIBin(p), model
+			res, runErr = runnerFor(p.Kind).Run(ctx, req, emit)
+			e.keepLimits(p, res.Limits)
+			out.Text, out.Tools, out.Model = res.Text, res.Tools, firstNonEmpty(res.Usage.Model, model)
+			if e.usage != nil {
+				if r, err := e.usage.Record(ctx, usage.Meta{Kind: kind, ProjectID: project.ID, AgentID: agent.ID}, p, model, res.Usage, runErr); err == nil {
+					out.RunID, out.CostUSD = r.ID, r.CostUSD
+				}
+			}
+		} else {
+			res, runErr = RunResult{}, kerr
 		}
+		if i == len(cands)-1 || !tryNext(ctx, res, runErr) {
+			break
+		}
+		emit(Event{Type: "status", Text: switchNote(agent.Name, c, cands[i+1], runErr)})
 	}
 	if runErr != nil && strings.TrimSpace(res.Text) == "" {
 		return out, runErr
