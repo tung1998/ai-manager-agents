@@ -127,11 +127,14 @@ func (s *Service) ensureConversation(ctx context.Context, b *storage.BurnSession
 	}
 	conv.Title = "Burn"
 	_ = s.store.Chat().UpdateConversation(ctx, conv)
-	if err := s.chat.SetMode(ctx, conv.ID, "operate"); err != nil {
-		return err
-	}
+	// saved before SetMode: a failure there must not lose the conversation just made
 	b.ConversationID = conv.ID
-	return nil
+	if saved, err := s.store.Burn().SaveSession(ctx, *b); err != nil {
+		return err
+	} else {
+		*b = saved
+	}
+	return s.chat.SetMode(ctx, conv.ID, "operate")
 }
 
 // Stop stops a project's Burn: the answer running now is cancelled, its
