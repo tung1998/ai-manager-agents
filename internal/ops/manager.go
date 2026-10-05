@@ -53,16 +53,17 @@ type State struct {
 }
 
 type proc struct {
-	mu      sync.Mutex
-	def     storage.Process
-	cmd     *exec.Cmd
-	state   State
-	lines   []Line
-	seq     int
-	wake    chan struct{}
-	stopReq bool
-	done    chan struct{} // closed when the current run exits
-	log     *os.File
+	mu        sync.Mutex
+	def       storage.Process
+	cmd       *exec.Cmd
+	state     State
+	lines     []Line
+	seq       int
+	wake      chan struct{}
+	stopReq   bool
+	done      chan struct{} // closed when the current run exits
+	log       *os.File
+	launching bool // Start to launch: closes the window where 2 Start calls both pass the status check
 }
 
 // Manager supervises project processes.
@@ -187,13 +188,18 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	}
 	p := m.get(id)
 	p.mu.Lock()
-	if p.state.Status == "running" || p.state.Status == "stopping" {
+	if p.state.Status == "running" || p.state.Status == "stopping" || p.state.Status == "restarting" || p.launching {
 		p.mu.Unlock()
 		return ErrRunning
 	}
+	p.launching = true
 	p.def = def
 	p.mu.Unlock()
-	return m.launch(p, dir)
+	err = m.launch(p, dir)
+	p.mu.Lock()
+	p.launching = false
+	p.mu.Unlock()
+	return err
 }
 
 func (m *Manager) launch(p *proc, dir string) error {
@@ -296,9 +302,16 @@ func (m *Manager) exited(p *proc, dir string, err error) {
 		time.AfterFunc(delay, func() {
 			p.mu.Lock()
 			still := p.state.Status == "restarting"
+			if still {
+				p.launching = true
+			}
 			p.mu.Unlock()
 			if still {
-				if err := m.launch(p, dir); err != nil {
+				err := m.launch(p, dir)
+				p.mu.Lock()
+				p.launching = false
+				p.mu.Unlock()
+				if err != nil {
 					p.add("sys", err.Error())
 					p.mu.Lock()
 					p.state.Status = "crashed"
