@@ -27,18 +27,27 @@ async function run(fn: () => Promise<unknown>, ok?: string) {
 }
 
 const draft = ref('')
-const add = () => run(async () => {
-  await $fetch(base.value, { method: 'POST', body: { text: draft.value } })
-  draft.value = ''
-})
+const saving = ref(false)
+const add = () => {
+  if (saving.value) return
+  saving.value = true
+  run(async () => {
+    await $fetch(base.value, { method: 'POST', body: { text: draft.value } })
+    draft.value = ''
+  }).finally(() => { saving.value = false })
+}
 const editing = ref<string | null>(null)
 const editText = ref('')
 let editFrom: string | undefined // the note as it was opened (409 when changed since)
 function startEdit(n: Note) { editing.value = n.id; editText.value = n.text; editFrom = n.version }
-const saveEdit = () => run(async () => {
-  await $fetch(`/api/memories/${editing.value}`, { method: 'PATCH', body: { text: editText.value, version: editFrom } })
-  editing.value = null
-})
+const saveEdit = () => {
+  if (saving.value) return
+  saving.value = true
+  run(async () => {
+    await $fetch(`/api/memories/${editing.value}`, { method: 'PATCH', body: { text: editText.value, version: editFrom } })
+    editing.value = null
+  }).finally(() => { saving.value = false })
+}
 const remove = (n: Note) => { if (confirm(t('mem.deleteConfirm'))) run(() => $fetch(`/api/memories/${n.id}`, { method: 'DELETE' })) }
 const compacting = ref(false)
 async function compact() {
@@ -78,7 +87,7 @@ const shownRev = ref<string | null>(null)
               <UTextarea v-model="editText" :rows="2" autoresize class="w-full" />
               <div class="mt-1 flex justify-end gap-1">
                 <UButton size="xs" color="neutral" variant="ghost" :label="t('common.cancel')" @click="editing = null" />
-                <UButton size="xs" :label="t('common.save')" @click="saveEdit" />
+                <UButton size="xs" :label="t('common.save')" :loading="saving" :disabled="saving" @click="saveEdit" />
               </div>
             </template>
             <template v-else>
@@ -94,7 +103,7 @@ const shownRev = ref<string | null>(null)
       </ul>
       <form v-if="isAdmin && data" class="flex gap-2" @submit.prevent="add">
         <UInput v-model="draft" class="min-w-0 flex-1" :placeholder="t('mem.addPlaceholder')" />
-        <UButton type="submit" icon="i-lucide-plus" :label="t('mem.add')" :disabled="!draft.trim()" />
+        <UButton type="submit" icon="i-lucide-plus" :label="t('mem.add')" :loading="saving" :disabled="!draft.trim() || saving" />
       </form>
     </UCard>
 
