@@ -8,8 +8,29 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
+
+// cloneLocks serializes the check-then-clone-then-cleanup-on-fail sequence
+// per destination path: two concurrent clones into the same dest must not
+// let one's cleanup (on failure) delete the other's successful clone.
+var (
+	cloneLocksMu sync.Mutex
+	cloneLocks   = map[string]*sync.Mutex{}
+)
+
+func cloneLock(dest string) func() {
+	cloneLocksMu.Lock()
+	lk := cloneLocks[dest]
+	if lk == nil {
+		lk = &sync.Mutex{}
+		cloneLocks[dest] = lk
+	}
+	cloneLocksMu.Unlock()
+	lk.Lock()
+	return lk.Unlock
+}
 
 var (
 	// ErrCloneURL: not a git URL office will clone (https, ssh, git or user@host:path).
@@ -87,6 +108,7 @@ func cloneInto(ctx context.Context, u, parent, name string) (string, error) {
 		return "", ErrNotDir
 	}
 	dest := filepath.Join(parent, name)
+	defer cloneLock(dest)()
 	if _, err := os.Lstat(dest); err == nil {
 		return "", ErrCloneExists
 	}
