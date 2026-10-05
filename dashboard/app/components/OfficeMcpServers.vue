@@ -169,6 +169,7 @@ const sealed = (rows: Row[]) => {
   return out
 }
 async function save() {
+  if (saving.value) return
   formError.value = ''
   saving.value = true
   const f = form.value
@@ -356,7 +357,7 @@ async function save() {
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="formOpen = false" />
-          <UButton type="submit" form="gw-form" :label="t('common.save')" :loading="saving" />
+          <UButton type="submit" form="gw-form" :label="t('common.save')" :loading="saving" :disabled="saving" />
         </div>
       </template>
     </UModal>
