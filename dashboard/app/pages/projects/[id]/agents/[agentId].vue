@@ -92,20 +92,7 @@ const providerOptions = computed(() => [
   ...providers.value.map(p => ({ label: p.name, value: p.id }))
 ])
 const formProvider = computed(() => providers.value.find(p => p.id === form.provider_id) ?? defaultProvider.value)
-// fallbacks, in the order they are tried; the main connection is not one of them
 const providerName = (id: string) => providers.value.find(p => p.id === id)?.name ?? id
-const fallbackOptions = computed(() => providers.value
-  .filter(p => p.id !== formProvider.value?.id && !form.fallback_provider_ids.includes(p.id))
-  .map(p => ({ label: p.name, value: p.id })))
-function addFallback(id: string) {
-  if (id) form.fallback_provider_ids = [...form.fallback_provider_ids, id]
-}
-function moveFallbackUp(i: number) {
-  const l = [...form.fallback_provider_ids]
-  ;[l[i - 1], l[i]] = [l[i]!, l[i - 1]!]
-  form.fallback_provider_ids = l
-}
-const removeFallback = (i: number) => { form.fallback_provider_ids = form.fallback_provider_ids.filter((_, j) => j !== i) }
 const bossOptions = computed(() => others.value.filter(a => a.tier !== 'worker').map(a => ({ label: `${a.name} (${a.key})`, value: a.key })))
 const saving = ref('')
 const avatarEditing = ref(false)
@@ -173,7 +160,11 @@ const fieldLabel = (f: string) => ({
   reports_to: t('org.form.reportsTo'), provider_id: t('org.form.provider'), fallback_provider_ids: t('org.form.fallbacks'), model_tier: t('org.form.modelTier'), llm_model: t('org.form.specificModel'),
   instructions: t('org.form.instructions'), permissions: t('org.form.permissions')
 } as Record<string, string>)[f] ?? f
-const show = (v: unknown) => v === '' || v == null ? '—' : typeof v === 'string' ? v : Array.isArray(v) ? (v.length ? v.join(', ') : '—') : JSON.stringify(v, null, 1)
+// connection ids read as their names (empty main connection = the default one)
+const showField = (f: string, v: unknown) => f === 'provider_id'
+  ? (v ? providerName(String(v)) : t('org.form.providerDefault', { suffix: '' }))
+  : f === 'fallback_provider_ids' && Array.isArray(v) ? show(v.map(id => providerName(String(id)))) : show(v)
+const show = (v: unknown): string => v === '' || v == null ? '—' : typeof v === 'string' ? v : Array.isArray(v) ? (v.length ? v.join(', ') : '—') : JSON.stringify(v, null, 1)
 // line diff of long text: lines only before (−) and only after (+)
 function lines(before: unknown, after: unknown) {
   const b = String(before ?? '').split('\n')
@@ -364,22 +355,7 @@ async function restore(e: Entry) {
               <datalist id="agent-page-models"><option v-for="m in formProvider?.models ?? []" :key="m" :value="m" /></datalist>
             </UFormField>
           </div>
-          <UFormField :label="t('org.form.fallbacks')" :help="t('org.form.fallbacksHelp')">
-            <div class="space-y-1.5">
-              <div v-for="(id, i) in form.fallback_provider_ids" :key="id" class="flex items-center gap-2 rounded-md border border-(--ui-border) px-2 py-1 text-sm">
-                <span class="w-4 text-xs tabular-nums text-(--ui-text-muted)">{{ i + 1 }}</span>
-                <span class="min-w-0 flex-1 truncate">{{ providerName(id) }}</span>
-                <template v-if="isAdmin">
-                  <UButton v-if="i > 0" size="xs" color="neutral" variant="ghost" icon="i-lucide-arrow-up" :aria-label="t('org.form.fallbackUp')" @click="moveFallbackUp(i)" />
-                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('org.form.fallbackRemove')" @click="removeFallback(i)" />
-                </template>
-              </div>
-              <USelect
-                v-if="isAdmin && fallbackOptions.length" :model-value="undefined" :items="fallbackOptions" :placeholder="t('org.form.fallbackAdd')"
-                icon="i-lucide-plus" size="sm" class="w-full sm:w-72" @update:model-value="(v: string) => addFallback(v)"
-              />
-            </div>
-          </UFormField>
+          <FallbackPicker v-model="form.fallback_provider_ids" :providers="providers" :main-id="formProvider?.id" :disabled="!isAdmin" />
           <UButton v-if="isAdmin" size="sm" icon="i-lucide-save" :label="t('org.form.save')" :loading="saving === 'model'" @click="save('model')" />
         </UCard>
 
@@ -439,9 +415,9 @@ async function restore(e: Entry) {
               :class="x.k === 'add' ? 'text-(--ui-success)' : 'text-(--ui-error) line-through'"
             >{{ x.k === 'add' ? '+ ' : '− ' }}{{ x.l || ' ' }}</span></pre>
             <div v-else class="flex flex-wrap items-center gap-2">
-              <code class="whitespace-pre-wrap text-(--ui-error) line-through">{{ show(c.before) }}</code>
+              <code class="whitespace-pre-wrap text-(--ui-error) line-through">{{ showField(c.field, c.before) }}</code>
               <UIcon name="i-lucide-arrow-right" class="size-3.5 text-(--ui-text-dimmed)" />
-              <code class="whitespace-pre-wrap text-(--ui-success)">{{ show(c.after) }}</code>
+              <code class="whitespace-pre-wrap text-(--ui-success)">{{ showField(c.field, c.after) }}</code>
             </div>
           </div>
         </UCard>

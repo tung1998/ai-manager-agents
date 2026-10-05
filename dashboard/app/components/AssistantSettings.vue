@@ -13,7 +13,7 @@ const agent = ref<Agent | null>(null)
 type Mode = 'answer' | 'manage' | 'admin'
 const mode = ref<Mode>('manage')
 const modeItems = computed(() => (['answer', 'manage', 'admin'] as const).map(v => ({ value: v, label: t(`assistant.mode.${v}`), description: t(`assistant.modeDesc.${v}`) })))
-const form = reactive<{ provider_id: string, model_tier: 'strong' | 'balanced' | 'fast', llm_model: string }>({ provider_id: '', model_tier: 'balanced', llm_model: '' })
+const form = reactive<{ provider_id: string, fallback_provider_ids: string[], model_tier: 'strong' | 'balanced' | 'fast', llm_model: string }>({ provider_id: '', fallback_provider_ids: [], model_tier: 'balanced', llm_model: '' })
 watch(open, async (o) => {
   if (!o) return
   try {
@@ -22,7 +22,7 @@ watch(open, async (o) => {
     const a = list[0]
     if (!a) return
     agent.value = (await $fetch<{ agent: Agent }>(`/api/agents/${a.id}`)).agent
-    Object.assign(form, { provider_id: agent.value.provider_id ?? '', model_tier: (agent.value.model_tier || 'balanced') as 'strong' | 'balanced' | 'fast', llm_model: agent.value.llm_model ?? '' })
+    Object.assign(form, { provider_id: agent.value.provider_id ?? '', fallback_provider_ids: [...(agent.value.fallback_provider_ids ?? [])], model_tier: (agent.value.model_tier || 'balanced') as 'strong' | 'balanced' | 'fast', llm_model: agent.value.llm_model ?? '' })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
@@ -49,7 +49,7 @@ async function save() {
       method: 'PATCH',
       body: {
         key: a.key, name: a.name, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to ?? [],
-        provider_id: form.provider_id, model_tier: form.model_tier, llm_model: form.llm_model.trim(), instructions: a.instructions, permissions: a.permissions
+        provider_id: form.provider_id, fallback_provider_ids: form.fallback_provider_ids.filter(id => id !== chosen.value?.id), model_tier: form.model_tier, llm_model: form.llm_model.trim(), instructions: a.instructions, permissions: a.permissions
       }
     })
     toast.add({ title: t('assistant.settingsSaved'), color: 'success' })
@@ -90,6 +90,8 @@ async function save() {
             <option v-for="m in chosen?.models ?? []" :key="m" :value="m" />
           </datalist>
         </UFormField>
+        <FallbackPicker v-model="form.fallback_provider_ids" :providers="providers" :main-id="chosen?.id" />
+
       </div>
     </template>
     <template #footer>
