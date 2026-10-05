@@ -180,9 +180,18 @@ function onCliReady(ok: boolean) {
   runTest(testTarget.value, testPrompt.value)
 }
 
+const settingDefault = ref<string | null>(null)
 async function setDefault(p: Provider) {
-  await $fetch(`/api/providers/${p.id}/default`, { method: 'POST' })
-  await refresh()
+  if (settingDefault.value) return
+  settingDefault.value = p.id
+  try {
+    await $fetch(`/api/providers/${p.id}/default`, { method: 'POST' })
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    settingDefault.value = null
+  }
 }
 
 async function remove(p: Provider) {
@@ -200,7 +209,7 @@ function menu(p: Provider) {
     [
       { label: t('prov.sendTestPrompt'), icon: 'i-lucide-message-square', onSelect: () => openPromptTest(p) },
       { label: t('prov.edit'), icon: 'i-lucide-pencil', onSelect: () => openEdit(p) },
-      { label: t('prov.setDefault'), icon: 'i-lucide-star', disabled: p.is_default, onSelect: () => setDefault(p) }
+      { label: t('prov.setDefault'), icon: 'i-lucide-star', disabled: p.is_default || !!settingDefault.value, onSelect: () => setDefault(p) }
     ],
     [{ label: t('prov.delete'), icon: 'i-lucide-trash', color: 'error' as const, onSelect: () => remove(p) }]
   ]
