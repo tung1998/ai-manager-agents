@@ -163,6 +163,7 @@ const listEl = ref<HTMLElement | null>(null)
 
 // live answer being streamed
 const streaming = ref(false)
+const sending = ref(false) // closes the window before streaming.value is set, inside follow()
 const liveText = ref('')
 const liveTools = ref<ToolCall[]>([])
 const liveStatus = ref('')
@@ -447,10 +448,11 @@ async function newConversation(agentId = '') {
 
 async function send() {
   const text = draft.value.trim()
-  if ((!text && !draftFiles.value.length) || streaming.value || prompt.value?.busy) return
+  if ((!text && !draftFiles.value.length) || streaming.value || sending.value || prompt.value?.busy) return
   if (!current.value) await newConversation(pick.value)
   if (!current.value) return
   const switching = !single.value && pick.value && pick.value !== current.value.agent_id ? pick.value : ''
+  sending.value = true
   try {
     // mode operate: the agent's own rights are the limit (members are capped server-side)
     const res = await $fetch<{ turn_id: string, message: Message, notice?: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: draftFiles.value.map(a => a.id), mode: 'operate', edit_mode: editMode.value, effort: effort.value, agent_id: switching, context: props.pageContext?.() ?? '' } })
@@ -472,6 +474,8 @@ async function send() {
     } else {
       toast.add({ title: apiError(e), color: 'error' })
     }
+  } finally {
+    sending.value = false
   }
 }
 
@@ -835,7 +839,7 @@ onBeforeUnmount(() => {
             <EffortSelect v-model="effort" :fallback="picked?.effort ?? ''" size="sm" class="min-w-0 max-w-44 shrink" :title="t('chat.effort')" :aria-label="t('chat.effort')" />
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
-            <UButton v-else size="sm" type="submit" icon="i-lucide-send" class="shrink-0" :disabled="!draft.trim() && !draftFiles.length" />
+            <UButton v-else size="sm" type="submit" icon="i-lucide-send" class="shrink-0" :loading="sending" :disabled="(!draft.trim() && !draftFiles.length) || sending" />
             <UButton v-if="page" size="sm" color="neutral" variant="ghost" icon="i-lucide-x" :class="'shrink-0 sm:hidden'" :aria-label="t('common.close')" @click="composeOpen = false" />
           </template>
         </PromptInput>
