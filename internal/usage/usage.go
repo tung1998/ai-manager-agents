@@ -4,6 +4,7 @@ package usage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -260,11 +261,7 @@ func (s *Service) Summarize(ctx context.Context, days int) (Summary, error) {
 }
 
 func asBudget(err error, target **BudgetError) bool {
-	be, ok := err.(*BudgetError)
-	if ok {
-		*target = be
-	}
-	return ok
+	return errors.As(err, target)
 }
 
 func firstNonEmpty(a, b string) string {
