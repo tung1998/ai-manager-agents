@@ -220,13 +220,27 @@ func ensureGitignore(root string) {
 	}
 	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
+		fmt.Fprintln(os.Stderr, "✗ không thêm được .office/ vào .gitignore:", err)
 		return
 	}
-	defer f.Close()
 	prefix := ""
 	if len(raw) > 0 && raw[len(raw)-1] != '\n' {
 		prefix = "\n"
 	}
-	fmt.Fprintf(f, "%s# agent-office local data (database, secret key)\n.office/\n", prefix)
+	_, writeErr := fmt.Fprintf(f, "%s# agent-office local data (database, secret key)\n.office/\n", prefix)
+	closeErr := f.Close()
+	if writeErr != nil || closeErr != nil {
+		fmt.Fprintln(os.Stderr, "✗ không thêm được .office/ vào .gitignore:", firstNonNil(writeErr, closeErr))
+		return
+	}
 	fmt.Fprintln(os.Stderr, "✓ Thêm .office/ vào .gitignore")
+}
+
+func firstNonNil(errs ...error) error {
+	for _, e := range errs {
+		if e != nil {
+			return e
+		}
+	}
+	return nil
 }
