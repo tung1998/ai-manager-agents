@@ -208,42 +208,41 @@ Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-star
 | POST | `/api/agents/:id/memory/compact` | Ép compaction |
 | GET | `/api/roles` | Danh sách role template |
 
-### Runs
+### Job (`/jobs`)
 | Method | Path | Mô tả |
 |---|---|---|
-| GET | `/api/runs?agent=&status=&cursor=` | Danh sách |
-| GET | `/api/runs/:id` | Chi tiết + events |
-| GET | `/api/worker-outputs/:id` | Evidence (data + summary, raw qua `?raw=1`) |
+| GET | `/api/jobs?project=&cursor=` | Danh sách |
+| GET | `/api/jobs/groups` | Gom theo từng việc (trang Job) |
+| GET | `/api/jobs/stats?since=24h&project=` | Số liệu 24 giờ |
+| GET | `/api/jobs/{id}` | Chi tiết |
+| POST | `/api/jobs/{id}/cancel` \| `/retry` | |
 
-### Blackboard
+### Cần xử lý (Tổng quan, ADR-051)
 | Method | Path | Mô tả |
 |---|---|---|
-| GET | `/api/threads?status=&cursor=` | |
-| GET | `/api/threads/:id` | Thread + findings + evidence |
-| POST | `/api/threads/:id/messages` | Người đặt câu hỏi vào thread |
+| GET | `/api/incidents?status=` | Giám sát lỗi, tiến trình chết, automation tắt, bot mất kết nối, job lỗi 24h, thẻ chờ duyệt |
+| POST | `/api/incidents/dismiss` \| `/retry` | Bỏ qua / thử lại 1 mục |
+| GET | `/api/actions/pending` | Thẻ chờ duyệt (agent đề xuất chạy/dừng tiến trình, container — ADR-030) |
+| POST | `/api/actions/{id}/approve` \| `/reject` | |
+| POST | `/api/patches/{id}/approve` \| `/reject` | Duyệt diff agent sửa file (worktree) |
+| POST | `/api/proposals/skip-all` | Bỏ qua mọi đề xuất đang chờ của 1 project |
 
-### Incidents + approvals
+### Thiết lập AI project (`/projects/:id/setup`, ADR-018)
 | Method | Path | Mô tả |
 |---|---|---|
-| GET | `/api/incidents?status=` | |
-| GET | `/api/incidents/:id` | Kết luận, options, timeline |
-| GET | `/api/approvals?status=pending` | |
-| POST | `/api/approvals/:id/approve` \| `/reject` | Body `{note}` |
-
-### Ask + init
-| Method | Path | Mô tả |
-|---|---|---|
-| POST | `/api/ask` | Body `{question, managers?, budget_usd?}` trả `thread_id` |
-| POST | `/api/init/scan` | Quét tĩnh |
-| POST | `/api/init/propose` | Đề xuất (có gọi LLM) |
+| POST | `/api/projects/:id/setup/scan` | Quét tĩnh |
+| POST | `/api/projects/:id/setup/propose` | Đề xuất mô hình tổ chức (gọi LLM) |
+| POST | `/api/projects/:id/setup/build` | Dựng lại preview khi đổi lựa chọn |
+| POST | `/api/projects/:id/setup/apply` | Áp dụng |
 
 ### Chi phí + trạng thái
 | Method | Path | Mô tả |
 |---|---|---|
-| GET | `/api/costs/daily?from=&to=&group=agent` | |
-| GET | `/api/costs/incidents?from=&to=` | |
-| GET | `/api/status` | Giống `office status` |
-| GET | `/api/doctor` | Giống `office doctor` |
+| GET | `/api/usage/summary?days=` | Chi phí hôm nay, theo ngày, theo project/model (Tổng quan) |
+| GET | `/api/usage/runs?...` | Lịch sử lượt gọi AI |
+| PUT | `/api/usage/settings` | Trần chung office + giá model (trang Kết nối AI) |
+| GET/PUT | `/api/projects/:id/budget` | Ngân sách riêng của project (tab Thông tin) |
+| GET | `/api/system`, `/api/system/stats`, `/api/system/summary` | Trạng thái máy |
 
 ### Burn (đã làm, admin, ADR-087)
 
