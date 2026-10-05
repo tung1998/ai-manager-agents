@@ -35,22 +35,21 @@ Sidebar 4 nhóm (xem `dashboard/app/layouts/default.vue`): **Project** (5 projec
 
 ## Luồng người dùng
 
-**Lần đầu (setup).**
-1. Mở `/setup`. UI gọi `POST /api/init/scan`.
-2. Xem kết quả quét và runtime khả dụng. Nhập budget.
-3. `POST /api/init/propose` trả đề xuất kèm `reason` và ước tính chi phí.
-4. Chỉnh trực tiếp trên form. Bấm Tạo gọi `PUT /api/config` với `If-Match` là hash config.
-5. Chuyển sang `/`, thấy org chart.
+**Lần đầu (thêm project).**
+1. Mở `/projects`, thêm project (thư mục có sẵn, clone git, hoặc không thư mục — toàn máy, ADR-017).
+2. Vào `/projects/:id/setup`. Chưa có kết nối AI sẵn sàng thì nối trước ở `/providers`.
+3. `POST /api/projects/:id/setup/scan` quét project, rồi `POST /api/projects/:id/setup/propose` đề xuất mô hình tổ chức + tinh chỉnh agent (gọi LLM, kèm `reason` và ước tính chi phí) — ADR-018.
+4. Đổi mẫu/lựa chọn thì gọi lại `POST /api/projects/:id/setup/build` để xem preview mới. Bấm Tạo gọi `POST /api/projects/:id/setup/apply`.
+5. Chuyển vào `/projects/:id`, thấy Chat/Việc/Tự động hoá của project.
 
 **Hằng ngày.**
-1. Nhận Discord "incident mới" có link `/incidents/:id`.
-2. Đọc kết luận, mở evidence, xem debate.
-3. Duyệt hoặc từ chối option. Hành động được thực thi và kết quả hiện realtime.
+1. Nhận Discord "cần xử lý" có link về `/` (Tổng quan — ADR-051).
+2. Mở mục ứng với sự cố, xử lý tại chỗ xảy ra (project, tự động hoá, bot…).
 
 **Tinh chỉnh agent.**
-1. Từ org chart mở `/agents/tech-lead`.
-2. Đổi model hoặc sửa prompt override. UI hiện diff config trước khi lưu.
-3. Bấm "Chạy ngay" để thử, xem log stream.
+1. Từ project mở tab **Mô hình** (`/projects/:id?tab=model`), chọn 1 agent để vào `/projects/:id/agents/:agentId`.
+2. Đổi model hoặc sửa prompt override; mỗi thẻ cấu hình tự lưu khi sửa (`PATCH /api/agents/:id`).
+3. Xem số liệu (lượt chạy, chi phí, tỉ lệ lỗi) và lịch sử sửa; khôi phục lại bản cũ nếu cần (`POST /api/agents/:id/restore`).
 
 ## API
 
