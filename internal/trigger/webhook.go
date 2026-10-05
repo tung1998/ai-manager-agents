@@ -111,7 +111,7 @@ func (r *Runner) receive(w http.ResponseWriter, req *http.Request, a storage.Aut
 			break
 		}
 	}
-	if dedupe == "" && len(body) > 0 {
+	if dedupe == "" { // no header, no PR key: hash the body (stable even when empty, so repeats dedupe too)
 		sum := sha256.Sum256(body)
 		dedupe = "body:" + hex.EncodeToString(sum[:])[:16]
 	}
