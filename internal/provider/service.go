@@ -85,7 +85,7 @@ type Input struct {
 func (s *Service) apply(p *storage.Provider, in Input) error {
 	// A stored key must not follow a new endpoint: whoever can edit the URL could
 	// otherwise point it at their own host and press "Kiểm tra" to receive the key.
-	if p.ID != "" && p.APIKeyEnc != "" && in.APIKey == nil && normURL(in.BaseURL) != normURL(p.BaseURL) {
+	if p.ID != "" && (p.APIKeyEnc != "" || p.APIKeyEnv != "") && in.APIKey == nil && normURL(in.BaseURL) != normURL(p.BaseURL) {
 		return ErrKeyRequiredForNewURL
 	}
 	p.Name = strings.TrimSpace(in.Name)
