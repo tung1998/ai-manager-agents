@@ -201,11 +201,11 @@ func (s *server) deleteProcess(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.cfg.Ops.Forget(id)
 	if err := s.cfg.Store.Processes().Delete(r.Context(), id); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	s.cfg.Ops.Forget(id)
 	s.audit(r, audit.Change{Action: "process.delete", ResourceID: id, ProjectID: old.ProjectID, Before: s.toProcessDTO(old)})
 	w.WriteHeader(http.StatusNoContent)
 }
