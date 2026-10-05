@@ -98,6 +98,7 @@ const saving = ref('')
 const avatarEditing = ref(false)
 const cardFields = { role: ['key', 'name', 'tier', 'role', 'description', 'reports_to', 'instructions'], model: ['provider_id', 'fallback_provider_ids', 'model_tier', 'llm_model', 'effort'], perm: ['permissions'], avatar: ['avatar'] } as const
 async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
+  if (saving.value) return
   const a = agent.value!
   // each card sends its own fields on top of the saved agent
   const base = { version: editedFrom.value, key: a.key, name: a.name, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, instructions: a.instructions, permissions: a.permissions }
@@ -319,7 +320,7 @@ async function restore(e: Entry) {
             <template v-if="isAdmin">
               <template v-if="avatarEditing">
                 <UButton size="xs" color="neutral" variant="ghost" :label="t('common.cancel')" @click="form.avatar = agent?.avatar ?? {}; avatarEditing = false" />
-                <UButton size="xs" icon="i-lucide-save" :label="t('common.save')" :loading="saving === 'avatar'" @click="save('avatar').then(() => { avatarEditing = false })" />
+                <UButton size="xs" icon="i-lucide-save" :label="t('common.save')" :loading="saving === 'avatar'" :disabled="!!saving" @click="save('avatar').then(() => { avatarEditing = false })" />
               </template>
               <UButton v-else size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('avatar.edit')" @click="avatarEditing = true" />
             </template>
@@ -341,7 +342,7 @@ async function restore(e: Entry) {
           <UFormField :label="t('org.form.role')"><UInput v-model="form.role" class="w-full" :placeholder="t('org.form.rolePlaceholder')" /></UFormField>
           <UFormField :label="t('org.settings.description')"><UTextarea v-model="form.description" :rows="2" class="w-full" autoresize /></UFormField>
           <UFormField :label="t('org.form.instructions')"><UTextarea v-model="form.instructions" :rows="8" class="w-full font-mono text-xs" autoresize /></UFormField>
-          <UButton v-if="isAdmin" size="sm" icon="i-lucide-save" :label="t('org.form.save')" :loading="saving === 'role'" @click="save('role')" />
+          <UButton v-if="isAdmin" size="sm" icon="i-lucide-save" :label="t('org.form.save')" :loading="saving === 'role'" :disabled="!!saving" @click="save('role')" />
         </UCard>
 
         <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
@@ -363,13 +364,13 @@ async function restore(e: Entry) {
             </UFormField>
           </div>
           <FallbackPicker v-model="form.fallback_provider_ids" :providers="providers" :main-id="formProvider?.id" :disabled="!isAdmin" />
-          <UButton v-if="isAdmin" size="sm" icon="i-lucide-save" :label="t('org.form.save')" :loading="saving === 'model'" @click="save('model')" />
+          <UButton v-if="isAdmin" size="sm" icon="i-lucide-save" :label="t('org.form.save')" :loading="saving === 'model'" :disabled="!!saving" @click="save('model')" />
         </UCard>
 
         <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
           <p class="text-sm font-medium">{{ t('org.form.permissions') }}</p>
           <AgentPermEditor v-model="form.permissions" :project-id="projectId" :disabled="!isAdmin" />
-          <UButton v-if="isAdmin" size="sm" icon="i-lucide-save" :label="t('org.form.save')" :loading="saving === 'perm'" @click="save('perm')" />
+          <UButton v-if="isAdmin" size="sm" icon="i-lucide-save" :label="t('org.form.save')" :loading="saving === 'perm'" :disabled="!!saving" @click="save('perm')" />
         </UCard>
       </fieldset>
 
