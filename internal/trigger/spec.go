@@ -24,6 +24,7 @@ type Spec struct {
 	Prompt       string                     `json:"prompt,omitempty"`
 	Script       storage.AutomationScript   `json:"script"`
 	Escalate     storage.AutomationEscalate `json:"escalate"`
+	Tags         []string                   `json:"tags,omitempty"` // on each run's chat (none = the ones it has)
 }
 
 // Check rejects what could not run: a bad schedule, an unknown language, a
@@ -38,6 +39,19 @@ func (s *Spec) Check() error {
 	case s.Action != "script" && s.Action != "chat":
 		return errors.New("hành động phải là script hoặc chat")
 	}
+	var tags []string
+	for _, t := range s.Tags {
+		if t = strings.Join(strings.Fields(t), " "); t != "" {
+			if len([]rune(t)) > 30 {
+				return errors.New("tag tối đa 30 ký tự")
+			}
+			tags = append(tags, t)
+		}
+	}
+	if len(tags) > 10 {
+		return errors.New("tối đa 10 tag")
+	}
+	s.Tags = tags
 	if s.Source == "schedule" {
 		if err := Validate(s.config()); err != nil {
 			return err
@@ -70,6 +84,10 @@ func (s Spec) config() storage.AutomationConfig {
 func (s Spec) Apply(a *storage.Automation, now time.Time) {
 	cfg := s.config()
 	cfg.Auth, cfg.AuthName, cfg.SecretHash, cfg.ConversationID = a.Config.Auth, a.Config.AuthName, a.Config.SecretHash, a.Config.ConversationID
+	cfg.Tags = a.Config.Tags
+	if len(s.Tags) > 0 {
+		cfg.Tags = s.Tags
+	}
 	if s.Source == "webhook" && cfg.Auth == "" {
 		cfg.Auth = "bearer"
 	}

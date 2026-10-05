@@ -282,7 +282,9 @@ export default {
   'auto.cardReplyDesc': 'Agent trả lời ngay trong cuộc chat đó',
   'auto.cardScriptChannelDesc': 'Output của script là câu trả lời, không tốn token',
   'auto.replyNoTools': 'Agent trả lời bằng quyền của chính nó (đọc code, công cụ, MCP… theo cài đặt agent). Ai trong danh sách được nhắn bot đều dùng được quyền đó.',
-  'auto.promptChannelPlaceholder': 'Trống = gửi nguyên tin nhắn cho agent. VD: Khách {{user}} hỏi: {{message}}. Trả lời ngắn gọn, thân thiện.',
+  'auto.tags': 'Gắn tag cho chat',
+  'auto.tagsHint': 'Mỗi lần chạy, chat của nó được gắn các tag này (thêm vào tag sẵn có, tối đa 10).',
+  'auto.promptChannelPlaceholder':'Trống = gửi nguyên tin nhắn cho agent. VD: Khách {{user}} hỏi: {{message}}. Trả lời ngắn gọn, thân thiện.',
 
   // ADR-074: permission mode (agent vs override)
   'auto.permTitle': 'Quyền',

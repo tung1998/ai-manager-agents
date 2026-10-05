@@ -42,6 +42,7 @@ export interface AutomationConfig {
   skill?: string // the command calls this project skill
   pull_request?: boolean // a GitHub/Bitbucket PR webhook: runs on a PR opened or updated, with {{diff}}
   notify_channel_id?: string, notify_chat_id?: string // what a run answers goes to this bot's chat too
+  tags?: string[] // put on the chat of each run
 }
 export interface AutomationLimits {
   max_parallel?: number // runs at once (ADR-082)
@@ -159,7 +160,7 @@ export function prReviewDraft(t: (k: 'auto.prName' | 'auto.prPrompt') => string)
 export function emptyDraft(): AutomationDraft {
   return {
     name: '', enabled: true, source: 'schedule',
-    config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '', channel_id: '', keywords: [], scope: '', command: '', command_description: '', command_arg: '', skill: '', pull_request: false, notify_channel_id: '', notify_chat_id: '' },
+    config: { every_minutes: 0, cron: '0 8 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, auth: 'bearer', auth_name: '', channel_id: '', keywords: [], scope: '', command: '', command_description: '', command_arg: '', skill: '', pull_request: false, notify_channel_id: '', notify_chat_id: '', tags: [] },
     bot: { token: '', allow: [], refusal: '' },
     action: 'script', agent_id: '', prompt: '', edit_mode: 'worktree', model_tier: '', keep_context: false,
     script: { lang: 'bash', body: '', timeout_s: 300 },

@@ -40,9 +40,10 @@ type fakeExec struct {
 	tiers  []string // model tier each run was asked to use
 	busy   int      // return ErrBusy this many times first
 	fail   bool
-	taskID string   // what RunTask returns ("" = tsk_x)
-	actors []string // who each task was asked by
-	goals  []string // each task's goal
+	taskID string     // what RunTask returns ("" = tsk_x)
+	actors []string   // who each task was asked by
+	goals  []string   // each task's goal
+	tags   [][]string // the chat tags each run was given
 }
 
 func (f *fakeExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
@@ -54,6 +55,7 @@ func (f *fakeExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt
 	}
 	f.chats = append(f.chats, prompt)
 	f.tiers = append(f.tiers, trigger.ModelTierOf(ctx))
+	f.tags = append(f.tags, trigger.TagsOf(ctx))
 	f.actors = append(f.actors, actor.From(ctx))
 	if f.fail {
 		return "cnv_x", "", errors.New("HTTP 529")
@@ -84,6 +86,24 @@ func TestScheduleRunsOnceAndNoOverlap(t *testing.T) {
 	jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID})
 	if len(jobs) != 1 || jobs[0].Status != "done" || jobs[0].Trigger != "schedule" || jobs[0].Origin != "automation" {
 		t.Fatalf("jobs = %+v", jobs)
+	}
+}
+
+// A run hands the automation's tags to the chat it talks in.
+func TestRunCarriesTags(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	ex := &fakeExec{}
+	r := trigger.New(st, ex)
+	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "h", Source: "webhook", Action: "chat", Enabled: true,
+		Config: storage.AutomationConfig{Tags: []string{"nightly", "ops"}}})
+	if _, _, err := r.Enqueue(ctx, a, "webhook", `{}`, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	r.StartReady(ctx, time.Now().UTC())
+	r.Wait()
+	if len(ex.tags) != 1 || strings.Join(ex.tags[0], ",") != "nightly,ops" {
+		t.Fatalf("tags = %v", ex.tags)
 	}
 }
 

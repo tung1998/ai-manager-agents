@@ -172,6 +172,8 @@ type AutomationConfig struct {
 	// Notify: what a run answers is sent to this bot's chat too ("" = kept in office).
 	NotifyChannelID string `json:"notify_channel_id,omitempty"`
 	NotifyChatID    string `json:"notify_chat_id,omitempty"`
+	// Tags go on the chat each run talks in (added to its own; at most 10 a chat).
+	Tags []string `json:"tags,omitempty"`
 }
 
 // AutomationLimits guard unattended runs.

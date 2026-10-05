@@ -424,6 +424,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		}
 	}
 	actx := WithModelTier(actor.With(jctx, who), a.ModelTier)
+	actx = WithTags(actx, a.Config.Tags)                                                                                       // on the chat it talks in
 	actx = WithTimeLimit(actx, time.Duration(a.Limits.MaxMinutes)*time.Minute)                                                 // 0: as long as it takes (ADR-082)
 	actx = proctrack.With(actx, proctrack.Info{Kind: "automation", ProjectID: a.ProjectID, AutomationID: a.ID, Label: a.Name}) // a chat it runs says its agent instead
 	if fromChannel {                                                                                                           // a reply: the admin's words go to the system prompt
@@ -762,6 +763,18 @@ func WithProgress(ctx context.Context, fn func(step string)) context.Context {
 func ProgressOf(ctx context.Context) func(step string) {
 	fn, _ := ctx.Value(progressKey{}).(func(step string))
 	return fn
+}
+
+type tagsKey struct{}
+
+// WithTags: the tags the run's chat gets (the automation's own).
+func WithTags(ctx context.Context, tags []string) context.Context {
+	return context.WithValue(ctx, tagsKey{}, tags)
+}
+
+func TagsOf(ctx context.Context) []string {
+	tags, _ := ctx.Value(tagsKey{}).([]string)
+	return tags
 }
 
 type attachmentsKey struct{}

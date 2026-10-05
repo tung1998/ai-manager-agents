@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -54,6 +55,9 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 				return conversationID, "", err
 			}
 		}
+	}
+	if err := x.chat.AddTags(ctx, conversationID, trigger.TagsOf(ctx)); err != nil { // the automation's tags, before it talks
+		slog.Warn("automation: chat tags", "conversation", conversationID, "err", err)
 	}
 	turn, _, err := x.chat.Send(ctx, conversationID, prompt, trigger.AttachmentsOf(ctx)) // with the files of a bot's message
 	if errors.Is(err, chat.ErrBusy) {

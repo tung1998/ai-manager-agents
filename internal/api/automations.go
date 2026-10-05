@@ -90,6 +90,11 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 		cfg = map[string]any{"channel_id": c.ChannelID, "keywords": keywords, "scope": c.Scope,
 			"command": c.Command, "command_description": c.CommandDescription, "command_arg": c.CommandArg, "skill": c.Skill}
 	}
+	tags := c.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	cfg["tags"] = tags
 	d := automationDTO{ID: a.ID, ProjectID: a.ProjectID, Name: a.Name, Enabled: a.Enabled, Source: a.Source, Config: cfg, Action: a.Action,
 		AgentID: a.AgentID, Prompt: a.Prompt, EditMode: a.EditMode, ModelTier: a.ModelTier, KeepContext: a.KeepContext, Limits: a.Limits, Script: a.Script, Escalate: a.Escalate, Failures: a.Failures,
 		DisabledCode: a.DisabledCode, DisabledReason: a.DisabledReason, LastRunAt: a.LastRunAt, NextRunAt: a.NextRunAt, CreatedAt: a.CreatedAt,
@@ -263,6 +268,13 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 		if cfg.NotifyChatID == "" {
 			return errors.New("hãy điền channel/chat id để gửi kết quả")
 		}
+	}
+	tags, err := cleanTags(in.Config.Tags) // put on the chat of each run
+	if err != nil {
+		return err
+	}
+	if len(tags) > 0 {
+		cfg.Tags = tags
 	}
 	lim := in.Limits
 	lim.MaxRunsPerHour, lim.DisableAfterFailures = max(lim.MaxRunsPerHour, 0), max(lim.DisableAfterFailures, 0)

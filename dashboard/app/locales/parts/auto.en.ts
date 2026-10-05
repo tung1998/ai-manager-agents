@@ -283,7 +283,9 @@ const en: Record<keyof typeof vi, string> = {
   'auto.cardReplyDesc': 'An agent answers right in that chat',
   'auto.cardScriptChannelDesc': "The script's output is the reply, no tokens",
   'auto.replyNoTools': 'The agent answers with its own rights (code, tools, MCP… as the agent is set). Everyone allowed to message the bot uses them.',
-  'auto.promptChannelPlaceholder': 'Empty = the message as it is. e.g. {{user}} asks: {{message}}. Answer briefly and kindly.',
+  'auto.tags': 'Tag the chat',
+  'auto.tagsHint': 'Each run tags its chat with these (added to the tags it has, at most 10).',
+  'auto.promptChannelPlaceholder':'Empty = the message as it is. e.g. {{user}} asks: {{message}}. Answer briefly and kindly.',
 
   // ADR-074: permission mode (agent vs override)
   'auto.permTitle': 'Permissions',

@@ -40,4 +40,29 @@ func (e *Engine) StartConversationPurpose(ctx context.Context, projectID, agentI
 	return e.store.Chat().CreateConversation(ctx, c)
 }
 
+// AddTags puts tags on a chat beside its own ("Bug" = "bug"), at most 10 in all.
+func (e *Engine) AddTags(ctx context.Context, conversationID string, tags []string) error {
+	if len(tags) == 0 {
+		return nil
+	}
+	c, err := e.store.Chat().GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	all, seen := c.Tags, map[string]bool{}
+	for _, t := range all {
+		seen[strings.ToLower(t)] = true
+	}
+	for _, t := range tags {
+		if !seen[strings.ToLower(t)] && len(all) < 10 {
+			seen[strings.ToLower(t)] = true
+			all = append(all, t)
+		}
+	}
+	if len(all) == len(c.Tags) {
+		return nil
+	}
+	return e.store.Chat().SetConversationTags(ctx, conversationID, all)
+}
+
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

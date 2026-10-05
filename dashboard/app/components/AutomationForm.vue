@@ -36,7 +36,11 @@ const LEAD = '__lead'
 const chatAgent = computed({ get: () => form.agent_id || LEAD, set: (v: string) => { form.agent_id = v === LEAD ? '' : v } })
 // who answers in a chat: one agent ("" = the lead)
 const replyAgentOptions = computed(() => [{ label: t('channels.agentLead'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
-const langOptions = [{ label: 'bash', value: 'bash' }, { label: 'node', value: 'node' }, { label: 'python', value: 'python' }]
+// tags each run's chat gets; the project's chat tags to pick again
+const tags = computed({ get: () => form.config.tags ?? [], set: (v: string[]) => { form.config.tags = v } })
+const { data: tagsData } = useLiveFetch<{ tags: { tag: string }[] }>(() => `/api/projects/${props.projectId}/chat-tags`, { lazy: true })
+const projectTags = computed(() => (tagsData.value?.tags ?? []).map(x => x.tag))
+const langOptions =[{ label: 'bash', value: 'bash' }, { label: 'node', value: 'node' }, { label: 'python', value: 'python' }]
 
 const presets = computed(() => [
   { label: t('auto.presetEvery5'), every: 5, cron: '' },
@@ -275,6 +279,12 @@ async function testRun() {
           <UFormField :label="t('channels.agent')"><USelect v-model="chatAgent" :items="replyAgentOptions" class="min-w-56" /></UFormField>
         </div>
         <p class="text-xs text-(--ui-text-muted)">{{ t('auto.replyNoTools') }}</p>
+        <UFormField :label="t('auto.tags')" :class="hl('config')">
+          <template #hint>
+            <UTooltip :text="t('auto.tagsHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+          </template>
+          <TagPicker v-model="tags" :suggestions="projectTags" :autofocus="false" />
+        </UFormField>
       </div>
     </section>
 
