@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
@@ -64,6 +65,32 @@ func (m *Manager) listing(ctx context.Context, channelID, chatID string) []propo
 	return list
 }
 
+// pendingLock gives the one mutex that serializes read-modify-write of a
+// (channelID, chatID)'s pending-proposals list: two goroutines racing to
+// read-then-overwrite it would otherwise lose whichever wrote first.
+func (m *Manager) pendingLock(channelID, chatID string) *sync.Mutex {
+	key := channelID + "/" + chatID
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pendingLocks == nil {
+		m.pendingLocks = map[string]*sync.Mutex{}
+	}
+	lk := m.pendingLocks[key]
+	if lk == nil {
+		lk = &sync.Mutex{}
+		m.pendingLocks[key] = lk
+	}
+	return lk
+}
+
+// withPending runs fn with the (channelID, chatID) pending-list lock held.
+func (m *Manager) withPending(channelID, chatID string, fn func()) {
+	lk := m.pendingLock(channelID, chatID)
+	lk.Lock()
+	defer lk.Unlock()
+	fn()
+}
+
 // proposals are what waits for a person in a conversation.
 func (m *Manager) proposals(ctx context.Context, conversationID string) []proposal {
 	var out []proposal
@@ -112,23 +139,26 @@ func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, 
 	if m.decider == nil || conversationID == "" {
 		return
 	}
-	list := m.listing(ctx, ch.ID, chatID)
-	known := map[string]bool{}
-	next := 1
-	for _, p := range list {
-		known[p.ID] = true
-		next = max(next, p.N+1)
-	}
+	var list []proposal
 	asked := false
-	for _, p := range m.proposals(ctx, conversationID) {
-		if known[p.ID] {
-			continue
+	m.withPending(ch.ID, chatID, func() {
+		list = m.listing(ctx, ch.ID, chatID)
+		known := map[string]bool{}
+		next := 1
+		for _, p := range list {
+			known[p.ID] = true
+			next = max(next, p.N+1)
 		}
-		p.N, next, p.Conv = next, next+1, conversationID
-		list = append(list, p)
-		asked = true
-	}
-	_ = m.store.Settings().Set(ctx, pendingKey(ch.ID, chatID), list)
+		for _, p := range m.proposals(ctx, conversationID) {
+			if known[p.ID] {
+				continue
+			}
+			p.N, next, p.Conv = next, next+1, conversationID
+			list = append(list, p)
+			asked = true
+		}
+		_ = m.store.Settings().Set(ctx, pendingKey(ch.ID, chatID), list)
+	})
 	if asked {
 		m.sendPending(ctx, ch, ad, chatID, list)
 	}
@@ -186,13 +216,17 @@ func (m *Manager) Redraw(ctx context.Context, conversationID string) {
 	if !ok {
 		return
 	}
-	list := m.listing(ctx, channelID, chatID)
-	text, rows := m.pendingText(ctx, ch, list), m.pendingRows(ctx, list)
-	if len(rows) == 0 {
-		text = "Đã quyết trên dashboard."
-		_ = m.store.Settings().Set(ctx, pendingKey(channelID, chatID), []proposal{}) // numbers start again
-		_ = m.store.Settings().Set(ctx, buttonsKey(channelID, chatID), "")
-	}
+	var text string
+	var rows [][]Button
+	m.withPending(channelID, chatID, func() {
+		list := m.listing(ctx, channelID, chatID)
+		text, rows = m.pendingText(ctx, ch, list), m.pendingRows(ctx, list)
+		if len(rows) == 0 {
+			text = "Đã quyết trên dashboard."
+			_ = m.store.Settings().Set(ctx, pendingKey(channelID, chatID), []proposal{}) // numbers start again
+			_ = m.store.Settings().Set(ctx, buttonsKey(channelID, chatID), "")
+		}
+	})
 	if err := be.EditButtons(ctx, chatID, msgID, text, rows); err != nil {
 		slog.Warn("channels: buttons not redrawn", "channel", channelID, "err", err)
 	}
@@ -373,10 +407,14 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	for conv, done := range decided {
 		m.resume(ctx, ch, in, conv, done, MayDecide(ch, in.UserID))
 	}
-	// all decided: numbers start again
-	if !slices.ContainsFunc(list, func(p proposal) bool { return m.still(ctx, p) }) {
-		_ = m.store.Settings().Set(ctx, pendingKey(ch.ID, in.ChatID), []proposal{})
-	}
+	// all decided: numbers start again (re-read fresh under lock: list was
+	// captured before deciding, a concurrent announce() may have added since)
+	m.withPending(ch.ID, in.ChatID, func() {
+		fresh := m.listing(ctx, ch.ID, in.ChatID)
+		if !slices.ContainsFunc(fresh, func(p proposal) bool { return m.still(ctx, p) }) {
+			_ = m.store.Settings().Set(ctx, pendingKey(ch.ID, in.ChatID), []proposal{})
+		}
+	})
 	if len(lines) == 0 {
 		return "Không có gì chờ duyệt."
 	}

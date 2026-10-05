@@ -47,6 +47,9 @@ type Manager struct {
 	root     context.Context
 	pending  Pending
 	reload   sync.Mutex // one Reload at a time: never two bots for one channel
+	// pendingLocks: guards read-modify-write of a (channelID, chatID)'s pending-
+	// proposals list (channel_pending/...), keyed by channelID+"/"+chatID.
+	pendingLocks map[string]*sync.Mutex
 	// ProgressAfter: a run longer than this shows its steps in a status message
 	ProgressAfter time.Duration
 	decider       Decider // decides proposals from the chat (nil = only on the dashboard)
