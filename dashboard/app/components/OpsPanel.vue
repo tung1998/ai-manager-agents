@@ -93,8 +93,16 @@ async function act(p: Proc, action: 'start' | 'stop' | 'restart') {
 }
 async function remove(p: Proc) {
   if (!confirm(t('ops.confirmDelete', { name: p.name }))) return
-  await $fetch(`/api/processes/${p.id}`, { method: 'DELETE' })
-  await refresh()
+  if (busy.value === p.id + 'delete') return
+  busy.value = p.id + 'delete'
+  try {
+    await $fetch(`/api/processes/${p.id}`, { method: 'DELETE' })
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    busy.value = null
+  }
 }
 // fix=true: "Sửa lỗi" sends at once; the agent reads logs itself with the office tools
 async function askAgent(p: Proc, fix = false) {
@@ -283,7 +291,7 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
                 :items="[[{ label: t('ops.menu.askAgent'), icon: 'i-lucide-bot', onSelect: () => askAgent(p) }, { label: t('ops.menu.edit'), icon: 'i-lucide-pencil', onSelect: () => openForm(p) }], [{ label: t('ops.menu.delete'), icon: 'i-lucide-trash-2', color: 'error', onSelect: () => remove(p) }]]"
                 :content="{ align: 'end' }"
               >
-                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-ellipsis" :aria-label="t('ops.actionsLabel')" :class="p.state.status === 'crashed' ? '' : 'ms-auto'" />
+                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-ellipsis" :aria-label="t('ops.actionsLabel')" :loading="busy === p.id + 'delete'" :disabled="busy === p.id + 'delete'" :class="p.state.status === 'crashed' ? '' : 'ms-auto'" />
               </UDropdownMenu>
             </div>
           </div>
