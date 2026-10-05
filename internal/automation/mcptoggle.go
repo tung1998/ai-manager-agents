@@ -116,7 +116,6 @@ func (s *Service) setEnabled(ctx context.Context, it Item, on bool) error {
 			delete(recs, key)
 			return s.Stash.Save(ctx, recs)
 		}
-		saved := false
 		_, err = in.editJSON(loc.Path, false, func(doc *jsonObj) error {
 			servers, err := doc.child("mcpServers")
 			if err != nil {
@@ -127,18 +126,14 @@ func (s *Service) setEnabled(ctx context.Context, it Item, on bool) error {
 				return ErrNotFound
 			}
 			rec.Config, rec.Index = raw, idx
-			recs[key] = rec // kept before the file loses it
-			if err := s.Stash.Save(ctx, recs); err != nil {
-				return err
-			}
-			saved = true
 			return doc.setChild("mcpServers", servers)
 		})
-		if err != nil && saved {
-			delete(recs, key)
-			_ = s.Stash.Save(ctx, recs)
+		if err != nil {
+			return err
 		}
-		return err
+		// only stashed once the file is actually written, so the two never disagree
+		recs[key] = rec
+		return s.Stash.Save(ctx, recs)
 	case "local":
 		_, err = in.editJSON(loc.Path, false, func(doc *jsonObj) error {
 			projects, err := doc.child("projects")
