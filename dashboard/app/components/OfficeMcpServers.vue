@@ -123,7 +123,7 @@ async function remove(s: GwServer) {
 }
 
 // ---- OAuth login ----
-const { connect: startLogin, connecting } = useMcpLogin()
+const { connect: startLogin, connecting, pasteFor } = useMcpLogin()
 const connect = (s: GwServer) => startLogin(s.id, s.id, openClientForm)
 // no dynamic registration: the form, with its client fields open
 function openClientForm(id: string, msg: string) {
@@ -279,7 +279,7 @@ async function save() {
     </div>
 
     <OfficeMcpImport v-model:open="importOpen" @done="refresh()" />
-    <McpLoginPaste />
+    <McpLoginPaste v-if="pasteFor" />
 
     <UModal v-model:open="formOpen" :title="editing ? t('tools.editTitle', { name: editing.name }) : t('tools.gwAddTitle')">
       <template #body>
