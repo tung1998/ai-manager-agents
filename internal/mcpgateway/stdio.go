@@ -212,6 +212,7 @@ func (g *Gateway) Forget(id string) {
 	p := pl.procs[id]
 	delete(pl.procs, id)
 	delete(pl.fails, id)
+	delete(pl.starts, id)
 	pl.mu.Unlock()
 	if p != nil {
 		go p.stop()
