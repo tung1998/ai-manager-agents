@@ -66,15 +66,31 @@ function openEdit() {
   Object.assign(form, { name: project.value!.name, description: project.value!.description })
   editOpen.value = true
 }
+const saving = ref(false)
 async function saveRepo() {
-  await $fetch(`/api/projects/${id.value}`, { method: 'PATCH', body: { ...form } })
-  editOpen.value = false
-  await refresh()
+  if (saving.value) return
+  saving.value = true
+  try {
+    await $fetch(`/api/projects/${id.value}`, { method: 'PATCH', body: { ...form } })
+    editOpen.value = false
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    saving.value = false
+  }
 }
+const removing = ref(false)
 async function removeRepo() {
-  if (!confirm(t('project.confirmUnmanage', { name: project.value?.name ?? '' }))) return
-  await $fetch(`/api/projects/${id.value}`, { method: 'DELETE' })
-  await navigateTo('/projects')
+  if (removing.value || !confirm(t('project.confirmUnmanage', { name: project.value?.name ?? '' }))) return
+  removing.value = true
+  try {
+    await $fetch(`/api/projects/${id.value}`, { method: 'DELETE' })
+    await navigateTo('/projects')
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+    removing.value = false
+  }
 }
 
 function exportModel() {
@@ -114,7 +130,7 @@ async function saveAsTemplate() {
             { label: t('project.downloadModel'), icon: 'i-lucide-download', disabled: !project.model, onSelect: exportModel },
             { label: t('project.saveModel'), icon: 'i-lucide-bookmark-plus', disabled: !project.model, onSelect: saveAsTemplate }
           ], [
-            { label: t('project.unmanage'), icon: 'i-lucide-folder-minus', color: 'error', onSelect: removeRepo }
+            { label: t('project.unmanage'), icon: 'i-lucide-folder-minus', color: 'error', disabled: removing, onSelect: removeRepo }
           ]]"
         >
           <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" :aria-label="t('project.actionsAria')" />
@@ -198,7 +214,7 @@ async function saveAsTemplate() {
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="editOpen = false" />
-          <UButton type="submit" form="project-edit" :label="t('common.save')" />
+          <UButton type="submit" form="project-edit" :label="t('common.save')" :loading="saving" :disabled="saving" />
         </div>
       </template>
     </UModal>
