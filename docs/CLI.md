@@ -153,6 +153,18 @@ office 0.1.0 · storefront-v5 · sqlite · api http://127.0.0.1:8787
 10:15:58 tech-lead  finding observation (conf 0.3) · next 11:30 (normal) · $0.021
 ```
 
+## `office service`
+
+Tự bật `office run` khi đăng nhập máy: LaunchAgent `~/Library/LaunchAgents/com.agent-office.plist` (macOS), systemd user unit `com.agent-office.service` (Linux). Ghi lại thư mục và PATH lúc cài; log ở `<home>/logs/office.log`; supervisor dừng bất thường thì tự bật lại.
+
+| Lệnh | Ý nghĩa |
+|---|---|
+| `office service install [--now] [-- <tùy chọn run>]` | Đăng ký; `--now` bật luôn (tắt office chạy tay trước) |
+| `office service status` | Đã đăng ký / đang chạy chưa |
+| `office service uninstall` | Bỏ đăng ký và dừng |
+
+Chạy ngay khi mở máy (chưa đăng nhập): macOS bật tự đăng nhập; Linux `loginctl enable-linger`.
+
 ## `office status`
 
 | Flag | Ý nghĩa |

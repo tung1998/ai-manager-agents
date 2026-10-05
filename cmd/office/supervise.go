@@ -115,6 +115,12 @@ func supervise(args []string) error {
 		case a == "--api" || strings.HasPrefix(a, "--api="):
 			apiAddr = val()
 			fwd = append(fwd, "--api", apiAddr)
+		case a == "--home" || strings.HasPrefix(a, "--home="):
+			homeFlag = val() // flag parsing is off here; the supervisor's own files follow it too
+			fwd = append(fwd, "--home", homeFlag)
+		case a == "--config" || a == "-c" || strings.HasPrefix(a, "--config="):
+			configPath = val()
+			fwd = append(fwd, "--config", configPath)
 		default:
 			fwd = append(fwd, a)
 		}
