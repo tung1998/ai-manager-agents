@@ -250,7 +250,9 @@ function startInstall(s: InstallSource) {
 }
 
 // ---- library ----
-const { data: libData, refresh: refreshLib } = await useLiveFetch<{ items: LibraryItem[] }>(() => `/api/automation/library/${props.kind}`)
+// no top-level await here or in OfficeMcpServers: nested async setup under the
+// library page's :key remount looped Suspense (Maximum call stack on the MCP tab)
+const { data: libData, refresh: refreshLib } = useLiveFetch<{ items: LibraryItem[] }>(() => `/api/automation/library/${props.kind}`)
 const library = computed(() => libData.value?.items ?? [])
 
 const editOpen = ref(false)
@@ -352,7 +354,7 @@ async function installLib(item: LibraryItem) {
 const installedNames = computed(() => new Set(items.value.map(i => i.name)))
 // in a project, copying from the machine means "install here"
 const canCopy = (i: AutoItem) => i.location.type !== 'codex' && !(scoped.value && i.location.type !== 'user')
-const { data: catalogData } = await useLiveFetch<{ items: MCPTemplate[] }>('/api/automation/mcp/catalog', { immediate: props.kind === 'mcp' })
+const { data: catalogData } = useLiveFetch<{ items: MCPTemplate[] }>('/api/automation/mcp/catalog', { immediate: props.kind === 'mcp' })
 const catalog = computed(() => catalogData.value?.items ?? [])
 const regQ = ref('')
 const regItems = ref<MCPTemplate[]>([])

@@ -18,7 +18,9 @@ interface GwCall { id: string, tool: string, caller: string, caller_kind: string
 
 const { t, dateLocale } = useLang()
 const toast = useToast()
-const { data, refresh } = await useLiveFetch<{ servers: GwServer[], stats: Record<string, GwStat> }>('/api/mcp/servers')
+// no top-level await: nested async setup under ToolsPanel's :key remount looped
+// Suspense (Maximum call stack on the MCP tab); the template copes with no data yet
+const { data, refresh } = useLiveFetch<{ servers: GwServer[], stats: Record<string, GwStat> }>('/api/mcp/servers')
 const list = ref<GwServer[]>([])
 // changed: the machine MCP list shows which servers office has
 const emit = defineEmits<{ changed: [] }>()
@@ -28,7 +30,7 @@ const stat = (s: GwServer) => data.value?.stats?.[s.id]
 const fmt = (at: string) => new Date(at).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // ---- which agents get a server, and its tools that write without asking (ADR-093) ----
-const { data: agentData } = await useFetch<{ agents: GwAgent[] }>('/api/mcp/agents')
+const { data: agentData } = useFetch<{ agents: GwAgent[] }>('/api/mcp/agents')
 const agentItems = computed(() => (agentData.value?.agents ?? []).map(a => ({
   value: a.id,
   label: a.project ? `${a.name} · ${a.project}` : t('tools.gwAssistant')
