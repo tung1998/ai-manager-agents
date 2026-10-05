@@ -151,6 +151,8 @@ const en: Record<keyof typeof vi, string> = {
   'policy.commandsHelp': 'The commands agents can be given; pick them per agent in Model → agent. Every agent runs the safe ones by default.',
   'policy.removePack': 'Remove pack',
   'policy.removeCmd': 'Remove command',
+  'policy.removePackConfirm': 'Remove command pack "{label}"? Every command in it is lost too.',
+  'policy.removeCmdConfirm': 'Remove command "{cmd}" from the pack?',
   'policy.newCmdPlaceholder': 'e.g. make test or pnpm run e2e *',
   'policy.shellWarning': 'Commands run without a shell: don\'t use | ; & > $',
   'policy.newPackLabel': 'Command pack {n}',

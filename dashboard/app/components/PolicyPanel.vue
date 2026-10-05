@@ -63,6 +63,7 @@ function addCmd(p: CommandPack) {
   newCmd[p.id] = ''
 }
 function removeCmd(p: CommandPack, c: string) {
+  if (!confirm(t('policy.removeCmdConfirm', { cmd: c }))) return
   const pack = form.packs.find(x => x.id === p.id)
   if (pack) pack.commands = pack.commands.filter(x => x !== c)
 }
@@ -70,6 +71,7 @@ function addPack() {
   form.packs.push({ id: `custom-new-${Date.now()}`, label: t('policy.newPackLabel', { n: form.packs.length + 1 }), commands: [] })
 }
 function removePack(p: CommandPack) {
+  if (!confirm(t('policy.removePackConfirm', { label: p.label }))) return
   form.packs = form.packs.filter(x => x.id !== p.id)
 }
 </script>

@@ -157,6 +157,8 @@ export default {
   'policy.commandsHelp': 'Danh mục lệnh agent có thể được cho chạy; chọn cho từng agent ở Mô hình → agent. Lệnh an toàn được mọi agent tự chạy mặc định.',
   'policy.removePack': 'Xóa gói',
   'policy.removeCmd': 'Bỏ lệnh',
+  'policy.removePackConfirm': 'Xóa gói lệnh "{label}"? Mọi lệnh trong gói cũng mất.',
+  'policy.removeCmdConfirm': 'Bỏ lệnh "{cmd}" khỏi gói?',
   'policy.newCmdPlaceholder': 'vd: make test hoặc pnpm run e2e *',
   'policy.shellWarning': 'Lệnh chạy không qua shell: không dùng | ; & > $',
   'policy.newPackLabel': 'Gói lệnh {n}',
