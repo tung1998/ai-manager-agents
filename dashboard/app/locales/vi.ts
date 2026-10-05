@@ -84,6 +84,7 @@ const vi = {
   'common.copied': 'Đã sao chép',
   'common.saved': 'Đã lưu',
   'common.error': 'Lỗi',
+'common.loadError': 'Không tải được dữ liệu',
   'common.none': 'Không có',
   'common.default': 'Mặc định',
   'common.enabled': 'Bật',

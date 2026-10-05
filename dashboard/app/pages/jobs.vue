@@ -3,7 +3,7 @@
 const route = useRoute()
 const { t } = useLang()
 const project = computed(() => (route.query.project as string) || '')
-const { data: stats, refresh } = useLiveFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>(
+const { data: stats, refresh, error: statsError } = useLiveFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>(
   () => `/api/jobs/stats?since=24h${project.value ? `&project=${project.value}` : ''}`, { lazy: true })
 const { data: proj } = useLiveFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
 const projects = computed(() => (proj.value?.projects ?? []).map(p => ({ id: p.id, name: p.name })))
@@ -27,7 +27,8 @@ onBeforeUnmount(() => clearInterval(timer))
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         <UCard v-for="x in tiles" :key="x.label" :ui="{ body: 'p-3 sm:p-4' }">
           <p class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)"><UIcon :name="x.icon" class="size-3.5" />{{ x.label }}</p>
-          <USkeleton v-if="!stats" class="mt-1 h-7 w-14" />
+          <USkeleton v-if="!stats && !statsError" class="mt-1 h-7 w-14" />
+          <p v-else-if="statsError" class="mt-1 text-xl font-semibold text-(--ui-error) sm:text-2xl" :title="t('common.loadError')">!</p>
           <p v-else class="mt-1 text-xl font-semibold tabular-nums sm:text-2xl">{{ x.value }}</p>
         </UCard>
       </div>

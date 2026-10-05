@@ -10,7 +10,7 @@ const { isAdmin } = useAuth()
 const toast = useToast()
 const saveError = useSaveError()
 const base = computed(() => `/api/projects/${props.projectId}/agents/${props.agentId}/memories`)
-const { data, refresh } = useLiveFetch<{ items: Note[], revisions: Rev[], auto: boolean, size: number, limit: number }>(base, { lazy: true })
+const { data, refresh, error: loadError } = useLiveFetch<{ items: Note[], revisions: Rev[], auto: boolean, size: number, limit: number }>(base, { lazy: true })
 
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 const sourceLabel = (s: Note['source']) => ({ person: t('mem.fromPerson'), agent: t('mem.fromAgent'), compact: t('mem.fromCompact') })[s]
@@ -77,7 +77,8 @@ const shownRev = ref<string | null>(null)
       </div>
       <UProgress v-if="data && data.limit" :model-value="Math.min(100, data.size / data.limit * 100)" size="xs" :color="data.size > data.limit * 0.9 ? 'warning' : 'primary'" />
 
-      <LoadingRows v-if="!data" :n="3" :icon="false" />
+      <UAlert v-if="loadError" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="t('common.loadError')" :actions="[{ label: t('common.refresh'), onClick: () => refresh() }]" />
+      <LoadingRows v-else-if="!data" :n="3" :icon="false" />
       <p v-else-if="!data.items.length" class="rounded-lg border border-dashed border-(--ui-border) p-4 text-center text-sm text-(--ui-text-muted)">{{ t('mem.empty') }}</p>
       <ul v-else class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
         <li v-for="n in data.items" :key="n.id" class="group flex items-start gap-2 px-3 py-2 text-sm">

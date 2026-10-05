@@ -19,7 +19,7 @@ const toast = useToast()
 const copy = useCopy()
 
 const base = computed(() => `/api/projects/${props.projectId}/burn`)
-const { data, refresh } = useLiveFetch<{ burn: Burn, items: Item[], weekly_reset?: string }>(base)
+const { data, refresh, error: loadError } = useLiveFetch<{ burn: Burn, items: Item[], weekly_reset?: string }>(base)
 const { data: agentsData } = useLiveFetch<{ agents: AgentLite[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const burn = computed(() => data.value?.burn)
 const items = computed(() => data.value?.items ?? [])
@@ -137,6 +137,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
 
 <template>
   <div class="space-y-4">
+    <UAlert v-if="loadError" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="t('common.loadError')" :actions="[{ label: t('common.refresh'), onClick: () => refresh() }]" />
     <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
       <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <p class="flex items-center gap-2 font-semibold">

@@ -252,7 +252,7 @@ function startInstall(s: InstallSource) {
 // ---- library ----
 // no top-level await here or in OfficeMcpServers: nested async setup under the
 // library page's :key remount looped Suspense (Maximum call stack on the MCP tab)
-const { data: libData, refresh: refreshLib } = useLiveFetch<{ items: LibraryItem[] }>(() => `/api/automation/library/${props.kind}`)
+const { data: libData, refresh: refreshLib, error: libError } = useLiveFetch<{ items: LibraryItem[] }>(() => `/api/automation/library/${props.kind}`)
 const library = computed(() => libData.value?.items ?? [])
 
 const editOpen = ref(false)
@@ -510,7 +510,8 @@ const summary = (tpl: MCPTemplate) => {
         <p v-if="!scoped" class="text-sm text-(--ui-text-muted)">
           {{ t('tools.libraryIntro') }}
         </p>
-        <div v-if="!library.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
+        <UAlert v-if="libError" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="t('common.loadError')" :actions="[{ label: t('common.refresh'), onClick: () => refreshLib() }]" />
+        <div v-else-if="!library.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
           <UIcon name="i-lucide-library" class="mx-auto size-8 text-(--ui-text-dimmed)" />
           <p class="mt-2 font-medium">{{ t('tools.libraryEmptyTitle') }}</p>
           <p class="text-sm text-(--ui-text-muted)">

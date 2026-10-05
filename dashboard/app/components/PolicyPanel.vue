@@ -9,7 +9,7 @@ const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
 
-const { data, refresh } = await useLiveFetch<{ policy: Policy, packs: CommandPack[], safe: string[] }>(() => `/api/projects/${props.projectId}/policy`)
+const { data, refresh, error: loadError } = await useLiveFetch<{ policy: Policy, packs: CommandPack[], safe: string[] }>(() => `/api/projects/${props.projectId}/policy`)
 const safe = computed(() => new Set(data.value?.safe ?? []))
 
 const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '' })
@@ -79,6 +79,7 @@ function removePack(p: CommandPack) {
 <template>
   <div class="max-w-4xl space-y-3">
     <StaleNotice :show="stale" @reload="resync" />
+    <UAlert v-if="loadError" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="t('common.loadError')" :actions="[{ label: t('common.refresh'), onClick: () => refresh() }]" />
     <!-- save stays in reach while scrolling -->
     <div v-if="isAdmin" class="sticky top-0 z-10 flex justify-end bg-(--ui-bg)/80 py-1 backdrop-blur">
       <UButton icon="i-lucide-save" size="sm" :label="t('policy.save')" :loading="saving" @click="save" />

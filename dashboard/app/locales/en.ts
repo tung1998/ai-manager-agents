@@ -85,6 +85,7 @@ const en: Record<MessageKey, string> = {
   'common.copied': 'Copied',
   'common.saved': 'Saved',
   'common.error': 'Error',
+'common.loadError': 'Could not load the data',
   'common.none': 'None',
   'common.default': 'Default',
   'common.enabled': 'On',
