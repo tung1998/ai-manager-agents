@@ -8,10 +8,12 @@ import audit from './parts/audit.vi'
 import limits from './parts/limits.vi'
 import watchScreen from './parts/watch.vi'
 import files from './parts/files.vi'
+import chatTags from './parts/tags.vi'
 
 const vi = {
   ...watchScreen,
   ...files,
+  ...chatTags,
   ...tasks,
   ...ops,
   ...org,

@@ -9,10 +9,12 @@ import audit from './parts/audit.en'
 import limits from './parts/limits.en'
 import watchScreen from './parts/watch.en'
 import files from './parts/files.en'
+import chatTags from './parts/tags.en'
 
 const en: Record<MessageKey, string> = {
   ...watchScreen,
   ...files,
+  ...chatTags,
   ...tasks,
   ...ops,
   ...org,

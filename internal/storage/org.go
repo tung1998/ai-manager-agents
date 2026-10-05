@@ -322,6 +322,14 @@ type Conversation struct {
 	CreatedBy                    string
 	CreatedAt                    time.Time
 	UpdatedAt                    time.Time
+	Tags                         []string // filled by Get and the lists, written with SetConversationTags
+}
+
+// TagCount is one tag a project's chats use: how many, and when last added.
+type TagCount struct {
+	Tag     string    `json:"tag"`
+	Count   int       `json:"count"`
+	LastUse time.Time `json:"last_used_at"`
 }
 
 // ChatMember is one agent in a chat (ADR-044): its own session there, the
@@ -427,6 +435,14 @@ type ChatRepo interface {
 	ListConversationsFrom(ctx context.Context, projectID, source string, limit int) ([]Conversation, error)
 	// ListConversationsBefore is the next page: those updated before (zero: the newest).
 	ListConversationsBefore(ctx context.Context, projectID, source string, before time.Time, limit int) ([]Conversation, error)
+	// ListConversationsTagged is ListConversationsBefore keeping only the chats
+	// that have every one of tags (none: all).
+	ListConversationsTagged(ctx context.Context, projectID, source string, tags []string, before time.Time, limit int) ([]Conversation, error)
+	// SetConversationTags replaces a chat's tags.
+	SetConversationTags(ctx context.Context, conversationID string, tags []string) error
+	// ProjectTags lists the tags of a project's chats, the last used first;
+	// createdBy not "": only that person's chats (the assistant's are private).
+	ProjectTags(ctx context.Context, projectID, createdBy string) ([]TagCount, error)
 	TaskConversation(ctx context.Context, taskID string) (Conversation, error)
 	// AutomationConversation is the chat that builds an automation.
 	AutomationConversation(ctx context.Context, automationID string) (Conversation, error)

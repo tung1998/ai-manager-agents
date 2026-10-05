@@ -16,7 +16,7 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number }
+interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', context_tokens?: number, context_window?: number, tags?: string[] }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message, next_turn_id?: string }
 // the agents in a chat and the answers in progress (ADR-044)
 interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
@@ -42,8 +42,11 @@ const _f1 = useLiveFetch<{ agents: Agent[] }>(() => `/api/projects/${props.proje
 const { data: agentsData } = _f1
 // where the chats started: the dashboard, a bot, an automation
 const origin = ref<ChatFilter>('all')
+// the tags picked to filter by: a chat must have every one
+const tagFilter = ref<string[]>([])
+const tagQuery = computed(() => tagFilter.value.map(x => `&tag=${encodeURIComponent(x)}`).join(''))
 // the server pushes each chat as it changes (ADR-078): the list is loaded again only back online
-const _f2 = usePushedFetch<{ conversations: Conversation[], has_more?: boolean }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}`, { immediate: !single.value, lazy: true })
+const _f2 = usePushedFetch<{ conversations: Conversation[], has_more?: boolean }>(() => `/api/projects/${props.projectId}/conversations?source=${origin.value}${tagQuery.value}`, { immediate: !single.value, lazy: true })
 const { data: convData, refresh: refreshConvs, pending: convsLoading } = _f2
 // not awaited: the chat shows at once with its skeletons (a phone over a VPN)
 // every agent of the project: the person picks who answers, by its rights
@@ -59,7 +62,7 @@ async function loadMoreConvs() {
   if (!list || !last || loadingMore.value) return
   loadingMore.value = true
   try {
-    const res = await $fetch<{ conversations: Conversation[], has_more?: boolean }>(`/api/projects/${props.projectId}/conversations`, { query: { source: origin.value, before: last.updated_at } })
+    const res = await $fetch<{ conversations: Conversation[], has_more?: boolean }>(`/api/projects/${props.projectId}/conversations`, { query: { source: origin.value, before: last.updated_at, tag: tagFilter.value } })
     const known = new Set(list.map(c => c.id))
     list.push(...res.conversations.filter(c => !known.has(c.id)))
     convData.value!.has_more = !!res.has_more
@@ -70,8 +73,34 @@ async function loadMoreConvs() {
   }
 }
 
+// the project's tags: picked again quickly when tagging, and the filter's choices
+const _f3 = useFetch<{ tags: { tag: string, count: number }[] }>(() => `/api/projects/${props.projectId}/chat-tags`, { immediate: !single.value, lazy: true })
+const { data: tagsData, refresh: refreshTags } = _f3
+const projectTags = computed(() => (tagsData.value?.tags ?? []).map(x => x.tag))
+
 const current = ref<Conversation | null>(null)
 const threadsOpen = ref(false) // the chats drawer on a phone
+
+// a chat's tags, saved at each change; the pushed row updates the other pages
+async function saveTags(c: Conversation, tags: string[]) {
+  try {
+    const res = await $fetch<{ conversation: Conversation }>(`/api/conversations/${c.id}/tags`, { method: 'PUT', body: { tags } })
+    const saved = res.conversation.tags ?? []
+    if (current.value?.id === c.id) current.value = { ...current.value, tags: saved }
+    if (tagEdit.value?.id === c.id) tagEdit.value = { ...tagEdit.value, tags: saved }
+    const list = convData.value?.conversations
+    const i = list?.findIndex(x => x.id === c.id) ?? -1
+    if (list && i >= 0) {
+      if (hasTags(saved, tagFilter.value)) list[i] = { ...list[i]!, tags: saved }
+      else list.splice(i, 1) // no longer what the filter shows
+    }
+    refreshTags()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+// "Gắn tag" from a chat's menu in the list
+const tagEdit = ref<Conversation | null>(null)
 const messages = ref<Message[]>([])
 const draft = ref('')
 const draftFiles = ref<Attachment[]>([])
@@ -191,7 +220,15 @@ onLiveEvent<{ conversation: Conversation }>('conversation', ({ conversation: c }
   if (!list || single.value) return
   const i = list.findIndex(x => x.id === c.id)
   if (i < 0) {
-    if (origin.value === 'all' || (origin.value === 'burn' ? c.purpose === 'burn' : c.source === origin.value)) refreshConvs() // a new chat: which list it belongs in is the server's to say
+    if ((origin.value === 'all' || (origin.value === 'burn' ? c.purpose === 'burn' : c.source === origin.value)) && hasTags(c.tags, tagFilter.value)) refreshConvs() // a new chat: which list it belongs in is the server's to say
+    return
+  }
+  if (!hasTags(c.tags, tagFilter.value)) { // a tag the filter asks for was taken off
+    list.splice(i, 1)
+    return
+  }
+  if (list[i]!.updated_at === c.updated_at) { // nothing new in it (its tags): it stays where it is
+    list[i] = { ...list[i]!, ...c }
     return
   }
   const [old] = list.splice(i, 1)
@@ -344,6 +381,7 @@ function threadMenu(c: Conversation) {
       : { label: t('chat.markUnread'), icon: 'i-lucide-mail', onSelect: () => markRead(c, false) }
   ]
   // a Discord/Telegram chat: where it is there (its thread, once it has one)
+  items.push({ label: t('chatTag.edit'), icon: 'i-lucide-tag', onSelect: () => { tagEdit.value = c } })
   if (c.external_url) items.unshift({ label: c.source === 'telegram' ? t('chat.openInTelegram') : t('chat.openInDiscord'), icon: 'i-lucide-external-link', onSelect: () => { window.open(c.external_url, '_blank', 'noopener') } })
   return [items, [{ label: t('chat.delete'), icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => remove(c) }]]
 }
@@ -597,13 +635,13 @@ onBeforeUnmount(() => {
   >
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) md:flex">
-      <ThreadList :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :has-more="moreConvs" :loading-more="loadingMore" :menu="threadMenu" @open="open" @new="newConversation(pick)" @more="loadMoreConvs" />
+      <ThreadList :loading="convsLoading" v-model:origin="origin" v-model:tag-filter="tagFilter" :tags="projectTags" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :has-more="moreConvs" :loading-more="loadingMore" :menu="threadMenu" @open="open" @new="newConversation(pick)" @more="loadMoreConvs" />
     </aside>
     <!-- a phone: the chats in a drawer -->
     <USlideover v-if="!single && !compact" v-model:open="threadsOpen" side="left" :title="t('chat.threads')" :ui="{ content: 'max-w-xs', body: 'p-0 sm:p-0 flex flex-col' }">
       <template #body>
         <ThreadList
-          :loading="convsLoading" v-model:origin="origin" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :has-more="moreConvs" :loading-more="loadingMore" :menu="threadMenu" @more="loadMoreConvs"
+          :loading="convsLoading" v-model:origin="origin" v-model:tag-filter="tagFilter" :tags="projectTags" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :has-more="moreConvs" :loading-more="loadingMore" :menu="threadMenu" @more="loadMoreConvs"
           @open="(c) => { threadsOpen = false; open(c) }" @new="threadsOpen = false; newConversation(pick)"
         />
       </template>
@@ -629,6 +667,18 @@ onBeforeUnmount(() => {
         </UDropdownMenu>
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" :aria-label="t('chat.newThread')" @click="newConversation()" />
         <slot v-if="pane" name="actions" />
+      </div>
+      <!-- this chat's tags: chips (✕ to take one off) and "Thêm tag" -->
+      <div v-if="!single && current" class="flex flex-wrap items-center gap-1 border-b border-(--ui-border) px-3 py-1">
+        <ChatTags :tags="current.tags ?? []" removable @remove="(x) => saveTags(current!, (current!.tags ?? []).filter(y => y !== x))" />
+        <UPopover :content="{ align: 'start' }">
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-tag" :label="current.tags?.length ? undefined : t('chatTag.add')" :aria-label="t('chatTag.add')" :title="t('chatTag.add')" />
+          <template #content>
+            <div class="w-64 p-2">
+              <TagPicker :model-value="current.tags ?? []" :suggestions="projectTags" @update:model-value="(v) => saveTags(current!, v)" />
+            </div>
+          </template>
+        </UPopover>
       </div>
       <div v-if="!single && (members.length > 1 || background.length)" class="flex flex-wrap items-center gap-2 border-b border-(--ui-border) px-3 py-1.5 text-xs">
         <span class="text-(--ui-text-muted)">{{ t('chat.members') }}</span>
@@ -787,6 +837,12 @@ onBeforeUnmount(() => {
         :aria-label="t('chat.write')" @click="composeOpen = true; nextTick(() => prompt?.focus?.())"
       />
     </section>
+    <!-- "Gắn tag" from a chat's menu in the list -->
+    <UModal :open="!!tagEdit" :title="t('chatTag.title')" :description="tagEdit?.title || t('chat.newThreadTitle')" @update:open="(o) => { if (!o) tagEdit = null }">
+      <template #body>
+        <TagPicker v-if="tagEdit" :model-value="tagEdit.tags ?? []" :suggestions="projectTags" @update:model-value="(v) => saveTags(tagEdit!, v)" />
+      </template>
+    </UModal>
   </div>
 </template>
 

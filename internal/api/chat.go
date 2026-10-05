@@ -38,14 +38,18 @@ type conversationDTO struct {
 	Source       string    `json:"source"` // where it started: web | discord | telegram | auto
 	AutomationID string    `json:"automation_id"`
 	// how full the model's context was after the last answer (0 = unknown)
-	ContextTokens int    `json:"context_tokens"`
-	ContextWindow int    `json:"context_window"`
-	ExternalURL   string `json:"external_url,omitempty"` // where it is on Discord: its thread, or its first message
+	ContextTokens int      `json:"context_tokens"`
+	ContextWindow int      `json:"context_window"`
+	ExternalURL   string   `json:"external_url,omitempty"` // where it is on Discord: its thread, or its first message
+	Tags          []string `json:"tags"`
 }
 
 func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
 	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode, Purpose: c.Purpose, AutomationID: c.AutomationID,
-		ContextTokens: c.ContextTokens, ContextWindow: c.ContextWindow, Source: actor.Source(c.CreatedBy)}
+		ContextTokens: c.ContextTokens, ContextWindow: c.ContextWindow, Source: actor.Source(c.CreatedBy), Tags: c.Tags}
+	if d.Tags == nil {
+		d.Tags = []string{}
+	}
 	if t, ok := s.cfg.Chat.Active(c.ID); ok {
 		d.ActiveTurn = t.ID
 	}
@@ -102,7 +106,12 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 	if b := r.URL.Query().Get("before"); b != "" {
 		before, _ = time.Parse(time.RFC3339Nano, b)
 	}
-	list, err := s.cfg.Store.Chat().ListConversationsBefore(r.Context(), r.PathValue("id"), r.URL.Query().Get("source"), before, limit+1)
+	tags, err := cleanTags(r.URL.Query()["tag"]) // ?tag=a&tag=b: chats with both
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	list, err := s.cfg.Store.Chat().ListConversationsTagged(r.Context(), r.PathValue("id"), r.URL.Query().Get("source"), tags, before, limit+1)
 	if err != nil {
 		s.internal(w, r, err)
 		return

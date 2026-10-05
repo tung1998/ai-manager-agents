@@ -3,9 +3,11 @@ import type { DropdownMenuItem } from '@nuxt/ui'
 
 // The chats of a project, newest first: the chat's side column on a wide
 // screen, a drawer on a phone.
-interface Thread { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, source?: Source, purpose?: string }
-defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, unread?: Set<string>, hasMore?: boolean, loadingMore?: boolean, menu: (c: Thread) => DropdownMenuItem[][] }>()
+interface Thread { id: string, agent_id: string, agent_name: string, title: string, updated_at: string, active_turn?: string, source?: Source, purpose?: string, tags?: string[] }
+// tags: the project's, to filter by (a chat must have every one picked)
+defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, unread?: Set<string>, hasMore?: boolean, loadingMore?: boolean, menu: (c: Thread) => DropdownMenuItem[][], tags?: string[] }>()
 const origin = defineModel<ChatFilter>('origin', { default: 'all' })
+const tagFilter = defineModel<string[]>('tagFilter', { default: () => [] })
 const emit = defineEmits<{ open: [Thread], new: [], more: [] }>()
 const { t, dateLocale } = useLang()
 // a skill's or template's editor chat, else where it started (web, a bot, an automation)
@@ -19,6 +21,10 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
     <div class="space-y-1.5 border-b border-(--ui-border) p-2">
       <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" block class="justify-start" @click="emit('new')" />
       <SourceFilter v-model="origin" burn />
+      <USelectMenu
+        v-if="tags?.length || tagFilter.length" v-model="tagFilter" :items="tags ?? []" multiple size="xs" icon="i-lucide-tag"
+        :placeholder="t('chatTag.filter')" :title="t('chatTag.filterHint')" class="w-full"
+      />
     </div>
     <div class="flex-1 overflow-y-auto p-1">
       <LoadingRows v-if="loading && !conversations.length" :n="6" />
@@ -42,6 +48,9 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
             <AgentAvatar :agent="agents.find(a => a.id === c.agent_id) ?? { id: c.agent_id, name: c.agent_name }" size="2xs" class="shrink-0" />
             <span class="truncate">{{ c.agent_name }} · {{ when(c.updated_at) }}</span>
           </p>
+          <div v-if="c.tags?.length" class="mt-0.5 flex flex-wrap gap-0.5">
+            <ChatTags :tags="c.tags" size="xs" />
+          </div>
         </div>
         <UIcon v-if="c.active_turn" name="i-lucide-loader-circle" class="mt-1 size-3.5 animate-spin text-(--ui-text-muted)" />
         <UDropdownMenu :items="menu(c)" :content="{ align: 'end' }">

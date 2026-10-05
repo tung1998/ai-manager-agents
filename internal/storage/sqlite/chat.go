@@ -73,7 +73,94 @@ func (r chatRepo) UpdateConversation(ctx context.Context, c storage.Conversation
 }
 
 func (r chatRepo) GetConversation(ctx context.Context, id string) (storage.Conversation, error) {
-	return scanConv(r.db.QueryRowContext(ctx, `SELECT `+convCols+` FROM conversations WHERE id=?`, id))
+	c, err := scanConv(r.db.QueryRowContext(ctx, `SELECT `+convCols+` FROM conversations WHERE id=?`, id))
+	if err != nil {
+		return c, err
+	}
+	list := []storage.Conversation{c}
+	err = r.fillTags(ctx, list)
+	return list[0], err
+}
+
+// fillTags loads the tags of a page of chats in one query.
+func (r chatRepo) fillTags(ctx context.Context, list []storage.Conversation) error {
+	if len(list) == 0 {
+		return nil
+	}
+	at := map[string]int{}
+	args := make([]any, len(list))
+	for i, c := range list {
+		at[c.ID], args[i] = i, c.ID
+		list[i].Tags = []string{}
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT conversation_id, tag FROM conversation_tags WHERE conversation_id IN (`+placeholders(len(list))+`) ORDER BY created_at, tag`, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, tag string
+		if err := rows.Scan(&id, &tag); err != nil {
+			return err
+		}
+		list[at[id]].Tags = append(list[at[id]].Tags, tag)
+	}
+	return rows.Err()
+}
+
+func (r chatRepo) SetConversationTags(ctx context.Context, conversationID string, tags []string) error {
+	if _, err := r.GetConversation(ctx, conversationID); err != nil {
+		return err
+	}
+	// kept tags keep their date (the "last used" of suggestions); the rest go
+	args := []any{conversationID}
+	keep := ""
+	if len(tags) > 0 {
+		keep = ` AND tag NOT IN (` + placeholders(len(tags)) + `)`
+		for _, t := range tags {
+			args = append(args, t)
+		}
+	}
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM conversation_tags WHERE conversation_id=?`+keep, args...); err != nil {
+		return err
+	}
+	now := fmtTime(time.Now().UTC())
+	for _, t := range tags {
+		if _, err := r.db.ExecContext(ctx, `INSERT OR IGNORE INTO conversation_tags (conversation_id, tag, created_at) VALUES (?,?,?)`, conversationID, t, now); err != nil {
+			return err
+		}
+	}
+	r.tell(storage.Change{Kind: "conversation", ConversationID: conversationID})
+	return nil
+}
+
+func (r chatRepo) ProjectTags(ctx context.Context, projectID, createdBy string) ([]storage.TagCount, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT t.tag, COUNT(*), MAX(t.created_at) FROM conversation_tags t
+		JOIN conversations c ON c.id = t.conversation_id WHERE c.project_id=? AND (?='' OR c.created_by=?)
+		GROUP BY t.tag ORDER BY MAX(t.created_at) DESC, t.tag`, projectID, createdBy, createdBy)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []storage.TagCount{}
+	for rows.Next() {
+		var (
+			tc   storage.TagCount
+			last string
+		)
+		if err := rows.Scan(&tc.Tag, &tc.Count, &last); err != nil {
+			return nil, err
+		}
+		if tc.LastUse, err = parseTime(last); err != nil {
+			return nil, err
+		}
+		out = append(out, tc)
+	}
+	return out, rows.Err()
+}
+
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
 }
 
 func (r chatRepo) TaskConversation(ctx context.Context, taskID string) (storage.Conversation, error) {
@@ -89,6 +176,10 @@ func (r chatRepo) ListConversationsFrom(ctx context.Context, projectID, source s
 }
 
 func (r chatRepo) ListConversationsBefore(ctx context.Context, projectID, source string, before time.Time, limit int) ([]storage.Conversation, error) {
+	return r.ListConversationsTagged(ctx, projectID, source, nil, before, limit)
+}
+
+func (r chatRepo) ListConversationsTagged(ctx context.Context, projectID, source string, tags []string, before time.Time, limit int) ([]storage.Conversation, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -112,21 +203,32 @@ func (r chatRepo) ListConversationsBefore(ctx context.Context, projectID, source
 		page = ` AND updated_at < ?`
 		args = append(args, fmtTime(before))
 	}
+	if len(tags) > 0 { // every tag (the column compares without case)
+		page += ` AND id IN (SELECT conversation_id FROM conversation_tags WHERE tag IN (` + placeholders(len(tags)) + `) GROUP BY conversation_id HAVING COUNT(DISTINCT tag) = ?)`
+		for _, t := range tags {
+			args = append(args, t)
+		}
+		args = append(args, len(tags))
+	}
 	args = append(args, limit)
 	rows, err := r.db.QueryContext(ctx, `SELECT `+convCols+` FROM conversations WHERE project_id=? AND task_id IS NULL AND `+where+page+` ORDER BY updated_at DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []storage.Conversation
 	for rows.Next() {
 		c, err := scanConv(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, r.fillTags(ctx, out)
 }
 
 func (r chatRepo) DeleteConversation(ctx context.Context, id string) error {
