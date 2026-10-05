@@ -177,6 +177,43 @@ func TestBurnStopPausesAndGoesOn(t *testing.T) {
 	f.svc.Stop(ctx, f.project.ID)
 }
 
+// The real case (2026-10-05): its agent changed (the old one paused), a Burn
+// started again talks with the new one, in a chat of its own.
+func TestBurnFollowsItsAgent(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	agents, _ := f.engine.Agents(ctx, f.project.ID)
+	old := agents[0]
+	other, err := f.st.Agents().Create(ctx, storage.Agent{OrgModelID: old.OrgModelID, Name: "Thay", Tier: old.Tier, ModelTier: old.ModelTier, Instructions: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, AgentID: old.ID, ModelTier: "fast", ResultMode: "branch", State: "stopped"})
+	b, err := f.svc.Begin(ctx, f.project.ID, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := b.ConversationID
+	f.svc.Stop(ctx, f.project.ID)
+	b.AgentID, b.State = other.ID, "stopped"
+	f.st.Burn().SaveSession(ctx, b)
+	if b, err = f.svc.Begin(ctx, f.project.ID, "a"); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := f.st.Chat().GetConversation(ctx, b.ConversationID)
+	if b.ConversationID == first || c.AgentID != other.ID {
+		t.Fatalf("conversation %s (first %s) of %s, want %s", b.ConversationID, first, c.AgentID, other.ID)
+	}
+	if again, _ := f.svc.Begin(ctx, f.project.ID, "a"); again.ConversationID != b.ConversationID {
+		t.Fatal("same agent, a new chat each start")
+	}
+	f.svc.Stop(ctx, f.project.ID)
+	f.st.Agents().SetEnabled(ctx, other.ID, false) // paused: refused at once, with what to do
+	if _, err := f.svc.Begin(ctx, f.project.ID, "a"); err == nil || !strings.Contains(err.Error(), "đang tắt") {
+		t.Fatalf("a paused agent started: %v", err)
+	}
+}
+
 // Its time up, a Burn stops; the tools are its conversation's only.
 func TestBurnEndsAndToolsAreItsOwn(t *testing.T) {
 	f := setup(t)

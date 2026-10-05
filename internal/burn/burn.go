@@ -77,17 +77,11 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 	if p, err := s.store.Repos().Get(ctx, projectID); err != nil || p.Path == "" || !worktree.IsRepo(ctx, p.Path) {
 		return b, errors.New("Burn cần project là một git repo (mỗi việc chạy trong worktree riêng)")
 	}
-	if b.ConversationID == "" {
-		conv, err := s.chat.StartConversationPurpose(ctx, projectID, b.AgentID, "burn")
-		if err != nil {
-			return b, err
-		}
-		conv.Title = "Burn"
-		_ = s.store.Chat().UpdateConversation(ctx, conv)
-		b.ConversationID = conv.ID
-		if err := s.chat.SetMode(ctx, conv.ID, "operate"); err != nil {
-			return b, err
-		}
+	if err := s.CheckAgent(ctx, b.AgentID); err != nil {
+		return b, err
+	}
+	if err := s.ensureConversation(ctx, &b); err != nil {
+		return b, err
 	}
 	now := time.Now().UTC()
 	b.State, b.StartedBy, b.StartedAt, b.WaitingUntil = "running", who, &now, nil
@@ -96,6 +90,48 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 	}
 	s.spawn(projectID)
 	return b, nil
+}
+
+// CheckAgent refuses an agent that is paused: a Burn with it would only get
+// the "agent is off" notice.
+func (s *Service) CheckAgent(ctx context.Context, agentID string) error {
+	if agentID == "" {
+		return nil // the first lead that is on
+	}
+	ag, err := s.store.Agents().Get(ctx, agentID)
+	if err != nil {
+		return errors.New("không tìm thấy agent của Burn: hãy chọn agent khác")
+	}
+	if ag.Disabled {
+		return fmt.Errorf("agent %s đang tắt: chọn agent khác cho Burn hoặc bật lại agent này", ag.Name)
+	}
+	return nil
+}
+
+// ensureConversation gives the Burn a chat with its agent: its own while the
+// agent is the same, a new one once the agent was changed (the old one stays
+// with the agent it had, which may be paused now).
+func (s *Service) ensureConversation(ctx context.Context, b *storage.BurnSession) error {
+	if b.ConversationID != "" {
+		c, err := s.store.Chat().GetConversation(ctx, b.ConversationID)
+		if err == nil && (b.AgentID == "" || c.AgentID == b.AgentID) {
+			return nil
+		}
+		if err != nil && !errors.Is(err, storage.ErrNotFound) {
+			return err
+		}
+	}
+	conv, err := s.chat.StartConversationPurpose(ctx, b.ProjectID, b.AgentID, "burn")
+	if err != nil {
+		return err
+	}
+	conv.Title = "Burn"
+	_ = s.store.Chat().UpdateConversation(ctx, conv)
+	if err := s.chat.SetMode(ctx, conv.ID, "operate"); err != nil {
+		return err
+	}
+	b.ConversationID = conv.ID
+	return nil
 }
 
 // Stop stops a project's Burn: the answer running now is cancelled, its
@@ -172,6 +208,9 @@ func (s *Service) loop(ctx context.Context, projectID string) {
 				continue
 			}
 			b.State, b.WaitingUntil = "running", nil
+			b, _ = s.store.Burn().SaveSession(ctx, b)
+		}
+		if conv := b.ConversationID; s.ensureConversation(ctx, &b) == nil && b.ConversationID != conv { // its agent was changed while it ran
 			b, _ = s.store.Burn().SaveSession(ctx, b)
 		}
 		items, _ := s.store.Burn().Items(ctx, b.ID)

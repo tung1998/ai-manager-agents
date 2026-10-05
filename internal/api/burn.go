@@ -145,6 +145,12 @@ func (s *server) saveBurn(w http.ResponseWriter, r *http.Request) {
 	}
 	before := toBurnDTO(b)
 	s.applyBurn(in, &b)
+	if s.cfg.Burn != nil {
+		if err := s.cfg.Burn.CheckAgent(r.Context(), b.AgentID); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if b, err = s.cfg.Store.Burn().SaveSession(r.Context(), b); err != nil {
 		s.internal(w, r, err)
 		return
@@ -166,6 +172,10 @@ func (s *server) startBurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.applyBurn(in, &b)
+	if err := s.cfg.Burn.CheckAgent(r.Context(), b.AgentID); err != nil { // before saving: nothing changes
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if b.EndsAt == nil && !in.NoEnd { // the suggested stop: the next weekly reset, else 8 hours
 		t, ok := s.cfg.Burn.WeeklyReset(r.Context(), b.AgentID)
 		if !ok {

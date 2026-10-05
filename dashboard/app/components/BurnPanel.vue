@@ -12,7 +12,7 @@ interface Item {
   id: string, title: string, kind: 'unfinished' | 'upgrade' | 'bug', detail: string, status: string, priority: number,
   branch: string, worktree: string, summary: string, subagents: number, cost_usd: number, updated_at: string
 }
-interface AgentLite { id: string, name: string, tier: string }
+interface AgentLite { id: string, name: string, tier: string, enabled?: boolean }
 const props = defineProps<{ projectId: string }>()
 const { t, dateLocale } = useLang()
 const toast = useToast()
@@ -59,6 +59,9 @@ async function saveSettings() {
     saving.value = false
   }
 }
+// the agent picked is paused: saving and starting are refused until it is changed or turned on
+const offAgent = computed(() => agents.value.find(a => a.id === form.agent_id && a.enabled === false))
+const agentItems = computed(() => agents.value.map(a => ({ value: a.id, label: a.enabled === false ? `${a.name} (${t('burn.agentOffTag')})` : a.name })))
 const tierItems = computed(() => (['strong', 'balanced', 'fast'] as const).map(v => ({ value: v, label: t(`burn.tier.${v}`) })))
 
 // starting asks first: what it means, and when it stops
@@ -154,6 +157,8 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_subagents, mode: t(`burn.mode.${form.result_mode}`) }) }} · {{ t(`burn.order.${form.order}`) }}
         <template v-if="items.length"> · {{ t('burn.cost', { usd: totalCost.toFixed(2), n: items.filter(i => i.status === 'done').length }) }}</template>
       </p>
+      <UAlert v-if="offAgent" color="warning" variant="subtle" icon="i-lucide-power-off" :title="t('burn.agentOff', { name: offAgent.name })"
+        :actions="[{ label: t('burn.agentOffChange'), color: 'warning', variant: 'outline', onClick: () => { settingsOpen = true } }, { label: t('burn.agentOffOpen'), color: 'neutral', variant: 'ghost', to: `/projects/${projectId}/agents/${offAgent.id}` }]" />
       <p v-if="form.focus" class="text-xs"><span class="text-(--ui-text-muted)">{{ t('burn.focus') }}:</span> {{ form.focus }}</p>
     </UCard>
 
@@ -193,8 +198,11 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         <div class="space-y-4">
           <StaleNotice :show="stale" @reload="resync()" />
           <UFormField :label="t('burn.agent')">
-            <USelect v-model="form.agent_id" :items="agents.map(a => ({ value: a.id, label: a.name }))" class="w-full" />
+            <USelect v-model="form.agent_id" :items="agentItems" class="w-full" />
           </UFormField>
+          <UAlert v-if="offAgent" color="warning" variant="subtle" icon="i-lucide-power-off" :title="t('burn.agentOff', { name: offAgent.name })"
+            :actions="[{ label: t('burn.agentOffOpen'), color: 'warning', variant: 'outline', to: `/projects/${projectId}/agents/${offAgent.id}` }]" />
+
           <UFormField :label="t('burn.tierLabel')" :help="t('burn.tierHelp')">
             <USelect v-model="form.model_tier" :items="tierItems" class="w-full" />
           </UFormField>
@@ -213,7 +221,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         </div>
       </template>
       <template #footer>
-        <UButton :label="t('common.save')" :loading="saving" @click="saveSettings" />
+        <UButton :label="t('common.save')" :loading="saving" :disabled="!!offAgent" @click="saveSettings" />
       </template>
     </USlideover>
 
@@ -221,6 +229,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
     <UModal v-model:open="confirmOpen" :title="t('burn.confirmTitle')">
       <template #body>
         <div class="space-y-3 text-sm">
+          <UAlert v-if="offAgent" color="error" variant="subtle" icon="i-lucide-power-off" :title="t('burn.agentOff', { name: offAgent.name })" />
           <UAlert color="warning" variant="subtle" icon="i-lucide-shield-alert" :title="t('burn.confirmWarn')" :description="t('burn.confirmDesc', { mode: t(`burn.mode.${form.result_mode}`) })" />
           <UFormField :label="t('burn.endLabel')">
             <URadioGroup
@@ -240,7 +249,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
       <template #footer>
         <div class="flex w-full justify-end gap-2">
           <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="confirmOpen = false" />
-          <UButton color="warning" icon="i-lucide-flame" :label="t('burn.confirmStart')" :loading="acting === 'start'" @click="start" />
+          <UButton color="warning" icon="i-lucide-flame" :label="t('burn.confirmStart')" :loading="acting === 'start'" :disabled="!!offAgent" @click="start" />
         </div>
       </template>
     </UModal>
