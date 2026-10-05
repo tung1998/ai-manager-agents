@@ -152,6 +152,17 @@ func (r burnRepo) UpdateItemFrom(ctx context.Context, it storage.BurnItem, fromS
 	return nil
 }
 
+func (r burnRepo) UpdateItemFrom(ctx context.Context, it storage.BurnItem, fromStatus string) error {
+	if err := execOne(ctx, r.db, `UPDATE burn_items SET title=?, kind=?, detail=?, status=?, priority=?, branch=?, worktree=?, summary=?, attempts=?, subagents=?, cost_usd=?, updated_at=? WHERE id=? AND status=?`,
+		it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, fmtTime(time.Now()), it.ID, fromStatus); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return storage.ErrConflict
+		}
+		return err
+	}
+	return nil
+}
+
 func (r burnRepo) Item(ctx context.Context, id string) (storage.BurnItem, error) {
 	return scanBurnItem(r.db.QueryRowContext(ctx, `SELECT `+burnItemCols+` FROM burn_items WHERE id=?`, id))
 }
