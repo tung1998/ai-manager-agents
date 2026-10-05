@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,6 +32,31 @@ type Status struct {
 }
 
 var ErrNotRepo = errors.New("thư mục project không phải git repo")
+
+// commitLocks serializes Commit per repo root: two approvals of the same
+// project committing at once would otherwise race on git's own
+// .git/index.lock and one fails with a confusing git error instead of
+// just waiting its turn.
+var (
+	commitLocksMu sync.Mutex
+	commitLocks   = map[string]*sync.Mutex{}
+)
+
+func commitLock(root string) func() {
+	key := root
+	if abs, err := filepath.Abs(root); err == nil {
+		key = abs
+	}
+	commitLocksMu.Lock()
+	l := commitLocks[key]
+	if l == nil {
+		l = &sync.Mutex{}
+		commitLocks[key] = l
+	}
+	commitLocksMu.Unlock()
+	l.Lock()
+	return l.Unlock
+}
 
 func git(ctx context.Context, root string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -145,6 +172,7 @@ func Commit(ctx context.Context, root, message string, files []string) (string, 
 	if len(files) == 0 {
 		return "", errors.New("chưa chọn file để commit")
 	}
+	defer commitLock(root)()
 	if _, err := git(ctx, root, append([]string{"add", "-A", "--"}, files...)...); err != nil {
 		return "", err
 	}
