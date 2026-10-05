@@ -329,6 +329,9 @@ func (d *Discord) MakeThread(ctx context.Context, chatID, fromMsg, name string) 
 		body["type"] = 11 // public thread
 	}
 	if err := d.do(ctx, "POST", path, body, &out); err != nil {
+		if fromMsg != "" && discordCode(err) == 160004 { // the message has a thread already: it is that one
+			return fromMsg, nil
+		}
 		return "", err
 	}
 	if out.ID == "" {
@@ -444,6 +447,7 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 		return Incoming{}, false
 	}
 	in := Incoming{ChatID: x.ChannelID, Text: "/" + x.Data.Name, Private: x.GuildID == "", Addressed: true, GuildID: x.GuildID}
+	_, in.InThread = d.threads.Load(x.ChannelID)
 	if x.Data.Type == 3 && x.Data.Name == threadMenu { // Apps → Create thread, on one message
 		in.Text, in.ReplyTo = "/create-thread", x.Data.TargetID
 	}
@@ -499,12 +503,40 @@ func (d *Discord) do(ctx context.Context, method, path string, body any, out ...
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("discord %s: %s", path, resp.Status)
+		e := &discordError{Path: path, Status: resp.Status, HTTP: resp.StatusCode}
+		_ = json.NewDecoder(resp.Body).Decode(e)
+		return e
 	}
 	if len(out) > 0 && out[0] != nil {
 		_ = json.NewDecoder(resp.Body).Decode(out[0])
 	}
 	return nil
+}
+
+// discordError is a refused API call, with Discord's own code and reason
+// (160004: the message has a thread already; 50001/50013: no access/permission).
+type discordError struct {
+	Path    string `json:"-"`
+	Status  string `json:"-"`
+	HTTP    int    `json:"-"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *discordError) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("discord %s: %s", e.Path, e.Status)
+	}
+	return fmt.Sprintf("discord %s: %s (%d %s)", e.Path, e.Status, e.Code, e.Message)
+}
+
+// discordCode is the Discord error code of err (0 = none).
+func discordCode(err error) int {
+	var e *discordError
+	if errors.As(err, &e) {
+		return e.Code
+	}
+	return 0
 }
 
 func (d *Discord) Send(ctx context.Context, chatID, text string) ([]string, error) {

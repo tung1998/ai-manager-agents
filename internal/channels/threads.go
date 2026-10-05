@@ -117,6 +117,9 @@ func (m *Manager) makeThread(ctx context.Context, ch storage.Channel, ad Adapter
 	if !ok || in.Private {
 		return "Ở đây không tạo thread được."
 	}
+	if in.InThread { // Discord has no thread in a thread
+		return "Đang ở trong thread rồi: nhắn tiếp ở đây. Muốn thread mới thì gõ /create-thread ở kênh ngoài."
+	}
 	conv := ""
 	from := in.MessageID
 	if in.ReplyTo == "" && in.Respond != nil { // from the "/" menu (no message it replies to): the latest answer here
@@ -145,7 +148,13 @@ func (m *Manager) makeThread(ctx context.Context, ch storage.Channel, ad Adapter
 	}
 	thread, err := tm.MakeThread(ctx, in.ChatID, from, name)
 	if err != nil {
-		return "Chưa tạo được thread (bot cần quyền Create Public Threads): " + err.Error()
+		switch discordCode(err) {
+		case 50001, 50013: // no access / missing permission
+			return "Chưa tạo được thread (bot cần quyền Create Public Threads): " + err.Error()
+		case 50024: // not a channel that has threads (a thread, a voice channel…)
+			return "Kênh này không tạo thread được: " + err.Error()
+		}
+		return "Chưa tạo được thread: " + err.Error()
 	}
 	if conv != "" {
 		_ = m.store.Channels().SetThread(ctx, ch.ID, inKey(thread), conv)

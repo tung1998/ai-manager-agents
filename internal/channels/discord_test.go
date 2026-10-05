@@ -184,6 +184,29 @@ func TestDiscordSlashCommands(t *testing.T) {
 	}
 }
 
+// A message with a thread already: that thread (its id is the message's);
+// other refusals keep Discord's code and reason.
+func TestDiscordThreadExists(t *testing.T) {
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		if strings.Contains(r.URL.Path, "/messages/m1/") {
+			w.Write([]byte(`{"code":160004,"message":"A thread has already been created for this message"}`))
+			return
+		}
+		w.Write([]byte(`{"code":50024,"message":"Cannot execute action on this channel type"}`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", APIBase: rest.URL}
+	ctx := context.Background()
+	if id, err := d.MakeThread(ctx, "c1", "m1", "x"); err != nil || id != "m1" {
+		t.Fatalf("id = %q, err = %v", id, err)
+	}
+	_, err := d.MakeThread(ctx, "c1", "m2", "x")
+	if discordCode(err) != 50024 || !strings.Contains(err.Error(), "Cannot execute action") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 // Discord takes descriptions of at most 100 characters.
 func TestDiscordLongDescription(t *testing.T) {
 	var body string
