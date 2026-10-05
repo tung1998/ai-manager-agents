@@ -109,7 +109,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Thiết lập project bằng AI: quét, đọc file agent sẵn có, đề xuất mô hình + tinh chỉnh agent, duyệt rồi áp (ADR-018) | Xong |
 | Project không thư mục (helper toàn máy), chọn thư mục bằng cây (ADR-017) | Xong |
 | Lịch sử chỉnh sửa + khôi phục, export/import config (thư mục cho git, file cho dashboard), backup, chặn key theo URL mới (ADR-019) | Xong |
-| Lịch sử lượt gọi AI, chi phí (thật hoặc ước tính), trần ngân sách theo ngày cho office và project, trang Chi phí (ADR-020) | Xong |
+| Lịch sử lượt gọi AI, chi phí (thật hoặc ước tính), trần ngân sách theo ngày cho office và project, trang Chi phí (ADR-020; trang sau bỏ, gộp vào Tổng quan — ADR-060) | Xong |
 | Cài và đăng nhập Claude Code / Codex ngay trên dashboard (ADR-021) | Xong |
 | Chat với agent trong project: stream, công cụ đọc, diff được duyệt rồi mới áp; Claude Code / API / Codex (ADR-022) | Xong |
 | Việc cho cả mô hình: Solo, Team (lập kế hoạch → làm song song → tổng hợp), Tam quyền (biểu quyết, phủ quyết, kiểm tra) (ADR-023) | Xong |

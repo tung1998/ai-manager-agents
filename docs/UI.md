@@ -9,14 +9,14 @@ Nuxt 4 + @nuxt/ui, app riêng trong `dashboard/` (ADR-010). Gọi REST + SSE c�
 | `/` | Sơ đồ tổ chức | Cây Director → Manager → Worker. Mỗi node: trạng thái (idle/running/disabled), mode, next check, cost hôm nay | Kéo-thả worker vào manager để gán, click mở Agent detail |
 | `/agents/:id` | Agent detail | Tab **Cấu hình** (runtime, model, fallback, heartbeat), **Rules** (instructions, tools, strict mode, permission, timeout, retry, cost cap, notify, debounce, chain), **Prompt** (role template + override), **Memory** (3 layer, lịch sử version, diff), **Runs** (danh sách + log stream) | Lưu cấu hình (preview diff), chạy ngay, ép compaction, bật/tắt |
 | `/blackboard` | Blackboard | Feed thread dạng kênh chat nội bộ. Finding có màu theo loại, badge confidence, chip evidence mở được worker output | Lọc theo agent/loại/severity, trả lời thread (người đặt câu hỏi) |
-| `/incidents` | Incidents | Danh sách + chi tiết: timeline debate theo round, kết luận, confidence, phương án, rủi ro, evidence | **Duyệt / Từ chối** từng option có side effect, ghi chú |
-| `/costs` | Chi phí | Token và USD theo agent/ngày, theo incident, so với budget, dự báo cuối ngày | Chỉnh budget (ghi config) |
 | `/projects/:id?tab=chat\|tasks\|ops\|config` | Project | Thanh tiêu đề gọn (menu `⋯` cho sửa, thiết lập AI, đổi mô hình), một dòng thông tin (đường dẫn · git · mô tả rút gọn). 4 tab: Chat, Việc, **Vận hành** (Tiến trình · Container · Giám sát, có số lượng và chấm đỏ khi lỗi), **Cấu hình** (Mô hình · Skills · MCP; link cũ `tab=model|tools` vẫn chạy). Skills/MCP (đang dùng: của project, riêng máy, kế thừa từ toàn máy; thêm từ thư viện, MCP phổ biến, MCP Registry, chỉ cài vào project này) | |
 | `/projects/:id?tab=burn` | Burn (admin) | Trạng thái phiên, đếm ngược tới giờ tắt, cài đặt (agent, mức model, số subagent, nhánh riêng/diff, trọng tâm), bảng việc theo cột: Tìm thấy · Đang làm · Tạm dừng · Xong · Thất bại/Bỏ qua (ADR-087) | Bật (qua hộp xác nhận, chọn giờ tắt), Tắt, ưu tiên/bỏ qua việc, copy `git switch`, xóa worktree, mở hội thoại |
 | `/library` | Thư viện | Skills / MCP servers: **Đã cài** (mọi nơi trên máy, nhóm theo nơi cài), **Thư viện**, MCP **Phổ biến**, **Tìm MCP** | Xem, cài vào nơi khác, lưu vào thư viện, gỡ, tạo và sửa |
 
 Sidebar: mục **Project** có 5 project người xem mở nhiều nhất (đếm trong localStorage), mỗi project có mục con Chat, Việc, Vận hành, Cấu hình; "Xem tất cả" mở `/projects`. Việc gần đây của mọi project nằm ở Tổng quan.
 | `/setup` | Setup wizard | Giao diện cho `init`: kết quả quét, runtime, đề xuất cơ cấu, diff | Tạo / Chỉnh / Hủy |
+
+`/costs` và `/incidents` đã bỏ, gộp vào Tổng quan (`/`): biểu đồ chi phí + danh sách cần xử lý (ADR-060, ADR-051); hai đường dẫn cũ chuyển hướng về `/`.
 
 Thêm: `/ask` (ô hỏi Director, stream kết quả) và badge "chờ duyệt" trên header.
 
@@ -30,9 +30,8 @@ Thêm: `/ask` (ô hỏi Director, stream kết quả) và badge "chờ duyệt" 
 5. Chuyển sang `/`, thấy org chart.
 
 **Hằng ngày.**
-1. Nhận Discord "incident mới" có link `/incidents/:id`.
-2. Đọc kết luận, mở evidence, xem debate.
-3. Duyệt hoặc từ chối option. Hành động được thực thi và kết quả hiện realtime.
+1. Nhận Discord "incident mới" có link `/` (Tổng quan, mục cần xử lý — ADR-051).
+2. Mở mục ứng với sự cố, xử lý tại chỗ xảy ra (project, tự động hóa, bot…).
 
 **Tinh chỉnh agent.**
 1. Từ org chart mở `/agents/tech-lead`.
@@ -225,10 +224,12 @@ Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-star
 | POST | `/api/init/propose` | Đề xuất (có gọi LLM) |
 
 ### Chi phí + trạng thái
+Trang Chi phí và Sự cố đã bỏ, gộp vào Tổng quan (`/`); xem ADR-060, ADR-051.
+
 | Method | Path | Mô tả |
 |---|---|---|
-| GET | `/api/costs/daily?from=&to=&group=agent` | |
-| GET | `/api/costs/incidents?from=&to=` | |
+| GET | `/api/usage/summary?days=` | Chi phí hôm nay, theo ngày, theo project/model (Tổng quan) |
+| GET | `/api/incidents?status=` | Danh sách cần xử lý (Tổng quan) |
 | GET | `/api/status` | Giống `office status` |
 | GET | `/api/doctor` | Giống `office doctor` |
 
