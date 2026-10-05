@@ -59,6 +59,7 @@ export default {
   'flow.hierarchy': 'Trưởng nhóm lập kế hoạch và giao việc → đội làm song song → trưởng nhóm tổng hợp.',
   'flow.council': 'Lập kế hoạch đề xuất → hội đồng biểu quyết (2/3, Giám sát có quyền phủ quyết) → worker làm → Giám sát kiểm tra → Thực thi tổng hợp.',
   'chat.newThread': 'Trò chuyện mới',
+  'chat.filters': 'Bộ lọc',
   'chat.pickAgent': 'Chọn agent',
   'chat.none': 'Chưa có cuộc trò chuyện.',
   'chat.newThreadTitle': 'Cuộc trò chuyện mới',

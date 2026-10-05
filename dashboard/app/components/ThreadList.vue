@@ -8,6 +8,9 @@ interface Thread { id: string, agent_id: string, agent_name: string, title: stri
 defineProps<{ loading?: boolean, conversations: Thread[], agents: { id: string, name: string }[], currentId?: string, unread?: Set<string>, hasMore?: boolean, loadingMore?: boolean, menu: (c: Thread) => DropdownMenuItem[][], tags?: string[] }>()
 const origin = defineModel<ChatFilter>('origin', { default: 'all' })
 const tagFilter = defineModel<string[]>('tagFilter', { default: () => [] })
+// the filters stay folded under one icon; open at once when one is set
+const filtered = computed(() => origin.value !== 'all' || tagFilter.value.length > 0)
+const filtersOpen = ref(filtered.value)
 const emit = defineEmits<{ open: [Thread], new: [], more: [] }>()
 const { t, dateLocale } = useLang()
 // a skill's or template's editor chat, else where it started (web, a bot, an automation)
@@ -19,12 +22,25 @@ const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour:
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="space-y-1.5 border-b border-(--ui-border) p-2">
-      <UButton icon="i-lucide-square-pen" :label="t('chat.newThread')" size="sm" color="neutral" variant="ghost" block class="justify-start" @click="emit('new')" />
-      <SourceFilter v-model="origin" burn />
-      <USelectMenu
-        v-if="tags?.length || tagFilter.length" v-model="tagFilter" :items="tags ?? []" multiple size="xs" icon="i-lucide-tag"
-        :placeholder="t('chatTag.filter')" :title="t('chatTag.filterHint')" class="w-full"
-      />
+      <div class="flex items-center gap-1">
+        <UTooltip :text="t('chat.newThread')">
+          <UButton icon="i-lucide-plus" size="sm" color="neutral" variant="ghost" :aria-label="t('chat.newThread')" @click="emit('new')" />
+        </UTooltip>
+        <span class="flex-1" />
+        <UTooltip :text="t('chat.filters')">
+          <UButton
+            icon="i-lucide-filter" size="sm" :color="filtered ? 'primary' : 'neutral'" :variant="filtersOpen || filtered ? 'soft' : 'ghost'"
+            :aria-label="t('chat.filters')" :aria-expanded="filtersOpen" @click="filtersOpen = !filtersOpen"
+          />
+        </UTooltip>
+      </div>
+      <template v-if="filtersOpen">
+        <SourceFilter v-model="origin" burn />
+        <USelectMenu
+          v-if="tags?.length || tagFilter.length" v-model="tagFilter" :items="tags ?? []" multiple size="xs" icon="i-lucide-tag"
+          :placeholder="t('chatTag.filter')" :title="t('chatTag.filterHint')" class="w-full"
+        />
+      </template>
     </div>
     <div class="flex-1 overflow-y-auto p-1">
       <LoadingRows v-if="loading && !conversations.length" :n="6" />

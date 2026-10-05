@@ -60,6 +60,7 @@ const en: Record<keyof typeof vi, string> = {
   'flow.hierarchy': 'The team lead plans and assigns work → the team works in parallel → the lead synthesizes.',
   'flow.council': 'A plan is proposed → the council votes (2/3, Supervisor can veto) → workers execute → Supervisor reviews → Executor synthesizes.',
   'chat.newThread': 'New chat',
+  'chat.filters': 'Filters',
   'chat.pickAgent': 'Pick an agent',
   'chat.none': 'No conversations yet.',
   'chat.newThreadTitle': 'New conversation',
