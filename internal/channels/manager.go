@@ -362,6 +362,17 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		say("Xin lỗi, mình chưa nhận được tin này.")
 		return
 	}
+	if status != "queued" { // duplicate/debounced: a slash command still waits for an answer
+		switch status {
+		case "debounced":
+			say("Đang chờ, tin trước đó chưa xử lý xong.")
+		case "duplicate":
+			say("Đã xử lý tin này rồi.")
+		default:
+			say("Đã nhận, chưa chạy ngay được.")
+		}
+		return
+	}
 	m.runner.StartReady(m.root, time.Now().UTC())
 }
 
