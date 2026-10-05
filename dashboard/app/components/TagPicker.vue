@@ -10,15 +10,19 @@ const items = computed(() => {
   for (const s of props.suggestions) if (!out.some(x => sameTag(x, s))) out.push(s)
   return out
 })
+// what is typed: emptied once a tag is added (Enter) or picked
+const search = ref('')
 function onCreate(name: string) {
   const tag = name.trim().replace(/\s+/g, ' ')
   if (tag && !model.value.some(x => sameTag(x, tag))) model.value = [...model.value, tag]
+  search.value = ''
 }
+watch(model, () => { search.value = '' })
 </script>
 
 <template>
   <UInputMenu
-    v-model="model" :items="items" multiple create-item
+    v-model="model" v-model:search-term="search" :items="items" multiple create-item
     :placeholder="t('chatTag.placeholder')" icon="i-lucide-tag" class="w-full" :autofocus="props.autofocus"
     @create="onCreate"
   />
