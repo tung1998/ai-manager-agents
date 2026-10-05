@@ -112,8 +112,12 @@ async function checkNow(m: Monitor) {
 }
 async function remove(m: Monitor) {
   if (!confirm(t('monitor.confirmDelete', { name: m.name }))) return
-  await $fetch(`/api/monitors/${m.id}`, { method: 'DELETE' })
-  await refresh()
+  try {
+    await $fetch(`/api/monitors/${m.id}`, { method: 'DELETE' })
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
 }
 function rowMenu(m: Monitor) {
   return [[
@@ -132,6 +136,7 @@ async function copy(text: string) {
 const formOpen = ref(false)
 const editing = ref<Monitor | null>(null)
 const created = ref<Monitor | null>(null)
+const saving = ref(false)
 const form = reactive({
   name: '', type: 'http' as Monitor['type'], target: '', interval_s: 60, expect_status: '', keyword: '', timeout_ms: 10000,
   file: '', ai_enabled: false, ai_budget_usd: 0.5
@@ -153,10 +158,12 @@ function openForm(m?: Monitor) {
   formOpen.value = true
 }
 async function saveForm() {
+  if (saving.value) return
   const body = {
     name: form.name, type: form.type, target: form.target, interval_s: form.interval_s, ai_enabled: form.ai_enabled, ai_budget_usd: Number(form.ai_budget_usd) || 0,
     config: { expect_status: form.expect_status || undefined, keyword: form.keyword || undefined, timeout_ms: Number(form.timeout_ms) || undefined, file: form.type === 'container' ? form.file : undefined }
   }
+  saving.value = true
   try {
     const m = editing.value
       ? await $fetch<Monitor>(`/api/monitors/${editing.value.id}`, { method: 'PATCH', body })
@@ -166,6 +173,8 @@ async function saveForm() {
     else formOpen.value = false
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    saving.value = false
   }
 }
 
@@ -428,7 +437,7 @@ async function addSuggested() {
           </template>
           <template v-else>
             <UButton color="neutral" variant="ghost" :label="t('monitor.form.cancel')" @click="formOpen = false" />
-            <UButton type="submit" form="monitor-form" :label="t('monitor.form.save')" />
+            <UButton type="submit" form="monitor-form" :label="t('monitor.form.save')" :loading="saving" :disabled="saving" />
           </template>
         </div>
       </template>
