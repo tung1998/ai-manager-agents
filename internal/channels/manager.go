@@ -63,6 +63,10 @@ type waiter struct {
 	chat, msg, status string
 	started, edited   time.Time
 	steps             int
+	// verbose (reply mode steps): the status message stays, listing each step
+	// as the CLI does; lines are the ones of the status message shown now
+	verbose bool
+	lines   []string
 }
 
 // MaxPending is how many messages of one outside chat may wait at once.
@@ -345,7 +349,8 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	job, status, err := m.runner.Enqueue(actx, rule, ch.Kind, string(raw), "", "")
 	if err == nil && status == "queued" {
 		tctx, stop := context.WithCancel(m.root)
-		w := waiter{key: key, typing: stop, chat: in.ChatID, msg: in.MessageID, started: time.Now()}
+		w := waiter{key: key, typing: stop, chat: in.ChatID, msg: in.MessageID, started: time.Now(),
+			verbose: rule.Action == "chat" && storage.ReplyModeOf(ch, rule.Config) == storage.ReplySteps}
 		if r, ok := ad.(Reactor); ok && in.MessageID != "" { // seen: working on it
 			go func() { _ = r.React(context.WithoutCancel(ctx), in.ChatID, in.MessageID, "👀", true) }()
 		}

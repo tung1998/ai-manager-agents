@@ -20,7 +20,8 @@ type botInput struct {
 	Refusal   *string   `json:"refusal"`
 	Approvers *[]string `json:"approvers"`
 	Approval  *string   `json:"approval"`
-	Header    *string   `json:"header"`  // the line on top of its answers ("" = default, "-" = none)
+	Header    *string   `json:"header"` // the line on top of its answers ("" = default, "-" = none)
+	ReplyMode *string   `json:"reply_mode"`
 	Version   string    `json:"version"` // the bot as it was read (409 when changed since)
 }
 
@@ -32,6 +33,7 @@ type automationBot struct {
 	Approvers []string `json:"approvers"`
 	Approval  string   `json:"approval"`
 	Header    string   `json:"header"`
+	ReplyMode string   `json:"reply_mode"`
 }
 
 // …and how it is doing (kept apart: a new message never makes a proposal stale).
@@ -62,7 +64,7 @@ func (s *server) saveBot(r *http.Request, in *automationInput, projectID string)
 		}
 		name := in.Name
 		c := storage.Channel{ProjectID: projectID, Kind: in.Source, Mode: "read", Enabled: true}
-		if err := s.applyChannel(channelInput{Name: &name, Token: b.Token, Allow: b.Allow, Refusal: b.Refusal, Approvers: b.Approvers, Approval: b.Approval, Header: b.Header}, &c); err != nil {
+		if err := s.applyChannel(channelInput{Name: &name, Token: b.Token, Allow: b.Allow, Refusal: b.Refusal, Approvers: b.Approvers, Approval: b.Approval, Header: b.Header, ReplyMode: b.ReplyMode}, &c); err != nil {
 			return "", commit, err
 		}
 		if c, err = s.cfg.Store.Channels().Create(r.Context(), c); err != nil {
@@ -75,7 +77,7 @@ func (s *server) saveBot(r *http.Request, in *automationInput, projectID string)
 			return nil
 		}, nil
 	}
-	if b == nil || (b.Token == nil && b.Allow == nil && b.Refusal == nil && b.Approvers == nil && b.Approval == nil && b.Header == nil) {
+	if b == nil || (b.Token == nil && b.Allow == nil && b.Refusal == nil && b.Approvers == nil && b.Approval == nil && b.Header == nil && b.ReplyMode == nil) {
 		return "", commit, nil
 	}
 	c, err := s.cfg.Store.Channels().Get(r.Context(), in.Config.ChannelID)
@@ -86,7 +88,7 @@ func (s *server) saveBot(r *http.Request, in *automationInput, projectID string)
 		return "", commit, errConflict
 	}
 	old := c
-	if err := s.applyChannel(channelInput{Token: b.Token, Allow: b.Allow, Refusal: b.Refusal, Approvers: b.Approvers, Approval: b.Approval, Header: b.Header}, &c); err != nil {
+	if err := s.applyChannel(channelInput{Token: b.Token, Allow: b.Allow, Refusal: b.Refusal, Approvers: b.Approvers, Approval: b.Approval, Header: b.Header, ReplyMode: b.ReplyMode}, &c); err != nil {
 		return "", commit, err
 	}
 	return "", func() error {
@@ -150,7 +152,7 @@ func (s *server) botOf(r *http.Request, a storage.Automation) (*automationBot, *
 	if approvers == nil {
 		approvers = []string{}
 	}
-	return &automationBot{HasToken: c.TokenEnc != "", Allow: allow, Refusal: c.Refusal, Approvers: approvers, Approval: firstNonEmptyStr(c.Approval, "ask"), Header: c.Header},
+	return &automationBot{HasToken: c.TokenEnc != "", Allow: allow, Refusal: c.Refusal, Approvers: approvers, Approval: firstNonEmptyStr(c.Approval, "ask"), Header: c.Header, ReplyMode: c.ReplyMode},
 		&automationBotStatus{Kind: c.Kind, BotName: c.BotName, Enabled: c.Enabled, LastError: c.LastError, LastMessageAt: c.LastMessageAt,
 			Shared: s.botUsers(r, a.ProjectID, c.ID), State: s.botState(c.ID)}
 }

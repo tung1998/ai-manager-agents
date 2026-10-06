@@ -39,8 +39,9 @@ type channelDTO struct {
 	Approvers     []string   `json:"approvers"`
 	Approval      string     `json:"approval"`
 	Header        string     `json:"header"`
-	State         string     `json:"state"`   // connecting | running | "" (off or stopped: last_error)
-	Version       string     `json:"version"` // what an edit is made from (ADR-072)
+	ReplyMode     string     `json:"reply_mode"` // "" = the answer only, steps = the steps too
+	State         string     `json:"state"`      // connecting | running | "" (off or stopped: last_error)
+	Version       string     `json:"version"`    // what an edit is made from (ADR-072)
 	BotName       string     `json:"bot_name"`
 	LastError     string     `json:"last_error"`
 	LastMessageAt *time.Time `json:"last_message_at"`
@@ -63,7 +64,7 @@ func toChannelDTO(c storage.Channel) channelDTO {
 		approvers = []string{}
 	}
 	return channelDTO{c.ID, c.ProjectID, c.Kind, c.Name, c.TokenEnc != "", c.AgentID, c.Mode, c.Enabled, allow, c.Scope, c.FilterEnabled, c.Refusal,
-		approvers, firstNonEmptyStr(c.Approval, "ask"), c.Header, "", "", c.BotName, c.LastError, c.LastMessageAt}
+		approvers, firstNonEmptyStr(c.Approval, "ask"), c.Header, c.ReplyMode, "", "", c.BotName, c.LastError, c.LastMessageAt}
 }
 
 type channelInput struct {
@@ -80,6 +81,7 @@ type channelInput struct {
 	Approvers     *[]string `json:"approvers"`
 	Approval      *string   `json:"approval"`
 	Header        *string   `json:"header"`
+	ReplyMode     *string   `json:"reply_mode"`
 	Version       string    `json:"version"` // the bot as it was read (409 when changed since)
 }
 
@@ -127,6 +129,12 @@ func (s *server) applyChannel(in channelInput, c *storage.Channel) error {
 	}
 	if in.Header != nil {
 		c.Header = strings.TrimSpace(*in.Header)
+	}
+	if in.ReplyMode != nil {
+		if *in.ReplyMode != "" && *in.ReplyMode != storage.ReplySteps {
+			return errors.New("kiểu trả lời của bot không hợp lệ")
+		}
+		c.ReplyMode = *in.ReplyMode
 	}
 	c.Approval = "ask"                     // the modes are gone (ADR-081): the Admin and Người dùng lists say who runs how
 	if slices.Contains(c.Approvers, "*") { // anyone would run as the agent, with the machine when it has it

@@ -209,10 +209,28 @@ type Channel struct {
 	Approvers                 []string // user ids who may decide proposals from the chat (none = only on the dashboard)
 	Approval                  string   // a new chat's way: ask (commands) | direct (what the agent proposes is approved)
 	Header                    string   // the line on top of its answers: {agent} {project} {branch}; "" = default, "-" = none
+	ReplyMode                 string   // what a run shows: "" = its answer only, ReplySteps = its steps too (a command may override)
 	BotName                   string
 	LastError                 string
 	LastMessageAt             *time.Time
 	CreatedAt, UpdatedAt      time.Time
+}
+
+// Reply modes of a bot (Channel.ReplyMode, AutomationConfig.ReplyMode).
+const (
+	ReplyAnswer = "answer" // a command's override: the answer only
+	ReplySteps  = "steps"  // the steps kept in the chat, as the CLI shows them, then the answer
+)
+
+// ReplyModeOf is what a command's run shows: its own mode, else its bot's.
+func ReplyModeOf(ch Channel, cfg AutomationConfig) string {
+	if cfg.ReplyMode == ReplyAnswer || cfg.ReplyMode == ReplySteps {
+		return cfg.ReplyMode
+	}
+	if ch.ReplyMode == ReplySteps {
+		return ReplySteps
+	}
+	return ReplyAnswer
 }
 
 // ChannelRepo stores channels and which conversation each outside chat is.

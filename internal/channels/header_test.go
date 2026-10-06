@@ -901,6 +901,43 @@ func (b *liveBot) seen() string {
 // A message the bot takes gets 👀; a long run shows its steps in one status
 // message, edited as it goes and gone with the answer.
 func TestProgress(t *testing.T) {
+	bot := runProgress(t, "", "")
+	seen := bot.seen()
+	for _, want := range []string{"edit ", "Chạy test", "delete ", "react u1 👀 false"} {
+		if !strings.Contains(seen, want) {
+			t.Errorf("no %q in\n%s\nsent %v", want, seen, bot.sent["c2"])
+		}
+	}
+	if !strings.Contains(bot.sent["c2"][0], "Đọc a.go") {
+		t.Errorf("the status message = %q", bot.sent["c2"][0])
+	}
+	// the bot shows steps, this rule only its answer: as above
+	if seen := runProgress(t, storage.ReplySteps, storage.ReplyAnswer).seen(); !strings.Contains(seen, "delete ") {
+		t.Errorf("an answer-only rule kept its steps:\n%s", seen)
+	}
+}
+
+// Reply mode steps (the bot's, or a rule's over it): the steps stay in the
+// chat, all of them, then the answer.
+func TestProgressSteps(t *testing.T) {
+	for _, mode := range [][2]string{{storage.ReplySteps, ""}, {"", storage.ReplySteps}} {
+		bot := runProgress(t, mode[0], mode[1])
+		seen := bot.seen()
+		if strings.Contains(seen, "delete ") {
+			t.Errorf("%v: the steps were deleted:\n%s", mode, seen)
+		}
+		if !strings.Contains(seen, "edit 1 ✅ Các bước:\n• Đọc a.go\n• Chạy test") {
+			t.Errorf("%v: no last edit with every step:\n%s", mode, seen)
+		}
+		if got := bot.sent["c2"]; len(got) != 2 || got[1] != "xong rồi" {
+			t.Errorf("%v: sent = %q", mode, got)
+		}
+	}
+}
+
+// runProgress runs one bot message through two steps to its answer.
+func runProgress(t *testing.T, channelMode, ruleMode string) *liveBot {
+	t.Helper()
 	ctx := context.Background()
 	tmp := t.TempDir()
 	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
@@ -926,9 +963,9 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong rồi
 	engine := chat.NewEngine(st, provs, u)
 	runner := trigger.New(st, chatExec{engine})
 	bot := &liveBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}}
-	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-", ReplyMode: channelMode})
 	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Trả lời", Source: "discord", Action: "chat", Enabled: true,
-		Config: storage.AutomationConfig{ChannelID: ch.ID}})
+		Config: storage.AutomationConfig{ChannelID: ch.ID, ReplyMode: ruleMode}})
 	m := channels.NewManager(st, engine, runner, func(storage.Channel) (channels.Adapter, error) { return bot, nil })
 	m.ProgressAfter = 0
 	runner.SetOnReply(m.Reply)
@@ -959,15 +996,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong rồi
 		t.Fatalf("sent = %q", got)
 	}
 	time.Sleep(100 * time.Millisecond)
-	seen := bot.seen()
-	for _, want := range []string{"edit ", "Chạy test", "delete ", "react u1 👀 false"} {
-		if !strings.Contains(seen, want) {
-			t.Errorf("no %q in\n%s\nsent %v", want, seen, bot.sent["c2"])
-		}
-	}
-	if !strings.Contains(bot.sent["c2"][0], "Đọc a.go") {
-		t.Errorf("the status message = %q", bot.sent["c2"][0])
-	}
+	return bot
 }
 
 // A running bot posts an alert to a chat; an off one says so.

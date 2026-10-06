@@ -281,6 +281,10 @@ func (m *Manager) Progress(ctx context.Context, origin storage.Job, step string)
 		return
 	}
 	w.steps++
+	if w.verbose {
+		m.step(ctx, origin.ID, ad, w, step) // unlocks
+		return
+	}
 	now := time.Now()
 	if now.Sub(w.started) < m.ProgressAfter || (w.status != "" && now.Sub(w.edited) < 8*time.Second && m.ProgressAfter > 0) {
 		m.waiting[origin.ID] = w
@@ -312,11 +316,85 @@ func (m *Manager) Progress(ctx context.Context, origin storage.Job, step string)
 	}
 }
 
+// Reply mode steps: each step a line of a status message that stays (a new
+// one when it is full), edited at most every stepsEvery; the last edit, once
+// answered, shows them all.
+const (
+	stepsEvery = 3 * time.Second
+	stepsMax   = 1800 // under Discord's 2000 and Telegram's 4096
+)
+
+func stepsText(lines []string, done bool) string {
+	head := "🛠 Các bước:"
+	if done {
+		head = "✅ Các bước:"
+	}
+	return head + "\n" + strings.Join(lines, "\n")
+}
+
+// step adds one line to a verbose run's steps; called with m.mu held, it unlocks.
+func (m *Manager) step(ctx context.Context, jobID string, ad Adapter, w waiter, step string) {
+	w.lines = append(w.lines, "• "+truncate(strings.TrimSpace(step), 300))
+	ed, canEdit := ad.(Editor)
+	if !canEdit { // no editing: they all go once answered
+		m.waiting[jobID] = w
+		m.mu.Unlock()
+		return
+	}
+	var full, full2 string // a full message: kept as it is, the step opens the next
+	if w.status != "" && len(stepsText(w.lines, false)) > stepsMax {
+		full, full2 = w.status, stepsText(w.lines[:len(w.lines)-1], true)
+		w.status, w.lines = "", w.lines[len(w.lines)-1:]
+	}
+	now := time.Now()
+	if w.status != "" && now.Sub(w.edited) < stepsEvery {
+		m.waiting[jobID] = w // shown at the next edit, or once answered
+		m.mu.Unlock()
+		return
+	}
+	w.edited = now
+	m.waiting[jobID] = w
+	status, chatID, text := w.status, w.chat, stepsText(w.lines, false)
+	m.mu.Unlock()
+	if full != "" {
+		_ = ed.Edit(ctx, chatID, full, full2)
+	}
+	if status != "" {
+		_ = ed.Edit(ctx, chatID, status, text)
+		return
+	}
+	ids, err := ad.Send(ctx, chatID, text)
+	if err != nil || len(ids) == 0 {
+		return
+	}
+	m.mu.Lock()
+	cur, ok := m.waiting[jobID]
+	if ok {
+		cur.status = ids[0]
+		m.waiting[jobID] = cur
+	}
+	m.mu.Unlock()
+	if !ok { // answered meanwhile: its last steps were not in it
+		_ = ed.Edit(context.WithoutCancel(ctx), chatID, ids[0], stepsText(w.lines, true))
+	}
+}
+
 // settle clears a message's marks once it is answered.
 func (m *Manager) settle(ctx context.Context, ad Adapter, w waiter) {
 	ctx = context.WithoutCancel(ctx)
 	if r, ok := ad.(Reactor); ok && w.msg != "" {
 		go func() { _ = r.React(ctx, w.chat, w.msg, "👀", false) }()
+	}
+	if w.verbose { // the steps stay, all of them, before the answer
+		if len(w.lines) == 0 {
+			return
+		}
+		if ed, ok := ad.(Editor); ok && w.status != "" {
+			_ = ed.Edit(ctx, w.chat, w.status, stepsText(w.lines, true))
+		} else if !ok {
+			_, _ = ad.Send(ctx, w.chat, stepsText(w.lines, true))
+		}
+		return
 	}
 	if ed, ok := ad.(Editor); ok && w.status != "" {
 		go func() { _ = ed.Delete(ctx, w.chat, w.status) }()

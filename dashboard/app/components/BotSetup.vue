@@ -22,7 +22,19 @@ useFollowBot(() => channel.value?.state === 'connecting', () => refreshCh())
 const bot = reactive({ kind: (channel.value?.kind ?? 'discord') as 'telegram' | 'discord', token: '', allow: (channel.value?.allow ?? []).join('\n'), refusal: channel.value?.refusal ?? '',
   approvers: (channel.value?.approvers ?? []).join('\n'),
   // the line on top of its answers ("" = the default, "-" = none)
-  headerOn: channel.value?.header !== '-', header: channel.value?.header === '-' ? '' : (channel.value?.header ?? '') })
+  headerOn: channel.value?.header !== '-', header: channel.value?.header === '-' ? '' : (channel.value?.header ?? ''),
+  // what a run shows: the answer only, or its steps too (as the CLI); a command may override it
+  replyMode: (channel.value?.reply_mode ?? '') as '' | 'steps' })
+const replyModes = computed(() => [
+  { value: '' as const, label: t('bot.replyAnswer'), icon: 'i-lucide-message-square' },
+  { value: 'steps' as const, label: t('bot.replySteps'), icon: 'i-lucide-list-tree' }
+])
+// a command's own: the bot's (default) or one of the two
+const cmdReplyModes = computed(() => [
+  { value: 'inherit', label: t('bot.replyInherit', { mode: bot.replyMode === 'steps' ? t('bot.replySteps') : t('bot.replyAnswer') }) },
+  { value: 'answer', label: t('bot.replyAnswer') },
+  { value: 'steps', label: t('bot.replySteps') }
+])
 const ids = (s: string) => s.split(/[\n,]/).map(x => x.trim()).filter(Boolean)
 // the bot's settings as they were read: a save over someone else's change is refused (409)
 let botVersion = channel.value?.version
@@ -155,7 +167,7 @@ async function save() {
       d.config.command = d.config.command ? commandName(d.config.command) : ''
       d.name = d.config.command ? `/${d.config.command}` : t('bot.tagName', { bot: botLabel.value })
       const body = { ...automationBody(d), version: c.version }
-      body.bot = i === 0 ? { token: bot.token || undefined, allow: ids(bot.allow), refusal: bot.refusal, approvers: ids(bot.approvers), header: bot.headerOn ? bot.header.trim() : '-', version: botVersion } : undefined
+      body.bot = i === 0 ? { token: bot.token || undefined, allow: ids(bot.allow), refusal: bot.refusal, approvers: ids(bot.approvers), header: bot.headerOn ? bot.header.trim() : '-', reply_mode: bot.replyMode, version: botVersion } : undefined
       const res = c.id
         ? await $fetch<{ automation: Automation }>(`/api/automations/${c.id}`, { method: 'PATCH', body })
         : await $fetch<{ automation: Automation }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body })
@@ -251,6 +263,18 @@ async function save() {
                 <UInput v-if="bot.headerOn" v-model="bot.header" class="min-w-0 flex-1 font-mono text-xs" placeholder="{agent} · {project} · {branch}" />
               </div>
             </UFormField>
+            <!-- the commands' default: each may override it (Advanced) -->
+            <UFormField :label="t('bot.replyMode')" :help="bot.replyMode === 'steps' ? t('bot.replyStepsHelp') : t('bot.replyAnswerHelp')">
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="o in replyModes" :key="o.value" type="button" class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition"
+                  :class="bot.replyMode === o.value ? 'border-primary bg-primary/5 text-primary' : 'border-(--ui-border) text-(--ui-text-muted) hover:border-(--ui-border-accented)'"
+                  @click="bot.replyMode = o.value"
+                >
+                  <UIcon :name="o.icon" class="size-4" />{{ o.label }}
+                </button>
+              </div>
+            </UFormField>
             <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')">
               <UInput v-model="bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />
             </UFormField>
@@ -317,6 +341,18 @@ async function save() {
                 </template>
                 <!-- what it does and sends -->
                 <AutomationForm :project-id="projectId" :form="c.draft" :highlight="highlight" command />
+                <!-- Advanced: this command's own way over the bot's -->
+                <details v-if="c.draft.action === 'chat'" class="group" :open="!!c.draft.config.reply_mode">
+                  <summary class="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-(--ui-text-muted)">
+                    <UIcon name="i-lucide-chevron-right" class="size-3.5 transition group-open:rotate-90" />{{ t('bot.advanced') }}
+                  </summary>
+                  <UFormField :label="t('bot.replyMode')" class="mt-2">
+                    <USelect
+                      :model-value="c.draft.config.reply_mode || 'inherit'" :items="cmdReplyModes" class="w-full @lg:w-72"
+                      @update:model-value="(v: string) => { c.draft.config.reply_mode = v === 'inherit' ? '' : v as 'answer' | 'steps' }"
+                    />
+                  </UFormField>
+                </details>
               </div>
             </div>
             <!-- the office's own: listed, fixed -->

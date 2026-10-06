@@ -89,7 +89,7 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 			keywords = []string{}
 		}
 		cfg = map[string]any{"channel_id": c.ChannelID, "keywords": keywords, "scope": c.Scope,
-			"command": c.Command, "command_description": c.CommandDescription, "command_arg": c.CommandArg, "skill": c.Skill}
+			"command": c.Command, "command_description": c.CommandDescription, "command_arg": c.CommandArg, "skill": c.Skill, "reply_mode": c.ReplyMode}
 	}
 	tags := c.Tags
 	if tags == nil {
@@ -244,6 +244,12 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 			if k = strings.TrimSpace(k); k != "" {
 				cfg.Keywords = append(cfg.Keywords, k)
 			}
+		}
+		switch in.Config.ReplyMode { // "" = the bot's own
+		case "", storage.ReplyAnswer, storage.ReplySteps:
+			cfg.ReplyMode = in.Config.ReplyMode
+		default:
+			return errors.New("kiểu trả lời không hợp lệ")
 		}
 		if strings.TrimSpace(in.Config.Command) != "" { // a custom command: it runs only as one
 			name := channels.CommandName(in.Config.Command)
