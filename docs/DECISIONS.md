@@ -1866,3 +1866,10 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Setup:** đặt email thật, tên, mật khẩu ≥ 10 ký tự; xóa cờ `must_change`, thu hồi các phiên khác của tài khoản đó, ghi audit `user.setup`. Sau đó `admin` / `admin` hết hiệu lực.
 - **CLI:** `office user create` dùng cho admin đầu tiên; nếu chỉ còn tài khoản mặc định thì tạo admin mới và xóa nó. Office đã có tài khoản thật thì phải `--force`. `office user passwd` giữ để lấy lại quyền.
 - **Đã loại:** giới hạn tài khoản mặc định chỉ đăng nhập từ localhost (chặn cài từ xa, mà lần đầu đằng nào cũng bắt đổi).
+
+## ADR-097: Bot có thiết lập chung cho các lệnh, lệnh ghi đè trong Nâng cao; kiểu trả lời "Các bước"
+- **Thiết lập chung** (`channels.defaults`, JSON): hành động, agent, tag, nội dung gửi agent, script, quyền, giới hạn. Mỗi lệnh chỉ còn phần cách gọi (tên, mô tả, từ khóa); phần thiết lập nằm trong **Nâng cao**, bật "Thiết lập riêng" (`config.own_setup`) thì lệnh tự đặt.
+- **Không đổi lúc chạy:** mỗi lệnh vẫn là một automation đầy đủ. Trang bot chép thiết lập chung vào các lệnh không có thiết lập riêng mỗi lần lưu, qua API automation như cũ (vẫn kiểm tra quyền, tag…). Sửa một lệnh theo bot ở chỗ khác (đề xuất của agent) thì lần lưu trang bot sau sẽ đưa nó về thiết lập chung.
+- **Bot cũ:** chưa có `defaults` thì lấy thiết lập của lệnh `@bot`; lệnh nào khác nó tự thành "riêng", nên không lệnh nào đổi hành vi.
+- **Kiểu trả lời** (`channels.reply_mode`, lệnh ghi đè ở `config.reply_mode`): "Chỉ câu trả lời" (tin "Đang làm…" tạm, xóa khi xong) hoặc "Các bước + câu trả lời" (như CLI: tin liệt kê từng bước được giữ lại, sửa tối đa 3 giây/lần, đầy ~1800 ký tự thì mở tin mới, lần sửa cuối có đủ bước, rồi mới tới câu trả lời). Mỗi bước là tóm tắt tool call; chữ agent viết giữa các bước vẫn nằm trong câu trả lời cuối.
+- **Đã loại:** để runtime tự đọc thiết lập chung mỗi lần chạy (phải sửa mọi chỗ đọc agent, tag, quyền, giới hạn của automation).
