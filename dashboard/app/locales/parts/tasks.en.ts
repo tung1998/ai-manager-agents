@@ -83,6 +83,8 @@ const en: Record<keyof typeof vi, string> = {
   'chat.stop': 'Stop',
   'chat.queued': 'Sends when the agent has answered',
   'chat.unqueue': 'Drop the queued message',
+  'chat.sendNow': 'Send now',
+  'chat.sendNowHint': 'Stop the answer being written and send this at once',
   'chat.budgetHit': 'Hit the cost cap',
   'chat.skillChat': 'A skill editor chat',
   'chat.backToSkillEditor': 'Open the skill editor',

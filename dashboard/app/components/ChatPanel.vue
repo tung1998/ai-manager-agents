@@ -593,6 +593,11 @@ function stopStream() {
   source = null
   streaming.value = false
 }
+// "Gửi ngay" on a queued message (as the CLI): the answer being written stops,
+// what waits goes at once (the queue's watch sends it when the stream ends)
+async function sendNow() {
+  if (streaming.value && turnId) await cancelTurn(turnId)
+}
 async function cancel() {
   unqueueAll()
   // Stop: the answer and every agent working in the background in this chat
@@ -879,6 +884,9 @@ onBeforeUnmount(() => {
           <div class="flex items-center gap-1 text-xs text-(--ui-text-muted)">
             <UIcon name="i-lucide-clock" class="size-3.5" />
             <span>{{ q.files.length ? `${t('chat.queued')} · ${q.files.map(f => f.name).join(', ')}` : t('chat.queued') }}</span>
+            <button v-if="streaming" type="button" class="flex items-center gap-0.5 rounded px-1 py-0.5 text-(--ui-text) hover:text-primary" :title="t('chat.sendNowHint')" @click="sendNow">
+              <UIcon name="i-lucide-zap" class="size-3.5" />{{ t('chat.sendNow') }}
+            </button>
             <button type="button" class="rounded p-0.5 hover:text-(--ui-error)" :aria-label="t('chat.unqueue')" :title="t('chat.unqueue')" @click="unqueue(q.id)">
               <UIcon name="i-lucide-x" class="size-3.5" />
             </button>

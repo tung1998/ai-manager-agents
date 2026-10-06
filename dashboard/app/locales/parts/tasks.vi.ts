@@ -82,6 +82,8 @@ export default {
   'chat.stop': 'Dừng',
   'chat.queued': 'Chờ gửi khi agent trả lời xong',
   'chat.unqueue': 'Bỏ tin chờ gửi',
+  'chat.sendNow': 'Gửi ngay',
+  'chat.sendNowHint': 'Dừng câu trả lời đang viết và gửi tin này luôn',
   'chat.budgetHit': 'Đã chạm trần chi phí',
   'chat.skillChat': 'Chat soạn skill',
   'chat.backToSkillEditor': 'Mở trình soạn skill',
