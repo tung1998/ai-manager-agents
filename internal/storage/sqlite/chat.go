@@ -24,16 +24,25 @@ func (r chatRepo) tell(c storage.Change) {
 
 const convCols = `id, project_id, agent_id, agent_name, title, session_id, runtime, mode, task_id, created_by, created_at, updated_at, edit_mode, purpose, automation_id, context_tokens, context_window, effort`
 
+// convRead: what is read back (cleaned is set by the data cleanup only)
+const convRead = convCols + `, cleaned, cleaned_at`
+
 func scanConv(row scanner) (storage.Conversation, error) {
 	var (
 		c                storage.Conversation
 		agent, task      sql.NullString
 		created, updated string
+		cleanedAt        sql.NullString
 	)
-	if err := row.Scan(&c.ID, &c.ProjectID, &agent, &c.AgentName, &c.Title, &c.SessionID, &c.Runtime, &c.Mode, &task, &c.CreatedBy, &created, &updated, &c.EditMode, &c.Purpose, &c.AutomationID, &c.ContextTokens, &c.ContextWindow, &c.Effort); err != nil {
+	if err := row.Scan(&c.ID, &c.ProjectID, &agent, &c.AgentName, &c.Title, &c.SessionID, &c.Runtime, &c.Mode, &task, &c.CreatedBy, &created, &updated, &c.EditMode, &c.Purpose, &c.AutomationID, &c.ContextTokens, &c.ContextWindow, &c.Effort, &c.Cleaned, &cleanedAt); err != nil {
 		return c, notFound(err)
 	}
 	c.AgentID, c.TaskID = agent.String, task.String
+	if cleanedAt.Valid {
+		if t, err := parseTime(cleanedAt.String); err == nil {
+			c.CleanedAt = &t
+		}
+	}
 	return c, parseTimes([]*time.Time{&c.CreatedAt, &c.UpdatedAt}, created, updated)
 }
 
@@ -73,7 +82,7 @@ func (r chatRepo) UpdateConversation(ctx context.Context, c storage.Conversation
 }
 
 func (r chatRepo) GetConversation(ctx context.Context, id string) (storage.Conversation, error) {
-	c, err := scanConv(r.db.QueryRowContext(ctx, `SELECT `+convCols+` FROM conversations WHERE id=?`, id))
+	c, err := scanConv(r.db.QueryRowContext(ctx, `SELECT `+convRead+` FROM conversations WHERE id=?`, id))
 	if err != nil {
 		return c, err
 	}
@@ -164,7 +173,7 @@ func placeholders(n int) string {
 }
 
 func (r chatRepo) TaskConversation(ctx context.Context, taskID string) (storage.Conversation, error) {
-	return scanConv(r.db.QueryRowContext(ctx, `SELECT `+convCols+` FROM conversations WHERE task_id=?`, taskID))
+	return scanConv(r.db.QueryRowContext(ctx, `SELECT `+convRead+` FROM conversations WHERE task_id=?`, taskID))
 }
 
 func (r chatRepo) ListConversations(ctx context.Context, projectID string, limit int) ([]storage.Conversation, error) {
@@ -211,7 +220,7 @@ func (r chatRepo) ListConversationsTagged(ctx context.Context, projectID, source
 		args = append(args, len(tags))
 	}
 	args = append(args, limit)
-	rows, err := r.db.QueryContext(ctx, `SELECT `+convCols+` FROM conversations WHERE project_id=? AND task_id IS NULL AND `+where+page+` ORDER BY updated_at DESC LIMIT ?`, args...)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+convRead+` FROM conversations WHERE project_id=? AND task_id IS NULL AND `+where+page+` ORDER BY updated_at DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +396,7 @@ func (r chatRepo) DecidePatch(ctx context.Context, id, status, detail, by string
 }
 
 func (r chatRepo) AutomationConversation(ctx context.Context, automationID string) (storage.Conversation, error) {
-	return scanConv(r.db.QueryRowContext(ctx, `SELECT `+convCols+` FROM conversations WHERE automation_id=? ORDER BY updated_at DESC LIMIT 1`, automationID))
+	return scanConv(r.db.QueryRowContext(ctx, `SELECT `+convRead+` FROM conversations WHERE automation_id=? ORDER BY updated_at DESC LIMIT 1`, automationID))
 }
 
 func (r chatRepo) LinkAutomation(ctx context.Context, conversationID, automationID string) error {

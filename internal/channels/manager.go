@@ -537,18 +537,18 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 	if in.ReplyTo != "" { // a reply to one of the bot's answers: that answer's conversation
 		// an automation's notice: its run's chat, with that chat's own agent
 		if id, err := m.store.Channels().Thread(ctx, ch.ID, noteKey(in.ChatID, in.ReplyTo)); err == nil && id != "" {
-			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.ProjectID == ch.ProjectID {
+			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.ProjectID == ch.ProjectID && c.Cleaned == "" {
 				return id, nil
 			}
 		}
 		if id, err := m.store.Channels().Thread(ctx, ch.ID, "msg:"+in.ChatID+":"+in.ReplyTo); err == nil && id != "" {
-			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
+			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID && c.Cleaned == "" {
 				return id, nil
 			}
 		}
 	}
 	if id := m.threadOf(ctx, ch, in.ChatID); id != "" { // a thread of a conversation: that one
-		if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
+		if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID && c.Cleaned == "" {
 			return id, nil
 		}
 	}
@@ -556,7 +556,7 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 	key := in.ChatID + "#" + agent.ID + "#" + keep
 	if keep != "" {
 		if id, err := m.store.Channels().Thread(ctx, ch.ID, key); err == nil && id != "" {
-			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID {
+			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID && c.Cleaned == "" {
 				return id, nil
 			}
 		}

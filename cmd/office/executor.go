@@ -37,6 +37,11 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 	if untrusted { // outsiders drove it (a bot's escalation): no tools, read only
 		ctx = chat.WithNoTools(ctx)
 	}
+	if conversationID != "" { // a chat kept across runs, whose data was cleaned since: a new one
+		if c, err := x.chat.Conversation(ctx, conversationID); err == nil && c.Cleaned != "" {
+			conversationID = ""
+		}
+	}
 	if conversationID == "" {
 		purpose, mode := "", perm.Operate
 		if untrusted {

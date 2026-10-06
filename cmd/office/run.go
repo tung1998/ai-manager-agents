@@ -7,6 +7,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/burn"
 	"bitbucket.org/senprints/agent-office/internal/channels"
+	"bitbucket.org/senprints/agent-office/internal/cleanup"
 	"bitbucket.org/senprints/agent-office/internal/events"
 	"bitbucket.org/senprints/agent-office/internal/home"
 	"bitbucket.org/senprints/agent-office/internal/limitalert"
@@ -168,6 +169,9 @@ func serveCmd() *cobra.Command {
 			})
 			burner.Start(ctx)
 			bots.Start(ctx)
+			// data management: measuring, cleaning by hand and on its own (ADR-095)
+			cleaner := cleanup.New(a.store, chatEngine, trees, filepath.Join(h.Dir, "attachments"), h.DB())
+			go cleaner.RunAuto(ctx)
 
 			// self-update: only under the supervisor and when the source is here
 			supervised := os.Getenv(selfupdate.EnvSupervised) == "1"
@@ -207,6 +211,7 @@ func serveCmd() *cobra.Command {
 				CLITools:   cliTools,
 				Chat:       chatEngine,
 				Burn:       burner,
+				Cleanup:    cleaner,
 				Trigger:    runner,
 				Automation: newAutomation(a, h),
 				Ops:        procs,

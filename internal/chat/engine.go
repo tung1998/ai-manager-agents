@@ -544,6 +544,9 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	if err != nil {
 		return nil, storage.Message{}, err
 	}
+	if conv.Cleaned != "" {
+		return nil, storage.Message{}, ErrCleaned
+	}
 	project, err := e.store.Repos().Get(ctx, conv.ProjectID)
 	if err != nil {
 		return nil, storage.Message{}, err
@@ -1515,6 +1518,12 @@ func projectOfTask(ctx context.Context, e *Engine, taskID string) string {
 
 // DeleteConversation deletes a conversation and its worktree.
 func (e *Engine) DeleteConversation(ctx context.Context, id string) error {
+	e.dropTrees(ctx, id)
+	return e.store.Chat().DeleteConversation(ctx, id)
+}
+
+// dropTrees removes a chat's worktrees (its own, and each member's).
+func (e *Engine) dropTrees(ctx context.Context, id string) {
 	if conv, err := e.store.Chat().GetConversation(ctx, id); err == nil && e.trees != nil {
 		if project, err := e.store.Repos().Get(ctx, conv.ProjectID); err == nil {
 			_ = e.trees.Remove(ctx, project.Path, project.ID, ChatTree(id))
@@ -1525,7 +1534,16 @@ func (e *Engine) DeleteConversation(ctx context.Context, id string) error {
 			}
 		}
 	}
-	return e.store.Chat().DeleteConversation(ctx, id)
+}
+
+// CleanConversation takes a chat's content out (ADR-095): its worktrees and
+// messages go, note stays in their place, and it takes no more messages.
+func (e *Engine) CleanConversation(ctx context.Context, id, state, note string) error {
+	if _, running := e.Active(id); running {
+		return ErrBusy
+	}
+	e.dropTrees(ctx, id)
+	return e.store.Chat().CleanConversation(ctx, id, state, note)
 }
 
 // SweepWorktrees removes worktrees nothing uses: of deleted conversations,
@@ -1542,26 +1560,30 @@ func (e *Engine) SweepWorktrees(ctx context.Context, maxAge time.Duration) {
 		if p.Path == "" {
 			continue
 		}
-		e.trees.Sweep(ctx, p.Path, p.ID, func(name string) (bool, bool) {
-			// a Burn's: a piece's own (its work waits there while paused, however
-			// long: kept until the piece is over), and its scans
-			if id, ok := strings.CutPrefix(name, "burn-scan-"); ok {
-				_, err := e.store.Burn().SessionByID(ctx, id)
-				return err == nil, false
-			}
-			if id, ok := strings.CutPrefix(name, "burn-"); ok {
-				it, err := e.store.Burn().Item(ctx, id)
-				return err == nil, err == nil && (it.Status == "doing" || it.Status == "paused")
-			}
-			id, ok := strings.CutPrefix(name, "chat-")
-			if !ok {
-				return false, false
-			}
-			id, _, _ = strings.Cut(id, "--") // an agent's own tree in the chat
-			_, err := e.store.Chat().GetConversation(ctx, id)
-			return err == nil, false
-		}, maxAge)
+		e.trees.Sweep(ctx, p.Path, p.ID, func(name string) (bool, bool) { return e.TreeWanted(ctx, name) }, maxAge)
 	}
+}
+
+// TreeWanted says whether a project's worktree is still of use (keep), and
+// whether work waits there however long (pinned).
+func (e *Engine) TreeWanted(ctx context.Context, name string) (keep, pinned bool) {
+	// a Burn's: a piece's own (its work waits there while paused, however
+	// long: kept until the piece is over), and its scans
+	if id, ok := strings.CutPrefix(name, "burn-scan-"); ok {
+		_, err := e.store.Burn().SessionByID(ctx, id)
+		return err == nil, false
+	}
+	if id, ok := strings.CutPrefix(name, "burn-"); ok {
+		it, err := e.store.Burn().Item(ctx, id)
+		return err == nil, err == nil && (it.Status == "doing" || it.Status == "paused")
+	}
+	id, ok := strings.CutPrefix(name, "chat-")
+	if !ok {
+		return false, false
+	}
+	id, _, _ = strings.Cut(id, "--") // an agent's own tree in the chat
+	c, err := e.store.Chat().GetConversation(ctx, id)
+	return err == nil && c.Cleaned == "", false // a cleaned chat takes no more turns (ADR-095)
 }
 
 // auditAutoPatch logs a patch the agent applied on its own (its permission

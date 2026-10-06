@@ -127,6 +127,8 @@ type Store interface {
 	MCPServers() MCPServerRepo
 	// MCPCalls log each tool call through the gateway (ADR-093).
 	MCPCalls() MCPCallRepo
+	// Data is what the projects keep, for cleanup (ADR-095).
+	Data() DataRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error

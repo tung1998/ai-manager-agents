@@ -61,6 +61,7 @@ export default {
   'chat.newThread': 'Trò chuyện mới',
   'chat.filters': 'Bộ lọc',
   'chat.pickAgent': 'Chọn agent',
+  'chat.cleaned': 'Chat này đã được dọn dữ liệu nên không nhắn thêm được. Hãy mở chat mới.',
   'chat.effort': 'Mức suy nghĩ của chat này (từ tin nhắn tiếp theo)',
   'chat.none': 'Chưa có cuộc trò chuyện.',
   'chat.newThreadTitle': 'Cuộc trò chuyện mới',

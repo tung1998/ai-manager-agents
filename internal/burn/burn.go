@@ -114,7 +114,7 @@ func (s *Service) CheckAgent(ctx context.Context, agentID string) error {
 func (s *Service) ensureConversation(ctx context.Context, b *storage.BurnSession) error {
 	if b.ConversationID != "" {
 		c, err := s.store.Chat().GetConversation(ctx, b.ConversationID)
-		if err == nil && (b.AgentID == "" || c.AgentID == b.AgentID) {
+		if err == nil && (b.AgentID == "" || c.AgentID == b.AgentID) && c.Cleaned == "" { // cleaned: it takes no more
 			return nil
 		}
 		if err != nil && !errors.Is(err, storage.ErrNotFound) {

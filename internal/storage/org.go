@@ -330,6 +330,8 @@ type Conversation struct {
 	Purpose      string // "" = a chat of the project; "automation" = builds one automation (not listed)
 	AutomationID string // purpose automation: the automation it builds, once saved
 	Effort       string // this chat's thinking level over its agent's ("" = the agent's)
+	Cleaned      string // data cleanup: CleanContent | CleanSummary ("" = as it was); takes no more messages
+	CleanedAt    *time.Time
 	// how full the model's context was after the last answer (0 = unknown)
 	ContextTokens, ContextWindow int
 	CreatedBy                    string
@@ -462,6 +464,9 @@ type ChatRepo interface {
 	// LinkAutomation ties a building chat to the automation once it is saved.
 	LinkAutomation(ctx context.Context, conversationID, automationID string) error
 	DeleteConversation(ctx context.Context, id string) error
+	// CleanConversation takes a chat's messages and diffs out and leaves note
+	// in their place; state is CleanContent or CleanSummary.
+	CleanConversation(ctx context.Context, id, state, note string) error
 
 	AddMessage(ctx context.Context, m Message) (Message, error)
 	// SetConversationContext writes only the context columns (turns running at
@@ -502,6 +507,7 @@ type Task struct {
 	CreatedBy   string
 	CreatedAt   time.Time
 	FinishedAt  *time.Time
+	Cleaned     string // data cleanup: CleanContent | CleanSummary ("" = as it was)
 }
 
 // TaskStep is one agent's turn inside a task.
@@ -535,6 +541,8 @@ type TaskRepo interface {
 	AddStep(ctx context.Context, s TaskStep) (TaskStep, error)
 	UpdateStep(ctx context.Context, s TaskStep) error
 	ListSteps(ctx context.Context, taskID string) ([]TaskStep, error)
+	// CleanTask takes a finished task's steps and diffs out; result replaces its result.
+	CleanTask(ctx context.Context, id, state, result string) error
 	ListPatches(ctx context.Context, taskID string) ([]Patch, error)
 	// FailRunning ends tasks left running (the office restarted under them).
 	FailRunning(ctx context.Context, detail string, at time.Time) (int64, error)

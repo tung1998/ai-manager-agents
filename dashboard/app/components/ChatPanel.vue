@@ -16,7 +16,7 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', effort?: string, context_tokens?: number, context_window?: number, tags?: string[] }
+interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', effort?: string, cleaned?: string, context_tokens?: number, context_window?: number, tags?: string[] }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message, next_turn_id?: string }
 // the agents in a chat and the answers in progress (ADR-044)
 interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
@@ -810,7 +810,11 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <p v-if="current?.cleaned" class="flex items-center gap-2 border-t border-(--ui-border) p-3 text-sm text-(--ui-text-muted) max-md:p-2">
+        <UIcon name="i-lucide-archive" class="size-4 shrink-0" />{{ t('chat.cleaned') }}
+      </p>
       <form
+        v-else
         :class="['border-t border-(--ui-border) p-3 max-md:p-2', page && (composeOpen
           ? 'max-sm:absolute max-sm:inset-x-3 max-sm:bottom-3 max-sm:z-10 max-sm:border-0 max-sm:p-0 max-sm:[&>*]:shadow-lg'
           : 'max-sm:hidden')]"
@@ -837,7 +841,7 @@ onBeforeUnmount(() => {
         </PromptInput>
       </form>
       <UButton
-        v-if="page && !composeOpen" class="absolute bottom-3 end-3 z-10 rounded-full shadow-lg sm:hidden" size="lg" icon="i-lucide-message-circle"
+        v-if="page && !composeOpen && !current?.cleaned" class="absolute bottom-3 end-3 z-10 rounded-full shadow-lg sm:hidden" size="lg" icon="i-lucide-message-circle"
         :aria-label="t('chat.write')" @click="composeOpen = true; nextTick(() => prompt?.focus?.())"
       />
     </section>

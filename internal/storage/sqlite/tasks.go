@@ -14,6 +14,9 @@ type taskRepo struct{ db dbtx }
 
 const taskCols = `id, project_id, title, goal, mode, status, result, detail, budget_usd, cost_usd, mode_level, attachments, created_by, created_at, finished_at, edit_mode, assignee_id`
 
+// taskRead: what is read back (cleaned is set by the data cleanup only)
+const taskRead = taskCols + `, cleaned`
+
 func scanTask(row scanner) (storage.Task, error) {
 	var (
 		t             storage.Task
@@ -21,7 +24,7 @@ func scanTask(row scanner) (storage.Task, error) {
 		finished      sql.NullString
 	)
 	if err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Goal, &t.Mode, &t.Status, &t.Result, &t.Detail, &t.BudgetUSD, &t.CostUSD,
-		&t.ModeLevel, &atts, &t.CreatedBy, &created, &finished, &t.EditMode, &t.AssigneeID); err != nil {
+		&t.ModeLevel, &atts, &t.CreatedBy, &created, &finished, &t.EditMode, &t.AssigneeID, &t.Cleaned); err != nil {
 		return t, notFound(err)
 	}
 	if err := json.Unmarshal([]byte(atts), &t.Attachments); err != nil {
@@ -73,7 +76,7 @@ func (r taskRepo) Update(ctx context.Context, t storage.Task) error {
 }
 
 func (r taskRepo) Get(ctx context.Context, id string) (storage.Task, error) {
-	return scanTask(r.db.QueryRowContext(ctx, `SELECT `+taskCols+` FROM tasks WHERE id=?`, id))
+	return scanTask(r.db.QueryRowContext(ctx, `SELECT `+taskRead+` FROM tasks WHERE id=?`, id))
 }
 
 func (r taskRepo) List(ctx context.Context, projectID string, limit int) ([]storage.Task, error) {
@@ -81,7 +84,7 @@ func (r taskRepo) List(ctx context.Context, projectID string, limit int) ([]stor
 		limit = 50
 	}
 	// an empty projectID lists tasks of every project (the Jobs page)
-	rows, err := r.db.QueryContext(ctx, `SELECT `+taskCols+` FROM tasks WHERE (?='' OR project_id=?) ORDER BY created_at DESC LIMIT ?`, projectID, projectID, limit)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+taskRead+` FROM tasks WHERE (?='' OR project_id=?) ORDER BY created_at DESC LIMIT ?`, projectID, projectID, limit)
 	if err != nil {
 		return nil, err
 	}

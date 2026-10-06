@@ -34,7 +34,8 @@ type conversationDTO struct {
 	ActiveTurn   string    `json:"active_turn,omitempty"`
 	Mode         string    `json:"mode"`
 	EditMode     string    `json:"edit_mode"`
-	Effort       string    `json:"effort"` // the chat's thinking level ("" = its agent's)
+	Effort       string    `json:"effort"`  // the chat's thinking level ("" = its agent's)
+	Cleaned      string    `json:"cleaned"` // data cleanup: content | summary ("" = as it was); takes no more messages
 	Purpose      string    `json:"purpose"`
 	Source       string    `json:"source"` // where it started: web | discord | telegram | auto
 	AutomationID string    `json:"automation_id"`
@@ -46,7 +47,7 @@ type conversationDTO struct {
 }
 
 func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
-	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode, Effort: c.Effort, Purpose: c.Purpose, AutomationID: c.AutomationID,
+	d := conversationDTO{ID: c.ID, ProjectID: c.ProjectID, AgentID: c.AgentID, AgentName: c.AgentName, Title: c.Title, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt, Mode: c.Mode, EditMode: c.EditMode, Effort: c.Effort, Cleaned: c.Cleaned, Purpose: c.Purpose, AutomationID: c.AutomationID,
 		ContextTokens: c.ContextTokens, ContextWindow: c.ContextWindow, Source: actor.Source(c.CreatedBy), Tags: c.Tags}
 	if d.Tags == nil {
 		d.Tags = []string{}
@@ -65,7 +66,7 @@ func (s *server) chatError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.As(err, &be):
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": be.Error(), "code": "budget"})
-	case errors.Is(err, chat.ErrBusy), errors.Is(err, chat.ErrAgentBusy), errors.Is(err, storage.ErrAgentOff):
+	case errors.Is(err, chat.ErrBusy), errors.Is(err, chat.ErrAgentBusy), errors.Is(err, storage.ErrAgentOff), errors.Is(err, chat.ErrCleaned):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, chat.ErrNoModel), errors.Is(err, chat.ErrNoAgent), errors.Is(err, chat.ErrNoFolder), errors.Is(err, chat.ErrDecided), errors.Is(err, automation.ErrUnknownSkill),
 		errors.Is(err, attach.ErrNotFound), errors.Is(err, attach.ErrTooMany):

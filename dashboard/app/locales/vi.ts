@@ -9,8 +9,10 @@ import limits from './parts/limits.vi'
 import watchScreen from './parts/watch.vi'
 import files from './parts/files.vi'
 import chatTags from './parts/tags.vi'
+import dataPage from './parts/data.vi'
 
 const vi = {
+  ...dataPage,
   ...watchScreen,
   ...files,
   ...chatTags,
@@ -39,6 +41,7 @@ const vi = {
   'nav.users': 'Tài khoản',
   'nav.audit': 'Audit log',
   'nav.transfer': 'Sao lưu & đồng bộ',
+  'nav.data': 'Quản lý dữ liệu',
   'nav.update': 'Cập nhật office',
   'nav.chat': 'Chat',
   'nav.tasks': 'Việc',

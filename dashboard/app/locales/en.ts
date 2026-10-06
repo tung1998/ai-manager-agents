@@ -10,8 +10,10 @@ import limits from './parts/limits.en'
 import watchScreen from './parts/watch.en'
 import files from './parts/files.en'
 import chatTags from './parts/tags.en'
+import dataPage from './parts/data.en'
 
 const en: Record<MessageKey, string> = {
+  ...dataPage,
   ...watchScreen,
   ...files,
   ...chatTags,
@@ -40,6 +42,7 @@ const en: Record<MessageKey, string> = {
   'nav.users': 'Accounts',
   'nav.audit': 'Audit log',
   'nav.transfer': 'Backup & sync',
+  'nav.data': 'Data management',
   'nav.update': 'Update office',
   'nav.chat': 'Chat',
   'nav.tasks': 'Tasks',

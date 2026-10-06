@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
@@ -39,6 +40,14 @@ func (e *Engine) StartConversationPurpose(ctx context.Context, projectID, agentI
 	c.Purpose = purpose
 	return e.store.Chat().CreateConversation(ctx, c)
 }
+
+// Conversation is one chat as stored.
+func (e *Engine) Conversation(ctx context.Context, id string) (storage.Conversation, error) {
+	return e.store.Chat().GetConversation(ctx, id)
+}
+
+// ErrCleaned: the chat's data was cleaned up; it takes no more messages.
+var ErrCleaned = errors.New("chat này đã được dọn dữ liệu nên không nhắn thêm được: hãy mở chat mới")
 
 // AddTags puts tags on a chat beside its own ("Bug" = "bug"), at most 10 in all.
 func (e *Engine) AddTags(ctx context.Context, conversationID string, tags []string) error {
