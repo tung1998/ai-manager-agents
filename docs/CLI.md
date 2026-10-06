@@ -76,7 +76,7 @@ Config đã tồn tại. Diff đề xuất:
 
 ## Mô hình, repo, kết nối (đã làm)
 
-`office init` hiện tại: đăng ký repo, chọn mô hình tổ chức, phát hiện kết nối AI.
+`office init` hiện tại: đăng ký repo, chọn mô hình tổ chức, phát hiện kết nối AI, và khi office chưa có tài khoản thì hỏi email + mật khẩu admin (Enter, `-y` hoặc không có terminal = tài khoản mặc định `admin` / `admin`, bắt đặt lại ở lần đăng nhập đầu; ADR-096).
 
 | Flag | Ý nghĩa |
 |---|---|
@@ -95,6 +95,9 @@ Dữ liệu office: /Users/you/.agent-office (chế độ global)
     manager  product-manager    Yêu cầu và giá trị cho người dùng
     ...
 ✓ Kết nối Claude Code CLI: 2.1.281 (Claude Code)
+
+Tài khoản admin — email (Enter = admin / admin, đổi khi đăng nhập lần đầu):
+✓ Tạo tài khoản mặc định admin / admin (đổi email và mật khẩu khi đăng nhập lần đầu)
 ```
 
 | Lệnh | Ý nghĩa |
@@ -106,6 +109,8 @@ Dữ liệu office: /Users/you/.agent-office (chế độ global)
 | `office export [dir] [--commit] [--file x.json]` | Xuất config (không key) ra thư mục cho git hoặc một file |
 | `office import <dir\|file> [--dry-run] [-y]` | Nhập config, luôn xem trước |
 | `office backup [--out dir]` | Sao lưu database + khóa mã hóa |
+| `office user create --email [--name] [--password-stdin] [--force]` | Admin đầu tiên, thay `admin` / `admin`; office đã có tài khoản thật thì phải `--force` (tài khoản sau tạo trên dashboard) |
+| `office user list` / `passwd --email` / `disable` / `enable` | Liệt kê, đặt lại mật khẩu (lấy lại quyền khi quên), khóa/mở tài khoản |
 
 ## `office doctor`
 

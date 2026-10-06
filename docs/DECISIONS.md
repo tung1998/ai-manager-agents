@@ -206,7 +206,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 **Quyết định.**
 - Tài khoản email + mật khẩu, role `admin` | `member`. Mật khẩu băm argon2id (64 MiB, t=3, p=2), tối thiểu 10 ký tự.
 - Phiên là token ngẫu nhiên 32 byte trong cookie `office_session` (HttpOnly, SameSite=Lax, Secure khi HTTPS). DB chỉ lưu SHA-256 của token. Hết hạn tuyệt đối 7 ngày, idle 24 giờ.
-- Admin đầu tiên chỉ tạo được bằng CLI `office user create --role admin`. Không có trang đăng ký công khai.
+- Admin đầu tiên chỉ tạo được bằng CLI `office user create --role admin`. Không có trang đăng ký công khai. (Đổi ở ADR-096: lần chạy đầu có sẵn `admin` / `admin`.)
 - Khóa đăng nhập 15 phút sau 5 lần sai theo email. Email không tồn tại vẫn chạy verify giả để không lộ qua thời gian phản hồi.
 - Chống CSRF: request ghi phải là `application/json`, `Origin` phải thuộc danh sách cho phép hoặc trùng host, cộng SameSite=Lax.
 - Dashboard gọi API qua proxy Nitro nên cookie cùng origin với trang. Header `X-Forwarded-*` chỉ được tin khi đến từ `--trusted-proxy`.
@@ -1858,3 +1858,11 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Luôn bỏ qua:** chat đang trả lời, còn diff hoặc đề xuất chờ duyệt, Burn đang chạy. Luôn có bước xem trước (số mục, dung lượng, mục bị bỏ qua và lý do) rồi mới dọn; lượt dọn chạy nền, mỗi lúc một lượt, trang theo dõi tiến độ.
 - **Tự dọn mỗi ngày** (tắt mặc định; mặc định 30 ngày, mức `content`, cả ba loại): lưu ở setting `data_cleanup`, chạy tối đa một lần mỗi 24 giờ, ghi lại lần chạy gần nhất.
 - **Rác:** worktree không còn chat/Việc nào dùng (chat đã xóa hoặc đã dọn, Việc đã xong, mảnh Burn đã xong; tên lạ không đụng tới) và đính kèm không còn tin nhắn/Việc nào trỏ tới, cũ hơn một ngày. Nút "Dọn rác" xóa chúng; mỗi lượt dọn xong cũng tự dọn đính kèm thừa. File phiên của Claude Code/Codex ngoài thư mục office không đụng tới.
+
+## ADR-096: Tài khoản mặc định admin / admin, bắt đặt lại ở lần đăng nhập đầu
+- **Bối cảnh:** chỉ tạo admin bằng `office user create` (ADR-014) làm người mới kẹt ở bước đầu, nhất là khi cài nhờ AI hoặc qua Docker.
+- **Lúc tạo:** `office init` hỏi email + mật khẩu admin khi office chưa có tài khoản; gõ thì tạo admin thật. Enter, `-y` hoặc không có terminal thì tạo `admin` / `admin` (`users.must_change = 1`). `office run` cũng tạo nếu chưa có tài khoản nào.
+- **Đăng nhập ở đâu cũng được**, kể cả từ xa (để cài server từ máy khác). Đổi lại, tài khoản `must_change` chỉ gọi được `/api/auth/me` và `POST /api/auth/setup`; mọi API khác trả 403. Dashboard đưa thẳng tới `/setup-account`.
+- **Setup:** đặt email thật, tên, mật khẩu ≥ 10 ký tự; xóa cờ `must_change`, thu hồi các phiên khác của tài khoản đó, ghi audit `user.setup`. Sau đó `admin` / `admin` hết hiệu lực.
+- **CLI:** `office user create` dùng cho admin đầu tiên; nếu chỉ còn tài khoản mặc định thì tạo admin mới và xóa nó. Office đã có tài khoản thật thì phải `--force`. `office user passwd` giữ để lấy lại quyền.
+- **Đã loại:** giới hạn tài khoản mặc định chỉ đăng nhập từ localhost (chặn cài từ xa, mà lần đầu đằng nào cũng bắt đổi).
