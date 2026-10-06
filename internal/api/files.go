@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -289,7 +291,40 @@ func (s *server) fileDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if d == "" && t.rel != "" && !gitops.Tracked(r.Context(), t.root, t.rel) {
+		d = newFileDiff(t.rel, t.full, 400_000) // a new file: all of it added
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"diff": d})
+}
+
+// newFileDiff is an untracked file as a diff that adds it ("" when it cannot
+// be read as text).
+func newFileDiff(rel, full string, max int) string {
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	data := make([]byte, min(info.Size(), int64(max)))
+	n, _ := io.ReadFull(f, data)
+	data = data[:n]
+	if bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data) {
+		return "--- /dev/null\n+++ b/" + rel + "\n(file nhị phân)"
+	}
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	var b strings.Builder
+	fmt.Fprintf(&b, "--- /dev/null\n+++ b/%s\n@@ -0,0 +1,%d @@\n", rel, len(lines))
+	for _, l := range lines {
+		b.WriteString("+" + l + "\n")
+	}
+	if info.Size() > int64(max) {
+		b.WriteString("… (cắt bớt)\n")
+	}
+	return b.String()
 }
 
 func (s *server) fileError(w http.ResponseWriter, r *http.Request, err error) {

@@ -14,6 +14,7 @@ export default {
   'git.aheadTitle': '{n} commit chưa push',
   'git.behindTitle': 'Remote có {n} commit mới chưa kéo về',
   'git.changes': '{n} thay đổi',
+  'git.viewChanges': 'Xem thay đổi',
   'ops.noFolder.title': 'Project không gắn thư mục',
   'ops.noFolder.desc': 'Helper toàn máy không có lệnh để chạy. Chọn một project có thư mục.',
   'ops.nav.processes': 'Tiến trình',

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -16,6 +17,76 @@ func (s *server) gitRoutes(mux *http.ServeMux, auth, admin func(http.HandlerFunc
 	mux.Handle("POST /api/projects/{id}/git/fetch", auth(s.gitFetch))
 	mux.Handle("POST /api/projects/{id}/git/commit", admin(s.gitCommit))
 	mux.Handle("POST /api/projects/{id}/git/push", admin(s.gitPush))
+	mux.Handle("GET /api/projects/{id}/git/branches", admin(s.gitBranches))
+	mux.Handle("POST /api/projects/{id}/git/branches", admin(s.gitCreateBranch))
+	mux.Handle("POST /api/projects/{id}/git/switch", admin(s.gitSwitch))
+	mux.Handle("POST /api/projects/{id}/git/branches/delete", admin(s.gitDeleteBranch))
+}
+
+func (s *server) gitBranches(w http.ResponseWriter, r *http.Request) {
+	p, ok, err := s.projectRoot(r, r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusBadRequest, "project chưa có thư mục")
+		return
+	}
+	list, err := gitops.Branches(r.Context(), p.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"branches": list})
+}
+
+// gitCreateBranch creates a branch and switches to it (local changes follow),
+// as git_branch does for agents.
+func (s *server) gitCreateBranch(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	s.runGitAction(w, r, "git_branch", "", storage.ActionArgs{Branch: strings.TrimSpace(in.Name)})
+}
+
+// gitSwitch / gitDeleteBranch change the project folder's branch: git refuses
+// what would lose work (changes in the way, a branch not merged).
+func (s *server) gitSwitch(w http.ResponseWriter, r *http.Request) {
+	s.gitBranchOp(w, r, "git.switch", gitops.SwitchBranch)
+}
+
+func (s *server) gitDeleteBranch(w http.ResponseWriter, r *http.Request) {
+	s.gitBranchOp(w, r, "git.branch_delete", gitops.DeleteBranch)
+}
+
+func (s *server) gitBranchOp(w http.ResponseWriter, r *http.Request, action string, op func(ctx context.Context, root, name string) error) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	p, ok, err := s.projectRoot(r, r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusBadRequest, "project chưa có thư mục")
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	err = op(r.Context(), p.Path, name)
+	s.auditAction(r, action, name, map[string]any{"project": p.ID, "ok": err == nil})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.writeGitStatus(w, r, p.Path)
 }
 
 func (s *server) projectRoot(r *http.Request, id string) (storage.Repo, bool, error) {

@@ -25,7 +25,25 @@ const en: Record<keyof typeof vi, string> = {
   'files.confirmSensitive': '{path} is a secret or protected file. Save anyway?',
   'files.conflict': 'The file changed after you opened it',
   'files.reload': 'Load the new version',
-  'files.leave': 'You have unsaved changes. Discard them?'
+  'files.leave': 'You have unsaved changes. Discard them?',
+  'files.viewFiles': 'Files',
+  'files.viewChanges': 'Changes',
+  'files.noChangesAll': 'No uncommitted changes',
+  'files.pickChange': 'Pick a changed file to see its diff',
+  'files.openFile': 'Open file',
+  'files.deletedFile': 'File deleted',
+  'diff.more': '{n} more lines not shown',
+  'diff.showMore': 'Show {n} more lines',
+  'branch.title': 'Branch',
+  'branch.switch': 'Switch to this branch',
+  'branch.switched': 'Switched to {name}',
+  'branch.new': 'New branch…',
+  'branch.newPrompt': 'New branch name (from the current branch; uncommitted changes come along)',
+  'branch.created': 'Created and switched to {name}',
+  'branch.delete': 'Delete branch',
+  'branch.deleteConfirm': 'Delete branch {name}? Only a merged branch can be deleted.',
+  'branch.deleted': 'Deleted {name}',
+  'branch.switchConfirm': 'Switch the project folder to branch {name}? Agents editing the project directly will see that branch\'s code.'
 }
 
 export default en

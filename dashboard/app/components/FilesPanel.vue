@@ -172,6 +172,53 @@ const lineCount = computed(() => draft.value.split('\n').length)
 function fmtSize(n: number) {
   return n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`
 }
+// ---- what changed since the last commit (the git bar's "n thay đổi" opens it) ----
+const route = useRoute()
+const view = computed<'files' | 'changes'>({
+  get: () => route.query.view === 'changes' ? 'changes' : 'files',
+  set: v => navigateTo({ query: { ...route.query, view: v === 'changes' ? 'changes' : undefined } }, { replace: true })
+})
+interface Change { path: string, status: string }
+const changes = ref<Change[] | null>(null)
+const picked = ref('')
+const changeDiff = ref<string | null>(null)
+async function loadChanges() {
+  try {
+    const res = await $fetch<{ repo: boolean, status?: { changes: Change[] } }>(`${base.value}/git`)
+    changes.value = res.status?.changes ?? []
+    if (picked.value && !changes.value.some(c => c.path === picked.value)) { picked.value = ''; changeDiff.value = null }
+  } catch (e) {
+    changes.value = []
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+// one file's diff at a time: light however much changed
+async function pickChange(c: Change) {
+  picked.value = c.path
+  changeDiff.value = null
+  try {
+    changeDiff.value = (await $fetch<{ diff: string }>(`${base.value}/file/diff`, { query: { path: c.path } })).diff
+  } catch (e) {
+    changeDiff.value = ''
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+const pickedChange = computed(() => changes.value?.find(c => c.path === picked.value))
+function openChanged(path: string) {
+  view.value = 'files'
+  openFile(path)
+}
+watch(view, (v) => { if (v === 'changes') loadChanges() }, { immediate: true })
+watch(() => props.projectId, () => { picked.value = ''; changeDiff.value = null; changes.value = null; if (view.value === 'changes') loadChanges() })
+// another branch checked out: the tree, the open file and the changes are of it now
+function onBranch() {
+  reloadTree()
+  if (file.value && !file.value.isNew && !dirty.value) openFile(file.value.path, true)
+  loadChanges()
+  if (picked.value) pickChange({ path: picked.value, status: '' })
+}
+const statusColor = (s: string) => s.includes('D') ? 'text-(--ui-error)' : s === '??' || s.includes('A') ? 'text-(--ui-success)' : 'text-(--ui-warning)'
+
 function badges(f: Flags) {
   return [
     f.secret && { label: t('files.secret'), color: 'error' as const },
@@ -182,7 +229,54 @@ function badges(f: Flags) {
 </script>
 
 <template>
-  <div class="grid min-h-0 flex-1 gap-4 md:grid-cols-[18rem_1fr]">
+  <div class="flex min-h-0 flex-1 flex-col gap-3">
+  <!-- files or what changed, on which branch -->
+  <div class="flex flex-wrap items-center gap-2">
+    <div class="flex rounded-md border border-(--ui-border) p-0.5">
+      <UButton size="xs" :color="view === 'files' ? 'primary' : 'neutral'" :variant="view === 'files' ? 'soft' : 'ghost'" icon="i-lucide-folder-tree" :label="t('files.viewFiles')" @click="view = 'files'" />
+      <UButton size="xs" :color="view === 'changes' ? 'primary' : 'neutral'" :variant="view === 'changes' ? 'soft' : 'ghost'" icon="i-lucide-file-diff" @click="view = 'changes'">
+        {{ t('files.viewChanges') }}<UBadge v-if="changes?.length" :label="String(changes.length)" size="sm" color="neutral" variant="subtle" />
+      </UButton>
+    </div>
+    <BranchMenu :project-id="projectId" @changed="onBranch" />
+  </div>
+
+  <!-- changes: the list, one file's diff -->
+  <div v-if="view === 'changes'" class="grid min-h-0 flex-1 gap-4 md:grid-cols-[18rem_1fr]">
+    <div class="flex max-h-[40vh] min-h-0 flex-col overflow-hidden rounded-lg border border-(--ui-border) md:max-h-none">
+      <div class="flex items-center gap-1 border-b border-(--ui-border) px-2 py-1.5">
+        <span class="flex-1 text-xs text-(--ui-text-muted)">{{ t('git.changes', { n: changes?.length ?? 0 }) }}</span>
+        <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :aria-label="t('files.refresh')" :title="t('files.refresh')" @click="loadChanges" />
+      </div>
+      <div class="min-h-0 flex-1 overflow-auto py-1 text-sm">
+        <LoadingRows v-if="!changes" :n="4" />
+        <p v-else-if="!changes.length" class="p-3 text-xs text-(--ui-text-muted)">{{ t('files.noChangesAll') }}</p>
+        <button
+          v-for="c in changes ?? []" :key="c.path" type="button"
+          class="flex w-full items-center gap-2 px-2 py-0.5 text-left hover:bg-(--ui-bg-elevated)" :class="picked === c.path && 'bg-(--ui-bg-elevated) font-medium'"
+          :title="c.path" @click="pickChange(c)"
+        >
+          <span class="w-5 shrink-0 font-mono text-xs" :class="statusColor(c.status)">{{ c.status }}</span>
+          <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ c.path }}</span>
+        </button>
+      </div>
+    </div>
+    <div class="flex min-h-[60vh] min-w-0 flex-col overflow-hidden rounded-lg border border-(--ui-border)">
+      <div v-if="!picked" class="flex flex-1 items-center justify-center p-6 text-sm text-(--ui-text-muted)">{{ t('files.pickChange') }}</div>
+      <template v-else>
+        <div class="flex items-center gap-2 border-b border-(--ui-border) bg-(--ui-bg-muted) px-3 py-1.5">
+          <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ picked }}</span>
+          <UBadge v-if="pickedChange?.status.includes('D')" :label="t('files.deletedFile')" color="error" variant="subtle" size="sm" />
+          <UButton v-else size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('files.openFile')" @click="openChanged(picked)" />
+        </div>
+        <LoadingRows v-if="changeDiff === null" :n="4" />
+        <p v-else-if="!changeDiff" class="px-3 py-2 text-xs text-(--ui-text-muted)">{{ t('files.noChanges') }}</p>
+        <DiffView v-else :diff="changeDiff" class="min-h-0 flex-1" />
+      </template>
+    </div>
+  </div>
+
+  <div v-else class="grid min-h-0 flex-1 gap-4 md:grid-cols-[18rem_1fr]">
     <!-- tree -->
     <div class="flex max-h-[40vh] min-h-0 flex-col overflow-hidden rounded-lg border border-(--ui-border) md:max-h-none">
       <div class="flex items-center gap-1 border-b border-(--ui-border) px-2 py-1.5">
@@ -251,5 +345,6 @@ function badges(f: Flags) {
         </div>
       </template>
     </div>
+  </div>
   </div>
 </template>

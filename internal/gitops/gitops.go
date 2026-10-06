@@ -185,11 +185,77 @@ func Commit(ctx context.Context, root, message string, files []string) (string, 
 
 // CreateBranch creates and switches to a new branch (local changes follow).
 func CreateBranch(ctx context.Context, root, name string) error {
-	if _, err := git(ctx, root, "check-ref-format", "--branch", name); err != nil {
-		return fmt.Errorf("tên nhánh không hợp lệ: %s", name)
+	if err := checkBranch(ctx, root, name); err != nil {
+		return err
 	}
 	_, err := git(ctx, root, "switch", "-c", name)
 	return err
+}
+
+// Branch is a local branch.
+type Branch struct {
+	Name     string `json:"name"`
+	Current  bool   `json:"current"`
+	Upstream string `json:"upstream,omitempty"`
+	Track    string `json:"track,omitempty"` // "[ahead 1, behind 2]", "[gone]"…
+	Date     string `json:"date"`            // of its last commit (ISO)
+	Subject  string `json:"subject"`         // its last commit's
+}
+
+// Branches lists the local branches, the latest commit first.
+func Branches(ctx context.Context, root string) ([]Branch, error) {
+	out, err := git(ctx, root, "for-each-ref", "--sort=-committerdate",
+		"--format=%(HEAD)%00%(refname:short)%00%(upstream:short)%00%(upstream:track)%00%(committerdate:iso-strict)%00%(contents:subject)", "refs/heads")
+	if err != nil {
+		return nil, err
+	}
+	list := []Branch{}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		f := strings.Split(line, "\x00")
+		if len(f) < 6 {
+			continue
+		}
+		list = append(list, Branch{Current: f[0] == "*", Name: f[1], Upstream: f[2], Track: f[3], Date: f[4], Subject: f[5]})
+	}
+	return list, nil
+}
+
+func checkBranch(ctx context.Context, root, name string) error {
+	if strings.HasPrefix(name, "-") {
+		return fmt.Errorf("tên nhánh không hợp lệ: %s", name)
+	}
+	if _, err := git(ctx, root, "check-ref-format", "--branch", name); err != nil {
+		return fmt.Errorf("tên nhánh không hợp lệ: %s", name)
+	}
+	return nil
+}
+
+// SwitchBranch checks out an existing local branch; git refuses when local
+// changes would be lost (they are carried over otherwise).
+func SwitchBranch(ctx context.Context, root, name string) error {
+	if err := checkBranch(ctx, root, name); err != nil {
+		return err
+	}
+	_, err := git(ctx, root, "switch", "--no-guess", name)
+	return err
+}
+
+// DeleteBranch deletes a local branch that is merged (never forced, never the current one).
+func DeleteBranch(ctx context.Context, root, name string) error {
+	if err := checkBranch(ctx, root, name); err != nil {
+		return err
+	}
+	if CurrentBranch(ctx, root) == name {
+		return errors.New("không xóa được nhánh đang dùng")
+	}
+	_, err := git(ctx, root, "branch", "-d", "--", name)
+	return err
+}
+
+// Tracked: path is known to git (an untracked file has no diff against HEAD).
+func Tracked(ctx context.Context, root, path string) bool {
+	out, err := git(ctx, root, "ls-files", "--", path)
+	return err == nil && strings.TrimSpace(out) != ""
 }
 
 // Push pushes the current branch to its remote (setting the upstream the

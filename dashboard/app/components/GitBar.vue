@@ -88,7 +88,10 @@ onBeforeUnmount(() => {
 watch(() => props.projectId, load)
 
 const changes = computed(() => st.value?.changes.length ?? 0)
+// what changed, file by file, and the branches: the Files tab
+const viewChanges = () => navigateTo({ query: { tab: 'files', view: 'changes' } })
 const menu = computed(() => [[
+  { label: t('git.viewChanges'), icon: 'i-lucide-file-diff', disabled: !changes.value, onSelect: viewChanges },
   { label: t('git.commit'), icon: 'i-lucide-git-commit-horizontal', disabled: !changes.value, onSelect: openCommit },
   { label: st.value?.upstream ? t('git.push', { n: st.value.ahead }) : t('git.pushNew'), icon: 'i-lucide-upload', disabled: !!st.value?.upstream && !st.value.ahead, onSelect: push }
 ], [
@@ -97,7 +100,8 @@ const menu = computed(() => [[
 </script>
 
 <template>
-  <component :is="isAdmin ? Dropdown : 'div'" v-if="repo && st" :items="menu" :content="{ align: 'start' }">
+  <div v-if="repo && st" class="flex min-w-0 items-center gap-2">
+  <component :is="isAdmin ? Dropdown : 'div'" :items="menu" :content="{ align: 'start' }">
     <button type="button" class="flex min-w-0 items-center gap-1.5 hover:text-(--ui-text)" :disabled="!isAdmin" :title="st.upstream || t('git.noUpstream')">
       <UIcon :name="busy ? 'i-lucide-loader-circle' : 'i-lucide-git-branch'" class="size-3 shrink-0" :class="busy && 'animate-spin'" />
       <span class="truncate font-mono">{{ st.branch || 'HEAD' }}</span>
@@ -116,6 +120,13 @@ const menu = computed(() => [[
       <UIcon v-if="isAdmin" name="i-lucide-chevron-down" class="size-3 shrink-0" />
     </button>
   </component>
+  <button
+    v-if="changes && isAdmin" type="button" class="shrink-0 text-primary underline-offset-2 hover:underline"
+    @click="viewChanges"
+  >
+    {{ t('git.viewChanges') }}
+  </button>
+  </div>
 
   <UModal v-model:open="commit.open" :title="t('git.commitTitle', { branch: st?.branch ?? '' })">
     <template #body>

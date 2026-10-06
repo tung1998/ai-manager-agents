@@ -71,6 +71,32 @@ func TestCommitAndStatus(t *testing.T) {
 	if _, err := ReadStatus(ctx, t.TempDir()); err != ErrNotRepo {
 		t.Fatalf("not a repo: %v", err)
 	}
+
+	// branches: listed with the current one, switched, a merged one deleted
+	bs, err := Branches(ctx, root)
+	if err != nil || len(bs) != 2 {
+		t.Fatalf("branches = %+v %v", bs, err)
+	}
+	for _, b := range bs {
+		if b.Current != (b.Name == "feat/x") || b.Subject != "feat: đổi a" || b.Date == "" {
+			t.Fatalf("branch = %+v", b)
+		}
+	}
+	if err := DeleteBranch(ctx, root, "feat/x"); err == nil {
+		t.Fatal("deleted the branch checked out")
+	}
+	if err := SwitchBranch(ctx, root, "main"); err != nil || CurrentBranch(ctx, root) != "main" {
+		t.Fatalf("switch: %v (on %s)", err, CurrentBranch(ctx, root))
+	}
+	if err := SwitchBranch(ctx, root, "--orphan"); err == nil {
+		t.Fatal("an option taken as a branch")
+	}
+	if err := DeleteBranch(ctx, root, "feat/x"); err != nil {
+		t.Fatal(err)
+	}
+	if Tracked(ctx, root, "other.txt") || !Tracked(ctx, root, "a.txt") {
+		t.Fatal("tracked wrong")
+	}
 }
 
 // Fetch updates what the project knows of its remote, so behind is right.

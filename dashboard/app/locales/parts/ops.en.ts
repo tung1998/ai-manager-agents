@@ -15,6 +15,7 @@ const en: Record<keyof typeof vi, string> = {
   'git.aheadTitle': '{n} commits not pushed',
   'git.behindTitle': 'The remote has {n} new commits',
   'git.changes': '{n} changes',
+  'git.viewChanges': 'View changes',
   'ops.noFolder.title': 'Project has no folder',
   'ops.noFolder.desc': 'The machine-wide helper has no command to run. Pick a project with a folder.',
   'ops.nav.processes': 'Processes',
