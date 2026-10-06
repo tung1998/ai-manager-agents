@@ -885,7 +885,7 @@
                   "none"
                 ],
                 "default": "hmac-sha256",
-                "description": "Giống webhook_auth_type của senprints-agents"
+                "description": "Cách xác thực webhook gửi tới"
               },
               "auth_name": {
                 "type": "string",
@@ -917,7 +917,7 @@
         },
         "routes": {
           "type": "array",
-          "description": "Giống routes.json của senprints-agents: map source + event sang agent. Event khớp đầu tiên thắng",
+          "description": "Map source + event sang agent. Event khớp đầu tiên thắng",
           "items": {
             "type": "object",
             "required": [
@@ -1131,7 +1131,7 @@
     },
     "rules": {
       "type": "object",
-      "description": "Rule cho từng agent. Tên field giữ giống định nghĩa agent của senprints-agents (agent_json.go) để quen tay và import được. Field không áp dụng cho một cấp sẽ bị doctor cảnh báo.",
+      "description": "Rule cho từng agent. Field không áp dụng cho một cấp sẽ bị doctor cảnh báo.",
       "additionalProperties": false,
       "properties": {
         "instructions": {

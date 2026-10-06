@@ -49,7 +49,7 @@ type Event struct {
     At   time.Time
 }
 
-// Ý tưởng tham khảo: chuẩn hóa output mọi runtime về một envelope (senprints-agents).
+// Chuẩn hóa output mọi runtime về một envelope.
 type ResultEnvelope struct {
     IsError          bool
     Text             string

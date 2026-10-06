@@ -171,6 +171,23 @@ docs/guide/        hướng dẫn sử dụng (GitHub Pages)
 templates/roles/   prompt theo vai trò
 ```
 
+## Tài liệu tham khảo
+
+Các công cụ agent-office chạy trên hoặc kết nối tới, nên đọc để dùng office hiệu quả hơn:
+
+| | |
+|---|---|
+| [Claude Code](https://code.claude.com/docs/en/overview) | CLI lập trình dạng agent của Anthropic, runtime mặc định |
+| [Codex CLI](https://github.com/openai/codex) | Agent lập trình của OpenAI, dùng được làm runtime |
+| [Model Context Protocol](https://modelcontextprotocol.io/) | Giao thức đứng sau cổng MCP; tìm MCP server trong [MCP Registry](https://registry.modelcontextprotocol.io/) |
+| [git worktree](https://git-scm.com/docs/git-worktree) | Cách mỗi chat có một bản sao repo riêng |
+| [Nuxt UI](https://ui.nuxt.com/) | Thư viện component của dashboard |
+| [goose](https://github.com/pressly/goose) | Migration cơ sở dữ liệu |
+
+## Giấy phép
+
+[MIT](LICENSE)
+
 ---
 
 <sub>agent-office là dự án độc lập, xây từ đầu.</sub>

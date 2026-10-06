@@ -1,3 +1,3 @@
 # examples
 
-Config mẫu. `office.config.example.json` là cấu hình pilot cho storefront-v5.
+Config mẫu. `office.config.example.json` là cấu hình mẫu cho một shop Nuxt (`demo-shop`) có log Graylog và dữ liệu Metabase qua MCP.

@@ -41,7 +41,7 @@ async function save(test = false) {
         <USelect v-model="bot" :items="botItems" class="w-full" />
       </UFormField>
       <UFormField :label="kind === 'telegram' ? t('alert.chatTelegram') : t('alert.chatDiscord')">
-        <UInput v-model="form.chat_id" class="w-full font-mono text-xs" :disabled="!form.channel_id" placeholder="1554696300254199890" />
+        <UInput v-model="form.chat_id" class="w-full font-mono text-xs" :disabled="!form.channel_id" placeholder="123456789012345678" />
       </UFormField>
       <UFormField :label="t('alert.threshold')">
         <UInputNumber v-model="form.threshold" :min="50" :max="95" :step="5" class="w-full" />

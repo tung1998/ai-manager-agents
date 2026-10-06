@@ -346,7 +346,7 @@ async function testRun() {
           <template #hint>
             <UTooltip :text="notifyKind === 'telegram' ? t('auto.chatIdTelegram') : t('auto.chatIdDiscord')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
           </template>
-          <UInput v-model="form.config.notify_chat_id" class="w-full font-mono text-xs" placeholder="1554696300254199890" />
+          <UInput v-model="form.config.notify_chat_id" class="w-full font-mono text-xs" placeholder="123456789012345678" />
         </UFormField>
       </div>
     </section>

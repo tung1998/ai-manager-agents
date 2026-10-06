@@ -2,9 +2,9 @@
   "$schema": "../schema/office.config.schema.json",
   "version": 1,
   "project": {
-    "name": "storefront-v5",
-    "description": "Nuxt SSR storefront: catalog, cart, Stripe checkout, i18n, Redis cache, log qua Graylog",
-    "repo_path": "../storefront-v5",
+    "name": "demo-shop",
+    "description": "Nuxt SSR shop: catalog, cart, Stripe checkout, i18n, Redis cache, log qua Graylog",
+    "repo_path": "../demo-shop",
     "knowledge_file": "knowledge.md",
     "timezone": "Asia/Ho_Chi_Minh",
     "language": "vi",
@@ -287,7 +287,7 @@
       "role_template": "worker",
       "source": {
         "kind": "code",
-        "path": "../storefront-v5"
+        "path": "../demo-shop"
       },
       "read_only": true,
       "max_output_bytes": 262144,
@@ -323,7 +323,7 @@
       "source": {
         "kind": "mcp",
         "mcp_servers": [
-          "senprints-hub"
+          "mcp-hub"
         ],
         "tools_allow": [
           "graylog-search_logs_relative",
@@ -335,7 +335,7 @@
         ]
       },
       "read_only": true,
-      "reason": "storefront-v5 ghi log qua winston-graylog2; MCP graylog-* có sẵn",
+      "reason": "demo-shop ghi log qua winston-graylog2; MCP graylog-* có sẵn",
       "rules": {
         "strict_mode": true,
         "permission_mode": "plan",
@@ -363,7 +363,7 @@
       "source": {
         "kind": "mcp",
         "mcp_servers": [
-          "senprints-hub"
+          "mcp-hub"
         ],
         "tools_allow": [
           "metabase-execute_card",
@@ -398,9 +398,9 @@
     }
   ],
   "mcp_servers": {
-    "senprints-hub": {
+    "mcp-hub": {
       "transport": "claude-connector",
-      "connector_name": "SenPrints Internal MCP Hub"
+      "connector_name": "Internal MCP Hub"
     }
   },
   "debate": {

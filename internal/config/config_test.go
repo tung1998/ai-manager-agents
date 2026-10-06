@@ -15,7 +15,7 @@ func TestExampleConfigIsValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("example config: %v", err)
 	}
-	if cfg.Project.Name != "storefront-v5" || cfg.Storage.Driver != "sqlite" || cfg.Server.APIAddr != "127.0.0.1:8787" {
+	if cfg.Project.Name != "demo-shop" || cfg.Storage.Driver != "sqlite" || cfg.Server.APIAddr != "127.0.0.1:8787" {
 		t.Fatalf("decoded = %+v", cfg)
 	}
 	if !filepath.IsAbs(cfg.Storage.Path) && !strings.Contains(cfg.Storage.Path, "examples") {

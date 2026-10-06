@@ -11,7 +11,7 @@ import { spawn, execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync, readdirSync, appendFileSync, readFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { homedir, tmpdir } from 'node:os'
+import { homedir, tmpdir, hostname } from 'node:os'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const worktreeRoot = resolve(here, '..', '..')
@@ -360,6 +360,19 @@ async function browser() {
       await sleep(settle)
     },
     shot: async (name, full = false) => {
+      // the machine's own name and paths never reach a screenshot
+      const reps = [[join('/private', HOME), '/tmp/agent-office-demo'], [HOME, '/tmp/agent-office-demo'], [mainRoot, '~/agent-office'], [homedir(), '~'],
+        [hostname(), 'my-machine'], [hostname().replace(/\.local$/, ''), 'my-machine']]
+      await page.eval(`(() => {
+        const reps = ${JSON.stringify(reps)}
+        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+        for (let n; (n = walk.nextNode());) {
+          let t = n.nodeValue
+          for (const [a, b] of reps) t = t.split(a).join(b)
+          if (t !== n.nodeValue) n.nodeValue = t
+        }
+        return true
+      })()`).catch(() => {})
       const opts = { format: 'png' }
       if (full) {
         const { cssContentSize } = await send('Page.getLayoutMetrics')

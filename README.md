@@ -171,6 +171,23 @@ docs/guide/        the user guide (GitHub Pages)
 templates/roles/   role prompts
 ```
 
+## References
+
+The tools agent-office runs on or talks to, and worth reading to get the most out of it:
+
+| | |
+|---|---|
+| [Claude Code](https://code.claude.com/docs/en/overview) | Anthropic's agentic coding CLI, the default runtime |
+| [Codex CLI](https://github.com/openai/codex) | OpenAI's coding agent, supported as a runtime |
+| [Model Context Protocol](https://modelcontextprotocol.io/) | The protocol behind the MCP gateway; servers can be found in the [MCP Registry](https://registry.modelcontextprotocol.io/) |
+| [git worktree](https://git-scm.com/docs/git-worktree) | How every chat gets its own copy of the repo |
+| [Nuxt UI](https://ui.nuxt.com/) | The component library of the dashboard |
+| [goose](https://github.com/pressly/goose) | Database migrations |
+
+## License
+
+[MIT](LICENSE)
+
 ---
 
 <sub>agent-office is an independent project built from scratch.</sub>
