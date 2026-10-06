@@ -87,6 +87,10 @@ const en: Record<keyof typeof vi, string> = {
   'draft.reload': 'Reload',
   'incidents.kind.patch': 'diff to review',
   'incidents.kind.unread': 'unread',
+  'incidents.kind.stalled': 'out of tokens',
+  'home.continue': 'Continue',
+  'home.continueInfo': 'Sends "continue" to the agent that stopped; best once the AI connection has tokens again',
+  'home.done_continue': 'Sent: continuing',
   'incidents.kind.approval': 'waiting',
 
   'projects.title': 'Projects',

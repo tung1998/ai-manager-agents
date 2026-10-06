@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
@@ -47,8 +48,32 @@ func (e *Engine) endJob(jobID, messageID string, runErr, ctxErr error) {
 		status, code = "cancelled", "timeout"
 	case runErr != nil && errors.As(runErr, &be):
 		status, code, msg = "failed", "budget", runErr.Error()
+	case runErr != nil && OutOfTokens(runErr):
+		status, code, msg = "failed", "out_of_tokens", runErr.Error()
 	case runErr != nil:
 		status, code, msg = "failed", "agent_error", runErr.Error()
 	}
 	_, _ = e.store.Jobs().Finish(ctx, jobID, status, code, msg, time.Now().UTC())
 }
+
+// outOfTokens are how the AI services say a run stopped because the account
+// ran out of quota or credit (Claude Code's usage limit, an API's 429/quota).
+var outOfTokens = []string{
+	"usage limit", "limit reached", "hit your limit", "rate limit", "rate_limit", " 429", "quota",
+	"credit balance", "insufficient credit", "insufficient_quota", "out of credits", "too many requests",
+}
+
+// OutOfTokens: err says the AI connection is out of tokens for now (not a
+// bug in the run), so the chat can go on once there are tokens again.
+func OutOfTokens(err error) bool {
+	s := strings.ToLower(err.Error())
+	for _, k := range outOfTokens {
+		if strings.Contains(s, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// Stalled: a job's error code that leaves its chat waiting for tokens.
+func Stalled(code string) bool { return code == "out_of_tokens" || code == "budget" }

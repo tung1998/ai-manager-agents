@@ -27,7 +27,7 @@ const recentChats = computed(() => chatData.value?.conversations ?? [])
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // what needs a person, and the last day in numbers
-interface Incident { kind: string, severity: 'error' | 'warning' | 'info', project_id: string, project_name: string, title: string, detail: string, link: string, id: string, key: string }
+interface Incident { kind: string, severity: 'error' | 'warning' | 'info', project_id: string, project_name: string, title: string, detail: string, link: string, id: string, key: string, prompt?: string }
 const _f6 = useLiveFetch<{ incidents: Incident[], count: number }>('/api/incidents', { key: 'incidents', lazy: true })
 const { data: incData, refresh: refreshInc } = _f6
 const incidents = computed(() => incData.value?.incidents ?? [])
@@ -54,7 +54,7 @@ async function seen(x: Incident) {
   }
 }
 // skip: rejected, and its agent is not run again about it
-async function act(x: Incident, what: 'approve' | 'reject' | 'skip' | 'retry' | 'dismiss') {
+async function act(x: Incident, what: 'approve' | 'reject' | 'skip' | 'retry' | 'dismiss' | 'continue') {
   const key = x.key + what
   if (acting.has(key)) return
   acting.add(key)
@@ -64,6 +64,8 @@ async function act(x: Incident, what: 'approve' | 'reject' | 'skip' | 'retry' | 
     if ((decide === 'approve' || decide === 'reject') && x.kind === 'patch') await $fetch(`/api/patches/${x.id}/${decide}`, { method: 'POST', body })
     else if (decide === 'approve' || decide === 'reject') await $fetch(`/api/actions/${x.id}/${decide}`, { method: 'POST', body })
     else if (what === 'dismiss') await $fetch('/api/incidents/dismiss', { method: 'POST', body: { key: x.key } })
+    // a chat stopped for tokens: the agent that stopped goes on in it
+    else if (what === 'continue') await $fetch(`/api/conversations/${x.id}/messages`, { method: 'POST', body: { text: x.prompt } })
     else if (x.kind === 'jobs') await $fetch(`/api/jobs/${x.id}/retry`, { method: 'POST' })
     else await $fetch('/api/incidents/retry', { method: 'POST', body: { kind: x.kind, id: x.id } })
     toast.add({ title: t(`home.done_${what}`), color: 'success' })
@@ -100,7 +102,7 @@ function investigate(x: Incident) {
 // a failure opened in place: what happened, its failed runs, its logs or checks
 const shown = ref<Incident | null>(null)
 const shownOpen = computed({ get: () => !!shown.value, set: (v: boolean) => { if (!v) shown.value = null } })
-const isDecision = (x: Incident) => x.kind === 'approval' || x.kind === 'patch' || x.kind === 'unread' // a link: where to act on it
+const isDecision = (x: Incident) => x.kind === 'approval' || x.kind === 'patch' || x.kind === 'unread' || x.kind === 'stalled' // a link: where to act on it
 const runsQuery = (x: Incident) => ({
   jobs: `project=${x.project_id}&status=failed&since=24h&limit=30`,
   automation: `origin_id=${x.id}&limit=20`,
@@ -119,7 +121,8 @@ watch(shown, async (x) => {
 const canRetry = (k: string) => ['monitor', 'process', 'automation', 'bot', 'jobs'].includes(k)
 const incIcon: Record<string, string> = {
   monitor: 'i-lucide-activity', process: 'i-lucide-square-terminal', automation: 'i-lucide-alarm-clock-off',
-  bot: 'i-lucide-bot', jobs: 'i-lucide-circle-x', approval: 'i-lucide-stamp', patch: 'i-lucide-file-diff', limit: 'i-lucide-gauge', unread: 'i-lucide-message-square-dot'
+  bot: 'i-lucide-bot', jobs: 'i-lucide-circle-x', approval: 'i-lucide-stamp', patch: 'i-lucide-file-diff', limit: 'i-lucide-gauge', unread: 'i-lucide-message-square-dot',
+  stalled: 'i-lucide-battery-low'
 }
 
 const providers = computed(() => prov.value?.providers ?? [])
@@ -201,6 +204,14 @@ const steps = computed(() => [
             <div v-if="x.kind === 'unread'" class="flex shrink-0 items-center gap-1 max-sm:w-full max-sm:ps-7">
               <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-eye" :label="t('home.view')" :to="x.link" />
               <UButton size="xs" color="neutral" variant="ghost" :label="t('chat.markSeen')" :loading="acting.has(x.key + 'seen')" @click="seen(x)" />
+            </div>
+            <!-- a chat stopped for tokens: go on, or let it be (the person who sent it, or an admin) -->
+            <div v-else-if="x.kind === 'stalled'" class="flex shrink-0 items-center gap-1 max-sm:w-full max-sm:ps-7">
+              <UTooltip :text="t('home.continueInfo')">
+                <UButton size="xs" icon="i-lucide-play" :label="t('home.continue')" :loading="acting.has(x.key + 'continue')" @click="act(x, 'continue')" />
+              </UTooltip>
+              <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-eye" :label="t('home.view')" :to="x.link" />
+              <UButton v-if="isAdmin" size="xs" color="neutral" variant="ghost" :label="t('home.dismiss')" :loading="acting.has(x.key + 'dismiss')" @click="act(x, 'dismiss')" />
             </div>
             <!-- what to do about it, right here -->
             <div v-else-if="isAdmin" class="flex shrink-0 flex-wrap items-center gap-1 max-sm:w-full max-sm:ps-7">

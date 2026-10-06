@@ -86,6 +86,10 @@ export default {
   'draft.reload': 'Tải lại',
   'incidents.kind.patch': 'diff chờ duyệt',
   'incidents.kind.unread': 'tin chưa xem',
+  'incidents.kind.stalled': 'hết token',
+  'home.continue': 'Tiếp tục',
+  'home.continueInfo': 'Gửi tin "tiếp tục" cho agent đã dừng; nên bấm khi kết nối AI đã có token trở lại',
+  'home.done_continue': 'Đã gửi tiếp tục',
   'incidents.kind.approval': 'chờ duyệt',
 
   'projects.title': 'Project',

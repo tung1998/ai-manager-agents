@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/assistant"
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
@@ -18,7 +19,7 @@ import (
 // fix it: a monitor down, a process crashed, an automation office turned off,
 // a bot that lost its connection, tasks and runs that failed, a card waiting.
 type incident struct {
-	Kind        string    `json:"kind"`     // monitor | process | automation | bot | jobs | approval | patch | unread
+	Kind        string    `json:"kind"`     // monitor | process | automation | bot | jobs | approval | patch | unread | stalled
 	Severity    string    `json:"severity"` // error | warning
 	ProjectID   string    `json:"project_id"`
 	ProjectName string    `json:"project_name"`
@@ -28,6 +29,8 @@ type incident struct {
 	Link        string    `json:"link"`
 	ID          string    `json:"id"`  // what it is about: the monitor, process, automation, bot, latest failed job or action
 	Key         string    `json:"key"` // for Bỏ qua: kind and what it is about
+	// Prompt: stalled — what Tiếp tục sends to the chat (to the agent that stopped)
+	Prompt string `json:"prompt,omitempty"`
 }
 
 func dismissKey(key string) string { return "incident_dismissed/" + key }
@@ -103,7 +106,7 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 			_, _ = s.cfg.Store.Settings().Get(ctx, dismissKey("jobs:"+p.ID), &gone)
 			fresh := failed[:0:0]
 			for _, j := range failed {
-				if j.CreatedAt.After(gone) {
+				if j.CreatedAt.After(gone) && !(j.Kind == "chat_turn" && chat.Stalled(j.ErrorCode)) { // a chat out of tokens is its own item
 					fresh = append(fresh, j)
 				}
 			}
@@ -111,6 +114,13 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 				last := fresh[0]
 				add("jobs", "warning", fmt.Sprintf("%d job lỗi trong 24 giờ", len(fresh)), last.Title+": "+last.Error, &last.CreatedAt, "/jobs?project="+p.ID, last.ID, p.ID)
 			}
+		}
+		for _, it := range s.stalledChats(ctx, u, p) {
+			var gone time.Time
+			if ok, _ := s.cfg.Store.Settings().Get(ctx, dismissKey(it.Key), &gone); ok && !it.At.After(gone) {
+				continue
+			}
+			out = append(out, it)
 		}
 	}
 	if u.Role == storage.RoleAdmin { // cards waiting for a person

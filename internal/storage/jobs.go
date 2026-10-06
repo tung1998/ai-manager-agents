@@ -20,7 +20,7 @@ type Job struct {
 	TaskID         string
 	Status         string // pending | running | done | failed | cancelled | skipped | needs_input
 	Error          string
-	ErrorCode      string // busy_timeout | budget | rate_limit | agent_missing | restart | agent_error | cancelled | disabled
+	ErrorCode      string // busy_timeout | budget | out_of_tokens | rate_limit | agent_missing | restart | agent_error | cancelled | disabled
 	AgentID        string
 	Title          string
 	CostUSD        float64
