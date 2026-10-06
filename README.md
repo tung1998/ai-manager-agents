@@ -1,98 +1,151 @@
+<div align="center">
+
 # agent-office
 
-**Văn phòng AI của riêng mỗi người.** Bạn có một đội nhân viên AI (agent) chạy trên máy của mình, mỗi người một vai trò. Họ nhận việc qua chat (dashboard, Discord, Telegram), tự làm, tự giao việc cho nhau, và chỉ hỏi bạn khi cần duyệt.
+**Your own AI office. A team of AI agents that runs on your machine, takes work over chat, and asks you only when something needs approval.**
 
-Việc mà office làm được:
+[Guide with screenshots](docs/guide/index.html) · [Tiếng Việt](README.vi.md) · [Plan & progress](docs/PLAN.md) · [Decisions (ADR)](docs/DECISIONS.md)
 
-| Mảng | Ví dụ | Trạng thái |
+![Overview](docs/guide/images/02-overview.png)
+
+</div>
+
+---
+
+## Why agent-office
+
+AI coding tools are great one chat at a time. Real work is more than that: several repos, a dev server that crashes at night, a weekly plan, a Discord message from a teammate, a webhook from Sentry. agent-office turns your AI subscriptions into **an office**:
+
+- **A team, not a chatbot.** Each project gets its own agents (lead, developers, QA, reviewer…) organised as Solo, Team, Council (vote + veto) or your own model. They delegate to each other like colleagues.
+- **Safe by default.** Every agent edits in its **own git worktree**. Changes come back as a diff that you approve, reject or skip. Permissions are per action (read, edit, run command X, git push, restart container…).
+- **Runs where your code runs.** A single Go binary plus a Nuxt dashboard on your machine. It uses the accounts you already have (Claude Code, Codex, Anthropic/OpenAI API or 18+ compatible providers). Your data stays in a local SQLite file.
+- **Always on.** Schedules, webhooks, Discord/Telegram bots, uptime monitors and **Burn** (an agent that keeps finding and doing work) keep the office busy while you are away.
+
+| Area | What it does today | Status |
 |---|---|---|
-| **Code (ưu tiên)** | viết tính năng, sửa lỗi, review PR, chạy và giám sát dev/build/container, Burn tự tìm việc và làm | đang dùng hằng ngày |
-| Lên kế hoạch | chia việc, lộ trình, kế hoạch tuần | qua chat; chưa có công cụ riêng |
-| Trao đổi khách hàng | đọc tin nhắn, soạn câu trả lời, theo dõi hội thoại | bot Discord/Telegram; các kênh khác chờ Connector |
-| Nội dung | bài đăng Facebook, blog, tài liệu | chờ Connector |
-| Tự động hóa | lịch chạy, webhook, tin nhắn kênh kích hoạt agent | đang dùng |
+| **Code** (priority) | features, bug fixes, PR review, run & monitor dev/build/containers, Burn | used daily on several repos |
+| Planning | roadmaps, weekly plans, splitting work | through chat and memory |
+| Customer conversations | read and draft replies | Discord/Telegram bots; more via Connectors |
+| Content | posts, blogs, docs | through chat; publishing via Connectors (planned) |
+| Automation | cron, webhooks, chat messages trigger agents or scripts | used daily |
 
-Nguyên tắc:
-- **Code là mảng được ưu tiên.** Nó chín nhất và được làm trước khi phải chọn. Các mảng khác dùng chung cùng một nền: agent, chat, quyền, duyệt, trí nhớ, tự động hóa.
-- **Việc gửi ra ngoài luôn cần người duyệt.** Đăng bài, trả lời khách hay push code đều như vậy, trừ khi bạn tự cấp toàn quyền cho agent.
-- **Chạy trên máy của bạn.** Dùng tài khoản AI của bạn (Claude Code, Codex, API), dữ liệu nằm trong office. Office nối ra thế giới bên ngoài qua MCP, và sau này qua Connector.
+## Features at a glance
 
-> Dự án độc lập, xây từ đầu. `senprints-agents` chỉ dùng để tham khảo ý tưởng, không extend và không copy code.
+| | |
+|---|---|
+| 💬 **Chat with your team** · stream, `@mention` agents into a group chat, `/skills`, attach images/PDF/logs, tags, search history | ![Chat](docs/guide/images/04-chat.png) |
+| 🧑‍🤝‍🧑 **Organisation models** · Solo, Team (plan → parallel work → merge), Council (vote, veto, review) or your own; edit every agent | ![Team model](docs/guide/images/06-team-model.png) |
+| ✅ **Review before merge** · each chat has a git worktree; diffs, actions and setting changes wait for *Approve / Reject / Skip* (or "approve & always allow") | ![Diff card](docs/guide/images/34-dark-chat.png) |
+| ⚙️ **Operations** · detect project commands, run/stop/auto-restart like pm2, live logs, CPU/RAM/ports, docker compose, "ask the agent about this log" | ![Operations](docs/guide/images/11-operations.png) |
+| 🤖 **Automations** · schedule (cron + timezone), webhook, Discord/Telegram message; run a script for free and call an AI only on failure or `@@agent:` | ![Automations](docs/guide/images/09-automations.png) |
+| 🔥 **Burn** · an agent that works on its own in a project, one worktree per task, pause/resume, stop timer | ![Burn](docs/guide/images/13-burn.png) |
+| 🔌 **One MCP gateway** · the office holds MCP servers (HTTP, stdio, OAuth login) and forwards them to every AI with per-tool permissions and a call log | ![MCP](docs/guide/images/15-mcp.png) |
+| 💸 **Costs & limits** · every AI call logged with real or estimated cost, daily budgets per office/project/automation, fallback connections when one fails | ![Costs](docs/guide/images/27-stats.png) |
 
-## Chạy thử
+More: long-term agent memory, office assistant across projects, multi-pane **Watch** screen, change log of who did what and who approved it, Files tab with an editor, users & roles, personal API tokens, export/import config, backup, self-update from source, light/dark, English/Vietnamese.
 
-Cần Go ≥ 1.27, Node 22, pnpm.
+## Quick start
+
+Requirements: **Go ≥ 1.27**, **Node 22**, **pnpm**, and at least one AI account (Claude Code / Codex CLI logged in, or an API key).
 
 ```bash
-make build                                   # bin/office
-./bin/office init --local --template team    # đăng ký repo hiện tại, chọn mô hình
-./bin/office user create --email you@company.com --name "Bạn" --role admin
-make ui-install && make ui-build             # build dashboard
-./bin/office run                             # API :8787 + dashboard http://localhost:2704
+git clone <this repo> agent-office && cd agent-office
+make build                                        # → bin/office
+make ui-install && make ui-build                  # → dashboard/.output
+
+./bin/office user create --email you@example.com --name "You" --role admin
+./bin/office run                                  # API :8787 + dashboard http://localhost:2704
 ```
 
-`office run` là supervisor: chạy server (`office serve`) và dashboard, tự bật lại khi dừng, và
-áp dụng **Quản trị → Cập nhật office** (build lại từ mã nguồn, tự quay về bản cũ nếu bản mới lỗi).
-Khi sửa giao diện: `make dev-ui` (hot reload, cổng 2704) cùng `make dev-api` (chỉ server).
+Open **http://localhost:2704**, sign in, and follow the checklist on the Overview page:
 
-Mở http://localhost:2704, đăng nhập bằng tài khoản vừa tạo. Trang Tổng quan có checklist: Kết nối AI → Repo → Mô hình.
+1. **AI connections** → add Claude Code, Codex, or an API key (test it in one click).
+2. **Projects** → add a folder, clone a git URL, or create a folder-less helper.
+3. **Organisation model** → pick Solo / Team / Council, or let *Set up with AI* read the repo and propose one.
+4. Open the project's **Chat** and give your first task.
 
-Cài trên máy để quản lý nhiều repo: bỏ `--local`, dữ liệu nằm ở `~/.agent-office`, rồi `office init` trong từng repo hoặc `office repo add <path>`.
+Data lives in `~/.agent-office` by default. Use `office init --local` inside a repo to keep the data in `<repo>/.office` instead.
 
-Chạy bằng Docker:
+### Run it as a service
+
+```bash
+./bin/office service install --now   # LaunchAgent (macOS) / systemd user unit (Linux)
+./bin/office service status
+```
+
+### Docker
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
-docker compose exec office office user create --email you@company.com --role admin
+docker compose exec office office user create --email you@example.com --role admin
 ```
 
-Test: `make test` (Go) và `make ui-build` (typecheck + build dashboard).
+## How it works
 
-## Tài liệu
+```mermaid
+flowchart LR
+  You((You)) -- web / Discord / Telegram --> Office
+  subgraph Office[office binary]
+    API[REST + SSE + MCP] --> Chat[Chat engine]
+    Chat --> Perm{Permissions}
+    Perm -- allowed --> Run[Claude Code · Codex · API]
+    Perm -- needs approval --> Card[Approval card]
+    Trigger[Schedules · Webhooks · Bots · Monitors · Burn] --> Chat
+    Run --> WT[(git worktree per chat)]
+    Run --> GW[MCP gateway]
+  end
+  WT -- approved diff --> Repo[(Your repo)]
+  GW --> Ext[MCP servers]
+  Office --- DB[(SQLite)]
+```
 
-| File | Nội dung |
+- **One job for every run.** A chat turn, an automation or a monitor analysis is a job with its cost, logs and result ([ADR-040](docs/DECISIONS.md)).
+- **Agents propose, people approve.** Commands outside an agent's allow-list, restarts, commits, pushes, settings changes and MCP tools that write all become cards you decide on, on the dashboard or from a bot message.
+- **Office is the only gateway out.** MCP servers, bots and (soon) Connectors go through the office, so permissions and the audit log live in one place.
+
+## CLI
+
+| Command | What it does |
 |---|---|
-| [docs/PLAN.md](docs/PLAN.md) | Tầm nhìn, stack, tiến độ, lộ trình |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Thành phần, luồng dữ liệu, sơ đồ Mermaid |
-| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Schema DB: memory, blackboard, runs, incidents, costs |
-| [docs/INTERFACES.md](docs/INTERFACES.md) | RuntimeAdapter, StorageAdapter, NotifyAdapter, output schema |
-| [docs/CLI.md](docs/CLI.md) | Đặc tả lệnh `office` |
-| [docs/UI.md](docs/UI.md) | Màn hình dashboard và API |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | ADR |
-| [schema/office.config.schema.json](schema/office.config.schema.json) | JSON Schema config |
-| [examples/office.config.example.json](examples/office.config.example.json) | Config pilot storefront-v5 |
-| [templates/roles/](templates/roles/) | Prompt khung theo vai trò |
+| `office run` | Supervisor: API server + dashboard, restarts on crash, applies self-updates |
+| `office serve` | API server only |
+| `office init [--local] [--template team]` | Register the current repo and choose a model |
+| `office project add/list/rm` | Manage projects (no path = machine-wide helper) |
+| `office provider add/list/test` | AI connections |
+| `office user create/list/passwd` | Dashboard accounts |
+| `office template list` | Built-in and custom organisation models |
+| `office export / import / backup` | Move config between machines, back up the database |
+| `office service install/status/uninstall` | Start with your login session |
 
-## Cây thư mục
+Full reference: [docs/CLI.md](docs/CLI.md).
+
+## Development
+
+```bash
+make dev-api      # API only
+make dev-ui       # dashboard with hot reload on :2704
+make test         # go test + i18n check
+make ui-build     # typecheck + build the dashboard
+node docs/guide/capture.mjs   # rebuild the guide screenshots from a throwaway demo office
+```
+
+Stack: Go (cobra, net/http, SQLite via `modernc.org/sqlite`, goose migrations), Nuxt 4 + Nuxt UI, SSE for live updates. See [ARCHITECTURE](docs/ARCHITECTURE.md), [DATA_MODEL](docs/DATA_MODEL.md), [INTERFACES](docs/INTERFACES.md) and [UI](docs/UI.md).
 
 ```text
-agent-office/
-├── cmd/office/              # entry point binary `office`
-├── internal/
-│   ├── api/                 # REST + SSE + webhook ingress
-│   ├── audit/               # log append-only
-│   ├── blackboard/          # threads, findings, evidence
-│   ├── budget/              # guard chi phí, cost ledger
-│   ├── config/              # load/validate/ghi office.config.json
-│   ├── debate/              # state machine debate
-│   ├── heartbeat/           # vòng heartbeat manager
-│   ├── initscan/            # quét repo cho `office init`
-│   ├── mcp/                 # registry MCP, phân loại read-only
-│   ├── memory/              # 3 lớp memory + compaction
-│   ├── notify/              # Discord/Telegram/Slack
-│   ├── orchestrator/        # chạy một run, quyết định escalate
-│   ├── runtime/             # adapter claude-code/api/codex/gemini + Router
-│   ├── scheduler/           # ticker, claim, lease
-│   ├── storage/             # SQLite + Postgres
-│   └── worker/              # strict MCP, validate output
-├── migrations/{sqlite,postgres}/
-├── plugins/                 # runtime/notify/storage/trigger/role ngoài core
-├── dashboard/               # Nuxt 4 + @nuxt/ui
-├── schema/                  # JSON Schema config
-├── examples/                # config mẫu
-├── templates/roles/         # prompt khung
-└── docs/
+cmd/office/        the `office` binary (CLI, supervisor, server)
+internal/          api, chat, perm, worktree, automation, trigger, ops, monitor,
+                   burn, channels, mcpgateway, memory, storage, …
+migrations/        SQLite migrations (goose)
+dashboard/         Nuxt 4 dashboard (vi + en)
+docs/              plan, architecture, decisions, guide/
+templates/roles/   role prompts
 ```
 
-Mỗi thư mục có README ngắn mô tả trách nhiệm, phụ thuộc và milestone.
+## Roadmap
+
+Done and in daily use: chat + worktrees, approvals, organisation models, operations, monitors, automations, bots, memory, Burn, MCP gateway, fallback connections. Next: incident notifications to Discord/Telegram, `office doctor`, a single binary with the dashboard embedded, release-based updates, and Connectors (email, Slack, Messenger, Zalo OA). Details in [docs/PLAN.md](docs/PLAN.md).
+
+---
+
+<sub>agent-office is an independent project built from scratch.</sub>
