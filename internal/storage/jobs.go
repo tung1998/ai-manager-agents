@@ -174,6 +174,9 @@ type AutomationConfig struct {
 	NotifyChatID    string `json:"notify_chat_id,omitempty"`
 	// Tags go on the chat each run talks in (added to its own; at most 10 a chat).
 	Tags []string `json:"tags,omitempty"`
+	// EndsAt: a schedule stops (turns itself off) at this time, as a Burn
+	// does (nil = runs until turned off).
+	EndsAt *time.Time `json:"ends_at,omitempty"`
 }
 
 // AutomationLimits guard unattended runs.

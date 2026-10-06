@@ -25,6 +25,8 @@ export default {
   'auto.schedEvery': 'Lặp lại',
   'auto.schedCron': 'Giờ cố định',
   'auto.unitMinutes': 'phút',
+  'auto.unitHours': 'giờ',
+  'auto.endsAt': 'tự tắt lúc {at}',
   'auto.unitSeconds': 'giây',
   'auto.cardAgent': 'Gửi cho agent',
   'auto.cardAgentDesc': 'Agent nhận nội dung và làm theo quyền của nó (có thể giao việc cho đội)',

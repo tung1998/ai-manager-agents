@@ -24,7 +24,8 @@ type Spec struct {
 	Prompt       string                     `json:"prompt,omitempty"`
 	Script       storage.AutomationScript   `json:"script"`
 	Escalate     storage.AutomationEscalate `json:"escalate"`
-	Tags         []string                   `json:"tags,omitempty"` // on each run's chat (none = the ones it has)
+	Tags         []string                   `json:"tags,omitempty"`    // on each run's chat (none = the ones it has)
+	EndsAt       *time.Time                 `json:"ends_at,omitempty"` // schedule: it stops then (none = the one it has)
 }
 
 // Check rejects what could not run: a bad schedule, an unknown language, a
@@ -52,6 +53,9 @@ func (s *Spec) Check() error {
 		return errors.New("tối đa 10 tag")
 	}
 	s.Tags = tags
+	if s.EndsAt != nil && !s.EndsAt.After(time.Now()) {
+		return errors.New("giờ dừng đã qua")
+	}
 	if s.Source == "schedule" {
 		if err := Validate(s.config()); err != nil {
 			return err
@@ -88,6 +92,11 @@ func (s Spec) Apply(a *storage.Automation, now time.Time) {
 	if len(s.Tags) > 0 {
 		cfg.Tags = s.Tags
 	}
+	cfg.EndsAt = a.Config.EndsAt
+	if s.EndsAt != nil {
+		end := s.EndsAt.UTC()
+		cfg.EndsAt = &end
+	}
 	if s.Source == "webhook" && cfg.Auth == "" {
 		cfg.Auth = "bearer"
 	}
@@ -95,7 +104,7 @@ func (s Spec) Apply(a *storage.Automation, now time.Time) {
 	a.Script, a.Escalate = s.Script, storage.AutomationEscalate{} // a script calls no agent in (ADR-057)
 	a.NextRunAt = nil
 	if a.Source == "schedule" {
-		if next, err := Next(a.Config, now); err == nil {
+		if next, err := NextRun(a.Config, now); err == nil {
 			a.NextRunAt = &next
 		}
 	}

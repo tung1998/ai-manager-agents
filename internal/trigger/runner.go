@@ -103,11 +103,27 @@ func (r *Runner) Run(ctx context.Context) {
 // Wait waits for the jobs started so far (and the ones they chain to).
 func (r *Runner) Wait() { r.wg.Wait() }
 
+// NextRun is a schedule's next run after now, at most its stop time (due
+// then only to stop).
+func NextRun(c storage.AutomationConfig, now time.Time) (time.Time, error) {
+	next, err := Next(c, now)
+	if err == nil && c.EndsAt != nil && next.After(*c.EndsAt) {
+		next = *c.EndsAt
+	}
+	return next, err
+}
+
 // Tick queues the schedules that are due, then starts what is ready.
 func (r *Runner) Tick(ctx context.Context, now time.Time) {
 	due, _ := r.store.Automations().Due(ctx, now)
 	for _, a := range due {
-		next, err := Next(a.Config, now) // from now: many missed runs are caught up once
+		if end := a.Config.EndsAt; end != nil && !now.Before(*end) { // its stop time: it stops, as a Burn does (runs going on finish)
+			a.Enabled, a.NextRunAt = false, nil
+			a.DisabledCode, a.DisabledReason = "ended", "đã tới giờ dừng "+end.In(time.Local).Format("15:04 02/01/2006")
+			_ = r.store.Automations().Update(ctx, a)
+			continue
+		}
+		next, err := NextRun(a.Config, now) // from now: many missed runs are caught up once
 		if err != nil {
 			continue
 		}

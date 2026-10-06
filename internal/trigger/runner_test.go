@@ -89,6 +89,32 @@ func TestScheduleRunsOnceAndNoOverlap(t *testing.T) {
 	}
 }
 
+// A schedule with a stop time: its next run is at most then; then it turns
+// itself off (no run), as a Burn stops.
+func TestScheduleStops(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	ex := &fakeExec{}
+	r := trigger.New(st, ex)
+	now := time.Now().UTC()
+	end := now.Add(10 * time.Minute)
+	past := now.Add(-time.Minute)
+	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "loop", Source: "schedule", Action: "chat", Enabled: true,
+		Config: storage.AutomationConfig{EveryMinutes: 60, EndsAt: &end}, NextRunAt: &past})
+	r.Tick(ctx, now)
+	r.Wait()
+	a, _ = st.Automations().Get(ctx, a.ID)
+	if len(ex.chats) != 1 || a.NextRunAt == nil || !a.NextRunAt.Equal(end) || !a.Enabled {
+		t.Fatalf("before its stop: runs %d, next %v (want %v), on %v", len(ex.chats), a.NextRunAt, end, a.Enabled)
+	}
+	r.Tick(ctx, end)
+	r.Wait()
+	a, _ = st.Automations().Get(ctx, a.ID)
+	if len(ex.chats) != 1 || a.Enabled || a.DisabledCode != "ended" || a.NextRunAt != nil {
+		t.Fatalf("at its stop: runs %d, %+v", len(ex.chats), a)
+	}
+}
+
 // A run hands the automation's tags to the chat it talks in.
 func TestRunCarriesTags(t *testing.T) {
 	ctx := context.Background()

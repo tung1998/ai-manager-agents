@@ -43,6 +43,7 @@ export interface AutomationConfig {
   pull_request?: boolean // a GitHub/Bitbucket PR webhook: runs on a PR opened or updated, with {{diff}}
   notify_channel_id?: string, notify_chat_id?: string // what a run answers goes to this bot's chat too
   tags?: string[] // put on the chat of each run
+  ends_at?: string | null // a schedule turns itself off then (as a Burn); none = runs until turned off
 }
 export interface AutomationLimits {
   max_parallel?: number // runs at once (ADR-082)

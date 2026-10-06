@@ -79,14 +79,37 @@ const actions = computed(() => [
   { value: 'script' as const, icon: 'i-lucide-square-terminal', title: t('auto.cardScript'), desc: fromChannel.value ? t('auto.cardScriptChannelDesc') : t('auto.cardScriptDesc') }
 ])
 
+// when a schedule stops on its own, as a Burn: the weekly limit's reset, after
+// some hours, at a time, or never (turned off by hand)
+const { data: resetData } = useLiveFetch<{ weekly_reset: string | null }>(() => `/api/projects/${props.projectId}/automations/weekly-reset?agent_id=${form.agent_id}`, { lazy: true })
+const weeklyReset = computed(() => resetData.value?.weekly_reset ?? null)
+const endMode = ref<'none' | 'reset' | 'hours' | 'at'>(form.config.ends_at ? 'at' : 'none')
+const endHours = ref(8)
+const localInput = (iso: string) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 16) }
+const endAt = ref(form.config.ends_at ? localInput(form.config.ends_at) : localInput(new Date(Date.now() + 8 * 3600e3).toISOString()))
+watch([endMode, endHours, endAt, weeklyReset], () => {
+  switch (endMode.value) {
+    case 'reset': form.config.ends_at = weeklyReset.value; break
+    case 'hours': form.config.ends_at = new Date(Date.now() + Math.max(1, endHours.value) * 3600e3).toISOString(); break
+    case 'at': form.config.ends_at = endAt.value ? new Date(endAt.value).toISOString() : null; break
+    default: form.config.ends_at = null
+  }
+})
+const endItems = computed(() => [
+  { value: 'none', label: t('burn.endNone') },
+  ...(weeklyReset.value ? [{ value: 'reset', label: t('burn.endReset', { at: fmt(weeklyReset.value) }) }] : []),
+  { value: 'hours', label: t('burn.endHours') },
+  { value: 'at', label: t('burn.endAt') }
+])
+
 // next runs, asked from the server (same parser as the scheduler)
 const preview = ref<{ next: string[], error?: string }>({ next: [] })
 let timer: ReturnType<typeof setTimeout> | undefined
-watch(() => [form.source, form.config.every_minutes, form.config.cron, form.config.timezone], () => {
+watch(() => [form.source, form.config.every_minutes, form.config.cron, form.config.timezone, form.config.ends_at], () => {
   clearTimeout(timer)
   if (form.source !== 'schedule') return
   timer = setTimeout(async () => {
-    const q = new URLSearchParams({ every: String(form.config.every_minutes || 0), cron: form.config.cron ?? '', tz: form.config.timezone ?? '' })
+    const q = new URLSearchParams({ every: String(form.config.every_minutes || 0), cron: form.config.cron ?? '', tz: form.config.timezone ?? '', ends: form.config.ends_at ?? '' })
     try {
       preview.value = await $fetch(`/api/automations/preview-schedule?${q}`)
     } catch { preview.value = { next: [] } }
@@ -205,6 +228,18 @@ async function testRun() {
             <USelectMenu v-model="tz" :items="tzItems" :search-input="{ placeholder: t('auto.tzSearch') }" class="w-full" />
           </UFormField>
         </div>
+        <!-- it stops on its own, as a Burn -->
+        <UFormField :label="t('burn.endLabel')" :class="hl('config')">
+          <div class="flex flex-wrap items-center gap-2">
+            <USelect v-model="endMode" :items="endItems" class="min-w-56" />
+            <template v-if="endMode === 'hours'">
+              <UInputNumber v-model="endHours" :min="1" :max="720" class="w-28" />
+              <span class="text-sm text-(--ui-text-muted)">{{ t('auto.unitHours') }}</span>
+            </template>
+            <UInput v-else-if="endMode === 'at'" v-model="endAt" type="datetime-local" class="w-60" />
+            <span v-if="form.config.ends_at" class="text-xs text-(--ui-text-muted)">{{ t('auto.endsAt', { at: fmt(form.config.ends_at) }) }}</span>
+          </div>
+        </UFormField>
         <div class="flex flex-wrap items-center gap-1.5 text-xs">
           <span class="me-1 text-(--ui-text-muted)">{{ t('auto.nextRuns') }}</span>
           <span v-if="preview.error" class="text-(--ui-error)">{{ preview.error }}</span>

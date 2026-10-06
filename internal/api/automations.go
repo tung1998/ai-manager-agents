@@ -24,6 +24,7 @@ func (s *server) triggerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/projects/{id}/automations", auth(s.listAutomations))
 	mux.Handle("POST /api/projects/{id}/automations", admin(s.createAutomation))
 	mux.Handle("GET /api/automations/preview-schedule", auth(s.previewSchedule))
+	mux.Handle("GET /api/projects/{id}/automations/weekly-reset", auth(s.automationWeeklyReset))
 	mux.Handle("GET /api/automations/{id}", auth(s.getAutomation))
 	mux.Handle("PATCH /api/automations/{id}", admin(s.updateAutomation))
 	mux.Handle("DELETE /api/automations/{id}", admin(s.deleteAutomation))
@@ -81,7 +82,7 @@ type automationDTO struct {
 func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automationDTO {
 	c := a.Config
 	cfg := map[string]any{"every_minutes": c.EveryMinutes, "cron": c.Cron, "timezone": c.Timezone, "auth": c.Auth, "auth_name": c.AuthName,
-		"pull_request": c.PullRequest, "notify_channel_id": c.NotifyChannelID, "notify_chat_id": c.NotifyChatID}
+		"pull_request": c.PullRequest, "notify_channel_id": c.NotifyChannelID, "notify_chat_id": c.NotifyChatID, "ends_at": c.EndsAt}
 	if trigger.IsChannel(a.Source) {
 		keywords := c.Keywords
 		if keywords == nil {
@@ -219,6 +220,17 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 		if err := trigger.Validate(cfg); err != nil {
 			return err
 		}
+		if in.Config.EndsAt != nil { // its stop time, as a Burn's
+			end := in.Config.EndsAt.UTC()
+			on := a.Enabled
+			if in.Enabled != nil {
+				on = *in.Enabled
+			}
+			if on && !end.After(time.Now()) {
+				return errors.New("giờ dừng đã qua: hãy đặt giờ dừng mới hoặc bỏ giờ dừng")
+			}
+			cfg.EndsAt = &end
+		}
 	} else if trigger.IsChannel(in.Source) { // ADR-049
 		ch, err := s.cfg.Store.Channels().Get(r.Context(), in.Config.ChannelID)
 		if err != nil || ch.ProjectID != a.ProjectID {
@@ -296,7 +308,7 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 	}
 	a.NextRunAt = nil
 	if a.Source == "schedule" {
-		if next, err := trigger.Next(a.Config, time.Now().UTC()); err == nil {
+		if next, err := trigger.NextRun(a.Config, time.Now().UTC()); err == nil {
 			a.NextRunAt = &next
 		}
 	}
@@ -528,7 +540,40 @@ func (s *server) previewSchedule(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"next": []time.Time{}, "error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"next": trigger.Upcoming(cfg, time.Now().UTC(), 5)})
+	next := trigger.Upcoming(cfg, time.Now().UTC(), 5)
+	if end, err := time.Parse(time.RFC3339, q.Get("ends")); err == nil { // its stop time: none after it
+		kept := []time.Time{}
+		for _, t := range next {
+			if t.Before(end) {
+				kept = append(kept, t)
+			}
+		}
+		next = kept
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"next": next})
+}
+
+// automationWeeklyReset: when the agent's AI connection's weekly limit resets
+// next (the suggested stop time, as a Burn's), if it said.
+func (s *server) automationWeeklyReset(w http.ResponseWriter, r *http.Request) {
+	out := map[string]any{"weekly_reset": nil}
+	if s.cfg.Burn != nil {
+		agentID := r.URL.Query().Get("agent_id")
+		if agentID == "" { // the lead that is on
+			if agents, err := s.cfg.Chat.Agents(r.Context(), r.PathValue("id")); err == nil {
+				for _, a := range storage.OnAgents(agents) {
+					if a.Tier == storage.TierLead {
+						agentID = a.ID
+						break
+					}
+				}
+			}
+		}
+		if t, ok := s.cfg.Burn.WeeklyReset(r.Context(), agentID); ok {
+			out["weekly_reset"] = t
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // linkBuilder ties a building chat of the same project to the automation.

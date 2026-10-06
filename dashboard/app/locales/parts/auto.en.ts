@@ -26,6 +26,8 @@ const en: Record<keyof typeof vi, string> = {
   'auto.schedEvery': 'Repeat',
   'auto.schedCron': 'Fixed times',
   'auto.unitMinutes': 'minutes',
+  'auto.unitHours': 'hours',
+  'auto.endsAt': 'turns off at {at}',
   'auto.unitSeconds': 'seconds',
   'auto.cardAgent': 'Send to an agent',
   'auto.cardAgentDesc': 'The agent gets the content and works with its own rights (it may hand work to the team)',

@@ -163,8 +163,9 @@ func (t *Toolbox) Tools() []Tool {
 					"agent_id": str("Agent xử lý (bỏ trống = trưởng nhóm)"),
 					"prompt":   str("Nội dung gửi agent, có {{output}}, {{exit_code}}, {{message}}"),
 				}),
-				"tags":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "chat: tag gắn vào chat của mỗi lần chạy (tối đa 10; bỏ trống = giữ tag cũ)"},
-				"reason": str("Vì sao cần tự động hóa này"),
+				"ends_at": str("schedule: giờ tự dừng (RFC3339, ví dụ 2026-10-12T00:00:00+07:00); bỏ trống = chạy tới khi tắt"),
+				"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "chat: tag gắn vào chat của mỗi lần chạy (tối đa 10; bỏ trống = giữ tag cũ)"},
+				"reason":  str("Vì sao cần tự động hóa này"),
 			}, "name", "source", "action", "reason")})
 	}
 	if t.config != nil && t.actions != nil {

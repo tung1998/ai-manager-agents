@@ -85,7 +85,7 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 		}
 		if as, err := s.cfg.Store.Automations().List(ctx, p.ID); err == nil {
 			for _, a := range as {
-				if a.DisabledCode != "" {
+				if a.DisabledCode != "" && a.DisabledCode != "ended" { // stopped at its stop time: as asked, no incident
 					add("automation", "warning", a.Name, a.DisabledReason, &a.UpdatedAt, base+"/automations/"+a.ID, a.ID, a.ID)
 				}
 			}
@@ -238,10 +238,12 @@ func (s *server) retryIncident(w http.ResponseWriter, r *http.Request) {
 		}
 	case "automation":
 		var a storage.Automation
-		if a, err = s.cfg.Store.Automations().Get(ctx, in.ID); err == nil {
+		if a, err = s.cfg.Store.Automations().Get(ctx, in.ID); err == nil && a.Config.EndsAt != nil && !a.Config.EndsAt.After(time.Now()) {
+			err = errors.New("giờ dừng đã qua: hãy đặt giờ dừng mới hoặc bỏ giờ dừng")
+		} else if err == nil {
 			a.Enabled, a.Failures, a.DisabledCode, a.DisabledReason = true, 0, "", "" // turned back on
 			if a.Source == "schedule" {
-				if next, nerr := trigger.Next(a.Config, time.Now().UTC()); nerr == nil {
+				if next, nerr := trigger.NextRun(a.Config, time.Now().UTC()); nerr == nil {
 					a.NextRunAt = &next
 				}
 			}
