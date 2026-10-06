@@ -336,6 +336,25 @@ func TestCreateThreadSlash(t *testing.T) {
 	if id, _ := st.Channels().Thread(ctx, ch.ID, "in:1"); id != conv.ID {
 		t.Fatalf("the thread's conversation = %q", id)
 	}
+
+	// again, with no newer answer: that one has its thread, so a new thread on
+	// its own (a new conversation), not back into the first
+	bot.in <- channels.Incoming{ChatID: "c2", GuildID: "g", UserID: "8", Text: "/create-thread Việc khác", Addressed: true,
+		Respond: func(_ context.Context, text string) (string, error) { responded <- text; return "r2", nil }}
+	select {
+	case got := <-bot.made:
+		if got[0] != "c2" || got[1] != "" || got[2] != "Việc khác" {
+			t.Fatalf("made = %v, want a new thread on its own", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no second thread made")
+	}
+	if got := <-responded; !strings.Contains(got, "t-new") {
+		t.Fatalf("responded %q", got)
+	}
+	if id, _ := st.Channels().Thread(ctx, ch.ID, "in:t-new"); id != "" {
+		t.Fatalf("the new thread went on with %q", id)
+	}
 }
 
 // In a thread of a conversation the bot still wants a tag, until

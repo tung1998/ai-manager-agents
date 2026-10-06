@@ -124,7 +124,9 @@ func (m *Manager) makeThread(ctx context.Context, ch storage.Channel, ad Adapter
 	from := in.MessageID
 	if in.ReplyTo == "" && in.Respond != nil { // from the "/" menu (no message it replies to): the latest answer here
 		var last string
-		if ok, _ := m.store.Settings().Get(ctx, lastKey(ch.ID, in.ChatID), &last); ok && last != "" {
+		// …unless it has its thread already (Discord gives a message one): then
+		// a new thread on its own, with a new conversation
+		if ok, _ := m.store.Settings().Get(ctx, lastKey(ch.ID, in.ChatID), &last); ok && last != "" && !m.threaded(ctx, ch, last) {
 			in.ReplyTo = last
 		}
 	}
@@ -156,6 +158,9 @@ func (m *Manager) makeThread(ctx context.Context, ch storage.Channel, ad Adapter
 		}
 		return "Chưa tạo được thread: " + err.Error()
 	}
+	if from != "" {
+		_ = m.store.Settings().Set(ctx, threadedKey(ch.ID, from), thread)
+	}
 	if conv != "" {
 		_ = m.store.Channels().SetThread(ctx, ch.ID, inKey(thread), conv)
 		_ = m.store.Settings().Set(ctx, linkKey+conv, discordURL(in.GuildID, thread, ""))
@@ -170,6 +175,21 @@ func (m *Manager) makeThread(ctx context.Context, ch storage.Channel, ad Adapter
 		return "Đã tạo thread <#" + thread + ">."
 	}
 	return ""
+}
+
+// threadedKey: a message a thread was made from (its thread).
+func threadedKey(channelID, msgID string) string {
+	return "channel_threaded/" + channelID + "/" + msgID
+}
+
+// threaded: a thread grew from the message already (a thread's id is that
+// of the message it grew from).
+func (m *Manager) threaded(ctx context.Context, ch storage.Channel, msgID string) bool {
+	var t string
+	if ok, _ := m.store.Settings().Get(ctx, threadedKey(ch.ID, msgID), &t); ok && t != "" {
+		return true
+	}
+	return m.threadOf(ctx, ch, msgID) != ""
 }
 
 func closedKey(channelID, chatID string) string { return "channel_closed/" + channelID + "/" + chatID }
