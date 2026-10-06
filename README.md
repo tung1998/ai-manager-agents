@@ -4,7 +4,7 @@
 
 **Your own AI office. A team of AI agents that runs on your machine, takes work over chat, and asks you only when something needs approval.**
 
-[Guide with screenshots](https://tung1998.github.io/ai-manager-agents/guide/) · [Tiếng Việt](README.vi.md) · [Plan & progress](docs/PLAN.md) · [Decisions (ADR)](docs/DECISIONS.md)
+[Guide with screenshots](https://tung1998.github.io/ai-manager-agents/guide/) · [Tiếng Việt](README.vi.md) ([hướng dẫn](https://tung1998.github.io/ai-manager-agents/guide/vi.html))
 
 ![Overview](docs/guide/images/02-overview.png)
 
@@ -44,9 +44,38 @@ AI coding tools are great one chat at a time. Real work is more than that: sever
 
 More: long-term agent memory, office assistant across projects, multi-pane **Watch** screen, change log of who did what and who approved it, Files tab with an editor, users & roles, personal API tokens, export/import config, backup, self-update from source, light/dark, English/Vietnamese.
 
+## An office that upgrades itself
+
+agent-office is a project like any other, so **its own agents can work on it**. Add the agent-office folder as a project and tell the team what your work needs:
+
+> "Add a Zalo OA channel next to Telegram."
+> "The Overview should show yesterday's deploys first."
+> "Make a monitor type that checks our SSL certificates."
+
+The agents edit the source in their worktree, run the build and tests, and send you the diff. Approve it, then press **Administration → Update office**: the office rebuilds itself from source, restarts, and rolls back on its own if the new build fails to start.
+
+So you don't have to wait for a feature on a roadmap. The office bends to how *you* work, one approved diff at a time.
+
 ## Quick start
 
 Requirements: **Go ≥ 1.27**, **Node 22**, **pnpm**, and at least one AI account (Claude Code / Codex CLI logged in, or an API key).
+
+### The AI way 🤖
+
+It's an office run by AI, so it would be rude to set it up by hand. Clone the repo, open your AI in the folder and ask:
+
+```bash
+git clone <this repo> agent-office && cd agent-office
+claude            # or: codex
+```
+
+> **You:** run this project
+>
+> **AI:** *reads the Makefile, builds the server and the dashboard, asks for your email, creates your admin account, starts the office and hands you a link.*
+
+Grab a coffee. If it asks you something, that's the office's first approval request. Get used to it.
+
+### The human way
 
 ```bash
 git clone <this repo> agent-office && cd agent-office
@@ -100,7 +129,7 @@ flowchart LR
   Office --- DB[(SQLite)]
 ```
 
-- **One job for every run.** A chat turn, an automation or a monitor analysis is a job with its cost, logs and result ([ADR-040](docs/DECISIONS.md)).
+- **One job for every run.** A chat turn, an automation or a monitor analysis is a job with its cost, logs and result.
 - **Agents propose, people approve.** Commands outside an agent's allow-list, restarts, commits, pushes, settings changes and MCP tools that write all become cards you decide on, on the dashboard or from a bot message.
 - **Office is the only gateway out.** MCP servers, bots and (soon) Connectors go through the office, so permissions and the audit log live in one place.
 
@@ -118,7 +147,7 @@ flowchart LR
 | `office export / import / backup` | Move config between machines, back up the database |
 | `office service install/status/uninstall` | Start with your login session |
 
-Full reference: [docs/CLI.md](docs/CLI.md).
+Run `office <command> --help` for every flag.
 
 ## Development
 
@@ -130,7 +159,7 @@ make ui-build     # typecheck + build the dashboard
 node docs/guide/capture.mjs   # rebuild the guide screenshots from a throwaway demo office
 ```
 
-Stack: Go (cobra, net/http, SQLite via `modernc.org/sqlite`, goose migrations), Nuxt 4 + Nuxt UI, SSE for live updates. See [ARCHITECTURE](docs/ARCHITECTURE.md), [DATA_MODEL](docs/DATA_MODEL.md), [INTERFACES](docs/INTERFACES.md) and [UI](docs/UI.md).
+Stack: Go (cobra, net/http, SQLite via `modernc.org/sqlite`, goose migrations), Nuxt 4 + Nuxt UI, SSE for live updates.
 
 ```text
 cmd/office/        the `office` binary (CLI, supervisor, server)
@@ -138,13 +167,9 @@ internal/          api, chat, perm, worktree, automation, trigger, ops, monitor,
                    burn, channels, mcpgateway, memory, storage, …
 migrations/        SQLite migrations (goose)
 dashboard/         Nuxt 4 dashboard (vi + en)
-docs/              plan, architecture, decisions, guide/
+docs/guide/        the user guide (GitHub Pages)
 templates/roles/   role prompts
 ```
-
-## Roadmap
-
-Done and in daily use: chat + worktrees, approvals, organisation models, operations, monitors, automations, bots, memory, Burn, MCP gateway, fallback connections. Next: incident notifications to Discord/Telegram, `office doctor`, a single binary with the dashboard embedded, release-based updates, and Connectors (email, Slack, Messenger, Zalo OA). Details in [docs/PLAN.md](docs/PLAN.md).
 
 ---
 

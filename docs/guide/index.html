@@ -33,7 +33,11 @@
   nav.toc { position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 24px 18px 40px; border-right: 1px solid var(--border); background: var(--bg-soft); }
   nav.toc .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin-bottom: 4px; }
   nav.toc .brand span.logo { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #6366f1, #a855f7); display: grid; place-items: center; color: #fff; font-size: 16px; }
-  nav.toc .sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  nav.toc .sub { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  .lang { display: flex; gap: 6px; margin: 0 0 14px; }
+  .lang a, .lang b { font-size: 13px; padding: 3px 11px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); }
+  .lang b { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .lang a:hover { text-decoration: none; border-color: var(--accent); }
   nav.toc h4 { margin: 18px 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   nav.toc ol { list-style: none; margin: 0; padding: 0; }
   nav.toc li a { display: block; padding: 4px 10px; border-radius: 6px; color: var(--text); font-size: 14px; }
@@ -106,6 +110,7 @@
 <nav class="toc" id="toc">
   <div class="brand"><span class="logo">◆</span> agent-office</div>
   <p class="sub">User guide · every feature, step by step</p>
+  <div class="lang"><b>English</b><a href="vi.html" hreflang="vi" lang="vi">Tiếng Việt</a></div>
   <h4>Start</h4>
   <ol>
     <li><a href="#what">What is agent-office</a></li>
@@ -152,6 +157,7 @@
 
 <main>
 <header class="hero">
+  <div class="lang"><b>English</b><a href="vi.html" hreflang="vi" lang="vi">Tiếng Việt</a></div>
   <h1>Your own <em>AI office</em>,<br>running on your machine.</h1>
   <p class="lead">agent-office gives every project a team of AI agents. They take work over chat (dashboard, Discord, Telegram), edit code in isolated git worktrees, run your dev servers, watch your services, and ask you only when something needs approval.</p>
   <div class="pills">
@@ -189,6 +195,8 @@
 <section id="install">
   <h2><span class="num">2</span>Install &amp; first run</h2>
   <p class="intro">You need Go ≥ 1.27, Node 22, pnpm, and at least one AI account.</p>
+  <div class="callout tip"><strong>The AI way 🤖</strong>It's an office run by AI, so let an AI set it up. Clone the repo, run <code>claude</code> (or <code>codex</code>) in the folder and say <i>"run this project"</i>. It builds everything, creates your admin account and hands you the link. If it asks you something, that's your first approval request.</div>
+  <p>Or by hand:</p>
 <pre><code>make build                        # → bin/office
 make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 ./bin/office user create --email you@example.com --name "You" --role admin
@@ -356,9 +364,9 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <section id="permissions">
   <h2><span class="num">11</span>Permissions</h2>
   <p class="intro">Per action, per agent, with presets so you don't start from zero.</p>
-  <figure><img src="images/08-permissions.png" alt="Permissions" loading="lazy"><figcaption>The Permissions tab: presets, allowed commands and protected files.</figcaption></figure>
+  <figure><img src="images/08-permissions.png" alt="Permissions" loading="lazy"><figcaption>The Permissions tab: the project's command packs and forbidden files.</figcaption></figure>
   <ul>
-    <li><b>Presets</b> such as read-only, edit, operate or admin. Edit them or build your own.</li>
+    <li><b>Command packs</b>: commands grouped by tool (Git, Go, Docker…), with read-only packs. Edit them or build your own.</li>
     <li><b>Command patterns</b>: <code>go test *</code>, <code>pnpm typecheck</code>… A trailing <code> *</code> allows any arguments, but dangerous flags (<code>-exec</code>, <code>--output</code>, <code>--no-index</code>, paths outside the project) are still blocked.</li>
     <li><b>Protected files</b>: secrets and files agents may never edit.</li>
     <li><b>Administrator</b> is set on the agent. Automations inherit it or override it.</li>
@@ -537,6 +545,7 @@ office backup                            # database + encryption key</code></pre
   <h2><span class="num">25</span>Updating office</h2>
   <figure><img src="images/32-update.png" alt="Update" loading="lazy"><figcaption>Admin → Update: rebuild from source with a live log.</figcaption></figure>
   <p>The button appears only when the source differs from the running build. If the new build fails to start, the office rolls back to the previous one. The sidebar shows the version and last commit.</p>
+  <div class="callout tip"><strong>An office that upgrades itself</strong>agent-office is a project like any other. Add its own folder as a project and ask its agents for what your work needs ("add a Zalo OA channel", "a monitor for SSL expiry"). They edit and test the source in a worktree, you approve the diff, then <b>Update office</b> rebuilds it. The office bends to how you work, one approved diff at a time.</div>
 </section>
 
 <!-- 26 -->
@@ -573,8 +582,11 @@ office backup                            # database + encryption key</code></pre
   <p>Ask in chat: "every weekday at 8, check X". The agent proposes an automation, and you approve it.</p>
   <h3>Regenerating these screenshots</h3>
 <pre><code>make build &amp;&amp; make ui-build
-node docs/guide/capture.mjs   # throwaway demo office in /tmp, ports 18787/12704
-KEEP=1 node docs/guide/capture.mjs   # …and leave it running to explore</code></pre>
+node docs/guide/capture.mjs                  # throwaway demo office in /tmp, ports 18787/12704
+node docs/guide/capture.mjs --lang=vi        # Vietnamese UI and data → images/vi/ (vi.html)
+node docs/guide/capture.mjs --only-missing --reuse   # carry on in batches, reusing the running demo
+node docs/guide/capture.mjs --stop           # shut the demo down
+KEEP=1 node docs/guide/capture.mjs           # leave it running to explore</code></pre>
 </section>
 
 <footer>agent-office · user guide. Screenshots come from a demo office with sample data.</footer>
@@ -604,7 +616,7 @@ KEEP=1 node docs/guide/capture.mjs   # …and leave it running to explore</code>
   document.getElementById('menuBtn').addEventListener('click', () => toc.classList.toggle('open'))
   toc.addEventListener('click', e => { if (e.target.tagName === 'A') toc.classList.remove('open') })
   // highlight the section in view
-  const links = new Map([...toc.querySelectorAll('a')].map(a => [a.getAttribute('href').slice(1), a]))
+  const links = new Map([...toc.querySelectorAll('li a')].map(a => [a.getAttribute('href').slice(1), a]))
   const io = new IntersectionObserver(entries => {
     for (const e of entries) if (e.isIntersecting) {
       links.forEach(a => a.classList.remove('active'))

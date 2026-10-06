@@ -8,7 +8,7 @@
 //
 // Env: OFFICE_BIN, OFFICE_UI_DIR, CHROME (paths), KEEP=1 (leave it running).
 import { spawn, execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync, readdirSync, appendFileSync, readFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir, tmpdir } from 'node:os'
@@ -35,7 +35,11 @@ if (!BIN || !UI_ENTRY || !CHROME) {
 const HOME = join(tmpdir(), 'agent-office-demo')
 const API = '127.0.0.1:18787'
 const UI = 'http://127.0.0.1:12704'
-const OUT = join(here, 'images')
+// --lang=vi: Vietnamese dashboard and sample data, shots in images/vi/ (for vi.html)
+const LANG = (process.argv.find(a => a.startsWith('--lang=')) ?? '--lang=en').slice(7) === 'vi' ? 'vi' : 'en'
+const T = (en, vi) => (LANG === 'vi' ? vi : en)
+const OUT = LANG === 'vi' ? join(here, 'images', 'vi') : join(here, 'images')
+const CONTENT = T('Content & Planning', 'Kế hoạch & Nội dung')
 // --only-missing (or ONLY_MISSING=1) keeps the shots already there
 // --retake=08-permissions,19-bot shoots those again too
 const onlyMissing = process.argv.includes('--only-missing') || !!process.env.ONLY_MISSING
@@ -44,7 +48,11 @@ const EMAIL = 'demo@agent-office.dev'
 const PASSWORD = 'demo-office-2026!'
 const children = []
 const sleep = ms => new Promise(r => setTimeout(r, ms))
-const log = (...a) => console.log('›', ...a)
+// also into a file next to the demo office: a run that gets killed still leaves its trail
+const log = (...a) => {
+  console.log('›', ...a)
+  try { appendFileSync(join(tmpdir(), 'agent-office-demo.log'), `${new Date().toISOString()} ${a.join(' ')}\n`) } catch {}
+}
 
 function chromeCandidates() {
   const pw = join(homedir(), 'Library/Caches/ms-playwright')
@@ -102,15 +110,23 @@ const q = s => `'${String(s).replace(/'/g, "''")}'`
 const ts = minutesAgo => new Date(Date.now() - minutesAgo * 60000).toISOString().replace(/\.\d+Z$/, '.000000000Z')
 
 // ---- 1. a fresh demo office ----
-async function build() {
-  // leftovers of a run that was killed: demo server, dashboard, docs server, browser
-  for (const port of [18787, 12704, 18900, 9339]) {
+function killPorts(ports) {
+  for (const port of ports) {
     try {
       for (const pid of execFileSync('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN']).toString().split(/\s+/).filter(Boolean)) process.kill(Number(pid), 'SIGTERM')
     } catch {}
   }
+}
+async function login() {
+  const res = await fetch(`http://${API}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: PASSWORD }) })
+  if (!res.ok) throw new Error('login: ' + res.status + ' ' + await res.text())
+  cookie = res.headers.getSetCookie().map(c => c.split(';')[0]).join('; ')
+}
+async function build() {
+  // leftovers of a run that was killed: demo server, dashboard, docs server, browser
+  killPorts([18787, 12704, 18900, 9339])
   await sleep(1000)
-  rmSync(HOME, { recursive: true, force: true })
+  rmSync(HOME, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
   mkdirSync(HOME, { recursive: true })
   log('demo office in', HOME)
   office(['user', 'create', '--email', EMAIL, '--name', 'Alex (demo)', '--role', 'admin', '--password-stdin'], PASSWORD + '\n')
@@ -131,7 +147,7 @@ async function build() {
   execFileSync('git', ['clone', '-q', '--depth', '1', `file://${mainRoot}`, aoCopy])
   office(['project', 'add', aoCopy, '--name', 'agent-office', '--template', 'team'])
   office(['project', 'add', shop, '--name', 'demo-shop', '--template', 'council'])
-  office(['project', 'add', '--name', 'Content & Planning', '--template', 'solo'])
+  office(['project', 'add', '--name', CONTENT, '--template', 'solo'])
 
   // the server scans ~/.claude for skills and MCP servers: give it a home of its own,
   // so the screenshots never show the real machine's
@@ -140,34 +156,36 @@ async function build() {
     mkdirSync(join(fakeHome, '.claude/skills', name), { recursive: true })
     writeFileSync(join(fakeHome, '.claude/skills', name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
   }
-  skill('release-notes', 'Use when preparing a release: collect merged commits since the last tag and write grouped release notes.', '1. `git log <last-tag>..HEAD --oneline`\n2. Group by feat/fix/docs\n3. Write RELEASE_NOTES.md')
-  skill('pr-review', 'Use when reviewing a pull request: correctness first, then tests, then naming and simplicity.', 'Read the diff, run the tests, comment with file:line.')
+  skill('release-notes', T('Use when preparing a release: collect merged commits since the last tag and write grouped release notes.', 'Dùng khi chuẩn bị phát hành: gom các commit từ tag trước và viết release notes theo nhóm.'), '1. `git log <last-tag>..HEAD --oneline`\n2. Group by feat/fix/docs\n3. Write RELEASE_NOTES.md')
+  skill('pr-review', T('Use when reviewing a pull request: correctness first, then tests, then naming and simplicity.', 'Dùng khi review pull request: đúng trước, rồi test, rồi đặt tên và độ gọn.'), 'Read the diff, run the tests, comment with file:line.')
   start('server', BIN, ['--home', HOME, 'serve', '--api', API, '--allowed-origin', UI, '--allowed-origin', UI.replace('127.0.0.1', 'localhost')], { cwd: HOME, env: { ...process.env, HOME: fakeHome } })
   start('dashboard', 'node', [UI_ENTRY], { cwd: dirname(dirname(dirname(UI_ENTRY))), env: { ...process.env, PORT: '12704', HOST: '127.0.0.1', NUXT_OFFICE_API_BASE: `http://${API}` } })
   for (let i = 0; i < 60; i++) {
     try { await fetch(`http://${API}/api/auth/me`); await fetch(UI + '/login'); break } catch { await sleep(500) }
   }
-  const res = await fetch(`http://${API}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: PASSWORD }) })
-  if (!res.ok) throw new Error('login: ' + res.status + ' ' + await res.text())
-  cookie = res.headers.getSetCookie().map(c => c.split(';')[0]).join('; ')
+  await login()
 }
 
-// ---- 2. sample data ----
-async function seed() {
+// the demo projects and agents the screens point at
+async function lookup() {
   const me = (await api('GET', '/api/auth/me')).user
   const { projects } = await api('GET', '/api/projects')
   const byName = n => projects.find(p => p.name === n)
   const ao = (await api('GET', `/api/projects/${byName('agent-office').id}`)).project
-  const shop = byName('demo-shop')
-  const content = byName('Content & Planning')
   const agents = ao.model?.agents ?? []
   const lead = agents.find(a => a.tier === 'lead') ?? agents[0]
   const dev = agents.find(a => /dev|engineer|backend|frontend/i.test(a.key + a.name)) ?? agents[1] ?? lead
   const qa = agents.find(a => /qa|test|review/i.test(a.key + a.name)) ?? agents[2] ?? lead
+  return { me, ao, shop: byName('demo-shop'), content: byName(CONTENT), lead, dev, qa }
+}
 
-  await soft('describe', () => api('PATCH', `/api/projects/${ao.id}`, { description: 'Personal AI office: Go backend + Nuxt dashboard. Code first.' }))
-  await soft('describe', () => api('PATCH', `/api/projects/${shop.id}`, { description: 'Storefront demo, run by a council of agents (vote + veto).' }))
-  await soft('describe', () => api('PATCH', `/api/projects/${content.id}`, { description: 'No folder: a helper for plans, posts and notes.' }))
+// ---- 2. sample data ----
+async function seed() {
+  const { me, ao, shop, content, lead, dev, qa } = await lookup()
+
+  await soft('describe', () => api('PATCH', `/api/projects/${ao.id}`, { description: T('Personal AI office: Go backend + Nuxt dashboard. Code first.', 'Văn phòng AI cá nhân: backend Go + dashboard Nuxt. Ưu tiên code.') }))
+  await soft('describe', () => api('PATCH', `/api/projects/${shop.id}`, { description: T('Storefront demo, run by a council of agents (vote + veto).', 'Cửa hàng demo, do hội đồng agent điều hành (biểu quyết + phủ quyết).') }))
+  await soft('describe', () => api('PATCH', `/api/projects/${content.id}`, { description: T('No folder: a helper for plans, posts and notes.', 'Không thư mục: trợ lý cho kế hoạch, bài đăng và ghi chú.') }))
 
   // operations: processes and monitors
   const proc = body => api('POST', `/api/projects/${ao.id}/processes`, body)
@@ -179,9 +197,9 @@ async function seed() {
   await sleep(2500)
   const mon = body => api('POST', `/api/projects/${ao.id}/monitors`, body)
   const mons = [
-    await soft('monitor', () => mon({ name: 'Docs site', type: 'http', target: 'http://127.0.0.1:18900/', interval_s: 60 })),
+    await soft('monitor', () => mon({ name: T('Docs site', 'Trang tài liệu'), type: 'http', target: 'http://127.0.0.1:18900/', interval_s: 60 })),
     await soft('monitor', () => mon({ name: 'Office API', type: 'tcp', target: API, interval_s: 60 })),
-    await soft('monitor', () => mon({ name: 'Nightly backup', type: 'heartbeat', interval_s: 86400 }))
+    await soft('monitor', () => mon({ name: T('Nightly backup', 'Sao lưu hằng đêm'), type: 'heartbeat', interval_s: 86400 }))
   ]
   for (let i = 0; i < 4; i++) {
     for (const m of mons) if (m?.id) await soft('check', () => api('POST', `/api/monitors/${m.id}/check`))
@@ -191,15 +209,17 @@ async function seed() {
   // automations (none of them fire while the screenshots are taken)
   const auto = body => soft('automation ' + body.name, () => api('POST', `/api/projects/${ao.id}/automations`, body))
   await auto({
-    name: 'Morning brief', source: 'schedule', action: 'script', config: { cron: '0 8 * * 1-5', timezone: 'Asia/Ho_Chi_Minh' },
-    script: { lang: 'bash', body: 'git log --since=yesterday --oneline\necho "@@agent: summarise yesterday\'s commits for the team"', timeout_s: 60 },
-    escalate: { when: 'signal', action: 'chat', agent_id: lead?.id, prompt: 'Write a 5-line brief from:\n{{output}}' }
+    name: T('Morning brief', 'Tóm tắt buổi sáng'), source: 'schedule', action: 'script', config: { cron: '0 8 * * 1-5', timezone: 'Asia/Ho_Chi_Minh' },
+    script: { lang: 'bash', body: 'git log --since=yesterday --oneline\necho "@@agent: ' + T('summarise yesterday\'s commits for the team', 'tóm tắt commit hôm qua cho cả nhóm') + '"', timeout_s: 60 },
+    escalate: { when: 'signal', action: 'chat', agent_id: lead?.id, prompt: T('Write a 5-line brief from:', 'Viết bản tóm tắt 5 dòng từ:') + '\n{{output}}' }
   })
-  await auto({ name: 'Sentry alert → triage', source: 'webhook', action: 'chat', agent_id: dev?.id, prompt: 'A Sentry alert arrived:\n{{payload}}\nFind the root cause and propose a fix.', limits: { max_runs_per_hour: 6, debounce_seconds: 120 } })
-  await auto({ name: 'Weekly dependency check', source: 'schedule', action: 'chat', agent_id: qa?.id, config: { cron: '0 9 * * 1', timezone: 'Asia/Ho_Chi_Minh' }, prompt: 'List outdated Go and npm dependencies, flag risky upgrades.' })
+  await auto({ name: T('Sentry alert → triage', 'Cảnh báo Sentry → phân loại'), source: 'webhook', action: 'chat', agent_id: dev?.id, prompt: T('A Sentry alert arrived:\n{{payload}}\nFind the root cause and propose a fix.', 'Có cảnh báo Sentry:\n{{payload}}\nTìm nguyên nhân và đề xuất cách sửa.'), limits: { max_runs_per_hour: 6, debounce_seconds: 120 } })
+  await auto({ name: T('Weekly dependency check', 'Kiểm tra thư viện hằng tuần'), source: 'schedule', action: 'chat', agent_id: qa?.id, config: { cron: '0 9 * * 1', timezone: 'Asia/Ho_Chi_Minh' }, prompt: T('List outdated Go and npm dependencies, flag risky upgrades.', 'Liệt kê thư viện Go và npm đã cũ, đánh dấu bản nâng cấp rủi ro.') })
 
   // long-term memory
-  for (const text of ['Repo uses pnpm; run pnpm typecheck before saying a UI change is done.', 'Work directly on main, no feature branches.', 'Every visible string in the dashboard goes through t() (vi + en).']) {
+  for (const text of LANG === 'vi'
+    ? ['Repo dùng pnpm; chạy pnpm typecheck trước khi báo xong việc sửa giao diện.', 'Làm thẳng trên main, không dùng nhánh feature.', 'Mọi chữ hiển thị trên dashboard đi qua t() (vi + en).']
+    : ['Repo uses pnpm; run pnpm typecheck before saying a UI change is done.', 'Work directly on main, no feature branches.', 'Every visible string in the dashboard goes through t() (vi + en).']) {
     if (lead) await soft('memory', () => api('POST', `/api/projects/${ao.id}/agents/${lead.id}/memories`, { text }))
   }
 
@@ -232,19 +252,25 @@ diff --git a/dashboard/app/layouts/default.vue b/dashboard/app/layouts/default.v
        </div>`
   const user = me.name || 'Alex'
   sql([
-    conv('cnv_demo_theme', dev, 'Add a dark mode toggle to the header', 12),
-    msg('msg_demo_t1', 'cnv_demo_theme', 'user', user, 'Add a dark/light toggle next to the user menu in the header. Keep it i18n-clean.', 16),
-    msg('msg_demo_t2', 'cnv_demo_theme', 'assistant', dev.name, 'Done. I added a small `ThemeToggle` component and placed it next to `UserMenu` in the default layout.\n\n- Uses Nuxt color mode, so the choice is remembered per browser\n- The label goes through `t()`; I added `common.toggleTheme` to both `vi` and `en`\n- `pnpm typecheck` and `check-i18n` pass in my worktree\n\nReview the diff below and approve to merge it into the project.', 12,
+    conv('cnv_demo_theme', dev, T('Add a dark mode toggle to the header', 'Thêm nút chuyển giao diện tối ở header'), 12),
+    msg('msg_demo_t1', 'cnv_demo_theme', 'user', user, T('Add a dark/light toggle next to the user menu in the header. Keep it i18n-clean.', 'Thêm nút chuyển sáng/tối cạnh menu người dùng trên header. Nhớ đi qua i18n.'), 16),
+    msg('msg_demo_t2', 'cnv_demo_theme', 'assistant', dev.name, T(
+      'Done. I added a small `ThemeToggle` component and placed it next to `UserMenu` in the default layout.\n\n- Uses Nuxt color mode, so the choice is remembered per browser\n- The label goes through `t()`; I added `common.toggleTheme` to both `vi` and `en`\n- `pnpm typecheck` and `check-i18n` pass in my worktree\n\nReview the diff below and approve to merge it into the project.',
+      'Xong. Mình thêm component `ThemeToggle` nhỏ, đặt cạnh `UserMenu` trong layout mặc định.\n\n- Dùng Nuxt color mode nên lựa chọn được nhớ theo trình duyệt\n- Nhãn đi qua `t()`; đã thêm `common.toggleTheme` cho cả `vi` và `en`\n- `pnpm typecheck` và `check-i18n` đều đạt trong worktree của mình\n\nBạn xem diff bên dưới, duyệt để gộp vào project.'), 12,
       [{ name: 'Read', summary: 'dashboard/app/layouts/default.vue' }, { name: 'Write', summary: 'dashboard/app/components/ThemeToggle.vue' }, { name: 'Bash', summary: 'pnpm --dir dashboard typecheck ✓' }, { name: 'Bash', summary: 'node dashboard/scripts/check-i18n.mjs ✓' }]),
     `INSERT INTO patches (id, conversation_id, message_id, diff, files, status, created_at) VALUES ('pch_demo_theme', 'cnv_demo_theme', 'msg_demo_t2', ${q(diff)}, ${q(JSON.stringify(['dashboard/app/components/ThemeToggle.vue', 'dashboard/app/layouts/default.vue']))}, 'pending', ${q(ts(12))})`,
-    conv('cnv_demo_build', lead, 'Why did the nightly build fail?', 95),
-    msg('msg_demo_b1', 'cnv_demo_build', 'user', user, 'The nightly build went red. What happened?', 100),
-    msg('msg_demo_b2', 'cnv_demo_build', 'assistant', lead.name, '**Cause:** `go vet` flagged a copied `sync.Mutex` in `internal/ops/manager.go:214` after yesterday\'s refactor.\n\n**Fix:** pass `*Manager` instead of `Manager` to `sampleOnce`. I delegated it to @' + dev.name + ', who is on it now.\n\n| Step | Result |\n|---|---|\n| `make build` | ok |\n| `go vet ./...` | 1 error |\n| `go test ./...` | ok |', 95,
-      [{ name: 'process_logs', summary: 'go vet (last 200 lines)' }, { name: 'Grep', summary: 'sampleOnce' }, { name: 'delegate', summary: dev.name }]),
-    conv('cnv_demo_plan', lead, 'Plan next week: release + docs', 600),
-    msg('msg_demo_p1', 'cnv_demo_plan', 'user', user, 'Plan next week. Goal: ship the single-binary release and write the user guide.', 605),
-    msg('msg_demo_p2', 'cnv_demo_plan', 'assistant', lead.name, 'Here is a plan the team can run in parallel:\n\n1. **Mon–Tue** · embed the dashboard into the binary (backend)\n2. **Tue–Wed** · release workflow + checksums (devops)\n3. **Wed–Thu** · user guide with screenshots (docs)\n4. **Fri** · `office doctor` smoke test on 3 machines (QA)\n\nRisks: the embed doubles binary size; I suggest gzip assets.', 600),
-    `INSERT INTO conversation_tags (conversation_id, tag, created_at) VALUES ('cnv_demo_theme', 'ui', ${q(ts(12))}), ('cnv_demo_build', 'bug', ${q(ts(95))}), ('cnv_demo_plan', 'planning', ${q(ts(600))})`
+    conv('cnv_demo_build', lead, T('Why did the nightly build fail?', 'Vì sao build đêm qua lỗi?'), 95),
+    msg('msg_demo_b1', 'cnv_demo_build', 'user', user, T('The nightly build went red. What happened?', 'Build đêm qua đỏ rồi. Có chuyện gì vậy?'), 100),
+    msg('msg_demo_b2', 'cnv_demo_build', 'assistant', lead.name, T(
+      '**Cause:** `go vet` flagged a copied `sync.Mutex` in `internal/ops/manager.go:214` after yesterday\'s refactor.\n\n**Fix:** pass `*Manager` instead of `Manager` to `sampleOnce`. I delegated it to @' + dev.name + ', who is on it now.\n\n| Step | Result |\n|---|---|\n| `make build` | ok |\n| `go vet ./...` | 1 error |\n| `go test ./...` | ok |',
+      '**Nguyên nhân:** `go vet` báo copy `sync.Mutex` ở `internal/ops/manager.go:214` sau đợt refactor hôm qua.\n\n**Cách sửa:** truyền `*Manager` thay vì `Manager` vào `sampleOnce`. Mình đã giao cho @' + dev.name + ', đang làm.\n\n| Bước | Kết quả |\n|---|---|\n| `make build` | ok |\n| `go vet ./...` | 1 lỗi |\n| `go test ./...` | ok |'), 95,
+      [{ name: 'process_logs', summary: T('go vet (last 200 lines)', 'go vet (200 dòng cuối)') }, { name: 'Grep', summary: 'sampleOnce' }, { name: 'delegate', summary: dev.name }]),
+    conv('cnv_demo_plan', lead, T('Plan next week: release + docs', 'Kế hoạch tuần sau: phát hành + tài liệu'), 600),
+    msg('msg_demo_p1', 'cnv_demo_plan', 'user', user, T('Plan next week. Goal: ship the single-binary release and write the user guide.', 'Lên kế hoạch tuần sau. Mục tiêu: phát hành bản một file chạy và viết hướng dẫn sử dụng.'), 605),
+    msg('msg_demo_p2', 'cnv_demo_plan', 'assistant', lead.name, T(
+      'Here is a plan the team can run in parallel:\n\n1. **Mon–Tue** · embed the dashboard into the binary (backend)\n2. **Tue–Wed** · release workflow + checksums (devops)\n3. **Wed–Thu** · user guide with screenshots (docs)\n4. **Fri** · `office doctor` smoke test on 3 machines (QA)\n\nRisks: the embed doubles binary size; I suggest gzip assets.',
+      'Kế hoạch để cả nhóm làm song song:\n\n1. **T2–T3** · gộp dashboard vào file chạy (backend)\n2. **T3–T4** · quy trình phát hành + checksum (devops)\n3. **T4–T5** · hướng dẫn sử dụng có ảnh (tài liệu)\n4. **T6** · chạy thử `office doctor` trên 3 máy (QA)\n\nRủi ro: gộp dashboard làm file chạy nặng gấp đôi; nên nén gzip.'), 600),
+    `INSERT INTO conversation_tags (conversation_id, tag, created_at) VALUES ('cnv_demo_theme', 'ui', ${q(ts(12))}), ('cnv_demo_build', 'bug', ${q(ts(95))}), ('cnv_demo_plan', ${q(T('planning', 'kế-hoạch'))}, ${q(ts(600))})`
   ])
   const runs = []
   const jobs = []
@@ -254,7 +280,7 @@ diff --git a/dashboard/app/layouts/default.vue b/dashboard/app/layouts/default.v
       const cost = (0.04 + ((d * 13 + k * 7) % 23) / 100).toFixed(4)
       const at = ts(d * 1440 + k * 97 + 30)
       runs.push(`('run_demo_${d}_${k}', 'chat', ${q(ao.id)}, ${q(a.id)}, 'Claude Code', 'claude-sonnet-5-5', 'ok', ${1200 + k * 300}, ${400 + k * 90}, ${cost}, 'provider', ${20000 + k * 4000}, 'human:${EMAIL}', ${q(at)})`)
-      jobs.push(`('job_demo_${d}_${k}', ${q(ao.id)}, 'chat_turn', ${k === 2 ? "'automation'" : "'user'"}, 'done', ${q(a.id)}, ${q(['Fix flaky test', 'Review PR #42', 'Morning brief', 'Refactor ops sampler', 'Answer: build failed'][k % 5])}, ${cost}, ${1200 + k * 300}, ${400 + k * 90}, ${20000 + k * 4000}, ${q(at)}, ${q(at)}, ${q(at)})`)
+      jobs.push(`('job_demo_${d}_${k}', ${q(ao.id)}, 'chat_turn', ${k === 2 ? "'automation'" : "'user'"}, 'done', ${q(a.id)}, ${q((LANG === 'vi' ? ['Sửa test chập chờn', 'Review PR #42', 'Tóm tắt buổi sáng', 'Refactor ops sampler', 'Trả lời: build lỗi'] : ['Fix flaky test', 'Review PR #42', 'Morning brief', 'Refactor ops sampler', 'Answer: build failed'])[k % 5])}, ${cost}, ${1200 + k * 300}, ${400 + k * 90}, ${20000 + k * 4000}, ${q(at)}, ${q(at)}, ${q(at)})`)
     }
   }
   sql([
@@ -317,6 +343,7 @@ async function browser() {
     eval: async expr => (await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true })).result?.value,
     // until the page body (UDashboardPanel's) shows real content, no skeletons; at most 8s
     go: async (path, settle = 900) => {
+      log('open', path)
       await send('Page.navigate', { url: UI + path })
       const t0 = Date.now()
       await sleep(800)
@@ -354,7 +381,7 @@ async function capture({ ao, shop, lead }) {
   const page = await browser()
   await page.size(1440, 900)
   await page.go('/login', 1500)
-  await page.eval(`document.cookie = 'office-lang=en; path=/; max-age=31536000'; localStorage.setItem('nuxt-color-mode', 'light'); true`)
+  await page.eval(`document.cookie = 'office-lang=${LANG}; path=/; max-age=31536000'; localStorage.setItem('nuxt-color-mode', 'light'); true`)
   await page.go('/login', 2000)
   if (!onlyMissing || !existsSync(join(OUT, '01-login.png'))) await page.shot('01-login')
   const ok = await page.eval(`fetch('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: ${JSON.stringify(EMAIL)}, password: ${JSON.stringify(PASSWORD)} }) }).then(r => r.ok)`)
@@ -420,9 +447,41 @@ async function capture({ ao, shop, lead }) {
   await take('32-update', '/admin/update')
 }
 
+// --reuse: use the demo office a previous --reuse run left running (same --lang), and
+// leave it running; shoots in batches when one run has a time limit. --stop: shut it down.
+const reuse = process.argv.includes('--reuse')
+// one run at a time: two runs share the demo folder and ports, and the second wipes the first
+const LOCK = join(tmpdir(), 'agent-office-demo.lock')
+function lock() {
+  try {
+    const pid = Number(readFileSync(LOCK, 'utf8'))
+    if (pid && pid !== process.pid) {
+      try { process.kill(pid, 0); console.error(`another capture is running (pid ${pid}); wait for it or kill it`); process.exit(2) } catch {}
+    }
+  } catch {}
+  writeFileSync(LOCK, String(process.pid))
+  process.on('exit', () => { try { if (readFileSync(LOCK, 'utf8') === String(process.pid)) rmSync(LOCK) } catch {} })
+}
+if (!process.argv.includes('--stop')) lock()
 try {
-  await build()
-  const ctx = await seed()
+  if (process.argv.includes('--stop')) {
+    killPorts([18787, 12704, 18900, 9339])
+    log('demo office stopped')
+    process.exit(0)
+  }
+  let ctx
+  const alive = reuse && await fetch(`http://${API}/api/auth/me`).then(() => fetch(UI + '/login')).then(() => true, () => false)
+  if (alive) {
+    log('reusing the demo office at', UI)
+    await login()
+    ctx = await lookup()
+  } else {
+    await build()
+    ctx = await seed()
+  }
+  if (reuse) children.splice(0) // the server and dashboard outlive this run
+  killPorts([9339]) // a browser a killed run left behind
+  await sleep(500)
   await capture(ctx)
   log('done →', OUT)
   if (process.env.KEEP) {
