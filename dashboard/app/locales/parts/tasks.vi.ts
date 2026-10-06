@@ -80,6 +80,8 @@ export default {
   'chat.placeholderWithAgent': 'Nhắn {agent}… (Enter gửi, Shift+Enter xuống dòng)',
   'chat.placeholderNoAgent': 'Nhắn agent… (Enter gửi)',
   'chat.stop': 'Dừng',
+  'chat.queued': 'Chờ gửi khi agent trả lời xong',
+  'chat.unqueue': 'Bỏ tin chờ gửi',
   'chat.budgetHit': 'Đã chạm trần chi phí',
   'chat.skillChat': 'Chat soạn skill',
   'chat.backToSkillEditor': 'Mở trình soạn skill',

@@ -81,6 +81,8 @@ const en: Record<keyof typeof vi, string> = {
   'chat.placeholderWithAgent': 'Message {agent}… (Enter to send, Shift+Enter for a new line)',
   'chat.placeholderNoAgent': 'Message an agent… (Enter to send)',
   'chat.stop': 'Stop',
+  'chat.queued': 'Sends when the agent has answered',
+  'chat.unqueue': 'Drop the queued message',
   'chat.budgetHit': 'Hit the cost cap',
   'chat.skillChat': 'A skill editor chat',
   'chat.backToSkillEditor': 'Open the skill editor',
