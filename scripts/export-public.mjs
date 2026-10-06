@@ -40,7 +40,7 @@ const PRIVATE_MODULE = 'bitbucket.org/senprints/agent-office'
 const PRIVATE_PAGES = 'https://tung1998.github.io/ai-manager-agents'
 
 // internal notes: plans, decisions, the early CLI draft
-const EXCLUDE = ['docs/PLAN.md', 'docs/DECISIONS.md', 'docs/CLI.md', 'docs/superpowers', 'scripts/export-public.mjs', 'scripts/public-sync.mjs']
+const EXCLUDE = ['docs/PLAN.md', 'docs/DECISIONS.md', 'docs/CLI.md', 'docs/superpowers', 'scripts/export-public.mjs', 'scripts/public-sync.mjs', 'scripts/public-pick.mjs']
 
 // what must never be in the public copy
 const FORBIDDEN = [
