@@ -385,6 +385,20 @@ func (s *server) decidePatch(w http.ResponseWriter, r *http.Request, approve boo
 	writeJSON(w, http.StatusOK, map[string]any{"patch": p})
 }
 
+// getPatch is a diff with all of its text (a chat loads big ones cut short).
+func (s *server) getPatch(w http.ResponseWriter, r *http.Request) {
+	p, err := s.cfg.Store.Chat().GetPatch(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if p.ConversationID != "" && !s.mayOpen(r, p.ConversationID) {
+		writeError(w, http.StatusNotFound, "không tìm thấy diff")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"patch": chat.FullPatchDTO(p)})
+}
+
 func (s *server) approvePatch(w http.ResponseWriter, r *http.Request) { s.decidePatch(w, r, true) }
 func (s *server) rejectPatch(w http.ResponseWriter, r *http.Request)  { s.decidePatch(w, r, false) }
 

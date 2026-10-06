@@ -119,6 +119,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("PUT /api/conversations/{id}/tags", auth(s.ownChat(s.setTags)))
 		mux.Handle("GET /api/projects/{id}/chat-tags", auth(s.projectTags))
 		mux.Handle("POST /api/conversations/{id}/stop", auth(s.ownChat(s.stopConversation)))
+		mux.Handle("GET /api/patches/{id}", auth(s.getPatch))
 		mux.Handle("POST /api/patches/{id}/approve", admin(s.approvePatch))
 		mux.Handle("POST /api/patches/{id}/reject", admin(s.rejectPatch))
 		mux.Handle("POST /api/proposals/skip-all", admin(s.skipAllProposals))

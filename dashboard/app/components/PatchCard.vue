@@ -7,6 +7,11 @@ export interface Patch {
   detail: string
   decided_by: string
   origin?: '' | 'worktree'
+  // a big diff comes cut short (truncated); size/add/del are of the whole
+  truncated?: boolean
+  size?: number
+  add?: number
+  del?: number
 }
 
 const props = defineProps<{ patch: Patch }>()
@@ -17,7 +22,24 @@ const { t } = useLang()
 const busy = ref<'' | 'approve' | 'reject' | 'skip'>('')
 const open = ref(props.patch.status === 'pending' || props.patch.status === 'failed')
 
+// the whole diff, once asked for ("Xem thêm"); until then what came with the chat
+const full = ref<string | null>(null)
+const loadingFull = ref(false)
+const diffText = computed(() => full.value ?? props.patch.diff)
+const cut = computed(() => !!props.patch.truncated && full.value === null)
+const sizeLabel = (n = 0) => n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`
+async function loadFull() {
+  loadingFull.value = true
+  try {
+    full.value = (await $fetch<{ patch: Patch }>(`/api/patches/${props.patch.id}`)).patch.diff
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    loadingFull.value = false
+  }
+}
 const stats = computed(() => {
+  if (props.patch.add !== undefined && props.patch.del !== undefined) return { add: props.patch.add, del: props.patch.del }
   const lines = props.patch.diff.split('\n')
   return {
     add: lines.filter(l => l.startsWith('+') && !l.startsWith('+++')).length,
@@ -70,6 +92,10 @@ async function decide(approve: boolean, skip = false) {
       </template>
     </div>
     <p v-if="patch.detail && patch.status !== 'applied'" class="border-t border-(--ui-border) px-3 py-1.5 text-xs text-(--ui-error)">{{ patch.detail }}</p>
-    <DiffView v-if="open" :diff="patch.diff" class="max-h-96 border-t border-(--ui-border)" />
+    <DiffView v-if="open" :diff="diffText" class="max-h-96 border-t border-(--ui-border)" />
+    <div v-if="open && cut" class="flex items-center gap-2 border-t border-(--ui-border) px-3 py-1.5 text-xs text-(--ui-text-muted)">
+      <span class="flex-1">{{ t('patch.cut', { size: sizeLabel(patch.size) }) }}</span>
+      <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-chevrons-down" :label="t('patch.loadFull')" :loading="loadingFull" @click="loadFull" />
+    </div>
   </div>
 </template>

@@ -83,10 +83,41 @@ type PatchDTO struct {
 	DecidedBy string     `json:"decided_by"`
 	DecidedAt *time.Time `json:"decided_at"`
 	Origin    string     `json:"origin"` // "" = written by the agent, "worktree" = from its worktree
+	// a big diff comes cut to its first PatchPreview bytes (Truncated); the
+	// whole of it from GET /api/patches/{id}. Size, Add, Del are of the whole.
+	Truncated bool `json:"truncated,omitempty"`
+	Size      int  `json:"size"`
+	Add       int  `json:"add"`
+	Del       int  `json:"del"`
 }
 
+// PatchPreview is how much of a diff a chat loads with its messages.
+const PatchPreview = 64 << 10
+
 func toPatchDTO(p storage.Patch) PatchDTO {
-	return PatchDTO{ID: p.ID, MessageID: p.MessageID, Diff: p.Diff, Files: p.Files, Status: p.Status, Detail: p.Detail, DecidedBy: p.DecidedBy, DecidedAt: p.DecidedAt, Origin: p.Origin}
+	d := FullPatchDTO(p)
+	if len(d.Diff) > PatchPreview {
+		cut := strings.LastIndexByte(d.Diff[:PatchPreview], '\n') // whole lines only
+		if cut <= 0 {
+			cut = PatchPreview
+		}
+		d.Diff, d.Truncated = d.Diff[:cut], true
+	}
+	return d
+}
+
+// FullPatchDTO is a diff with all of its text.
+func FullPatchDTO(p storage.Patch) PatchDTO {
+	d := PatchDTO{ID: p.ID, MessageID: p.MessageID, Diff: p.Diff, Files: p.Files, Status: p.Status, Detail: p.Detail, DecidedBy: p.DecidedBy, DecidedAt: p.DecidedAt, Origin: p.Origin, Size: len(p.Diff)}
+	for line := range strings.SplitSeq(p.Diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+			d.Add++
+		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+			d.Del++
+		}
+	}
+	return d
 }
 
 // Turn is an answer in progress; its events can be replayed from any point.
