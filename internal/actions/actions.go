@@ -41,7 +41,19 @@ var Kinds = map[string]string{
 	"run_automation":    "Chạy tự động hóa",
 	"remember":          "Ghi nhớ",
 	"mcp_call":          "Gọi tool MCP",
+	"send_message":      "Gửi tin sang chat khác",
 }
+
+// Sender sends a message to another chat in the name of the person whose
+// run proposed it (the chat engine, send_to_chat).
+type Sender interface {
+	Relay(ctx context.Context, a storage.Action) (string, error)
+	// Relayed: the chat's last message from a person was itself relayed
+	Relayed(ctx context.Context, conversationID string) bool
+}
+
+// SetSender turns on send_message proposals.
+func (s *Service) SetSender(x Sender) { s.sender = x }
 
 // MCPCaller calls an office MCP tool once a person approved it (the MCP
 // gateway, ADR-093).
@@ -127,6 +139,7 @@ type Service struct {
 	memory Memory
 	direct AutoApprover
 	mcp    MCPCaller
+	sender Sender
 	// deciding holds the actions being decided now: the dashboard and a bot
 	// deciding one at once must not both run it
 	deciding sync.Map
@@ -188,6 +201,10 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 			return a, errors.New("không gọi tool MCP được ở đây")
 		}
 		a.Target = a.Args.MCP.Server + "/" + a.Args.MCP.Tool
+	} else if kind == "send_message" { // Target: the chat it goes to, Args.Message: what it says
+		if err := s.checkSend(ctx, sc, &a); err != nil {
+			return a, err
+		}
 	} else if kind == "run_automation" { // costs tokens: a person always decides
 		if s.runner == nil {
 			return a, errors.New("không giao việc được ở đây")
@@ -256,7 +273,7 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 			return a, fmt.Errorf("%w: service %q", ErrTarget, target)
 		}
 	}
-	if (sc.ConversationID != "" || sc.TaskID != "") && kind != "mcp_call" { // a tool call differs by its arguments
+	if (sc.ConversationID != "" || sc.TaskID != "") && kind != "mcp_call" && kind != "send_message" { // differs by its arguments
 		if list, err := s.store.Actions().List(ctx, sc.ConversationID, sc.TaskID, ""); err == nil {
 			for _, x := range list {
 				if x.Status == "pending" && x.Kind == a.Kind && x.Target == a.Target {
@@ -322,6 +339,8 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 		return false // code that runs unattended, or settings: a person always decides
 	case "mcp_call":
 		return false // the gateway already let through what the agent may call itself
+	case "send_message": // never on and on: what a relayed message started asks a person
+		return acc.Can(perm.CapChatSend) && s.sender != nil && !s.sender.Relayed(ctx, a.ConversationID)
 	case "git_commit":
 		return acc.Can(perm.CapCommit)
 	case "git_branch":
@@ -570,6 +589,13 @@ func (s *Service) run(ctx context.Context, a storage.Action) error {
 		_, err := s.memory.Add(ctx, a.ProjectID, a.TargetID, a.Target, "agent", a.ProposedBy)
 		return err
 	}
+	if a.Kind == "send_message" {
+		if s.sender == nil {
+			return errors.New("không gửi tin được ở đây")
+		}
+		_, err := s.sender.Relay(ctx, a)
+		return err
+	}
 	if a.Kind == "run_automation" {
 		if s.runner == nil {
 			return errors.New("không chạy tự động hóa được ở đây")
@@ -620,6 +646,40 @@ func (s *Service) run(ctx context.Context, a storage.Action) error {
 		return s.ops.ComposeAction(ctx, a.ProjectID, "", "stop", a.Target)
 	}
 	return ErrKind
+}
+
+// checkSend checks a send_message proposal: Target is the chat (its id or its
+// dashboard link), the text is not empty, and it comes from a chat's run (the
+// person it speaks for is that run's). Target becomes the chat's title.
+func (s *Service) checkSend(ctx context.Context, sc Scope, a *storage.Action) error {
+	if s.sender == nil {
+		return errors.New("không gửi tin sang chat khác được ở đây")
+	}
+	if sc.ConversationID == "" || sc.JobID == "" {
+		return errors.New("chỉ gửi được từ một cuộc chat")
+	}
+	if j, err := s.store.Jobs().Get(ctx, sc.JobID); err != nil || !strings.HasPrefix(j.CreatedBy, "human:") {
+		return errors.New("chỉ gửi thay được khi lượt chat do một người gửi (không phải bot hay tự động hóa)")
+	}
+	if strings.TrimSpace(a.Args.Message) == "" {
+		return errors.New("thiếu nội dung tin nhắn")
+	}
+	id := a.Target
+	if _, q, ok := strings.Cut(id, "c="); ok { // a link: …?tab=chat&c=<id>&m=…
+		id, _, _ = strings.Cut(q, "&")
+	}
+	c, err := s.store.Chat().GetConversation(ctx, id)
+	if err != nil {
+		return fmt.Errorf("%w: cuộc chat %q", ErrTarget, a.Target)
+	}
+	if c.ID == sc.ConversationID {
+		return errors.New("đây là chính cuộc chat đang nói")
+	}
+	if c.Cleaned != "" {
+		return errors.New("cuộc chat đó đã được dọn, không gửi tiếp được")
+	}
+	a.Target, a.TargetID = firstNonEmpty(c.Title, c.ID), c.ID
+	return nil
 }
 
 // checkRun checks a run_automation proposal (Target = its id).

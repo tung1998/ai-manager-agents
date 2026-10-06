@@ -117,6 +117,7 @@ func serveCmd() *cobra.Command {
 			// agents' long-term notes (ADR-068); too long, a fast model compacts them
 			mem := memory.New(a.store, compactNotes(a.store, chatEngine))
 			acts.SetMemory(mem)
+			acts.SetSender(chatEngine) // send_to_chat: an agent writes to another chat in its person's name
 			office := officetools.New(a.store, procs, acts)
 			mcp := mcpserver.New(office, version)
 			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")

@@ -45,7 +45,7 @@ const alwaysInfo = computed(() => {
   return t(p.new_pack ? 'action.alwaysInfoNew' : 'action.alwaysInfo', { pattern: p.pattern, pack: p.pack })
 })
 
-const icon = computed(() => props.action.kind.endsWith('_automation') ? 'i-lucide-alarm-clock' : props.action.kind === 'git_commit' ? 'i-lucide-git-commit-horizontal'
+const icon = computed(() => props.action.kind === 'send_message' ? 'i-lucide-send' : props.action.kind.endsWith('_automation') ? 'i-lucide-alarm-clock' : props.action.kind === 'git_commit' ? 'i-lucide-git-commit-horizontal'
   : props.action.kind === 'git_branch' ? 'i-lucide-git-branch'
     : props.action.kind === 'git_push' ? 'i-lucide-upload'
       : props.action.kind.startsWith('stop') ? 'i-lucide-square'
@@ -67,7 +67,8 @@ const kindLabels: Record<string, string> = {
   start_task: 'action.kind.start_task',
   run_automation: 'action.kind.run_automation',
   remember: 'action.kind.remember',
-  mcp_call: 'action.kind.mcp_call'
+  mcp_call: 'action.kind.mcp_call',
+  send_message: 'action.kind.send_message'
 }
 const kindLabel = computed(() => {
   const key = kindLabels[props.action.kind]

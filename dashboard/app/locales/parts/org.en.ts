@@ -27,6 +27,8 @@ const en: Record<keyof typeof vi, string> = {
   'perm.cap.toolsMcp.description': 'The MCP servers/connectors of your Claude Code (Graylog, Jira, Discord…)',
   'perm.cap.toolsMcpWrite.label': 'Call MCP tools that write',
   'perm.cap.toolsMcpWrite.description': 'Call office MCP tools that write right away; otherwise each call becomes a proposal to approve',
+  'perm.cap.chatSend.label': 'Send to other chats',
+  'perm.cap.chatSend.description': 'Send a message to another chat in the chatting person\'s name right away; otherwise each send becomes a proposal to approve',
   'perm.cap.commandsRun.label': 'Run commands',
   'perm.cap.commandsRun.description': 'Run selected commands immediately; other commands must be proposed',
   'perm.cap.gitCommit.label': 'Auto commit',

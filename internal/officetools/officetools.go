@@ -130,6 +130,14 @@ func (t *Toolbox) Tools() []Tool {
 				"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "git_commit: file cần commit"},
 				"branch":  map[string]any{"type": "string", "description": "git_branch: tên nhánh"},
 			}, "action", "reason")})
+		list = append(list, Tool{Name: "send_to_chat", Description: "Gửi một tin nhắn vào cuộc chat KHÁC của office, dưới tên người dùng đang chat với bạn (như họ tự gõ), " +
+			"để agent của chat đó làm tiếp. Dùng khi người dùng nhờ chuyển việc, nhắn hay hỏi sang chat khác. Tin đi kèm ghi chú gửi từ chat này. " +
+			"Tùy quyền, gửi ngay hoặc thành đề xuất chờ người dùng duyệt. Tìm chat bằng search_history hoặc dùng link người dùng dán.",
+			Schema: obj(map[string]any{
+				"chat":   map[string]any{"type": "string", "description": "Cuộc chat đích: link dashboard (…?tab=chat&c=…) hoặc mã cnv_…"},
+				"text":   map[string]any{"type": "string", "description": "Nội dung tin nhắn, đủ rõ để agent bên đó làm mà không phải hỏi lại"},
+				"reason": map[string]any{"type": "string", "description": "Vì sao cần gửi"},
+			}, "chat", "text", "reason")})
 		list = append(list, Tool{Name: "remember", Description: "Ghi một điều đáng nhớ lâu dài vào sổ ghi nhớ của bạn ở project này (có ở mọi cuộc chat sau): " +
 			"quy ước của repo, quyết định đã chốt, điều người dùng muốn hay không muốn, lỗi đã gặp và cách sửa. Một ý ngắn, rõ, mỗi lần một điều; " +
 			"không ghi việc chỉ của lần này, không ghi bí mật. Tùy cài đặt project, ghi ngay hoặc chờ người dùng duyệt.",
@@ -235,7 +243,10 @@ func (t *Toolbox) Tools() []Tool {
 func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 	var out []Tool
 	for _, x := range t.Tools() {
-		if (x.Name == "propose_action" || x.Name == "propose_automation") && !perm.AtLeast(sc.Level, perm.Propose) {
+		if (x.Name == "propose_action" || x.Name == "propose_automation" || x.Name == "send_to_chat") && !perm.AtLeast(sc.Level, perm.Propose) {
+			continue
+		}
+		if x.Name == "send_to_chat" && sc.ConversationID == "" {
 			continue
 		}
 		if strings.HasPrefix(x.Name, "burn_") && !t.burnChat(sc) {
@@ -265,7 +276,7 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 // proposes: a tool that proposes a change or runs something (none for an
 // assistant that only answers).
 func proposes(name string) bool {
-	return strings.HasPrefix(name, "propose") || name == "run_automation"
+	return strings.HasPrefix(name, "propose") || name == "run_automation" || name == "send_to_chat"
 }
 
 // Has reports whether name is one of the tools.
@@ -315,6 +326,8 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		ID       string          `json:"id"`
 		Patch    json.RawMessage `json:"patch"`
 		Note     string          `json:"note"`
+		Chat     string          `json:"chat"`
+		Text     string          `json:"text"`
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &in); err != nil {
@@ -431,6 +444,21 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		var a storage.Action
 		if a, err = t.actions.Propose(ctx, sc, kind, target, in.Reason, storage.ActionArgs{Automation: raw}); err == nil {
 			out = fmt.Sprintf("Đã tạo đề xuất %q (mã %s), đang chờ người dùng duyệt. Chưa có gì chạy; hãy tóm tắt cho người dùng script/lịch và nhắc họ bấm Duyệt.", a.Target, a.ID)
+		}
+	case "send_to_chat":
+		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {
+			return "Bạn không có quyền gửi tin sang chat khác (gói hiện tại: " + perm.Label(sc.Level) + ")", true
+		}
+		var a storage.Action
+		if a, err = t.actions.Propose(ctx, sc, "send_message", in.Chat, in.Reason, storage.ActionArgs{Message: in.Text}); err == nil {
+			switch a.Status {
+			case "done":
+				out = fmt.Sprintf("Đã gửi tin vào chat %q dưới tên người dùng; agent bên đó sẽ trả lời trong chat đó.", a.Target)
+			case "failed":
+				return "Gửi vào chat " + a.Target + " lỗi: " + a.Detail, true
+			default:
+				out = fmt.Sprintf("Đã tạo đề xuất gửi tin vào chat %q (mã %s), chờ người dùng duyệt. Chưa gửi gì; hãy báo người dùng.", a.Target, a.ID)
+			}
 		}
 	case "remember":
 		if t.actions == nil {
