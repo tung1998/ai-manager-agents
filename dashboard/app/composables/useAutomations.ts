@@ -230,7 +230,7 @@ const fits = (key: string, v: unknown) => !allowed[key] || allowed[key]!.include
 export function mergeDraft(d: AutomationDraft, patch: Record<string, unknown>): string[] {
   const changed: string[] = []
   for (const k of draftScalars) {
-    const v = patch[k]
+    const v = k === 'action' && patch[k] === 'task' ? 'chat' : patch[k] // Giao Việc is gone (ADR-057): the agent gets the message
     if (v === undefined || typeof v !== typeof d[k] || !fits(k, v)) continue
     ;(d as Record<string, unknown>)[k] = v
     changed.push(k)
