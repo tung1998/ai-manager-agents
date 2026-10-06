@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -15,27 +16,57 @@ type userDTO struct {
 	Name        string     `json:"name"`
 	Role        string     `json:"role"`
 	Disabled    bool       `json:"disabled"`
+	MustChange  bool       `json:"must_change"` // the default admin, not set up yet
 	CreatedAt   time.Time  `json:"created_at"`
 	LastLoginAt *time.Time `json:"last_login_at"`
 }
 
 func toDTO(u storage.User) userDTO {
-	return userDTO{ID: u.ID, Email: u.Email, Name: u.Name, Role: string(u.Role), Disabled: u.Disabled, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt}
+	return userDTO{ID: u.ID, Email: u.Email, Name: u.Name, Role: string(u.Role), Disabled: u.Disabled, MustChange: u.MustChange,
+		CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt}
 }
 
 func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": s.cfg.Version})
 }
 
-// authStatus is public: the login page uses it to explain how to create the
-// first admin when the office has no account yet.
+// authStatus is public: the login page uses it to explain how to get in when
+// the office has no account yet, or only the default admin (admin / admin).
 func (s *server) authStatus(w http.ResponseWriter, r *http.Request) {
 	n, err := s.cfg.Store.Users().Count(r.Context())
 	if err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"has_users": n > 0})
+	_, pending := s.cfg.Auth.PendingDefault(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"has_users": n > 0, "default_admin": pending})
+}
+
+// setupAccount: the default admin sets its real email, name and password.
+func (s *server) setupAccount(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email    string `json:"email"`
+		Name     string `json:"name"`
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	u, err := s.cfg.Auth.SetupAccount(r.Context(), userFrom(r).ID, in.Email, in.Name, in.Password, sessionFrom(r).ID)
+	switch {
+	case errors.Is(err, auth.ErrSetUp):
+		writeError(w, http.StatusConflict, "Tài khoản đã được thiết lập")
+	case errors.Is(err, auth.ErrInvalidEmail):
+		writeError(w, http.StatusBadRequest, "Email không hợp lệ")
+	case errors.Is(err, auth.ErrEmailTaken):
+		writeError(w, http.StatusConflict, "Email đã tồn tại")
+	case errors.Is(err, auth.ErrWeakPassword):
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Mật khẩu cần ít nhất %d ký tự", auth.MinPasswordLen))
+	case err != nil:
+		s.internal(w, r, err)
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"user": toDTO(u)})
+	}
 }
 
 func (s *server) login(w http.ResponseWriter, r *http.Request) {

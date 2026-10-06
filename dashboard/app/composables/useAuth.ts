@@ -4,6 +4,7 @@ export interface OfficeUser {
   name: string
   role: 'admin' | 'member'
   disabled: boolean
+  must_change?: boolean // the default admin, until it sets a real email and password
   created_at: string
   last_login_at: string | null
 }

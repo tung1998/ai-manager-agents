@@ -174,7 +174,8 @@ Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-star
 | Method | Path | Quyền | Mô tả |
 |---|---|---|---|
 | GET | `/api/health` | public | Trạng thái + version |
-| GET | `/api/auth/status` | public | `{has_users}` để trang login hướng dẫn tạo admin đầu tiên |
+| GET | `/api/auth/status` | public | `{has_users, default_admin}`: trang login gợi ý `admin` / `admin` khi tài khoản mặc định còn chưa thiết lập |
+| POST | `/api/auth/setup` | tài khoản mặc định | `{email, name, password}`: đặt email và mật khẩu thật; trước đó mọi API khác trả 403 |
 | POST | `/api/auth/login` | public | `{email, password}`, đặt cookie |
 | POST | `/api/auth/logout` | public | Xóa phiên hiện tại |
 | GET | `/api/auth/me` | đăng nhập | User hiện tại |

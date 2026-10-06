@@ -138,17 +138,17 @@ func isUnique(err error) bool {
 
 type userRepo struct{ db dbtx }
 
-const userCols = `id, email, name, role, password_hash, disabled, created_at, updated_at, last_login_at`
+const userCols = `id, email, name, role, password_hash, disabled, must_change, created_at, updated_at, last_login_at`
 
 func scanUser(row interface{ Scan(...any) error }) (storage.User, error) {
 	var (
-		u                storage.User
-		role             string
-		disabled         int
-		created, updated string
-		lastLogin        sql.NullString
+		u                    storage.User
+		role                 string
+		disabled, mustChange int
+		created, updated     string
+		lastLogin            sql.NullString
 	)
-	if err := row.Scan(&u.ID, &u.Email, &u.Name, &role, &u.PasswordHash, &disabled, &created, &updated, &lastLogin); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.Name, &role, &u.PasswordHash, &disabled, &mustChange, &created, &updated, &lastLogin); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return u, storage.ErrNotFound
 		}
@@ -156,6 +156,7 @@ func scanUser(row interface{ Scan(...any) error }) (storage.User, error) {
 	}
 	u.Role = storage.Role(role)
 	u.Disabled = disabled != 0
+	u.MustChange = mustChange != 0
 	var err error
 	if u.CreatedAt, err = parseTime(created); err != nil {
 		return u, err
@@ -180,9 +181,9 @@ func (r userRepo) Create(ctx context.Context, u storage.User) (storage.User, err
 	}
 	u.CreatedAt, u.UpdatedAt = now, now
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO users (id, email, name, role, password_hash, disabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, u.Email, u.Name, string(u.Role), u.PasswordHash, boolInt(u.Disabled), fmtTime(now), fmtTime(now))
+		`INSERT INTO users (id, email, name, role, password_hash, disabled, must_change, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.Email, u.Name, string(u.Role), u.PasswordHash, boolInt(u.Disabled), boolInt(u.MustChange), fmtTime(now), fmtTime(now))
 	if isUnique(err) {
 		return storage.User{}, storage.ErrConflict
 	}
@@ -225,6 +226,19 @@ func (r userRepo) Count(ctx context.Context) (int, error) {
 
 func (r userRepo) UpdatePassword(ctx context.Context, id, hash string) error {
 	return execOne(ctx, r.db, `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`, hash, fmtTime(time.Now()), id)
+}
+
+func (r userRepo) SetCredentials(ctx context.Context, id, email, name, hash string) error {
+	err := execOne(ctx, r.db, `UPDATE users SET email = ?, name = ?, password_hash = ?, must_change = 0, updated_at = ? WHERE id = ?`,
+		email, name, hash, fmtTime(time.Now()), id)
+	if isUnique(err) {
+		return storage.ErrConflict
+	}
+	return err
+}
+
+func (r userRepo) Delete(ctx context.Context, id string) error {
+	return execOne(ctx, r.db, `DELETE FROM users WHERE id = ?`, id)
 }
 
 func (r userRepo) SetDisabled(ctx context.Context, id string, disabled bool) error {

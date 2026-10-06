@@ -196,18 +196,19 @@
 <section id="install">
   <h2><span class="num">2</span>Cài đặt &amp; chạy lần đầu</h2>
   <p class="intro">Cần Go ≥ 1.27, Node 22, pnpm và ít nhất một tài khoản AI.</p>
-  <div class="callout tip"><strong>Kiểu AI 🤖</strong>Văn phòng do AI vận hành thì để AI tự cài. Clone repo, chạy <code>claude</code> (hoặc <code>codex</code>) trong thư mục rồi nhắn <i>"chạy project này giúp mình"</i>. AI build mọi thứ, tạo tài khoản admin và đưa bạn đường link. Nếu nó hỏi gì đó, đó là yêu cầu duyệt đầu tiên của văn phòng.</div>
+  <div class="callout tip"><strong>Kiểu AI 🤖</strong>Văn phòng do AI vận hành thì để AI tự cài. Clone repo, chạy <code>claude</code> (hoặc <code>codex</code>) trong thư mục rồi nhắn <i>"chạy project này giúp mình"</i>. AI build mọi thứ, bật office và đưa bạn đường link. Nếu nó hỏi gì đó, đó là yêu cầu duyệt đầu tiên của văn phòng.</div>
   <p>Hoặc làm thủ công:</p>
 <pre><code>make build                        # → bin/office
 make ui-install &amp;&amp; make ui-build  # → dashboard/.output
-./bin/office user create --email ban@example.com --name "Bạn" --role admin
 ./bin/office run                  # API ở :8787, dashboard ở http://localhost:2704</code></pre>
   <ol class="steps">
-    <li>Mở <code>http://localhost:2704</code> và đăng nhập bằng tài khoản vừa tạo.</li>
+    <li>Mở <code>http://localhost:2704</code> (hoặc địa chỉ server) và đăng nhập bằng <b><code>admin</code> / <code>admin</code></b>.</li>
+    <li>Đặt email và mật khẩu của bạn. Trước khi đặt, tài khoản mặc định không làm được gì khác.</li>
     <li>Làm theo checklist ở <b>Tổng quan → Máy</b>: kết nối AI → project → mô hình tổ chức.</li>
     <li>Tùy chọn: <code>./bin/office service install --now</code> để office tự bật mỗi khi đăng nhập máy (LaunchAgent trên macOS, systemd user unit trên Linux).</li>
   </ol>
   <figure><img src="images/vi/01-login.png" alt="Trang đăng nhập" loading="lazy"><figcaption>Đăng nhập. Đăng nhập sai bị giới hạn theo IP.</figcaption></figure>
+  <div class="callout"><strong>Không muốn dùng admin / admin?</strong><code>office init</code> hỏi email và mật khẩu admin (Enter = giữ <code>admin</code> / <code>admin</code>). Với Docker hay script, <code>office user create --email ban@example.com</code> thay luôn <code>admin</code> / <code>admin</code>. Quên mật khẩu thì <code>office user passwd --email …</code>.</div>
   <div class="callout tip"><strong>Dữ liệu nằm ở đâu?</strong>Mặc định ở <code>~/.agent-office</code> (một office cho cả máy). Chạy <code>office init --local</code> trong một repo để giữ dữ liệu trong <code>&lt;repo&gt;/.office</code>.</div>
   <div class="callout"><strong>Truy cập từ xa</strong>Mở dashboard từ điện thoại hay laptop khác qua Tailscale hoặc mạng LAN. Đăng nhập MCP qua OAuth vẫn chạy: dán lại link trình duyệt chuyển tới sau khi đăng nhập.</div>
 </section>
@@ -560,7 +561,7 @@ office backup                            # database + khóa mã hóa</code></pre
     <tr><td><code>office project add|list|rm</code></td><td>Quản lý project. Không có path = trợ lý toàn máy.</td></tr>
     <tr><td><code>office provider add|list|test</code></td><td>Kết nối AI.</td></tr>
     <tr><td><code>office template list</code></td><td>Mô hình tổ chức.</td></tr>
-    <tr><td><code>office user create|list|passwd</code></td><td>Tài khoản đăng nhập dashboard.</td></tr>
+    <tr><td><code>office user create|list|passwd</code></td><td>Admin đầu tiên (thay <code>admin</code> / <code>admin</code>), liệt kê tài khoản, đặt lại mật khẩu. Tài khoản sau: tạo trên dashboard, hoặc <code>create --force</code>.</td></tr>
     <tr><td><code>office export | import | backup</code></td><td>Chuyển hoặc sao lưu cài đặt và dữ liệu.</td></tr>
     <tr><td><code>office service install|status|uninstall</code></td><td>Tự bật cùng phiên đăng nhập máy.</td></tr>
   </table>

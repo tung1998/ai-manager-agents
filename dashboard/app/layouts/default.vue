@@ -26,7 +26,7 @@ watch(isAdmin, async (admin) => {
   } catch { /* no source to compare with */ }
 }, { immediate: true })
 
-const bareLayout = computed(() => route.path === '/login')
+const bareLayout = computed(() => route.path === '/login' || route.path === '/setup-account')
 
 // sidebar: the 5 projects this viewer opens most, each with its sections
 // (refetched on navigation and on a change, so added/renamed projects show up)

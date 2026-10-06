@@ -7,7 +7,9 @@ const state = reactive({ email: '', password: '' })
 const loading = ref(false)
 const error = ref('')
 
-const { data: status } = await useLiveFetch<{ has_users: boolean }>('/api/auth/status')
+const { data: status } = await useLiveFetch<{ has_users: boolean, default_admin?: boolean }>('/api/auth/status')
+// the default account of a first run (auth.DefaultAdminEmail / DefaultAdminPassword)
+const DEFAULT = { user: 'admin', pass: 'admin' }
 
 async function onSubmit() {
   error.value = ''
@@ -15,6 +17,7 @@ async function onSubmit() {
   try {
     await login(state.email, state.password)
     const r = route.query.redirect
+    // the default admin goes to set its email and password (the middleware sees to it)
     await navigateTo(typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : '/')
   } catch (e) {
     error.value = apiError(e, t('login.failed'))
@@ -48,9 +51,20 @@ async function onSubmit() {
         :description="t('login.noUsersDesc', { cmd: 'office user create --email you@company.com --role admin' })"
       />
 
+      <UAlert
+        v-else-if="status?.default_admin"
+        class="mb-4"
+        color="info"
+        variant="subtle"
+        icon="i-lucide-key-round"
+        :title="t('login.defaultTitle')"
+        :description="t('login.defaultDesc', DEFAULT)"
+      />
+
       <form class="space-y-4" @submit.prevent="onSubmit">
         <UFormField :label="t('login.email')" name="email" required>
-          <UInput v-model="state.email" type="email" autocomplete="username" placeholder="you@company.com" class="w-full" autofocus />
+          <!-- text, not email: the default account is just "admin" -->
+          <UInput v-model="state.email" type="text" inputmode="email" autocomplete="username" placeholder="you@company.com" class="w-full" autofocus />
         </UFormField>
         <UFormField :label="t('login.password')" name="password" required>
           <UInput v-model="state.password" type="password" autocomplete="current-password" class="w-full" />

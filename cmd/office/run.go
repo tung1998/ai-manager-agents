@@ -38,6 +38,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"bitbucket.org/senprints/agent-office/internal/api"
+	"bitbucket.org/senprints/agent-office/internal/auth"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/clitools"
 	"bitbucket.org/senprints/agent-office/internal/setup"
@@ -228,8 +229,12 @@ func serveCmd() *cobra.Command {
 				System: api.SystemInfo{Mode: string(h.Mode), HomeDir: h.Dir, ProjectRoot: h.ProjectRoot},
 			})
 
-			if n, err := st.Users().Count(ctx); err == nil && n == 0 {
-				fmt.Fprintln(os.Stderr, "Chưa có tài khoản nào. Tạo admin đầu tiên:\n  office user create --email you@company.com --role admin")
+			// a first run gets admin / admin, to replace with a real email and password on first sign-in
+			if created, err := a.auth.EnsureDefaultAdmin(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "office: không tạo được tài khoản mặc định: %v\n", err)
+			} else if _, pending := a.auth.PendingDefault(ctx); created || pending {
+				fmt.Fprintf(os.Stderr, "Tài khoản mặc định: %s / %s (lần đăng nhập đầu sẽ bắt đặt email và mật khẩu)\n",
+					auth.DefaultAdminEmail, auth.DefaultAdminPassword)
 			}
 
 			srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}

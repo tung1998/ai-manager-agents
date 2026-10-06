@@ -38,9 +38,12 @@ type User struct {
 	Role         Role
 	PasswordHash string
 	Disabled     bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	LastLoginAt  *time.Time
+	// MustChange: the default admin of a first run; it sets a real email and
+	// password before anything else.
+	MustChange  bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	LastLoginAt *time.Time
 }
 
 // Session is a logged-in browser. Only the SHA-256 of the token is stored.
@@ -142,8 +145,11 @@ type UserRepo interface {
 	List(ctx context.Context) ([]User, error)
 	Count(ctx context.Context) (int, error)
 	UpdatePassword(ctx context.Context, id, hash string) error
+	// SetCredentials sets a new email, name and password and clears MustChange.
+	SetCredentials(ctx context.Context, id, email, name, hash string) error
 	SetDisabled(ctx context.Context, id string, disabled bool) error
 	TouchLogin(ctx context.Context, id string, at time.Time) error
+	Delete(ctx context.Context, id string) error
 }
 
 // SessionRepo manages login sessions.

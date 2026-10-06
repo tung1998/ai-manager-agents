@@ -3,15 +3,6 @@
 package api
 
 import (
-	"bitbucket.org/senprints/agent-office/internal/actions"
-	"bitbucket.org/senprints/agent-office/internal/events"
-	"bitbucket.org/senprints/agent-office/internal/mcpgateway"
-	"bitbucket.org/senprints/agent-office/internal/memory"
-	"bitbucket.org/senprints/agent-office/internal/monitor"
-	"bitbucket.org/senprints/agent-office/internal/officetools"
-	"bitbucket.org/senprints/agent-office/internal/ops"
-	"bitbucket.org/senprints/agent-office/internal/selfupdate"
-	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -26,18 +17,27 @@ import (
 	"sync"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/auth"
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/burn"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/cleanup"
 	"bitbucket.org/senprints/agent-office/internal/clitools"
+	"bitbucket.org/senprints/agent-office/internal/events"
+	"bitbucket.org/senprints/agent-office/internal/mcpgateway"
+	"bitbucket.org/senprints/agent-office/internal/memory"
+	"bitbucket.org/senprints/agent-office/internal/monitor"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
+	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
+	"bitbucket.org/senprints/agent-office/internal/selfupdate"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/sysinfo"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
+	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
@@ -107,7 +107,7 @@ type server struct {
 	log     *slog.Logger
 	build   buildInfo // what is running, read once at startup
 
-	automationMu    sync.Mutex // guards automationLocks
+	automationMu    sync.Mutex             // guards automationLocks
 	automationLocks map[string]*sync.Mutex // one project's automation create/update at a time (ADR-049 command dedupe)
 }
 
@@ -175,6 +175,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
 	mux.Handle("GET /api/auth/me", s.requireAuth(http.HandlerFunc(s.me)))
 	mux.Handle("POST /api/auth/password", s.requireAuth(http.HandlerFunc(s.changePassword)))
+	mux.Handle("POST /api/auth/setup", s.requireAuth(http.HandlerFunc(s.setupAccount)))
 
 	mux.Handle("GET /api/users", s.requireRole(storage.RoleAdmin, http.HandlerFunc(s.listUsers)))
 	mux.Handle("POST /api/users", s.requireRole(storage.RoleAdmin, http.HandlerFunc(s.createUser)))
@@ -293,6 +294,11 @@ func (s *server) requireAuth(next http.Handler) http.Handler {
 		}
 		if err != nil {
 			s.internal(w, r, err)
+			return
+		}
+		// the default admin does nothing but set its real email and password
+		if u.MustChange && r.URL.Path != "/api/auth/me" && r.URL.Path != "/api/auth/setup" {
+			writeError(w, http.StatusForbidden, "Đặt email và mật khẩu cho tài khoản mặc định trước")
 			return
 		}
 		ctx := context.WithValue(r.Context(), ctxUser, u)

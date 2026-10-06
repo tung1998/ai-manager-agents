@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"bitbucket.org/senprints/agent-office/internal/auth"
 	"bitbucket.org/senprints/agent-office/internal/home"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/repos"
@@ -106,15 +108,18 @@ Hai chế độ cài đặt:
 				return err
 			}
 
-			n, _ := a.store.Users().Count(ctx)
-			fmt.Fprintln(os.Stderr, "\nTiếp theo:")
-			step := 1
-			if n == 0 {
-				fmt.Fprintf(os.Stderr, "  %d. %s user create --email you@company.com --role admin\n", step, homeHint(h))
-				step++
+			if err := setupFirstAdmin(cmd, a, yes); err != nil {
+				return err
 			}
-			fmt.Fprintf(os.Stderr, "  %d. %s run            # mở API cho dashboard\n", step, homeHint(h))
-			fmt.Fprintf(os.Stderr, "  %d. Vào dashboard → Kết nối AI / Project / Mô hình để chỉnh chi tiết\n", step+1)
+			_, pending := a.auth.PendingDefault(ctx)
+			fmt.Fprintln(os.Stderr, "\nTiếp theo:")
+			fmt.Fprintf(os.Stderr, "  1. %s run            # mở API cho dashboard\n", homeHint(h))
+			if pending {
+				fmt.Fprintf(os.Stderr, "  2. Mở dashboard, đăng nhập %s / %s rồi đặt email và mật khẩu của bạn\n", auth.DefaultAdminEmail, auth.DefaultAdminPassword)
+			} else {
+				fmt.Fprintln(os.Stderr, "  2. Mở dashboard và đăng nhập")
+			}
+			fmt.Fprintln(os.Stderr, "  3. Vào dashboard → Kết nối AI / Project / Mô hình để chỉnh chi tiết")
 			return nil
 		},
 	}
@@ -198,6 +203,47 @@ func detectProviders(cmd *cobra.Command, a *app, yes bool) error {
 			status = "!"
 		}
 		fmt.Fprintf(os.Stderr, "%s Kết nối %s: %s\n", status, p.Name, res.Detail)
+	}
+	return nil
+}
+
+// setupFirstAdmin makes the first account when the office has none: the email
+// and password typed here, or on Enter (and without a terminal) the default
+// admin / admin, which must set its own on the first login.
+func setupFirstAdmin(cmd *cobra.Command, a *app, yes bool) error {
+	ctx := cmd.Context()
+	n, err := a.store.Users().Count(ctx)
+	if err != nil || n > 0 {
+		return err
+	}
+	if !yes && interactive() {
+		fmt.Fprintf(os.Stderr, "\nTài khoản admin — email (Enter = %s / %s, đổi khi đăng nhập lần đầu): ", auth.DefaultAdminEmail, auth.DefaultAdminPassword)
+		line, _ := stdin.ReadString('\n')
+		if email := strings.TrimSpace(line); email != "" {
+			for {
+				pw, err := readPassword(false, "Mật khẩu")
+				if err == nil {
+					u, cerr := a.auth.CreateUser(ctx, auth.NewUser{Email: email, Name: "Admin", Role: storage.RoleAdmin, Password: pw}, cliActor)
+					if cerr == nil {
+						fmt.Fprintf(os.Stderr, "✓ Tạo tài khoản admin %s\n", u.Email)
+						return nil
+					}
+					err = cerr
+				}
+				if errors.Is(err, auth.ErrInvalidEmail) {
+					return fmt.Errorf("email %q không hợp lệ (chạy lại, hoặc Enter để dùng %s / %s)", email, auth.DefaultAdminEmail, auth.DefaultAdminPassword)
+				}
+				if !errors.Is(err, auth.ErrWeakPassword) && !errors.Is(err, errPasswordMismatch) {
+					return err
+				}
+				fmt.Fprintln(os.Stderr, "  !", err)
+			}
+		}
+	}
+	if created, err := a.auth.EnsureDefaultAdmin(ctx); err != nil {
+		return err
+	} else if created {
+		fmt.Fprintf(os.Stderr, "✓ Tạo tài khoản mặc định %s / %s (đổi email và mật khẩu khi đăng nhập lần đầu)\n", auth.DefaultAdminEmail, auth.DefaultAdminPassword)
 	}
 	return nil
 }

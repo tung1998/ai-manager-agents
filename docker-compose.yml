@@ -2,7 +2,9 @@
 #
 #   cp .env.example .env        # set OFFICE_PUBLIC_URL
 #   docker compose up -d --build
-#   docker compose exec office office user create --email you@company.com --role admin
+#   docker compose exec office office user create --email you@company.com
+#   (optional: the first admin, replacing admin / admin, which must set its own
+#    email and password on the first login anyway)
 #
 # Only the dashboard is published. Put a TLS terminator in front for real use
 # and set OFFICE_PUBLIC_URL to the https origin.

@@ -195,18 +195,19 @@
 <section id="install">
   <h2><span class="num">2</span>Install &amp; first run</h2>
   <p class="intro">You need Go ≥ 1.27, Node 22, pnpm, and at least one AI account.</p>
-  <div class="callout tip"><strong>The AI way 🤖</strong>It's an office run by AI, so let an AI set it up. Clone the repo, run <code>claude</code> (or <code>codex</code>) in the folder and say <i>"run this project"</i>. It builds everything, creates your admin account and hands you the link. If it asks you something, that's your first approval request.</div>
+  <div class="callout tip"><strong>The AI way 🤖</strong>It's an office run by AI, so let an AI set it up. Clone the repo, run <code>claude</code> (or <code>codex</code>) in the folder and say <i>"run this project"</i>. It builds everything, starts the office and hands you the link. If it asks you something, that's your first approval request.</div>
   <p>Or by hand:</p>
 <pre><code>make build                        # → bin/office
 make ui-install &amp;&amp; make ui-build  # → dashboard/.output
-./bin/office user create --email you@example.com --name "You" --role admin
 ./bin/office run                  # API on :8787, dashboard on http://localhost:2704</code></pre>
   <ol class="steps">
-    <li>Open <code>http://localhost:2704</code> and sign in with the account you just created.</li>
+    <li>Open <code>http://localhost:2704</code> (or the server's address) and sign in with <b><code>admin</code> / <code>admin</code></b>.</li>
+    <li>Set your own email and password. The default account can do nothing else until you do.</li>
     <li>Follow the checklist on <b>Overview → Machine</b>: AI connection → project → organisation model.</li>
     <li>Optional: <code>./bin/office service install --now</code> starts the office every time you log in (LaunchAgent on macOS, systemd user unit on Linux).</li>
   </ol>
   <figure><img src="images/01-login.png" alt="Login page" loading="lazy"><figcaption>Sign in. Failed logins are rate-limited per IP.</figcaption></figure>
+  <div class="callout"><strong>Skip admin / admin?</strong><code>office init</code> asks for the admin email and password (Enter keeps <code>admin</code> / <code>admin</code>). In Docker or a script, <code>office user create --email you@example.com</code> takes the place of <code>admin</code> / <code>admin</code>. Forgot a password? <code>office user passwd --email …</code>.</div>
   <div class="callout tip"><strong>Where is my data?</strong>By default in <code>~/.agent-office</code> (one office for the whole machine). Run <code>office init --local</code> inside a repo to keep data in <code>&lt;repo&gt;/.office</code> instead.</div>
   <div class="callout"><strong>Remote access</strong>Reach the dashboard from your phone or laptop over Tailscale or LAN. MCP OAuth logins still work: paste the link your browser lands on after signing in.</div>
 </section>
@@ -559,7 +560,7 @@ office backup                            # database + encryption key</code></pre
     <tr><td><code>office project add|list|rm</code></td><td>Manage projects. No path = machine-wide helper.</td></tr>
     <tr><td><code>office provider add|list|test</code></td><td>AI connections.</td></tr>
     <tr><td><code>office template list</code></td><td>Organisation models.</td></tr>
-    <tr><td><code>office user create|list|passwd</code></td><td>Dashboard accounts.</td></tr>
+    <tr><td><code>office user create|list|passwd</code></td><td>The first admin (replaces <code>admin</code> / <code>admin</code>), list accounts, reset a password. Later accounts: on the dashboard, or <code>create --force</code>.</td></tr>
     <tr><td><code>office export | import | backup</code></td><td>Move or back up configuration and data.</td></tr>
     <tr><td><code>office service install|status|uninstall</code></td><td>Start with your login session.</td></tr>
   </table>

@@ -32,6 +32,15 @@ var (
 	ErrWeakPassword       = fmt.Errorf("auth: password must be at least %d characters", MinPasswordLen)
 	ErrInvalidRole        = errors.New("auth: invalid role")
 	ErrEmailTaken         = errors.New("auth: email already registered")
+	ErrSetUp              = errors.New("auth: account already set up")
+)
+
+// The account a first run makes (EnsureDefaultAdmin) when setup did not pick
+// one. It must set a real email and password before anything else
+// (SetupAccount), so admin / admin lives only until the first login.
+const (
+	DefaultAdminEmail    = "admin"
+	DefaultAdminPassword = "admin"
 )
 
 // MinPasswordLen is the minimum password length (NIST 800-63B favours length).
@@ -176,6 +185,72 @@ func (s *Service) CreateUser(ctx context.Context, in NewUser, actor string) (sto
 	}
 	s.audit(ctx, actor, "user.create", u.ID, map[string]any{"email": u.Email, "role": string(u.Role)})
 	return u, nil
+}
+
+// EnsureDefaultAdmin makes the default admin (admin / admin) when the office
+// has no account yet; created is false when there was one already.
+func (s *Service) EnsureDefaultAdmin(ctx context.Context) (created bool, err error) {
+	n, err := s.store.Users().Count(ctx)
+	if err != nil || n > 0 {
+		return false, err
+	}
+	hash, err := s.opts.Hasher.Hash(DefaultAdminPassword)
+	if err != nil {
+		return false, err
+	}
+	u, err := s.store.Users().Create(ctx, storage.User{Email: DefaultAdminEmail, Name: "Admin", Role: storage.RoleAdmin, PasswordHash: hash, MustChange: true})
+	if errors.Is(err, storage.ErrConflict) {
+		return false, nil // made at the same moment by another process
+	}
+	if err != nil {
+		return false, err
+	}
+	s.audit(ctx, "system", "user.create_default", u.ID, map[string]any{"email": u.Email})
+	return true, nil
+}
+
+// PendingDefault returns the default admin while it has not been set up yet.
+func (s *Service) PendingDefault(ctx context.Context) (storage.User, bool) {
+	u, err := s.store.Users().GetByEmail(ctx, DefaultAdminEmail)
+	return u, err == nil && u.MustChange
+}
+
+// SetupAccount is the default admin setting its own email, name and password.
+// Its other sessions end; keepSessionID (the one doing it) stays.
+func (s *Service) SetupAccount(ctx context.Context, userID, email, name, password, keepSessionID string) (storage.User, error) {
+	u, err := s.store.Users().GetByID(ctx, userID)
+	if err != nil {
+		return storage.User{}, err
+	}
+	if !u.MustChange {
+		return storage.User{}, ErrSetUp
+	}
+	email = NormalizeEmail(email)
+	if !validEmail(email) {
+		return storage.User{}, ErrInvalidEmail
+	}
+	if err := ValidatePassword(password); err != nil {
+		return storage.User{}, err
+	}
+	hash, err := s.opts.Hasher.Hash(password)
+	if err != nil {
+		return storage.User{}, err
+	}
+	if name = strings.TrimSpace(name); name == "" {
+		name = u.Name
+	}
+	err = s.store.Users().SetCredentials(ctx, u.ID, email, name, hash)
+	if errors.Is(err, storage.ErrConflict) {
+		return storage.User{}, ErrEmailTaken
+	}
+	if err != nil {
+		return storage.User{}, err
+	}
+	if err := s.store.Sessions().DeleteForUserExcept(ctx, u.ID, keepSessionID); err != nil {
+		return storage.User{}, err
+	}
+	s.audit(ctx, "human:"+email, "user.setup", u.ID, map[string]any{"email": email})
+	return s.store.Users().GetByID(ctx, u.ID)
 }
 
 // Login verifies credentials and opens a session.

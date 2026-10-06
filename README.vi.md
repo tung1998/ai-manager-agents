@@ -71,7 +71,7 @@ claude            # hoặc: codex
 
 > **Bạn:** chạy project này giúp mình
 >
-> **AI:** *đọc Makefile, build server và dashboard, hỏi email của bạn, tạo tài khoản admin, bật office rồi đưa bạn đường link.*
+> **AI:** *đọc Makefile, build server và dashboard, bật office rồi đưa bạn đường link.*
 
 Đi pha ly cà phê. Nếu AI hỏi gì đó, chúc mừng: đó là yêu cầu duyệt đầu tiên của văn phòng. Rồi bạn sẽ quen thôi.
 
@@ -81,12 +81,12 @@ claude            # hoặc: codex
 git clone <repo này> agent-office && cd agent-office
 make build                                        # → bin/office
 make ui-install && make ui-build                  # → dashboard/.output
-
-./bin/office user create --email ban@example.com --name "Bạn" --role admin
 ./bin/office run                                  # API :8787 + dashboard http://localhost:2704
 ```
 
-Mở **http://localhost:2704**, đăng nhập, rồi làm theo checklist trên trang Tổng quan:
+Mở **http://localhost:2704** và đăng nhập bằng **`admin` / `admin`**. Office bắt bạn đặt email và mật khẩu riêng ngay; trước khi đặt, tài khoản mặc định không làm được gì khác. (`office init` hỏi email và mật khẩu admin từ đầu; bấm Enter để giữ `admin` / `admin`.)
+
+Sau đó làm theo checklist trên trang Tổng quan:
 
 1. **Kết nối AI** → thêm Claude Code, Codex hoặc một API key (kiểm tra bằng một cú bấm).
 2. **Project** → thêm thư mục, clone link git, hoặc tạo trợ lý không thư mục.
@@ -107,8 +107,10 @@ Dữ liệu mặc định nằm ở `~/.agent-office`. Dùng `office init --loca
 ```bash
 cp .env.example .env
 docker compose up -d --build
-docker compose exec office office user create --email ban@example.com --role admin
+docker compose exec office office user create --email ban@example.com   # tùy chọn: thay admin / admin
 ```
+
+Đăng nhập `admin` / `admin` rồi đặt lại, hoặc bỏ qua bước đó bằng lệnh trên. Tài khoản sau thêm trên dashboard (Quản trị → Tài khoản); quên mật khẩu thì `office user passwd --email …`.
 
 ## Cách hoạt động
 
@@ -142,7 +144,7 @@ flowchart LR
 | `office init [--local] [--template team]` | Đăng ký repo hiện tại và chọn mô hình |
 | `office project add/list/rm` | Quản lý project (không có path = trợ lý toàn máy) |
 | `office provider add/list/test` | Kết nối AI |
-| `office user create/list/passwd` | Tài khoản dashboard |
+| `office user create/list/passwd` | Admin đầu tiên (thay `admin` / `admin`), liệt kê tài khoản, đặt lại mật khẩu |
 | `office template list` | Mô hình tổ chức có sẵn và tự tạo |
 | `office export / import / backup` | Chuyển cấu hình giữa các máy, sao lưu database |
 | `office service install/status/uninstall` | Tự bật cùng phiên đăng nhập máy |

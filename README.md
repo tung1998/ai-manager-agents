@@ -71,7 +71,7 @@ claude            # or: codex
 
 > **You:** run this project
 >
-> **AI:** *reads the Makefile, builds the server and the dashboard, asks for your email, creates your admin account, starts the office and hands you a link.*
+> **AI:** *reads the Makefile, builds the server and the dashboard, starts the office and hands you a link.*
 
 Grab a coffee. If it asks you something, that's the office's first approval request. Get used to it.
 
@@ -81,12 +81,12 @@ Grab a coffee. If it asks you something, that's the office's first approval requ
 git clone <this repo> agent-office && cd agent-office
 make build                                        # → bin/office
 make ui-install && make ui-build                  # → dashboard/.output
-
-./bin/office user create --email you@example.com --name "You" --role admin
 ./bin/office run                                  # API :8787 + dashboard http://localhost:2704
 ```
 
-Open **http://localhost:2704**, sign in, and follow the checklist on the Overview page:
+Open **http://localhost:2704** and sign in with **`admin` / `admin`**. The office asks for your own email and password right away, and the default account can do nothing else until you do. (`office init` asks for the admin email and password up front; press Enter to keep `admin` / `admin`.)
+
+Then follow the checklist on the Overview page:
 
 1. **AI connections** → add Claude Code, Codex, or an API key (test it in one click).
 2. **Projects** → add a folder, clone a git URL, or create a folder-less helper.
@@ -107,8 +107,10 @@ Data lives in `~/.agent-office` by default. Use `office init --local` inside a r
 ```bash
 cp .env.example .env
 docker compose up -d --build
-docker compose exec office office user create --email you@example.com --role admin
+docker compose exec office office user create --email you@example.com   # optional: replaces admin / admin
 ```
+
+Sign in with `admin` / `admin` and set your own, or skip it with the command above. Later accounts are added on the dashboard (Administration → Accounts); `office user passwd --email …` resets a forgotten password.
 
 ## How it works
 
@@ -142,7 +144,7 @@ flowchart LR
 | `office init [--local] [--template team]` | Register the current repo and choose a model |
 | `office project add/list/rm` | Manage projects (no path = machine-wide helper) |
 | `office provider add/list/test` | AI connections |
-| `office user create/list/passwd` | Dashboard accounts |
+| `office user create/list/passwd` | First admin (replaces `admin` / `admin`), list accounts, reset a password |
 | `office template list` | Built-in and custom organisation models |
 | `office export / import / backup` | Move config between machines, back up the database |
 | `office service install/status/uninstall` | Start with your login session |

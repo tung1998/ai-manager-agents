@@ -10,6 +10,13 @@ export default defineNuxtRouteMiddleware(async (to) => {
   if (!user.value) {
     return navigateTo({ path: '/login', query: to.fullPath !== '/' ? { redirect: to.fullPath } : {} })
   }
+  // the default admin (admin / admin) sets its real email and password first
+  if (user.value.must_change) {
+    return to.path === '/setup-account' ? undefined : navigateTo('/setup-account')
+  }
+  if (to.path === '/setup-account') {
+    return navigateTo('/')
+  }
   if (to.meta.admin && user.value.role !== 'admin') {
     return navigateTo('/')
   }
