@@ -1,6 +1,6 @@
 # agent-office
 
-> English: [README.md](README.md) · Hướng dẫn có ảnh: [docs/guide/index.html](docs/guide/index.html)
+> English: [README.md](README.md) · Hướng dẫn có ảnh: [tung1998.github.io/ai-manager-agents/guide](https://tung1998.github.io/ai-manager-agents/guide/)
 
 **Văn phòng AI của riêng mỗi người.** Bạn có một đội nhân viên AI (agent) chạy trên máy của mình, mỗi người một vai trò. Họ nhận việc qua chat (dashboard, Discord, Telegram), tự làm, tự giao việc cho nhau, và chỉ hỏi bạn khi cần duyệt.
 
@@ -55,7 +55,7 @@ Test: `make test` (Go) và `make ui-build` (typecheck + build dashboard).
 
 | File | Nội dung |
 |---|---|
-| [docs/guide/index.html](docs/guide/index.html) | Hướng dẫn từng tính năng, có ảnh (tiếng Anh) |
+| [docs/guide/index.html](https://tung1998.github.io/ai-manager-agents/guide/) | Hướng dẫn từng tính năng, có ảnh (tiếng Anh) |
 | [docs/PLAN.md](docs/PLAN.md) | Tầm nhìn, stack, tiến độ, lộ trình |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Thành phần, luồng dữ liệu, sơ đồ Mermaid |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Schema DB: memory, blackboard, runs, incidents, costs |

@@ -4,7 +4,7 @@
 
 **Your own AI office. A team of AI agents that runs on your machine, takes work over chat, and asks you only when something needs approval.**
 
-[Guide with screenshots](docs/guide/index.html) · [Tiếng Việt](README.vi.md) · [Plan & progress](docs/PLAN.md) · [Decisions (ADR)](docs/DECISIONS.md)
+[Guide with screenshots](https://tung1998.github.io/ai-manager-agents/guide/) · [Tiếng Việt](README.vi.md) · [Plan & progress](docs/PLAN.md) · [Decisions (ADR)](docs/DECISIONS.md)
 
 ![Overview](docs/guide/images/02-overview.png)
 
