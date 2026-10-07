@@ -86,6 +86,8 @@ export default {
   'chat.budgetHit': 'Đã chạm trần chi phí',
   'chat.skillChat': 'Chat soạn skill',
   'chat.backToSkillEditor': 'Mở trình soạn skill',
+  'chat.clearEditorChat': 'Xóa chat',
+  'chat.clearEditorConfirm': 'Xóa chat này để bắt đầu lại? Nội dung trong form vẫn giữ.',
   'chat.workflowChat': 'Chat soạn quy trình',
   'chat.backToWorkflowEditor': 'Mở trình soạn quy trình',
   'chat.openInTelegram': 'Mở trong Telegram',

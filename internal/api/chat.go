@@ -142,6 +142,7 @@ func (s *server) createConversation(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		AgentID string `json:"agent_id"`
 		Purpose string `json:"purpose"` // "automation": a chat that builds one automation (ADR-042)
+		Subject string `json:"subject"` // skill/workflow: what it writes, to find the chat again
 	}
 	if r.ContentLength != 0 && !decode(w, r, &in) {
 		return
@@ -152,6 +153,11 @@ func (s *server) createConversation(w http.ResponseWriter, r *http.Request) {
 	)
 	if in.Purpose == "automation" || in.Purpose == "skill" || in.Purpose == "workflow" { // a chat that builds one automation, or writes one skill or workflow
 		c, err = s.cfg.Chat.StartConversationPurpose(r.Context(), r.PathValue("id"), in.AgentID, in.Purpose)
+		if err == nil && in.Subject != "" && in.Purpose != "automation" {
+			if err = s.cfg.Store.Chat().SetConversationSubject(r.Context(), c.ID, in.Subject); err == nil {
+				c.Subject = in.Subject
+			}
+		}
 	} else {
 		c, err = s.cfg.Chat.StartConversation(r.Context(), r.PathValue("id"), in.AgentID)
 	}
@@ -160,6 +166,55 @@ func (s *server) createConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"conversation": s.toConvDTO(c)})
+}
+
+// editorChat: the chat an editor (skill, workflow) had for what it writes
+// (?purpose=&subject=), null when none; the assistant's are each person's own.
+func (s *server) editorChat(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if p := q.Get("purpose"); (p != "skill" && p != "workflow") || q.Get("subject") == "" {
+		writeError(w, http.StatusBadRequest, "purpose (skill|workflow) và subject là bắt buộc")
+		return
+	}
+	who := ""
+	if r.PathValue("id") == assistant.ID(r.Context(), s.cfg.Store) {
+		who = "human:" + userFrom(r).Email
+	}
+	c, err := s.cfg.Store.Chat().SubjectConversation(r.Context(), r.PathValue("id"), q.Get("purpose"), q.Get("subject"), who)
+	if errors.Is(err, storage.ErrNotFound) {
+		writeJSON(w, http.StatusOK, map[string]any{"conversation": nil})
+		return
+	}
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c)})
+}
+
+// setSubject ties an editor's chat to what it wrote, once saved ({"subject"}).
+func (s *server) setSubject(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Subject string `json:"subject"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	c, err := s.cfg.Store.Chat().GetConversation(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if c.Purpose != "skill" && c.Purpose != "workflow" {
+		writeError(w, http.StatusBadRequest, "chỉ chat của trình soạn skill/quy trình")
+		return
+	}
+	if err := s.cfg.Store.Chat().SetConversationSubject(r.Context(), c.ID, in.Subject); err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	c.Subject = in.Subject
+	writeJSON(w, http.StatusOK, map[string]any{"conversation": s.toConvDTO(c)})
 }
 
 func (s *server) getConversation(w http.ResponseWriter, r *http.Request) {

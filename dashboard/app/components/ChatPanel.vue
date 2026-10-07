@@ -24,11 +24,13 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 
 // purpose "automation": the chat that builds one automation (ADR-042), made on
 // first send or opened by automationId; its answers may fill the form.
+// subject (skill, workflow): what the editor writes; its chat is found again
+// by it (an editor's chat is not in the chat list).
 // compact: no thread column (a picker instead), fills its container.
 // pageContext: what the person is looking at, sent with each message.
 // pane: one box of the watch screen (compact, no prefill, its own header
 // buttons in the #lead/#actions slots); conversationId: the chat it opens on.
-const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill' | 'workflow', automationId?: string, compact?: boolean, pane?: boolean, conversationId?: string, pageContext?: () => string }>()
+const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill' | 'workflow', automationId?: string, subject?: string, compact?: boolean, pane?: boolean, conversationId?: string, pageContext?: () => string }>()
 const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'workflow-patch': [Record<string, unknown>], 'history': [Record<string, unknown>[]], 'conversation': [string], 'current': [string], 'back': [] }>()
 const single = computed(() => !!props.purpose)
 // the chat page on a phone: the input stays behind a button until asked for,
@@ -474,7 +476,7 @@ async function open(c: Conversation, messageId?: string) {
 
 async function newConversation(agentId = '') {
   try {
-    const res = await $fetch<{ conversation: Conversation }>(`/api/projects/${props.projectId}/conversations`, { method: 'POST', body: { agent_id: agentId, purpose: props.purpose ?? '' } })
+    const res = await $fetch<{ conversation: Conversation }>(`/api/projects/${props.projectId}/conversations`, { method: 'POST', body: { agent_id: agentId, purpose: props.purpose ?? '', subject: props.subject ?? '' } })
     if (props.purpose) emit('conversation', res.conversation.id)
     else await refreshConvs()
     // the skill editor's chat is in the URL: back, reload or a link reopens it
@@ -744,15 +746,44 @@ const threadPick = computed({
 async function openEditorChat(id: string) {
   try {
     await open({ id } as Conversation)
+    emit('conversation', id)
     emit('history', messages.value.filter(m => m.role === 'assistant').flatMap(m => fencedBlocks(m.content, props.purpose!)))
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
 }
 
+// a saved skill or workflow: the chat it was written with, if any
+async function openSubjectChat() {
+  if (!props.subject) return
+  try {
+    const res = await $fetch<{ conversation: Conversation | null }>(`/api/projects/${props.projectId}/editor-chat`, { query: { purpose: props.purpose, subject: props.subject } })
+    if (res.conversation && !current.value) await openEditorChat(res.conversation.id)
+  } catch { /* none: a new one on first send */ }
+}
+// an editor's chat cleared: gone, the next message starts a new one
+async function clearEditorChat() {
+  const c = current.value
+  if (!c || !confirm(t('chat.clearEditorConfirm'))) return
+  try {
+    if (streaming.value) await cancel()
+    await $fetch(`/api/conversations/${c.id}`, { method: 'DELETE' })
+  } catch (e) {
+    return toast.add({ title: apiError(e), color: 'error' })
+  }
+  current.value = null
+  messages.value = []
+  emit('conversation', '')
+  if (route.query.c === c.id) router.replace({ query: { ...route.query, c: undefined } })
+  if (props.purpose === 'automation') openAutomation() // a saved automation: a new chat tied to it
+}
+
 onMounted(() => {
   if (props.purpose === 'automation') openAutomation()
-  else if (props.purpose === 'skill' || props.purpose === 'workflow') { if (typeof route.query.c === 'string') openEditorChat(route.query.c) }
+  else if (props.purpose === 'skill' || props.purpose === 'workflow') {
+    if (typeof route.query.c === 'string') openEditorChat(route.query.c)
+    else openSubjectChat()
+  }
   else if (props.conversationId) open({ id: props.conversationId } as Conversation).catch(() => { openFirst.value = true }) // gone: the latest one
   else if (ownsUrl.value && typeof route.query.draft === 'string' && !tookPrefill) {
     // handed over by the office assistant: a new chat with the message ready to send
@@ -857,6 +888,10 @@ onBeforeUnmount(() => {
           <UIcon name="i-lucide-workflow" class="size-4 shrink-0 text-(--ui-primary)" />
           <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.workflowChat') }}</span>
           <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('chat.backToWorkflowEditor')" @click="openWorkflowEditor(current.id)" />
+        </div>
+        <!-- an editor's chat: cleared to start over -->
+        <div v-if="single && current && messages.length" class="flex justify-end">
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-eraser" :label="t('chat.clearEditorChat')" @click="clearEditorChat" />
         </div>
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />

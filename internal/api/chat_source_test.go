@@ -51,7 +51,8 @@ func TestChatListBySource(t *testing.T) {
 }
 
 // A chat that helps write a skill (its answers fill the editor): its own
-// purpose, and in the project's chat list so it can be found again.
+// purpose, not in the project's chat list; the editor finds it again by its
+// subject (given when made, or once a new skill is saved).
 func TestSkillChatPurpose(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
@@ -59,13 +60,32 @@ func TestSkillChatPurpose(t *testing.T) {
 	solo := "solo"
 	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
-	resp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{"purpose": "skill"}, nil)
+	resp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{"purpose": "skill", "subject": "skill:project:tra-don"}, nil)
 	if resp.StatusCode != 201 || b["conversation"].(map[string]any)["purpose"] != "skill" {
 		t.Fatalf("create = %d %v", resp.StatusCode, b)
 	}
+	cid := b["conversation"].(map[string]any)["id"].(string)
 	_, b = do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/conversations?source=all", nil, nil)
-	if cs := b["conversations"].([]any); len(cs) != 1 || cs[0].(map[string]any)["purpose"] != "skill" {
-		t.Fatalf("the skill chat is not in the list: %v", b)
+	if cs := b["conversations"].([]any); len(cs) != 0 {
+		t.Fatalf("the skill chat is listed: %v", b)
+	}
+	_, b = do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/editor-chat?purpose=skill&subject=skill:project:tra-don", nil, nil)
+	if c, _ := b["conversation"].(map[string]any); c == nil || c["id"] != cid {
+		t.Fatalf("editor chat = %v", b)
+	}
+	// a new skill: no subject yet; tied to it once saved
+	_, b = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{"purpose": "skill"}, nil)
+	nid := b["conversation"].(map[string]any)["id"].(string)
+	_, b = do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/editor-chat?purpose=skill&subject=skill:project:moi", nil, nil)
+	if b["conversation"] != nil {
+		t.Fatalf("no chat yet = %v", b)
+	}
+	if resp, b := do(t, admin, "PUT", e.srv.URL+"/api/conversations/"+nid+"/subject", map[string]any{"subject": "skill:project:moi"}, nil); resp.StatusCode != 200 {
+		t.Fatalf("set subject = %d %v", resp.StatusCode, b)
+	}
+	_, b = do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/editor-chat?purpose=skill&subject=skill:project:moi", nil, nil)
+	if c, _ := b["conversation"].(map[string]any); c == nil || c["id"] != nid {
+		t.Fatalf("editor chat after save = %v", b)
 	}
 }
 
@@ -153,9 +173,9 @@ func TestJobsSmallPage(t *testing.T) {
 	}
 }
 
-// A chat of the skill editor is a chat of the project too: in the list (so it
-// can be followed), and its job opens the editor again, not a lost thread.
-func TestSkillChatListed(t *testing.T) {
+// A chat of the skill editor stays with its editor: not in the list, and its
+// job opens the editor again, not a lost thread.
+func TestSkillChatNotListed(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
@@ -175,8 +195,8 @@ func TestSkillChatListed(t *testing.T) {
 				t.Fatalf("%q: an automation builder's chat stays with its automation", q)
 			}
 		}
-		if found == nil || found["purpose"] != "skill" {
-			t.Fatalf("%q: skill chat = %v in %v", q, found, b)
+		if found != nil {
+			t.Fatalf("%q: a skill editor's chat stays with its editor: %v", q, b)
 		}
 	}
 	e.st.Jobs().Create(ctx, storage.Job{ProjectID: pid, Kind: "chat_turn", Origin: "user", ConversationID: c.ID, Status: "done"})
@@ -187,8 +207,8 @@ func TestSkillChatListed(t *testing.T) {
 	}
 }
 
-// A library workflow is written with the office assistant: its chat is listed
-// and its job opens the workflow editor again; the draft is checked before saving.
+// A library workflow is written with the office assistant: its chat is not
+// listed and its job opens the workflow editor again; the draft is checked before saving.
 func TestWorkflowChat(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
@@ -201,8 +221,8 @@ func TestWorkflowChat(t *testing.T) {
 	}
 	cid := b["conversation"].(map[string]any)["id"].(string)
 	_, b = do(t, admin, "GET", e.srv.URL+"/api/projects/"+aid+"/conversations", nil, nil)
-	if cs := b["conversations"].([]any); len(cs) != 1 || cs[0].(map[string]any)["purpose"] != "workflow" {
-		t.Fatalf("list = %v", b)
+	if cs := b["conversations"].([]any); len(cs) != 0 {
+		t.Fatalf("a workflow editor's chat is listed: %v", b)
 	}
 	e.st.Jobs().Create(ctx, storage.Job{ProjectID: aid, Kind: "chat_turn", Origin: "user", CreatedBy: "human:admin@x.io", ConversationID: cid, Status: "done"})
 	_, b = do(t, admin, "GET", e.srv.URL+"/api/jobs/groups", nil, nil)

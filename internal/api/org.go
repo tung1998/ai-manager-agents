@@ -103,6 +103,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("GET /api/projects/{id}/conversations", auth(s.listConversations))
 		mux.Handle("GET /api/conversations/recent", auth(s.recentConversations)) // the overview
 		mux.Handle("POST /api/projects/{id}/conversations", auth(s.createConversation))
+		mux.Handle("GET /api/projects/{id}/editor-chat", auth(s.editorChat))
 		mux.Handle("GET /api/projects/{id}/skills", auth(s.chatSkills))
 		mux.Handle("POST /api/projects/{id}/attachments", auth(s.uploadAttachment))
 		mux.Handle("GET /api/attachments/{id}", auth(s.getAttachment))
@@ -113,6 +114,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/chat/turns/{id}/cancel", auth(s.ownTurn(s.cancelTurn)))
 		mux.Handle("POST /api/conversations/{id}/seen", auth(s.ownChat(s.markSeen)))
 		mux.Handle("PUT /api/conversations/{id}/tags", auth(s.ownChat(s.setTags)))
+		mux.Handle("PUT /api/conversations/{id}/subject", auth(s.ownChat(s.setSubject)))
 		mux.Handle("GET /api/projects/{id}/chat-tags", auth(s.projectTags))
 		mux.Handle("POST /api/conversations/{id}/stop", auth(s.ownChat(s.stopConversation)))
 		mux.Handle("GET /api/patches/{id}", auth(s.getPatch))

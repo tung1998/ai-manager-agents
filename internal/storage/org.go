@@ -360,6 +360,7 @@ type Conversation struct {
 	TaskID       string // set for the follow-up talk about one task
 	Purpose      string // "" = a chat of the project; "automation" = builds one automation (not listed)
 	AutomationID string // purpose automation: the automation it builds, once saved
+	Subject      string // purpose skill/workflow: what it writes ("skill:<scope>:<name>", "wf:<id>", "lib:<key>")
 	Effort       string // this chat's thinking level over its agent's ("" = the agent's)
 	Cleaned      string // data cleanup: CleanContent | CleanSummary ("" = as it was); takes no more messages
 	CleanedAt    *time.Time
@@ -492,6 +493,11 @@ type ChatRepo interface {
 	TaskConversation(ctx context.Context, taskID string) (Conversation, error)
 	// AutomationConversation is the chat that builds an automation.
 	AutomationConversation(ctx context.Context, automationID string) (Conversation, error)
+	// SubjectConversation is the latest editor chat (skill, workflow) of a
+	// subject; createdBy not "": only that person's.
+	SubjectConversation(ctx context.Context, projectID, purpose, subject, createdBy string) (Conversation, error)
+	// SetConversationSubject ties an editor chat to what it writes.
+	SetConversationSubject(ctx context.Context, conversationID, subject string) error
 	// LinkAutomation ties a building chat to the automation once it is saved.
 	LinkAutomation(ctx context.Context, conversationID, automationID string) error
 	DeleteConversation(ctx context.Context, id string) error

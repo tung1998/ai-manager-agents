@@ -71,6 +71,9 @@ onMounted(() => {
     if (raw) applyPatch(JSON.parse(raw))
   } catch { /* nothing handed over */ }
 })
+// its chat: found again by the skill (a new one is tied to it once saved)
+const conversationId = ref('')
+const subjectOf = (name: string) => `skill:${scope.value}:${name}`
 const pageContext = () => JSON.stringify({ page: editing.value ? 'skill.edit' : 'skill.new', scope: scope.value, draft: { ...form }, other_files: Object.keys(otherFiles.value) })
 const hl = (k: string) => highlight.value.includes(k) ? 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition' : ''
 
@@ -91,6 +94,7 @@ async function save(accept = false) {
         edited: editing.value ? edited : undefined, version: editing.value ? editedFrom : undefined
       }
     })
+    if (conversationId.value && !editing.value) await $fetch(`/api/conversations/${conversationId.value}/subject`, { method: 'PUT', body: { subject: subjectOf(form.name.trim()) } }).catch(() => {})
     toast.add({ title: t('skill.saved'), color: 'success' })
     await navigateTo({ path: `/projects/${props.projectId}`, query: { tab: 'skill' } })
   } catch (e) {
@@ -146,7 +150,10 @@ async function save(accept = false) {
       </div>
     </div>
     <div class="h-[32rem] lg:h-auto lg:min-h-0">
-      <ChatPanel :project-id="projectId" purpose="skill" :page-context="pageContext" @skill-patch="applyPatch" @history="replay" />
+      <ChatPanel
+        :project-id="projectId" purpose="skill" :subject="editing ? subjectOf(name!) : undefined" :page-context="pageContext"
+        @skill-patch="applyPatch" @history="replay" @conversation="(id) => { conversationId = id }"
+      />
     </div>
   </div>
 </template>

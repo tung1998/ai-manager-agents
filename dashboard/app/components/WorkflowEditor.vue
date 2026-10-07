@@ -121,6 +121,12 @@ function replay(blocks: Record<string, unknown>[]) {
   if (editing.value || !last) return
   source.value = last.source as string
 }
+// its chat: found again by the workflow (a new one is tied to it once saved)
+const conversationId = ref('')
+const subject = computed(() => !editing.value ? undefined : library.value ? `lib:${props.libKey}` : `wf:${props.workflowId}`)
+async function tieChat(s: string) {
+  if (conversationId.value) await $fetch(`/api/conversations/${conversationId.value}/subject`, { method: 'PUT', body: { subject: s } }).catch(() => {})
+}
 const pageContext = () => JSON.stringify({ page: editing.value ? 'workflow.edit' : 'workflow.new', scope: library.value ? 'library' : 'project', draft: source.value, error: error.value })
 
 const saving = ref(false)
@@ -142,10 +148,12 @@ async function save() {
         if (taken && !confirm(t('wf.overwrite', { key }))) return
       }
       await $fetch(`/api/workflow-library/${key}`, { method: 'PUT', body: { source: source.value } })
+      if (!editing.value) await tieChat(`lib:${key}`)
     } else if (editing.value) {
       await $fetch(`/api/workflows/${props.workflowId}`, { method: 'PATCH', body: { source: source.value, bindings: bindings.value } })
     } else {
-      await $fetch(`/api/projects/${props.projectId}/workflows`, { method: 'POST', body: { source: source.value, bindings: bindings.value } })
+      const res = await $fetch<{ workflow: ProjectWorkflow }>(`/api/projects/${props.projectId}/workflows`, { method: 'POST', body: { source: source.value, bindings: bindings.value } })
+      await tieChat(`wf:${res.workflow.id}`)
     }
     toast.add({ title: t('wf.saved'), color: 'success' })
     await navigateTo(back.value)
@@ -193,7 +201,10 @@ async function save() {
       </div>
     </div>
     <div class="h-[32rem] lg:h-auto lg:min-h-0">
-      <ChatPanel :project-id="chatProjectId" purpose="workflow" :page-context="pageContext" @workflow-patch="applyPatch" @history="replay" />
+      <ChatPanel
+        :project-id="chatProjectId" purpose="workflow" :subject="subject" :page-context="pageContext"
+        @workflow-patch="applyPatch" @history="replay" @conversation="(id) => { conversationId = id }"
+      />
     </div>
   </div>
 </template>
