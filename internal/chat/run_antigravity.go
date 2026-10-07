@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,7 @@ type agyEvent struct {
 		TextDelta      string          `json:"text_delta"`
 		ToolName       string          `json:"tool_name"`
 		ToolInfo       json.RawMessage `json:"tool_info"`
+		Error          string          `json:"error"`
 	} `json:"step_update"`
 	Result struct {
 		ConversationID string `json:"conversation_id"`
@@ -52,16 +54,42 @@ type agyEvent struct {
 }
 
 func (r antigravityRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
-	res, err := r.run(ctx, req, emit)
+	res, stepErr, err := r.run(ctx, req, emit)
 	// a conversation agy no longer has: start over with the transcript
-	if err != nil && req.SessionID != "" && res.Text == "" {
+	if err != nil && req.SessionID != "" && res.Text == "" && stepErr == "" {
 		req.SessionID = ""
-		return r.run(ctx, req, emit)
+		res, stepErr, err = r.run(ctx, req, emit)
+	}
+	// agy ends a turn without an answer when a step fails (a command the
+	// mode denies): asked once more in its conversation to answer with what
+	// it has, else the turn fails (not an empty answer taken as done)
+	if res.Text == "" && res.SessionID != "" && ctx.Err() == nil && (err == nil || stepErr != "") {
+		more := req
+		more.SessionID, more.Attachments = res.SessionID, nil
+		more.Prompt = "Bạn chưa trả lời. Hãy viết câu trả lời cuối cùng cho yêu cầu trên bằng những gì đã có, không thử lại thao tác vừa lỗi." // i18n-ignore: sent to the agent
+		if stepErr != "" {
+			more.Prompt = "Thao tác vừa rồi lỗi: " + truncate(stepErr, 300) + "\n" + more.Prompt // i18n-ignore: sent to the agent
+		}
+		again, againErr, err2 := r.run(ctx, more, emit)
+		again.Tools = append(res.Tools, again.Tools...)
+		again.Usage.InputTokens += res.Usage.InputTokens
+		again.Usage.OutputTokens += res.Usage.OutputTokens
+		again.Usage.DurationMS += res.Usage.DurationMS
+		res, err = again, err2
+		stepErr = cmp.Or(againErr, stepErr)
+	}
+	if err == nil && res.Text == "" {
+		msg := "agy kết thúc lượt mà không trả lời"
+		if stepErr != "" {
+			msg += ": " + truncate(stepErr, 300)
+		}
+		err = errors.New(msg)
 	}
 	return res, err
 }
 
-func (antigravityRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
+// run is one agy call; stepErr is the last step that failed (it may end the turn).
+func (antigravityRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (res RunResult, stepErr string, _ error) {
 	bin := firstNonEmpty(req.Bin, "agy")
 	args := []string{"--output-format", "stream-json", "--disable-slash-commands"}
 	switch {
@@ -96,13 +124,12 @@ func (antigravityRunner) run(ctx context.Context, req RunRequest, emit func(Even
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		return RunResult{}, err
+		return RunResult{}, "", err
 	}
 	if err := cmd.Start(); err != nil {
-		return RunResult{}, fmt.Errorf("không chạy được %s: %w", bin, err)
+		return RunResult{}, "", fmt.Errorf("không chạy được %s: %w", bin, err)
 	}
 	defer proctrack.Track(ctx, cmd.Process.Pid)()
-	res := RunResult{}
 	res.Usage.Model = req.Model
 	var answer strings.Builder
 	var failure, final string
@@ -120,6 +147,9 @@ func (antigravityRunner) run(ctx context.Context, req RunRequest, emit func(Even
 		case "step_update":
 			st := ev.StepUpdate
 			res.SessionID = cmp.Or(st.ConversationID, res.SessionID)
+			if st.State == "ERROR" {
+				stepErr = cmp.Or(st.Error, st.StepType+" lỗi")
+			}
 			switch {
 			case st.StepType == "agent_response" && st.TextDelta != "":
 				answer.WriteString(st.TextDelta)
@@ -157,9 +187,9 @@ func (antigravityRunner) run(ctx context.Context, req RunRequest, emit func(Even
 		if strings.Contains(msg, "authentication") {
 			msg += " — Antigravity CLI chưa đăng nhập: bấm Đăng nhập ở kết nối AI"
 		}
-		return res, fmt.Errorf("agy: %s", truncate(msg, 500))
+		return res, stepErr, fmt.Errorf("agy: %s", truncate(msg, 500))
 	}
-	return res, nil
+	return res, stepErr, nil
 }
 
 // agyPrompt is the turn's text: instructions and the transcript for a new
