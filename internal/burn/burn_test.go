@@ -377,6 +377,20 @@ echo '{"type":"system","subtype":"init","session_id":"s1"}'
 echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
 `
 
+// profile saves a review profile reviewing stages, by the Burn's agent.
+func (f fx) profile(t *testing.T, stages ...string) string {
+	t.Helper()
+	p := storage.BurnReviewProfile{ProjectID: f.project.ID, Name: "test", Stages: map[string]storage.BurnReviewStage{}}
+	for _, st := range stages {
+		p.Stages[st] = storage.BurnReviewStage{}
+	}
+	p, err := f.st.Burn().SaveReviewProfile(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p.ID
+}
+
 // The problem's review turns a chosen piece down: skipped with why, never done.
 func TestBurnReviewTurnsAPieceDown(t *testing.T) {
 	f := setup(t)
@@ -385,7 +399,7 @@ func TestBurnReviewTurnsAPieceDown(t *testing.T) {
 	defer cancel()
 	f.svc.Start(ctx)
 	ends := time.Now().Add(time.Hour)
-	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewStages: []string{"issue"}})
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewProfileID: f.profile(t, "issue")})
 	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
 	if err != nil {
 		t.Fatal(err)
@@ -399,10 +413,10 @@ func TestBurnReviewTurnsAPieceDown(t *testing.T) {
 		t.Fatalf("item = %+v", it)
 	}
 	cur, _ := f.st.Burn().SessionByID(ctx, b.ID)
-	if cur.ReviewConversationID == "" || cur.ReviewConversationID == cur.ConversationID {
-		t.Fatalf("reviews have no chat of their own: %+v", cur)
+	if id := cur.ReviewConversations["issue"]; id == "" || id == cur.ConversationID {
+		t.Fatalf("the review has no chat of its own: %+v", cur)
 	}
-	if _, err := f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: cur.ReviewConversationID}, "burn_done", burn.ToolInput{Item: it.ID, Summary: "x"}); err == nil {
+	if _, err := f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: cur.ReviewConversations["issue"]}, "burn_done", burn.ToolInput{Item: it.ID, Summary: "x"}); err == nil {
 		t.Fatal("the reviewer's chat used a burn_* tool")
 	}
 	f.svc.Stop(ctx, f.project.ID)
@@ -416,7 +430,7 @@ func TestBurnReviewAgreesTheResult(t *testing.T) {
 	defer cancel()
 	f.svc.Start(ctx)
 	ends := time.Now().Add(time.Hour)
-	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewStages: []string{"result"}})
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewProfileID: f.profile(t, "result")})
 	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
 	if err != nil {
 		t.Fatal(err)

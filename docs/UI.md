@@ -19,6 +19,7 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 | `/skills`, `/mcp` (admin) | Skills, MCP servers | Hai mục riêng trên sidebar (`/library` cũ tự chuyển): **Đã cài** (mọi nơi trên máy, nhóm theo nơi cài), **Thư viện**, MCP **Phổ biến**, **Tìm MCP** | Xem, cài vào nơi khác, lưu vào thư viện, gỡ, tạo và sửa |
 | `/workflows` (admin) | Thư viện quy trình | Quy trình dùng chung (có sẵn, đã sửa, tự tạo), lỗi nếu file sai (ADR-098) | Tạo / Sửa / Khôi phục / Xoá |
 | `/projects/:id/workflows/runs/:runId` | Lần chạy quy trình | Chat đã gọi, đầu vào, đầu ra, vai/cổng/chi phí, nội dung (chat riêng của lần chạy, chỉ xem) — ADR-101 | Dừng, duyệt cổng |
+| `/projects/:id/burn/reviews` | Hồ sơ review của Burn (admin) | Danh sách hồ sơ; mỗi hồ sơ: tên, từng bước (vấn đề, cách làm, kết quả) bật/tắt kèm agent và quy trình review riêng — ADR-113 | Tạo, lưu, xóa |
 | `/workflows/edit?key=`, `/projects/:id/workflows/edit?w=` | Soạn quy trình | Canvas kéo thả (bước, agent, quy trình con; form điền phần thiếu, Đầu vào/Đầu ra — ADR-108), văn bản, và chat (`purpose=workflow`); ba cách cùng sửa một file | Lưu |
 | `/jobs` | Job | Mọi lượt chạy (chat, Việc, automation) của mọi project: trạng thái, lọc theo project, lỗi 24h, chi phí 24h | |
 | `/providers` | Kết nối AI | Danh sách kết nối (Anthropic, OpenAI, API tương thích, CLI…), gửi thử, thống kê theo kết nối | Thêm / Sửa / Xoá / Đặt mặc định |
@@ -250,10 +251,12 @@ Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-star
 
 | Method | Path | Mô tả |
 |---|---|---|
-| GET/PUT | `/api/projects/:id/burn` | phiên + việc / lưu cài đặt (kể cả `review_stages`, `review_agent_id`, `review_workflow` — ADR-112) |
+| GET/PUT | `/api/projects/:id/burn` | phiên + việc / lưu cài đặt (kể cả `review_profile_id` — ADR-113) |
 | POST | `/api/projects/:id/burn/start` | cài đặt kèm `ends_at?`, `no_end?`; mặc định tắt lúc reset hạn mức tuần, không có thì sau 8 giờ |
 | POST | `/api/projects/:id/burn/stop` | tắt, việc đang làm thành tạm dừng |
 | POST | `/api/burn-items/:item/skip\|first\|drop-worktree` | thao tác trên một việc |
+| GET/POST | `/api/projects/:id/burn/review-profiles` | hồ sơ review (ADR-113) / tạo |
+| PUT/DELETE | `/api/burn-review-profiles/:profile` | sửa / xóa hồ sơ (Burn đang chạy theo thì 409) |
 
 ### Realtime (SSE, ADR-072, ADR-078)
 Một kết nối `GET /api/events` mỗi tab. Event đầu tiên là `hello {sid}`.

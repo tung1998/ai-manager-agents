@@ -4,14 +4,11 @@ import (
 	"cmp"
 	"errors"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/audit"
-	"bitbucket.org/senprints/agent-office/internal/burn"
 	"bitbucket.org/senprints/agent-office/internal/storage"
-	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
 // A project's Burn (spec 2026-10-01-burn-design): its settings, state and
@@ -26,16 +23,14 @@ type burnDTO struct {
 	ResultMode     string `json:"result_mode"`
 	Focus          string `json:"focus"`
 	Order          string `json:"order"`
-	// review (ADR-112): none = as before
-	ReviewStages         []string   `json:"review_stages"`
-	ReviewAgentID        string     `json:"review_agent_id"`
-	ReviewWorkflow       string     `json:"review_workflow"`
-	ReviewConversationID string     `json:"review_conversation_id,omitempty"`
-	EndsAt               *time.Time `json:"ends_at"`
-	State                string     `json:"state"`
-	WaitingUntil         *time.Time `json:"waiting_until,omitempty"`
-	StartedBy            string     `json:"started_by,omitempty"`
-	StartedAt            *time.Time `json:"started_at,omitempty"`
+	// review (ADR-113): the profile followed ("" = none), each stage's chat
+	ReviewProfileID     string            `json:"review_profile_id"`
+	ReviewConversations map[string]string `json:"review_conversations"`
+	EndsAt              *time.Time        `json:"ends_at"`
+	State               string            `json:"state"`
+	WaitingUntil        *time.Time        `json:"waiting_until,omitempty"`
+	StartedBy           string            `json:"started_by,omitempty"`
+	StartedAt           *time.Time        `json:"started_at,omitempty"`
 }
 
 type burnItemDTO struct {
@@ -57,7 +52,7 @@ type burnItemDTO struct {
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
 	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxSubagents, b.ResultMode, b.Focus, cmp.Or(b.Order, "roadmap"),
-		listOrEmpty(b.ReviewStages), b.ReviewAgentID, b.ReviewWorkflow, b.ReviewConversationID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
+		b.ReviewProfileID, mapOrEmpty(b.ReviewConversations), b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
@@ -100,17 +95,15 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 }
 
 type burnInput struct {
-	AgentID        *string    `json:"agent_id"`
-	ModelTier      *string    `json:"model_tier"`
-	MaxSubagents   *int       `json:"max_subagents"`
-	ResultMode     *string    `json:"result_mode"`
-	Focus          *string    `json:"focus"`
-	Order          *string    `json:"order"`
-	ReviewStages   *[]string  `json:"review_stages"`
-	ReviewAgentID  *string    `json:"review_agent_id"` // "" = the Burn's agent
-	ReviewWorkflow *string    `json:"review_workflow"` // "" = the agent answers itself
-	EndsAt         *time.Time `json:"ends_at"`
-	NoEnd          bool       `json:"no_end"` // run until stopped by hand
+	AgentID         *string    `json:"agent_id"`
+	ModelTier       *string    `json:"model_tier"`
+	MaxSubagents    *int       `json:"max_subagents"`
+	ResultMode      *string    `json:"result_mode"`
+	Focus           *string    `json:"focus"`
+	Order           *string    `json:"order"`
+	ReviewProfileID *string    `json:"review_profile_id"` // "" = no review
+	EndsAt          *time.Time `json:"ends_at"`
+	NoEnd           bool       `json:"no_end"` // run until stopped by hand
 }
 
 func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession) error {
@@ -141,35 +134,18 @@ func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession
 		t := in.EndsAt.UTC()
 		b.EndsAt = &t
 	}
-	if in.ReviewStages != nil {
-		b.ReviewStages = nil
-		for _, st := range burn.ReviewStages { // in their order, once
-			if slices.Contains(*in.ReviewStages, st) {
-				b.ReviewStages = append(b.ReviewStages, st)
+	if in.ReviewProfileID != nil {
+		id := strings.TrimSpace(*in.ReviewProfileID)
+		if id != "" {
+			if p, err := s.cfg.Store.Burn().ReviewProfile(r.Context(), id); err != nil || p.ProjectID != b.ProjectID {
+				return errors.New("không có hồ sơ review này")
 			}
 		}
-	}
-	if in.ReviewAgentID != nil {
-		b.ReviewAgentID = strings.TrimSpace(*in.ReviewAgentID)
-	}
-	if in.ReviewWorkflow != nil {
-		b.ReviewWorkflow = strings.TrimPrefix(strings.TrimSpace(*in.ReviewWorkflow), "#")
-	}
-	if b.ReviewWorkflow != "" { // a workflow of the project a chat may run (ADR-109)
-		wf, err := s.cfg.Store.Workflows().GetByKey(r.Context(), b.ProjectID, b.ReviewWorkflow)
-		if err != nil {
-			return errors.New("project chưa cài quy trình #" + b.ReviewWorkflow)
-		}
-		if def, err := workflow.Parse(wf.Source); err == nil && def.Callable == workflow.CallableSub {
-			return errors.New("quy trình #" + b.ReviewWorkflow + " chỉ để quy trình khác gọi (callable: sub)")
-		}
+		b.ReviewProfileID = id
 	}
 	if s.cfg.Burn != nil {
 		if err := s.cfg.Burn.CheckAgent(r.Context(), b.AgentID); err != nil {
 			return err
-		}
-		if err := s.cfg.Burn.CheckAgent(r.Context(), b.ReviewAgentID); err != nil {
-			return errors.New("người review: " + err.Error())
 		}
 	}
 	return nil
@@ -292,4 +268,12 @@ func listOrEmpty(v []string) []string {
 		return []string{}
 	}
 	return v
+}
+
+// mapOrEmpty: {} rather than null in JSON.
+func mapOrEmpty(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
 }

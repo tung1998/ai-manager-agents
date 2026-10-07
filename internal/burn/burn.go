@@ -80,6 +80,9 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 	if err := s.CheckAgent(ctx, b.AgentID); err != nil {
 		return b, err
 	}
+	if err := s.CheckReviewers(ctx, b.ReviewProfileID); err != nil {
+		return b, err
+	}
 	if err := s.ensureConversation(ctx, &b); err != nil {
 		return b, err
 	}
@@ -368,7 +371,8 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	}
 	_ = s.store.Burn().UpdateItem(ctx, it)
 	// held back for its review (ADR-112): no diff until the reviewer agrees
-	res, err := s.run(runCtx(ctx, b, tree, b.ResultMode != "patch" || reviews(b, "result")), b.ConversationID, workPrompt(b, it, again))
+	held := s.reviews(ctx, b, "result")
+	res, err := s.run(runCtx(ctx, b, tree, b.ResultMode != "patch" || held), b.ConversationID, workPrompt(b, it, again, held))
 	cur, gerr := s.store.Burn().Item(context.WithoutCancel(ctx), it.ID)
 	if gerr != nil {
 		return false
@@ -388,7 +392,7 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 		}
 		cur.Status, cur.Summary = s.failedOrAgain(cur, firstNonEmpty(res.failed, errText(err)))
 	case cur.Status == "review": // the reviewer next, in the loop
-	case cur.Status == "done" && reviews(b, "result"): // review turned on meanwhile
+	case cur.Status == "done" && held: // review turned on meanwhile
 		cur.Status = "review"
 	case cur.Status == "done":
 		s.deliver(context.WithoutCancel(ctx), b, &cur)
@@ -482,7 +486,7 @@ Trả lời ngắn: các vùng đã xem, tìm được gì, chọn việc nào v
 	return sb.String()
 }
 
-func workPrompt(b storage.BurnSession, it storage.BurnItem, again bool) string {
+func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[Burn] Làm việc %s (%s): %s\n", it.ID, it.Kind, it.Title)
 	if it.Detail != "" {
@@ -505,7 +509,7 @@ func workPrompt(b storage.BurnSession, it storage.BurnItem, again bool) string {
 	if it.Kind == "unfinished" {
 		sb.WriteString("Nếu đây là một phần của tính năng trong lộ trình: làm đúng phạm vi phần này, ghi quyết định thiết kế vào tài liệu của project (spec/ADR) và đánh dấu tiến độ trong tài liệu kế hoạch; phần sau để lượt sau.\n")
 	}
-	if reviews(b, "result") {
+	if reviewed {
 		sb.WriteString("Báo xong thì kết quả được review trước; review không đạt thì việc quay lại với ý kiến review.\n")
 	}
 	if b.ResultMode == "patch" {

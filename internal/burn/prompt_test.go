@@ -57,7 +57,7 @@ func TestPlanPromptOrder(t *testing.T) {
 }
 
 func TestWorkPromptFeature(t *testing.T) {
-	p := workPrompt(storage.BurnSession{}, storage.BurnItem{Kind: "unfinished", Title: "Thông báo sự cố: phần 1"}, false)
+	p := workPrompt(storage.BurnSession{}, storage.BurnItem{Kind: "unfinished", Title: "Thông báo sự cố: phần 1"}, false, false)
 	if !strings.Contains(p, "đánh dấu tiến độ") {
 		t.Errorf("a roadmap piece should update the roadmap docs:\n%s", p)
 	}

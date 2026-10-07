@@ -7,9 +7,8 @@ interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_subagents: number,
   result_mode: 'branch' | 'patch', focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit',
   waiting_until?: string, started_by?: string, started_at?: string,
-  review_stages: ReviewStage[], review_agent_id: string, review_workflow: string, review_conversation_id?: string
+  review_profile_id: string, review_conversations: Partial<Record<ReviewStage, string>>
 }
-type ReviewStage = 'issue' | 'plan' | 'result'
 interface Item {
   id: string, title: string, kind: 'unfinished' | 'upgrade' | 'bug', detail: string, status: string, priority: number,
   branch: string, worktree: string, summary: string, subagents: number, cost_usd: number, updated_at: string,
@@ -45,12 +44,12 @@ function left(iso: string) {
 const settingsOpen = ref(false)
 const form = reactive({
   agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_subagents: 2, result_mode: 'branch' as Burn['result_mode'], order: 'roadmap' as Burn['order'], focus: '',
-  review_stages: [] as ReviewStage[], review_agent_id: '', review_workflow: ''
+  review_profile_id: ''
 })
 const { stale, reset: resync } = useDraft(burn, form, (b) => {
   Object.assign(form, {
     agent_id: b.agent_id, model_tier: b.model_tier, max_subagents: b.max_subagents, result_mode: b.result_mode, order: b.order ?? 'roadmap', focus: b.focus,
-    review_stages: [...(b.review_stages ?? [])], review_agent_id: b.review_agent_id ?? '', review_workflow: b.review_workflow ?? ''
+    review_profile_id: b.review_profile_id ?? ''
   })
 })
 const saving = ref(false)
@@ -71,16 +70,17 @@ async function saveSettings() {
 // the agent picked is paused: saving and starting are refused until it is changed or turned on
 const offAgent = computed(() => agents.value.find(a => a.id === form.agent_id && a.enabled === false))
 const agentItems = computed(() => agents.value.map(a => ({ value: a.id, label: a.enabled === false ? `${a.name} (${t('burn.agentOffTag')})` : a.name })))
-// review (ADR-112): checkpoints a reviewer must agree to; none = as before
-const reviewStages: ReviewStage[] = ['issue', 'plan', 'result']
-const reviewStageItems = computed(() => reviewStages.map(v => ({ value: v, label: t(`burn.review.${v}`), description: t(`burn.review.${v}Help`) })))
-const reviewAgentItems = computed(() => [{ value: '__burn', label: t('burn.review.agentSame') }, ...agentItems.value])
-const reviewAgent = computed({ get: () => form.review_agent_id || '__burn', set: (v: string) => { form.review_agent_id = v === '__burn' ? '' : v } })
-const { data: wfData } = useLiveFetch<{ workflows: ProjectWorkflow[] }>(() => `/api/projects/${props.projectId}/workflows`, { lazy: true })
-const reviewWorkflowItems = computed(() => [{ value: '__none', label: t('burn.review.workflowNone') },
-  ...(wfData.value?.workflows ?? []).filter(w => w.enabled && !w.error && w.callable !== 'sub').map(w => ({ value: w.key, label: `#${w.key} · ${w.name}` }))])
-const reviewWorkflow = computed({ get: () => form.review_workflow || '__none', set: (v: string) => { form.review_workflow = v === '__none' ? '' : v } })
-const reviewSummary = computed(() => form.review_stages.map(v => t(`burn.review.${v}`)).join(', '))
+// review (ADR-113): the saved profile it follows, set up on its own page
+const reviewStages = reviewStageKeys
+const { data: profData } = useLiveFetch<{ profiles: BurnReviewProfile[] }>(() => `/api/projects/${props.projectId}/burn/review-profiles`, { lazy: true })
+const profiles = computed(() => profData.value?.profiles ?? [])
+const profileItems = computed(() => [{ value: '__none', label: t('burn.review.none') }, ...profiles.value.map(p => ({ value: p.id, label: p.name }))])
+const reviewProfile = computed({ get: () => form.review_profile_id || '__none', set: (v: string) => { form.review_profile_id = v === '__none' ? '' : v } })
+const profile = computed(() => profiles.value.find(p => p.id === form.review_profile_id))
+const reviewSummary = computed(() => profile.value ? `${profile.value.name} (${reviewStages.filter(v => profile.value!.stages[v]).map(v => t(`burn.review.${v}`)).join(', ')})` : '')
+const reviewChats = computed(() => reviewStages.filter(v => burn.value?.review_conversations?.[v])
+  .map(v => ({ label: t(`burn.review.${v}`), icon: 'i-lucide-scan-eye', to: `/projects/${props.projectId}?tab=chat&c=${burn.value!.review_conversations[v]}` })))
+const profilesPage = computed(() => `/projects/${props.projectId}/burn/reviews`)
 const tierItems = computed(() => (['strong', 'balanced', 'fast'] as const).map(v => ({ value: v, label: t(`burn.tier.${v}`) })))
 
 // starting asks first: what it means, and when it stops
@@ -168,7 +168,9 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         <span v-if="burn?.state === 'waiting_limit' && burn.waiting_until" class="text-xs text-(--ui-text-muted)">{{ t('burn.waitingUntil', { at: when(burn.waiting_until) }) }}</span>
         <div class="ms-auto flex flex-wrap items-center gap-1.5">
           <UButton v-if="burn?.conversation_id" size="sm" color="neutral" variant="ghost" icon="i-lucide-messages-square" :label="t('burn.openChat')" :to="`/projects/${projectId}?tab=chat&c=${burn.conversation_id}`" />
-          <UButton v-if="burn?.review_conversation_id" size="sm" color="neutral" variant="ghost" icon="i-lucide-scan-eye" :label="t('burn.review.openChat')" :to="`/projects/${projectId}?tab=chat&c=${burn.review_conversation_id}`" />
+          <UDropdownMenu v-if="reviewChats.length" :items="reviewChats">
+            <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-scan-eye" trailing-icon="i-lucide-chevron-down" :label="t('burn.review.openChat')" />
+          </UDropdownMenu>
           <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-settings-2" :label="t('burn.settings')" @click="settingsOpen = true" />
           <UButton v-if="running" size="sm" color="neutral" icon="i-lucide-square" :label="t('burn.stop')" :loading="acting === 'stop'" @click="stop" />
           <UButton v-else size="sm" color="warning" icon="i-lucide-flame" :label="t('burn.start')" @click="openStart" />
@@ -176,7 +178,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
       </div>
       <p class="text-xs text-(--ui-text-muted)">
         {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_subagents, mode: t(`burn.mode.${form.result_mode}`) }) }} · {{ t(`burn.order.${form.order}`) }}
-        <template v-if="form.review_stages.length"> · {{ t('burn.review.summary', { stages: reviewSummary }) }}</template>
+        <template v-if="reviewSummary"> · {{ t('burn.review.summary', { profile: reviewSummary }) }}</template>
         <template v-if="items.length"> · {{ t('burn.cost', { usd: totalCost.toFixed(2), n: items.filter(i => i.status === 'done').length }) }}</template>
       </p>
       <UAlert v-if="offAgent" color="warning" variant="subtle" icon="i-lucide-power-off" :title="t('burn.agentOff', { name: offAgent.name })"
@@ -244,16 +246,11 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
             <URadioGroup v-model="form.result_mode" :items="[{ value: 'branch', label: t('burn.mode.branch'), description: t('burn.mode.branchHelp') }, { value: 'patch', label: t('burn.mode.patch'), description: t('burn.mode.patchHelp') }]" />
           </UFormField>
           <UFormField :label="t('burn.review.label')" :help="t('burn.review.help')">
-            <UCheckboxGroup v-model="form.review_stages" :items="reviewStageItems" />
+            <div class="flex gap-2">
+              <USelect v-model="reviewProfile" :items="profileItems" class="min-w-0 flex-1" />
+              <UButton color="neutral" variant="outline" icon="i-lucide-sliders-horizontal" :label="t('burn.review.manage')" :to="profilesPage" />
+            </div>
           </UFormField>
-          <template v-if="form.review_stages.length">
-            <UFormField :label="t('burn.review.agent')">
-              <USelect v-model="reviewAgent" :items="reviewAgentItems" class="w-full" />
-            </UFormField>
-            <UFormField :label="t('burn.review.workflow')" :help="t('burn.review.workflowHelp')">
-              <USelect v-model="reviewWorkflow" :items="reviewWorkflowItems" class="w-full" />
-            </UFormField>
-          </template>
           <UFormField :label="t('burn.focus')" :help="t('burn.focusHelp')">
             <UTextarea v-model="form.focus" :rows="3" autoresize class="w-full" :placeholder="t('burn.focusPlaceholder')" />
           </UFormField>

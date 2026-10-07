@@ -1984,9 +1984,18 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Sửa kèm:** outputs của quy trình con (bước `workflow`) giờ đọc được bằng `{{steps.<id>.json.key}}` (trước đây map kiểu chuỗi nên template trả rỗng).
 
 ## ADR-112: Burn có bước review
+- *Phần cài đặt được thay bằng hồ sơ review ở ADR-113; cách chạy các bước giữ nguyên.*
 - **Cài đặt** (migration 00070, ngăn Cài đặt của Burn, mục **Review**): chọn các bước review `review_stages` (`issue`, `plan`, `result`); không chọn gì thì Burn chạy như trước. Chọn **agent review** (`review_agent_id`, bỏ trống = agent chính của Burn) và **quy trình review** (`review_workflow`, bỏ trống = agent tự trả lời; có thì agent review chạy `#key` với yêu cầu review làm đầu vào, quy trình phải bật và không phải `callable: sub`). Agent review đang tắt thì không lưu/bật được.
 - **Chạy:** review ở một hội thoại riêng của phiên (`review_conversation_id`, tiêu đề "Burn · review", đổi agent review thì mở hội thoại mới), quyền trần **chỉ đọc**. Dòng đầu câu trả lời là `KẾT LUẬN: ĐỒNG Ý` / `KẾT LUẬN: KHÔNG ĐỒNG Ý`; không rõ tính là không (như biểu quyết ADR-100).
   - `issue` (vấn đề có thật, đáng làm?) và `plan` (có làm không, làm thế nào): chạy lần lượt khi việc đã được chọn (`queued`), trước lượt làm. Không đồng ý thì việc thành `skipped` kèm lý do. Đồng ý ở `plan` thì ý kiến review được đưa vào prompt của lượt làm.
   - `result` (chốt kết quả): `burn_done` đưa việc sang trạng thái `review` thay vì `done`; review chạy trong worktree của việc. Đồng ý thì `done` và giao kết quả (commit lên nhánh, hoặc ở chế độ diff thì lúc này mới ra diff chờ duyệt: lượt làm chạy không ra diff, `chat.Engine.ProposeTree`). Không đồng ý thì việc quay lại hàng chờ với ý kiến review (làm tiếp trên worktree cũ), lần thứ hai thì `failed`.
   - Review lỗi (không phải bị từ chối) thì việc giữ nguyên trạng thái, chạm giới hạn kết nối thì chờ reset, lỗi khác thì hỏi lại sau 1 phút. Tắt Burn khi việc đang `review` thì bật lại sẽ review tiếp.
 - `burn_items.reviewed` ghi các bước đã qua, `review_note` là ý kiến review gần nhất; bảng việc hiện "chờ review", "đã qua review …" và ý kiến review. Công cụ `burn_*` chỉ dùng được ở hội thoại chính của Burn, không ở hội thoại review. Worktree của việc `review` được giữ như việc đang làm.
+
+## ADR-113: Hồ sơ review của Burn
+- Thay phần cài đặt của ADR-112. **Hồ sơ review** (`burn_review_profiles`, migration 00071) là cách review được lưu lại của một project: tên và các bước được review (`issue`, `plan`, `result`), **mỗi bước có agent review và quy trình review riêng** (`stages` JSON `{bước: {agent_id, workflow}}`, không có bước = không review bước đó; agent trống = agent chính của Burn, quy trình trống = agent tự trả lời).
+- Burn chọn một hồ sơ (`review_profile_id`, trống = không review, như trước). Lúc chạy, hồ sơ được đọc lại ở mỗi bước, nên sửa hồ sơ có hiệu lực ngay với Burn đang chạy. Bật Burn bị từ chối nếu agent review của bước nào đó đang tắt.
+- Mỗi bước có hội thoại review riêng (`review_conversations`: bước → hội thoại, tiêu đề "Burn · Review …"), đổi agent của bước thì mở hội thoại mới.
+- **Trang riêng** `/projects/:id/burn/reviews` (admin): danh sách hồ sơ, tạo/sửa/xóa; mỗi bước bật/tắt, chọn agent, chọn quy trình. Ngăn Cài đặt của Burn chỉ còn ô chọn hồ sơ và nút sang trang này. Không xóa được hồ sơ mà Burn đang chạy theo; xóa hồ sơ thì Burn đã chọn nó không review nữa.
+- Migration chuyển cài đặt cũ (`review_stages`, `review_agent_id`, `review_workflow`) thành hồ sơ "Mặc định" (`brp_<mã phiên>`), rồi bỏ các cột đó cùng `review_conversation_id`.
+- API (admin): `GET/POST /api/projects/:id/burn/review-profiles`, `PUT/DELETE /api/burn-review-profiles/:profile`.

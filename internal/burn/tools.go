@@ -38,7 +38,7 @@ func (s *Service) Tool(ctx context.Context, sc actions.Scope, name string, in To
 			return "", errors.New("hãy ghi tóm tắt đã làm gì")
 		}
 		it.Status, it.Summary = "done", strings.TrimSpace(in.Summary)
-		if reviews(b, "result") { // the reviewer has the last word (ADR-112)
+		if s.reviews(ctx, b, "result") { // the reviewer has the last word (ADR-112)
 			it.Status = "review"
 		}
 	case "burn_fail":
