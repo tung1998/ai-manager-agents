@@ -207,13 +207,25 @@ async function loadOlder() {
 // what changed elsewhere, pushed with its data (ADR-078): a message into the
 // open chat (a Discord message, a hand-off's answer) is put in place; a
 // chat's row replaces the old one in the list (a new one: the list again)
-const nearEnd = () => { const el = listEl.value; return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120 }
+// as Discord: at the end, what comes in scrolls into view; scrolled up to read,
+// it stays put and a button takes the person down (it says when something is new)
+const pinned = ref(true)
+const unseen = ref(false)
+function onListScroll() { // the person's scrolling (and ours, always to the end): a little up already leaves the end
+  const el = listEl.value
+  pinned.value = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  if (pinned.value) unseen.value = false
+}
+function toEnd() {
+  pinned.value = true
+  unseen.value = false
+  scrollDown(true)
+}
 const held: Message[] = [] // an agent's answer that came while one streams: the stream's own end brings it
 function place(m: Message) {
   if (messages.value.some(x => x.id === m.id)) return
-  const stay = nearEnd()
   messages.value.push(m)
-  if (stay) scrollDown()
+  scrollDown()
 }
 onLiveEvent<{ conversation_id: string, message: Message }>('message', ({ conversation_id: id, message }) => {
   if (current.value?.id !== id || loadingMsgs.value) return
@@ -266,27 +278,37 @@ onLiveChange(async (tables) => {
     const fresh = res.messages.filter(m => !known.has(m.id))
     const changed = res.messages.some(m => { const x = messages.value.find(y => y.id === m.id); return x && JSON.stringify(x) !== JSON.stringify(m) })
     if (!fresh.length && !changed) return
-    const stay = nearEnd()
     messages.value = [...messages.value.filter(m => !res.messages.some(n => n.id === m.id)), ...res.messages]
     applyGroup(res.members, res.running)
     if (res.conversation.active_turn && !streaming.value) follow(res.conversation.active_turn)
-    if (stay) scrollDown()
+    if (fresh.length) scrollDown()
   } catch { /* gone, or offline: the next change tries again */ }
 })
 
+// something new at the end: in view if the person is at the end (or it is
+// theirs: force), else the button says so. Once a frame, however many tokens
+// came in it; at once, not smooth, so a stream stays pinned to the end.
 let scrollQueued = false
-async function scrollDown() { // once a frame, however many tokens came in it
+async function scrollDown(force = false) {
+  if (force) pinned.value = true
+  else if (!pinned.value) {
+    unseen.value = true
+    return
+  }
   if (scrollQueued) return
   scrollQueued = true
   await nextTick()
   requestAnimationFrame(() => {
     scrollQueued = false
-    listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
+    const el = listEl.value
+    if (el && pinned.value) el.scrollTop = el.scrollHeight
   })
 }
 // a chat just opened shows its last message at once (no scrolling down from
 // the top); it stays there while what it shows settles (markdown, images)
 async function jumpToEnd() {
+  pinned.value = true
+  unseen.value = false
   await nextTick()
   const el = listEl.value
   if (!el) return
@@ -493,7 +515,7 @@ function send() {
     queue.value.push({ id: ++queueSeq, convId: current.value.id, text, files })
     draft.value = ''
     draftFiles.value = []
-    scrollDown()
+    scrollDown(true) // theirs: in view
     return
   }
   draft.value = ''
@@ -520,7 +542,7 @@ async function post(text: string, files: Attachment[]) {
     // only paused agents were called: their notice, nothing streams
     if (res.notice && !messages.value.some(m => m.id === res.notice!.id)) messages.value.push(res.notice)
     if (res.turn_id) follow(res.turn_id)
-    scrollDown()
+    scrollDown(true) // the person's own message: in view
   } catch (e) {
     restore(text, files)
     const d = (e as { data?: { code?: string, error?: string } }).data
@@ -769,7 +791,8 @@ onBeforeUnmount(() => {
           </button>
         </span>
       </div>
-      <div ref="listEl" class="min-w-0 space-y-4" :class="['flex-1 overflow-y-auto overflow-x-hidden p-4 max-md:px-3', page && 'max-sm:pb-32' /* room for the floating input, open or not: nothing jumps */]">
+      <div class="relative flex min-h-0 flex-1 flex-col">
+      <div ref="listEl" class="min-w-0 space-y-4" :class="['flex-1 overflow-y-auto overflow-x-hidden p-4 max-md:px-3', page && 'max-sm:pb-32' /* room for the floating input, open or not: nothing jumps */]" @scroll.passive="onListScroll">
         <!-- a skill editor's chat, followed from the chat list: back to its editor -->
         <div v-if="!single && current?.purpose === 'skill'" class="flex items-center gap-2 rounded-lg border border-(--ui-border) px-3 py-2 text-sm">
           <UIcon name="i-lucide-sparkles" class="size-4 shrink-0 text-(--ui-primary)" />
@@ -892,6 +915,16 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
+      </div>
+      <!-- scrolled up to read: down to the newest (as Discord), saying when something came -->
+      <Transition enter-from-class="opacity-0 translate-y-2" leave-to-class="opacity-0 translate-y-2" enter-active-class="transition" leave-active-class="transition">
+        <UButton
+          v-if="!pinned && messages.length" size="sm" :color="unseen ? 'primary' : 'neutral'" :variant="unseen ? 'solid' : 'outline'" icon="i-lucide-arrow-down"
+          :label="unseen ? t('chat.newMessages') : undefined" :aria-label="t('chat.toLatest')" :title="t('chat.toLatest')"
+          :class="['absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full shadow-lg', !unseen && 'bg-(--ui-bg)', page && 'max-sm:bottom-20']"
+          @click="toEnd"
+        />
+      </Transition>
       </div>
 
       <p v-if="current?.cleaned" class="flex items-center gap-2 border-t border-(--ui-border) p-3 text-sm text-(--ui-text-muted) max-md:p-2">

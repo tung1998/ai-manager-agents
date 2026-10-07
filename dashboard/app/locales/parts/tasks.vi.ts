@@ -83,6 +83,8 @@ export default {
   'chat.queued': 'Chờ gửi khi agent trả lời xong',
   'chat.unqueue': 'Bỏ tin chờ gửi',
   'chat.sendNow': 'Gửi ngay',
+  'chat.newMessages': 'Tin mới',
+  'chat.toLatest': 'Cuộn xuống tin mới nhất',
   'chat.sendNowHint': 'Dừng câu trả lời đang viết và gửi tin này luôn',
   'chat.budgetHit': 'Đã chạm trần chi phí',
   'chat.skillChat': 'Chat soạn skill',
