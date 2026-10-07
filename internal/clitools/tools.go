@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -212,7 +213,15 @@ func NewManager() *Manager {
 func toolEnv() []string {
 	home, _ := os.UserHomeDir()
 	extra := []string{filepath.Join(home, ".local", "bin"), filepath.Join(home, ".claude", "local"), "/opt/homebrew/bin", "/usr/local/bin"}
-	if out, err := exec.Command("npm", "prefix", "-g").Output(); err == nil {
+	extra = append(extra, nodeBins(home)...)
+	npm := "npm"
+	for _, d := range extra {
+		if _, err := os.Stat(filepath.Join(d, "npm")); err == nil {
+			npm = filepath.Join(d, "npm")
+			break
+		}
+	}
+	if out, err := exec.Command(npm, "prefix", "-g").Output(); err == nil {
 		extra = append(extra, filepath.Join(strings.TrimSpace(string(out)), "bin"))
 	}
 	env := os.Environ()
@@ -223,6 +232,42 @@ func toolEnv() []string {
 		}
 	}
 	return append(env, "PATH="+strings.Join(extra, string(os.PathListSeparator)), "TERM=xterm-256color", "NO_COLOR=1")
+}
+
+// nodeBins finds Node installed by a version manager (nvm, Volta), which a
+// service started outside a login shell does not have on PATH: the active
+// nvm one, else the newest.
+func nodeBins(home string) []string {
+	var out []string
+	if b := os.Getenv("NVM_BIN"); b != "" {
+		out = append(out, b)
+	} else if dirs, _ := filepath.Glob(filepath.Join(home, ".nvm", "versions", "node", "v*", "bin")); len(dirs) > 0 {
+		slices.SortFunc(dirs, func(a, b string) int { return semverCmp(versionOf(b), versionOf(a)) })
+		out = append(out, dirs[0])
+	}
+	if _, err := os.Stat(filepath.Join(home, ".volta", "bin")); err == nil {
+		out = append(out, filepath.Join(home, ".volta", "bin"))
+	}
+	return out
+}
+
+// versionOf reads [major minor patch] from ".../v22.3.1/bin".
+func versionOf(binDir string) [3]int {
+	var v [3]int
+	parts := strings.SplitN(strings.TrimPrefix(filepath.Base(filepath.Dir(binDir)), "v"), ".", 3)
+	for i, p := range parts {
+		v[i], _ = strconv.Atoi(p)
+	}
+	return v
+}
+
+func semverCmp(a, b [3]int) int {
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] - b[i]
+		}
+	}
+	return 0
 }
 
 // Env is the environment tools run with (PATH includes the usual install
@@ -320,7 +365,9 @@ func (m *Manager) Install(id, method string) (*Job, error) {
 		if m.lookPath(meth.Requires) == "" {
 			return nil, ErrUnknownMethod
 		}
-		return m.start(id, "install", meth.argv, 15*time.Minute)
+		// brew asks [y/n] before installing (the default since Homebrew 6, or
+		// HOMEBREW_ASK before); the install box cannot answer
+		return m.start(id, "install", meth.argv, 15*time.Minute, "HOMEBREW_NO_ASK=1", "HOMEBREW_ASK=")
 	}
 	return nil, ErrUnknownMethod
 }

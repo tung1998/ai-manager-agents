@@ -241,3 +241,35 @@ func TestGeminiPrepareLoginKeepsChoice(t *testing.T) {
 		t.Fatalf("an existing choice was rewritten: %s", raw)
 	}
 }
+
+func TestInstallDoesNotAsk(t *testing.T) {
+	m, dir := testManager(t)
+	m.env = append(m.env, "HOMEBREW_ASK=1")
+	// a brew that asks unless HOMEBREW_NO_ASK (Homebrew 6+), or when HOMEBREW_ASK (older)
+	writeBin(t, dir, "brew", `#!/bin/sh
+if [ -z "$HOMEBREW_NO_ASK" ] || [ -n "$HOMEBREW_ASK" ]; then printf "Do you want to proceed with the installation? [y/n] "; read A; fi
+echo installed
+`)
+	j, err := m.Install("gemini", "brew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := waitState(t, j, "succeeded"); strings.Contains(v.Output, "[y/n]") {
+		t.Fatalf("output = %q", v.Output)
+	}
+}
+
+func TestNodeBinsNewestNvm(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("NVM_BIN", "")
+	for _, v := range []string{"v9.11.2", "v22.23.2", "v20.1.0"} {
+		os.MkdirAll(filepath.Join(home, ".nvm", "versions", "node", v, "bin"), 0o755)
+	}
+	if got := nodeBins(home); len(got) != 1 || !strings.Contains(got[0], "v22.23.2") {
+		t.Fatalf("nodeBins = %v", got)
+	}
+	t.Setenv("NVM_BIN", "/active/bin")
+	if got := nodeBins(home); len(got) != 1 || got[0] != "/active/bin" {
+		t.Fatalf("with NVM_BIN = %v", got)
+	}
+}
