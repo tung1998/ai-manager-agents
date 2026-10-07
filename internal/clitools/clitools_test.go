@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -272,4 +273,22 @@ func TestNodeBinsNewestNvm(t *testing.T) {
 	if got := nodeBins(home); len(got) != 1 || got[0] != "/active/bin" {
 		t.Fatalf("with NVM_BIN = %v", got)
 	}
+}
+
+func TestToolEnvPrefersNvm(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("NVM_BIN", "")
+	bin := filepath.Join(home, ".nvm", "versions", "node", "v22.1.0", "bin")
+	os.MkdirAll(bin, 0o755)
+	for _, kv := range toolEnv() {
+		if p, ok := strings.CutPrefix(kv, "PATH="); ok {
+			dirs := filepath.SplitList(p)
+			if slices.Index(dirs, bin) < 0 || slices.Index(dirs, bin) > slices.Index(dirs, "/usr/local/bin") {
+				t.Fatalf("nvm bin not before /usr/local/bin: %v", dirs)
+			}
+			return
+		}
+	}
+	t.Fatal("no PATH")
 }

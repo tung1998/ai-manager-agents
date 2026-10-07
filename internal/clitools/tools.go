@@ -212,8 +212,9 @@ func NewManager() *Manager {
 
 func toolEnv() []string {
 	home, _ := os.UserHomeDir()
-	extra := []string{filepath.Join(home, ".local", "bin"), filepath.Join(home, ".claude", "local"), "/opt/homebrew/bin", "/usr/local/bin"}
-	extra = append(extra, nodeBins(home)...)
+	// the person's own Node first: a system npm (/usr/local) installs into
+	// a root-owned folder and fails with EACCES
+	extra := append(nodeBins(home), filepath.Join(home, ".local", "bin"), filepath.Join(home, ".claude", "local"), "/opt/homebrew/bin", "/usr/local/bin")
 	npm := "npm"
 	for _, d := range extra {
 		if _, err := os.Stat(filepath.Join(d, "npm")); err == nil {
