@@ -722,3 +722,73 @@ steps:
 		t.Fatalf("the join ran %q", b)
 	}
 }
+
+// a coordinate step (ADR-111): an agent decides inside the step, in a run
+// of its own; its workflow_done is the step's output for the steps after it
+func TestWorkflowCoordinateStep(t *testing.T) {
+	g := newWFGroup(t)
+	src := `---
+key: dp
+name: Điều phối trong bước
+inputs:
+  - { key: spec, required: true }
+outputs:
+  - { key: ket-luan, required: true }
+roles:
+  - { key: a, name: A, access: analyze }
+  - { key: b, name: B, access: analyze }
+steps:
+  - id: review
+    type: coordinate
+    roles: [a]
+    prompt: "Giao a review {{input.spec}}; kết luận dong-y | can-sua."
+    next: chon
+  - id: chon
+    type: switch
+    value: "{{steps.review.json.ket-luan}}"
+    cases:
+      - { when: dong-y, next: xong }
+    else: sai
+  - { id: sai, type: end, outputs: { ket-luan: sai } }
+  - id: xong
+    type: end
+    summary: "{{steps.review.output}}"
+    outputs: { ket-luan: "{{steps.chon.status}}" }
+---
+`
+	if _, err := g.svc.Create(g.context, g.f.project.ID, src, map[string]string{"a": g.dev.ID, "b": g.qa.ID}); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("3"), 0o644)
+	call0, _, err := g.engine.Send(g.context, g.conv.ID, "#dp đặc tả X", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := g.own(t)
+	var child storage.WorkflowRun
+	deadline := time.Now().Add(10 * time.Second)
+	for child.ID == "" {
+		runs, _ := g.f.st.WorkflowRuns().List(g.context, g.f.project.ID, own, 5)
+		for _, r := range runs {
+			if r.CallerConversationID == own {
+				child = r
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no coordinate run")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(child.Roles) != 1 || child.Roles[0].Role != "a" || child.Depth != 1 || !strings.Contains(child.WorkflowName, "review") {
+		t.Fatalf("child = %+v", child)
+	}
+	if _, err := g.duringIn(t, child.ConversationID, "workflow_done", map[string]any{"summary": "A thấy ổn", "outputs": map[string]string{"ket-luan": "dong-y"}}); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	collect(t, call0)
+	r := g.run(t)
+	if r.Status != storage.RunDone || r.Outputs["ket-luan"] != "dong-y" || !strings.Contains(r.Result, "A thấy ổn") {
+		t.Fatalf("run = %+v", r)
+	}
+}

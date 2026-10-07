@@ -3,7 +3,8 @@
 // on the left (step types, the project's agents, its workflows), the graph
 // in the middle, the selected node's form on the right. Every change is a new
 // def (update:def); the editor writes it back to the file. A workflow without
-// steps (a coordinator decides) shows as a star: the coordinator and its roles.
+// steps (an agent coordinates it all) shows as Input → Coordinate → End and
+// is written so once edited (ADR-111).
 // One output may be wired to several steps (they run at once, ADR-110); a
 // switch has an output per case and one for "none matched".
 import { VueFlow, Handle, Position, MarkerType, useVueFlow } from '@vue-flow/core'
@@ -23,20 +24,18 @@ const flowId = `wf-canvas-${useId()}`
 const { project, fitView, vueFlowRef } = useVueFlow(flowId)
 
 const INPUT = '__input'
-const COORD = '__coord'
-const OUTPUT = '__output'
 const COL = 280
 const ROW = 130
 
-const steps = computed(() => props.def.steps ?? [])
-const stepMode = computed(() => steps.value.length > 0)
+const view = computed(() => asGraph(props.def)) // what is drawn and edited
+const steps = computed(() => view.value.steps ?? [])
 const stepLabel = (type: string) => t(`wf.step.type.${type}` as MessageKey)
 
 // edits of one tick go together (deleting a node also deletes its edges)
 let work: WorkflowDef | null = null
 function edit(fn: (d: WorkflowDef) => void) {
   if (!work) {
-    work = JSON.parse(JSON.stringify(props.def)) as WorkflowDef
+    work = JSON.parse(JSON.stringify(view.value)) as WorkflowDef
     queueMicrotask(() => {
       const d = work!
       work = null
@@ -74,7 +73,7 @@ const inputPos = ref<{ x: number, y: number } | null>(null)
 function autoLayout(list: WorkflowStep[]) {
   const by = new Map(list.map(s => [s.id, s]))
   const depth = new Map<string, number>()
-  const queue = stepStarts(props.def).filter(id => by.has(id))
+  const queue = stepStarts(view.value).filter(id => by.has(id))
   for (const id of queue) depth.set(id, 1)
   while (queue.length) {
     const s = by.get(queue.shift()!)!
@@ -111,14 +110,14 @@ function edge(source: string, handle: string, target: string, label?: string, de
 function buildSteps() {
   const auto = autoLayout(steps.value)
   const ids = new Set(steps.value.map(s => s.id))
-  const starts = stepStarts(props.def).filter(id => ids.has(id))
+  const starts = stepStarts(view.value).filter(id => ids.has(id))
   const first = steps.value.find(s => s.id === starts[0])
   const firstPos = first ? first.position ?? auto.get(first.id)! : { x: COL, y: 0 }
   nodes.value = [
     { id: INPUT, type: 'wf-input', position: inputPos.value ?? { x: firstPos.x - COL, y: firstPos.y }, deletable: false, data: {} },
     ...steps.value.map(s => ({
       id: s.id, type: 'wf-step', position: s.position ?? auto.get(s.id)!,
-      data: { step: s, bad: stepMissing(s, props.def).length > 0, first: starts.includes(s.id) }
+      data: { step: s, bad: stepMissing(s, view.value).length > 0, first: starts.includes(s.id) }
     }))
   ]
   const list: Edge[] = starts.map(id => edge(INPUT, 'next', id, undefined, starts.length > 1)) // the last start stays
@@ -140,33 +139,11 @@ function buildSteps() {
   edges.value = list
 }
 
-// a coordinator-mode workflow: the coordinator, its roles around it
-function buildStar() {
-  const roles = props.def.roles
-  const h = Math.max(1, roles.length) * 90
-  nodes.value = [
-    { id: INPUT, type: 'wf-input', position: { x: 0, y: h / 2 - 40 }, draggable: false, data: {} },
-    { id: COORD, type: 'wf-coord', position: { x: COL, y: h / 2 - 30 }, draggable: false, selectable: false, data: {} },
-    ...roles.map((r, i) => ({ id: `role:${r.key}`, type: 'wf-role', position: { x: COL * 2, y: i * 90 }, draggable: false, selectable: false, data: { role: r } })),
-    { id: OUTPUT, type: 'wf-output', position: { x: COL * 3, y: h / 2 - 40 }, draggable: false, data: {} }
-  ]
-  edges.value = [
-    { id: 'e:in', source: INPUT, target: COORD, sourceHandle: 'next', deletable: false, markerEnd: MarkerType.ArrowClosed },
-    ...roles.map(r => ({ id: `e:r:${r.key}`, source: COORD, target: `role:${r.key}`, sourceHandle: 'roles', deletable: false, class: 'wf-edge-role' })),
-    { id: 'e:out', source: COORD, target: OUTPUT, sourceHandle: 'out', deletable: false, markerEnd: MarkerType.ArrowClosed }
-  ]
-}
-
-function rebuild() {
-  if (stepMode.value) buildSteps()
-  else buildStar()
-}
-watch(() => props.def, rebuild, { deep: true, immediate: true })
-watch(stepMode, () => nextTick(() => fitView({ padding: 0.2 })))
+watch(() => props.def, buildSteps, { deep: true, immediate: true })
 
 // ---- graph edits ----
 function onConnect(c: Connection) {
-  if (!stepMode.value || !c.target || c.target === INPUT) return
+  if (!c.target || c.target === INPUT) return
   if (c.source === INPUT) { // one more first step: they start at once
     edit((d) => {
       const list = stepStarts(d)
@@ -185,7 +162,7 @@ function onConnect(c: Connection) {
 
 function onNodesChange(changes: NodeChange[]) {
   const gone = changes.filter(c => c.type === 'remove').map(c => c.id).filter(id => id !== INPUT)
-  if (!gone.length || !stepMode.value) return
+  if (!gone.length) return
   edit((d) => {
     d.steps = d.steps!.filter(s => !gone.includes(s.id)).map(s => unlink(s, gone))
     if (d.start?.length) d.start = d.start.filter(x => !gone.includes(x))
@@ -195,7 +172,6 @@ function onNodesChange(changes: NodeChange[]) {
 }
 
 function onEdgesChange(changes: EdgeChange[]) {
-  if (!stepMode.value) return
   for (const c of changes) {
     if (c.type !== 'remove') continue
     if (c.source === INPUT) {
@@ -216,7 +192,7 @@ function onDragStop(e: NodeDragEvent) {
   const input = moved.find(n => n.id === INPUT)
   if (input) inputPos.value = at(input)
   const rest = moved.filter(n => n.id !== INPUT)
-  if (!rest.length || !stepMode.value) return
+  if (!rest.length) return
   edit((d) => {
     for (const n of rest) {
       const s = d.steps!.find(x => x.id === n.id)
@@ -226,7 +202,7 @@ function onDragStop(e: NodeDragEvent) {
 }
 
 function onNodeClick(e: NodeMouseEvent) {
-  selected.value = e.node.id === COORD || e.node.id.startsWith('role:') ? '' : e.node.id
+  selected.value = e.node.id
 }
 
 // ---- the palette ----
@@ -244,7 +220,7 @@ function onDragOver(e: DragEvent) {
 }
 function onDrop(e: DragEvent) {
   const raw = e.dataTransfer?.getData(MIME)
-  if (!raw || !stepMode.value) return
+  if (!raw) return
   e.preventDefault()
   const rect = vueFlowRef.value?.getBoundingClientRect()
   const p = project({ x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) })
@@ -252,7 +228,6 @@ function onDrop(e: DragEvent) {
 }
 // a click adds it right of the selected step (and links it when that one goes nowhere yet)
 function onPaletteClick(p: Drop) {
-  if (!stepMode.value) return
   const from = steps.value.find(s => s.id === selected.value)
   const fromNode = nodes.value.find(n => n.id === selected.value)
   const maxX = Math.max(0, ...nodes.value.map(n => n.position.x))
@@ -291,6 +266,7 @@ function addStep(p: Drop, position: { x: number, y: number }, link: boolean) {
   } else {
     const base: Record<StepType, Partial<WorkflowStep>> = {
       agent: { role: props.def.roles[0]?.key ?? '', prompt: '' },
+      coordinate: { prompt: '' },
       workflow: { workflow: '', inputs: {} },
       code: { lang: 'bash', script: '' },
       http: { method: 'GET', url: '' },
@@ -314,12 +290,6 @@ function addStep(p: Drop, position: { x: number, y: number }, link: boolean) {
   selected.value = s.id
 }
 
-// a coordinator's workflow becomes a graph of steps (its roles stay)
-function toSteps() {
-  if (!confirm(t('wf.canvas.toStepsConfirm'))) return
-  edit((d) => { d.steps = [{ id: 'end', type: 'end', position: { x: COL, y: 0 } }] })
-}
-
 // the first draw fits the view once the nodes are measured
 const fitted = ref(false)
 function onNodesInitialized() {
@@ -328,14 +298,16 @@ function onNodesInitialized() {
   fitView({ padding: 0.2 })
 }
 
+// the roles a coordinate step hands work to (none named: every role but its coordinator)
+const coordRoles = (s: WorkflowStep) => s.roles?.length ? s.roles : view.value.roles.filter(r => r.key !== s.role).map(r => r.key)
+
 const palette = computed(() => STEP_TYPES.map(s => ({ ...s, label: stepLabel(s.type) })))
-const coordLabel = computed(() => t('wf.canvas.coordinator'))
 </script>
 
 <template>
   <div class="wf-canvas flex flex-col overflow-hidden md:h-[40rem] lg:h-full lg:min-h-[30rem] rounded-lg border border-(--ui-border) md:flex-row">
     <!-- palette -->
-    <aside v-if="stepMode" class="flex shrink-0 gap-3 overflow-auto border-b border-(--ui-border) p-2 md:w-44 md:flex-col md:border-e md:border-b-0">
+    <aside class="flex shrink-0 gap-3 overflow-auto border-b border-(--ui-border) p-2 md:w-44 md:flex-col md:border-e md:border-b-0">
       <div class="space-y-1">
         <p class="flex items-center gap-1 px-1 text-xs font-medium text-(--ui-text-muted)">
           {{ t('wf.canvas.steps') }}
@@ -384,8 +356,8 @@ const coordLabel = computed(() => t('wf.canvas.coordinator'))
     <div class="relative h-[26rem] min-w-0 flex-1 md:h-auto" @dragover="onDragOver" @drop="onDrop">
       <VueFlow
         :id="flowId" :nodes="nodes" :edges="edges"
-        :nodes-draggable="stepMode" :nodes-connectable="stepMode" :edges-updatable="false"
-        :delete-key-code="stepMode ? ['Backspace', 'Delete'] : null" :min-zoom="0.2" :max-zoom="1.5"
+        :edges-updatable="false"
+        :delete-key-code="['Backspace', 'Delete']" :min-zoom="0.2" :max-zoom="1.5"
         :default-edge-options="{ type: 'smoothstep' }"
         @nodes-initialized="onNodesInitialized" @connect="onConnect" @nodes-change="onNodesChange" @edges-change="onEdgesChange"
         @node-drag-stop="onDragStop" @node-click="onNodeClick" @pane-click="selected = ''"
@@ -419,6 +391,9 @@ const coordLabel = computed(() => t('wf.canvas.coordinator'))
             <p class="truncate font-mono text-[11px] text-(--ui-text-muted)">
               {{ data.step.id }}<template v-if="data.step.type === 'agent' && data.step.role"> · {{ data.step.role }}</template><template v-else-if="data.step.type === 'workflow' && data.step.workflow"> · /{{ data.step.workflow }}</template>
             </p>
+            <div v-if="data.step.type === 'coordinate'" class="mt-1 flex flex-wrap gap-0.5">
+              <span v-for="r in coordRoles(data.step)" :key="r" class="rounded bg-(--ui-bg-elevated) px-1 font-mono text-[10px]">{{ r }}</span>
+            </div>
             <p v-if="data.step.type === 'condition' && data.step.if" class="truncate font-mono text-[11px] text-(--ui-text-dimmed)">{{ data.step.if }}</p>
             <!-- a switch: an output per case, and one when none matches -->
             <div v-if="data.step.type === 'switch'" class="mt-1 space-y-1">
@@ -443,54 +418,13 @@ const coordLabel = computed(() => t('wf.canvas.coordinator'))
           </div>
         </template>
 
-        <template #node-wf-coord>
-          <div class="wf-node w-40 border-primary/60">
-            <Handle type="target" :position="Position.Left" />
-            <div class="flex items-center gap-1.5 font-medium">
-              <UIcon name="i-lucide-crown" class="size-4 text-primary" />{{ coordLabel }}
-            </div>
-            <p class="text-[11px] text-(--ui-text-muted)">{{ t('wf.canvas.coordinatorInfo') }}</p>
-            <Handle id="roles" type="source" :position="Position.Right" />
-            <Handle id="out" type="source" :position="Position.Bottom" />
-          </div>
-        </template>
-
-        <template #node-wf-role="{ data }">
-          <div class="wf-node w-44">
-            <Handle type="target" :position="Position.Left" />
-            <div class="flex items-center gap-1.5">
-              <UIcon :name="accessIcon[data.role.access as WorkflowAccess] ?? 'i-lucide-eye'" class="size-4 shrink-0 text-primary" />
-              <span class="truncate font-medium">{{ data.role.name }}</span>
-            </div>
-            <p class="truncate font-mono text-[11px] text-(--ui-text-muted)">{{ data.role.key }}<template v-if="bindings?.[data.role.key]"> · {{ agents.find(a => a.id === bindings?.[data.role.key])?.name }}</template></p>
-          </div>
-        </template>
-
-        <template #node-wf-output>
-          <div class="wf-node w-40" :class="selected === OUTPUT && 'wf-node-selected'">
-            <Handle type="target" :position="Position.Top" />
-            <div class="flex items-center gap-1.5 font-medium">
-              <UIcon name="i-lucide-log-out" class="size-4 text-primary" />{{ t('wf.outputs') }}
-            </div>
-            <ul v-if="def.outputs?.length" class="mt-1 space-y-0.5">
-              <li v-for="f in def.outputs" :key="f.key" class="truncate font-mono text-[11px] text-(--ui-text-muted)">{{ f.key }}</li>
-            </ul>
-          </div>
-        </template>
       </VueFlow>
-
-      <div v-if="!stepMode" class="absolute inset-x-0 top-2 z-10 flex justify-center px-2">
-        <div class="flex flex-wrap items-center gap-2 rounded-lg border border-(--ui-border) bg-(--ui-bg) px-3 py-1.5 text-xs shadow-sm">
-          <span class="text-(--ui-text-muted)">{{ t('wf.canvas.coordMode') }}</span>
-          <UButton size="xs" icon="i-lucide-git-fork" :label="t('wf.canvas.toSteps')" @click="toSteps()" />
-        </div>
-      </div>
     </div>
 
     <!-- the selected node's form -->
     <aside class="max-h-[36rem] shrink-0 overflow-y-auto border-t border-(--ui-border) p-3 md:max-h-none md:min-h-0 md:w-80 md:border-s md:border-t-0">
       <WorkflowStepForm
-        :def="def" :sel="stepMode ? selected : (selected === INPUT || selected === OUTPUT ? selected : '')" :project-id="projectId" :bindings="bindings"
+        :def="view" :sel="selected" :project-id="projectId" :bindings="bindings"
         :agents="agents" :workflows="workflows"
         @update:def="d => emit('update:def', d)" @update:bindings="b => emit('update:bindings', b)" @select="id => selected = id"
       />
@@ -535,7 +469,6 @@ const coordLabel = computed(() => t('wf.canvas.coordinator'))
 .wf-canvas .vue-flow__edge.selected .vue-flow__edge-path,
 .wf-canvas .vue-flow__edge:focus .vue-flow__edge-path { stroke: var(--ui-primary); }
 .wf-canvas .wf-edge-else .vue-flow__edge-path { stroke-dasharray: 5 4; }
-.wf-canvas .wf-edge-role .vue-flow__edge-path { stroke-dasharray: 2 4; }
 .wf-canvas .vue-flow__arrowhead polyline { stroke: var(--ui-border-accented); fill: var(--ui-border-accented); }
 .wf-canvas .vue-flow__edge-textbg { fill: var(--ui-bg); }
 .wf-canvas .vue-flow__edge-text { fill: var(--ui-text-muted); font-size: 11px; }

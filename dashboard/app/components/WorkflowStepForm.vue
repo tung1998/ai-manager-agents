@@ -6,7 +6,7 @@ import type { MessageKey } from '~/locales/vi'
 
 const props = defineProps<{
   def: WorkflowDef
-  sel: string // '' | '__input' | '__output' | a step's id
+  sel: string // '' | '__input' | a step's id
   projectId?: string
   bindings?: Record<string, string>
   agents: Agent[]
@@ -103,6 +103,15 @@ function bind(v: string) {
   emit('update:bindings', b)
 }
 
+// ---- coordinate: its roles, who coordinates ----
+const coordItems = computed(() => [{ label: t('wf.step.runCoordinator'), value: NONE }, ...roleItems.value])
+function newCoordRole() {
+  let k = 'role'
+  for (let i = 2; props.def.roles.some(r => r.key === k); i++) k = `role-${i}`
+  const id = props.sel
+  setDef({ roles: [...props.def.roles, { key: k, name: k, access: 'analyze' }], steps: steps.value.map(s => s.id === id ? { ...s, roles: [...(s.roles ?? []), k] } : s) })
+}
+
 // ---- workflow: which one, its inputs ----
 const wfItems = computed(() => {
   const list = props.workflows.map(w => ({ label: `${w.name} · /${w.key}`, value: w.key }))
@@ -130,12 +139,6 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
       <UTooltip :text="t('wf.canvas.inputsInfo')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" /></UTooltip>
     </p>
     <WorkflowFieldsEditor :model-value="def.inputs" @update:model-value="v => setDef({ inputs: v })" />
-  </div>
-
-  <!-- the Output node (coordinator mode): what it gives back -->
-  <div v-else-if="sel === '__output'" class="space-y-2 text-sm">
-    <p class="flex items-center gap-1.5 font-medium"><UIcon name="i-lucide-log-out" class="size-4 text-primary" />{{ t('wf.outputs') }}</p>
-    <WorkflowFieldsEditor :model-value="def.outputs" with-type @update:model-value="v => setDef({ outputs: v })" />
   </div>
 
   <!-- a step -->
@@ -174,6 +177,27 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
       <UFormField :label="t('wf.step.prompt')" :hint="miss('prompt')" :ui="ui">
         <UTextarea :model-value="step.prompt ?? ''" :rows="5" autoresize :maxrows="16" class="w-full" @update:model-value="v => patch({ prompt: String(v) })" />
       </UFormField>
+    </template>
+
+    <!-- coordinate: an agent decides inside the step (ADR-111) -->
+    <template v-else-if="step.type === 'coordinate'">
+      <UFormField :label="t('wf.step.coordRoles')" :hint="miss('roles')" :ui="ui">
+        <template #help><span class="text-xs">{{ t('wf.step.coordRolesInfo') }}</span></template>
+        <div class="flex gap-1">
+          <USelect
+            multiple :model-value="step.roles ?? []" :items="roleItems.filter(r => r.value !== step!.role)" size="sm" class="min-w-0 flex-1" :placeholder="t('wf.step.allRoles')"
+            @update:model-value="v => patch({ roles: (v as string[]).length ? v as string[] : undefined })"
+          />
+          <UTooltip :text="t('wf.step.newRole')"><UButton size="sm" color="neutral" variant="outline" icon="i-lucide-plus" @click="newCoordRole()" /></UTooltip>
+        </div>
+      </UFormField>
+      <UFormField :label="t('wf.step.coordinator')" :hint="miss('role')" :ui="ui">
+        <USelect :model-value="step.role || NONE" :items="coordItems" size="sm" class="w-full" @update:model-value="v => patch({ role: v === NONE ? undefined : String(v), roles: step!.roles?.filter(k => k !== v) })" />
+      </UFormField>
+      <UFormField :label="t('wf.step.coordPrompt')" :hint="miss('prompt')" :ui="ui">
+        <UTextarea :model-value="step.prompt ?? ''" :rows="6" autoresize :maxrows="20" class="w-full" @update:model-value="v => patch({ prompt: String(v) })" />
+      </UFormField>
+      <p class="text-xs text-(--ui-text-muted)">{{ t('wf.step.coordInfo') }}</p>
     </template>
 
     <!-- a sub-workflow -->
@@ -322,7 +346,7 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
 
   <!-- nothing selected: the workflow itself -->
   <div v-else class="space-y-3 text-sm">
-    <p class="text-xs text-(--ui-text-muted)">{{ t(steps.length ? 'wf.canvas.pickNode' : 'wf.canvas.coordHint') }}</p>
+    <p class="text-xs text-(--ui-text-muted)">{{ t('wf.canvas.pickNode') }}</p>
     <UFormField :label="t('wf.canvas.key')" :hint="validStepKey(def.key) ? undefined : t('wf.step.missing')" :ui="ui">
       <UInput :model-value="def.key" size="sm" class="w-full font-mono" @update:model-value="v => setDef({ key: String(v).trim() })" />
     </UFormField>
@@ -331,12 +355,6 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
     </UFormField>
     <UFormField :label="t('wf.canvas.description')">
       <UTextarea :model-value="def.description" :rows="2" autoresize class="w-full" @update:model-value="v => setDef({ description: String(v) })" />
-    </UFormField>
-    <UFormField v-if="!steps.length" :label="t('wf.inputs')">
-      <WorkflowFieldsEditor :model-value="def.inputs" @update:model-value="v => setDef({ inputs: v })" />
-    </UFormField>
-    <UFormField v-if="!steps.length" :label="t('wf.outputs')">
-      <WorkflowFieldsEditor :model-value="def.outputs" with-type @update:model-value="v => setDef({ outputs: v })" />
     </UFormField>
   </div>
 </template>

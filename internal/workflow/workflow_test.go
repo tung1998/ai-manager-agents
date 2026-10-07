@@ -365,3 +365,46 @@ steps:
 		}
 	}
 }
+
+// a coordinate step hands work to its roles: the run it starts has those
+// roles (their groups and vote), its instructions, no output required
+func TestCoordinateStep(t *testing.T) {
+	src := `---
+key: dp
+name: DP
+outputs:
+  - { key: ket-luan, required: true }
+roles:
+  - { key: a, name: A }
+  - { key: b, name: B }
+  - { key: c, name: C }
+  - { key: lead, name: Lead }
+parallel: [[a, b, c]]
+vote: { roles: [a, b], quorum: 2 }
+steps:
+  - { id: review, type: coordinate, role: lead, roles: [a, b], prompt: "Giao a, b", next: xong }
+  - { id: xong, type: end }
+---
+`
+	d, err := Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := d.CoordinateDef(d.Steps[0], "Giao a, b review X")
+	if len(c.Roles) != 2 || c.Roles[0].Key != "a" || c.Roles[1].Key != "b" || c.StepMode() || c.Body != "Giao a, b review X" {
+		t.Fatalf("def = %+v", c)
+	}
+	if len(c.Parallel) != 1 || len(c.Parallel[0]) != 2 || c.Vote == nil || c.Outputs[0].Required || !d.Outputs[0].Required {
+		t.Fatalf("groups %v vote %v outputs %v", c.Parallel, c.Vote, c.Outputs)
+	}
+	if all := d.CoordinateDef(Step{Role: "a"}, "x"); len(all.Roles) != 3 || all.Vote != nil || slices.ContainsFunc(all.Roles, func(r Role) bool { return r.Key == "a" }) {
+		t.Fatalf("every role but its coordinator: %+v", all.Roles)
+	}
+	bad := strings.Replace(src, `roles: [a, b], prompt: "Giao a, b"`, `roles: [a, lead, x], prompt: ""`, 1)
+	_, err = Parse(bad)
+	for _, want := range []string{`"lead" không có trong roles hoặc là vai điều phối`, `"x" không có`, "thiếu prompt"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%q not in %v", want, err)
+		}
+	}
+}

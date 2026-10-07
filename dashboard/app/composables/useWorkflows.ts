@@ -72,7 +72,7 @@ export interface WorkflowDef {
 // {{steps.<id>.json.a.b}}, {{steps.<id>.status}}.
 // One output may go to several steps (a list): they run at once; a step
 // several branches reach waits for them all (ADR-110).
-export type StepType = 'agent' | 'workflow' | 'code' | 'http' | 'condition' | 'switch' | 'approve' | 'check' | 'end'
+export type StepType = 'agent' | 'coordinate' | 'workflow' | 'code' | 'http' | 'condition' | 'switch' | 'approve' | 'check' | 'end'
 
 // a switch's way out: the value it matches and where it goes
 export interface WorkflowCase { when: string, next: string[] | null }
@@ -83,8 +83,9 @@ export interface WorkflowStep {
   name?: string
   next?: string[] | null
   on_error?: '' | 'stop' | 'continue'
-  role?: string // agent
-  prompt?: string
+  role?: string // agent; coordinate: the role whose agent coordinates (none: the run's coordinator)
+  prompt?: string // agent; coordinate: the coordinator's instructions
+  roles?: string[] // coordinate: the roles it hands work to (none: every role)
   workflow?: string // workflow: a sub-workflow's key and its inputs
   inputs?: Record<string, string>
   lang?: 'bash' | 'node' | 'python' | '' // code
@@ -110,6 +111,7 @@ export interface WorkflowStep {
 // the step types, in the order the editor offers them
 export const STEP_TYPES: { type: StepType, icon: string }[] = [
   { type: 'agent', icon: 'i-lucide-bot' },
+  { type: 'coordinate', icon: 'i-lucide-crown' },
   { type: 'workflow', icon: 'i-lucide-workflow' },
   { type: 'code', icon: 'i-lucide-code' },
   { type: 'http', icon: 'i-lucide-globe' },
@@ -162,6 +164,11 @@ export function stepMissing(s: WorkflowStep, def: WorkflowDef): string[] {
       if (!def.roles.some(r => r.key === s.role)) bad.push('role')
       if (!s.prompt?.trim()) bad.push('prompt')
       break
+    case 'coordinate':
+      if (s.role && !def.roles.some(r => r.key === s.role)) bad.push('role')
+      if ((s.roles ?? []).some(k => k === s.role || !def.roles.some(r => r.key === k)) || !def.roles.some(r => r.key !== s.role)) bad.push('roles')
+      if (!s.prompt?.trim()) bad.push('prompt')
+      break
     case 'workflow':
       if (!validStepKey(s.workflow ?? '')) bad.push('workflow')
       break
@@ -203,6 +210,22 @@ export function stepMissing(s: WorkflowStep, def: WorkflowDef): string[] {
   }
   if (s.type !== 'end' && s.type !== 'condition' && s.type !== 'switch') ref('next', true)
   return bad
+}
+
+// One kind of workflow (ADR-111): a file without steps (an agent coordinates
+// it all) is the graph Input → one coordinate step → End, its body the
+// step's instructions; the canvas shows it so and writes it so once edited.
+export const COORD_STEP = 'dieu-phoi'
+export function asGraph(d: WorkflowDef): WorkflowDef {
+  if (d.steps?.length) return d
+  return {
+    ...d,
+    body: '',
+    steps: [
+      { id: COORD_STEP, type: 'coordinate', prompt: d.body, next: ['xong'], position: { x: 280, y: 0 } },
+      { id: 'xong', type: 'end', summary: `{{steps.${COORD_STEP}.output}}`, outputs: Object.fromEntries((d.outputs ?? []).map(f => [f.key, `{{steps.${COORD_STEP}.json.${f.key}}}`])), position: { x: 560, y: 0 } }
+    ]
+  }
 }
 
 // a step renamed: every link to it and every {{steps.old.…}} follows

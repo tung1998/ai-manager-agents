@@ -27,10 +27,20 @@ roles:
 parallel: [[a, b]]
 limits: { rounds: 2, turns: 6, timeout: 1h }
 brief: [outcome, context]
+steps:
+  - id: review
+    type: coordinate
+    roles: [a, b]
+    prompt: |
+      1. Giao cùng lúc a và b review {{input.text}}, mỗi bên một bản bàn giao đủ bối cảnh.
+      2. Chỗ hai bên khác nhau thì hỏi lại đúng bên đó bằng workflow_send.
+      3. Gọi workflow_done với kết luận.
+    next: xong
+  - id: xong
+    type: end
+    summary: "{{steps.review.output}}"
 ---
-1. Giao cùng lúc ` + "`a`" + ` và ` + "`b`" + ` review thay đổi, mỗi bên một bản bàn giao đủ bối cảnh.
-2. Gom hai ý kiến, chỗ hai bên khác nhau thì hỏi lại đúng bên đó bằng workflow_send.
-3. Báo người dùng kết luận rồi gọi workflow_done.
+Quy trình chạy theo các bước ở phần đầu (steps).
 ` + "```" + `
 Phần đầu (office ép đúng các luật này khi chạy):
 - key (chữ thường, số, gạch ngang; là lệnh #key trong chat), name, description (quy trình dùng khi nào), input (người dùng cần đưa gì).
@@ -44,8 +54,8 @@ Phần đầu (office ép đúng các luật này khi chạy):
 - gates (cổng phải qua trước khi xong): key, name, kind: approve (người duyệt) | check (lệnh kiểm tra của project), required.
 - vote (biểu quyết): roles, quorum, veto [vai có quyền phủ quyết].
 - strict: true thì từ chối thay vì cảnh báo khi differ_from không đạt.
-- steps (chế độ các bước, office chạy đúng thứ tự, không cần agent điều phối): danh sách { id, type, name, next, on_error: stop|continue }; id chỉ chữ thường, số, gạch ngang (không dùng _). Bắt đầu ở start: [id, …] (bỏ trống = bước đầu danh sách). next, then, else nhận một id hoặc danh sách [a, b]: các bước đó chạy song song; bước có nhiều nhánh đi vào chờ đủ các nhánh rồi chạy một lần (đọc output của từng nhánh). on_error: continue thì lỗi cũng là output (status "error") cho bước sau. type:
-  agent { role, prompt } (role trong roles, project gán agent) · workflow { workflow: key, inputs: {key: template} } · code { lang: bash|node|python, script, timeout_s } (nhận dữ liệu JSON qua stdin và biến OFFICE_INPUT_*; stdout là output) · http { method, url, headers, body } (body trả về là output) · condition { if, then, else, max_loops } (if: "A == B", !=, >, <, >=, <=, contains; quay lại bước trước là lặp) · switch { value: template, cases: [{ when, next }], else } (value bằng when nào, không phân biệt hoa thường, thì đi nhánh đó; không khớp thì else; status là value) · approve { note, else } (người dùng duyệt) · check { command, else } · end { summary, outputs: {key: template} }.
-  Template: {{input.key}}, {{steps.<id>.output}}, {{steps.<id>.json.a.b}}, {{steps.<id>.status}}. Dùng chế độ các bước khi thứ tự cố định; dùng điều phối (roles + phần thân) khi cần agent tự quyết.
-Phần thân: các bước cho agent điều phối, dùng công cụ workflow_delegate, workflow_send, workflow_ask (hỏi vai analyze và chờ trả lời ngay), workflow_vote, workflow_gate, workflow_done. Nêu kết quả cần đạt và điểm dừng, không viết sẵn cách sửa từng file.
+- steps (quy trình là các bước office chạy theo dây nối): danh sách { id, type, name, next, on_error: stop|continue }; id chỉ chữ thường, số, gạch ngang (không dùng _). Bắt đầu ở start: [id, …] (bỏ trống = bước đầu danh sách). next, then, else nhận một id hoặc danh sách [a, b]: các bước đó chạy song song; bước có nhiều nhánh đi vào chờ đủ các nhánh rồi chạy một lần (đọc output của từng nhánh). on_error: continue thì lỗi cũng là output (status "error") cho bước sau. type:
+  agent { role, prompt } (role trong roles, project gán agent; một lượt trả lời) · coordinate { roles: [vai được giao việc, bỏ trống = mọi vai], role (vai làm điều phối, bỏ trống = agent đang chạy quy trình), prompt (hướng dẫn cho agent điều phối) } (agent điều phối tự giao việc, hỏi lại, biểu quyết, qua cổng bằng các công cụ workflow_*; workflow_done là output của bước, outputs đọc bằng {{steps.<id>.json.key}}) · workflow { workflow: key, inputs: {key: template} } · code { lang: bash|node|python, script, timeout_s } (nhận dữ liệu JSON qua stdin và biến OFFICE_INPUT_*; stdout là output) · http { method, url, headers, body } (body trả về là output) · condition { if, then, else, max_loops } (if: "A == B", !=, >, <, >=, <=, contains; quay lại bước trước là lặp) · switch { value: template, cases: [{ when, next }], else } (value bằng when nào, không phân biệt hoa thường, thì đi nhánh đó; không khớp thì else; status là value) · approve { note, else } (người dùng duyệt) · check { command, else } · end { summary, outputs: {key: template} }.
+  Template: {{input.key}}, {{steps.<id>.output}}, {{steps.<id>.json.a.b}}, {{steps.<id>.status}}. Thứ tự cố định thì nối các bước; đoạn nào cần AI tự quyết (giao việc, hỏi lại, nhiều vòng) thì dùng một bước coordinate. parallel, limits, brief, gates, vote ở phần đầu áp dụng cho các bước coordinate.
+Prompt của bước coordinate (hoặc phần thân ở file cũ không có steps, chạy như một bước coordinate với mọi vai): các bước cho agent điều phối, dùng công cụ workflow_delegate, workflow_send, workflow_ask (hỏi vai analyze và chờ trả lời ngay), workflow_vote, workflow_gate, workflow_done. Nêu kết quả cần đạt và điểm dừng, không viết sẵn cách sửa từng file.
 Quy tắc: quyền thấp nhất đủ dùng cho từng vai; vai kiểm tra hay phản biện nên differ_from vai làm; nếu error trong ngữ cảnh còn lỗi thì sửa cho hết. Giải thích ngắn thay đổi, nhắc người dùng xem lại rồi bấm Lưu. Không tự lưu.`

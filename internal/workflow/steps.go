@@ -31,19 +31,23 @@ import (
 
 // Step types.
 const (
-	StepAgent     = "agent"
-	StepWorkflow  = "workflow"
-	StepCode      = "code"
-	StepHTTP      = "http"
-	StepCondition = "condition"
-	StepSwitch    = "switch"
-	StepApprove   = "approve"
-	StepCheck     = "check"
-	StepEnd       = "end"
+	StepAgent = "agent"
+	// StepCoordinate: an agent decides inside the step (ADR-111): it hands
+	// work to the step's roles, asks again, votes, passes the gates, as a
+	// workflow without steps does; workflow_done is the step's output.
+	StepCoordinate = "coordinate"
+	StepWorkflow   = "workflow"
+	StepCode       = "code"
+	StepHTTP       = "http"
+	StepCondition  = "condition"
+	StepSwitch     = "switch"
+	StepApprove    = "approve"
+	StepCheck      = "check"
+	StepEnd        = "end"
 )
 
 // StepTypes are the step types, in the order the editor offers them.
-var StepTypes = []string{StepAgent, StepWorkflow, StepCode, StepHTTP, StepCondition, StepSwitch, StepApprove, StepCheck, StepEnd}
+var StepTypes = []string{StepAgent, StepCoordinate, StepWorkflow, StepCode, StepHTTP, StepCondition, StepSwitch, StepApprove, StepCheck, StepEnd}
 
 // Step is one node of a workflow's graph.
 type Step struct {
@@ -57,8 +61,12 @@ type Step struct {
 	OnError string `yaml:"on_error,omitempty" json:"on_error,omitempty"`
 
 	// agent: a role of the workflow (the project binds it to an agent) and what it is asked
-	Role   string `yaml:"role,omitempty" json:"role,omitempty"`
-	Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	// coordinate: Role (optional) is the role whose agent coordinates (none:
+	// the run's coordinator), Prompt its instructions, Roles the roles it
+	// hands work to (none: every role but Role)
+	Role   string   `yaml:"role,omitempty" json:"role,omitempty"`
+	Prompt string   `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	Roles  []string `yaml:"roles,omitempty" json:"roles,omitempty"`
 	// workflow: another workflow of the project, given inputs by key
 	Workflow string            `yaml:"workflow,omitempty" json:"workflow,omitempty"`
 	Inputs   map[string]string `yaml:"inputs,omitempty" json:"inputs,omitempty"`
@@ -190,6 +198,41 @@ func (d Def) Reaches(from, to string) bool {
 	return false
 }
 
+// CoordinateDef is the workflow a coordinate step runs: this one's roles
+// it hands work to (with their groups and vote), its limits, brief and
+// gates, the step's instructions; its outputs may be given, none required.
+func (d Def) CoordinateDef(s Step, body string) Def {
+	c := d
+	c.Steps, c.Start, c.Body = nil, nil, body
+	keep := func(k string) bool {
+		return k != s.Role && (len(s.Roles) == 0 || slices.Contains(s.Roles, k))
+	}
+	c.Roles = nil
+	for _, r := range d.Roles {
+		if keep(r.Key) {
+			c.Roles = append(c.Roles, r)
+		}
+	}
+	c.Parallel = nil
+	for _, g := range d.Parallel {
+		if g = slices.DeleteFunc(slices.Clone(g), func(k string) bool { return !keep(k) }); len(g) > 1 {
+			c.Parallel = append(c.Parallel, g)
+		}
+	}
+	if d.Vote != nil && !slices.ContainsFunc(d.Vote.Roles, func(k string) bool { return !keep(k) }) {
+		v := *d.Vote
+		c.Vote = &v
+	} else {
+		c.Vote = nil
+	}
+	c.Outputs = nil
+	for _, f := range d.Outputs {
+		f.Required = false
+		c.Outputs = append(c.Outputs, f)
+	}
+	return c
+}
+
 // Starts are the first steps (start, or the first of the list).
 func (d Def) Starts() []string {
 	if len(d.Start) > 0 {
@@ -271,6 +314,23 @@ func (d Def) validateSteps(add func(string, ...any)) {
 			}
 			if strings.TrimSpace(s.Prompt) == "" {
 				add("bước %q: thiếu prompt", s.ID)
+			}
+		case StepCoordinate:
+			if s.Role != "" {
+				if _, ok := d.Role(s.Role); !ok {
+					add("bước %q: role %q không có trong roles", s.ID, s.Role)
+				}
+			}
+			for _, r := range s.Roles {
+				if _, ok := d.Role(r); !ok || r == s.Role {
+					add("bước %q: vai %q không có trong roles hoặc là vai điều phối", s.ID, r)
+				}
+			}
+			if len(d.Roles) == 0 || len(d.Roles) == 1 && s.Role != "" {
+				add("bước %q: cần ít nhất một vai để giao việc", s.ID)
+			}
+			if strings.TrimSpace(s.Prompt) == "" {
+				add("bước %q: thiếu prompt (hướng dẫn cho agent điều phối)", s.ID)
 			}
 		case StepWorkflow:
 			if !ValidKey(s.Workflow) {

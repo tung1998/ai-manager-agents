@@ -276,15 +276,24 @@ func (e *Engine) runStep(ctx context.Context, own storage.Conversation, run *wfR
 	case workflow.StepAgent:
 		out, err := e.stepAgent(ctx, own, project, run, s, workflow.Render(s.Prompt, vars))
 		return workflow.NewResult(out, ""), err
-	case workflow.StepWorkflow:
-		inputs := map[string]string{}
-		for k, v := range s.Inputs {
-			inputs[k] = workflow.Render(v, vars)
+	case workflow.StepWorkflow, workflow.StepCoordinate:
+		var rec storage.WorkflowRun
+		if s.Type == workflow.StepCoordinate {
+			rec, err = e.stepCoordinate(ctx, own, project, run, s, workflow.Render(s.Prompt, vars))
+		} else {
+			inputs := map[string]string{}
+			for k, v := range s.Inputs {
+				inputs[k] = workflow.Render(v, vars)
+			}
+			rec, err = e.stepFlow(ctx, own, project, run, s, inputs)
 		}
-		rec, err := e.stepFlow(ctx, own, project, run, s, inputs)
 		r := workflow.NewResult(strings.TrimSpace(rec.Result), rec.Status)
 		if len(rec.Outputs) > 0 {
-			r.JSON = rec.Outputs
+			obj := map[string]any{} // {{steps.<id>.json.key}} reads JSON objects
+			for k, v := range rec.Outputs {
+				obj[k] = v
+			}
+			r.JSON = obj
 			b, _ := json.Marshal(rec.Outputs)
 			if r.Output == "" {
 				r.Output = string(b)
@@ -417,11 +426,44 @@ func (e *Engine) stepFlow(ctx context.Context, own storage.Conversation, project
 		return storage.WorkflowRun{}, err
 	}
 	child.inputs = inputs
-	child.depthLeft, child.until = min(run.depthLeft-1, def.Limits.Depth), run.deadline
+	child.depthLeft = min(run.depthLeft-1, def.Limits.Depth)
+	return e.runChild(ctx, own, project, run, s, child, "/"+def.Key+" "+input, prompt, def.Name+": "+oneLine(input))
+}
+
+// stepCoordinate runs a coordinate step (ADR-111): the step's roles under an
+// agent that decides, as a workflow without steps, in a chat of its own;
+// the run is a child of this one at the same depth.
+func (e *Engine) stepCoordinate(ctx context.Context, own storage.Conversation, project storage.Repo, run *wfRun, s workflow.Step, body string) (storage.WorkflowRun, error) {
+	coord := run.coord
+	if s.Role != "" {
+		a, err := e.pickAgent(ctx, run, s.Role, "")
+		if err != nil {
+			return storage.WorkflowRun{}, err
+		}
+		coord = a
+	}
+	def := run.def.CoordinateDef(s, body)
+	e.wf.mu.Lock()
+	w := storage.Workflow{ID: run.rec.WorkflowID, Bindings: maps.Clone(run.bindings)}
+	e.wf.mu.Unlock()
+	child, prompt, err := e.newRun(ctx, project.ID, w, def, coord, run.rec.Input)
+	if err != nil {
+		return storage.WorkflowRun{}, err
+	}
+	child.inputs = run.inputs
+	child.depthLeft = run.depthLeft
+	child.rec.WorkflowName = def.Name + " · " + workflow.StepLabel(s)
+	return e.runChild(ctx, own, project, run, s, child, "/"+def.Key+" "+run.rec.Input, prompt, child.rec.WorkflowName)
+}
+
+// runChild runs a prepared child run in a chat of its own and waits for it to end.
+func (e *Engine) runChild(ctx context.Context, own storage.Conversation, project storage.Repo, run *wfRun, s workflow.Step, child *wfRun, text, prompt, title string) (storage.WorkflowRun, error) {
+	def := child.def
+	child.until = run.deadline
 	child.parent = run
 	child.rec.CallerConversationID, child.rec.ParentRunID, child.rec.Depth = own.ID, run.rec.ID, run.rec.Depth+1
 	sub, err := e.store.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, AgentID: run.coord.ID, AgentName: run.coord.Name, CreatedBy: run.rec.Actor,
-		Purpose: RunPurpose, Title: truncate(def.Name+": "+oneLine(input), 80), Mode: own.Mode, EditMode: own.EditMode, Effort: own.Effort})
+		Purpose: RunPurpose, Title: truncate(title, 80), Mode: own.Mode, EditMode: own.EditMode, Effort: own.Effort})
 	if err != nil {
 		return storage.WorkflowRun{}, err
 	}
@@ -432,12 +474,12 @@ func (e *Engine) stepFlow(ctx context.Context, own storage.Conversation, project
 	if run.ceiling != "" {
 		sctx = WithCeiling(sctx, run.ceiling)
 	}
-	if err := e.launch(sctx, sub, child, "/"+def.Key+" "+input, prompt, "", nil); err != nil {
+	if err := e.launch(sctx, sub, child, text, prompt, "", nil); err != nil {
 		_ = e.store.Chat().DeleteConversation(ctx, sub.ID)
 		return storage.WorkflowRun{}, err
 	}
 	e.wf.mu.Lock()
-	run.logf("%s: chạy quy trình con /%s", workflow.StepLabel(s), def.Key)
+	run.logf("%s: chạy %s", workflow.StepLabel(s), cmp.Or(map[bool]string{true: "điều phối"}[s.Type == workflow.StepCoordinate], "quy trình con /"+def.Key))
 	e.wf.mu.Unlock()
 	select {
 	case <-child.done:
@@ -449,9 +491,13 @@ func (e *Engine) stepFlow(ctx context.Context, own storage.Conversation, project
 	if err != nil {
 		rec = child.rec
 	}
-	e.post(own, s, fmt.Sprintf("Quy trình con /%s: %s\n\n%s", rec.WorkflowKey, rec.Status, strings.TrimSpace(rec.Result)+outputsText(rec))) // i18n-ignore
+	what := "Quy trình con /" + rec.WorkflowKey // i18n-ignore
+	if s.Type == workflow.StepCoordinate {
+		what = "Điều phối" // i18n-ignore
+	}
+	e.post(own, s, fmt.Sprintf("%s: %s\n\n%s", what, rec.Status, strings.TrimSpace(rec.Result)+outputsText(rec)))
 	if rec.Status != storage.RunDone {
-		return rec, fmt.Errorf("%w: quy trình con /%s %s %s", workflow.ErrStepFailed, rec.WorkflowKey, rec.Status, rec.Error)
+		return rec, fmt.Errorf("%w: %s %s %s", workflow.ErrStepFailed, what, rec.Status, rec.Error)
 	}
 	return rec, nil
 }

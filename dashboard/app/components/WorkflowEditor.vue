@@ -70,8 +70,8 @@ watch(source, (s) => {
       error.value = res.ok ? '' : res.error ?? ''
       if (res.ok && res.def) draft.value = res.def
       else if (res.draft) draft.value = res.draft // it reads but does not check: the canvas still shows it, with the error
-      if (!modeChosen) { // an existing one opens on the canvas when it has steps
-        if ((res.def ?? res.draft)?.steps?.length) mode.value = 'canvas'
+      if (!modeChosen) { // an existing one opens on the canvas once it reads
+        if (res.def ?? res.draft) mode.value = 'canvas' // every workflow is a graph (ADR-111)
         modeChosen = true
       }
     } catch { /* checked again on Save */ }
