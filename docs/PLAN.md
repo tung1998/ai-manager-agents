@@ -288,7 +288,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 **Task.**
 1. `office learn`: tính lại baseline từ dữ liệu thật, cập nhật `knowledge.md`, đánh dấu pattern nhiễu (finding bị người từ chối nhiều lần).
 2. `office tune`: đọc lịch sử (chi phí, tỷ lệ finding hữu ích, tỷ lệ approve) và đề xuất diff cơ cấu hoặc model.
-3. Adapter `codex` (`codex exec --json`) và `gemini` (`gemini -p`, output JSON).
+3. Adapter `codex` (`codex exec --json`) và `gemini` (headless, stream-json; xong, ADR-103).
 4. Đánh giá chất lượng agent theo tuần (ý tưởng từ skill `daily-agent-quality-review` của repo cũ).
 
 **Definition of Done.**

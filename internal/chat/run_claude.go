@@ -423,15 +423,17 @@ func toolSummary(name string, input json.RawMessage) string {
 		return "Đọc " + str("file_path", "path")
 	case "glob":
 		return "Tìm file " + str("pattern")
-	case "grep", "search", "search_text":
+	case "grep", "search", "search_text", "grep_search":
 		return "Tìm \"" + str("pattern") + "\""
-	case "list_dir", "ls":
+	case "list_dir", "ls", "list_directory":
 		p := str("path")
 		if p == "" {
 			p = "."
 		}
 		return "Xem thư mục " + p
-	case "bash", "command_execution":
+	case "write_file", "replace":
+		return "Sửa " + str("file_path")
+	case "bash", "command_execution", "run_shell_command":
 		return "Chạy " + str("command")
 	}
 	return name

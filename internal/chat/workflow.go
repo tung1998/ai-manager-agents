@@ -144,6 +144,8 @@ func family(p storage.Provider) string {
 		return "anthropic"
 	case storage.ProviderOpenAI, storage.ProviderCodexCLI:
 		return "openai"
+	case storage.ProviderGeminiCLI:
+		return "google"
 	}
 	if u, err := url.Parse(p.BaseURL); err == nil && u.Host != "" {
 		return u.Host

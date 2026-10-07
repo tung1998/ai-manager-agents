@@ -1,5 +1,5 @@
 // Package clitools installs and signs in the AI command-line tools the office
-// can use (Claude Code, Codex) on the machine that runs the office server.
+// can use (Claude Code, Codex, Gemini CLI) on the machine that runs the office server.
 // Only commands defined here can run: the API never accepts a command string.
 package clitools
 
@@ -10,9 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"bitbucket.org/senprints/agent-office/internal/llm"
 )
 
 // Method is one way to install a tool.
@@ -28,7 +31,7 @@ type Method struct {
 
 // Tool is a CLI the office can drive.
 type Tool struct {
-	ID       string `json:"id"` // claude | codex
+	ID       string `json:"id"` // claude | codex | gemini
 	Name     string `json:"name"`
 	Bin      string `json:"bin"`
 	DocsURL  string `json:"docs_url"`
@@ -37,6 +40,11 @@ type Tool struct {
 	methods   []Method
 	loginArgv []string
 	status    func(ctx context.Context, bin string, env []string) Auth
+	// loginEnv / prepareLogin set up a sign-in that is no subcommand of its
+	// own; loginDone ends it once signed in (Gemini's sign-in opens its chat).
+	loginEnv     []string
+	prepareLogin func() error
+	loginDone    func() bool
 }
 
 // Auth is a tool's sign-in state.
@@ -83,6 +91,68 @@ var tools = []Tool{
 		},
 		status: codexStatus,
 	},
+	{
+		ID: "gemini", Name: "Gemini CLI", Bin: "gemini", DocsURL: "https://github.com/google-gemini/gemini-cli",
+		// Gemini signs in when it starts; NO_BROWSER prints the URL and asks for the code
+		LoginCmd: "gemini", loginArgv: []string{"gemini"},
+		loginEnv: []string{"NO_BROWSER=true", "GEMINI_CLI_TRUST_WORKSPACE=true"},
+		methods: []Method{
+			{ID: "npm", Label: "npm (cần Node 20+)", Command: "npm install -g @google/gemini-cli", Requires: "npm", Recommended: true,
+				argv: []string{"npm", "install", "-g", "@google/gemini-cli"}},
+			{ID: "brew", Label: "Homebrew", Command: "brew install gemini-cli", Requires: "brew",
+				argv: []string{"brew", "install", "gemini-cli"}},
+		},
+		status:       geminiStatus,
+		prepareLogin: geminiPrepareLogin,
+		loginDone:    llm.GeminiSignedIn,
+	},
+}
+
+// geminiStatus: Gemini CLI has no status subcommand; read its credentials.
+func geminiStatus(ctx context.Context, bin string, env []string) Auth {
+	if ok, account := llm.GeminiAccount(); ok {
+		return Auth{LoggedIn: true, Account: account}
+	}
+	return Auth{Detail: "chưa đăng nhập Google hoặc chưa có GEMINI_API_KEY"}
+}
+
+// geminiPrepareLogin picks "Login with Google" in ~/.gemini/settings.json when
+// no sign-in method is chosen yet, so the CLI goes straight to the URL instead
+// of a menu the dashboard cannot drive.
+func geminiPrepareLogin() error {
+	home := os.Getenv("GEMINI_CLI_HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	dir := filepath.Join(home, ".gemini")
+	path := filepath.Join(dir, "settings.json")
+	settings := map[string]any{}
+	if raw, err := os.ReadFile(path); err == nil {
+		if json.Unmarshal(raw, &settings) != nil {
+			return nil // comments or a format we would lose: leave it, the CLI asks
+		}
+	}
+	sec, _ := settings["security"].(map[string]any)
+	if sec == nil {
+		sec = map[string]any{}
+	}
+	auth, _ := sec["auth"].(map[string]any)
+	if auth == nil {
+		auth = map[string]any{}
+	}
+	if t, _ := auth["selectedType"].(string); t != "" {
+		return nil
+	}
+	auth["selectedType"] = "oauth-personal"
+	sec["auth"], settings["security"] = auth, sec
+	raw, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o600)
 }
 
 // claudeStatus reads `claude auth status --json`.
@@ -265,11 +335,34 @@ func (m *Manager) Login(id string) (*Job, error) {
 	if path == "" {
 		return nil, ErrNotInstalled
 	}
+	if t.prepareLogin != nil {
+		if err := t.prepareLogin(); err != nil {
+			return nil, err
+		}
+	}
 	argv := append([]string{path}, t.loginArgv[1:]...)
-	return m.start(id, "login", argv, 15*time.Minute)
+	j, err := m.start(id, "login", argv, 15*time.Minute, t.loginEnv...)
+	if err == nil && t.loginDone != nil {
+		go func() {
+			tick := time.NewTicker(2 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-j.done:
+					return
+				case <-tick.C:
+					if t.loginDone() {
+						j.finish()
+						return
+					}
+				}
+			}
+		}()
+	}
+	return j, err
 }
 
-func (m *Manager) start(tool, action string, argv []string, timeout time.Duration) (*Job, error) {
+func (m *Manager) start(tool, action string, argv []string, timeout time.Duration, env ...string) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if j := m.last[tool]; j != nil && j.Snapshot().State == "running" {
@@ -278,7 +371,7 @@ func (m *Manager) start(tool, action string, argv []string, timeout time.Duratio
 	if p := m.lookPathLocked(argv[0]); p != "" {
 		argv = append([]string{p}, argv[1:]...)
 	}
-	j, err := startJob(tool, action, argv, m.env, timeout)
+	j, err := startJob(tool, action, argv, append(slices.Clone(m.env), env...), timeout)
 	if err != nil {
 		return nil, err
 	}

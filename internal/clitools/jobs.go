@@ -71,12 +71,21 @@ func (j *Job) Snapshot() JobView {
 	s := JobView{ID: j.ID, Tool: j.Tool, Action: j.Action, Command: j.Command, State: j.State, Output: out,
 		ExitCode: j.ExitCode, Error: j.Error, StartedAt: j.StartedAt, EndedAt: j.EndedAt, URLs: []string{}, Codes: []string{}}
 	seen := map[string]bool{}
+	at := map[string]int{} // a URL without its query → its place in URLs
 	for _, u := range urlRe.FindAllString(out, -1) {
 		u = strings.TrimRight(u, ".,;)")
-		if !seen[u] {
-			seen[u] = true
+		base, _, _ := strings.Cut(u, "?")
+		switch i, ok := at[base]; {
+		case seen[u]:
+		case ok:
+			// a sign-in link issued again (e.g. after a wrong code): the
+			// newest one is the one that works
+			s.URLs[i] = u
+		default:
+			at[base] = len(s.URLs)
 			s.URLs = append(s.URLs, u)
 		}
+		seen[u] = true
 	}
 	for _, c := range codeRe.FindAllString(out, -1) {
 		if !seen[c] {
@@ -124,6 +133,17 @@ func (j *Job) Cancel() {
 	j.mu.Lock()
 	if j.State == "running" {
 		j.State = "cancelled"
+	}
+	j.mu.Unlock()
+	j.cancel()
+}
+
+// finish stops a job that has done its work but would keep running (a CLI
+// that opens its chat after signing in).
+func (j *Job) finish() {
+	j.mu.Lock()
+	if j.State == "running" {
+		j.State = "succeeded"
 	}
 	j.mu.Unlock()
 	j.cancel()
@@ -182,7 +202,7 @@ func startJob(tool, action string, argv []string, env []string, timeout time.Dur
 			j.ExitCode = cmd.ProcessState.ExitCode()
 		}
 		switch {
-		case j.State == "cancelled":
+		case j.State == "cancelled", j.State == "succeeded":
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			j.State, j.Error = "failed", "quá thời gian chờ"
 		case werr != nil:

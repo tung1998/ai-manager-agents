@@ -17,19 +17,22 @@ const (
 	ProviderOpenAICompatible ProviderKind = "openai_compatible" // any /v1/chat/completions endpoint
 	ProviderClaudeCLI        ProviderKind = "claude_cli"        // local `claude -p`
 	ProviderCodexCLI         ProviderKind = "codex_cli"         // local `codex exec`
+	ProviderGeminiCLI        ProviderKind = "gemini_cli"        // local `gemini` (headless)
 )
 
 // Valid reports whether k is known.
 func (k ProviderKind) Valid() bool {
 	switch k {
-	case ProviderAnthropic, ProviderOpenAI, ProviderOpenAICompatible, ProviderClaudeCLI, ProviderCodexCLI:
+	case ProviderAnthropic, ProviderOpenAI, ProviderOpenAICompatible, ProviderClaudeCLI, ProviderCodexCLI, ProviderGeminiCLI:
 		return true
 	}
 	return false
 }
 
 // IsCLI reports whether the provider runs a local binary instead of an HTTP API.
-func (k ProviderKind) IsCLI() bool { return k == ProviderClaudeCLI || k == ProviderCodexCLI }
+func (k ProviderKind) IsCLI() bool {
+	return k == ProviderClaudeCLI || k == ProviderCodexCLI || k == ProviderGeminiCLI
+}
 
 // Model tiers let templates say "strong model" without naming a vendor model.
 const (

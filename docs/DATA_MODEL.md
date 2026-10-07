@@ -300,7 +300,7 @@ Index `(day, agent_id)`, `(incident_id)`. View `cost_daily` group theo `day, age
 |---|---|---|
 | id | text PK | `prv_<ulid>` |
 | name | text unique | |
-| kind | text | `anthropic` \| `openai` \| `openai_compatible` \| `claude_cli` \| `codex_cli` |
+| kind | text | `anthropic` \| `openai` \| `openai_compatible` \| `claude_cli` \| `codex_cli` \| `gemini_cli` |
 | base_url | text | URL API, hoặc đường dẫn binary với CLI |
 | api_key_enc | text | AES-256-GCM, không bao giờ trả qua API |
 | api_key_env | text | đọc key từ biến môi trường này |

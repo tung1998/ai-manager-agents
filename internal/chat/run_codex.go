@@ -17,8 +17,8 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
-// codexRunner drives `codex exec` in a read-only sandbox. Codex keeps no
-// session here, so earlier turns are passed as a transcript.
+// codexRunner drives `codex exec` in a read-only sandbox and goes on in the
+// chat's session with `codex exec resume`, like the CLI itself.
 type codexRunner struct{}
 
 // codexTokenEnv carries the run's token to Codex's MCP client.
@@ -57,7 +57,17 @@ func codexEffortArgs(e string) []string {
 	return []string{"-c", "model_reasoning_effort=" + strconv.Quote(e)}
 }
 
-func (codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
+func (r codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
+	res, err := r.run(ctx, req, emit)
+	// a session Codex no longer has: start over with the transcript
+	if err != nil && req.SessionID != "" && res.Text == "" {
+		req.SessionID = ""
+		return r.run(ctx, req, emit)
+	}
+	return res, err
+}
+
+func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
 	bin := firstNonEmpty(req.Bin, "codex")
 	sandbox := "read-only"
 	if req.Write {
@@ -70,8 +80,16 @@ func (codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	args = append(args, codexEffortArgs(req.Effort)...)
 	args = append(args, codexMCPArgs(req)...)
 	prompt, images := codexPrompt(req.Prompt, req.Attachments)
-	args = append(args, "-")
+	if req.SessionID != "" {
+		// exec's options stay before the subcommand
+		args = append(args, "resume", req.SessionID)
+	} else {
+		// a resumed session already has the instructions and earlier turns
+		prompt = req.System + "\n\n" + transcript(req.History, prompt)
+	}
+	args = append(args, "-") // the prompt from stdin
 	if len(images) > 0 {
+		// last: --image takes several values and would swallow what follows
 		args = append(args, "--image", strings.Join(images, ","))
 	}
 	start := time.Now()
@@ -81,7 +99,7 @@ func (codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (R
 		// the run's token reaches Codex through its environment, not argv
 		cmd.Env = append(os.Environ(), codexTokenEnv+"="+req.Office.Token)
 	}
-	cmd.Stdin = strings.NewReader(req.System + "\n\n" + transcript(req.History, prompt))
+	cmd.Stdin = strings.NewReader(prompt)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()
@@ -99,8 +117,9 @@ func (codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
 		var ev struct {
-			Type string `json:"type"`
-			Item struct {
+			Type     string `json:"type"`
+			ThreadID string `json:"thread_id"`
+			Item     struct {
 				Type    string `json:"type"`
 				Text    string `json:"text"`
 				Command string `json:"command"`
@@ -116,6 +135,8 @@ func (codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (R
 			continue
 		}
 		switch {
+		case ev.Type == "thread.started" && ev.ThreadID != "":
+			res.SessionID = ev.ThreadID
 		case ev.Type == "item.completed" && ev.Item.Type == "agent_message" && ev.Item.Text != "":
 			if len(answer) > 0 {
 				emit(Event{Type: "text", Text: "\n\n"})

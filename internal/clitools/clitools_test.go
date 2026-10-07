@@ -155,3 +155,89 @@ func TestCodexStatusTrustsCLI(t *testing.T) {
 		t.Fatalf("logged in: %+v", s.Auth)
 	}
 }
+
+// fakeGemini acts like `gemini` signing in with NO_BROWSER: a link and a code
+// prompt, a fresh link after a wrong code, then its chat (which never ends).
+const fakeGemini = `#!/bin/sh
+[ "$1" = "--version" ] && { echo "0.63.0"; exit 0; }
+[ "$NO_BROWSER" = "true" ] || { echo "no NO_BROWSER"; exit 1; }
+n=1
+while :; do
+  echo "Please visit the following URL to authorize the application:"
+  echo "https://accounts.google.com/o/oauth2/v2/auth?state=s$n&client_id=x"
+  printf "Enter the authorization code: "
+  read CODE
+  if [ "$CODE" = "good-code" ]; then
+    mkdir -p "$GEMINI_CLI_HOME/.gemini"
+    echo '{}' > "$GEMINI_CLI_HOME/.gemini/oauth_creds.json"
+    echo '{"active":"me@gmail.com","old":[]}' > "$GEMINI_CLI_HOME/.gemini/google_accounts.json"
+    echo "Gemini CLI ready"
+    sleep 600
+  fi
+  echo "Failed to authenticate with authorization code:invalid_grant"
+  n=$((n+1))
+done
+`
+
+func TestGeminiLogin(t *testing.T) {
+	m, dir := testManager(t)
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	m.env = append(m.env, "GEMINI_CLI_HOME="+home)
+	for _, k := range []string{"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA", "GOOGLE_CLOUD_ACCESS_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	writeBin(t, dir, "gemini", fakeGemini)
+	ctx := context.Background()
+	if s, _ := m.Status(ctx, "gemini"); !s.Installed || s.Version != "0.63.0" || s.Auth.LoggedIn {
+		t.Fatalf("status = %+v", s)
+	}
+	j, err := m.Login("gemini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// sign in with Google is picked so the CLI prints the link, not a menu
+	raw, _ := os.ReadFile(filepath.Join(home, ".gemini", "settings.json"))
+	if !strings.Contains(string(raw), `"selectedType": "oauth-personal"`) {
+		t.Fatalf("settings = %s", raw)
+	}
+	waitURL := func(state string) {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if v := j.Snapshot(); len(v.URLs) == 1 && strings.Contains(v.URLs[0], "state="+state) {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Fatalf("want one link with state=%s; urls = %v", state, j.Snapshot().URLs)
+	}
+	waitURL("s1")
+	// a wrong code: the newest link replaces the old one
+	if err := j.Input("bad"); err != nil {
+		t.Fatal(err)
+	}
+	waitURL("s2")
+	if err := j.Input("good-code"); err != nil {
+		t.Fatal(err)
+	}
+	// signed in: the job ends although the CLI goes on into its chat
+	waitState(t, j, "succeeded")
+	s, _ := m.Status(ctx, "gemini")
+	if !s.Auth.LoggedIn || s.Auth.Account != "me@gmail.com" {
+		t.Fatalf("after login = %+v", s.Auth)
+	}
+}
+
+func TestGeminiPrepareLoginKeepsChoice(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	os.MkdirAll(filepath.Join(home, ".gemini"), 0o700)
+	keep := `{"security":{"auth":{"selectedType":"gemini-api-key"}},"ui":{"theme":"x"}}`
+	os.WriteFile(filepath.Join(home, ".gemini", "settings.json"), []byte(keep), 0o600)
+	if err := geminiPrepareLogin(); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(home, ".gemini", "settings.json")); string(raw) != keep {
+		t.Fatalf("an existing choice was rewritten: %s", raw)
+	}
+}

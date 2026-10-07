@@ -40,7 +40,7 @@ const selectedPreset = computed(() => presetOf(form.preset))
 const needsKey = computed(() => selectedPreset.value ? selectedPreset.value.need_key : !!selectedKind.value?.needs_key)
 const commonKinds = computed(() => kinds.value.filter(k => k.common))
 const advancedOpen = ref(false)
-const cliTool = computed(() => ({ claude_cli: 'claude', codex_cli: 'codex' } as Record<string, 'claude' | 'codex'>)[form.kind])
+const cliTool = computed(() => ({ claude_cli: 'claude', codex_cli: 'codex', gemini_cli: 'gemini' } as Record<string, 'claude' | 'codex' | 'gemini'>)[form.kind])
 const cliReady = ref(true)
 watch(cliTool, (v) => { if (!v) cliReady.value = true })
 const norm = (u: string) => u.trim().replace(/\/+$/, '')
@@ -48,7 +48,7 @@ const urlChangedWithStoredKey = computed(() => !!editing.value?.has_api_key && f
   && norm(form.base_url) !== norm(editing.value.base_url))
 const keyUrl = computed(() => selectedPreset.value?.key_url ?? ({ anthropic: 'https://console.anthropic.com', openai: 'https://platform.openai.com/api-keys' } as Record<string, string>)[form.kind] ?? '')
 const kindIconOf = (k: string) => ({
-  claude_cli: 'i-lucide-terminal', codex_cli: 'i-lucide-terminal', anthropic: 'i-lucide-key-round',
+  claude_cli: 'i-lucide-terminal', codex_cli: 'i-lucide-terminal', gemini_cli: 'i-lucide-terminal', anthropic: 'i-lucide-key-round',
   openai: 'i-lucide-key-round', openai_compatible: 'i-lucide-server'
 } as Record<string, string>)[k] ?? 'i-lucide-plug'
 
@@ -132,7 +132,7 @@ const testOpen = ref(false)
 const testTarget = ref<Provider | null>(null)
 const testPrompt = ref(t('prov.defaultTestPrompt'))
 const testModel = ref('')
-const testResult = ref<{ ok: boolean, detail: string, models: string[], needs_login?: boolean, cli_tool?: 'claude' | 'codex', response?: { text: string, model: string, input_tokens: number, output_tokens: number, cost_usd?: number, duration_ms: number } } | null>(null)
+const testResult = ref<{ ok: boolean, detail: string, models: string[], needs_login?: boolean, cli_tool?: 'claude' | 'codex' | 'gemini', response?: { text: string, model: string, input_tokens: number, output_tokens: number, cost_usd?: number, duration_ms: number } } | null>(null)
 
 async function runTest(p: Provider, prompt = '') {
   testing.value = p.id

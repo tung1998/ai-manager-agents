@@ -112,7 +112,7 @@ type Attempt struct {
 | `claude-code` | `claude -p --output-format stream-json --verbose --model X --append-system-prompt-file F --strict-mcp-config --mcp-config F --allowedTools …` | stream-json, cộng dồn nhiều `result` | Prompt qua stdin. Verify tool từ `system/init`. Resume `--resume ID --fork-session` |
 | `api` | Anthropic Messages hoặc OpenAI-compatible `/chat/completions` | tự dựng envelope, `cost_estimated=true` với OpenAI-compatible | Tool loop tự viết, MCP client riêng, giới hạn turn |
 | `codex` (M5) | `codex exec --json -m X -s read-only -c mcp_servers.*` | JSONL | Sandbox là giới hạn tool |
-| `gemini` (M5) | `gemini -p --output-format json -m X` | JSON | Kiểm tra MCP config theo version khi làm |
+| `gemini` | `gemini --output-format stream-json --approval-mode M -m X` (prompt qua stdin) | stream-json | MCP qua `GEMINI_CLI_HOME` tạm (ADR-103) |
 
 ## StorageAdapter
 

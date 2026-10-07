@@ -1,5 +1,5 @@
 // Package llm talks to model providers: HTTP APIs (Anthropic, OpenAI,
-// OpenAI-compatible) and local CLIs (claude, codex).
+// OpenAI-compatible) and local CLIs (claude, codex, gemini).
 //
 // This is the thin connection layer used to test a provider and send a single
 // prompt. The agent runtime (tool use, sessions, streaming) builds on top later.
@@ -85,6 +85,8 @@ func New(p storage.Provider, apiKey string, opts Options) (Client, error) {
 		return &claudeCLI{bin: orDefault(p.BaseURL, "claude")}, nil
 	case storage.ProviderCodexCLI:
 		return &codexCLI{bin: orDefault(p.BaseURL, "codex")}, nil
+	case storage.ProviderGeminiCLI:
+		return &geminiCLI{bin: orDefault(p.BaseURL, "gemini")}, nil
 	}
 	return nil, fmt.Errorf("llm: unknown provider kind %q", p.Kind)
 }
@@ -98,6 +100,12 @@ func DefaultTierModels(kind storage.ProviderKind) map[string]string {
 			storage.TierStrong:   "claude-opus-5-5",
 			storage.TierBalanced: "claude-sonnet-5",
 			storage.TierFast:     "claude-haiku-4-5",
+		}
+	case storage.ProviderGeminiCLI:
+		return map[string]string{
+			storage.TierStrong:   "pro",
+			storage.TierBalanced: "flash",
+			storage.TierFast:     "flash-lite",
 		}
 	}
 	return map[string]string{}

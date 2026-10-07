@@ -85,7 +85,7 @@ type OfficeAccess struct {
 	GatewayTools GatewayTools
 }
 
-// ClientHeader tells the gateway which AI calls (claude | codex).
+// ClientHeader tells the gateway which AI calls (claude | codex | gemini).
 const ClientHeader = "X-Office-Client"
 
 // GatewayTools are the gateway's tools for an API run: office calls them
@@ -122,6 +122,8 @@ func runnerFor(kind storage.ProviderKind) Runner {
 		return claudeRunner{}
 	case storage.ProviderCodexCLI:
 		return codexRunner{}
+	case storage.ProviderGeminiCLI:
+		return geminiRunner{}
 	case storage.ProviderAnthropic:
 		return anthropicRunner{}
 	default:

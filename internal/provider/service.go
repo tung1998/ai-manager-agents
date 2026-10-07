@@ -185,6 +185,9 @@ func (s *Service) APIKey(p storage.Provider) (string, error) {
 	return s.box.Open(p.APIKeyEnc)
 }
 
+// cliBins is the command each CLI provider runs.
+var cliBins = map[storage.ProviderKind]string{storage.ProviderClaudeCLI: "claude", storage.ProviderCodexCLI: "codex", storage.ProviderGeminiCLI: "gemini"}
+
 // CLIBin returns the binary a CLI provider runs (explicit path, or the resolver's
 // lookup, or the bare command name).
 func (s *Service) CLIBin(p storage.Provider) string {
@@ -194,7 +197,7 @@ func (s *Service) CLIBin(p storage.Provider) string {
 	if p.BaseURL != "" {
 		return p.BaseURL
 	}
-	bin := map[storage.ProviderKind]string{storage.ProviderClaudeCLI: "claude", storage.ProviderCodexCLI: "codex"}[p.Kind]
+	bin := cliBins[p.Kind]
 	if s.resolveBin != nil {
 		if path := s.resolveBin(bin); path != "" {
 			return path
@@ -206,7 +209,7 @@ func (s *Service) CLIBin(p storage.Provider) string {
 // Client builds an llm client for p.
 func (s *Service) Client(p storage.Provider) (llm.Client, error) {
 	if p.Kind.IsCLI() && p.BaseURL == "" && s.resolveBin != nil {
-		bin := map[storage.ProviderKind]string{storage.ProviderClaudeCLI: "claude", storage.ProviderCodexCLI: "codex"}[p.Kind]
+		bin := cliBins[p.Kind]
 		if path := s.resolveBin(bin); path != "" {
 			p.BaseURL = path
 		}
@@ -227,7 +230,7 @@ type TestResult struct {
 	Response *llm.Result      `json:"response,omitempty"`
 	Provider storage.Provider `json:"-"`
 	// NeedsLogin marks a CLI provider whose account is signed out; CLITool is
-	// the tool the dashboard can sign in without a terminal (claude | codex).
+	// the tool the dashboard can sign in without a terminal (claude | codex | gemini).
 	NeedsLogin bool   `json:"needs_login,omitempty"`
 	CLITool    string `json:"cli_tool,omitempty"`
 }
@@ -239,6 +242,8 @@ func cliToolOf(p storage.Provider) string {
 		return "claude"
 	case storage.ProviderCodexCLI:
 		return "codex"
+	case storage.ProviderGeminiCLI:
+		return "gemini"
 	}
 	return ""
 }
