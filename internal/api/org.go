@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/repos"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/team"
 )
 
 func (s *server) orgRoutes(mux *http.ServeMux) {
@@ -60,16 +60,12 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/limit-alert", admin(s.setLimitAlert))
 	mux.Handle("POST /api/limit-alert/test", admin(s.testLimitAlert))
 
-	mux.Handle("GET /api/templates", auth(s.listTemplates))
-	mux.Handle("POST /api/templates", admin(s.createTemplate))
-	mux.Handle("POST /api/templates/validate", auth(s.validateTemplate))
-	mux.Handle("POST /api/templates/{key}/reset", admin(s.resetTemplate))
-	mux.Handle("GET /api/org-models/{id}", auth(s.getOrgModel))
-	mux.Handle("GET /api/org-models/{id}/export", auth(s.exportOrgModel))
-	mux.Handle("PATCH /api/org-models/{id}", admin(s.updateOrgModel))
-	mux.Handle("DELETE /api/org-models/{id}", admin(s.deleteOrgModel))
-	mux.Handle("POST /api/org-models/{id}/agents", admin(s.createAgent))
-	mux.Handle("GET /api/org-models/{id}/revisions", auth(s.listRevisions))
+	mux.Handle("GET /api/packs", auth(s.listPacks))
+	mux.Handle("POST /api/projects/{id}/pack", admin(s.applyPack))
+	mux.Handle("POST /api/projects/{id}/agents", admin(s.createAgent))
+	mux.Handle("PUT /api/projects/{id}/default-agent", admin(s.setDefaultAgent))
+	mux.Handle("GET /api/projects/{id}/agents/export", auth(s.exportAgents))
+	mux.Handle("GET /api/projects/{id}/revisions", auth(s.listRevisions))
 	mux.Handle("GET /api/revisions/{id}", auth(s.getRevision))
 	mux.Handle("POST /api/revisions/{id}/restore", admin(s.restoreRevision))
 	mux.Handle("GET /api/agents/{id}", auth(s.getAgent))
@@ -97,7 +93,6 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/projects/{id}", auth(s.getRepo))
 	mux.Handle("PATCH /api/projects/{id}", admin(s.updateRepo))
 	mux.Handle("DELETE /api/projects/{id}", admin(s.deleteRepo))
-	mux.Handle("POST /api/projects/{id}/model", admin(s.applyRepoModel))
 
 	mux.Handle("GET /api/fs/dirs", admin(s.listDirs))
 	s.fileRoutes(mux, admin)
@@ -190,17 +185,17 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 
 // writeDomainError maps service errors to HTTP statuses.
 func (s *server) writeDomainError(w http.ResponseWriter, r *http.Request, err error) {
-	var ve *orgmodel.ValidationError
+	var ve *team.ValidationError
 	switch {
 	case errors.As(err, &ve):
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Mô hình không hợp lệ", "problems": ve.Problems})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Agent không hợp lệ", "problems": ve.Problems})
 	case errors.Is(err, storage.ErrNotFound):
 		writeError(w, http.StatusNotFound, "Không tìm thấy")
-	case errors.Is(err, storage.ErrConflict), errors.Is(err, provider.ErrNameTaken), errors.Is(err, orgmodel.ErrHasInstance):
+	case errors.Is(err, storage.ErrConflict), errors.Is(err, provider.ErrNameTaken), errors.Is(err, team.ErrHasAgents):
 		writeError(w, http.StatusConflict, conflictMsg(err))
 	case errors.Is(err, provider.ErrInvalidKind), errors.Is(err, provider.ErrNeedsKey), errors.Is(err, provider.ErrBadTier),
 		errors.Is(err, provider.ErrKeyRequiredForNewURL),
-		errors.Is(err, orgmodel.ErrNotTemplate), errors.Is(err, orgmodel.ErrBuiltinReset), errors.Is(err, errBadInput):
+		errors.Is(err, team.ErrNoPack), errors.Is(err, errBadInput):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
 		s.internal(w, r, err)
@@ -211,8 +206,8 @@ var errBadInput = errors.New("dữ liệu không hợp lệ")
 
 func conflictMsg(err error) string {
 	switch {
-	case errors.Is(err, orgmodel.ErrHasInstance):
-		return "Project đã có mô hình, chọn thay thế để áp mô hình mới"
+	case errors.Is(err, team.ErrHasAgents):
+		return "Project đã có agent, chọn thay thế để dùng gói khởi tạo"
 	case errors.Is(err, provider.ErrNameTaken):
 		return err.Error()
 	}
@@ -428,17 +423,15 @@ func (s *server) testProvider(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// ---- org models ----
+// ---- agents ----
 
 type agentDTO struct {
 	ID           string              `json:"id"`
-	OrgModelID   string              `json:"org_model_id"`
+	ProjectID    string              `json:"project_id"`
 	Key          string              `json:"key"`
 	Name         string              `json:"name"`
-	Tier         string              `json:"tier"`
 	Role         string              `json:"role"`
 	Description  string              `json:"description"`
-	ReportsTo    []string            `json:"reports_to"`
 	ProviderID   string              `json:"provider_id"`
 	Fallbacks    []string            `json:"fallback_provider_ids"` // tried next, top to bottom
 	ModelTier    string              `json:"model_tier"`
@@ -453,240 +446,126 @@ type agentDTO struct {
 }
 
 func toAgentDTO(a storage.Agent) agentDTO {
-	rt := a.ReportsTo
-	if rt == nil {
-		rt = []string{}
-	}
 	fb := a.FallbackProviderIDs
 	if fb == nil {
 		fb = []string{}
 	}
-	d := agentDTO{ID: a.ID, OrgModelID: a.OrgModelID, Key: a.Key, Name: a.Name, Tier: a.Tier, Role: a.Role,
-		Description: a.Description, ReportsTo: rt, ProviderID: a.ProviderID, Fallbacks: fb, ModelTier: a.ModelTier, LLMModel: a.LLMModel,
+	d := agentDTO{ID: a.ID, ProjectID: a.ProjectID, Key: a.Key, Name: a.Name, Role: a.Role,
+		Description: a.Description, ProviderID: a.ProviderID, Fallbacks: fb, ModelTier: a.ModelTier, LLMModel: a.LLMModel,
 		Effort: a.Effort, Instructions: a.Instructions, Permissions: a.Permissions, Avatar: a.Avatar, Sort: a.Sort, Enabled: !a.Disabled}
 	d.Version = agentVersion(d)
 	return d
 }
 
-type orgDTO struct {
-	ID               string             `json:"id"`
-	RepoID           string             `json:"repo_id"`
-	SourceTemplateID string             `json:"source_template_id"`
-	Key              string             `json:"key"`
-	Name             string             `json:"name"`
-	Description      string             `json:"description"`
-	Kind             string             `json:"kind"`
-	Governance       storage.Governance `json:"governance"`
-	Builtin          bool               `json:"builtin"`
-	IsTemplate       bool               `json:"is_template"`
-	AgentCount       int                `json:"agent_count"`
-	Tiers            map[string]int     `json:"tiers"`
-	Agents           []agentDTO         `json:"agents,omitempty"`
-	UpdatedAt        time.Time          `json:"updated_at"`
-	Version          string             `json:"version"` // what an edit is made from (ADR-072)
+// ---- starter packs (ADR-099) ----
+
+type packDTO struct {
+	Key         string         `json:"key"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Default     string         `json:"default"`
+	Workflows   []string       `json:"workflows"`
+	Agents      []packAgentDTO `json:"agents"`
 }
 
-func toOrgDTO(m storage.OrgModel, agents []storage.Agent, withAgents bool) orgDTO {
-	d := orgDTO{ID: m.ID, RepoID: m.RepoID, SourceTemplateID: m.SourceTemplateID, Key: m.Key, Name: m.Name,
-		Description: m.Description, Kind: m.Kind, Governance: m.Governance, Builtin: m.Builtin, IsTemplate: m.IsTemplate(),
-		AgentCount: len(agents), Tiers: map[string]int{}, UpdatedAt: m.UpdatedAt, Version: modelVersion(m)}
-	for _, a := range agents {
-		d.Tiers[a.Tier]++
-		if withAgents {
-			d.Agents = append(d.Agents, toAgentDTO(a))
-		}
-	}
-	if withAgents && d.Agents == nil {
-		d.Agents = []agentDTO{}
-	}
-	return d
+type packAgentDTO struct {
+	Key       string `json:"key"`
+	Name      string `json:"name"`
+	Role      string `json:"role"`
+	ModelTier string `json:"model_tier"`
 }
 
-func (s *server) loadOrg(r *http.Request, id string, withAgents bool) (orgDTO, error) {
-	m, err := s.cfg.Store.OrgModels().Get(r.Context(), id)
-	if err != nil {
-		return orgDTO{}, err
-	}
-	agents, err := s.cfg.Store.Agents().List(r.Context(), id)
-	if err != nil {
-		return orgDTO{}, err
-	}
-	return toOrgDTO(m, agents, withAgents), nil
-}
-
-func (s *server) listTemplates(w http.ResponseWriter, r *http.Request) {
-	list, err := s.cfg.Store.OrgModels().ListTemplates(r.Context())
+func (s *server) listPacks(w http.ResponseWriter, r *http.Request) {
+	list, err := team.Packs()
 	if err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	out := make([]orgDTO, 0, len(list))
-	for _, m := range list {
-		agents, err := s.cfg.Store.Agents().List(r.Context(), m.ID)
-		if err != nil {
-			s.internal(w, r, err)
-			return
+	out := make([]packDTO, 0, len(list))
+	for _, p := range list {
+		d := packDTO{Key: p.Key, Name: p.Name, Description: p.Description, Default: p.Default, Workflows: p.Workflows, Agents: []packAgentDTO{}}
+		if d.Workflows == nil {
+			d.Workflows = []string{}
 		}
-		out = append(out, toOrgDTO(m, agents, false))
+		for _, a := range p.Agents {
+			d.Agents = append(d.Agents, packAgentDTO{Key: a.Key, Name: a.Name, Role: a.Role, ModelTier: a.ModelTier})
+		}
+		out = append(out, d)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"templates": out})
+	writeJSON(w, http.StatusOK, map[string]any{"packs": out})
 }
 
-// createTemplate clones an existing model ({source_id, key, name}) or imports
-// a full template ({template: {...}}).
-func (s *server) createTemplate(w http.ResponseWriter, r *http.Request) {
+// applyPack gives a project a starter pack ({key, replace}): replace puts its
+// agents in place of the project's (kept by key).
+func (s *server) applyPack(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		SourceID string             `json:"source_id"`
-		Key      string             `json:"key"`
-		Name     string             `json:"name"`
-		Template *orgmodel.Template `json:"template"`
+		Key     string `json:"key"`
+		Replace bool   `json:"replace"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	var (
-		m   storage.OrgModel
-		err error
-	)
-	switch {
-	case in.Template != nil:
-		m, err = s.cfg.Org.CreateTemplate(r.Context(), *in.Template)
-	case in.SourceID != "":
-		m, err = s.cfg.Org.CloneTemplate(r.Context(), in.SourceID, strings.TrimSpace(in.Key), strings.TrimSpace(in.Name))
-	default:
-		err = errBadInput
-	}
+	p, err := team.PackByKey(in.Key)
 	if err != nil {
-		s.writeDomainError(w, r, err)
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.auditAction(r, "template.create", m.ID, map[string]any{"key": m.Key, "source": in.SourceID})
-	d, _ := s.loadOrg(r, m.ID, true)
-	writeJSON(w, http.StatusCreated, map[string]any{"model": d})
-}
-
-// validateTemplate checks a draft (the new-template page, as it is written):
-// the problems, none when it can be saved.
-func (s *server) validateTemplate(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Template orgmodel.Template `json:"template"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	problems := []string{}
-	var ve *orgmodel.ValidationError
-	if err := orgmodel.Validate(in.Template); errors.As(err, &ve) {
-		problems = ve.Problems
-	} else if err != nil {
-		problems = append(problems, err.Error())
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"problems": problems})
-}
-
-func (s *server) resetTemplate(w http.ResponseWriter, r *http.Request) {
-	m, err := s.cfg.Org.ResetBuiltin(r.Context(), r.PathValue("key"))
-	if err != nil {
-		s.writeDomainError(w, r, err)
-		return
-	}
-	s.auditAction(r, "template.reset", m.ID, map[string]any{"key": m.Key})
-	d, _ := s.loadOrg(r, m.ID, true)
-	writeJSON(w, http.StatusOK, map[string]any{"model": d})
-}
-
-func (s *server) getOrgModel(w http.ResponseWriter, r *http.Request) {
-	d, err := s.loadOrg(r, r.PathValue("id"), true)
-	if err != nil {
-		s.writeDomainError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"model": d})
-}
-
-func (s *server) exportOrgModel(w http.ResponseWriter, r *http.Request) {
-	t, err := s.cfg.Org.Load(r.Context(), r.PathValue("id"))
-	if err != nil {
-		s.writeDomainError(w, r, err)
-		return
-	}
-	w.Header().Set("Content-Disposition", `attachment; filename="`+t.Key+`.json"`)
-	writeJSON(w, http.StatusOK, t)
-}
-
-func (s *server) updateOrgModel(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Name        *string             `json:"name"`
-		Description *string             `json:"description"`
-		Kind        *string             `json:"kind"`
-		Key         *string             `json:"key"`
-		Governance  *storage.Governance `json:"governance"`
-		Version     string              `json:"version"` // the model as it was read (409 when changed since)
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	old, err := s.cfg.Store.OrgModels().Get(r.Context(), r.PathValue("id"))
-	if err != nil {
-		s.writeDomainError(w, r, err)
-		return
-	}
-	if conflicted(w, in.Version, modelVersion(old)) {
-		return
-	}
-	m, err := s.cfg.Org.UpdateModel(r.Context(), r.PathValue("id"), func(m *storage.OrgModel) {
-		if in.Name != nil {
-			m.Name = strings.TrimSpace(*in.Name)
-		}
-		if in.Description != nil {
-			m.Description = *in.Description
-		}
-		if in.Kind != nil {
-			m.Kind = *in.Kind
-		}
-		if in.Key != nil && m.IsTemplate() && !m.Builtin {
-			m.Key = strings.TrimSpace(*in.Key)
-		}
-		if in.Governance != nil {
-			m.Governance = *in.Governance
-		}
-	})
-	if err != nil {
-		s.writeDomainError(w, r, err)
-		return
-	}
-	s.audit(r, audit.Change{Action: "org_model.update", ResourceID: m.ID, ProjectID: m.RepoID, Before: modelSnapshot(old), After: modelSnapshot(m)})
-	d, _ := s.loadOrg(r, m.ID, true)
-	writeJSON(w, http.StatusOK, map[string]any{"model": d})
-}
-
-func (s *server) deleteOrgModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	m, err := s.cfg.Store.OrgModels().Get(r.Context(), id)
+	if _, err := s.cfg.Store.Repos().Get(r.Context(), id); err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if err := s.cfg.Team.ApplyPack(r.Context(), id, p, in.Replace); err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	s.auditAction(r, "project.apply_pack", id, map[string]any{"pack": p.Key, "replace": in.Replace})
+	x, _ := s.cfg.Store.Repos().Get(r.Context(), id)
+	d, _ := s.repoDTO(r, x, true)
+	writeJSON(w, http.StatusOK, map[string]any{"project": d})
+}
+
+// setDefaultAgent: {agent_id} answers the project's chats, bots and
+// automations that name no agent.
+func (s *server) setDefaultAgent(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		AgentID string `json:"agent_id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	id := r.PathValue("id")
+	old, err := s.cfg.Store.Repos().Get(r.Context(), id)
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	if m.Builtin {
-		writeError(w, http.StatusBadRequest, "Không xóa mô hình có sẵn; dùng Khôi phục mặc định để hoàn tác chỉnh sửa")
-		return
-	}
-	if err := s.cfg.Store.OrgModels().Delete(r.Context(), id); err != nil {
+	if err := s.cfg.Team.SetDefault(r.Context(), id, in.AgentID); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.audit(r, audit.Change{Action: "org_model.delete", ResourceID: id, ProjectID: m.RepoID, Before: modelSnapshot(m), Detail: map[string]any{"key": m.Key}})
+	s.audit(r, audit.Change{Action: "project.default_agent", ResourceID: id, ProjectID: id,
+		Before: map[string]any{"default_agent_id": old.DefaultAgentID}, After: map[string]any{"default_agent_id": in.AgentID}})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// exportAgents downloads a project's agents (connections by name).
+func (s *server) exportAgents(w http.ResponseWriter, r *http.Request) {
+	snap, err := s.cfg.Team.Load(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="agents.json"`)
+	writeJSON(w, http.StatusOK, snap)
 }
 
 type agentInput struct {
 	Version      string              `json:"version"` // the agent as it was read (409 when changed since)
 	Key          string              `json:"key"`
 	Name         string              `json:"name"`
-	Tier         string              `json:"tier"`
 	Role         string              `json:"role"`
 	Description  string              `json:"description"`
-	ReportsTo    []string            `json:"reports_to"`
 	ProviderID   string              `json:"provider_id"`
 	Fallbacks    *[]string           `json:"fallback_provider_ids"` // nil = keep
 	ModelTier    string              `json:"model_tier"`
@@ -704,8 +583,8 @@ type agentInput struct {
 func (s *server) applyAgent(r *http.Request, in agentInput, a *storage.Agent) error {
 	isAdmin := userFrom(r).Role == storage.RoleAdmin
 	keepFullAccess, keepFullAccessBy, keepExtraDirs := a.Permissions.FullAccess, a.Permissions.FullAccessBy, a.Permissions.ExtraDirs
-	a.Key, a.Name, a.Tier, a.Role = strings.TrimSpace(in.Key), strings.TrimSpace(in.Name), in.Tier, in.Role
-	a.Description, a.ReportsTo, a.ProviderID = in.Description, in.ReportsTo, in.ProviderID
+	a.Key, a.Name, a.Role = strings.TrimSpace(in.Key), strings.TrimSpace(in.Name), in.Role
+	a.Description, a.ProviderID = in.Description, in.ProviderID
 	a.ModelTier, a.LLMModel, a.Instructions, a.Permissions = in.ModelTier, strings.TrimSpace(in.LLMModel), in.Instructions, in.Permissions
 	if a.Permissions.Caps != nil { // own picks: only known capabilities
 		caps := []string{}
@@ -726,7 +605,10 @@ func (s *server) applyAgent(r *http.Request, in agentInput, a *storage.Agent) er
 		} else {
 			a.Permissions.FullAccessBy = ""
 		}
-		projectPath := s.orgModelProjectPath(r.Context(), a.OrgModelID)
+		projectPath := ""
+		if p, err := s.cfg.Store.Repos().Get(r.Context(), a.ProjectID); err == nil {
+			projectPath = p.Path
+		}
 		for _, dir := range a.Permissions.ExtraDirs {
 			if dir = strings.TrimSpace(dir); dir == "" {
 				continue
@@ -793,7 +675,7 @@ func (s *server) auditAgentFullAccess(r *http.Request, old, a storage.Agent) {
 	if op.FullAccess == np.FullAccess && op.FullAccessBy == np.FullAccessBy && slices.Equal(op.ExtraDirs, np.ExtraDirs) {
 		return
 	}
-	s.audit(r, audit.Change{Action: "agent.full_access", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a),
+	s.audit(r, audit.Change{Action: "agent.full_access", ResourceID: a.ID, ProjectID: a.ProjectID,
 		Before: map[string]any{"full_access": op.FullAccess, "full_access_by": op.FullAccessBy, "extra_dirs": op.ExtraDirs},
 		After:  map[string]any{"full_access": np.FullAccess, "full_access_by": np.FullAccessBy, "extra_dirs": np.ExtraDirs},
 		Detail: map[string]any{"key": a.Key}})
@@ -812,12 +694,16 @@ func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	a := storage.Agent{OrgModelID: r.PathValue("id")}
+	if _, err := s.cfg.Store.Repos().Get(r.Context(), r.PathValue("id")); err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	a := storage.Agent{ProjectID: r.PathValue("id")}
 	if err := s.applyAgent(r, in, &a); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.cfg.Org.SaveAgent(r.Context(), a)
+	a, err := s.cfg.Team.SaveAgent(r.Context(), a)
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
@@ -829,8 +715,8 @@ func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		a.Disabled = true
 	}
-	s.audit(r, audit.Change{Action: "agent.create", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a), After: toAgentDTO(a),
-		Detail: map[string]any{"key": a.Key, "org_model": a.OrgModelID}})
+	s.audit(r, audit.Change{Action: "agent.create", ResourceID: a.ID, ProjectID: a.ProjectID, After: toAgentDTO(a),
+		Detail: map[string]any{"key": a.Key}})
 	s.auditAgentFullAccess(r, storage.Agent{}, a)
 	writeJSON(w, http.StatusCreated, map[string]any{"agent": toAgentDTO(a)})
 }
@@ -861,7 +747,7 @@ func (s *server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err = s.cfg.Org.SaveAgent(r.Context(), a)
+	a, err = s.cfg.Team.SaveAgent(r.Context(), a)
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
@@ -873,7 +759,7 @@ func (s *server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		a.Disabled = !*in.Enabled
 	}
-	s.audit(r, audit.Change{Action: "agent.update", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a),
+	s.audit(r, audit.Change{Action: "agent.update", ResourceID: a.ID, ProjectID: a.ProjectID,
 		Before: toAgentDTO(old), After: toAgentDTO(a), Detail: map[string]any{"key": a.Key}})
 	s.auditAgentFullAccess(r, old, a)
 	writeJSON(w, http.StatusOK, map[string]any{"agent": toAgentDTO(a)})
@@ -905,7 +791,7 @@ func (s *server) setAgentEnabled(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.audit(r, audit.Change{Action: "agent.enabled", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a),
+	s.audit(r, audit.Change{Action: "agent.enabled", ResourceID: a.ID, ProjectID: a.ProjectID,
 		Before: map[string]any{"enabled": !a.Disabled}, After: map[string]any{"enabled": *in.Enabled}, Detail: map[string]any{"key": a.Key}})
 	a.Disabled = !*in.Enabled
 	writeJSON(w, http.StatusOK, map[string]any{"agent": toAgentDTO(a)})
@@ -918,8 +804,8 @@ func (s *server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	project := s.agentProject(r.Context(), old)
-	if err := s.cfg.Org.DeleteAgent(r.Context(), id); err != nil {
+	project := old.ProjectID
+	if err := s.cfg.Team.DeleteAgent(r.Context(), id); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
@@ -930,15 +816,18 @@ func (s *server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 // ---- repos ----
 
 type repoDTO struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Path        string    `json:"path"`
-	GitRemote   string    `json:"git_remote"`
-	Description string    `json:"description"`
-	Scope       string    `json:"scope"` // folder | machine (no path: helper for the whole machine)
-	Exists      bool      `json:"exists"`
-	Model       *orgDTO   `json:"model"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	GitRemote   string `json:"git_remote"`
+	Description string `json:"description"`
+	Scope       string `json:"scope"` // folder | machine (no path: helper for the whole machine)
+	Exists      bool   `json:"exists"`
+	// AgentCount: 0 = the project has no agent yet (pick a starter pack)
+	AgentCount     int        `json:"agent_count"`
+	DefaultAgentID string     `json:"default_agent_id"` // the one answering when none is named
+	Agents         []agentDTO `json:"agents,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 func (s *server) repoDTO(r *http.Request, x storage.Repo, withAgents bool) (repoDTO, error) {
@@ -948,18 +837,20 @@ func (s *server) repoDTO(r *http.Request, x storage.Repo, withAgents bool) (repo
 		_, statErr := os.Stat(x.Path)
 		d.Scope, d.Exists = "folder", statErr == nil
 	}
-	m, err := s.cfg.Store.OrgModels().GetForRepo(r.Context(), x.ID)
-	if errors.Is(err, storage.ErrNotFound) {
-		return d, nil
-	}
+	agents, err := s.cfg.Store.Agents().List(r.Context(), x.ID)
 	if err != nil {
 		return d, err
 	}
-	od, err := s.loadOrg(r, m.ID, withAgents)
-	if err != nil {
-		return d, err
+	d.AgentCount = len(agents)
+	if def, ok := storage.DefaultAgent(x, agents); ok {
+		d.DefaultAgentID = def.ID
 	}
-	d.Model = &od
+	if withAgents {
+		d.Agents = make([]agentDTO, 0, len(agents))
+		for _, a := range agents {
+			d.Agents = append(d.Agents, toAgentDTO(a))
+		}
+	}
 	return d, nil
 }
 
@@ -990,7 +881,7 @@ func (s *server) createRepo(w http.ResponseWriter, r *http.Request) {
 		Path        string `json:"path"`
 		Name        string `json:"name"`
 		Description string `json:"description"`
-		TemplateID  string `json:"template_id"`
+		Pack        string `json:"pack"` // starter pack key ("" = no agents yet)
 	}
 	if !decode(w, r, &in) {
 		return
@@ -1007,12 +898,13 @@ func (s *server) createRepo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Project không có thư mục cần đặt tên")
 		return
 	}
-	s.registerRepo(w, r, info, in.Name, in.Description, in.TemplateID, nil)
+	s.registerRepo(w, r, info, in.Name, in.Description, in.Pack, nil)
 }
 
-// registerRepo adds a detected folder as a project (with its model, if one is
-// picked). It reports false when it wrote an error (nothing was registered).
-func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos.Info, name, desc, templateID string, extra map[string]any) bool {
+// registerRepo adds a detected folder as a project (with a starter pack's
+// agents and workflows, if one is picked). It reports false when it wrote an
+// error (nothing was registered).
+func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos.Info, name, desc, packKey string, extra map[string]any) bool {
 	if name = strings.TrimSpace(name); name != "" {
 		info.Name = name
 	}
@@ -1024,14 +916,18 @@ func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos
 		s.writeDomainError(w, r, err)
 		return false
 	}
-	if templateID != "" {
-		if _, err := s.cfg.Org.ApplyToRepo(r.Context(), x.ID, templateID, false); err != nil {
+	if packKey != "" {
+		p, err := team.PackByKey(packKey)
+		if err == nil {
+			err = s.cfg.Team.ApplyPack(r.Context(), x.ID, p, false)
+		}
+		if err != nil {
 			_ = s.cfg.Store.Repos().Delete(r.Context(), x.ID)
 			s.writeDomainError(w, r, err)
 			return false
 		}
 	}
-	detail := map[string]any{"path": x.Path, "template": templateID}
+	detail := map[string]any{"path": x.Path, "pack": packKey}
 	for k, v := range extra {
 		detail[k] = v
 	}
@@ -1045,11 +941,11 @@ func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos
 // default next to the folder holding this office) and adds it as a project.
 func (s *server) cloneRepo(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		URL        string `json:"url"`
-		Parent     string `json:"parent"`
-		Dir        string `json:"dir"`
-		Name       string `json:"name"`
-		TemplateID string `json:"template_id"`
+		URL    string `json:"url"`
+		Parent string `json:"parent"`
+		Dir    string `json:"dir"`
+		Name   string `json:"name"`
+		Pack   string `json:"pack"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -1084,7 +980,7 @@ func (s *server) cloneRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := repos.Detect(dest)
-	if err == nil && s.registerRepo(w, r, info, in.Name, "", in.TemplateID, map[string]any{"cloned_from": repos.StripCredentials(strings.TrimSpace(in.URL))}) {
+	if err == nil && s.registerRepo(w, r, info, in.Name, "", in.Pack, map[string]any{"cloned_from": repos.StripCredentials(strings.TrimSpace(in.URL))}) {
 		return
 	}
 	_ = os.RemoveAll(dest) // not registered: the clone does not stay behind
@@ -1161,25 +1057,6 @@ func (s *server) deleteRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, audit.Change{Action: "project.delete", ResourceID: id, ProjectID: id, Before: repoSnapshot(old)})
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *server) applyRepoModel(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		TemplateID string `json:"template_id"`
-		Replace    bool   `json:"replace"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	m, err := s.cfg.Org.ApplyToRepo(r.Context(), r.PathValue("id"), in.TemplateID, in.Replace)
-	if err != nil {
-		s.writeDomainError(w, r, err)
-		return
-	}
-	s.auditAction(r, "project.apply_model", r.PathValue("id"), map[string]any{"template": in.TemplateID, "model": m.ID, "replace": in.Replace})
-	x, _ := s.cfg.Store.Repos().Get(r.Context(), r.PathValue("id"))
-	d, _ := s.repoDTO(r, x, true)
-	writeJSON(w, http.StatusOK, map[string]any{"project": d})
 }
 
 func (s *server) auditAction(r *http.Request, action, target string, detail map[string]any) {

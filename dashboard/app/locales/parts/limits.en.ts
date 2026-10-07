@@ -50,7 +50,7 @@ const en: Record<keyof typeof vi, string> = {
   'source.telegram': 'Telegram',
   'source.auto': 'Automation',
   'channels.refusalPlaceholder': 'Sorry, I only answer about…',
-  'channels.agentLead': 'The lead',
+  'channels.agentLead': 'The default agent',
   'channels.agent': 'Agent answering',
   'channels.connecting': 'connecting…',
   'channels.tokenHelpDiscord': 'From Developer Portal → Bot → Reset Token (see ⓘ above). Office encrypts it and never shows it again',

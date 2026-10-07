@@ -313,8 +313,11 @@ func (s *server) jobGroups(w http.ResponseWriter, r *http.Request) {
 				if c.Purpose == "skill" { // a skill editor's chat opens the editor again
 					d.Link = base + "/skills/edit?c=" + c.ID
 				}
-				if c.Purpose == "template" { // a template written with the assistant: its editor
-					d.Link = "/templates/new?c=" + c.ID
+				if c.Purpose == "workflow" { // a workflow's editor: the library's (the assistant's chat) or the project's
+					d.Link = base + "/workflows/edit?c=" + c.ID
+					if c.ProjectID == assistant.ID(ctx, s.cfg.Store) {
+						d.Link = "/workflows/edit?c=" + c.ID
+					}
 				}
 			}
 		case "t:": // a task from before Việc was dropped (ADR-057): its latest job

@@ -11,14 +11,8 @@ func TestMemoryAPI(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	solo := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "solo" {
-			solo = m["id"].(string)
-		}
-	}
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	solo := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	_, b := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/chat/agents", nil, nil)
 	aid := b["agents"].([]any)[0].(map[string]any)["id"].(string)

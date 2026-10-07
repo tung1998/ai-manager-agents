@@ -849,20 +849,13 @@ func (r *Runner) answerer(ctx context.Context, a storage.Automation, trig, paylo
 		ag, err := r.store.Agents().Get(ctx, id)
 		return ag, err == nil
 	}
-	m, err := r.store.OrgModels().GetForRepo(ctx, a.ProjectID)
+	repo, err := r.store.Repos().Get(ctx, a.ProjectID)
 	if err != nil {
 		return storage.Agent{}, false
 	}
-	agents, err := r.store.Agents().List(ctx, m.ID)
+	agents, err := r.store.Agents().List(ctx, a.ProjectID)
 	if err != nil {
 		return storage.Agent{}, false
 	}
-	for _, list := range [][]storage.Agent{storage.OnAgents(agents), agents} { // a lead that is on first, as the chat picks
-		for _, ag := range list {
-			if ag.Tier == storage.TierLead {
-				return ag, true
-			}
-		}
-	}
-	return storage.Agent{}, false
+	return storage.DefaultAgentAny(repo, agents) // the project's default, as the chat picks
 }

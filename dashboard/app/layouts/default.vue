@@ -40,7 +40,7 @@ async function loadProjects() {
   } catch { /* signed out: the auth middleware redirects */ }
 }
 watch(() => route.path, loadProjects, { immediate: true })
-useLive(['repos', 'org_models'], loadProjects) // added, renamed, removed: without leaving the page
+useLive(['repos', 'agents'], loadProjects) // added, renamed, removed: without leaving the page
 // what changes elsewhere shows up here (ADR-072): opened once signed in —
 // also right after the login page, where this layout stays mounted
 onMounted(() => {
@@ -48,7 +48,7 @@ onMounted(() => {
 })
 
 // pages below a project (/projects/:id/<child>/…) belong to one of its sections
-const childSection: Record<string, string> = { agents: 'model', automations: 'automations' }
+const childSection: Record<string, string> = { agents: 'agents', automations: 'automations', workflows: 'workflows' }
 
 function projectSections(id: string): NavigationMenuItem[] {
   const to = (tab: string) => ({ path: `/projects/${id}`, query: { tab } })
@@ -59,7 +59,8 @@ function projectSections(id: string): NavigationMenuItem[] {
     // Việc has no tab (ADR-056): the team works through the chat; a task's page stays for its links
     { label: t('nav.automations'), icon: 'i-lucide-alarm-clock', to: to('automations'), exactQuery: 'partial' },
     { label: t('nav.ops'), icon: 'i-lucide-activity', to: to('ops'), exactQuery: 'partial' },
-    { label: t('project.sectionModel'), icon: 'i-lucide-users', to: to('model'), exactQuery: 'partial' },
+    { label: t('project.sectionModel'), icon: 'i-lucide-users', to: to('agents'), exactQuery: 'partial' },
+    { label: t('wf.section'), icon: 'i-lucide-workflow', to: to('workflows'), exactQuery: 'partial' },
     { label: t('project.sectionPerm'), icon: 'i-lucide-shield', to: to('perm'), exactQuery: 'partial' },
     ...(isAdmin.value
       ? [
@@ -100,7 +101,6 @@ const items = computed<NavigationMenuItem[][]>(() => {
   const settings: NavigationMenuItem[] = [
     { label: t('nav.settings'), type: 'label' },
     { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' },
-    { label: t('nav.templates'), icon: 'i-lucide-network', to: '/templates' },
     ...(isAdmin.value ? [{ label: t('nav.library'), icon: 'i-lucide-library', to: '/library' }] : [])
   ]
   const admin: NavigationMenuItem[] = isAdmin.value

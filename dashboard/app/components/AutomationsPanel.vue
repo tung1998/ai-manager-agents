@@ -7,7 +7,7 @@ const { isAdmin } = useAuth()
 const { t, dateLocale } = useLang()
 
 const { data, refresh } = await useLiveFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`)
-const { data: agentsData } = useLiveFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
+const { data: agentsData } = useLiveFetch<{ agents: Agent[], default_agent_id: string }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const list = computed(() => data.value?.automations ?? [])
 // a bot is one row: its commands are its automations (ADR-049)
 const others = computed(() => list.value.filter(a => !isChannelSource(a.source)))
@@ -52,13 +52,13 @@ function botMenu(b: BotRow) {
     [{ label: t('auto.delete'), icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => removeBot(b) }]
   ]
 }
-const agentName = (id: string) => agentsData.value?.agents.find(a => a.id === id)?.name ?? t('auto.lead')
+const agentName = (id: string) => agentsData.value?.agents.find(a => a.id === id)?.name ?? t('team.defaultAgentLower')
 // ADR-074: an automation's effective permission is full access when it
 // overrides to one, or when it follows an agent that itself has one.
 function isFullAccess(a: Automation): boolean {
   if (a.permission_mode === 'override') return !!a.override_full_access
   const agents = agentsData.value?.agents ?? []
-  const agent = a.agent_id ? agents.find(x => x.id === a.agent_id) : (agents.find(x => x.tier === 'lead') ?? agents[0])
+  const agent = a.agent_id ? agents.find(x => x.id === a.agent_id) : (agents.find(x => x.id === agentsData.value?.default_agent_id) ?? agents[0])
   return !!agent?.permissions.full_access
 }
 const when = (d?: string | null) => d ? new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : t('auto.never')

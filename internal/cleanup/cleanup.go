@@ -347,7 +347,7 @@ func (s *Service) summarize(ctx context.Context, it storage.DataItem) (string, e
 }
 
 // summarizer is the agent that writes the summary: the chat's own if it is
-// on, else the project's lead that is on.
+// on, else the project's default agent.
 func (s *Service) summarizer(ctx context.Context, projectID, agentID string) (storage.Agent, error) {
 	agents, err := s.chat.Agents(ctx, projectID)
 	if err != nil {
@@ -359,10 +359,8 @@ func (s *Service) summarizer(ctx context.Context, projectID, agentID string) (st
 			return a, nil
 		}
 	}
-	for _, a := range on {
-		if a.Tier == storage.TierLead {
-			return a, nil
-		}
+	if d, err := s.chat.DefaultAgent(ctx, projectID); err == nil && !d.Disabled {
+		return d, nil
 	}
 	if len(on) > 0 {
 		return on[0], nil

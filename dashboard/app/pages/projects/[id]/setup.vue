@@ -17,24 +17,22 @@ interface AgentChange {
   action: 'update' | 'add' | 'remove'
   key: string
   name?: string
-  tier?: AgentTier
   role?: string
-  reports_to?: string[]
   model_tier?: ModelTier
   instructions?: string
   tools?: string[]
   source?: string
   reason: string
 }
-interface TemplateSpec {
+interface PackSpec {
   key: string
   name: string
-  kind: string
-  agents: { key: string, name: string, tier: AgentTier, role?: string }[]
+  default?: string
+  agents: { key: string, name: string, role?: string, model_tier?: ModelTier }[]
 }
 interface Proposal {
   description: string
-  template_key: string
+  pack_key: string
   reason: string
   confidence: number
   agent_changes: AgentChange[]
@@ -42,7 +40,7 @@ interface Proposal {
 }
 interface ProposeResult {
   proposal: Proposal
-  template: TemplateSpec
+  pack: PackSpec
   problems: string[]
   provider: string
   model: string
@@ -59,11 +57,8 @@ const _f1 = useLiveFetch<{ project: Project }>(() => `/api/projects/${id.value}`
 const { data: projData } = _f1
 const _f2 = useLiveFetch<{ providers: Provider[] }>('/api/providers')
 const { data: provData } = _f2
-const _f3 = useLiveFetch<{ templates: OrgModel[] }>('/api/templates')
-const { data: tplData } = _f3
-await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
+await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
 const project = computed(() => projData.value?.project)
-const templates = computed(() => tplData.value?.templates ?? [])
 const readyProvider = computed(() => provData.value?.providers.find(p => p.is_default && p.status === 'ok')
   ?? provData.value?.providers.find(p => p.status === 'ok'))
 
@@ -102,9 +97,9 @@ const docKind = computed<Record<string, string>>(() => ({ instructions: t('setup
 const proposing = ref(false)
 const result = ref<ProposeResult | null>(null)
 const description = ref('')
-const templateKey = ref('')
+const packKey = ref('')
 const accepted = ref<boolean[]>([])
-const preview = ref<{ template: TemplateSpec, problems: string[] } | null>(null)
+const preview = ref<{ pack: PackSpec, problems: string[] } | null>(null)
 
 async function propose() {
   proposing.value = true
@@ -112,9 +107,9 @@ async function propose() {
     const res = await $fetch<{ result: ProposeResult }>(`/api/projects/${id.value}/setup/propose`, { method: 'POST', body: { goal: goal.value } })
     result.value = res.result
     description.value = res.result.proposal.description
-    templateKey.value = res.result.proposal.template_key
+    packKey.value = res.result.proposal.pack_key
     accepted.value = res.result.proposal.agent_changes.map(() => true)
-    preview.value = { template: res.result.template, problems: res.result.problems }
+    preview.value = { pack: res.result.pack, problems: res.result.problems }
   } catch (e) {
     const d = (e as { data?: { code?: string, error?: string } }).data
     if (d?.code === 'no_provider') return goConnect()
@@ -130,29 +125,24 @@ async function propose() {
 
 const chosenChanges = computed(() => (result.value?.proposal.agent_changes ?? []).filter((_, i) => accepted.value[i]))
 
-// Rebuild the preview whenever the template or ticked changes move.
-watch([templateKey, accepted], async () => {
-  if (!result.value) return
+// Rebuild the preview whenever the pack or ticked changes move.
+watch([packKey, accepted], async () => {
+  if (!result.value || !packKey.value) return
   try {
     preview.value = await $fetch(`/api/projects/${id.value}/setup/build`, {
-      method: 'POST', body: { template_key: templateKey.value, changes: chosenChanges.value }
+      method: 'POST', body: { pack_key: packKey.value, changes: chosenChanges.value }
     })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
 }, { deep: true })
 
-const templateId = computed({
-  get: () => templates.value.find(t => t.key === templateKey.value)?.id ?? '',
-  set: (v: string) => { templateKey.value = templates.value.find(t => t.id === v)?.key ?? templateKey.value }
-})
-
 const applying = ref(false)
 async function apply() {
   applying.value = true
   try {
     await $fetch(`/api/projects/${id.value}/setup/apply`, {
-      method: 'POST', body: { template_key: templateKey.value, changes: chosenChanges.value, description: description.value }
+      method: 'POST', body: { pack_key: packKey.value, changes: chosenChanges.value, description: description.value }
     })
     toast.add({ title: t('setup.applyDone'), color: 'success' })
     await navigateTo(`/projects/${id.value}`)
@@ -169,9 +159,6 @@ const actionMeta = computed<Record<string, { label: string, color: 'info' | 'suc
   add: { label: t('setup.actionAdd'), color: 'success' },
   remove: { label: t('setup.actionRemove'), color: 'error' }
 }))
-const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
-  .map(t => ({ tier: t, agents: preview.value?.template.agents.filter(a => a.tier === t) ?? [] }))
-  .filter(r => r.agents.length))
 </script>
 
 <template>
@@ -182,8 +169,8 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
 
     <div v-if="project" class="mx-auto max-w-5xl space-y-6">
       <UAlert
-        v-if="project.model" color="warning" variant="subtle" icon="i-lucide-triangle-alert"
-        :description="t('setup.currentModelWarn', { model: project.model.name })"
+        v-if="project.agent_count" color="warning" variant="subtle" icon="i-lucide-triangle-alert"
+        :description="t('team.setup.hasAgentsWarn', { n: project.agent_count })"
       />
 
       <!-- step 1 -->
@@ -288,23 +275,23 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
           <div class="grid gap-6 lg:grid-cols-2">
             <div class="space-y-2">
               <div class="flex items-center justify-between">
-                <p class="text-sm font-medium">{{ t('setup.model') }}</p>
+                <p class="text-sm font-medium">{{ t('team.setup.pack') }}</p>
                 <UBadge :label="t('setup.confidence', { n: Math.round(result.proposal.confidence * 100) })" color="neutral" variant="soft" size="sm" />
               </div>
               <p class="text-sm text-(--ui-text-muted)">{{ result.proposal.reason }}</p>
-              <TemplatePicker v-model="templateId" :templates="templates" />
+              <PackPicker v-model="packKey" />
             </div>
 
             <div class="space-y-2">
               <p class="text-sm font-medium">{{ t('setup.preview') }}</p>
-              <div class="space-y-2 rounded-lg border border-(--ui-border) p-3">
-                <div v-for="row in previewRows" :key="row.tier">
-                  <p class="text-xs uppercase text-(--ui-text-muted)">{{ tierLabel[row.tier] }}</p>
-                  <div class="mt-1 flex flex-wrap gap-1">
-                    <UBadge v-for="a in row.agents" :key="a.key" :label="a.name" color="neutral" variant="outline" />
-                  </div>
-                </div>
-              </div>
+              <ul class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
+                <li v-for="a in preview?.pack.agents ?? []" :key="a.key" class="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                  <span class="font-medium">{{ a.name }}</span>
+                  <UBadge v-if="a.key === preview?.pack.default" :label="t('team.default')" icon="i-lucide-star" variant="subtle" size="sm" />
+                  <UBadge v-if="a.model_tier" :label="modelTierLabel[a.model_tier]" color="neutral" variant="outline" size="sm" />
+                  <span v-if="a.role" class="w-full truncate text-xs text-(--ui-text-muted)">{{ a.role }}</span>
+                </li>
+              </ul>
               <UAlert v-if="preview?.problems.length" color="error" variant="subtle" :title="t('setup.invalidTitle')">
                 <template #description>
                   <ul class="list-disc ps-4">
@@ -328,7 +315,7 @@ const previewRows = computed(() => (['lead', 'manager', 'worker'] as const)
                   <UBadge :label="actionMeta[c.action]?.label ?? c.action" :color="actionMeta[c.action]?.color ?? 'neutral'" variant="subtle" size="sm" />
                   <span class="font-medium">{{ c.name || c.key }}</span>
                   <code class="text-xs text-(--ui-text-muted)">{{ c.key }}</code>
-                  <UBadge v-if="c.tier" :label="tierLabel[c.tier]" size="sm" color="neutral" variant="outline" />
+                  <UBadge v-if="c.model_tier" :label="modelTierLabel[c.model_tier]" size="sm" color="neutral" variant="outline" />
                 </div>
                 <p class="text-sm text-(--ui-text-muted)">{{ c.reason }}</p>
                 <p v-if="c.source" class="text-xs">{{ t('setup.fromFilePrefix') }} <code>{{ c.source }}</code></p>

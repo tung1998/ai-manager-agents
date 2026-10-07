@@ -523,17 +523,18 @@ func (m *Manager) pick(ctx context.Context, project storage.Repo, ch storage.Cha
 	return storage.Automation{}, false
 }
 
-// agent is the rule's agent ("" = the project's lead).
+// agent is the rule's agent ("" = the project's default one).
 func (m *Manager) agent(ctx context.Context, projectID, agentID string) (storage.Agent, error) {
+	if agentID == "" {
+		return m.engine.DefaultAgent(ctx, projectID)
+	}
 	agents, err := m.engine.Agents(ctx, projectID)
 	if err != nil {
 		return storage.Agent{}, err
 	}
-	for _, list := range [][]storage.Agent{storage.OnAgents(agents), agents} { // a lead that is on first
-		for _, a := range list {
-			if (agentID != "" && a.ID == agentID) || (agentID == "" && a.Tier == storage.TierLead) {
-				return a, nil
-			}
+	for _, a := range agents {
+		if a.ID == agentID {
+			return a, nil
 		}
 	}
 	return storage.Agent{}, errors.New("không có agent cho quy tắc này")

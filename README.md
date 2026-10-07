@@ -34,7 +34,7 @@ AI coding tools are great one chat at a time. Real work is more than that: sever
 | | |
 |---|---|
 | 💬 **Chat with your team** · stream, `@mention` agents into a group chat, `/skills`, attach images/PDF/logs, tags, search history | ![Chat](docs/guide/images/04-chat.png) |
-| 🧑‍🤝‍🧑 **Organisation models** · Solo, Team (plan → parallel work → merge), Council (vote, veto, review) or your own; edit every agent | ![Team model](docs/guide/images/06-team-model.png) |
+| 🧑‍🤝‍🧑 **Workflows** · type `/giao-lai`, `/co-van`, `/hoi-dong`, `/lam-tinh-nang`… to have several agents work together under rules (roles, access, a different model family, approval gates, votes); write your own by chat | ![Team model](docs/guide/images/06-team-model.png) |
 | ✅ **Review before merge** · each chat has a git worktree; diffs, actions and setting changes wait for *Approve / Reject / Skip* (or "approve & always allow") | ![Diff card](docs/guide/images/34-dark-chat.png) |
 | ⚙️ **Operations** · detect project commands, run/stop/auto-restart like pm2, live logs, CPU/RAM/ports, docker compose, "ask the agent about this log" | ![Operations](docs/guide/images/11-operations.png) |
 | 🤖 **Automations** · schedule (cron + timezone), webhook, Discord/Telegram message; run a script for free and call an AI only on failure or `@@agent:` | ![Automations](docs/guide/images/09-automations.png) |
@@ -90,7 +90,7 @@ Then follow the checklist on the Overview page:
 
 1. **AI connections** → add Claude Code, Codex, or an API key (test it in one click).
 2. **Projects** → add a folder, clone a git URL, or create a folder-less helper.
-3. **Organisation model** → pick Solo / Team / Council, or let *Set up with AI* read the repo and propose one.
+3. **Starter pack** → pick Solo / Team / Council (agents + installed workflows), or let *Set up with AI* read the repo and propose one.
 4. Open the project's **Chat** and give your first task.
 
 Data lives in `~/.agent-office` by default. Use `office init --local` inside a repo to keep the data in `<repo>/.office` instead.
@@ -141,11 +141,11 @@ flowchart LR
 |---|---|
 | `office run` | Supervisor: API server + dashboard, restarts on crash, applies self-updates |
 | `office serve` | API server only |
-| `office init [--local] [--template team]` | Register the current repo and choose a model |
+| `office init [--local] [--pack team]` | Register the current repo and choose a starter pack |
 | `office project add/list/rm` | Manage projects (no path = machine-wide helper) |
 | `office provider add/list/test` | AI connections |
 | `office user create/list/passwd` | First admin (replaces `admin` / `admin`), list accounts, reset a password |
-| `office template list` | Built-in and custom organisation models |
+| `office pack list` | Starter packs (agents + workflows a new project begins with) |
 | `office export / import / backup` | Move config between machines, back up the database |
 | `office service install/status/uninstall` | Start with your login session |
 

@@ -15,14 +15,15 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/repos"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/team"
 )
 
 func initCmd() *cobra.Command {
 	var (
-		local    bool
-		template string
-		replace  bool
-		yes      bool
+		local   bool
+		pack    string
+		replace bool
+		yes     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "init [đường-dẫn]",
@@ -33,8 +34,8 @@ Hai chế độ cài đặt:
   --local   dữ liệu nằm trong <project>/.office, office chỉ quản lý project này
   mặc định  dữ liệu ở ~/.agent-office (hoặc .office của project gần nhất), quản lý nhiều project ở bất kỳ đâu`,
 		Example: `  office init                       # thư mục hiện tại, chọn mô hình tương tác
-  office init --local --template solo
-  office init ~/code/shop --template team`,
+  office init --local --pack solo
+  office init ~/code/shop --pack team`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -79,28 +80,29 @@ Hai chế độ cài đặt:
 				fmt.Fprintf(os.Stderr, "• Project %s đã có\n", repo.Name)
 			}
 
-			current, err := a.store.OrgModels().GetForRepo(ctx, repo.ID)
-			hasModel := err == nil
-			if hasModel && !replace && template == "" {
-				fmt.Fprintf(os.Stderr, "• Project đang dùng mô hình %q (dùng --template ... --replace để đổi)\n", current.Name)
+			current, err := a.store.Agents().List(ctx, repo.ID)
+			if err != nil {
+				return err
+			}
+			if len(current) > 0 && !replace && pack == "" {
+				fmt.Fprintf(os.Stderr, "• Project đã có %d agent (dùng --pack ... --replace để thay)\n", len(current))
 			} else {
-				tpl, err := pickTemplate(cmd, a, template)
+				p, err := pickPack(pack)
 				if err != nil {
 					return err
 				}
-				if hasModel && !replace {
-					if !interactive() || !confirm(fmt.Sprintf("Project đang dùng %q. Thay bằng %q?", current.Name, tpl.Name), false) {
-						return errors.New("project đã có mô hình; thêm --replace để thay")
+				if len(current) > 0 && !replace {
+					if !interactive() || !confirm(fmt.Sprintf("Project đã có %d agent. Thay bằng gói %q?", len(current), p.Name), false) {
+						return errors.New("project đã có agent; thêm --replace để thay")
 					}
 				}
-				m, err := a.org.ApplyToRepo(ctx, repo.ID, tpl.ID, true)
-				if err != nil {
+				if err := a.team.ApplyPack(ctx, repo.ID, p, true); err != nil {
 					return err
 				}
-				agents, _ := a.store.Agents().List(ctx, m.ID)
-				fmt.Fprintf(os.Stderr, "✓ Áp mô hình %s: %d agent\n", m.Name, len(agents))
+				agents, _ := a.store.Agents().List(ctx, repo.ID)
+				fmt.Fprintf(os.Stderr, "✓ Dùng gói %s: %d agent, quy trình %s\n", p.Name, len(agents), strings.Join(p.Workflows, ", "))
 				for _, ag := range agents {
-					fmt.Fprintf(os.Stderr, "    %-8s %-18s %s\n", ag.Tier, ag.Key, ag.Role)
+					fmt.Fprintf(os.Stderr, "    %-18s %s\n", ag.Key, ag.Role)
 				}
 			}
 
@@ -119,39 +121,39 @@ Hai chế độ cài đặt:
 			} else {
 				fmt.Fprintln(os.Stderr, "  2. Mở dashboard và đăng nhập")
 			}
-			fmt.Fprintln(os.Stderr, "  3. Vào dashboard → Kết nối AI / Project / Mô hình để chỉnh chi tiết")
+			fmt.Fprintln(os.Stderr, "  3. Vào dashboard → Kết nối AI / Project / Agent / Quy trình để chỉnh chi tiết")
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&local, "local", false, "lưu dữ liệu trong <project>/.office (chỉ quản lý project này)")
-	cmd.Flags().StringVar(&template, "template", "", "key mô hình: solo | team | council | mẫu tự tạo")
-	cmd.Flags().BoolVar(&replace, "replace", false, "thay mô hình hiện tại của project")
+	cmd.Flags().StringVar(&pack, "pack", "", "gói khởi tạo: solo | team | council")
+	cmd.Flags().StringVar(&pack, "template", "", "tên cũ của --pack")
+	_ = cmd.Flags().MarkHidden("template")
+	cmd.Flags().BoolVar(&replace, "replace", false, "thay agent hiện tại của project bằng gói")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "tự đồng ý các bước (không hỏi)")
 	return cmd
 }
 
-func pickTemplate(cmd *cobra.Command, a *app, key string) (storage.OrgModel, error) {
-	ctx := cmd.Context()
+func pickPack(key string) (team.Pack, error) {
 	if key != "" {
-		m, err := a.store.OrgModels().GetTemplateByKey(ctx, key)
-		if errors.Is(err, storage.ErrNotFound) {
-			return m, fmt.Errorf("không có mô hình mẫu %q (xem: office template list)", key)
+		p, err := team.PackByKey(key)
+		if err != nil {
+			return p, fmt.Errorf("không có gói %q (xem: office pack list)", key)
 		}
-		return m, err
+		return p, nil
 	}
-	list, err := a.store.OrgModels().ListTemplates(ctx)
+	list, err := team.Packs()
 	if err != nil || len(list) == 0 {
-		return storage.OrgModel{}, fmt.Errorf("chưa có mô hình mẫu: %v", err)
+		return team.Pack{}, fmt.Errorf("chưa có gói khởi tạo: %v", err)
 	}
 	if !interactive() {
 		return list[0], nil
 	}
 	opts := make([]string, len(list))
-	for i, m := range list {
-		agents, _ := a.store.Agents().List(ctx, m.ID)
-		opts[i] = fmt.Sprintf("%-20s %d agent · %s", m.Name, len(agents), truncateRunes(m.Description, 70))
+	for i, p := range list {
+		opts[i] = fmt.Sprintf("%-20s %d agent · %s", p.Name, len(p.Agents), truncateRunes(p.Description, 70))
 	}
-	return list[choose("Chọn mô hình tổ chức:", opts, 0)], nil
+	return list[choose("Chọn gói khởi tạo:", opts, 0)], nil
 }
 
 // detectProviders offers to create connections for CLIs and API keys found on this machine.

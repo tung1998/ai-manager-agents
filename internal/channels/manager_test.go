@@ -13,11 +13,11 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
@@ -106,8 +106,7 @@ func TestManagerRules(t *testing.T) {
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.UTC)
 	provs.SetUsage(u)
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	bin := filepath.Join(tmp, "claude")
 	// the filter call gets "YES/NO" questions; an answer otherwise
 	argsLog := filepath.Join(tmp, "args.log")
@@ -122,8 +121,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
 	dir := t.TempDir()
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: dir})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	engine := chat.NewEngine(st, provs, u)
 	runner := trigger.New(st, chatExec{engine})
 

@@ -183,13 +183,12 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'$who' sá»
 	gitRun(t, f.dir, "commit", "-q", "-m", "init")
 	f.engine.SetWorktrees(worktree.New(filepath.Join(t.TempDir(), "worktrees")))
 	ctx := actor.With(context.Background(), "human:a@b.c")
-	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
 	for _, a := range mustAgents(t, f) { // both may edit, and a person approves every diff
 		a.Permissions = storage.Permissions{Level: perm.Edit, Caps: &[]string{perm.CapPropose}}
 		f.st.Agents().Update(ctx, a)
 	}
 	caps := []string{perm.CapPropose}
-	dev, err := f.st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast",
+	dev, err := f.st.Agents().Create(ctx, storage.Agent{ProjectID: f.project.ID, Key: "dev", Name: "Dev", ModelTier: "fast",
 		Permissions: storage.Permissions{Level: perm.Edit, Caps: &caps}})
 	if err != nil {
 		t.Fatal(err)

@@ -30,7 +30,7 @@ Không xuất API key, tài khoản, phiên đăng nhập. Chạy lại sẽ c�
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withApp(cmd.Context(), func(a *app) error {
-				b, err := transfer.New(a.store, a.providers, a.org).Export(cmd.Context())
+				b, err := transfer.New(a.store, a.providers, a.team, a.workflows.Lib).Export(cmd.Context())
 				if err != nil {
 					return err
 				}
@@ -98,7 +98,7 @@ func importCmd() *cobra.Command {
 				return err
 			}
 			return withApp(cmd.Context(), func(a *app) error {
-				svc := transfer.New(a.store, a.providers, a.org)
+				svc := transfer.New(a.store, a.providers, a.team, a.workflows.Lib)
 				plan, err := svc.Import(cmd.Context(), b, true)
 				if err != nil {
 					return err

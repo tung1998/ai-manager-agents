@@ -10,14 +10,8 @@ func TestAgentAvatar(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	tpl := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "solo" {
-			tpl = m["id"].(string)
-		}
-	}
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": tpl}, nil)
+	tpl := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": tpl}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	_, body = do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/chat/agents", nil, nil)
 	agents, _ := body["agents"].([]any)
@@ -28,7 +22,7 @@ func TestAgentAvatar(t *testing.T) {
 	id := a["id"].(string)
 	put := func(avatar map[string]any) int {
 		in := map[string]any{"avatar": avatar}
-		for _, k := range []string{"key", "name", "tier", "role", "description", "reports_to", "provider_id", "model_tier", "llm_model", "instructions", "permissions"} {
+		for _, k := range []string{"key", "name", "role", "description", "provider_id", "model_tier", "llm_model", "instructions", "permissions"} {
 			in[k] = a[k]
 		}
 		resp, b := do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+id, in, nil)

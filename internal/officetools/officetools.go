@@ -40,7 +40,21 @@ type Toolbox struct {
 	config ConfigReader
 	// assistant is the office assistant's own project (hidden from the list)
 	assistant func(ctx context.Context) string
+	// wf runs the workflow_* tools (the chat engine)
+	wf Workflows
 }
+
+// Workflows runs the workflow_* tools for the coordinator of a workflow
+// running in a chat (spec 2026-10-07-workflows-design).
+type Workflows interface {
+	// WorkflowScope: coordinator = the run of sc coordinates a workflow;
+	// inRun = it is a turn of a running workflow (no delegate then).
+	WorkflowScope(sc Scope) (coordinator, inRun bool)
+	WorkflowCall(ctx context.Context, sc Scope, name string, raw json.RawMessage) (string, error)
+}
+
+// SetWorkflow turns on the workflow_* tools.
+func (t *Toolbox) SetWorkflow(w Workflows) { t.wf = w }
 
 // SetOffice tells the tools which project is the office assistant's.
 func (t *Toolbox) SetOffice(fn func(ctx context.Context) string) { t.assistant = fn }
@@ -179,7 +193,7 @@ func (t *Toolbox) Tools() []Tool {
 	if t.config != nil && t.actions != nil {
 		kind := map[string]any{"type": "string", "description": "Loại cài đặt, xem describe"}
 		list = append(list,
-			Tool{Name: "describe", Description: "Các loại cài đặt đổi được (automation, agent, monitor, process, policy, project, usage_settings, provider); có resource thì liệt kê trường sửa được.",
+			Tool{Name: "describe", Description: "Các loại cài đặt đổi được (automation, agent, workflow, monitor, process, policy, project, usage_settings, provider); có resource thì liệt kê trường sửa được.",
 				Schema: obj(map[string]any{"resource": kind})},
 			Tool{Name: "list", Description: "Danh sách cài đặt của một loại trong project (id, tên, trạng thái).", Schema: obj(map[string]any{"resource": kind}, "resource")},
 			Tool{Name: "get", Description: "Một cài đặt đầy đủ (bí mật đã che). policy, project, usage_settings không cần id.",
@@ -235,6 +249,26 @@ func (t *Toolbox) Tools() []Tool {
 				"task":  map[string]any{"type": "string", "description": "Việc cần làm, đủ rõ để làm mà không phải hỏi lại"},
 			}, "agent", "task")})
 	}
+	if t.wf != nil {
+		str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
+		brief := map[string]any{"type": "object", "description": "Bản giao việc, theo các mục quy trình yêu cầu: outcome (kết quả cần đạt), question, context, constraints (ràng buộc đã kiểm chứng), " +
+			"current_option (phương án đang thử, được phản biện), tried (đã thử và vì sao bỏ), files (đường dẫn), done_when (tiêu chí xong), must_not (điều cấm). Không viết sẵn cách sửa từng file/hàm.",
+			"additionalProperties": map[string]any{"type": "string"}}
+		list = append(list,
+			Tool{Name: "workflow_delegate", Description: "Quy trình: giao việc lần đầu cho một vai. Vai làm ở nền khi bạn trả lời xong lượt; khi các vai vừa giao đều xong, bạn được gọi lại. " +
+				"Vai chưa gán agent thì truyền agent. Office kiểm tra quyền của vai, các vai được làm cùng lúc, khác hãng model và giới hạn của quy trình.",
+				Schema: obj(map[string]any{"role": str("Key của vai"), "agent": str("Tên agent nhận vai (bỏ trống = agent đã gán cho vai)"), "brief": brief}, "role", "brief")},
+			Tool{Name: "workflow_send", Description: "Quy trình: gửi tiếp cho một vai đã giao (vai giữ mạch, nhớ những gì đã làm). Mỗi lần là một vòng, có giới hạn.",
+				Schema: obj(map[string]any{"role": str("Key của vai"), "message": str("Nội dung gửi, ví dụ lập luận của vai khác cần phản hồi")}, "role", "message")},
+			Tool{Name: "workflow_vote", Description: "Quy trình: đưa một điều ra biểu quyết giữa các vai của quy trình (song song, chỉ phân tích). Office đếm phiếu theo quorum/phủ quyết rồi gọi lại bạn kèm kết quả.",
+				Schema: obj(map[string]any{"question": str("Điều cần biểu quyết, kèm đủ bối cảnh"),
+					"agents": map[string]any{"type": "object", "description": "Gán agent cho vai bỏ phiếu chưa có agent: {\"vai\": \"tên agent\"}", "additionalProperties": map[string]any{"type": "string"}}}, "question")},
+			Tool{Name: "workflow_gate", Description: "Quy trình: mở một cổng. approve: tạo thẻ để người dùng duyệt (ghi note là điều cần duyệt) rồi dừng lượt chờ. check: chạy lệnh kiểm tra (command, khi cổng không ghi sẵn), trong worktree của vai role nếu có.",
+				Schema: obj(map[string]any{"gate": str("Key của cổng"), "note": str("approve: điều người dùng cần duyệt"), "command": str("check: lệnh kiểm tra"), "role": str("check: chạy trong worktree của vai này")}, "gate")},
+			Tool{Name: "workflow_done", Description: "Quy trình: kết thúc khi đã xong (và qua mọi cổng bắt buộc). summary là tóm tắt cho người dùng.",
+				Schema: obj(map[string]any{"summary": str("Tóm tắt kết quả")}, "summary")},
+		)
+	}
 	return list
 }
 
@@ -257,6 +291,15 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 		}
 		if sc.Office && x.Name == "delegate" {
 			continue // the assistant hands work to a project's chat instead
+		}
+		if t.wf != nil && (x.Name == "delegate" || strings.HasPrefix(x.Name, "workflow_")) {
+			coord, inRun := t.wf.WorkflowScope(sc)
+			if x.Name == "delegate" && inRun {
+				continue // a workflow gives work through its own tools
+			}
+			if strings.HasPrefix(x.Name, "workflow_") && !coord {
+				continue // only its coordinator
+			}
 		}
 		if sc.AnswerOnly && proposes(x.Name) {
 			continue
@@ -424,6 +467,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 			return "send_file chỉ dùng trong cuộc chat của bot Discord/Telegram", true
 		}
 		out, err = t.sendFile(ctx, sc, in.Path, in.Caption)
+	case "workflow_delegate", "workflow_send", "workflow_vote", "workflow_gate", "workflow_done":
+		if t.wf == nil {
+			return "Không có quy trình ở đây", true
+		}
+		out, err = t.wf.WorkflowCall(ctx, sc, name, raw)
 	case "delegate":
 		if t.delegate == nil {
 			return "Không có công cụ giao việc ở đây", true

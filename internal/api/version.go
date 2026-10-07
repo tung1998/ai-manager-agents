@@ -62,13 +62,6 @@ func policyVersion(p perm.Policy) string {
 	}{p.Packs, p.DenyPaths, p.WorktreeLinks})
 }
 
-func modelVersion(m storage.OrgModel) string {
-	return versionOf(struct {
-		Name, Description, Kind, Key string
-		Governance                   storage.Governance
-	}{m.Name, m.Description, m.Kind, m.Key, m.Governance})
-}
-
 func channelVersion(c storage.Channel) string {
 	return versionOf(struct {
 		Name, AgentID, Mode, Scope, Refusal, Approval, Header, ReplyMode, Defaults string

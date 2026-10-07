@@ -15,12 +15,13 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/config"
 	"bitbucket.org/senprints/agent-office/internal/home"
 	"bitbucket.org/senprints/agent-office/internal/llm"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/usage"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -41,7 +42,7 @@ func main() {
 	}
 	root.PersistentFlags().StringVarP(&configPath, "config", "c", "office.config.json", "đường dẫn office.config.json")
 	root.PersistentFlags().StringVar(&homeFlag, "home", "", "thư mục dữ liệu (mặc định: .office của project gần nhất, hoặc ~/.agent-office)")
-	root.AddCommand(runCmd(), serveCmd(), initCmd(), userCmd(), repoCmd(), providerCmd(), templateCmd(), exportCmd(), importCmd(), backupCmd(), configCmd(), hookCmd(), serviceCmd())
+	root.AddCommand(runCmd(), serveCmd(), initCmd(), userCmd(), repoCmd(), providerCmd(), packCmd(), exportCmd(), importCmd(), backupCmd(), configCmd(), hookCmd(), serviceCmd())
 	setGuardCommand()
 
 	if err := root.Execute(); err != nil {
@@ -78,14 +79,15 @@ type app struct {
 	store     storage.Store
 	auth      *auth.Service
 	providers *provider.Service
-	org       *orgmodel.Service
+	team      *team.Service
+	workflows *workflow.Service
 	usage     *usage.Service
 	cli       *clitools.Manager
 }
 
 func (a *app) Close() { a.store.Close() }
 
-// openApp opens the store in h (migrated, built-in templates seeded).
+// openApp opens the store in h (migrated, shipped workflows in the library).
 func openApp(ctx context.Context, h home.Home) (*app, error) {
 	st, err := sqlite.Open(h.DB())
 	if err != nil {
@@ -100,10 +102,14 @@ func openApp(ctx context.Context, h home.Home) (*app, error) {
 		st.Close()
 		return nil, err
 	}
-	org := orgmodel.NewService(st)
-	if _, err := org.SeedBuiltins(ctx); err != nil {
-		st.Close()
-		return nil, err
+	lib := workflowLibrary(h)
+	if _, err := lib.Seed(); err != nil {
+		fmt.Fprintf(os.Stderr, "office: không chép được quy trình có sẵn vào thư viện: %v\n", err)
+	}
+	wf := &workflow.Service{Store: st, Lib: lib}
+	// a council project's org model became a workflow (ADR-099): its body now
+	if _, err := wf.FillMigrated(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "office: không điền được quy trình chuyển từ mô hình: %v\n", err)
 	}
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.Local)
@@ -114,7 +120,7 @@ func openApp(ctx context.Context, h home.Home) (*app, error) {
 		cli = clitools.NewManagerWithPath(p)
 	}
 	provs.SetBinResolver(cli.LookPath)
-	return &app{home: h, store: st, auth: auth.NewService(st, auth.Options{}), providers: provs, org: org, usage: u, cli: cli}, nil
+	return &app{home: h, store: st, auth: auth.NewService(st, auth.Options{}), providers: provs, team: team.NewService(st, wf), workflows: wf, usage: u, cli: cli}, nil
 }
 
 // withApp resolves the home and runs fn with an open app.

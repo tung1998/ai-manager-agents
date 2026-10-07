@@ -8,7 +8,6 @@ import (
 	"errors"
 	"os"
 
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -34,7 +33,7 @@ func ID(ctx context.Context, store storage.Store) string {
 
 // Ensure sets the assistant up once (dir is its empty working folder) and
 // returns its project id.
-func Ensure(ctx context.Context, store storage.Store, org *orgmodel.Service, dir string) (string, error) {
+func Ensure(ctx context.Context, store storage.Store, dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -47,25 +46,17 @@ func Ensure(ctx context.Context, store storage.Store, org *orgmodel.Service, dir
 	if err != nil {
 		return "", err
 	}
-	tpl, err := store.OrgModels().GetTemplateByKey(ctx, "solo")
-	if err != nil {
-		return "", errors.New("thiếu mô hình mẫu solo để dựng trợ lý")
-	}
-	m, err := org.ApplyToRepo(ctx, repo.ID, tpl.ID, false)
+	a, err := store.Agents().Create(ctx, storage.Agent{
+		ProjectID: repo.ID, Key: "office-assistant", Name: "Trợ lý office", Role: "Trợ lý toàn office: điều phối, thống kê, cài đặt",
+		Instructions: Instructions, ModelTier: storage.TierBalanced,
+		Permissions: storage.Permissions{Level: "read", ReadOnly: true},
+		Avatar:      storage.Avatar{Color: "violet", Icon: "i-lucide-sparkles"},
+	})
 	if err != nil {
 		return "", err
 	}
-	agents, err := store.Agents().List(ctx, m.ID)
-	if err != nil || len(agents) == 0 {
-		return "", errors.New("trợ lý chưa có agent")
-	}
-	a := agents[0]
-	a.Name, a.Key, a.Role = "Trợ lý office", "office-assistant", "Trợ lý toàn office: điều phối, thống kê, cài đặt"
-	a.Instructions = Instructions
-	a.ModelTier = storage.TierBalanced
-	a.Permissions = storage.Permissions{Level: "read", ReadOnly: true}
-	a.Avatar = storage.Avatar{Color: "violet", Icon: "i-lucide-sparkles"}
-	if err := store.Agents().Update(ctx, a); err != nil {
+	repo.DefaultAgentID = a.ID
+	if err := store.Repos().Update(ctx, repo); err != nil {
 		return "", err
 	}
 	return repo.ID, store.Settings().Set(ctx, settingKey, repo.ID)

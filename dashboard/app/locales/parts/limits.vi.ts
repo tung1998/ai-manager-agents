@@ -49,7 +49,7 @@ export default {
   'source.telegram': 'Telegram',
   'source.auto': 'Tự động',
   'channels.refusalPlaceholder': 'Xin lỗi, mình chỉ trả lời về…',
-  'channels.agentLead': 'Trưởng nhóm',
+  'channels.agentLead': 'Agent mặc định',
   'channels.agent': 'Agent trả lời',
   'channels.connecting': 'đang kết nối…',
   'channels.tokenHelpDiscord': 'Lấy ở Developer Portal → Bot → Reset Token (xem ⓘ ở trên). Office mã hóa khi lưu và không hiện lại',

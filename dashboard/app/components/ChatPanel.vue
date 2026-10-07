@@ -28,8 +28,8 @@ interface RunningTurn { turn_id: string, agent_name: string, background: boolean
 // pageContext: what the person is looking at, sent with each message.
 // pane: one box of the watch screen (compact, no prefill, its own header
 // buttons in the #lead/#actions slots); conversationId: the chat it opens on.
-const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill' | 'template', automationId?: string, compact?: boolean, pane?: boolean, conversationId?: string, pageContext?: () => string }>()
-const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'template-patch': [Record<string, unknown>], 'history': [Record<string, unknown>[]], 'conversation': [string], 'current': [string], 'back': [] }>()
+const props = defineProps<{ projectId: string, purpose?: 'automation' | 'skill' | 'workflow', automationId?: string, compact?: boolean, pane?: boolean, conversationId?: string, pageContext?: () => string }>()
+const emit = defineEmits<{ 'automation-patch': [Record<string, unknown>], 'skill-patch': [Record<string, unknown>], 'workflow-patch': [Record<string, unknown>], 'history': [Record<string, unknown>[]], 'conversation': [string], 'current': [string], 'back': [] }>()
 const single = computed(() => !!props.purpose)
 // the chat page on a phone: the input stays behind a button until asked for,
 // so the messages get the whole screen
@@ -38,7 +38,7 @@ const composeOpen = ref(false)
 const toast = useToast()
 const { t, dateLocale } = useLang()
 
-const _f1 = useLiveFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
+const _f1 = useLiveFetch<{ agents: Agent[], default_agent_id: string }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const { data: agentsData } = _f1
 // where the chats started: the dashboard, a bot, an automation
 const origin = ref<ChatFilter>('all')
@@ -119,10 +119,10 @@ const effort = ref('')
 // who answers: each agent's own rights decide what it may do (no separate mode)
 const pick = ref('')
 const isOn = (id?: string) => !!id && onAgents.value.some(a => a.id === id)
-// the chat's agent is paused: the one that is on and answered here last, else a lead (as the server)
+// the chat's agent is paused: the one that is on and answered here last, else the default (as the server)
 function standIn() {
   const last = [...messages.value].reverse().find(m => m.role === 'assistant' && onAgents.value.some(a => a.name === m.author))
-  return onAgents.value.find(a => a.name === last?.author)?.id || onAgents.value.find(a => a.tier === 'lead')?.id || onAgents.value[0]?.id || ''
+  return onAgents.value.find(a => a.name === last?.author)?.id || onAgents.value.find(a => a.id === agentsData.value?.default_agent_id)?.id || onAgents.value[0]?.id || ''
 }
 watch([() => current.value?.id, () => current.value?.agent_id, agents, () => messages.value.length], (now, before) => {
   editMode.value = current.value?.edit_mode ?? 'worktree'
@@ -471,7 +471,7 @@ async function newConversation(agentId = '') {
     if (props.purpose) emit('conversation', res.conversation.id)
     else await refreshConvs()
     // the skill editor's chat is in the URL: back, reload or a link reopens it
-    if (props.purpose === 'skill' || props.purpose === 'template') router.replace({ query: { ...route.query, c: res.conversation.id } })
+    if (props.purpose === 'skill' || props.purpose === 'workflow') router.replace({ query: { ...route.query, c: res.conversation.id } })
     await open(res.conversation)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -580,7 +580,7 @@ function follow(id: string) {
           if (!messages.value.some(x => x.id === ev.message!.id)) messages.value.push(ev.message) // the live refresh may have it already
           if (props.purpose === 'automation' && ev.type === 'done') fencedBlocks(ev.message.content, 'automation').forEach(p => emit('automation-patch', p))
           if (props.purpose === 'skill' && ev.type === 'done') fencedBlocks(ev.message.content, 'skill').forEach(p => emit('skill-patch', p))
-          if (props.purpose === 'template' && ev.type === 'done') fencedBlocks(ev.message.content, 'template').forEach(p => emit('template-patch', p))
+          if (props.purpose === 'workflow' && ev.type === 'done') fencedBlocks(ev.message.content, 'workflow').forEach(p => emit('workflow-patch', p))
         }
         if (ev.next_turn_id) { // the next agent tagged answers now
           follow(ev.next_turn_id)
@@ -650,6 +650,10 @@ function fencedBlocks(text: string, lang: string): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = []
   // the closing fence starts a line: JSON has no raw newline, while a skill's body may hold ``` of its own
   for (const m of text.matchAll(new RegExp('```' + lang + '[ \\t]*\\n([\\s\\S]*?)\\n[ \\t]*```', 'g'))) {
+    if (lang === 'workflow') { // a workflow is its whole file, not JSON
+      out.push({ source: m[1]! })
+      continue
+    }
     try {
       const v = JSON.parse(m[1]!)
       if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v)
@@ -665,6 +669,49 @@ function openSkillDraft(d: Record<string, unknown>) {
   try { sessionStorage.setItem('office.skillDraft', JSON.stringify(d)) } catch { /* private mode: the editor opens empty */ }
   navigateTo(`/projects/${props.projectId}/skills/edit`)
 }
+
+// a workflow editor's chat, followed from the chat list: the library's lives
+// in the office assistant's project, a project's own in that project
+async function openWorkflowEditor(id: string) {
+  const asst = await $fetch<{ project_id: string }>('/api/assistant').catch(() => null)
+  await navigateTo(asst?.project_id === props.projectId ? `/workflows/edit?c=${id}` : `/projects/${props.projectId}/workflows/edit?c=${id}`)
+}
+
+// the workflow runs of the open chat (ADR-098): a card each, in the thread
+// where it started, kept up to date as the run goes
+const runs = ref<WorkflowRun[]>([])
+async function loadRuns() {
+  const id = current.value?.id
+  if (!id) { runs.value = []; return }
+  try {
+    const res = await $fetch<{ runs: WorkflowRun[] }>(`/api/projects/${props.projectId}/workflow-runs`, { query: { conversation: id } })
+    if (current.value?.id === id) runs.value = res.runs
+  } catch { /* workflows off, or offline: no cards */ }
+}
+watch(() => current.value?.id, (id, before) => {
+  if (id !== before) runs.value = []
+  void loadRuns()
+})
+useLive(['workflow_runs'], loadRuns)
+function onRunUpdated(r: WorkflowRun) {
+  runs.value = runs.value.map(x => x.id === r.id ? r : x)
+}
+// each card goes just before the first message after it started; one older
+// than the messages loaded waits for "older"
+const runsAt = computed(() => {
+  const before = new Map<string, WorkflowRun[]>()
+  const after: WorkflowRun[] = []
+  const msgs = messages.value
+  const first = msgs[0] ? Date.parse(msgs[0].created_at) : 0
+  for (const r of [...runs.value].sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at))) {
+    const at = Date.parse(r.started_at)
+    if (hasOlder.value && at < first) continue
+    const m = msgs.find(x => Date.parse(x.created_at) > at)
+    if (m) before.set(m.id, [...(before.get(m.id) ?? []), r])
+    else after.push(r)
+  }
+  return { before, after }
+})
 
 async function openAutomation() {
   if (!props.automationId) return
@@ -686,7 +733,7 @@ const threadPick = computed({
   set: (id?: string) => { const c = conversations.value.find(x => x.id === id); if (c) open(c) }
 })
 
-// an editor (skill, template) opened on its chat again: that chat, and the drafts it gave
+// an editor (skill, workflow) opened on its chat again: that chat, and the drafts it gave
 async function openEditorChat(id: string) {
   try {
     await open({ id } as Conversation)
@@ -698,7 +745,7 @@ async function openEditorChat(id: string) {
 
 onMounted(() => {
   if (props.purpose === 'automation') openAutomation()
-  else if (props.purpose === 'skill' || props.purpose === 'template') { if (typeof route.query.c === 'string') openEditorChat(route.query.c) }
+  else if (props.purpose === 'skill' || props.purpose === 'workflow') { if (typeof route.query.c === 'string') openEditorChat(route.query.c) }
   else if (props.conversationId) open({ id: props.conversationId } as Conversation).catch(() => { openFirst.value = true }) // gone: the latest one
   else if (ownsUrl.value && typeof route.query.draft === 'string' && !tookPrefill) {
     // handed over by the office assistant: a new chat with the message ready to send
@@ -799,10 +846,10 @@ onBeforeUnmount(() => {
           <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.skillChat') }}</span>
           <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('chat.backToSkillEditor')" :to="`/projects/${projectId}/skills/edit?c=${current.id}`" />
         </div>
-        <div v-else-if="!single && current?.purpose === 'template'" class="flex items-center gap-2 rounded-lg border border-(--ui-border) px-3 py-2 text-sm">
-          <UIcon name="i-lucide-network" class="size-4 shrink-0 text-(--ui-primary)" />
-          <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.templateChat') }}</span>
-          <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('chat.backToTemplateEditor')" :to="`/templates/new?c=${current.id}`" />
+        <div v-else-if="!single && current?.purpose === 'workflow'" class="flex items-center gap-2 rounded-lg border border-(--ui-border) px-3 py-2 text-sm">
+          <UIcon name="i-lucide-workflow" class="size-4 shrink-0 text-(--ui-primary)" />
+          <span class="min-w-0 flex-1 truncate text-(--ui-text-muted)">{{ t('chat.workflowChat') }}</span>
+          <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('chat.backToWorkflowEditor')" @click="openWorkflowEditor(current.id)" />
         </div>
         <div v-if="hasOlder" class="text-center">
           <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-arrow-up" :loading="loadingOlder" :label="t('chat.older')" @click="loadOlder" />
@@ -823,9 +870,9 @@ onBeforeUnmount(() => {
             <p class="text-sm">{{ t('chat.askAboutAutomation') }}</p>
             <p class="text-xs">{{ t('chat.automationHint') }}</p>
           </template>
-          <template v-else-if="purpose === 'template'">
-            <p class="text-sm">{{ t('tplNew.askAI') }}</p>
-            <p class="text-xs">{{ t('tplNew.askAIHint') }}</p>
+          <template v-else-if="purpose === 'workflow'">
+            <p class="text-sm">{{ t('wf.askAI') }}</p>
+            <p class="text-xs">{{ t('wf.askAIHint') }}</p>
           </template>
           <template v-else-if="purpose === 'skill'">
             <p class="text-sm">{{ t('skill.askAI') }}</p>
@@ -838,6 +885,7 @@ onBeforeUnmount(() => {
         </div>
 
         <template v-for="m in messages" :key="m.id">
+          <WorkflowRunCard v-for="r in runsAt.before.get(m.id) ?? []" :key="r.id" :run="r" @updated="onRunUpdated" />
           <div v-if="m.role === 'user'" :id="`m-${m.id}`" class="group/msg flex flex-col items-end gap-1.5 rounded-lg transition" :class="marked === m.id && 'ring-2 ring-primary/60 ring-offset-4 ring-offset-(--ui-bg)'">
             <AttachmentList :items="m.attachments ?? []" align="end" />
             <div class="flex max-w-[80%] items-start gap-1">
@@ -877,7 +925,7 @@ onBeforeUnmount(() => {
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div class="markdown min-w-0 text-sm" v-html="renderMarkdown(m.content)" />
             <UButton
-              v-for="(d, i) in (purpose || current?.purpose === 'skill' || current?.purpose === 'template' ? [] : skillDrafts(m.content))" :key="`sk${i}`"
+              v-for="(d, i) in (purpose || current?.purpose === 'skill' || current?.purpose === 'workflow' ? [] : skillDrafts(m.content))" :key="`sk${i}`"
               icon="i-lucide-sparkles" size="sm" color="neutral" variant="outline" :label="t('chat.openSkillEditor', { name: String(d.name) })"
               @click="openSkillDraft(d)"
             />
@@ -888,6 +936,7 @@ onBeforeUnmount(() => {
             />
           </div>
         </template>
+        <WorkflowRunCard v-for="r in runsAt.after" :key="r.id" :run="r" @updated="onRunUpdated" />
 
         <div v-if="streaming" class="space-y-2">
           <div class="flex items-center gap-2 text-xs text-(--ui-text-muted)">

@@ -68,7 +68,7 @@ func (s *server) chatError(w http.ResponseWriter, r *http.Request, err error) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": be.Error(), "code": "budget"})
 	case errors.Is(err, chat.ErrBusy), errors.Is(err, chat.ErrAgentBusy), errors.Is(err, storage.ErrAgentOff), errors.Is(err, chat.ErrCleaned):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, chat.ErrNoModel), errors.Is(err, chat.ErrNoAgent), errors.Is(err, chat.ErrNoFolder), errors.Is(err, chat.ErrDecided), errors.Is(err, automation.ErrUnknownSkill),
+	case errors.Is(err, chat.ErrNoAgents), errors.Is(err, chat.ErrNoAgent), errors.Is(err, chat.ErrNoFolder), errors.Is(err, chat.ErrDecided), errors.Is(err, automation.ErrUnknownSkill),
 		errors.Is(err, attach.ErrNotFound), errors.Is(err, attach.ErrTooMany):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
@@ -95,7 +95,11 @@ func (s *server) chatAgents(w http.ResponseWriter, r *http.Request) {
 	for _, a := range agents { // paused ones too (enabled=false): their past messages keep their avatar
 		out = append(out, toAgentDTO(a))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"agents": out})
+	def := ""
+	if p, err := s.cfg.Store.Repos().Get(r.Context(), r.PathValue("id")); err == nil {
+		def = p.DefaultAgentID
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"agents": out, "default_agent_id": def})
 }
 
 func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +150,7 @@ func (s *server) createConversation(w http.ResponseWriter, r *http.Request) {
 		c   storage.Conversation
 		err error
 	)
-	if in.Purpose == "automation" || in.Purpose == "skill" || in.Purpose == "template" { // template: written with the office assistant // a chat that builds one automation, or writes one skill
+	if in.Purpose == "automation" || in.Purpose == "skill" || in.Purpose == "workflow" { // a chat that builds one automation, or writes one skill or workflow
 		c, err = s.cfg.Chat.StartConversationPurpose(r.Context(), r.PathValue("id"), in.AgentID, in.Purpose)
 	} else {
 		c, err = s.cfg.Chat.StartConversation(r.Context(), r.PathValue("id"), in.AgentID)

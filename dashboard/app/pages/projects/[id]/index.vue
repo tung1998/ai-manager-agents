@@ -8,16 +8,15 @@ const id = computed(() => route.params.id as string)
 
 const _f1 = useLiveFetch<{ project: Project }>(() => `/api/projects/${id.value}`, { lazy: true })
 const { data, refresh, error: loadError } = _f1
-const _f2 = useLiveFetch<{ templates: OrgModel[] }>('/api/templates', { lazy: true })
-const { data: tplData } = _f2
 // not awaited: the page shows at once with a skeleton (a phone over a VPN)
 const project = computed(() => data.value?.project)
-const templates = computed(() => tplData.value?.templates ?? [])
 
 // the tab lives in the URL so the sidebar can link to each section
-// (older links: tab=config&section=…, tab=tools, tab=channels: bots live in Automations now)
-type Tab = 'chat' | 'tasks' | 'automations' | 'ops' | 'files' | 'model' | 'perm' | 'skill' | 'mcp' | 'info' | 'log' | 'burn'
-const tabs: Tab[] = ['chat', 'tasks', 'automations', 'ops', 'files', 'model', 'perm', 'skill', 'mcp', 'info', 'log', 'burn']
+// (older links: tab=config&section=…, tab=tools, tab=channels: bots live in Automations now,
+// tab=model: the agents)
+type Tab = 'chat' | 'tasks' | 'automations' | 'ops' | 'files' | 'agents' | 'workflows' | 'perm' | 'skill' | 'mcp' | 'info' | 'log' | 'burn'
+const tabs: Tab[] = ['chat', 'tasks', 'automations', 'ops', 'files', 'agents', 'workflows', 'perm', 'skill', 'mcp', 'info', 'log', 'burn']
+const aliases: Record<string, Tab> = { tools: 'skill', channels: 'automations', model: 'agents' }
 
 // "Hỏi agent" from Vận hành: open Chat with the log attached
 // send=true ("Sửa lỗi") starts a new conversation and sends right away
@@ -28,7 +27,8 @@ function askAgent(text: string, files: Attachment[], send = false) {
 }
 const tab = computed<Tab>({
   get: () => {
-    const q = route.query.tab === 'config' ? (route.query.section ?? 'info') : route.query.tab === 'tools' ? 'skill' : route.query.tab === 'channels' ? 'automations' : route.query.tab
+    const raw = String((route.query.tab === 'config' ? route.query.section ?? 'info' : route.query.tab) ?? '')
+    const q = aliases[raw] ?? raw
     const found = tabs.find(t => t === q) ?? 'chat'
     return (found === 'log' || found === 'files') && !isAdmin.value ? 'chat' : found // the change log and files are for admins
   },
@@ -36,28 +36,6 @@ const tab = computed<Tab>({
 })
 const { touch } = useProjectUsage()
 watch(id, v => touch(v), { immediate: true })
-
-// ---- apply / change model ----
-const applyOpen = ref(false)
-const templateId = ref('')
-const applying = ref(false)
-function openApply() {
-  templateId.value = templates.value.find(t => t.id === project.value?.model?.source_template_id)?.id ?? templates.value[0]?.id ?? ''
-  applyOpen.value = true
-}
-async function apply() {
-  applying.value = true
-  try {
-    await $fetch(`/api/projects/${id.value}/model`, { method: 'POST', body: { template_id: templateId.value, replace: !!project.value?.model } })
-    applyOpen.value = false
-    await refresh()
-    toast.add({ title: t('project.applyDone'), color: 'success' })
-  } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
-  } finally {
-    applying.value = false
-  }
-}
 
 // ---- edit project ----
 const editOpen = ref(false)
@@ -93,23 +71,6 @@ async function removeRepo() {
   }
 }
 
-function exportModel() {
-  if (project.value?.model) window.open(`/api/org-models/${project.value.model.id}/export`, '_blank')
-}
-
-// Save the project's customised model as a reusable template.
-async function saveAsTemplate() {
-  const m = project.value?.model
-  if (!m) return
-  const key = prompt(t('project.templateKeyPrompt'), `${project.value!.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${m.key}`)
-  if (!key) return
-  try {
-    const res = await $fetch<{ model: OrgModel }>('/api/templates', { method: 'POST', body: { source_id: m.id, key, name: `${m.name} (${project.value!.name})` } })
-    toast.add({ title: t('project.templateSaved'), color: 'success', actions: [{ label: t('project.templateSavedOpen'), onClick: () => { navigateTo(`/templates/${res.model.id}`) } }] })
-  } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
-  }
-}
 </script>
 
 <template>
@@ -119,16 +80,12 @@ async function saveAsTemplate() {
     </template>
     <template #actions>
       <template v-if="project && isAdmin">
-        <UButton v-if="!project.model" :to="`/projects/${id}/setup`" size="sm" icon="i-lucide-sparkles" :label="t('project.setupAi')" />
+        <UButton v-if="!project.agent_count" :to="`/projects/${id}/setup`" size="sm" icon="i-lucide-sparkles" :label="t('project.setupAi')" />
         <UDropdownMenu
           :content="{ align: 'end' }"
           :items="[[
             { label: t('project.rename'), icon: 'i-lucide-pencil', onSelect: openEdit },
-            { label: t('project.setupAi'), icon: 'i-lucide-sparkles', to: `/projects/${id}/setup` },
-            { label: project.model ? t('project.changeModel') : t('project.chooseModel'), icon: 'i-lucide-network', onSelect: openApply }
-          ], [
-            { label: t('project.downloadModel'), icon: 'i-lucide-download', disabled: !project.model, onSelect: exportModel },
-            { label: t('project.saveModel'), icon: 'i-lucide-bookmark-plus', disabled: !project.model, onSelect: saveAsTemplate }
+            { label: t('project.setupAi'), icon: 'i-lucide-sparkles', to: `/projects/${id}/setup` }
           ], [
             { label: t('project.unmanage'), icon: 'i-lucide-folder-minus', color: 'error', disabled: removing, onSelect: removeRepo }
           ]]"
@@ -139,7 +96,7 @@ async function saveAsTemplate() {
     </template>
 
     <!-- Chat fills the page height (the panel body is a bounded flex column) -->
-    <div v-if="project" :class="((tab === 'chat' || tab === 'tasks') && project.model) || tab === 'files' ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4'">
+    <div v-if="project" :class="((tab === 'chat' || tab === 'tasks') && project.agent_count) || tab === 'files' ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4'">
       <UAlert v-if="!project.exists" color="error" variant="subtle" icon="i-lucide-folder-x" :title="t('project.notFound')" />
 
 
@@ -148,7 +105,8 @@ async function saveAsTemplate() {
       <FilesPanel v-else-if="tab === 'files' && isAdmin && project.path" :project-id="project.id" />
       <AuditLog v-else-if="tab === 'log' && isAdmin" :key="project.id" class="max-w-6xl" :filter="{ project: project.id }" show-filters />
       <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
-      <template v-else-if="['info', 'model', 'perm', 'skill', 'mcp'].includes(tab)">
+      <ProjectWorkflows v-else-if="tab === 'workflows'" :project-id="project.id" />
+      <template v-else-if="['info', 'agents', 'perm', 'skill', 'mcp'].includes(tab)">
         <div v-if="tab === 'info'" class="space-y-4">
         <UCard class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">
           <div class="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
@@ -168,14 +126,14 @@ async function saveAsTemplate() {
         </div>
         <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" />
         <ToolsPanel v-else-if="tab === 'skill' || tab === 'mcp'" :key="tab" :kind="tab" :project-path="project.path" :project-id="project.id" />
-        <OrgModelEditor v-else-if="project.model" :key="project.model.id" :model-id="project.model.id" agents-first @changed="refresh()" />
-        <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
+        <ProjectAgents v-else :project="project" @changed="refresh()" />
       </template>
-      <template v-else-if="project.model">
+      <template v-else-if="project.agent_count">
         <!-- Việc is gone (ADR-057): an old link to it opens the chat -->
         <ChatPanel :project-id="project.id" />
       </template>
-      <NoModel v-else :project-id="id" :admin="isAdmin" @choose="openApply" />
+      <!-- no agent yet: pick a starter pack first -->
+      <ProjectAgents v-else :project="project" @changed="refresh()" />
     </div>
     <UAlert v-else-if="loadError" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="apiError(loadError)" />
     <!-- the project on its way -->
@@ -185,24 +143,6 @@ async function saveAsTemplate() {
         <USkeleton class="h-4 w-1/3" /><USkeleton class="h-4 w-2/3" /><USkeleton class="h-4 w-1/2" />
       </div>
     </div>
-
-    <UModal v-model:open="applyOpen" :title="project?.model ? t('project.changeModel') : t('project.chooseModel')" :ui="{ content: 'max-w-xl' }">
-      <template #body>
-        <div class="space-y-4">
-          <UAlert
-            v-if="project?.model" color="warning" variant="subtle" icon="i-lucide-triangle-alert"
-            :description="t('project.changeModelWarn')"
-          />
-          <TemplatePicker v-model="templateId" :templates="templates" />
-        </div>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="applyOpen = false" />
-          <UButton :loading="applying" :disabled="!templateId" :label="t('project.applyBtn')" @click="apply" />
-        </div>
-      </template>
-    </UModal>
 
     <UModal v-model:open="editOpen" :title="t('project.editTitle')">
       <template #body>

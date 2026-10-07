@@ -187,7 +187,7 @@ const en: Record<keyof typeof vi, string> = {
   'monitor.form.heartbeatInterval': 'Maximum interval between calls',
   'monitor.form.checkInterval': 'Check every',
   'monitor.form.aiEnabled': 'AI analysis on Down',
-  'monitor.form.aiEnabledDesc': 'The lead agent reads the logs/check result and proposes how to handle it. Uses tokens, only runs when it switches to Down.',
+  'monitor.form.aiEnabledDesc': 'The default agent reads the logs/check result and proposes how to handle it. Uses tokens, only runs when it switches to Down.',
   'monitor.form.aiBudget': 'AI cap for this monitor (USD / 24h)',
   'monitor.form.done': 'Done',
   'monitor.form.cancel': 'Cancel',

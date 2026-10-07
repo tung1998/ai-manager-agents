@@ -1,7 +1,7 @@
 // Package setup is the AI setup assistant for a project: it sends the scan
-// summary and the template library to a model, gets back a description, the
-// best-fitting org model and tailored agent changes, and turns the accepted
-// changes into a validated org model.
+// summary and the starter packs to a model, gets back a description, the
+// best-fitting pack and tailored agent changes, and turns the accepted
+// changes into the project's agents and workflows.
 package setup
 
 import (
@@ -12,61 +12,59 @@ import (
 	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
 // ErrNoProvider means no AI connection is available: the UI sends the user to set one up.
 var ErrNoProvider = errors.New("chưa có kết nối AI hoạt động")
 
-// AgentChange is one tailored edit on top of the chosen template.
+// AgentChange is one tailored edit on top of the chosen pack.
 type AgentChange struct {
-	Action       string   `json:"action"` // update | add | remove
-	Key          string   `json:"key"`
-	Name         string   `json:"name,omitempty"`
-	Tier         string   `json:"tier,omitempty"`
-	Role         string   `json:"role,omitempty"`
-	Description  string   `json:"description,omitempty"`
-	ReportsTo    []string `json:"reports_to,omitempty"`
-	ModelTier    string   `json:"model_tier,omitempty"`
-	Instructions string   `json:"instructions,omitempty"` // add: full prompt; update: project context appended
-	ReadOnly     *bool    `json:"read_only,omitempty"`
-	Source       string   `json:"source,omitempty"` // existing agent file it came from
-	Reason       string   `json:"reason"`
+	Action       string `json:"action"` // update | add | remove
+	Key          string `json:"key"`
+	Name         string `json:"name,omitempty"`
+	Role         string `json:"role,omitempty"`
+	Description  string `json:"description,omitempty"`
+	ModelTier    string `json:"model_tier,omitempty"`
+	Instructions string `json:"instructions,omitempty"` // add: full prompt; update: project context appended
+	ReadOnly     *bool  `json:"read_only,omitempty"`
+	Source       string `json:"source,omitempty"` // existing agent file it came from
+	Reason       string `json:"reason"`
 }
 
 // Proposal is the model's recommendation.
 type Proposal struct {
 	Description string        `json:"description"`
-	TemplateKey string        `json:"template_key"`
+	PackKey     string        `json:"pack_key"`
 	Reason      string        `json:"reason"`
 	Confidence  float64       `json:"confidence"`
 	Changes     []AgentChange `json:"agent_changes"`
 	Notes       []string      `json:"notes"`
 }
 
-// Result is a proposal plus the org model it produces and how it was made.
+// Result is a proposal plus the pack it produces and how it was made.
 type Result struct {
-	Proposal Proposal          `json:"proposal"`
-	Template orgmodel.Template `json:"template"`
-	Problems []string          `json:"problems"`
-	Provider string            `json:"provider"`
-	Model    string            `json:"model"`
-	Usage    llm.Result        `json:"usage"`
+	Proposal Proposal   `json:"proposal"`
+	Pack     team.Pack  `json:"pack"`
+	Problems []string   `json:"problems"`
+	Provider string     `json:"provider"`
+	Model    string     `json:"model"`
+	Usage    llm.Result `json:"usage"`
 }
 
 // Assistant runs the setup flow.
 type Assistant struct {
 	store     storage.Store
 	providers *provider.Service
-	org       *orgmodel.Service
+	team      *team.Service
 }
 
 // New builds an Assistant.
-func New(store storage.Store, providers *provider.Service, org *orgmodel.Service) *Assistant {
-	return &Assistant{store: store, providers: providers, org: org}
+func New(store storage.Store, providers *provider.Service, tm *team.Service) *Assistant {
+	return &Assistant{store: store, providers: providers, team: tm}
 }
 
 // Propose asks the default AI connection (strong tier) for a setup.
@@ -83,13 +81,13 @@ func (a *Assistant) Propose(ctx context.Context, projectID, projectName, project
 	if _, err := a.providers.Client(p); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrNoProvider, err)
 	}
-	templates, err := a.library(ctx)
+	packs, err := library()
 	if err != nil {
 		return Result{}, err
 	}
 	out, err := a.providers.Call(ctx, p, llm.Request{
 		Model: model, System: systemPrompt, MaxTokens: 6000,
-		Prompt: userPrompt(projectName, projectText, goal, templates),
+		Prompt: userPrompt(projectName, projectText, goal, packs),
 	}, usage.Meta{Kind: "setup_propose", ProjectID: projectID})
 	if err != nil {
 		return Result{}, fmt.Errorf("gọi AI lỗi: %w", err)
@@ -103,7 +101,7 @@ func (a *Assistant) Propose(ctx context.Context, projectID, projectName, project
 		res.Model = model
 	}
 	res.Usage.Text = ""
-	t, problems, err := a.Build(ctx, prop.TemplateKey, prop.Changes)
+	p2, problems, err := Build(prop.PackKey, prop.Changes)
 	if err != nil {
 		return res, err
 	}
@@ -116,40 +114,36 @@ func (a *Assistant) Propose(ctx context.Context, projectID, projectName, project
 	if res.Proposal.Notes == nil {
 		res.Proposal.Notes = []string{}
 	}
-	res.Template, res.Problems = t, problems
+	res.Pack, res.Problems = p2, problems
 	return res, nil
 }
 
-// Build applies changes to a library template and validates the result.
-// Structural problems are returned (not as an error) so the user can untick
-// the offending change.
-func (a *Assistant) Build(ctx context.Context, templateKey string, changes []AgentChange) (orgmodel.Template, []string, error) {
-	m, err := a.store.OrgModels().GetTemplateByKey(ctx, templateKey)
-	if errors.Is(err, storage.ErrNotFound) {
-		return orgmodel.Template{}, nil, fmt.Errorf("mô hình %q không có trong thư viện", templateKey)
-	}
-	if err != nil {
-		return orgmodel.Template{}, nil, err
-	}
-	t, err := a.org.Load(ctx, m.ID)
+// Build applies changes to a starter pack and validates the result.
+// Problems are returned (not as an error) so the user can untick the
+// offending change.
+func Build(packKey string, changes []AgentChange) (team.Pack, []string, error) {
+	t, err := team.PackByKey(packKey)
 	if err != nil {
 		return t, nil, err
 	}
 	t = Apply(t, changes)
 	var problems []string
-	if err := orgmodel.Validate(t); err != nil {
-		var ve *orgmodel.ValidationError
+	if len(t.Agents) == 0 {
+		problems = append(problems, "cần ít nhất một agent")
+	}
+	if err := team.Validate(t.Agents); err != nil {
+		var ve *team.ValidationError
 		if !errors.As(err, &ve) {
 			return t, nil, err
 		}
-		problems = ve.Problems
+		problems = append(problems, ve.Problems...)
 	}
 	return t, problems, nil
 }
 
-// Apply edits a template copy. Unknown keys in update/remove are ignored.
-func Apply(t orgmodel.Template, changes []AgentChange) orgmodel.Template {
-	agents := append([]orgmodel.AgentSpec(nil), t.Agents...)
+// Apply edits a pack copy. Unknown keys in update/remove are ignored.
+func Apply(t team.Pack, changes []AgentChange) team.Pack {
+	agents := append([]team.AgentSpec(nil), t.Agents...)
 	idx := func(key string) int {
 		for i, a := range agents {
 			if a.Key == key {
@@ -173,9 +167,6 @@ func Apply(t orgmodel.Template, changes []AgentChange) orgmodel.Template {
 			if storage.ValidTier(c.ModelTier) {
 				a.ModelTier = c.ModelTier
 			}
-			if len(c.ReportsTo) > 0 && a.Tier != storage.TierLead {
-				a.ReportsTo = c.ReportsTo
-			}
 			if strings.TrimSpace(c.Instructions) != "" {
 				a.Instructions = strings.TrimSpace(a.Instructions + "\n\nBối cảnh project:\n" + strings.TrimSpace(c.Instructions))
 			}
@@ -186,9 +177,9 @@ func Apply(t orgmodel.Template, changes []AgentChange) orgmodel.Template {
 			if key == "" || idx(key) >= 0 {
 				continue
 			}
-			spec := orgmodel.AgentSpec{
-				Key: key, Name: orDefault(c.Name, key), Tier: orDefault(c.Tier, storage.TierWorker), Role: c.Role,
-				Description: c.Description, ReportsTo: c.ReportsTo, ModelTier: c.ModelTier, Instructions: strings.TrimSpace(c.Instructions),
+			spec := team.AgentSpec{
+				Key: key, Name: orDefault(c.Name, key), Role: c.Role,
+				Description: c.Description, ModelTier: c.ModelTier, Instructions: strings.TrimSpace(c.Instructions),
 				Permissions: storage.Permissions{ReadOnly: true},
 			}
 			if !storage.ValidTier(spec.ModelTier) {
@@ -200,9 +191,6 @@ func Apply(t orgmodel.Template, changes []AgentChange) orgmodel.Template {
 			if !spec.Permissions.ReadOnly {
 				spec.Permissions.RequiresApproval = true // writes always need a human
 			}
-			if spec.Tier == storage.TierLead {
-				spec.ReportsTo = nil
-			}
 			agents = append(agents, spec)
 		case "remove":
 			i := idx(key)
@@ -210,64 +198,52 @@ func Apply(t orgmodel.Template, changes []AgentChange) orgmodel.Template {
 				continue
 			}
 			agents = append(agents[:i], agents[i+1:]...)
-			for j := range agents {
-				agents[j].ReportsTo = without(agents[j].ReportsTo, key)
+			if t.Default == key && len(agents) > 0 {
+				t.Default = agents[0].Key
 			}
-			t.Governance.Veto = without(t.Governance.Veto, key)
 		}
 	}
 	t.Agents = agents
 	return t
 }
 
-// Accept applies the accepted changes and installs the result as the project's model.
-func (a *Assistant) Accept(ctx context.Context, repoID, templateKey string, changes []AgentChange) (storage.OrgModel, error) {
-	t, problems, err := a.Build(ctx, templateKey, changes)
+// Accept applies the accepted changes and gives the project the pack's
+// agents (in place of its own) and workflows.
+func (a *Assistant) Accept(ctx context.Context, repoID, packKey string, changes []AgentChange) (team.Pack, error) {
+	p, problems, err := Build(packKey, changes)
 	if err != nil {
-		return storage.OrgModel{}, err
+		return p, err
 	}
 	if len(problems) > 0 {
-		return storage.OrgModel{}, &orgmodel.ValidationError{Problems: problems}
+		return p, &team.ValidationError{Problems: problems}
 	}
-	src, err := a.store.OrgModels().GetTemplateByKey(ctx, templateKey)
-	if err != nil {
-		return storage.OrgModel{}, err
-	}
-	return a.org.ApplyTemplate(ctx, repoID, t, src.ID)
+	return p, a.team.ApplyPack(ctx, repoID, p, true)
 }
 
 type libraryEntry struct {
-	Key         string          `json:"key"`
-	Name        string          `json:"name"`
-	Kind        string          `json:"kind"`
-	Description string          `json:"description"`
-	Governance  json.RawMessage `json:"governance"`
-	Agents      []libraryAgent  `json:"agents"`
+	Key         string         `json:"key"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Workflows   []string       `json:"workflows,omitempty"`
+	Agents      []libraryAgent `json:"agents"`
 }
 
 type libraryAgent struct {
-	Key       string   `json:"key"`
-	Name      string   `json:"name"`
-	Tier      string   `json:"tier"`
-	Role      string   `json:"role"`
-	ReportsTo []string `json:"reports_to,omitempty"`
+	Key  string `json:"key"`
+	Name string `json:"name"`
+	Role string `json:"role"`
 }
 
-func (a *Assistant) library(ctx context.Context) ([]libraryEntry, error) {
-	list, err := a.store.OrgModels().ListTemplates(ctx)
+func library() ([]libraryEntry, error) {
+	list, err := team.Packs()
 	if err != nil {
 		return nil, err
 	}
 	var out []libraryEntry
-	for _, m := range list {
-		agents, err := a.store.Agents().List(ctx, m.ID)
-		if err != nil {
-			return nil, err
-		}
-		gov, _ := json.Marshal(m.Governance)
-		e := libraryEntry{Key: m.Key, Name: m.Name, Kind: m.Kind, Description: m.Description, Governance: gov}
-		for _, ag := range agents {
-			e.Agents = append(e.Agents, libraryAgent{Key: ag.Key, Name: ag.Name, Tier: ag.Tier, Role: ag.Role, ReportsTo: ag.ReportsTo})
+	for _, p := range list {
+		e := libraryEntry{Key: p.Key, Name: p.Name, Description: p.Description, Workflows: p.Workflows}
+		for _, ag := range p.Agents {
+			e.Agents = append(e.Agents, libraryAgent{Key: ag.Key, Name: ag.Name, Role: ag.Role})
 		}
 		out = append(out, e)
 	}
@@ -299,14 +275,4 @@ func orDefault(v, d string) string {
 		return d
 	}
 	return strings.TrimSpace(v)
-}
-
-func without(list []string, v string) []string {
-	out := list[:0:0]
-	for _, x := range list {
-		if x != v {
-			out = append(out, x)
-		}
-	}
-	return out
 }

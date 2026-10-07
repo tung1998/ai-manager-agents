@@ -48,8 +48,7 @@ func fallbackFixture(t *testing.T, aOK bool) (fixture, storage.Provider, string,
 		return a
 	})
 	ctx := context.Background()
-	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
-	agents, _ := f.st.Agents().List(ctx, m.ID)
+	agents, _ := f.st.Agents().List(ctx, f.project.ID)
 	for _, ag := range agents {
 		ag.FallbackProviderIDs = []string{b.ID}
 		if err := f.st.Agents().Update(ctx, ag); err != nil {

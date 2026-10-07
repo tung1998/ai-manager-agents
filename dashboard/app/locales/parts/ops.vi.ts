@@ -186,7 +186,7 @@ export default {
   'monitor.form.heartbeatInterval': 'Chu kỳ tối đa giữa 2 lần gọi',
   'monitor.form.checkInterval': 'Kiểm tra mỗi',
   'monitor.form.aiEnabled': 'AI phân tích khi Down',
-  'monitor.form.aiEnabledDesc': 'Agent lead đọc log/kết quả kiểm tra và đề xuất cách xử lý. Tốn token, chỉ chạy khi chuyển sang Down.',
+  'monitor.form.aiEnabledDesc': 'Agent mặc định đọc log/kết quả kiểm tra và đề xuất cách xử lý. Tốn token, chỉ chạy khi chuyển sang Down.',
   'monitor.form.aiBudget': 'Trần AI cho giám sát này (USD / 24 giờ)',
   'monitor.form.done': 'Xong',
   'monitor.form.cancel': 'Hủy',

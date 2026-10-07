@@ -317,36 +317,32 @@ Index `(day, agent_id)`, `(incident_id)`. View `cost_daily` group theo `day, age
 | name, description | text | tự nhận từ package.json, composer.json, go.mod |
 | path | text unique | đường dẫn tuyệt đối trên máy chạy office |
 | git_remote | text | đã bỏ thông tin đăng nhập trong URL |
-
-### `org_models`
-| Cột | Kiểu | Ghi chú |
-|---|---|---|
-| id | text PK | `org_<ulid>` |
-| repo_id | text FK null | null = mẫu trong thư viện; cascade khi xóa repo |
-| source_template_id | text FK null | mẫu gốc khi áp vào repo |
-| key | text | unique trong thư viện |
-| name, description | text | |
-| kind | text | `solo` \| `team` \| `council` \| `custom` |
-| governance | json | `{mode: single|hierarchy|council, quorum, veto[], notes}` |
-| builtin | bool | mẫu có sẵn, chỉ khôi phục không xóa |
-
-Unique: `key` khi `repo_id IS NULL`; `repo_id` khi khác null (một mô hình mỗi repo).
+| default_agent_id | text | agent trả lời khi không ai được gọi tên ('' = agent đầu tiên đang bật) — ADR-099 |
 
 ### `agents`
 | Cột | Kiểu | Ghi chú |
 |---|---|---|
 | id | text PK | `agt_<ulid>` |
-| org_model_id | text FK | cascade |
-| key | text | unique trong mô hình |
+| project_id | text FK | `repos.id`, cascade (ADR-099; trước là `org_model_id`) |
+| key | text | unique trong project |
 | name, role, description | text | |
-| tier | text | `lead` \| `manager` \| `worker` |
-| reports_to | json | key của cấp trên trong cùng mô hình |
 | provider_id | text FK null | null = kết nối mặc định; set null khi xóa kết nối |
+| fallback_provider_ids | json | kết nối thử tiếp theo thứ tự |
 | model_tier | text | `strong` \| `balanced` \| `fast` |
-| llm_model | text | model cụ thể, ghi đè hạng |
+| llm_model, effort | text | model cụ thể (ghi đè hạng), mức suy nghĩ |
 | instructions | text | system prompt riêng |
-| permissions | json | `{read_only, requires_approval, tools[]}` |
+| permissions | json | gói quyền, caps, lệnh, `full_access` (ADR-074) |
+| avatar | json | |
+| enabled | bool | false = tạm dừng |
 | sort | int | |
+
+### `revisions`
+Ảnh chụp agent của một project trước mỗi thay đổi (giữ 50): `project_id`, `action`, `actor`, `agent_count`, `snapshot` (`{default, agents[]}`).
+
+### `workflows` / `workflow_runs` (ADR-098)
+`workflows`: bản quy trình của project: `project_id`, `key` (unique trong project), `name`, `description`, `source` (cả file), `source_key`/`source_hash` (mẫu thư viện đã chép), `bindings` (vai → agent_id), `enabled`.
+
+`workflow_runs`: một lần chạy trong chat: `project_id`, `conversation_id`, `workflow_id`, `workflow_key`, `coordinator_id`, `input`, `status` (`running` \| `done` \| `failed` \| `stopped`), `turns`, `cost_usd`, `roles` (json: vai, agent, phiên, round, trạng thái, chi phí), `gates`, `log`, `result`, `error`, `started_at`, `finished_at`.
 
 ### `audit_log`
 

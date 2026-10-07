@@ -34,7 +34,7 @@ Công cụ AI viết code rất giỏi, nhưng mỗi lần chỉ một cuộc ch
 | | |
 |---|---|
 | 💬 **Chat với cả đội** · trả lời trực tiếp, `@tên` để kéo agent vào nhóm, gọi `/skill`, đính kèm ảnh/PDF/log, tag, tìm lại chat cũ | ![Chat](docs/guide/images/vi/04-chat.png) |
-| 🧑‍🤝‍🧑 **Mô hình tổ chức** · Solo, Team (lập kế hoạch → làm song song → gộp), Tam quyền (biểu quyết, phủ quyết, kiểm tra) hoặc tự tạo; chỉnh từng agent | ![Mô hình Team](docs/guide/images/vi/06-team-model.png) |
+| 🧑‍🤝‍🧑 **Quy trình** · gõ `/giao-lai`, `/co-van`, `/hoi-dong`, `/lam-tinh-nang`… để nhiều agent phối hợp có ràng buộc (vai, quyền, model khác họ, cổng duyệt, biểu quyết); tự soạn bằng chat | ![Mô hình Team](docs/guide/images/vi/06-team-model.png) |
 | ✅ **Duyệt trước khi gộp** · mỗi chat có git worktree riêng; diff, thao tác và đổi cài đặt chờ *Duyệt / Từ chối / Bỏ qua* (hoặc "duyệt & luôn cho phép") | ![Thẻ diff](docs/guide/images/vi/34-dark-chat.png) |
 | ⚙️ **Vận hành** · tìm lệnh của project, chạy/dừng/tự chạy lại như pm2, log trực tiếp, CPU/RAM/cổng, docker compose, "hỏi agent về log này" | ![Vận hành](docs/guide/images/vi/11-operations.png) |
 | 🤖 **Tự động hóa** · lịch (cron + múi giờ), webhook, tin nhắn Discord/Telegram; chạy script miễn phí, chỉ gọi AI khi lỗi hoặc khi gặp `@@agent:` | ![Tự động hóa](docs/guide/images/vi/09-automations.png) |
@@ -90,7 +90,7 @@ Sau đó làm theo checklist trên trang Tổng quan:
 
 1. **Kết nối AI** → thêm Claude Code, Codex hoặc một API key (kiểm tra bằng một cú bấm).
 2. **Project** → thêm thư mục, clone link git, hoặc tạo trợ lý không thư mục.
-3. **Mô hình tổ chức** → chọn Solo / Team / Tam quyền, hoặc để *Thiết lập bằng AI* đọc repo và đề xuất.
+3. **Gói khởi tạo** → chọn Solo / Team / Hội đồng (agent + quy trình cài sẵn), hoặc để *Thiết lập bằng AI* đọc repo và đề xuất.
 4. Mở **Chat** của project và giao việc đầu tiên.
 
 Dữ liệu mặc định nằm ở `~/.agent-office`. Dùng `office init --local` trong một repo để giữ dữ liệu trong `<repo>/.office`.
@@ -141,11 +141,11 @@ flowchart LR
 |---|---|
 | `office run` | Supervisor: server API + dashboard, tự bật lại khi dừng, áp dụng bản cập nhật |
 | `office serve` | Chỉ chạy server API |
-| `office init [--local] [--template team]` | Đăng ký repo hiện tại và chọn mô hình |
+| `office init [--local] [--pack team]` | Đăng ký repo hiện tại và chọn gói khởi tạo |
 | `office project add/list/rm` | Quản lý project (không có path = trợ lý toàn máy) |
 | `office provider add/list/test` | Kết nối AI |
 | `office user create/list/passwd` | Admin đầu tiên (thay `admin` / `admin`), liệt kê tài khoản, đặt lại mật khẩu |
-| `office template list` | Mô hình tổ chức có sẵn và tự tạo |
+| `office pack list` | Gói khởi tạo (agent + quy trình cho project mới) |
 | `office export / import / backup` | Chuyển cấu hình giữa các máy, sao lưu database |
 | `office service install/status/uninstall` | Tự bật cùng phiên đăng nhập máy |
 

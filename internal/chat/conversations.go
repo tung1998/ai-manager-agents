@@ -18,8 +18,8 @@ func (e *Engine) StartConversationFor(ctx context.Context, projectID, agentID st
 	pick := func(a storage.Agent) storage.Conversation {
 		return storage.Conversation{ProjectID: projectID, AgentID: a.ID, AgentName: a.Name, CreatedBy: actor.From(ctx)}
 	}
-	if agentID == "" { // the first lead that is not paused
-		a, err := firstLead(agents)
+	if agentID == "" { // the project's default agent
+		a, err := e.defaultAgent(ctx, projectID, agents)
 		return pick(a), err
 	}
 	for _, a := range agents {

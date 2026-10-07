@@ -15,10 +15,10 @@ import (
 // Followed are the tables a dashboard page shows.
 var Followed = map[string]bool{
 	"conversations": true, "messages": true, "conversation_agents": true, "patches": true, "actions": true,
-	"jobs": true, "automations": true, "channels": true, "repos": true, "org_models": true, "agents": true,
+	"jobs": true, "automations": true, "channels": true, "repos": true, "agents": true,
 	"processes": true, "monitors": true, "agent_memories": true, "providers": true, "users": true,
-	"runs": true, "org_revisions": true, "audit_log": true, "monitor_events": true, "settings": true, "conversation_reads": true, "burn_sessions": true, "burn_items": true,
-	"mcp_servers": true,
+	"runs": true, "revisions": true, "audit_log": true, "monitor_events": true, "settings": true, "conversation_reads": true, "burn_sessions": true, "burn_items": true,
+	"mcp_servers": true, "workflows": true, "workflow_runs": true,
 }
 
 // Event is one notice: its name (change, stats, machine, message…) and data.

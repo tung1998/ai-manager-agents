@@ -10,9 +10,13 @@ import watchScreen from './parts/watch.vi'
 import files from './parts/files.vi'
 import chatTags from './parts/tags.vi'
 import dataPage from './parts/data.vi'
+import team from './parts/team.vi'
+import workflows from './parts/workflows.vi'
 
 const vi = {
   ...dataPage,
+  ...team,
+  ...workflows,
   ...watchScreen,
   ...files,
   ...chatTags,
@@ -35,7 +39,6 @@ const vi = {
   'nav.addProject': 'Thêm project',
   'nav.providers': 'Kết nối AI',
   'nav.costs': 'Chi phí',
-  'nav.templates': 'Mô hình',
   'nav.library': 'Thư viện',
   'nav.admin': 'Quản trị',
   'nav.users': 'Tài khoản',
@@ -111,10 +114,6 @@ const vi = {
   'log.empty': 'Chưa có log.',
   'log.toBottom': '↓ Xuống dòng mới nhất',
   'soon.badge': 'Sẽ có ở {milestone}',
-  'noModel.title': 'Project chưa có mô hình tổ chức',
-  'noModel.desc': 'Cần mô hình để chat và giao việc. Để AI đề xuất, hoặc tự chọn Solo, Team, Tam quyền.',
-  'noModel.setupAi': 'Thiết lập bằng AI',
-  'noModel.choose': 'Tự chọn mô hình',
 } as const
 
 export type MessageKey = keyof typeof vi

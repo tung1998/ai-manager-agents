@@ -87,7 +87,6 @@ func (s *Store) Channels() storage.ChannelRepo       { return channelRepo{s.q} }
 func (s *Store) Sessions() storage.SessionRepo       { return sessionRepo{s.q} }
 func (s *Store) Audit() storage.AuditRepo            { return auditRepo{s.q} }
 func (s *Store) Providers() storage.ProviderRepo     { return providerRepo{s.q} }
-func (s *Store) OrgModels() storage.OrgModelRepo     { return orgModelRepo{s.q} }
 func (s *Store) Agents() storage.AgentRepo           { return agentRepo{s.q} }
 func (s *Store) Repos() storage.RepoRepo             { return repoRepo{s.q} }
 func (s *Store) Revisions() storage.RevisionRepo     { return revisionRepo{s.q} }

@@ -22,19 +22,16 @@ const { t, dateLocale } = useLang()
 const projectId = computed(() => route.params.id as string)
 const agentId = computed(() => route.params.agentId as string)
 
-const _f1 = useLiveFetch<{ agent: Agent, model: { id: string, name: string, kind: string, repo_id: string }, project?: { id: string, name: string } }>(() => `/api/agents/${agentId.value}`)
+const _f1 = useLiveFetch<{ agent: Agent, project?: { id: string, name: string }, is_default?: boolean }>(() => `/api/agents/${agentId.value}`)
 const { data, refresh } = _f1
 const _f2 = useLiveFetch<{ providers: Provider[] }>('/api/providers')
 const { data: provData } = _f2
-const _f3 = useLiveFetch<{ model: OrgModel }>(() => `/api/org-models/${data.value?.model.id}`, { immediate: !!data.value })
-const { data: modelData } = _f3
-await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
+await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
 const agent = computed(() => data.value?.agent)
 const providers = computed(() => provData.value?.providers ?? [])
 const defaultProvider = computed(() => providers.value.find(p => p.is_default))
 const providerOf = (a: { provider_id: string }) => providers.value.find(p => p.id === a.provider_id) ?? defaultProvider.value
 const resolvedModel = computed(() => agent.value ? agent.value.llm_model || providerOf(agent.value)?.tier_models[agent.value.model_tier] || '—' : '—')
-const others = computed(() => (modelData.value?.model.agents ?? []).filter(a => a.id !== agentId.value))
 
 type Tab = 'overview' | 'config' | 'memory' | 'activity' | 'history'
 const tab = computed<Tab>({
@@ -69,7 +66,7 @@ const tiles = computed(() => {
 })
 
 // ---- config: three cards, each saved on its own ----
-const form = reactive({ name: '', key: '', tier: 'worker' as AgentTier, role: '', description: '', reports_to: [] as string[], instructions: '', provider_id: '', fallback_provider_ids: [] as string[], model_tier: 'balanced' as ModelTier, llm_model: '', effort: '', permissions: { level: 'propose', read_only: false } as Permissions, avatar: {} as AvatarSpec })
+const form = reactive({ name: '', key: '', role: '', description: '', instructions: '', provider_id: '', fallback_provider_ids: [] as string[], model_tier: 'balanced' as ModelTier, llm_model: '', effort: '', permissions: { level: 'propose', read_only: false } as Permissions, avatar: {} as AvatarSpec })
 const editedFrom = ref('') // the agent as the form was filled: a save over someone else's change is refused
 const saveError = useSaveError()
 function load() {
@@ -77,7 +74,7 @@ function load() {
   if (!a) return
   editedFrom.value = (a as { version?: string }).version ?? ''
   Object.assign(form, JSON.parse(JSON.stringify({
-    name: a.name, key: a.key, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, instructions: a.instructions,
+    name: a.name, key: a.key, role: a.role, description: a.description, instructions: a.instructions,
     provider_id: a.provider_id, fallback_provider_ids: a.fallback_provider_ids ?? [], model_tier: a.model_tier, llm_model: a.llm_model, effort: a.effort ?? '', permissions: a.permissions, avatar: a.avatar ?? {}
   })))
 }
@@ -93,17 +90,16 @@ const providerOptions = computed(() => [
 ])
 const formProvider = computed(() => providers.value.find(p => p.id === form.provider_id) ?? defaultProvider.value)
 const providerName = (id: string) => providers.value.find(p => p.id === id)?.name ?? id
-const bossOptions = computed(() => others.value.filter(a => a.tier !== 'worker').map(a => ({ label: `${a.name} (${a.key})`, value: a.key })))
 const saving = ref('')
 const avatarEditing = ref(false)
-const cardFields = { role: ['key', 'name', 'tier', 'role', 'description', 'reports_to', 'instructions'], model: ['provider_id', 'fallback_provider_ids', 'model_tier', 'llm_model', 'effort'], perm: ['permissions'], avatar: ['avatar'] } as const
+const cardFields = { role: ['key', 'name', 'role', 'description', 'instructions'], model: ['provider_id', 'fallback_provider_ids', 'model_tier', 'llm_model', 'effort'], perm: ['permissions'], avatar: ['avatar'] } as const
 async function save(card: 'role' | 'model' | 'perm' | 'avatar') {
   if (saving.value) return
   const a = agent.value!
   // each card sends its own fields on top of the saved agent
-  const base = { version: editedFrom.value, key: a.key, name: a.name, tier: a.tier, role: a.role, description: a.description, reports_to: a.reports_to, provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, instructions: a.instructions, permissions: a.permissions }
+  const base = { version: editedFrom.value, key: a.key, name: a.name, role: a.role, description: a.description, provider_id: a.provider_id, model_tier: a.model_tier, llm_model: a.llm_model, instructions: a.instructions, permissions: a.permissions }
   const body = card === 'role'
-    ? { ...base, key: form.key, name: form.name, tier: form.tier, role: form.role, description: form.description, reports_to: form.tier === 'lead' ? [] : form.reports_to, instructions: form.instructions }
+    ? { ...base, key: form.key, name: form.name, role: form.role, description: form.description, instructions: form.instructions }
     : card === 'model' ? { ...base, provider_id: form.provider_id, fallback_provider_ids: form.fallback_provider_ids.filter(id => id !== formProvider.value?.id), model_tier: form.model_tier, llm_model: form.llm_model, effort: form.effort }
       : card === 'avatar' ? { ...base, avatar: form.avatar } : { ...base, permissions: form.permissions }
   saving.value = card
@@ -129,7 +125,18 @@ async function remove() {
   if (!agent.value || !confirm(t('org.editor.deleteAgentConfirm', { name: agent.value.name }))) return
   try {
     await $fetch(`/api/agents/${agent.value.id}`, { method: 'DELETE' })
-    await navigateTo({ path: `/projects/${projectId.value}`, query: { tab: 'model' } })
+    await navigateTo({ path: `/projects/${projectId.value}`, query: { tab: 'agents' } })
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+}
+// the default agent answers the project's chats, bots and automations that name nobody
+async function makeDefault() {
+  if (!agent.value) return
+  try {
+    await $fetch(`/api/projects/${projectId.value}/default-agent`, { method: 'PUT', body: { agent_id: agent.value.id } })
+    await refresh()
+    toast.add({ title: t('team.defaultSet', { name: agent.value.name }), color: 'success' })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
@@ -157,8 +164,8 @@ const statusColor = (s: string) => s === 'done' ? 'success' : s === 'running' ? 
 
 // ---- history ----
 const fieldLabel = (f: string) => ({
-  name: t('org.form.name'), key: t('org.form.key'), tier: t('org.form.tier'), role: t('org.form.role'), description: t('org.settings.description'),
-  reports_to: t('org.form.reportsTo'), provider_id: t('org.form.provider'), fallback_provider_ids: t('org.form.fallbacks'), model_tier: t('org.form.modelTier'), llm_model: t('org.form.specificModel'), effort: t('org.form.effort'),
+  name: t('org.form.name'), key: t('org.form.key'), role: t('org.form.role'), description: t('org.settings.description'),
+  provider_id: t('org.form.provider'), fallback_provider_ids: t('org.form.fallbacks'), model_tier: t('org.form.modelTier'), llm_model: t('org.form.specificModel'), effort: t('org.form.effort'),
   instructions: t('org.form.instructions'), permissions: t('org.form.permissions')
 } as Record<string, string>)[f] ?? f
 // connection ids read as their names (empty main connection = the default one)
@@ -195,6 +202,7 @@ async function restore(e: Entry) {
   <PageShell :title="agent?.name ?? ''">
     <template #actions>
       <UButton v-if="agent" icon="i-lucide-messages-square" size="sm" :label="t('agentPage.chat')" @click="chat()" />
+      <UButton v-if="isAdmin && agent && data?.is_default === false" icon="i-lucide-star" size="sm" color="neutral" variant="outline" :label="t('team.makeDefault')" @click="makeDefault" />
       <UDropdownMenu v-if="isAdmin && agent" :content="{ align: 'end' }" :items="[[{ label: t('org.form.delete'), icon: 'i-lucide-trash', color: 'error', onSelect: remove }]]">
         <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" :aria-label="t('project.actionsAria')" />
       </UDropdownMenu>
@@ -202,16 +210,19 @@ async function restore(e: Entry) {
 
     <div v-if="agent" class="space-y-4">
       <UButton
-        :to="{ path: `/projects/${projectId}`, query: { tab: 'model' } }" icon="i-lucide-arrow-left" size="xs" color="neutral" variant="ghost"
+        :to="{ path: `/projects/${projectId}`, query: { tab: 'agents' } }" icon="i-lucide-arrow-left" size="xs" color="neutral" variant="ghost"
         class="-ms-2" :label="t('project.sectionModel')"
       />
       <div class="flex flex-wrap items-center gap-2 text-xs text-(--ui-text-muted)">
-        <NuxtLink v-if="data?.project" :to="{ path: `/projects/${projectId}`, query: { tab: 'model' } }" class="hover:text-(--ui-text)">
-          {{ data.project.name }} · {{ data.model.name }}
+        <NuxtLink v-if="data?.project" :to="{ path: `/projects/${projectId}`, query: { tab: 'agents' } }" class="hover:text-(--ui-text)">
+          {{ data.project.name }}
         </NuxtLink>
         <AgentSwitch :agent="agent" @changed="refresh()" />
         <UBadge v-if="agent.enabled === false" :label="t('org.editor.paused')" color="warning" variant="subtle" size="sm" icon="i-lucide-pause" />
-        <UBadge :label="tierLabel[agent.tier]" color="neutral" variant="subtle" size="sm" />
+        <UTooltip v-if="data?.is_default" :text="t('team.defaultHint')">
+          <UBadge :label="t('team.default')" icon="i-lucide-star" variant="subtle" size="sm" />
+        </UTooltip>
+        <UBadge :label="modelTierLabel[agent.model_tier]" color="neutral" variant="subtle" size="sm" />
         <UBadge :label="resolvedModel" color="neutral" variant="outline" size="sm" icon="i-lucide-cpu" class="font-mono" />
         <UBadge :label="permOf(agentLevel(agent.permissions)).label" :icon="permOf(agentLevel(agent.permissions)).icon" color="neutral" variant="outline" size="sm" />
         <span v-if="agent.role" class="truncate">{{ agent.role }}</span>
@@ -332,12 +343,6 @@ async function restore(e: Entry) {
           <div class="grid gap-3 sm:grid-cols-2">
             <UFormField :label="t('org.form.name')" required><UInput v-model="form.name" class="w-full" /></UFormField>
             <UFormField :label="t('org.form.key')" required><UInput v-model="form.key" class="w-full font-mono" /></UFormField>
-            <UFormField :label="t('org.form.tier')">
-              <USelect v-model="form.tier" :items="Object.entries(tierLabel).map(([value, label]) => ({ label, value }))" class="w-full" />
-            </UFormField>
-            <UFormField v-if="form.tier !== 'lead'" :label="t('org.form.reportsTo')">
-              <USelectMenu v-model="form.reports_to" multiple value-key="value" :items="bossOptions" class="w-full" />
-            </UFormField>
           </div>
           <UFormField :label="t('org.form.role')"><UInput v-model="form.role" class="w-full" :placeholder="t('org.form.rolePlaceholder')" /></UFormField>
           <UFormField :label="t('org.settings.description')"><UTextarea v-model="form.description" :rows="2" class="w-full" autoresize /></UFormField>

@@ -3,18 +3,15 @@ const { isAdmin } = useAuth()
 const { t } = useLang()
 const _f1 = useLiveFetch<{ projects: Project[] }>('/api/projects')
 const { data, refresh } = _f1
-const _f2 = useLiveFetch<{ templates: OrgModel[] }>('/api/templates')
-const { data: tplData } = _f2
 const _f3 = useLiveFetch<{ mode: string, home_dir: string, project_root?: string, clone_root?: string }>('/api/system')
 const { data: sys } = _f3
-await Promise.all([_f1, _f2, _f3]) // started together: one round trip, not 3 (a phone over a VPN)
+await Promise.all([_f1, _f3]) // started together: one round trip, not 2 (a phone over a VPN)
 const projects = computed(() => data.value?.projects ?? [])
-const templates = computed(() => tplData.value?.templates ?? [])
 
 const addOpen = ref(false)
 type Scope = 'folder' | 'clone' | 'machine'
 // clone: a pasted git link, cloned into parent/dir (dir from the link when empty)
-const form = reactive({ scope: 'folder' as Scope, path: '', name: '', template_id: '', url: '', dir: '', parent: '' })
+const form = reactive({ scope: 'folder' as Scope, path: '', name: '', pack: '', url: '', dir: '', parent: '' })
 const error = ref('')
 const adding = ref(false)
 const urlDir = computed(() => form.url.trim().replace(/\/+$/, '').split(/[/:]/).pop()?.replace(/\.git$/, '') ?? '')
@@ -25,7 +22,7 @@ const cloneDest = computed(() => {
 const canAdd = computed(() => form.scope === 'folder' ? !!form.path : form.scope === 'clone' ? !!form.url.trim() && !!form.parent : !!form.name)
 
 function openAdd(path = '', name = '') {
-  Object.assign(form, { scope: 'folder', path, name, template_id: '__ai', url: '', dir: '', parent: sys.value?.clone_root ?? '' })
+  Object.assign(form, { scope: 'folder', path, name, pack: '__ai', url: '', dir: '', parent: sys.value?.clone_root ?? '' })
   error.value = ''
   addOpen.value = true
 }
@@ -63,18 +60,18 @@ async function add() {
   adding.value = true
   error.value = ''
   try {
-    const template_id = form.template_id === '__ai' ? '' : form.template_id
+    const pack = form.pack === '__ai' ? '' : form.pack // AI: no agents yet, the setup page proposes them
     const res = form.scope === 'clone'
       ? await $fetch<{ project: Project }>('/api/projects/clone', {
           method: 'POST',
-          body: { url: form.url.trim(), parent: form.parent, dir: form.dir.trim(), name: form.name, template_id }
+          body: { url: form.url.trim(), parent: form.parent, dir: form.dir.trim(), name: form.name, pack }
         })
       : await $fetch<{ project: Project }>('/api/projects', {
           method: 'POST',
-          body: { path: form.scope === 'folder' ? form.path : '', name: form.name, template_id }
+          body: { path: form.scope === 'folder' ? form.path : '', name: form.name, pack }
         })
     addOpen.value = false
-    await navigateTo(form.template_id === '__ai' ? `/projects/${res.project.id}/setup` : `/projects/${res.project.id}`)
+    await navigateTo(form.pack === '__ai' ? `/projects/${res.project.id}/setup` : `/projects/${res.project.id}`)
   } catch (e) {
     error.value = apiError(e)
   } finally {
@@ -120,11 +117,11 @@ async function add() {
             <p v-else class="text-xs text-(--ui-text-muted)">{{ t('projects.machineHelper') }}</p>
           </div>
           <UBadge v-if="!p.exists" :label="t('projects.notFound')" color="error" variant="subtle" />
-          <div v-if="p.model" class="flex items-center gap-2 text-sm">
-            <UIcon :name="kindIcon[p.model.kind]" class="size-4" />
-            {{ p.model.name }} · {{ t('projects.agentCount', { n: p.model.agent_count }) }}
+          <div v-if="p.agent_count" class="flex items-center gap-2 text-sm">
+            <UIcon name="i-lucide-bot" class="size-4" />
+            {{ t('projects.agentCount', { n: p.agent_count }) }}
           </div>
-          <UBadge v-else :label="t('projects.noModel')" color="warning" variant="subtle" />
+          <UBadge v-else :label="t('team.noAgents')" color="warning" variant="subtle" />
           <UButton
             v-if="isAdmin" size="xs" color="neutral" variant="ghost" icon="i-lucide-trash-2" class="hover:text-(--ui-error)"
             :aria-label="t('project.unmanage')" :title="t('project.unmanage')" @click.prevent.stop="remove(p)"
@@ -207,8 +204,8 @@ async function add() {
             <UInput v-model="form.name" class="w-full" :placeholder="form.scope === 'machine' ? t('projects.namePlaceholder') : ''" />
           </UFormField>
 
-          <UFormField :label="t('projects.orgModel')">
-            <TemplatePicker v-model="form.template_id" :templates="templates" allow-ai />
+          <UFormField :label="t('team.starterPack')">
+            <PackPicker v-model="form.pack" allow-ai />
           </UFormField>
           <UAlert v-if="error" color="error" variant="subtle" :description="error" />
         </form>

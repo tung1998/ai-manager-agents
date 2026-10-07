@@ -145,9 +145,9 @@ async function build() {
   // a clone, not the real checkout: the library lists the git repos next to known projects
   const aoCopy = join(HOME, 'agent-office')
   execFileSync('git', ['clone', '-q', '--depth', '1', `file://${mainRoot}`, aoCopy])
-  office(['project', 'add', aoCopy, '--name', 'agent-office', '--template', 'team'])
-  office(['project', 'add', shop, '--name', 'demo-shop', '--template', 'council'])
-  office(['project', 'add', '--name', CONTENT, '--template', 'solo'])
+  office(['project', 'add', aoCopy, '--name', 'agent-office', '--pack', 'team'])
+  office(['project', 'add', shop, '--name', 'demo-shop', '--pack', 'council'])
+  office(['project', 'add', '--name', CONTENT, '--pack', 'solo'])
 
   // the server scans ~/.claude for skills and MCP servers: give it a home of its own,
   // so the screenshots never show the real machine's
@@ -172,8 +172,8 @@ async function lookup() {
   const { projects } = await api('GET', '/api/projects')
   const byName = n => projects.find(p => p.name === n)
   const ao = (await api('GET', `/api/projects/${byName('agent-office').id}`)).project
-  const agents = ao.model?.agents ?? []
-  const lead = agents.find(a => a.tier === 'lead') ?? agents[0]
+  const agents = ao.agents ?? []
+  const lead = agents.find(a => a.id === ao.default_agent_id) ?? agents[0]
   const dev = agents.find(a => /dev|engineer|backend|frontend/i.test(a.key + a.name)) ?? agents[1] ?? lead
   const qa = agents.find(a => /qa|test|review/i.test(a.key + a.name)) ?? agents[2] ?? lead
   return { me, ao, shop: byName('demo-shop'), content: byName(CONTENT), lead, dev, qa }
@@ -406,7 +406,7 @@ async function capture({ ao, shop, lead }) {
     ['03-projects', '/projects'],
     ['04-chat', `${P}?tab=chat&c=cnv_demo_theme`],
     ['05-chat-answer', `${P}?tab=chat&c=cnv_demo_build`],
-    ['06-team-model', `${P}?tab=model`],
+    ['06-team-model', `${P}?tab=agents`],
     ['07-agent', `${P}/agents/${lead?.id}`],
     ['08-permissions', `${P}?tab=perm`],
     ['09-automations', `${P}?tab=automations`],
@@ -420,11 +420,11 @@ async function capture({ ao, shop, lead }) {
     ['17-project-info', `${P}?tab=info`],
     ['18-setup-ai', `${P}/setup`],
     ['19-bot', `${P}/bots/new`],
-    ['20-council', `/projects/${shop.id}?tab=model`],
+    ['20-council', `/projects/${shop.id}?tab=workflows`],
     ['21-assistant', '/assistant'],
     ['22-watch', '/watch'],
     ['23-providers', '/providers'],
-    ['24-templates', '/templates'],
+    ['24-templates', '/library?tab=workflows'],
     ['25-library', '/library'],
     ['26-jobs', '/jobs'],
     ['27-stats', '/?tab=stats'],

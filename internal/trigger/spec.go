@@ -121,8 +121,8 @@ func CheckAgents(ctx context.Context, st storage.Store, projectID string, ids ..
 		if err != nil {
 			return errors.New("không tìm thấy agent")
 		}
-		if m, err := st.OrgModels().Get(ctx, ag.OrgModelID); err != nil || m.RepoID != projectID {
-			return errors.New("agent không thuộc mô hình của project này")
+		if ag.ProjectID != projectID {
+			return errors.New("agent không thuộc project này")
 		}
 	}
 	return nil

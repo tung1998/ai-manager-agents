@@ -66,11 +66,7 @@ func (s *server) mcpAgents(w http.ResponseWriter, r *http.Request) {
 		if p.ID == office {
 			continue
 		}
-		model, err := s.cfg.Store.OrgModels().GetForRepo(ctx, p.ID)
-		if err != nil {
-			continue
-		}
-		agents, err := s.cfg.Store.Agents().List(ctx, model.ID)
+		agents, err := s.cfg.Store.Agents().List(ctx, p.ID)
 		if err != nil {
 			continue
 		}

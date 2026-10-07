@@ -41,31 +41,29 @@ func TestProvidersAPI(t *testing.T) {
 	}
 }
 
-func TestTemplatesReposAgentsAPI(t *testing.T) {
+func TestPacksReposAgentsAPI(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
 
-	resp, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	tpls := body["templates"].([]any)
-	if resp.StatusCode != 200 || len(tpls) != 3 {
-		t.Fatalf("templates = %d %v", resp.StatusCode, body)
-	}
-	ids := map[string]string{}
-	for _, x := range tpls {
-		m := x.(map[string]any)
-		ids[m["key"].(string)] = m["id"].(string)
+	resp, body := do(t, admin, "GET", e.srv.URL+"/api/packs", nil, nil)
+	if packs := body["packs"].([]any); resp.StatusCode != 200 || len(packs) != 3 {
+		t.Fatalf("packs = %d %v", resp.StatusCode, body)
 	}
 
 	dir := t.TempDir()
-	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "name": "shop", "template_id": ids["team"]}, nil)
+	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "name": "shop", "pack": "team"}, nil)
 	if resp.StatusCode != 201 {
 		t.Fatalf("create repo = %d %v", resp.StatusCode, body)
 	}
 	repo := body["project"].(map[string]any)
-	model := repo["model"].(map[string]any)
-	if model["kind"] != "team" || model["is_template"] != false || len(model["agents"].([]any)) != 9 {
-		t.Fatalf("repo model = %v", model)
+	agents := repo["agents"].([]any)
+	if len(agents) != 9 || repo["agent_count"].(float64) != 9 || repo["default_agent_id"] != agents[0].(map[string]any)["id"] {
+		t.Fatalf("repo agents = %v", repo)
+	}
+	pid := repo["id"].(string)
+	if _, body := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/workflows", nil, nil); len(body["workflows"].([]any)) == 0 {
+		t.Fatalf("the pack's workflows = %v", body)
 	}
 	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir}, nil); resp.StatusCode != 409 {
 		t.Fatalf("duplicate repo = %d", resp.StatusCode)
@@ -74,9 +72,9 @@ func TestTemplatesReposAgentsAPI(t *testing.T) {
 		t.Fatalf("missing path = %d", resp.StatusCode)
 	}
 
-	// edit an agent of the repo's model
+	// edit an agent of the project
 	var engineer map[string]any
-	for _, a := range model["agents"].([]any) {
+	for _, a := range agents {
 		if a.(map[string]any)["key"] == "engineer" {
 			engineer = a.(map[string]any)
 		}
@@ -87,40 +85,34 @@ func TestTemplatesReposAgentsAPI(t *testing.T) {
 	if resp.StatusCode != 200 || body["agent"].(map[string]any)["name"] != "Kỹ sư backend" {
 		t.Fatalf("update agent = %d %v", resp.StatusCode, body)
 	}
-	// invalid structure is rejected with problems
+	// an invalid agent is rejected with problems
 	engineer["version"] = body["agent"].(map[string]any)["version"] // edited from what was just saved
-	engineer["reports_to"] = []string{"ghost"}
+	engineer["key"] = "Bad Key"
 	resp, body = do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+engineer["id"].(string), stripID(engineer), nil)
 	if resp.StatusCode != 400 || body["problems"] == nil {
 		t.Fatalf("invalid agent = %d %v", resp.StatusCode, body)
 	}
-	// template unchanged
-	resp, body = do(t, admin, "GET", e.srv.URL+"/api/org-models/"+ids["team"], nil, nil)
-	for _, a := range body["model"].(map[string]any)["agents"].([]any) {
-		if a.(map[string]any)["name"] == "Kỹ sư backend" {
-			t.Fatal("template modified by repo edit")
-		}
+	// add an agent, make it the default
+	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/agents", map[string]any{"key": "reviewer", "name": "Reviewer", "model_tier": "fast"}, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create agent = %d %v", resp.StatusCode, body)
 	}
-	// replace model with council
-	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/"+repo["id"].(string)+"/model", map[string]any{"template_id": ids["council"]}, nil); resp.StatusCode != 409 {
+	rid := body["agent"].(map[string]any)["id"].(string)
+	if resp, _ := do(t, admin, "PUT", e.srv.URL+"/api/projects/"+pid+"/default-agent", map[string]any{"agent_id": rid}, nil); resp.StatusCode != 204 {
+		t.Fatalf("set default = %d", resp.StatusCode)
+	}
+	if _, body := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid, nil, nil); body["project"].(map[string]any)["default_agent_id"] != rid {
+		t.Fatalf("default = %v", body["project"])
+	}
+	// a pack again: refused unless replacing
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/pack", map[string]any{"key": "council"}, nil); resp.StatusCode != 409 {
 		t.Fatalf("apply without replace = %d", resp.StatusCode)
 	}
-	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+repo["id"].(string)+"/model", map[string]any{"template_id": ids["council"], "replace": true}, nil)
-	if resp.StatusCode != 200 || body["project"].(map[string]any)["model"].(map[string]any)["kind"] != "council" {
+	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/pack", map[string]any{"key": "council", "replace": true}, nil)
+	if resp.StatusCode != 200 || body["project"].(map[string]any)["agent_count"].(float64) != 6 {
 		t.Fatalf("replace = %d %v", resp.StatusCode, body)
 	}
-	// clone a template, delete built-in refused
-	resp, body = do(t, admin, "POST", e.srv.URL+"/api/templates", map[string]any{"source_id": ids["solo"], "key": "solo-vi", "name": "Solo tiếng Việt"}, nil)
-	if resp.StatusCode != 201 {
-		t.Fatalf("clone = %d %v", resp.StatusCode, body)
-	}
-	if resp, _ := do(t, admin, "DELETE", e.srv.URL+"/api/org-models/"+ids["solo"], nil, nil); resp.StatusCode != 400 {
-		t.Fatalf("delete builtin = %d", resp.StatusCode)
-	}
-	if resp, _ := do(t, admin, "DELETE", e.srv.URL+"/api/org-models/"+body["model"].(map[string]any)["id"].(string), nil, nil); resp.StatusCode != 204 {
-		t.Fatalf("delete clone = %d", resp.StatusCode)
-	}
-	if resp, body := do(t, admin, "GET", e.srv.URL+"/api/org-models/"+ids["team"]+"/export", nil, nil); resp.StatusCode != 200 || body["key"] != "team" {
+	if resp, body := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/agents/export", nil, nil); resp.StatusCode != 200 || len(body["agents"].([]any)) != 6 {
 		t.Fatalf("export = %d %v", resp.StatusCode, body)
 	}
 }
@@ -131,15 +123,9 @@ func TestAgentFullAccessPermissionAPI(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	solo := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "solo" {
-			solo = m["id"].(string)
-		}
-	}
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
-	agents := body["project"].(map[string]any)["model"].(map[string]any)["agents"].([]any)
+	solo := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
+	agents := body["project"].(map[string]any)["agents"].([]any)
 	agentID := agents[0].(map[string]any)["id"].(string)
 
 	// a relative or missing directory is rejected
@@ -196,15 +182,9 @@ func TestAgentExtraDirRejectsSensitiveDir(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	solo := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "solo" {
-			solo = m["id"].(string)
-		}
-	}
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
-	agents := body["project"].(map[string]any)["model"].(map[string]any)["agents"].([]any)
+	solo := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
+	agents := body["project"].(map[string]any)["agents"].([]any)
 	agentID := agents[0].(map[string]any)["id"].(string)
 	_, agentBody := do(t, admin, "GET", e.srv.URL+"/api/agents/"+agentID, nil, nil)
 	ag := agentBody["agent"].(map[string]any)
@@ -217,7 +197,7 @@ func TestAgentExtraDirRejectsSensitiveDir(t *testing.T) {
 func stripID(a map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, v := range a {
-		if k != "id" && k != "org_model_id" {
+		if k != "id" && k != "project_id" {
 			out[k] = v
 		}
 	}
@@ -310,25 +290,25 @@ func TestRevisionsAPI(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	var soloID string
-	for _, x := range body["templates"].([]any) {
-		if x.(map[string]any)["key"] == "solo" {
-			soloID = x.(map[string]any)["id"].(string)
-		}
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": "solo"}, nil)
+	project := body["project"].(map[string]any)
+	pid := project["id"].(string)
+	agent := project["agents"].([]any)[0].(map[string]any)
+	agent["name"] = "Trợ lý sửa"
+	if resp, body := do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+agent["id"].(string), stripID(agent), nil); resp.StatusCode != 200 {
+		t.Fatalf("update = %d %v", resp.StatusCode, body)
 	}
-	do(t, admin, "PATCH", e.srv.URL+"/api/org-models/"+soloID, map[string]any{"name": "Solo sửa"}, nil)
-	resp, body := do(t, admin, "GET", e.srv.URL+"/api/org-models/"+soloID+"/revisions", nil, nil)
+	resp, body := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/revisions", nil, nil)
 	revs := body["revisions"].([]any)
 	if resp.StatusCode != 200 || len(revs) != 1 {
 		t.Fatalf("revisions = %d %v", resp.StatusCode, body)
 	}
 	rev := revs[0].(map[string]any)
-	if rev["actor"] != "human:admin@x.io" || rev["action"] != "model.update" {
+	if rev["actor"] != "human:admin@x.io" || rev["action"] != "agent.update:assistant" {
 		t.Fatalf("rev = %v", rev)
 	}
 	resp, body = do(t, admin, "GET", e.srv.URL+"/api/revisions/"+rev["id"].(string), nil, nil)
-	if resp.StatusCode != 200 || body["snapshot"].(map[string]any)["name"] != "Solo" {
+	if resp.StatusCode != 200 || body["snapshot"].(map[string]any)["agents"].([]any)[0].(map[string]any)["name"] != "Trợ lý" {
 		t.Fatalf("snapshot = %v", body)
 	}
 	member := e.client(t)
@@ -337,7 +317,7 @@ func TestRevisionsAPI(t *testing.T) {
 		t.Fatalf("member restore = %d", resp.StatusCode)
 	}
 	resp, body = do(t, admin, "POST", e.srv.URL+"/api/revisions/"+rev["id"].(string)+"/restore", map[string]any{}, nil)
-	if resp.StatusCode != 200 || body["model"].(map[string]any)["name"] != "Solo" {
+	if resp.StatusCode != 200 || body["project"].(map[string]any)["agents"].([]any)[0].(map[string]any)["name"] != "Trợ lý" {
 		t.Fatalf("restore = %d %v", resp.StatusCode, body)
 	}
 }

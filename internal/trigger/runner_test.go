@@ -202,8 +202,7 @@ func TestAutomationModelTier(t *testing.T) {
 func fullAccessAgent(t *testing.T, ctx context.Context, st storage.Store, p storage.Repo) storage.Agent {
 	t.Helper()
 	st.Users().Create(ctx, storage.User{Email: "admin@x.io", Role: storage.RoleAdmin, PasswordHash: "h"})
-	m, _ := st.OrgModels().Create(ctx, storage.OrgModel{RepoID: p.ID, Key: "m", Name: "m", Kind: "solo"})
-	ag, _ := st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "a", Name: "A", Tier: storage.TierLead, ModelTier: "fast",
+	ag, _ := st.Agents().Create(ctx, storage.Agent{ProjectID: p.ID, Key: "a", Name: "A", ModelTier: "fast",
 		Permissions: storage.Permissions{Level: perm.Operate, FullAccess: true, FullAccessBy: "admin@x.io"}})
 	return ag
 }
@@ -333,13 +332,12 @@ func TestExtraDirSymlinkRepointedAfterSaveIsDropped(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	st, p := openStore(t)
-	m, _ := st.OrgModels().Create(ctx, storage.OrgModel{RepoID: p.ID, Key: "m", Name: "m", Kind: "solo"})
 	other := t.TempDir() // the symlink's original, harmless target
 	link := filepath.Join(t.TempDir(), "extra-dir-link")
 	if err := os.Symlink(other, link); err != nil {
 		t.Fatal(err)
 	}
-	ag, _ := st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "a", Name: "A", Tier: storage.TierLead, ModelTier: "fast",
+	ag, _ := st.Agents().Create(ctx, storage.Agent{ProjectID: p.ID, Key: "a", Name: "A", ModelTier: "fast",
 		Permissions: storage.Permissions{Level: perm.Operate, ExtraDirs: []string{link}}})
 	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "daily", Source: "schedule", Action: "chat", Enabled: true, AgentID: ag.ID})
 

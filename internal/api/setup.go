@@ -73,13 +73,13 @@ func (s *server) setupPropose(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	s.auditAction(r, "project.setup_propose", x.ID, map[string]any{"template": res.Proposal.TemplateKey, "model": res.Model,
+	s.auditAction(r, "project.setup_propose", x.ID, map[string]any{"pack": res.Proposal.PackKey, "model": res.Model,
 		"input_tokens": res.Usage.InputTokens, "output_tokens": res.Usage.OutputTokens})
 	writeJSON(w, http.StatusOK, map[string]any{"result": res, "summary": sum})
 }
 
 type setupChoice struct {
-	TemplateKey string              `json:"template_key"`
+	PackKey     string              `json:"pack_key"`
 	Changes     []setup.AgentChange `json:"changes"`
 	Description *string             `json:"description"`
 }
@@ -89,7 +89,7 @@ func (s *server) setupBuild(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	t, problems, err := s.cfg.Setup.Build(r.Context(), in.TemplateKey, in.Changes)
+	t, problems, err := setup.Build(in.PackKey, in.Changes)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -97,7 +97,7 @@ func (s *server) setupBuild(w http.ResponseWriter, r *http.Request) {
 	if problems == nil {
 		problems = []string{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"template": t, "problems": problems})
+	writeJSON(w, http.StatusOK, map[string]any{"pack": t, "problems": problems})
 }
 
 func (s *server) setupApply(w http.ResponseWriter, r *http.Request) {
@@ -110,11 +110,11 @@ func (s *server) setupApply(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	m, err := s.cfg.Setup.Accept(r.Context(), x.ID, in.TemplateKey, in.Changes)
-	if err != nil {
+	if _, err := s.cfg.Setup.Accept(r.Context(), x.ID, in.PackKey, in.Changes); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	x, _ = s.cfg.Store.Repos().Get(r.Context(), x.ID) // its default agent is set
 	if in.Description != nil {
 		x.Description = strings.TrimSpace(*in.Description)
 		if err := s.cfg.Store.Repos().Update(r.Context(), x); err != nil {
@@ -122,7 +122,7 @@ func (s *server) setupApply(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.auditAction(r, "project.setup_apply", x.ID, map[string]any{"template": in.TemplateKey, "model": m.ID, "changes": len(in.Changes)})
+	s.auditAction(r, "project.setup_apply", x.ID, map[string]any{"pack": in.PackKey, "changes": len(in.Changes)})
 	d, _ := s.repoDTO(r, x, true)
 	writeJSON(w, http.StatusOK, map[string]any{"project": d})
 }

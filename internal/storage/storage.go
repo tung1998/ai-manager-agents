@@ -109,7 +109,6 @@ type Store interface {
 	Audit() AuditRepo
 
 	Providers() ProviderRepo
-	OrgModels() OrgModelRepo
 	Agents() AgentRepo
 	Repos() RepoRepo
 	Revisions() RevisionRepo
@@ -132,6 +131,10 @@ type Store interface {
 	MCPCalls() MCPCallRepo
 	// Data is what the projects keep, for cleanup (ADR-095).
 	Data() DataRepo
+	// Workflows are how a project's agents work together, and their runs
+	// (spec 2026-10-07-workflows-design).
+	Workflows() WorkflowRepo
+	WorkflowRuns() WorkflowRunRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error

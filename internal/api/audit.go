@@ -76,17 +76,13 @@ func (s *server) projectOf(ctx context.Context, resource, id string) string {
 		if m, err := st.Monitors().Get(ctx, id); err == nil {
 			return m.ProjectID
 		}
-	case "org_model":
-		if m, err := st.OrgModels().Get(ctx, id); err == nil {
-			return m.RepoID
-		}
 	case "action", "git":
 		if a, err := st.Actions().Get(ctx, id); err == nil {
 			return a.ProjectID
 		}
 	case "agent":
 		if a, err := st.Agents().Get(ctx, id); err == nil {
-			return s.agentProject(ctx, a)
+			return a.ProjectID
 		}
 	case "compose":
 		return id
@@ -94,38 +90,10 @@ func (s *server) projectOf(ctx context.Context, resource, id string) string {
 	return ""
 }
 
-// agentProject is the project an agent belongs to ("" = a template's agent).
-func (s *server) agentProject(ctx context.Context, a storage.Agent) string {
-	m, err := s.cfg.Store.OrgModels().Get(ctx, a.OrgModelID)
-	if err != nil {
-		return ""
-	}
-	return m.RepoID
-}
-
-// orgModelProjectPath is the filesystem path of the project an org model
-// belongs to ("" = a template, or a project without a path) — for validating
-// an agent's extra read dirs against it (ADR-074).
-func (s *server) orgModelProjectPath(ctx context.Context, orgModelID string) string {
-	m, err := s.cfg.Store.OrgModels().Get(ctx, orgModelID)
-	if err != nil || m.RepoID == "" {
-		return ""
-	}
-	repo, err := s.cfg.Store.Repos().Get(ctx, m.RepoID)
-	if err != nil {
-		return ""
-	}
-	return repo.Path
-}
-
-// repoSnapshot / modelSnapshot: the fields a person edits (no timestamps, so
+// repoSnapshot: the fields a person edits (no timestamps, so
 // a diff shows only what changed).
 func repoSnapshot(x storage.Repo) map[string]any {
 	return map[string]any{"name": x.Name, "path": x.Path, "git_remote": x.GitRemote, "description": x.Description}
-}
-
-func modelSnapshot(m storage.OrgModel) map[string]any {
-	return map[string]any{"key": m.Key, "name": m.Name, "description": m.Description, "kind": m.Kind, "governance": m.Governance}
 }
 
 func auditFilter(r *http.Request) storage.AuditFilter {

@@ -1,6 +1,7 @@
 // Package transfer exports the office configuration (AI connections without
-// secrets, templates, projects and their models) and imports it back, on this
-// or another machine. Agents refer to connections by name so the bundle is
+// secrets, the workflow library, projects with their agents and workflows)
+// and imports it back, on this or another machine. Agents refer to
+// connections by name and workflows to agents by key so the bundle is
 // portable; users, sessions and keys are never exported.
 package transfer
 
@@ -9,25 +10,30 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/team"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
-// Version of the bundle format.
-const Version = 1
+// Version of the bundle format (1: projects carried an org model, ADR-099).
+const Version = 2
 
 // Bundle is the whole exported configuration.
 type Bundle struct {
-	Version    int             `json:"version"`
-	ExportedAt *time.Time      `json:"exported_at,omitempty"`
-	Providers  []ProviderSpec  `json:"providers"`
-	Templates  []TemplateEntry `json:"templates"`
-	Projects   []ProjectSpec   `json:"projects"`
+	Version    int            `json:"version"`
+	ExportedAt *time.Time     `json:"exported_at,omitempty"`
+	Providers  []ProviderSpec `json:"providers"`
+	Workflows  []LibraryEntry `json:"workflows"`
+	Projects   []ProjectSpec  `json:"projects"`
+	// Templates: org model templates of a version 1 bundle (not imported).
+	Templates []json.RawMessage `json:"templates,omitempty"`
 }
 
 // ProviderSpec is a connection without its secret.
@@ -44,37 +50,51 @@ type ProviderSpec struct {
 	HadStoredKey bool `json:"had_stored_key,omitempty"`
 }
 
-// TemplateEntry is a library template.
-type TemplateEntry struct {
-	Builtin  bool              `json:"builtin,omitempty"`
-	Template orgmodel.Template `json:"template"`
+// LibraryEntry is a workflow of the library written or changed here (the
+// shipped ones as they are need no copy).
+type LibraryEntry struct {
+	Key    string `json:"key"`
+	Source string `json:"source"`
 }
 
-// ProjectSpec is a project and its model.
+// ProjectWorkflow is a workflow installed in a project; its roles are bound
+// by agent key.
+type ProjectWorkflow struct {
+	Key     string            `json:"key"`
+	From    string            `json:"from,omitempty"` // the library workflow it was copied from
+	Source  string            `json:"source"`
+	Roles   map[string]string `json:"roles,omitempty"` // role → agent key
+	Enabled bool              `json:"enabled"`
+}
+
+// ProjectSpec is a project, its agents and its workflows.
 type ProjectSpec struct {
-	Name           string             `json:"name"`
-	Path           string             `json:"path,omitempty"` // empty: machine-wide helper
-	GitRemote      string             `json:"git_remote,omitempty"`
-	Description    string             `json:"description,omitempty"`
-	SourceTemplate string             `json:"source_template,omitempty"` // library key it came from
-	Model          *orgmodel.Template `json:"model,omitempty"`
+	Name        string            `json:"name"`
+	Path        string            `json:"path,omitempty"` // empty: machine-wide helper
+	GitRemote   string            `json:"git_remote,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Agents      *team.Snapshot    `json:"agents,omitempty"`
+	Workflows   []ProjectWorkflow `json:"workflows,omitempty"`
+	// Model: a version 1 bundle's org model; its agents are taken.
+	Model *team.Snapshot `json:"model,omitempty"`
 }
 
 // Service exports and imports.
 type Service struct {
 	store     storage.Store
 	providers *provider.Service
-	org       *orgmodel.Service
+	team      *team.Service
+	lib       workflow.Library
 }
 
 // New builds a Service.
-func New(store storage.Store, providers *provider.Service, org *orgmodel.Service) *Service {
-	return &Service{store: store, providers: providers, org: org}
+func New(store storage.Store, providers *provider.Service, tm *team.Service, lib workflow.Library) *Service {
+	return &Service{store: store, providers: providers, team: tm, lib: lib}
 }
 
 // Export builds the bundle.
 func (s *Service) Export(ctx context.Context) (Bundle, error) {
-	b := Bundle{Version: Version, Providers: []ProviderSpec{}, Templates: []TemplateEntry{}, Projects: []ProjectSpec{}}
+	b := Bundle{Version: Version, Providers: []ProviderSpec{}, Workflows: []LibraryEntry{}, Projects: []ProjectSpec{}}
 	provs, err := s.store.Providers().List(ctx)
 	if err != nil {
 		return b, err
@@ -89,20 +109,23 @@ func (s *Service) Export(ctx context.Context) (Bundle, error) {
 	}
 	sort.Slice(b.Providers, func(i, j int) bool { return b.Providers[i].Name < b.Providers[j].Name })
 
-	tpls, err := s.store.OrgModels().ListTemplates(ctx)
-	if err != nil {
-		return b, err
-	}
-	keyByID := map[string]string{}
-	for _, m := range tpls {
-		keyByID[m.ID] = m.Key
-		t, err := s.org.Load(ctx, m.ID)
+	if s.lib.Dir != "" {
+		items, err := s.lib.List()
 		if err != nil {
 			return b, err
 		}
-		b.Templates = append(b.Templates, TemplateEntry{Builtin: m.Builtin, Template: portable(t, names)})
+		for _, it := range items {
+			if it.Error != "" || (it.Builtin && !it.Modified) {
+				continue
+			}
+			full, err := s.lib.Get(it.Def.Key) // the list leaves the body out
+			if err != nil {
+				continue
+			}
+			b.Workflows = append(b.Workflows, LibraryEntry{Key: it.Def.Key, Source: full.Source})
+		}
+		sort.Slice(b.Workflows, func(i, j int) bool { return b.Workflows[i].Key < b.Workflows[j].Key })
 	}
-	sort.Slice(b.Templates, func(i, j int) bool { return b.Templates[i].Template.Key < b.Templates[j].Template.Key })
 
 	repos, err := s.store.Repos().List(ctx)
 	if err != nil {
@@ -110,15 +133,33 @@ func (s *Service) Export(ctx context.Context) (Bundle, error) {
 	}
 	for _, r := range repos {
 		p := ProjectSpec{Name: r.Name, Path: r.Path, GitRemote: r.GitRemote, Description: r.Description}
-		if m, err := s.store.OrgModels().GetForRepo(ctx, r.ID); err == nil {
-			t, err := s.org.Load(ctx, m.ID)
-			if err != nil {
-				return b, err
-			}
-			pt := portable(t, names)
-			p.Model, p.SourceTemplate = &pt, keyByID[m.SourceTemplateID]
-		} else if !errors.Is(err, storage.ErrNotFound) {
+		agents, err := s.store.Agents().List(ctx, r.ID)
+		if err != nil {
 			return b, err
+		}
+		if len(agents) > 0 {
+			snap := portable(team.Export(r, agents), names)
+			p.Agents = &snap
+		}
+		keyOf := map[string]string{}
+		for _, a := range agents {
+			keyOf[a.ID] = a.Key
+		}
+		wfs, err := s.store.Workflows().List(ctx, r.ID)
+		if err != nil {
+			return b, err
+		}
+		for _, w := range wfs {
+			pw := ProjectWorkflow{Key: w.Key, From: w.SourceKey, Source: w.Source, Enabled: w.Enabled}
+			for role, id := range w.Bindings {
+				if k := keyOf[id]; k != "" {
+					if pw.Roles == nil {
+						pw.Roles = map[string]string{}
+					}
+					pw.Roles[role] = k
+				}
+			}
+			p.Workflows = append(p.Workflows, pw)
 		}
 		b.Projects = append(b.Projects, p)
 	}
@@ -132,8 +173,8 @@ func (s *Service) Export(ctx context.Context) (Bundle, error) {
 }
 
 // portable swaps connection ids for names.
-func portable(t orgmodel.Template, names map[string]string) orgmodel.Template {
-	agents := make([]orgmodel.AgentSpec, len(t.Agents))
+func portable(t team.Snapshot, names map[string]string) team.Snapshot {
+	agents := make([]team.AgentSpec, len(t.Agents))
 	for i, a := range t.Agents {
 		a.Provider, a.ProviderID = names[a.ProviderID], ""
 		a.FallbackNames = nil
@@ -151,7 +192,7 @@ func portable(t orgmodel.Template, names map[string]string) orgmodel.Template {
 
 // Change is one line of an import plan.
 type Change struct {
-	Kind   string `json:"kind"` // provider | template | project
+	Kind   string `json:"kind"` // provider | workflow | project
 	Name   string `json:"name"`
 	Op     string `json:"op"` // create | update | unchanged | skip
 	Detail string `json:"detail,omitempty"`
@@ -164,17 +205,17 @@ type Result struct {
 }
 
 // Import applies the bundle. With dryRun nothing is written. Items are matched
-// by connection name, template key, and project path (or name for helpers).
+// by connection name, workflow key, and project path (or name for helpers).
 func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, error) {
 	res := Result{DryRun: dryRun, Changes: []Change{}}
-	if b.Version != Version {
+	if b.Version != Version && b.Version != 1 {
 		return res, fmt.Errorf("không hỗ trợ bundle version %d", b.Version)
 	}
 	add := func(kind, name, op, detail string) {
 		res.Changes = append(res.Changes, Change{Kind: kind, Name: name, Op: op, Detail: detail})
 	}
 
-	// connections first: templates and projects reference them by name
+	// connections first: agents reference them by name
 	current, err := s.store.Providers().List(ctx)
 	if err != nil {
 		return res, err
@@ -225,8 +266,8 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 			}
 		}
 	}
-	resolve := func(t orgmodel.Template) orgmodel.Template {
-		agents := make([]orgmodel.AgentSpec, len(t.Agents))
+	resolve := func(t team.Snapshot) team.Snapshot {
+		agents := make([]team.AgentSpec, len(t.Agents))
 		for i, a := range t.Agents {
 			if p, ok := byName[a.Provider]; ok {
 				a.ProviderID = p.ID
@@ -246,37 +287,28 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 		return t
 	}
 
-	for _, te := range b.Templates {
-		t := resolve(te.Template)
-		if err := orgmodel.Validate(t); err != nil {
-			add("template", t.Key, "skip", err.Error())
+	if len(b.Templates) > 0 {
+		add("template", fmt.Sprintf("%d mô hình", len(b.Templates)), "skip", "không còn mô hình tổ chức: agent của từng project vẫn được nhập")
+	}
+	for _, le := range b.Workflows {
+		def, err := workflow.Parse(le.Source)
+		if err != nil || def.Key != le.Key {
+			add("workflow", le.Key, "skip", "quy trình không hợp lệ")
 			continue
 		}
-		existing, err := s.store.OrgModels().GetTemplateByKey(ctx, t.Key)
+		cur, err := s.lib.Get(le.Key)
 		switch {
-		case errors.Is(err, storage.ErrNotFound):
-			add("template", t.Key, "create", t.Name)
-			if !dryRun {
-				if _, err := s.org.CreateTemplate(ctx, t); err != nil {
-					return res, err
-				}
-			}
-		case err != nil:
-			return res, err
+		case err == nil && strings.TrimSpace(cur.Source) == strings.TrimSpace(le.Source):
+			add("workflow", le.Key, "unchanged", "")
+			continue
+		case err == nil:
+			add("workflow", le.Key, "update", def.Name)
 		default:
-			cur, err := s.org.Load(ctx, existing.ID)
-			if err != nil {
+			add("workflow", le.Key, "create", def.Name)
+		}
+		if !dryRun {
+			if _, err := s.lib.Save(le.Key, le.Source); err != nil {
 				return res, err
-			}
-			if sameTemplate(cur, t) {
-				add("template", t.Key, "unchanged", "")
-				continue
-			}
-			add("template", t.Key, "update", "bản hiện tại được lưu vào lịch sử")
-			if !dryRun {
-				if _, err := s.org.ReplaceModel(ctx, existing.ID, t, "import"); err != nil {
-					return res, err
-				}
 			}
 		}
 	}
@@ -290,14 +322,18 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 		if err != nil {
 			return res, err
 		}
-		var model *orgmodel.Template
-		if ps.Model != nil {
-			t := resolve(*ps.Model)
-			if err := orgmodel.Validate(t); err != nil {
+		var agents *team.Snapshot
+		if src := cmp(ps.Agents, ps.Model); src != nil {
+			t := resolve(*src)
+			if err := team.Validate(t.Agents); err != nil {
 				add("project", label, "skip", err.Error())
 				continue
 			}
-			model = &t
+			agents = &t
+		}
+		if bad := badWorkflow(ps.Workflows); bad != "" {
+			add("project", label, "skip", bad)
+			continue
 		}
 		if !found {
 			add("project", label, "create", "")
@@ -310,16 +346,17 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 			}
 		} else {
 			changed := repo.Description != ps.Description || repo.GitRemote != ps.GitRemote || repo.Name != ps.Name
-			if model != nil {
-				if m, err := s.store.OrgModels().GetForRepo(ctx, repo.ID); err == nil {
-					cur, err := s.org.Load(ctx, m.ID)
-					if err != nil {
-						return res, err
-					}
-					changed = changed || !sameTemplate(cur, *model)
-				} else {
-					changed = true
+			if agents != nil {
+				cur, err := s.team.Load(ctx, repo.ID)
+				if err != nil {
+					return res, err
 				}
+				changed = changed || !sameAgents(cur, *agents)
+			}
+			if wfChanged, err := s.workflowsDiffer(ctx, repo.ID, ps.Workflows); err != nil {
+				return res, err
+			} else if wfChanged {
+				changed = true
 			}
 			if !changed {
 				add("project", label, "unchanged", "")
@@ -334,19 +371,108 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 				return res, err
 			}
 		}
-		if model != nil {
-			src := ""
-			if ps.SourceTemplate != "" {
-				if m, err := s.store.OrgModels().GetTemplateByKey(ctx, ps.SourceTemplate); err == nil {
-					src = m.ID
-				}
-			}
-			if _, err := s.org.ApplyTemplate(ctx, repo.ID, *model, src); err != nil {
+		if agents != nil {
+			if err := s.team.Replace(ctx, repo.ID, *agents, "import"); err != nil {
 				return res, err
 			}
 		}
+		if err := s.putWorkflows(ctx, repo.ID, ps.Workflows); err != nil {
+			return res, err
+		}
 	}
 	return res, nil
+}
+
+// workflowsDiffer: the project's workflows are not those of the bundle.
+func (s *Service) workflowsDiffer(ctx context.Context, projectID string, in []ProjectWorkflow) (bool, error) {
+	for _, w := range in {
+		cur, err := s.store.Workflows().GetByKey(ctx, projectID, w.Key)
+		if errors.Is(err, storage.ErrNotFound) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		roles, err := s.roles(ctx, projectID, w.Roles)
+		if err != nil {
+			return false, err
+		}
+		if strings.TrimSpace(cur.Source) != strings.TrimSpace(w.Source) || cur.Enabled != w.Enabled || !maps.Equal(nonNil(cur.Bindings), roles) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// putWorkflows installs or updates the project's workflows of the bundle.
+func (s *Service) putWorkflows(ctx context.Context, projectID string, in []ProjectWorkflow) error {
+	for _, w := range in {
+		def, err := workflow.Parse(w.Source)
+		if err != nil {
+			continue
+		}
+		roles, err := s.roles(ctx, projectID, w.Roles)
+		if err != nil {
+			return err
+		}
+		next := storage.Workflow{ProjectID: projectID, Key: def.Key, Name: def.Name, Description: def.Description,
+			Source: strings.TrimSpace(w.Source) + "\n", Bindings: roles, Enabled: w.Enabled}
+		if w.From != "" {
+			next.SourceKey, next.SourceHash = w.From, workflow.Hash(w.Source)
+		}
+		cur, err := s.store.Workflows().GetByKey(ctx, projectID, def.Key)
+		if errors.Is(err, storage.ErrNotFound) {
+			if _, err := s.store.Workflows().Create(ctx, next); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		next.ID, next.CreatedAt = cur.ID, cur.CreatedAt
+		if err := s.store.Workflows().Update(ctx, next); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// roles turns role → agent key into role → agent id (unknown keys dropped).
+func (s *Service) roles(ctx context.Context, projectID string, byKey map[string]string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(byKey) == 0 {
+		return out, nil
+	}
+	agents, err := s.store.Agents().List(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	for role, key := range byKey {
+		for _, a := range agents {
+			if a.Key == key {
+				out[role] = a.ID
+			}
+		}
+	}
+	return out, nil
+}
+
+// badWorkflow names the first workflow that does not parse ("" = none).
+func badWorkflow(list []ProjectWorkflow) string {
+	for _, w := range list {
+		if _, err := workflow.Parse(w.Source); err != nil {
+			return "quy trình " + w.Key + ": " + err.Error()
+		}
+	}
+	return ""
+}
+
+func cmp(a, b *team.Snapshot) *team.Snapshot {
+	if a != nil {
+		return a
+	}
+	return b
 }
 
 func (s *Service) findProject(ctx context.Context, ps ProjectSpec) (storage.Repo, bool, error) {
@@ -369,9 +495,8 @@ func (s *Service) findProject(ctx context.Context, ps ProjectSpec) (storage.Repo
 	return storage.Repo{}, false, nil
 }
 
-// sameTemplate compares the content that matters (ignores the library key).
-func sameTemplate(a, b orgmodel.Template) bool {
-	a.Key, b.Key = "", ""
+// sameAgents compares what matters of two sets of agents.
+func sameAgents(a, b team.Snapshot) bool {
 	ja, _ := json.Marshal(a)
 	jb, _ := json.Marshal(b)
 	return string(ja) == string(jb)

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/assistant"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -16,7 +15,7 @@ func TestAssistantProject(t *testing.T) {
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
 	ctx := context.Background()
-	id, err := assistant.Ensure(ctx, e.st, orgmodel.NewService(e.st), t.TempDir())
+	id, err := assistant.Ensure(ctx, e.st, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +44,7 @@ func TestAssistantChatsArePrivate(t *testing.T) {
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
 	ctx := context.Background()
-	id, _ := assistant.Ensure(ctx, e.st, orgmodel.NewService(e.st), t.TempDir())
+	id, _ := assistant.Ensure(ctx, e.st, t.TempDir())
 	theirs, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: id, Title: "riêng", CreatedBy: "human:member@x.io"})
 	if resp, _ := do(t, admin, "GET", e.srv.URL+"/api/conversations/"+theirs.ID, nil, nil); resp.StatusCode != 404 {
 		t.Fatalf("read another's = %d", resp.StatusCode)

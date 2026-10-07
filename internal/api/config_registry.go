@@ -75,24 +75,17 @@ func cfgKinds() []cfgKind {
 		{name: "agent", title: "Agent", input: agentInput{}, merge: true,
 			get: func(s *server, ctx context.Context, id, _ string) (any, string, error) {
 				a, err := s.cfg.Store.Agents().Get(ctx, id)
-				return toAgentDTO(a), s.agentProject(ctx, a), err
+				return toAgentDTO(a), a.ProjectID, err
 			},
 			list: func(s *server, ctx context.Context, projectID string) ([]map[string]any, error) {
-				m, err := s.cfg.Store.OrgModels().GetForRepo(ctx, projectID)
-				if err != nil {
-					return nil, err
-				}
-				list, err := s.cfg.Store.Agents().List(ctx, m.ID)
+				list, err := s.cfg.Store.Agents().List(ctx, projectID)
 				out := []map[string]any{}
 				for _, a := range list {
-					out = append(out, map[string]any{"id": a.ID, "name": a.Name, "key": a.Key, "tier": a.Tier, "level": perm.Agent(a), "model_tier": a.ModelTier, "enabled": !a.Disabled})
+					out = append(out, map[string]any{"id": a.ID, "name": a.Name, "key": a.Key, "role": a.Role, "level": perm.Agent(a), "model_tier": a.ModelTier, "enabled": !a.Disabled})
 				}
 				return out, err
 			},
-			create: &cfgRoute{"POST", func(s *server) http.HandlerFunc { return s.createAgent }, func(s *server, ctx context.Context, _, projectID string) (string, error) {
-				m, err := s.cfg.Store.OrgModels().GetForRepo(ctx, projectID)
-				return m.ID, err
-			}},
+			create: &cfgRoute{"POST", func(s *server) http.HandlerFunc { return s.createAgent }, byProject},
 			update: &cfgRoute{"PATCH", func(s *server) http.HandlerFunc { return s.updateAgent }, byID},
 			del:    &cfgRoute{"DELETE", func(s *server) http.HandlerFunc { return s.deleteAgent }, byID}},
 		{name: "monitor", title: "Giám sát", input: monitorInput{},
@@ -128,6 +121,22 @@ func cfgKinds() []cfgKind {
 			create: &cfgRoute{"POST", func(s *server) http.HandlerFunc { return s.createProcess }, byProject},
 			update: &cfgRoute{"PATCH", func(s *server) http.HandlerFunc { return s.updateProcess }, byID},
 			del:    &cfgRoute{"DELETE", func(s *server) http.HandlerFunc { return s.deleteProcess }, byID}},
+		{name: "workflow", title: "Quy trình", input: workflowInput{},
+			get: func(s *server, ctx context.Context, id, _ string) (any, string, error) {
+				w, err := s.cfg.Store.Workflows().Get(ctx, id)
+				return map[string]any{"id": w.ID, "key": w.Key, "name": w.Name, "source": w.Source, "bindings": w.Bindings, "enabled": w.Enabled}, w.ProjectID, err
+			},
+			list: func(s *server, ctx context.Context, projectID string) ([]map[string]any, error) {
+				list, err := s.cfg.Store.Workflows().List(ctx, projectID)
+				out := []map[string]any{}
+				for _, w := range list {
+					out = append(out, map[string]any{"id": w.ID, "key": w.Key, "name": w.Name, "enabled": w.Enabled, "bindings": w.Bindings})
+				}
+				return out, err
+			},
+			create: &cfgRoute{"POST", func(s *server) http.HandlerFunc { return s.createWorkflow }, byProject},
+			update: &cfgRoute{"PATCH", func(s *server) http.HandlerFunc { return s.updateWorkflow }, byID},
+			del:    &cfgRoute{"DELETE", func(s *server) http.HandlerFunc { return s.deleteWorkflow }, byID}},
 		{name: "policy", title: "Quyền & lệnh của project", input: perm.Policy{}, merge: true,
 			get: func(s *server, ctx context.Context, _, projectID string) (any, string, error) {
 				return perm.LoadPolicy(ctx, s.cfg.Store, projectID), projectID, nil
@@ -169,7 +178,7 @@ func cfgKinds() []cfgKind {
 
 func (s *server) cfgKind(name string) (cfgKind, error) {
 	for _, k := range cfgKinds() {
-		if k.name == name && (k.name != "process" || s.cfg.Ops != nil) && (k.name != "monitor" || s.cfg.Monitors != nil) {
+		if k.name == name && (k.name != "process" || s.cfg.Ops != nil) && (k.name != "monitor" || s.cfg.Monitors != nil) && (k.name != "workflow" || s.cfg.Workflows != nil) {
 			return k, nil
 		}
 	}

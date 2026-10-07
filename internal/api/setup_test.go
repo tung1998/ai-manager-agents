@@ -46,7 +46,7 @@ func TestSetupFlowAPI(t *testing.T) {
 		t.Fatalf("propose without provider = %d %v", resp.StatusCode, body)
 	}
 
-	answer := "```json\n" + `{"description":"Shop Nuxt.","template_key":"solo","reason":"Nhỏ","confidence":0.7,
+	answer := "```json\n" + `{"description":"Shop Nuxt.","pack_key":"solo","reason":"Nhỏ","confidence":0.7,
 	  "agent_changes":[{"action":"update","key":"assistant","instructions":"Chạy pnpm test.","reason":"CLAUDE.md"}],"notes":[]}` + "\n```"
 	srv := fakeClaude(t, answer)
 	do(t, admin, "POST", e.srv.URL+"/api/providers", map[string]any{"name": "Claude", "kind": "anthropic", "base_url": srv.URL, "api_key": "sk-ant-test-0000-key"}, nil)
@@ -57,26 +57,26 @@ func TestSetupFlowAPI(t *testing.T) {
 	}
 	result := body["result"].(map[string]any)
 	prop := result["proposal"].(map[string]any)
-	if prop["template_key"] != "solo" || len(result["problems"].([]any)) != 0 {
+	if prop["pack_key"] != "solo" || len(result["problems"].([]any)) != 0 {
 		t.Fatalf("result = %v", result)
 	}
 
 	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+id+"/setup/build", map[string]any{
-		"template_key": "team", "changes": []map[string]any{{"action": "add", "key": "orphan", "tier": "worker", "reason": "x"}}}, nil)
+		"pack_key": "team", "changes": []map[string]any{{"action": "add", "key": "Bad Key", "reason": "x"}}}, nil)
 	if resp.StatusCode != 200 || len(body["problems"].([]any)) == 0 {
 		t.Fatalf("build with bad change = %d %v", resp.StatusCode, body)
 	}
 
 	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+id+"/setup/apply", map[string]any{
-		"template_key": "solo", "changes": prop["agent_changes"], "description": "Shop Nuxt."}, nil)
+		"pack_key": "solo", "changes": prop["agent_changes"], "description": "Shop Nuxt."}, nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("apply = %d %v", resp.StatusCode, body)
 	}
 	p := body["project"].(map[string]any)
-	if p["description"] != "Shop Nuxt." || p["model"].(map[string]any)["kind"] != "solo" {
+	if p["description"] != "Shop Nuxt." || p["agent_count"].(float64) != 1 {
 		t.Fatalf("project = %v", p)
 	}
-	agent := p["model"].(map[string]any)["agents"].([]any)[0].(map[string]any)
+	agent := p["agents"].([]any)[0].(map[string]any)
 	if s, _ := agent["instructions"].(string); len(s) == 0 || !strings.Contains(s, "Chạy pnpm test.") {
 		t.Fatalf("agent instructions not tailored: %v", agent["instructions"])
 	}
@@ -93,7 +93,7 @@ func TestUsageAPIAndBudget(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	srv := fakeClaude(t, "```json\n"+`{"description":"x","template_key":"solo","reason":"r","confidence":0.5,"agent_changes":[],"notes":[]}`+"\n```")
+	srv := fakeClaude(t, "```json\n"+`{"description":"x","pack_key":"solo","reason":"r","confidence":0.5,"agent_changes":[],"notes":[]}`+"\n```")
 	do(t, admin, "POST", e.srv.URL+"/api/providers", map[string]any{"name": "Claude", "kind": "anthropic", "base_url": srv.URL, "api_key": "sk-ant-test-0000-key"}, nil)
 	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"name": "Trợ lý"}, nil)
 	id := body["project"].(map[string]any)["id"].(string)

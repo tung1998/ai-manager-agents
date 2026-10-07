@@ -15,41 +15,36 @@ import (
 // settings changed (see internal/agentinfo).
 
 func (s *server) agentInfo() *agentinfo.Service {
-	return agentinfo.New(s.cfg.Store, s.cfg.Org, time.Local)
+	return agentinfo.New(s.cfg.Store, s.cfg.Team, time.Local)
 }
 
-// agentOf loads the agent of the request with its model and project (none
-// for a library template's agent).
-func (s *server) agentOf(w http.ResponseWriter, r *http.Request) (storage.Agent, storage.OrgModel, string, bool) {
+// agentOf loads the agent of the request and its project id.
+func (s *server) agentOf(w http.ResponseWriter, r *http.Request) (storage.Agent, string, bool) {
 	a, err := s.cfg.Store.Agents().Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeDomainError(w, r, err)
-		return a, storage.OrgModel{}, "", false
+		return a, "", false
 	}
-	m, err := s.cfg.Store.OrgModels().Get(r.Context(), a.OrgModelID)
-	if err != nil {
-		s.writeDomainError(w, r, err)
-		return a, m, "", false
-	}
-	return a, m, m.RepoID, true
+	return a, a.ProjectID, true
 }
 
 func (s *server) getAgent(w http.ResponseWriter, r *http.Request) {
-	a, m, projectID, ok := s.agentOf(w, r)
+	a, projectID, ok := s.agentOf(w, r)
 	if !ok {
 		return
 	}
-	out := map[string]any{"agent": toAgentDTO(a), "model": map[string]any{"id": m.ID, "name": m.Name, "kind": m.Kind, "repo_id": m.RepoID}}
-	if projectID != "" {
-		if p, err := s.cfg.Store.Repos().Get(r.Context(), projectID); err == nil {
-			out["project"] = map[string]any{"id": p.ID, "name": p.Name}
-		}
+	out := map[string]any{"agent": toAgentDTO(a)}
+	if p, err := s.cfg.Store.Repos().Get(r.Context(), projectID); err == nil {
+		agents, _ := s.cfg.Store.Agents().List(r.Context(), p.ID)
+		d, _ := storage.DefaultAgent(p, agents)
+		out["project"] = map[string]any{"id": p.ID, "name": p.Name}
+		out["is_default"] = d.ID == a.ID
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *server) agentStats(w http.ResponseWriter, r *http.Request) {
-	a, _, projectID, ok := s.agentOf(w, r)
+	a, projectID, ok := s.agentOf(w, r)
 	if !ok {
 		return
 	}
@@ -66,7 +61,7 @@ func (s *server) agentStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) agentActivity(w http.ResponseWriter, r *http.Request) {
-	a, _, projectID, ok := s.agentOf(w, r)
+	a, projectID, ok := s.agentOf(w, r)
 	if !ok {
 		return
 	}
@@ -82,7 +77,7 @@ func (s *server) agentActivity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) agentHistory(w http.ResponseWriter, r *http.Request) {
-	a, _, _, ok := s.agentOf(w, r)
+	a, _, ok := s.agentOf(w, r)
 	if !ok {
 		return
 	}
@@ -101,7 +96,7 @@ func (s *server) restoreAgent(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	a, _, _, ok := s.agentOf(w, r)
+	a, _, ok := s.agentOf(w, r)
 	if !ok {
 		return
 	}
@@ -115,7 +110,7 @@ func (s *server) restoreAgent(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.audit(r, audit.Change{Action: "agent.restore", ResourceID: a.ID, ProjectID: s.agentProject(r.Context(), a), Before: toAgentDTO(old), After: toAgentDTO(a),
+	s.audit(r, audit.Change{Action: "agent.restore", ResourceID: a.ID, ProjectID: a.ProjectID, Before: toAgentDTO(old), After: toAgentDTO(a),
 		Detail: map[string]any{"key": a.Key, "revision": in.RevisionID}})
 	writeJSON(w, http.StatusOK, map[string]any{"agent": toAgentDTO(a)})
 }

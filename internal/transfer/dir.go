@@ -21,24 +21,24 @@ import (
 // Directory layout (git-friendly: one file per template and project, stable
 // ordering, no timestamps):
 //
-//	office.json            {"version": 1}
+//	office.json            {"version": 2}
 //	providers.json         connections, no secrets
-//	templates/<key>.json   library templates
-//	projects/<slug>.json   projects and their models
+//	workflows/<key>.md     library workflows written or changed here
+//	projects/<slug>.json   projects, their agents and workflows
 const readme = `# agent-office config
 
 Export bởi ` + "`office export`" + `. Không chứa API key, tài khoản hay phiên đăng nhập.
 
 - providers.json: kết nối AI (key phải nhập lại, hoặc dùng api_key_env)
-- templates/: mô hình mẫu
-- projects/: project và mô hình của từng project
+- workflows/: quy trình trong thư viện (viết mới hoặc đã sửa)
+- projects/: project, agent và quy trình của từng project
 
 Nhập lại: ` + "`office import <thư-mục> --dry-run`" + ` để xem trước, bỏ --dry-run để áp dụng.
 `
 
-// WriteDir writes b into dir, removing template/project files that are no longer in b.
+// WriteDir writes b into dir, removing workflow/project files that are no longer in b.
 func WriteDir(dir string, b Bundle) error {
-	for _, sub := range []string{"templates", "projects"} {
+	for _, sub := range []string{"workflows", "projects"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
 			return err
 		}
@@ -50,10 +50,10 @@ func WriteDir(dir string, b Bundle) error {
 		return err
 	}
 	keep := map[string]bool{}
-	for _, t := range b.Templates {
-		name := filepath.Join("templates", t.Template.Key+".json")
+	for _, w := range b.Workflows {
+		name := filepath.Join("workflows", w.Key+".md")
 		keep[name] = true
-		if err := writeJSON(filepath.Join(dir, name), t); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(strings.TrimSpace(w.Source)+"\n"), 0o644); err != nil {
 			return err
 		}
 	}
@@ -64,8 +64,8 @@ func WriteDir(dir string, b Bundle) error {
 			return err
 		}
 	}
-	for _, sub := range []string{"templates", "projects"} {
-		files, _ := filepath.Glob(filepath.Join(dir, sub, "*.json"))
+	for _, pat := range []string{"workflows/*.md", "projects/*.json", "templates/*.json"} {
+		files, _ := filepath.Glob(filepath.Join(dir, pat))
 		for _, f := range files {
 			rel, _ := filepath.Rel(dir, f)
 			if !keep[rel] {
@@ -94,17 +94,23 @@ func ReadDir(dir string) (Bundle, error) {
 	if err := readJSON(filepath.Join(dir, "providers.json"), &b.Providers); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return b, err
 	}
-	for _, sub := range []string{"templates", "projects"} {
-		files, _ := filepath.Glob(filepath.Join(dir, sub, "*.json"))
+	for _, pat := range []string{"workflows/*.md", "templates/*.json", "projects/*.json"} {
+		files, _ := filepath.Glob(filepath.Join(dir, pat))
 		sort.Strings(files)
 		for _, f := range files {
 			var err error
-			if sub == "templates" {
-				var t TemplateEntry
-				if err = readJSON(f, &t); err == nil {
-					b.Templates = append(b.Templates, t)
+			switch filepath.Dir(pat) {
+			case "workflows":
+				var raw []byte
+				if raw, err = os.ReadFile(f); err == nil {
+					b.Workflows = append(b.Workflows, LibraryEntry{Key: strings.TrimSuffix(filepath.Base(f), ".md"), Source: string(raw)})
 				}
-			} else {
+			case "templates": // a version 1 export
+				var raw json.RawMessage
+				if err = readJSON(f, &raw); err == nil {
+					b.Templates = append(b.Templates, raw)
+				}
+			default:
 				var p ProjectSpec
 				if err = readJSON(f, &p); err == nil {
 					b.Projects = append(b.Projects, p)

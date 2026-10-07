@@ -15,14 +15,14 @@
 | Tự động hóa | việc định kỳ, phản ứng theo sự kiện | lịch, webhook, tin nhắn kênh | trigger từ Connector |
 
 **Nguyên tắc chung:**
-- **Một nền cho mọi mảng:** agent và mô hình tổ chức, chat, quyền theo hành động, duyệt, nhật ký, trí nhớ, tự động hóa. Mảng mới chủ yếu thêm công cụ (Connector) và cách hiển thị, không thêm hệ thống riêng.
+- **Một nền cho mọi mảng:** agent của project và quy trình phối hợp, chat, quyền theo hành động, duyệt, nhật ký, trí nhớ, tự động hóa. Mảng mới chủ yếu thêm công cụ (Connector) và cách hiển thị, không thêm hệ thống riêng.
 - **Code được ưu tiên** về thứ tự làm và độ hoàn thiện. Khi một tính năng chung phải chọn, chọn trước cho code (ví dụ Burn mặc định đi theo lộ trình code). Thiết kế vẫn để ngỏ cho mảng khác, không gắn chết vào git/repo.
 - **Hành động ra ngoài cần duyệt:** đăng bài, gửi tin cho khách, push, xóa. Toàn quyền là lựa chọn rõ ràng của admin cho từng agent.
 - **Chạy trên máy người dùng,** bằng tài khoản AI của họ. Office là cổng duy nhất ra bên ngoài (MCP, Connector), để quyền và nhật ký nằm ở một chỗ.
 
-### Mô hình tổ chức
+### Agent và quy trình
 
-Agent được xếp theo mô hình tổ chức (solo, team, tam quyền, hoặc tự tạo). Thiết kế ban đầu là ba cấp:
+Agent thuộc thẳng project, có một agent mặc định; cách nhiều agent làm việc chung là **quy trình** (ADR-098/099/100: giao lại, cố vấn, hội đồng, làm tính năng…). Mô hình tổ chức ba cấp dưới đây là thiết kế ban đầu, đã bỏ:
 
 | Cấp | Vai trò | Được làm | Không được làm |
 |---|---|---|---|
@@ -103,8 +103,9 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Dashboard Nuxt: login, tổng quan, tài khoản, audit, đổi mật khẩu | Xong |
 | Docker compose (office + dashboard, SQLite volume) | Xong |
 | Kết nối AI: Anthropic, OpenAI, API tương thích, Claude CLI, Codex CLI; key mã hóa; kiểm tra + gửi thử (ADR-016) | Xong |
-| Mô hình tổ chức: 3 mẫu có sẵn (solo, team, tam quyền), nhân bản, khôi phục, áp vào repo, sửa agent (ADR-015) | Xong |
-| Quản lý repo, chế độ project/máy, `office init` chọn mô hình | Xong |
+| Mô hình tổ chức (ADR-015) — đã thay bằng agent theo project + gói khởi tạo (ADR-099) | Thay |
+| Quy trình: thư viện + bản của project, `/key` trong chat, vai/giới hạn/cổng/biểu quyết (ADR-098, ADR-100) | Xong |
+| Quản lý repo, chế độ project/máy, `office init` chọn gói khởi tạo | Xong |
 | Dashboard: Repo, Mô hình mẫu, Kết nối AI, sơ đồ tổ chức + sửa agent, checklist thiết lập | Xong |
 | Thiết lập project bằng AI: quét, đọc file agent sẵn có, đề xuất mô hình + tinh chỉnh agent, duyệt rồi áp (ADR-018) | Xong |
 | Project không thư mục (helper toàn máy), chọn thư mục bằng cây (ADR-017) | Xong |

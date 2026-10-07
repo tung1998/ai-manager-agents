@@ -16,15 +16,9 @@ func TestMoreSaveConflicts(t *testing.T) {
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
 	ctx := context.Background()
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	solo := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "solo" {
-			solo = m["id"].(string)
-		}
-	}
+	solo := "solo"
 	dir := t.TempDir()
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "name": "shop", "template_id": solo}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "name": "shop", "pack": solo}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	dir = body["project"].(map[string]any)["path"].(string) // as office keeps it
 
@@ -37,18 +31,6 @@ func TestMoreSaveConflicts(t *testing.T) {
 	}
 	if resp, _ := do(t, admin, "PATCH", e.srv.URL+"/api/channels/"+ch.ID, map[string]any{"refusal": "hai", "version": cv}, nil); resp.StatusCode != 409 {
 		t.Fatalf("bot stale save = %d", resp.StatusCode)
-	}
-
-	// model (the project's)
-	_, b = do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid, nil, nil)
-	mid := b["project"].(map[string]any)["model"].(map[string]any)["id"].(string)
-	_, b = do(t, admin, "GET", e.srv.URL+"/api/org-models/"+mid, nil, nil)
-	mv := b["model"].(map[string]any)["version"].(string)
-	if resp, b := do(t, admin, "PATCH", e.srv.URL+"/api/org-models/"+mid, map[string]any{"description": "một", "version": mv}, nil); resp.StatusCode != 200 {
-		t.Fatalf("model save = %d %v", resp.StatusCode, b)
-	}
-	if resp, _ := do(t, admin, "PATCH", e.srv.URL+"/api/org-models/"+mid, map[string]any{"description": "hai", "version": mv}, nil); resp.StatusCode != 409 {
-		t.Fatalf("model stale save = %d", resp.StatusCode)
 	}
 
 	// skill

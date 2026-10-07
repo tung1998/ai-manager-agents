@@ -193,14 +193,14 @@ func (r chatRepo) ListConversationsTagged(ctx context.Context, projectID, source
 		limit = 50
 	}
 	// the project's own chats (web, automations), a skill's or template's editor's among them
-	where := `purpose IN ('','skill','template')`
+	where := `purpose IN ('','skill','workflow','template')`
 	switch source {
 	case "all":
-		where = `purpose IN ('','skill','template','channel','burn')`
+		where = `purpose IN ('','skill','workflow','template','channel','burn')`
 	case "burn":
 		where = `purpose='burn'`
 	case "web":
-		where = `purpose IN ('','skill','template') AND created_by LIKE 'human:%'`
+		where = `purpose IN ('','skill','workflow','template') AND created_by LIKE 'human:%'`
 	case "auto":
 		where = `purpose='' AND created_by LIKE 'auto:%'`
 	case "discord", "telegram":

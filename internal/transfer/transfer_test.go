@@ -8,17 +8,19 @@ import (
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
 type office struct {
 	st   storage.Store
-	org  *orgmodel.Service
+	org  *team.Service
+	wf   *workflow.Service
 	prov *provider.Service
 	tr   *transfer.Service
 }
@@ -32,10 +34,12 @@ func newOffice(t *testing.T) office {
 	t.Cleanup(func() { st.Close() })
 	st.Migrate(context.Background())
 	box, _ := secrets.Load(filepath.Join(dir, "k"))
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(context.Background())
+	lib := workflow.Library{Dir: filepath.Join(dir, "workflows")}
+	lib.Seed()
+	wf := &workflow.Service{Store: st, Lib: lib}
+	org := team.NewService(st, wf)
 	prov := provider.NewService(st, box, llm.Options{})
-	return office{st, org, prov, transfer.New(st, prov, org)}
+	return office{st, org, wf, prov, transfer.New(st, prov, org, lib)}
 }
 
 func TestExportImportRoundTrip(t *testing.T) {
@@ -44,15 +48,20 @@ func TestExportImportRoundTrip(t *testing.T) {
 	key := "sk-ant-secret-key-9999"
 	claude, _ := src.prov.Create(ctx, provider.Input{Name: "Claude API", Kind: storage.ProviderAnthropic, APIKey: &key})
 	gpt, _ := src.prov.Create(ctx, provider.Input{Name: "GPT", Kind: storage.ProviderOpenAI, APIKeyEnv: "OPENAI_API_KEY"})
-	team, _ := src.st.OrgModels().GetTemplateByKey(ctx, "team")
+	pack, _ := team.PackByKey("team")
 	repo, _ := src.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/code/shop", Description: "Shop"})
-	inst, _ := src.org.ApplyToRepo(ctx, repo.ID, team.ID, false)
-	agents, _ := src.st.Agents().List(ctx, inst.ID)
+	if err := src.org.ApplyPack(ctx, repo.ID, pack, false); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := src.st.Agents().List(ctx, repo.ID)
 	agents[0].ProviderID = gpt.ID
 	agents[0].Name = "Trưởng nhóm shop"
 	src.org.SaveAgent(ctx, agents[0])
 	src.st.Repos().Create(ctx, storage.Repo{Name: "Trợ lý máy"})
-	src.org.CloneTemplate(ctx, team.ID, "team-lite", "Team gọn")
+	mine := strings.Replace(workflow.BuiltinSource("giao-lai"), "key: giao-lai", "key: giao-gon", 1)
+	if _, err := src.wf.Lib.Save("giao-gon", mine); err != nil {
+		t.Fatal(err)
+	}
 	_ = claude
 
 	b, err := src.tr.Export(ctx)
@@ -88,8 +97,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	for _, c := range plan.Changes {
 		ops[c.Kind+":"+c.Name] = c.Op
 	}
-	if ops["provider:Claude API"] != "skip" || ops["provider:GPT"] != "create" || ops["template:team-lite"] != "create" ||
-		ops["template:team"] != "unchanged" || ops["project:shop (/code/shop)"] != "create" || ops["project:Trợ lý máy"] != "create" {
+	if ops["provider:Claude API"] != "skip" || ops["provider:GPT"] != "create" || ops["workflow:giao-gon"] != "create" || ops["project:shop (/code/shop)"] != "create" || ops["project:Trợ lý máy"] != "create" {
 		t.Fatalf("plan = %v", ops)
 	}
 	if list, _ := dst.st.Repos().List(ctx); len(list) != 0 {
@@ -103,11 +111,18 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, _ := dst.st.OrgModels().GetForRepo(ctx, r.ID)
-	dstAgents, _ := dst.st.Agents().List(ctx, m.ID)
+	dstAgents, _ := dst.st.Agents().List(ctx, r.ID)
 	dstGPT := findProvider(t, dst.st, "GPT")
-	if dstAgents[0].Name != "Trưởng nhóm shop" || dstAgents[0].ProviderID != dstGPT.ID || m.SourceTemplateID == "" {
-		t.Fatalf("imported model = %+v agent=%+v", m, dstAgents[0])
+	if dstAgents[0].Name != "Trưởng nhóm shop" || dstAgents[0].ProviderID != dstGPT.ID || r.DefaultAgentID != dstAgents[0].ID {
+		t.Fatalf("imported agents = %+v, default %q", dstAgents[0], r.DefaultAgentID)
+	}
+	wfs, _ := dst.st.Workflows().List(ctx, r.ID)
+	srcWfs, _ := src.st.Workflows().List(ctx, repo.ID)
+	if len(wfs) != len(srcWfs) || len(wfs) == 0 || wfs[0].SourceKey == "" || len(wfs[0].Bindings) != len(srcWfs[0].Bindings) {
+		t.Fatalf("imported workflows = %+v", wfs)
+	}
+	if _, err := dst.wf.Lib.Get("giao-gon"); err != nil {
+		t.Fatal(err)
 	}
 
 	// importing the same bundle again changes nothing

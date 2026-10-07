@@ -17,11 +17,11 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
@@ -52,17 +52,16 @@ func TestReplyHeader(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	provs := provider.NewService(st, box, llm.Options{})
 	engine := chat.NewEngine(st, provs, usage.New(st, time.UTC))
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	dir := t.TempDir()
 	if out, err := exec.Command("git", "init", "-q", "-b", "feature-x", dir).CombinedOutput(); err != nil {
 		t.Skip("git:", string(out))
 	}
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: dir})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	agents, _ := engine.Agents(ctx, project.ID)
-	st.Agents().Create(ctx, storage.Agent{OrgModelID: agents[0].OrgModelID, Key: "tester", Name: "Tester", Tier: "worker", ReportsTo: []string{agents[0].Key}, ModelTier: "fast"})
+	st.Agents().Create(ctx, storage.Agent{ProjectID: agents[0].ProjectID, Key: "tester", Name: "Tester", ModelTier: "fast"})
 	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
@@ -155,11 +154,10 @@ func TestThreadFromAnswer(t *testing.T) {
 	st.Migrate(ctx)
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
@@ -226,10 +224,9 @@ func TestCreateThreadCommand(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	bot := &threadBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, made: make(chan [3]string, 2)}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
@@ -291,10 +288,9 @@ func TestCreateThreadSlash(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	bot := &threadBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, made: make(chan [3]string, 2)}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
@@ -368,10 +364,9 @@ func TestThreadNeedsTag(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
@@ -407,10 +402,9 @@ func TestThreadIsOneConversation(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
 	a, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "t9", InThread: true, Text: "một", Addressed: true})
@@ -435,10 +429,9 @@ func TestKeptThreadKeepsItsConversation(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), nil)
 	st.Settings().Set(ctx, "channel_keep/"+ch.ID+"/t5", "gen1")
@@ -460,10 +453,9 @@ func TestCreateConversationContinues(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
@@ -516,8 +508,7 @@ func TestFilesToTheAgent(t *testing.T) {
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.UTC)
 	provs.SetUsage(u)
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	bin := filepath.Join(tmp, "claude")
 	os.WriteFile(bin, []byte(`#!/bin/sh
 cat >/dev/null
@@ -526,8 +517,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"đã xem �
 `), 0o755)
 	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	engine := chat.NewEngine(st, provs, u)
 	engine.SetAttachments(attach.Store{Dir: filepath.Join(tmp, "att")})
 	runner := trigger.New(st, chatExec{engine})
@@ -616,10 +607,9 @@ func TestPressedButtonsGoAway(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	bot := &editBot{buttonBot: buttonBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, rows: make(chan [][]channels.Button, 2)}, edits: make(chan buttonEdit, 4)}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"7"}, Header: "-"})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
@@ -684,10 +674,9 @@ func TestDashboardDecisionRedrawsButtons(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	bot := &editBot{buttonBot: buttonBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, rows: make(chan [][]channels.Button, 2)}, edits: make(chan buttonEdit, 4)}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"7"}, Header: "-"})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
@@ -769,10 +758,9 @@ func TestAlwaysButton(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	bot := &editBot{buttonBot: buttonBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, rows: make(chan [][]channels.Button, 2)}, edits: make(chan buttonEdit, 4)}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"7"}, Header: "-"})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
@@ -833,10 +821,9 @@ func TestPendingButtons(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	bot := &buttonBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}, rows: make(chan [][]channels.Button, 2)}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"*"}, Approvers: []string{"7"}, Header: "-"})
 	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
@@ -947,8 +934,7 @@ func runProgress(t *testing.T, channelMode, ruleMode string) *liveBot {
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.UTC)
 	provs.SetUsage(u)
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	bin := filepath.Join(tmp, "claude")
 	os.WriteFile(bin, []byte(`#!/bin/sh
 cat >/dev/null
@@ -958,8 +944,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong rồi
 `), 0o755)
 	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	engine := chat.NewEngine(st, provs, u)
 	runner := trigger.New(st, chatExec{engine})
 	bot := &liveBot{fakeBot: fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}}
@@ -1031,12 +1017,11 @@ func TestNotify(t *testing.T) {
 		t.Fatal("an off bot sent")
 	}
 	// an automation's notice: a reply to it goes on in the run's chat, whatever the bot's agent
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	org := team.NewService(st, nil)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	agents, _ := engine.Agents(ctx, project.ID)
-	other, err := st.Agents().Create(ctx, storage.Agent{OrgModelID: agents[0].OrgModelID, Name: "Khác", Tier: agents[0].Tier, ModelTier: agents[0].ModelTier, Instructions: "x"})
+	other, err := st.Agents().Create(ctx, storage.Agent{ProjectID: agents[0].ProjectID, Name: "Khác", ModelTier: agents[0].ModelTier, Instructions: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1067,11 +1052,10 @@ func TestFullAccessApproverAgent(t *testing.T) {
 	st.Migrate(ctx)
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	agents, _ := engine.Agents(ctx, project.ID)
 	agent := agents[0]
 
@@ -1102,7 +1086,7 @@ func TestFullAccessApproverAgent(t *testing.T) {
 
 	// a second agent, FullAccess enabled by someone no longer an admin
 	st.Users().Create(ctx, storage.User{Email: "member@x.io", Role: storage.RoleMember, PasswordHash: "h"})
-	st.Agents().Create(ctx, storage.Agent{OrgModelID: agent.OrgModelID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast"})
+	st.Agents().Create(ctx, storage.Agent{ProjectID: agent.ProjectID, Key: "dev", Name: "Dev", ModelTier: "fast"})
 	devs, _ := engine.Agents(ctx, project.ID)
 	var dev storage.Agent
 	for _, a := range devs {
@@ -1132,11 +1116,10 @@ func TestDirectApproverRechecksAdminAtDecisionTime(t *testing.T) {
 	st.Migrate(ctx)
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	agents, _ := engine.Agents(ctx, project.ID)
 	agent := agents[0]
 
@@ -1167,11 +1150,10 @@ func TestFullAccessApproverAutomationOverride(t *testing.T) {
 	st.Migrate(ctx)
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	agents, _ := engine.Agents(ctx, project.ID)
 	agent := agents[0] // no FullAccess of its own
 
@@ -1223,11 +1205,10 @@ func TestScheduledOverrideAutoApprovesButPushStillAsks(t *testing.T) {
 	st.Migrate(ctx)
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	agents, _ := engine.Agents(ctx, project.ID)
 	agent := agents[0] // no FullAccess of its own: only the override grants it
 
@@ -1264,8 +1245,7 @@ func TestAdminAndUsers(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.UTC)
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	bin := filepath.Join(tmp, "claude")
 	os.WriteFile(bin, []byte(`#!/bin/sh
 cat >/dev/null
@@ -1274,8 +1254,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 `), 0o755)
 	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	engine := chat.NewEngine(st, provs, u)
 	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true, Allow: []string{"8"}, Approvers: []string{"7"}, Header: "-"})

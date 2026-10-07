@@ -42,7 +42,7 @@ var (
 	ErrBusy = errors.New("agent đang trả lời tin nhắn trước")
 	// ErrAgentBusy: the agent tagged is still working on a hand-off in this chat
 	ErrAgentBusy = errors.New("agent này đang làm việc được giao trong cuộc chat, đợi nó xong rồi tag lại")
-	ErrNoModel   = errors.New("project chưa có mô hình tổ chức")
+	ErrNoAgents  = errors.New("project chưa có agent: chọn một gói khởi tạo hoặc thêm agent")
 	ErrNoAgent   = errors.New("không tìm thấy agent để trò chuyện")
 	ErrDecided   = actions.ErrDecided // one for patches and actions: a bot tells it apart the same way
 	ErrNoFolder  = errors.New("project không gắn thư mục nên không áp được thay đổi")
@@ -140,6 +140,12 @@ type Turn struct {
 	background         bool   // a hand-off from another agent (ADR-044)
 	delegator          string // background: the agent that tagged it, to report back
 
+	// a turn of a workflow (spec 2026-10-07-workflows-design): its run, and
+	// the role it answers as ("" = the coordinator); wfVote: a ballot
+	wfRun, wfRole string
+	wfVote        bool
+	err           string // why it failed ("" = it answered)
+
 	mu     sync.Mutex
 	events []Event
 	done   bool
@@ -193,6 +199,8 @@ type Engine struct {
 	gateway   GatewayFor // the gateway's MCP servers a run gets (ADR-091, ADR-093)
 	trees     *worktree.Manager
 	assistant func(ctx context.Context) string
+	wf        wfState         // workflows running in chats
+	acts      actionsProposer // the workflows' gates propose through it
 
 	mu     sync.Mutex
 	active map[string]*Turn        // conversation id → running turn (the one the person waits for)
@@ -213,6 +221,7 @@ func (e *Engine) SetOffice(tools *officetools.Toolbox, mcp *mcpserver.Server, mc
 	e.office, e.mcp, e.mcpURL = tools, mcp, mcpURL
 	if tools != nil {
 		tools.SetDelegate(e.Delegate)
+		tools.SetWorkflow(e)
 	}
 }
 
@@ -438,19 +447,41 @@ func (e *Engine) Active(conversationID string) (*Turn, bool) {
 	return t, ok
 }
 
-// Agents returns the agents a person can talk to in a project (leads first).
+// Agents returns the agents a person can talk to in a project.
 func (e *Engine) Agents(ctx context.Context, projectID string) ([]storage.Agent, error) {
-	m, err := e.store.OrgModels().GetForRepo(ctx, projectID)
-	if errors.Is(err, storage.ErrNotFound) {
-		return nil, ErrNoModel
-	}
-	if err != nil {
+	if _, err := e.store.Repos().Get(ctx, projectID); err != nil {
 		return nil, err
 	}
-	return e.store.Agents().List(ctx, m.ID)
+	agents, err := e.store.Agents().List(ctx, projectID)
+	if err == nil && len(agents) == 0 {
+		return nil, ErrNoAgents
+	}
+	return agents, err
 }
 
-// StartConversation opens a thread with an agent (default: the first lead).
+// DefaultAgent is the project's default agent (paused when every one is).
+func (e *Engine) DefaultAgent(ctx context.Context, projectID string) (storage.Agent, error) {
+	agents, err := e.Agents(ctx, projectID)
+	if err != nil {
+		return storage.Agent{}, err
+	}
+	return e.defaultAgent(ctx, projectID, agents)
+}
+
+// defaultAgent is the project's default agent among agents (paused when
+// every one is: its first message gets the notice).
+func (e *Engine) defaultAgent(ctx context.Context, projectID string, agents []storage.Agent) (storage.Agent, error) {
+	r, err := e.store.Repos().Get(ctx, projectID)
+	if err != nil {
+		return storage.Agent{}, err
+	}
+	if a, ok := storage.DefaultAgentAny(r, agents); ok {
+		return a, nil
+	}
+	return storage.Agent{}, ErrNoAgent
+}
+
+// StartConversation opens a thread with an agent (default: the project's default one).
 func (e *Engine) StartConversation(ctx context.Context, projectID, agentID string) (storage.Conversation, error) {
 	c, err := e.StartConversationFor(ctx, projectID, agentID)
 	if err != nil {
@@ -627,10 +658,18 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 			paused = []storage.Agent{agent}
 		}
 	}
-	// "/skill request": the agent gets the skill's instructions; the
-	// conversation keeps what the person typed
-	prompt, err := text, error(nil)
-	if name, _, isCall := automation.ParseSkillCall(text); !isCall || conv.Purpose != "channel" || name == skillOf(ctx) {
+	// "/workflow request": the chat's agent coordinates a workflow of the
+	// project (spec 2026-10-07-workflows-design); otherwise "/skill request":
+	// the agent gets the skill's instructions. The conversation keeps what the
+	// person typed.
+	run, wfPrompt, isWorkflow, err := e.prepWorkflow(ctx, conv, agent, text)
+	if err != nil {
+		return nil, storage.Message{}, err
+	}
+	prompt := text
+	if isWorkflow {
+		prompt = wfPrompt
+	} else if name, _, isCall := automation.ParseSkillCall(text); !isCall || conv.Purpose != "channel" || name == skillOf(ctx) {
 		// a bot's conversation (outsiders write it) expands only the skill its command names
 		prompt, _, err = automation.ExpandSkillCall(userHome(), project.Path, text)
 	} else {
@@ -656,6 +695,10 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		if err := e.usage.Check(ctx, project.ID); err != nil {
 			return nil, storage.Message{}, err
 		}
+	}
+	wfID := "" // the chat runs a workflow this agent coordinates: the message is part of it
+	if r := e.runOf(conv.ID); r != nil && r.coord.ID == agent.ID {
+		wfID = r.rec.ID
 	}
 	e.mu.Lock()
 	if _, busy := e.active[conv.ID]; busy {
@@ -684,7 +727,8 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	limit := turnTimeout(ctx) // none, or an automation's own (ADR-082)
 	runCtx, cancel := withTimeout(WithInstructions(WithModelTier(base, ModelTierFrom(ctx)), instructionsOf(ctx)), limit)
 	turn := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx), limit: limit}
+		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx), limit: limit,
+		wfRun: wfID}
 	turn.total.Store(1)
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn
 	e.mu.Unlock()
@@ -714,6 +758,9 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	}
 	turn.JobID = job.ID
 	runCtx = usage.WithJob(runCtx, job.ID)
+	if run != nil {
+		e.startRun(conv, run, turn)
+	}
 	go e.run(runCtx, turn, conv, project, agent, history, prompt, files)
 	return turn, msg, nil
 }
@@ -728,11 +775,11 @@ func (e *Engine) agentFor(ctx context.Context, conv storage.Conversation) (stora
 	if err != nil {
 		return storage.Agent{}, err
 	}
-	return firstLead(agents)
+	return e.defaultAgent(ctx, conv.ProjectID, agents)
 }
 
 // standIn answers for a chat whose agent is paused: the agent that is on and
-// answered in it last, else the first lead that is on, else the first agent on.
+// answered in it last, else the project's default agent (one that is on).
 func (e *Engine) standIn(ctx context.Context, conv storage.Conversation) (storage.Agent, bool) {
 	agents, err := e.Agents(ctx, conv.ProjectID)
 	if err != nil {
@@ -760,24 +807,12 @@ func (e *Engine) standIn(ctx context.Context, conv storage.Conversation) (storag
 	if last.ID != "" {
 		return last, true
 	}
-	for _, a := range on {
-		if a.Tier == storage.TierLead {
+	if r, err := e.store.Repos().Get(ctx, conv.ProjectID); err == nil {
+		if a, ok := storage.DefaultAgent(r, agents); ok {
 			return a, true
 		}
 	}
 	return on[0], true
-}
-
-// firstLead is the first lead that is not paused, else the first lead.
-func firstLead(agents []storage.Agent) (storage.Agent, error) {
-	for _, list := range [][]storage.Agent{storage.OnAgents(agents), agents} {
-		for _, a := range list {
-			if a.Tier == storage.TierLead {
-				return a, nil
-			}
-		}
-	}
-	return storage.Agent{}, ErrNoAgent
 }
 
 // titleFrom names an untitled conversation after its first message.
@@ -840,6 +875,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		conv = c
 	}
 	fail := func(err error) {
+		turn.err = err.Error()
 		e.endJob(turn.JobID, "", err, ctx.Err())
 		m, _ := e.store.Chat().AddMessage(context.Background(), storage.Message{ConversationID: conv.ID, Role: "error", Content: err.Error()})
 		dto := MessageDTO{ID: m.ID, Role: "error", Content: m.Content, CreatedAt: m.CreatedAt, Tools: []storage.ToolCall{}, Attachments: []storage.Attachment{}, Patches: []PatchDTO{}}
@@ -958,15 +994,25 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		req.System += automationGuide
 	}
 	req.System += memory.Block(ctx, e.store, project.ID, agent.ID, 4000) // what it keeps from before (ADR-068)
-	if conv.Purpose == "template" {
-		req.System += templateGuide
+	if conv.Purpose == "workflow" {
+		req.System += workflowGuide
 	}
 	if conv.Purpose == "skill" {
 		req.System += skillGuide
 	} else if (conv.Purpose == "" || conv.Purpose == "channel") && (!pl.write || GuardCommand == "") {
 		req.System += skillHandoff // it cannot write .claude/skills itself
 	}
-	if teamChat(conv) { // the team and how to give it work
+	// a workflow's turn: the coordinator gets the workflow, a role its seat
+	wfCoord := e.coordinatorOf(conv.ID, turn, agent.ID)
+	switch {
+	case wfCoord != nil:
+		req.System += e.wfBrief(ctx, wfCoord, project.ID)
+	case turn.wfRole != "":
+		if run := e.runOf(conv.ID); run != nil && run.rec.ID == turn.wfRun {
+			d, _ := run.def.Role(turn.wfRole)
+			req.System += roleBrief(d.Name, run.def.Name)
+		}
+	case teamChat(conv): // the team and how to give it work
 		req.System += e.groupBrief(ctx, conv, agent)
 	}
 	if clash != "" {
@@ -1018,6 +1064,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		if kerr == nil {
 			req.Provider, req.APIKey, req.Bin, req.Model = p, key, e.providers.CLIBin(p), model
 			req.Prompt, req.SessionID = prompt, ""
+			if s, rt := e.wfSession(turn, conv.ID); s != "" && rt == string(p.Kind) {
+				req.SessionID = s // a workflow's role goes on in its own session
+			}
 			if !handoff && mem.Runtime == string(p.Kind) && mem.SessionID != "" {
 				req.SessionID = mem.SessionID
 				e.compactIfFull(ctx, turn, &mem, agent, p, model, pl.dir)
@@ -1033,6 +1082,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			if e.usage != nil {
 				if r, err := e.usage.Record(ctx, usage.Meta{Kind: "chat", ProjectID: project.ID, AgentID: agent.ID}, p, model, res.Usage, runErr); err == nil {
 					runID, cost = r.ID, r.CostUSD
+					e.wfCost(turn, conv.ID, cost)
 				}
 			}
 			e.keepLimits(p, res.Limits)
@@ -1054,6 +1104,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if res.SessionID != "" && !handoff { // a handed-over task leaves the agent's own session as it was
 		mem.SessionID, mem.Runtime = res.SessionID, string(p.Kind)
 	}
+	e.wfKeepSession(turn, conv.ID, res.SessionID, string(p.Kind))
 	if res.Context.Tokens > 0 && !handoff {
 		mem.ContextTokens, mem.ContextWindow = res.Context.Tokens, res.Context.Window
 		if agent.ID == conv.AgentID { // the chat shows its default agent's context

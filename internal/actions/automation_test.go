@@ -68,8 +68,7 @@ func TestProposeAutomationAgentsMustBelongToTheProject(t *testing.T) { // I4
 	st.Migrate(ctx)
 	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
 	other, _ := st.Repos().Create(ctx, storage.Repo{Name: "q", Path: t.TempDir()})
-	m, _ := st.OrgModels().Create(ctx, storage.OrgModel{RepoID: other.ID, Key: "m", Name: "m", Kind: "solo"})
-	foreign, _ := st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "x", Name: "X", Tier: storage.TierLead, ModelTier: "fast"})
+	foreign, _ := st.Agents().Create(ctx, storage.Agent{ProjectID: other.ID, Key: "x", Name: "X", ModelTier: "fast"})
 	svc := New(st, nil)
 	sc := Scope{ProjectID: proj.ID, RunRef: "r1", Agent: "Lead", Level: perm.Propose, Access: perm.Access{Level: perm.Propose, Caps: perm.Preset(perm.Propose)}}
 	for _, spec := range []map[string]any{

@@ -21,12 +21,12 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
 
@@ -52,15 +52,14 @@ func setup(t *testing.T, providerIn func(provs *provider.Service) storage.Provid
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.UTC)
 	provs.SetUsage(u)
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	providerIn(provs)
 
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello\nworld\n"), 0o644)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "demo", Path: dir})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	return fixture{st: st, engine: chat.NewEngine(st, provs, u), provs: provs, project: project, dir: dir}
 }
 
@@ -314,8 +313,7 @@ func TestSwitchConversationAgent(t *testing.T) {
 	ctx := context.Background()
 	agents, _ := f.engine.Agents(ctx, f.project.ID)
 	if len(agents) < 2 {
-		m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
-		if _, err := f.st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast"}); err != nil {
+		if _, err := f.st.Agents().Create(ctx, storage.Agent{ProjectID: f.project.ID, Key: "dev", Name: "Dev", ModelTier: "fast"}); err != nil {
 			t.Fatal(err)
 		}
 		agents, _ = f.engine.Agents(ctx, f.project.ID)
@@ -349,9 +347,11 @@ func fakeTeamClaude(t *testing.T, reply string) (bin, dir string) {
 	dir = t.TempDir()
 	bin = filepath.Join(dir, "claude")
 	os.WriteFile(bin, []byte(`#!/bin/sh
+while ! mkdir `+dir+`/.lock 2>/dev/null; do sleep 0.01; done
 n=$(ls `+dir+` | grep -c 'args$')
 n=$((n+1))
 echo "$*" > `+dir+`/call$n.args
+rmdir `+dir+`/.lock
 cat > `+dir+`/call$n.in
 who=lead
 case "$*" in *"Bạn là Dev"*) who=dev;; esac
@@ -376,8 +376,7 @@ func TestEachAgentKeepsItsSession(t *testing.T) {
 		return p
 	})
 	ctx := context.Background()
-	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
-	dev, err := f.st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast"})
+	dev, err := f.st.Agents().Create(ctx, storage.Agent{ProjectID: f.project.ID, Key: "dev", Name: "Dev", ModelTier: "fast"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,9 +415,11 @@ func fakeGroupClaude(t *testing.T) (bin, dir string) {
 	dir = t.TempDir()
 	bin = filepath.Join(dir, "claude")
 	os.WriteFile(bin, []byte(`#!/bin/sh
+while ! mkdir `+dir+`/.lock 2>/dev/null; do sleep 0.01; done
 n=$(ls `+dir+` | grep -c 'args$')
 n=$((n+1))
 echo "$*" > `+dir+`/call$n.args
+rmdir `+dir+`/.lock
 cat > `+dir+`/call$n.in
 who=lead
 case "$*" in *"Bạn là Dev"*) who=dev;; esac
@@ -452,8 +453,7 @@ func newGroup(t *testing.T) group {
 		return p
 	})
 	ctx := context.Background()
-	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
-	dev, err := f.st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast"})
+	dev, err := f.st.Agents().Create(ctx, storage.Agent{ProjectID: f.project.ID, Key: "dev", Name: "Dev", ModelTier: "fast"})
 	if err != nil {
 		t.Fatal(err)
 	}

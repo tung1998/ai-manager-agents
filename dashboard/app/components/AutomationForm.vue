@@ -12,7 +12,7 @@ const { t, dateLocale } = useLang()
 // eslint-disable-next-line vue/no-mutating-props -- the draft is the parent's reactive object, edited in place
 const form = props.form
 
-const { data: agentsData } = useLiveFetch<{ agents: Agent[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
+const { data: agentsData } = useLiveFetch<{ agents: Agent[], default_agent_id: string }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 // a bot's messages start it (ADR-049): bots are set up on their own page,
 // each of its commands being one automation edited here in "command" mode
 const fromChannel = computed(() => isChannelSource(form.source))
@@ -35,7 +35,7 @@ const { data: projBots } = useLiveFetch<{ channels: Channel[] }>(() => `/api/pro
 const LEAD = '__lead'
 const chatAgent = computed({ get: () => form.agent_id || LEAD, set: (v: string) => { form.agent_id = v === LEAD ? '' : v } })
 // who answers in a chat: one agent ("" = the lead)
-const replyAgentOptions = computed(() => [{ label: t('channels.agentLead'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
+const replyAgentOptions = computed(() => [{ label: t('team.defaultAgent'), value: LEAD }, ...(agentsData.value?.agents ?? []).map(a => ({ label: a.name, value: a.id }))])
 // tags each run's chat gets; the project's chat tags to pick again
 const tags = computed({ get: () => form.config.tags ?? [], set: (v: string[]) => { form.config.tags = v } })
 const { data: tagsData } = useLiveFetch<{ tags: { tag: string }[] }>(() => `/api/projects/${props.projectId}/chat-tags`, { lazy: true })
@@ -133,7 +133,8 @@ const notifyKind = computed(() => chData.value?.channels.find(c => c.id === form
 const effectiveAgent = computed(() => {
   const agents = agentsData.value?.agents ?? []
   if (form.agent_id) return agents.find(a => a.id === form.agent_id)
-  return agents.find(a => a.tier === 'lead') ?? agents[0]
+  // none picked: the project's default agent answers
+  return agents.find(a => a.id === agentsData.value?.default_agent_id) ?? agents[0]
 })
 const effectiveFullAccess = computed(() => form.permission_mode === 'override' ? !!form.override_full_access : !!effectiveAgent.value?.permissions.full_access)
 

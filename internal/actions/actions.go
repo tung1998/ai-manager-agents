@@ -42,6 +42,7 @@ var Kinds = map[string]string{
 	"remember":          "Ghi nhớ",
 	"mcp_call":          "Gọi tool MCP",
 	"send_message":      "Gửi tin sang chat khác",
+	"workflow_gate":     "Duyệt cổng quy trình",
 }
 
 // Sender sends a message to another chat in the name of the person whose
@@ -159,11 +160,7 @@ func isProcess(kind string) bool { return strings.HasSuffix(kind, "_process") }
 
 // agentID is the id of the project's agent of that name.
 func (s *Service) agentID(ctx context.Context, projectID, name string) (string, error) {
-	model, err := s.store.OrgModels().GetForRepo(ctx, projectID)
-	if err != nil {
-		return "", err
-	}
-	agents, err := s.store.Agents().List(ctx, model.ID)
+	agents, err := s.store.Agents().List(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
@@ -201,6 +198,10 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 			return a, errors.New("không gọi tool MCP được ở đây")
 		}
 		a.Target = a.Args.MCP.Server + "/" + a.Args.MCP.Tool
+	} else if kind == "workflow_gate" { // a workflow waits on a person: approving runs nothing
+		if sc.ConversationID == "" || a.Target == "" || a.Reason == "" {
+			return a, errors.New("cổng quy trình cần cuộc chat, tên cổng và điều cần duyệt")
+		}
 	} else if kind == "send_message" { // Target: the chat it goes to, Args.Message: what it says
 		if err := s.checkSend(ctx, sc, &a); err != nil {
 			return a, err
@@ -295,7 +296,7 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 	}
 	// a bot's chat in direct mode: approved now, so the agent gets the result
 	// in this turn and goes on (not after its answer, waiting to be asked again)
-	if s.direct != nil && a.JobID != "" {
+	if s.direct != nil && a.JobID != "" && a.Kind != "workflow_gate" { // a gate waits on a person, whatever the chat's way
 		if by, ok := s.direct(ctx, a); ok {
 			done, err := s.Decide(ctx, a.ID, true, by)
 			if err != nil {
@@ -339,6 +340,8 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 		return false // code that runs unattended, or settings: a person always decides
 	case "mcp_call":
 		return false // the gateway already let through what the agent may call itself
+	case "workflow_gate":
+		return false // the point of the gate: a person decides
 	case "send_message": // never on and on: what a relayed message started asks a person
 		return acc.Can(perm.CapChatSend) && s.sender != nil && !s.sender.Relayed(ctx, a.ConversationID)
 	case "git_commit":
@@ -585,6 +588,9 @@ func firstNonEmpty(a, b string) string {
 }
 
 func (s *Service) run(ctx context.Context, a storage.Action) error {
+	if a.Kind == "workflow_gate" {
+		return nil // approved: the workflow goes on (its coordinator is called back, ADR-084)
+	}
 	if a.Kind == "remember" {
 		_, err := s.memory.Add(ctx, a.ProjectID, a.TargetID, a.Target, "agent", a.ProposedBy)
 		return err

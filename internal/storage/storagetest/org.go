@@ -55,54 +55,65 @@ func testProviders(t *testing.T, s storage.Store) {
 
 func testOrg(t *testing.T, s storage.Store) {
 	ctx := context.Background()
-	tpl, err := s.OrgModels().Create(ctx, storage.OrgModel{Key: "team", Name: "Team", Kind: storage.KindTeam, Builtin: true,
-		Governance: storage.Governance{Mode: "hierarchy"}})
+	repo, err := s.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/code/shop"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.OrgModels().Create(ctx, storage.OrgModel{Key: "team", Name: "Dup", Kind: storage.KindCustom}); !errors.Is(err, storage.ErrConflict) {
-		t.Fatalf("duplicate template key err = %v", err)
+	if _, err := s.Repos().Create(ctx, storage.Repo{Name: "dup", Path: "/code/shop"}); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("duplicate path err = %v", err)
 	}
 	prov, _ := s.Providers().Create(ctx, storage.Provider{Name: "P", Kind: storage.ProviderAnthropic})
-	lead, err := s.Agents().Create(ctx, storage.Agent{OrgModelID: tpl.ID, Key: "lead", Name: "Lead", Tier: storage.TierLead, ModelTier: "strong",
+	lead, err := s.Agents().Create(ctx, storage.Agent{ProjectID: repo.ID, Key: "lead", Name: "Lead", ModelTier: "strong",
 		ProviderID: prov.ID, Permissions: storage.Permissions{ReadOnly: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Agents().Create(ctx, storage.Agent{OrgModelID: tpl.ID, Key: "dev", Name: "Dev", Tier: storage.TierWorker, ModelTier: "fast",
-		ReportsTo: []string{"lead"}}); err != nil {
+	dev, err := s.Agents().Create(ctx, storage.Agent{ProjectID: repo.ID, Key: "dev", Name: "Dev", ModelTier: "fast", Sort: 1})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Agents().Create(ctx, storage.Agent{OrgModelID: tpl.ID, Key: "lead", Name: "x", Tier: storage.TierWorker, ModelTier: "fast"}); !errors.Is(err, storage.ErrConflict) {
+	if _, err := s.Agents().Create(ctx, storage.Agent{ProjectID: repo.ID, Key: "lead", Name: "x", ModelTier: "fast"}); !errors.Is(err, storage.ErrConflict) {
 		t.Fatalf("duplicate agent key err = %v", err)
 	}
-	agents, _ := s.Agents().List(ctx, tpl.ID)
-	if len(agents) != 2 || agents[0].Key != "lead" || agents[1].ReportsTo[0] != "lead" || !agents[0].Permissions.ReadOnly {
+	agents, _ := s.Agents().List(ctx, repo.ID)
+	if len(agents) != 2 || agents[0].Key != "lead" || agents[0].ProjectID != repo.ID || !agents[0].Permissions.ReadOnly {
 		t.Fatalf("agents = %+v", agents)
+	}
+	// the default agent: the project's pick when on, else the first on
+	if d, ok := storage.DefaultAgent(repo, agents); !ok || d.ID != lead.ID {
+		t.Fatalf("default = %+v", d)
+	}
+	repo.DefaultAgentID = dev.ID
+	if err := s.Repos().Update(ctx, repo); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s.Repos().Get(ctx, repo.ID); r.DefaultAgentID != dev.ID {
+		t.Fatalf("default agent not saved: %+v", r)
 	}
 	// on by default; paused/resumed only by SetEnabled, Update keeps it
 	if agents[0].Disabled || agents[1].Disabled {
 		t.Fatalf("new agents should be on: %+v", agents)
 	}
-	if err := s.Agents().SetEnabled(ctx, lead.ID, false); err != nil {
+	if err := s.Agents().SetEnabled(ctx, dev.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	off, _ := s.Agents().Get(ctx, lead.ID)
-	if !off.Disabled {
-		t.Fatalf("lead should be paused: %+v", off)
+	agents, _ = s.Agents().List(ctx, repo.ID)
+	if d, _ := storage.DefaultAgent(repo, agents); d.ID != lead.ID {
+		t.Fatalf("a paused default falls back to the first on: %+v", d)
 	}
-	off.Name = "Lead 2"
+	off, _ := s.Agents().Get(ctx, dev.ID)
+	off.Name = "Dev 2"
 	if err := s.Agents().Update(ctx, off); err != nil {
 		t.Fatal(err)
 	}
-	if a, _ := s.Agents().Get(ctx, lead.ID); !a.Disabled || a.Name != "Lead 2" {
+	if a, _ := s.Agents().Get(ctx, dev.ID); !a.Disabled || a.Name != "Dev 2" {
 		t.Fatalf("update changed paused state: %+v", a)
 	}
-	if err := s.Agents().SetEnabled(ctx, lead.ID, true); err != nil {
+	if err := s.Agents().SetEnabled(ctx, dev.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if a, _ := s.Agents().Get(ctx, lead.ID); a.Disabled {
-		t.Fatalf("lead should be on again: %+v", a)
+	if a, _ := s.Agents().Get(ctx, dev.ID); a.Disabled {
+		t.Fatalf("dev should be on again: %+v", a)
 	}
 	if err := s.Agents().SetEnabled(ctx, "agt_missing", false); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("SetEnabled missing err = %v", err)
@@ -114,41 +125,27 @@ func testOrg(t *testing.T, s storage.Store) {
 	if a, _ := s.Agents().Get(ctx, lead.ID); a.ProviderID != "" {
 		t.Fatalf("provider not unlinked: %+v", a)
 	}
-
-	repo, err := s.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/code/shop"})
-	if err != nil {
+	// revisions of the project's agents
+	for i := 0; i < 3; i++ {
+		if _, err := s.Revisions().Create(ctx, storage.Revision{ProjectID: repo.ID, Action: "agent.update:lead", AgentCount: 2, Snapshot: []byte(`{"agents":[]}`)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Revisions().Prune(ctx, repo.ID, 2); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Repos().Create(ctx, storage.Repo{Name: "dup", Path: "/code/shop"}); !errors.Is(err, storage.ErrConflict) {
-		t.Fatalf("duplicate path err = %v", err)
+	if revs, _ := s.Revisions().List(ctx, repo.ID, 10); len(revs) != 2 || revs[0].ProjectID != repo.ID {
+		t.Fatalf("revisions = %+v", revs)
 	}
-	inst, err := s.OrgModels().Create(ctx, storage.OrgModel{RepoID: repo.ID, SourceTemplateID: tpl.ID, Key: "team", Name: "Team", Kind: storage.KindTeam})
-	if err != nil {
-		t.Fatalf("instance may reuse template key: %v", err)
-	}
-	if _, err := s.OrgModels().Create(ctx, storage.OrgModel{RepoID: repo.ID, Key: "solo", Name: "Solo", Kind: storage.KindSolo}); !errors.Is(err, storage.ErrConflict) {
-		t.Fatalf("second instance for repo err = %v", err)
-	}
-	got, err := s.OrgModels().GetForRepo(ctx, repo.ID)
-	if err != nil || got.ID != inst.ID || got.SourceTemplateID != tpl.ID || got.IsTemplate() {
-		t.Fatalf("GetForRepo = %+v, %v", got, err)
-	}
-	if _, err := s.Agents().Create(ctx, storage.Agent{OrgModelID: inst.ID, Key: "lead", Name: "Lead", Tier: storage.TierLead, ModelTier: "strong"}); err != nil {
-		t.Fatal(err)
-	}
-	templates, _ := s.OrgModels().ListTemplates(ctx)
-	if len(templates) != 1 {
-		t.Fatalf("templates must exclude instances: %d", len(templates))
-	}
-	// deleting the repo cascades to its instance and agents
+	// deleting the repo cascades to its agents and revisions
 	if err := s.Repos().Delete(ctx, repo.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.OrgModels().Get(ctx, inst.ID); !errors.Is(err, storage.ErrNotFound) {
-		t.Fatalf("instance survived repo delete: %v", err)
-	}
-	if a, _ := s.Agents().List(ctx, inst.ID); len(a) != 0 {
+	if a, _ := s.Agents().List(ctx, repo.ID); len(a) != 0 {
 		t.Fatalf("agents survived: %d", len(a))
+	}
+	if revs, _ := s.Revisions().List(ctx, repo.ID, 10); len(revs) != 0 {
+		t.Fatalf("revisions survived: %d", len(revs))
 	}
 }
 
@@ -193,18 +190,15 @@ func testHelperProjects(t *testing.T, s storage.Store) {
 	if _, err := s.Repos().Create(ctx, storage.Repo{Name: "y", Path: "/p"}); !errors.Is(err, storage.ErrConflict) {
 		t.Fatalf("duplicate real path err = %v", err)
 	}
-	// helper projects keep their model through the table rebuild
-	m, err := s.OrgModels().Create(ctx, storage.OrgModel{RepoID: a.ID, Key: "solo", Name: "Solo", Kind: storage.KindSolo})
+	// helper projects keep their agents through the table rebuilds
+	ag, err := s.Agents().Create(ctx, storage.Agent{ProjectID: a.ID, Key: "assistant", Name: "Trợ lý", ModelTier: "balanced"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if got, err := s.OrgModels().GetForRepo(ctx, a.ID); err != nil || got.ID != m.ID {
-		t.Fatalf("model for helper = %+v, %v", got, err)
 	}
 	if err := s.Repos().Delete(ctx, a.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.OrgModels().Get(ctx, m.ID); !errors.Is(err, storage.ErrNotFound) {
+	if _, err := s.Agents().Get(ctx, ag.ID); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("cascade must still work after rebuild")
 	}
 }

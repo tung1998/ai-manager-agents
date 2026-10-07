@@ -4,13 +4,15 @@ import (
 	"net/http"
 	"time"
 
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/team"
 )
+
+// Revisions are snapshots of a project's agents taken before each change.
 
 type revisionDTO struct {
 	ID         string    `json:"id"`
-	OrgModelID string    `json:"org_model_id"`
+	ProjectID  string    `json:"project_id"`
 	Action     string    `json:"action"`
 	Actor      string    `json:"actor"`
 	AgentCount int       `json:"agent_count"`
@@ -18,11 +20,11 @@ type revisionDTO struct {
 }
 
 func toRevisionDTO(r storage.Revision) revisionDTO {
-	return revisionDTO{ID: r.ID, OrgModelID: r.OrgModelID, Action: r.Action, Actor: r.Actor, AgentCount: r.AgentCount, CreatedAt: r.CreatedAt}
+	return revisionDTO{ID: r.ID, ProjectID: r.ProjectID, Action: r.Action, Actor: r.Actor, AgentCount: r.AgentCount, CreatedAt: r.CreatedAt}
 }
 
 func (s *server) listRevisions(w http.ResponseWriter, r *http.Request) {
-	revs, err := s.cfg.Org.Revisions(r.Context(), r.PathValue("id"), orgmodel.KeepRevisions)
+	revs, err := s.cfg.Team.Revisions(r.Context(), r.PathValue("id"), team.KeepRevisions)
 	if err != nil {
 		s.internal(w, r, err)
 		return
@@ -40,21 +42,26 @@ func (s *server) getRevision(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	t, err := orgmodel.RevisionTemplate(rev)
+	snap, err := team.RevisionSnapshot(rev)
 	if err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"revision": toRevisionDTO(rev), "snapshot": t})
+	writeJSON(w, http.StatusOK, map[string]any{"revision": toRevisionDTO(rev), "snapshot": snap})
 }
 
 func (s *server) restoreRevision(w http.ResponseWriter, r *http.Request) {
-	m, err := s.cfg.Org.Restore(r.Context(), r.PathValue("id"))
+	rev, err := s.cfg.Team.Restore(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.auditAction(r, "org_model.restore", m.ID, map[string]any{"revision": r.PathValue("id")})
-	d, _ := s.loadOrg(r, m.ID, true)
-	writeJSON(w, http.StatusOK, map[string]any{"model": d})
+	s.auditAction(r, "project.restore_agents", rev.ProjectID, map[string]any{"revision": rev.ID})
+	x, err := s.cfg.Store.Repos().Get(r.Context(), rev.ProjectID)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	d, _ := s.repoDTO(r, x, true)
+	writeJSON(w, http.StatusOK, map[string]any{"project": d})
 }

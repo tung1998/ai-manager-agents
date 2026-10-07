@@ -29,14 +29,8 @@ func TestChatAPIWithSSE(t *testing.T) {
 
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644)
-	_, tpls := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	var soloID string
-	for _, x := range tpls["templates"].([]any) {
-		if x.(map[string]any)["key"] == "solo" {
-			soloID = x.(map[string]any)["id"].(string)
-		}
-	}
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "template_id": soloID}, nil)
+	soloID := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "pack": soloID}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 
 	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{}, nil)

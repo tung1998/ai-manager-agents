@@ -94,8 +94,7 @@ func TestTagPausedAndOnAgents(t *testing.T) {
 // and answered there last takes the chat over (before another lead).
 func TestPausedDefaultAgentHandsOver(t *testing.T) {
 	g := newGroup(t)
-	m, _ := g.f.st.OrgModels().GetForRepo(g.context, g.f.project.ID)
-	if _, err := g.f.st.Agents().Create(g.context, storage.Agent{OrgModelID: m.ID, Key: "lead2", Name: "Lead2", Tier: storage.TierLead, ModelTier: "fast"}); err != nil {
+	if _, err := g.f.st.Agents().Create(g.context, storage.Agent{ProjectID: g.f.project.ID, Key: "lead2", Name: "Lead2", ModelTier: "fast"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := g.sendAll(t, "@Dev giúp với"); len(got) != 1 || got[0] != "Dev" {
@@ -111,16 +110,16 @@ func TestPausedDefaultAgentHandsOver(t *testing.T) {
 	}
 }
 
-// Nobody answered there yet: the first lead that is on.
-func TestPausedDefaultAgentGoesToLead(t *testing.T) {
+// Nobody answered there yet: the project's default agent, or (paused too)
+// the first agent that is on.
+func TestPausedDefaultAgentGoesToDefault(t *testing.T) {
 	g := newGroup(t)
-	m, _ := g.f.st.OrgModels().GetForRepo(g.context, g.f.project.ID)
-	if _, err := g.f.st.Agents().Create(g.context, storage.Agent{OrgModelID: m.ID, Key: "lead2", Name: "Lead2", Tier: storage.TierLead, ModelTier: "fast"}); err != nil {
+	if _, err := g.f.st.Agents().Create(g.context, storage.Agent{ProjectID: g.f.project.ID, Key: "lead2", Name: "Lead2", ModelTier: "fast"}); err != nil {
 		t.Fatal(err)
 	}
 	g.pause(t, g.lead)
-	if got := g.sendAll(t, "chào"); len(got) != 1 || got[0] != "Lead2" {
-		t.Fatalf("authors = %v, want Lead2", got)
+	if got := g.sendAll(t, "chào"); len(got) != 1 || got[0] != "Dev" {
+		t.Fatalf("authors = %v, want Dev (first on)", got)
 	}
 }
 

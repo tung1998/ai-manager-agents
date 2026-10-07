@@ -11,9 +11,13 @@ import watchScreen from './parts/watch.en'
 import files from './parts/files.en'
 import chatTags from './parts/tags.en'
 import dataPage from './parts/data.en'
+import team from './parts/team.en'
+import workflows from './parts/workflows.en'
 
 const en: Record<MessageKey, string> = {
   ...dataPage,
+  ...team,
+  ...workflows,
   ...watchScreen,
   ...files,
   ...chatTags,
@@ -36,7 +40,6 @@ const en: Record<MessageKey, string> = {
   'nav.addProject': 'Add a project',
   'nav.providers': 'AI connections',
   'nav.costs': 'Costs',
-  'nav.templates': 'Org models',
   'nav.library': 'Library',
   'nav.admin': 'Administration',
   'nav.users': 'Accounts',
@@ -112,10 +115,6 @@ const en: Record<MessageKey, string> = {
   'log.empty': 'No logs yet.',
   'log.toBottom': '↓ Jump to latest',
   'soon.badge': 'Coming in {milestone}',
-  'noModel.title': 'This project has no org model yet',
-  'noModel.desc': 'An org model is needed for chat and tasks. Let AI propose one, or pick Solo, Team or Three powers yourself.',
-  'noModel.setupAi': 'Set up with AI',
-  'noModel.choose': 'Choose a model',
 }
 
 export default en

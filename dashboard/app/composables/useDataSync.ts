@@ -22,11 +22,13 @@ const routes: [RegExp, string[]][] = [
   [/\/channels/, ['channels']],
   [/\/mcp\/servers/, ['mcp_servers']],
   [/\/providers|\/usage|\/budget/, ['providers', 'runs', 'jobs', 'settings']],
-  [/\/agents|\/org-models|\/templates/, ['agents', 'org_models']],
+  [/\/workflow/, ['workflows', 'workflow_runs', 'agents']],
+  [/\/revisions/, ['revisions', 'agents', 'repos']],
+  [/\/agents|\/packs/, ['agents', 'repos']],
   [/\/processes|\/compose|\/monitors|\/monitor-events/, ['processes', 'monitors', 'monitor_events']],
   [/\/users|\/me\//, ['users']],
   [/\/policy/, ['settings', 'repos']],
-  [/^\/api\/projects(\/[^/?]+)?(\?|$)/, ['repos', 'org_models', 'agents']]
+  [/^\/api\/projects(\/[^/?]+)?(\?|$)/, ['repos', 'agents']]
 ]
 export function tablesFor(path: string): string[] {
   const p = path.split('#')[0] ?? ''

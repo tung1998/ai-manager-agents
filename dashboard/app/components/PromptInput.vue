@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// Prompt box shared by Chat and Việc: "/" opens the project's skills, "@"
+// Prompt box shared by Chat and Việc: "/" opens the project's workflows and skills, "@"
 // the agents to tag (Chat, ADR-044), files
 // can be attached (button, drag & drop, paste) and are uploaded right away.
 export interface Attachment { id: string, name: string, kind: 'image' | 'pdf' | 'text', mime: string, size: number }
-interface Skill { name: string, description: string, source: 'project' | 'user' | 'plugin' }
+interface Skill { name: string, description: string, source: 'project' | 'user' | 'plugin' | 'workflow' }
 
 const props = withDefaults(defineProps<{
   projectId: string
@@ -21,7 +21,13 @@ const { t } = useLang()
 
 // ---- skills ----
 const { data: skillData } = await useLiveFetch<{ skills: Skill[] }>(() => `/api/projects/${props.projectId}/skills`)
-const skills = computed(() => skillData.value?.skills ?? [])
+// the project's workflows on, run by "/key" as a skill (ADR-098); a workflow wins over a skill of its name
+const { data: wfData } = useLiveFetch<{ workflows: ProjectWorkflow[] }>(() => `/api/projects/${props.projectId}/workflows`, { lazy: true })
+const skills = computed<Skill[]>(() => {
+  const wfs = (wfData.value?.workflows ?? []).filter(w => w.enabled && !w.error).map(w => ({ name: w.key, description: w.description || w.name, source: 'workflow' as const }))
+  const taken = new Set(wfs.map(w => w.name))
+  return [...wfs, ...(skillData.value?.skills ?? []).filter(s => !taken.has(s.name))]
+})
 const menuIndex = ref(0)
 const menuClosed = ref(false)
 // open while typing the first word after "/"
@@ -58,7 +64,8 @@ const activeSkill = computed(() => {
   const m = /^\/(\S+)\s/.exec(text.value)
   return m ? skills.value.find(s => s.name === m[1]) : undefined
 })
-const sourceLabel = computed(() => ({ project: t('prompt.sourceProject'), user: t('prompt.sourceUser'), plugin: t('prompt.sourcePlugin') }))
+const sourceLabel = computed(() => ({ project: t('prompt.sourceProject'), user: t('prompt.sourceUser'), plugin: t('prompt.sourcePlugin'), workflow: t('wf.slashBadge') }))
+const skillIcon = (s: Skill) => s.source === 'workflow' ? 'i-lucide-workflow' : 'i-lucide-sparkles'
 
 // The menu is teleported to <body> with fixed position so no scrolling or
 // overflow-hidden parent can clip it; it opens upward unless there is no room.
@@ -231,7 +238,7 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
         :class="i === menuIndex ? 'bg-(--ui-bg-elevated)' : 'hover:bg-(--ui-bg-elevated)'"
         @mousedown.prevent="pick(s)" @mouseenter="menuIndex = i"
       >
-        <UIcon name="i-lucide-sparkles" class="mt-0.5 size-4 shrink-0 text-primary" />
+        <UIcon :name="skillIcon(s)" class="mt-0.5 size-4 shrink-0 text-primary" />
         <span class="min-w-0 flex-1">
           <span class="font-mono text-sm">/{{ s.name }}</span>
           <span class="line-clamp-1 text-xs text-(--ui-text-muted)">{{ s.description }}</span>
@@ -268,7 +275,7 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
     <div class="@container flex items-center gap-2 px-2 pb-2 max-sm:gap-0.5 max-sm:[&_.iconify]:!size-4 max-sm:[&_button]:!text-xs max-sm:[&_button]:!py-1">
       <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-paperclip" :aria-label="t('prompt.attach')" @click="input?.click()" />
       <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-slash" :aria-label="t('prompt.pickSkill')" :disabled="!skills.length" @click="text = '/'; box?.textareaRef?.focus()" />
-      <UBadge v-if="activeSkill" color="primary" variant="subtle" size="sm" icon="i-lucide-sparkles" :label="activeSkill.name" />
+      <UBadge v-if="activeSkill" color="primary" variant="subtle" size="sm" :icon="skillIcon(activeSkill)" :label="activeSkill.name" />
       <!-- only when the box itself is wide: narrow panels (the corner chat) keep one tidy row -->
       <span class="hidden min-w-0 truncate text-xs text-(--ui-text-dimmed) @2xl:inline" :title="t('prompt.dragHint')">{{ t('prompt.dragHint') }}</span>
       <!-- the actions shrink (their labels cut) before the row overflows -->

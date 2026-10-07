@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/memory"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 )
 
 // An agent's "remember" waits for a person, unless the project keeps its
@@ -20,13 +20,11 @@ func TestRemember(t *testing.T) {
 	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
 	defer st.Close()
 	st.Migrate(ctx)
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, proj.ID, solo.ID, false)
-	model, _ := st.OrgModels().GetForRepo(ctx, proj.ID)
-	agents, _ := st.Agents().List(ctx, model.ID)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, proj.ID, solo, false)
+	agents, _ := st.Agents().List(ctx, proj.ID)
 	mem := memory.New(st, nil)
 	svc := New(st, nil)
 	svc.SetMemory(mem)

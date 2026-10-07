@@ -20,12 +20,12 @@ func repoCmd() *cobra.Command {
 		Short:   "Quản lý project (thư mục trên máy, hoặc helper toàn máy)",
 	}
 
-	var template, name string
+	var pack, name string
 	add := &cobra.Command{
 		Use:   "add [đường-dẫn]",
 		Short: "Thêm project; bỏ trống đường dẫn để tạo helper cho toàn bộ máy",
-		Example: `  office project add ~/code/shop --template team
-  office project add --name "Trợ lý máy" --template solo   # không gắn thư mục`,
+		Example: `  office project add ~/code/shop --pack team
+  office project add --name "Trợ lý máy" --pack solo   # không gắn thư mục`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var info repos.Info
@@ -49,22 +49,23 @@ func repoCmd() *cobra.Command {
 					return err
 				}
 				fmt.Printf("✓ Đã thêm project %s · %s\n", r.Name, projectScope(r))
-				if template != "" {
-					tpl, err := pickTemplate(cmd, a, template)
+				if pack != "" {
+					p, err := pickPack(pack)
 					if err != nil {
 						return err
 					}
-					m, err := a.org.ApplyToRepo(cmd.Context(), r.ID, tpl.ID, false)
-					if err != nil {
+					if err := a.team.ApplyPack(cmd.Context(), r.ID, p, false); err != nil {
 						return err
 					}
-					fmt.Printf("✓ Áp mô hình %s\n", m.Name)
+					fmt.Printf("✓ Dùng gói %s: %d agent\n", p.Name, len(p.Agents))
 				}
 				return nil
 			})
 		},
 	}
-	add.Flags().StringVar(&template, "template", "", "áp mô hình mẫu ngay: solo | team | council")
+	add.Flags().StringVar(&pack, "pack", "", "dùng gói khởi tạo ngay: solo | team | council")
+	add.Flags().StringVar(&pack, "template", "", "tên cũ của --pack")
+	_ = add.Flags().MarkHidden("template")
 	add.Flags().StringVar(&name, "name", "", "tên project (bắt buộc khi không có đường dẫn)")
 
 	list := &cobra.Command{
@@ -77,14 +78,14 @@ func repoCmd() *cobra.Command {
 					return err
 				}
 				w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-				fmt.Fprintln(w, "TÊN\tMÔ HÌNH\tAGENT\tPHẠM VI")
+				fmt.Fprintln(w, "TÊN\tMẶC ĐỊNH\tAGENT\tPHẠM VI")
 				for _, r := range rs {
-					model, count := "—", 0
-					if m, err := a.store.OrgModels().GetForRepo(cmd.Context(), r.ID); err == nil {
-						agents, _ := a.store.Agents().List(cmd.Context(), m.ID)
-						model, count = m.Name, len(agents)
+					agents, _ := a.store.Agents().List(cmd.Context(), r.ID)
+					def := "—"
+					if d, ok := storage.DefaultAgent(r, agents); ok {
+						def = d.Name
 					}
-					fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", r.Name, model, count, projectScope(r))
+					fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", r.Name, def, len(agents), projectScope(r))
 				}
 				return w.Flush()
 			})

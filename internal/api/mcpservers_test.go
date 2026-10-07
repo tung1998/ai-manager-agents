@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/assistant"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 )
 
 const mcpSecret = "Bearer sk-upstream-very-secret-9876"
@@ -127,7 +126,7 @@ func TestMCPServersAPI(t *testing.T) {
 	if code, _ := call("wrong"); code != 401 {
 		t.Fatalf("wrong token = %d", code)
 	}
-	if _, err := assistant.Ensure(context.Background(), e.st, orgmodel.NewService(e.st), t.TempDir()); err != nil {
+	if _, err := assistant.Ensure(context.Background(), e.st, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	_, tb := do(t, admin, "POST", e.srv.URL+"/api/me/tokens", map[string]any{"name": "cli"}, nil)

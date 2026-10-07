@@ -44,16 +44,10 @@ func TestOverrideWithoutFullAccessNotRequiredToSetBudget(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	solo := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "solo" {
-			solo = m["id"].(string)
-		}
-	}
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	solo := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
-	agents := body["project"].(map[string]any)["model"].(map[string]any)["agents"].([]any)
+	agents := body["project"].(map[string]any)["agents"].([]any)
 	agentID := agents[0].(map[string]any)["id"].(string)
 
 	// the agent itself has full access (set directly in storage, as if an
@@ -198,16 +192,10 @@ func TestAutomationPermissionAPI(t *testing.T) { // ADR-074
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	teamTpl := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "team" {
-			teamTpl = m["id"].(string)
-		}
-	}
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": teamTpl}, nil)
+	teamTpl := "team"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": teamTpl}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
-	agents := body["project"].(map[string]any)["model"].(map[string]any)["agents"].([]any)
+	agents := body["project"].(map[string]any)["agents"].([]any)
 	agentID := agents[0].(map[string]any)["id"].(string)
 
 	base := map[string]any{"name": "a", "source": "schedule", "action": "chat", "agent_id": agentID, "prompt": "x",
@@ -262,14 +250,8 @@ func TestAutomationBuilderAPI(t *testing.T) { // ADR-042
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	solo := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "solo" {
-			solo = m["id"].(string)
-		}
-	}
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	solo := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 
 	// test a script without saving
@@ -306,14 +288,8 @@ func TestAutomationConversationIsOneEvenAtOnce(t *testing.T) { // review I2
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	solo := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "solo" {
-			solo = m["id"].(string)
-		}
-	}
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	solo := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
 		"name": "đếm", "source": "schedule", "action": "script", "config": map[string]any{"every_minutes": 60}, "script": map[string]any{"lang": "bash", "body": "echo ok"},

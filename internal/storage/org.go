@@ -62,47 +62,6 @@ type Provider struct {
 	UpdatedAt    time.Time
 }
 
-// Org model kinds.
-const (
-	KindSolo    = "solo"
-	KindTeam    = "team"
-	KindCouncil = "council"
-	KindCustom  = "custom"
-)
-
-// Governance says how the agents of an org model reach a decision.
-type Governance struct {
-	Mode   string   `json:"mode"`             // single | hierarchy | council
-	Quorum int      `json:"quorum,omitempty"` // council: votes needed
-	Veto   []string `json:"veto,omitempty"`   // agent keys that can block side effects
-	Notes  string   `json:"notes,omitempty"`
-}
-
-// OrgModel is a template (RepoID empty) or a repo's instance.
-type OrgModel struct {
-	ID               string
-	RepoID           string
-	SourceTemplateID string
-	Key              string
-	Name             string
-	Description      string
-	Kind             string
-	Governance       Governance
-	Builtin          bool
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-}
-
-// IsTemplate reports whether m lives in the library.
-func (m OrgModel) IsTemplate() bool { return m.RepoID == "" }
-
-// Agent tiers.
-const (
-	TierLead    = "lead"
-	TierManager = "manager"
-	TierWorker  = "worker"
-)
-
 // Permissions bound what an agent may do.
 type Permissions struct {
 	// Level is the agent's permission package (see internal/perm); empty
@@ -129,16 +88,15 @@ type Permissions struct {
 	ExtraDirs []string `json:"extra_dirs,omitempty"`
 }
 
-// Agent belongs to one org model.
+// Agent belongs to one project. How agents work together is a workflow
+// (internal/workflow), not a hierarchy (ADR-099).
 type Agent struct {
 	ID           string
-	OrgModelID   string
+	ProjectID    string
 	Key          string
 	Name         string
-	Tier         string // lead | manager | worker
 	Role         string
 	Description  string
-	ReportsTo    []string // agent keys in the same org model
 	ProviderID   string
 	ModelTier    string
 	LLMModel     string
@@ -200,8 +158,44 @@ type Repo struct {
 	Path        string
 	GitRemote   string
 	Description string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// DefaultAgentID answers a new chat, bots and automations that name no
+	// agent ("" or paused = the first agent on; see DefaultAgent).
+	DefaultAgentID string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// DefaultAgent is the project's default agent among agents (sorted): the one
+// named by the project if it is on, otherwise the first agent on.
+func DefaultAgent(r Repo, agents []Agent) (Agent, bool) {
+	for _, a := range agents {
+		if a.ID == r.DefaultAgentID && !a.Disabled {
+			return a, true
+		}
+	}
+	for _, a := range agents {
+		if !a.Disabled {
+			return a, true
+		}
+	}
+	return Agent{}, false
+}
+
+// DefaultAgentAny is DefaultAgent, or when every agent is paused the default
+// one anyway (callers then answer with OffNotice).
+func DefaultAgentAny(r Repo, agents []Agent) (Agent, bool) {
+	if a, ok := DefaultAgent(r, agents); ok {
+		return a, true
+	}
+	for _, a := range agents {
+		if a.ID == r.DefaultAgentID {
+			return a, true
+		}
+	}
+	if len(agents) > 0 {
+		return agents[0], true
+	}
+	return Agent{}, false
 }
 
 // ProviderRepo manages AI connections.
@@ -215,46 +209,35 @@ type ProviderRepo interface {
 	SetStatus(ctx context.Context, id, status, detail string, models []string, at time.Time) error
 }
 
-// OrgModelRepo manages templates and repo instances.
-type OrgModelRepo interface {
-	Create(ctx context.Context, m OrgModel) (OrgModel, error)
-	Update(ctx context.Context, m OrgModel) error
-	Get(ctx context.Context, id string) (OrgModel, error)
-	GetTemplateByKey(ctx context.Context, key string) (OrgModel, error)
-	GetForRepo(ctx context.Context, repoID string) (OrgModel, error)
-	ListTemplates(ctx context.Context) ([]OrgModel, error)
-	Delete(ctx context.Context, id string) error
-}
-
-// AgentRepo manages agents of an org model.
+// AgentRepo manages the agents of a project.
 type AgentRepo interface {
 	Create(ctx context.Context, a Agent) (Agent, error)
 	Update(ctx context.Context, a Agent) error
 	Get(ctx context.Context, id string) (Agent, error)
-	List(ctx context.Context, orgModelID string) ([]Agent, error)
+	List(ctx context.Context, projectID string) ([]Agent, error) // by sort
 	Delete(ctx context.Context, id string) error
 	// SetEnabled pauses or resumes an agent; Update never touches it.
 	SetEnabled(ctx context.Context, id string, enabled bool) error
 }
 
-// Revision is a snapshot of an org model taken before a change.
+// Revision is a snapshot of a project's agents taken before a change.
 type Revision struct {
 	ID         string
-	OrgModelID string
-	Action     string // what was about to happen: agent.update, model.update, restore…
+	ProjectID  string
+	Action     string // what was about to happen: agent.update, agent.delete, restore…
 	Actor      string
 	AgentCount int
-	Snapshot   []byte // JSON of orgmodel.Template
+	Snapshot   []byte // JSON of team.Snapshot
 	CreatedAt  time.Time
 }
 
-// RevisionRepo stores org model snapshots.
+// RevisionRepo stores snapshots of projects' agents.
 type RevisionRepo interface {
 	Create(ctx context.Context, r Revision) (Revision, error)
 	Get(ctx context.Context, id string) (Revision, error)
-	List(ctx context.Context, orgModelID string, limit int) ([]Revision, error)
-	// Prune keeps the newest keep revisions of a model.
-	Prune(ctx context.Context, orgModelID string, keep int) error
+	List(ctx context.Context, projectID string, limit int) ([]Revision, error)
+	// Prune keeps the newest keep revisions of a project.
+	Prune(ctx context.Context, projectID string, keep int) error
 }
 
 // Run is one model call.
@@ -488,7 +471,7 @@ type ChatRepo interface {
 	DecidePatch(ctx context.Context, id, status, detail, by string, at time.Time) error
 }
 
-// Task is a goal given to a project's whole org model.
+// Task is a goal given to a project's agents (old Việc data, ADR-057).
 type Task struct {
 	ID          string
 	ProjectID   string
@@ -502,7 +485,7 @@ type Task struct {
 	CostUSD     float64
 	ModeLevel   string // permission mode (internal/perm level), a ceiling for this task
 	EditMode    string // where it changes code: perm.EditWorktree (default) or perm.EditDirect
-	AssigneeID  string // one agent does it alone ("" = the team, by the org model)
+	AssigneeID  string // one agent does it alone ("" = the team)
 	Attachments []Attachment
 	CreatedBy   string
 	CreatedAt   time.Time

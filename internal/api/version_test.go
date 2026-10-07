@@ -14,14 +14,8 @@ func TestSaveConflicts(t *testing.T) {
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
 	ctx := context.Background()
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	solo := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "solo" {
-			solo = m["id"].(string)
-		}
-	}
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	solo := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 
 	// automation
@@ -55,7 +49,7 @@ func TestSaveConflicts(t *testing.T) {
 	_, b = do(t, admin, "GET", e.srv.URL+"/api/agents/"+agid, nil, nil)
 	ag := b["agent"].(map[string]any)
 	av := ag["version"].(string)
-	patch := map[string]any{"key": ag["key"], "name": ag["name"], "tier": ag["tier"], "permissions": ag["permissions"], "model_tier": ag["model_tier"], "instructions": "một", "version": av}
+	patch := map[string]any{"key": ag["key"], "name": ag["name"], "permissions": ag["permissions"], "model_tier": ag["model_tier"], "instructions": "một", "version": av}
 	if resp, b := do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+agid, patch, nil); resp.StatusCode != 200 {
 		t.Fatalf("agent save = %d %v", resp.StatusCode, b)
 	}

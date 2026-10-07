@@ -13,12 +13,12 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/burn"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 	"bitbucket.org/senprints/agent-office/internal/worktree"
 )
@@ -48,8 +48,7 @@ func setup(t *testing.T) fx {
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.UTC)
 	provs.SetUsage(u)
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	bin := filepath.Join(tmp, "claude")
 	os.WriteFile(bin, []byte(`#!/bin/sh
 cat > /dev/null
@@ -72,8 +71,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong l∆∞·ª
 	git("add", "-A")
 	git("commit", "-qm", "init")
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "demo", Path: dir})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	engine := chat.NewEngine(st, provs, u)
 	trees := worktree.New(filepath.Join(tmp, "trees"))
 	engine.SetWorktrees(trees)
@@ -184,7 +183,7 @@ func TestBurnFollowsItsAgent(t *testing.T) {
 	ctx := context.Background()
 	agents, _ := f.engine.Agents(ctx, f.project.ID)
 	old := agents[0]
-	other, err := f.st.Agents().Create(ctx, storage.Agent{OrgModelID: old.OrgModelID, Name: "Thay", Tier: old.Tier, ModelTier: old.ModelTier, Instructions: "x"})
+	other, err := f.st.Agents().Create(ctx, storage.Agent{ProjectID: old.ProjectID, Name: "Thay", ModelTier: old.ModelTier, Instructions: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,8 +234,7 @@ func TestBurnReadOnlyAgentStillWorksInItsWorktree(t *testing.T) {
 	f := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	m, _ := f.st.OrgModels().GetForRepo(ctx, f.project.ID)
-	agents, _ := f.st.Agents().List(ctx, m.ID)
+	agents, _ := f.st.Agents().List(ctx, f.project.ID)
 	for _, a := range agents {
 		a.Permissions.Level = perm.Read
 		f.st.Agents().Update(ctx, a)

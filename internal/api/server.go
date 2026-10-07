@@ -30,15 +30,16 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/sysinfo"
+	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/usage"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
 // SessionCookie is the name of the login cookie.
@@ -57,7 +58,7 @@ type Config struct {
 	Version        string
 
 	Providers  *provider.Service // nil disables the provider/model/repo routes (auth-only tests)
-	Org        *orgmodel.Service
+	Team       *team.Service
 	Trigger    *trigger.Runner // automations: schedules and webhooks (nil = none)
 	Setup      *setup.Assistant
 	Transfer   *transfer.Service
@@ -89,6 +90,8 @@ type Config struct {
 	System   SystemInfo
 	Office   *officetools.Toolbox // agents' tools: describe/list/get/propose_change use the config registry
 	Channels ChannelReloader      // restarts a Telegram/Discord bot after its settings change (nil = off)
+	// Workflows: the library and the projects' workflows (spec 2026-10-07-workflows-design; nil = off)
+	Workflows *workflow.Service
 }
 
 // SystemInfo tells the dashboard how this office is installed.
@@ -184,7 +187,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /api/audit", s.requireRole(storage.RoleAdmin, http.HandlerFunc(s.listAudit)))
 	mux.Handle("GET /api/audit/stats", s.requireRole(storage.RoleAdmin, http.HandlerFunc(s.auditStats)))
 
-	if cfg.Providers != nil && cfg.Org != nil {
+	if cfg.Providers != nil && cfg.Team != nil {
 		s.orgRoutes(mux)
 	}
 	if cfg.Trigger != nil {
@@ -192,8 +195,11 @@ func New(cfg Config) http.Handler {
 		mux.Handle("POST /hooks/{id}", cfg.Trigger.Webhook())
 		mux.Handle("GET /hooks/{id}/jobs/{job}", cfg.Trigger.Webhook())
 	}
-	if cfg.Org != nil {
+	if cfg.Team != nil {
 		s.triggerRoutes(mux)
+	}
+	if cfg.Store != nil {
+		s.workflowRoutes(mux)
 	}
 
 	return gzipJSON(s.securityHeaders(s.csrf(mux)))
@@ -302,7 +308,7 @@ func (s *server) requireAuth(next http.Handler) http.Handler {
 			return
 		}
 		ctx := context.WithValue(r.Context(), ctxUser, u)
-		ctx = orgmodel.WithActor(ctx, "human:"+u.Email)
+		ctx = team.WithActor(ctx, "human:"+u.Email)
 		ctx = context.WithValue(ctx, ctxSession, sess)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

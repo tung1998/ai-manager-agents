@@ -16,8 +16,6 @@ const _f2 = useLiveFetch<{ providers: Provider[] }>('/api/providers', { lazy: tr
 const { data: prov } = _f2
 const _f3 = useLiveFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
 const { data: proj } = _f3
-const _f4 = useLiveFetch<{ templates: OrgModel[] }>('/api/templates', { lazy: true })
-const { data: tpl } = _f4
 
 // the latest chats across projects (bots' too): where the work happens now
 interface RecentChat { id: string, project_id: string, title: string, agent_name: string, source?: Source, updated_at: string, active_turn?: string }
@@ -128,7 +126,7 @@ const incIcon: Record<string, string> = {
 const providers = computed(() => prov.value?.providers ?? [])
 const projects = computed(() => proj.value?.projects ?? [])
 const okProviders = computed(() => providers.value.filter(p => p.status === 'ok').length)
-const withModel = computed(() => projects.value.filter(p => p.model).length)
+const withAgents = computed(() => projects.value.filter(p => p.agent_count > 0).length)
 
 const setupDone = computed(() => steps.value.every(s => s.done))
 const steps = computed(() => [
@@ -145,10 +143,10 @@ const steps = computed(() => [
     to: '/projects', icon: 'i-lucide-folder-git-2'
   },
   {
-    done: projects.value.length > 0 && withModel.value === projects.value.length,
-    title: t('home.step3Title'),
-    text: projects.value.length ? t('home.step3TextDone', { n: withModel.value, total: projects.value.length }) : t('home.step3TextTodo'),
-    to: projects.value.length ? '/projects' : '/templates', icon: 'i-lucide-network'
+    done: projects.value.length > 0 && withAgents.value === projects.value.length,
+    title: t('team.home.step3Title'),
+    text: projects.value.length ? t('team.home.step3TextDone', { n: withAgents.value, total: projects.value.length }) : t('team.home.step3TextTodo'),
+    to: projects.value.length ? '/projects' : '/library?tab=workflows', icon: 'i-lucide-bot'
   }
 ])
 </script>
@@ -255,7 +253,7 @@ const steps = computed(() => [
         </NuxtLink>
       </div>
 
-      <UCard v-if="prov && proj && tpl && !setupDone">
+      <UCard v-if="prov && proj && !setupDone">
         <template #header>
           <p class="font-medium">{{ t('home.setupTitle') }}</p>
           <p class="text-sm text-(--ui-text-muted)">{{ t('home.setupDesc') }}</p>

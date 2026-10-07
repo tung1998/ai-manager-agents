@@ -74,25 +74,25 @@ Config đã tồn tại. Diff đề xuất:
 [Á]p dụng  [C]hỉnh  [H]ủy ?
 ```
 
-## Mô hình, repo, kết nối (đã làm)
+## Agent, repo, kết nối (đã làm)
 
-`office init` hiện tại: đăng ký repo, chọn mô hình tổ chức, phát hiện kết nối AI, và khi office chưa có tài khoản thì hỏi email + mật khẩu admin (Enter, `-y` hoặc không có terminal = tài khoản mặc định `admin` / `admin`, bắt đặt lại ở lần đăng nhập đầu; ADR-096).
+`office init` hiện tại: đăng ký repo, chọn gói khởi tạo (`--pack solo|team|council`, ADR-099), phát hiện kết nối AI, và khi office chưa có tài khoản thì hỏi email + mật khẩu admin (Enter, `-y` hoặc không có terminal = tài khoản mặc định `admin` / `admin`, bắt đặt lại ở lần đăng nhập đầu; ADR-096).
 
 | Flag | Ý nghĩa |
 |---|---|
 | `--local` | Dữ liệu trong `<repo>/.office` (chỉ quản lý repo này), tự thêm vào `.gitignore` |
-| `--template <key>` | `solo` \| `team` \| `council` \| mẫu tự tạo; không có thì hỏi |
-| `--replace` | Thay mô hình hiện có của repo |
+| `--pack <key>` | gói khởi tạo `solo` \| `team` \| `council`; không có thì hỏi (`--template` cũ vẫn nhận) |
+| `--replace` | Thay agent hiện có của project bằng agent của gói |
 | `-y, --yes` | Tự đồng ý tạo kết nối phát hiện được |
 | `--home <dir>` | (toàn cục) chọn thư mục dữ liệu |
 
 ```text
-$ office init ~/code/shop --template team -y
+$ office init ~/code/shop --pack team -y
 Dữ liệu office: /Users/you/.agent-office (chế độ global)
 ✓ Đã đăng ký repo demo-shop (/Users/you/code/shop)
-✓ Áp mô hình Team: 9 agent
-    lead     team-lead          Điều phối, chốt quyết định, báo cáo cho người
-    manager  product-manager    Yêu cầu và giá trị cho người dùng
+✓ Dùng gói Nhóm phát triển: 9 agent, quy trình giao-lai, hoi-dong, co-van, lam-tinh-nang, sua-bug, review-pr
+    team-lead          Điều phối, chốt quyết định, báo cáo cho người
+    product-manager    Yêu cầu và giá trị cho người dùng
     ...
 ✓ Kết nối Claude Code CLI: 2.1.281 (Claude Code)
 
@@ -102,10 +102,10 @@ Tài khoản admin — email (Enter = admin / admin, đổi khi đăng nhập l�
 
 | Lệnh | Ý nghĩa |
 |---|---|
-| `office project add [path] [--name] [--template]` / `list` / `rm <path\|tên>` | Quản lý project (bí danh `repo`); không có path = helper toàn máy |
+| `office project add [path] [--name] [--pack]` / `list` / `rm <path\|tên>` | Quản lý project (bí danh `repo`); không có path = helper toàn máy |
 | `office provider add --kind --name [--base-url] [--api-key-env \| --api-key-stdin]` | Thêm kết nối, tự kiểm tra |
 | `office provider list` / `test <tên> [--prompt]` | Liệt kê, kiểm tra, gửi thử |
-| `office template list` | Thư viện mô hình mẫu |
+| `office pack list` | Gói khởi tạo có sẵn (bí danh `template`) |
 | `office export [dir] [--commit] [--file x.json]` | Xuất config (không key) ra thư mục cho git hoặc một file |
 | `office import <dir\|file> [--dry-run] [-y]` | Nhập config, luôn xem trước |
 | `office backup [--out dir]` | Sao lưu database + khóa mã hóa |

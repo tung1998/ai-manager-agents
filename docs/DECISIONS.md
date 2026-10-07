@@ -218,6 +218,8 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 
 ## ADR-015: Repo → mô hình → agent, dữ liệu tổ chức nằm trong DB
 
+> Phần mô hình tổ chức đã bị thay bởi ADR-099 (agent thuộc thẳng project, gói khởi tạo, quy trình). Phần chế độ cài đặt và nguồn sự thật vẫn giữ.
+
 **Bối cảnh.** User muốn tạo sẵn vài mô hình tổ chức, chọn khi init, chỉnh chi tiết trong trang admin, và quản lý nhiều repo theo thứ tự repo → mô hình → agent. Office có thể cài trong một project hoặc cài trên máy để quản lý project ở bất kỳ đâu.
 
 **Quyết định.**
@@ -1873,3 +1875,25 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Bot cũ:** chưa có `defaults` thì lấy thiết lập của lệnh `@bot`; lệnh nào khác nó tự thành "riêng", nên không lệnh nào đổi hành vi.
 - **Kiểu trả lời** (`channels.reply_mode`, lệnh ghi đè ở `config.reply_mode`): "Chỉ câu trả lời" (tin "Đang làm…" tạm, xóa khi xong) hoặc "Các bước + câu trả lời" (như CLI: tin liệt kê từng bước được giữ lại, sửa tối đa 3 giây/lần, đầy ~1800 ký tự thì mở tin mới, lần sửa cuối có đủ bước, rồi mới tới câu trả lời). Mỗi bước là tóm tắt tool call; chữ agent viết giữa các bước vẫn nằm trong câu trả lời cuối.
 - **Đã loại:** để runtime tự đọc thiết lập chung mỗi lần chạy (phải sửa mọi chỗ đọc agent, tag, quyền, giới hạn của automation).
+
+## ADR-098: Quy trình (workflow): cách các agent phối hợp
+- **Bối cảnh:** mô hình tổ chức (ADR-015) chỉ mô tả ai báo cáo cho ai; cách làm việc chung (hỏi cố vấn, hội đồng, giao lại) nằm rải trong prompt và không được ép. Spec: `docs/superpowers/specs/2026-10-07-workflows-design.md`.
+- **Định dạng:** file Markdown, YAML đầu file là phần office ép (`roles` với `access` analyze/propose/edit và `differ_from`, `parallel`, `limits` rounds/turns/timeout/budget_usd, `brief`, `gates`, `vote`, `strict`), phần thân là hướng dẫn cho agent điều phối. `internal/workflow` đọc và kiểm tra; key không trùng skill. `dieu-phoi` là tên vai chỉ agent điều phối.
+- **Nơi lưu:** thư viện `<office>/library/workflows/<key>.md` (mẫu có sẵn nhúng trong binary, seed nếu chưa có, không ghi đè bản đã sửa, có Khôi phục). Project giữ **bản chép** trong bảng `workflows` (migration 00061: `source`, `source_key`, `source_hash`, `bindings` vai → agent, `enabled`); sửa một bên không ảnh hưởng bên kia, mẫu đổi thì báo "có bản mới". Resource `workflow` trong config registry (ADR-045) để agent `propose_change`.
+- **Chạy:** tin bắt đầu bằng `/key …` (chat web, bot, tự động hóa) tạo một lần chạy (`workflow_runs`); agent đang trả lời là điều phối. Lượt điều phối có thêm bảng vai, giới hạn còn lại và công cụ `workflow_delegate`, `workflow_send` (giữ phiên của vai, tính round), `workflow_done`; `delegate` thường bị ẩn. Vai chạy như lượt nền trong chat với trần quyền theo `access`, vai `edit` dùng worktree riêng. Điều phối chỉ được gọi lại một lần khi mọi vai giao trong lượt đã xong. Dừng chat dừng cả lần chạy.
+- **Ép:** `differ_from` (khác họ model/kết nối; `strict` thì từ chối, không thì cảnh báo), hai vai song song không cùng agent, hết turns/rounds/giờ/ngân sách thì công cụ trả lỗi, bản giao thiếu mục `brief` bắt buộc thì trả lỗi.
+- **Dashboard:** tab Quy trình của project (cài từ thư viện, gán vai, bật/tắt, sửa, cập nhật từ thư viện, lưu vào thư viện), tab Quy trình trong Thư viện, soạn bằng chat (`purpose=workflow`, khối ```workflow chứa cả file), thẻ lần chạy trong chat (vai, trạng thái, lượt, chi phí, nút Dừng).
+- **Mẫu cơ bản:** Giao lại, Cố vấn, Hội đồng. **Không làm:** đồ thị bước/rẽ nhánh, quy trình gọi quy trình, chạy qua nhiều project, lịch trong quy trình (dùng tự động hóa).
+
+## ADR-099: Bỏ mô hình tổ chức; agent thuộc project, gói khởi tạo
+- Thay ADR-015 phần mô hình. Migration 00062: `agents.org_model_id` → `agents.project_id`; bỏ `tier`, `reports_to`; thêm `repos.default_agent_id` (lead đầu tiên cũ), là agent trả lời khi không ai được gọi tên (thay "lead đầu tiên" ở chat, bot, tự động hóa, Burn, dọn dữ liệu). `governance.notes` chép vào instructions của agent mặc định; `governance.council` thành quy trình `hoi-dong-3-ben` đã cài, vai gán cho ba lead cũ (nội dung điền lúc khởi động). `org_revisions` → `revisions` theo project. Xóa `org_models`, `internal/orgmodel`.
+- **`internal/team`:** agent của project, chọn mặc định, kiểm tra key/tên/hạng model, ảnh chụp trước mỗi thay đổi (giữ 50) và khôi phục. Agent mặc định bị xóa thì agent đầu tiên còn lại thay; agent đầu tiên của project tự thành mặc định.
+- **Gói khởi tạo** `templates/packs/{solo,team,council}.json`: agent + agent mặc định + key các quy trình cài kèm. Chỉ dùng lúc tạo project (`office init --pack`, `office repo add --pack`, Thêm project, Thiết lập bằng AI) hoặc áp lại có thay thế (giữ id agent theo key nên chat cũ vẫn của nó). Pack, import, khôi phục không bao giờ bật `full_access`/`extra_dirs` (ADR-074).
+- **API:** `GET /api/packs`, `POST /api/projects/{id}/pack`, `POST /api/projects/{id}/agents`, `PUT /api/projects/{id}/default-agent`, `GET /api/projects/{id}/agents/export`, `GET /api/projects/{id}/revisions`. Bỏ `/api/templates*`, `/api/org-models*`, `/api/projects/{id}/model`. Xuất/nhập (transfer) bản 2 mang agent + quy trình của project và thư viện quy trình; vẫn đọc bản 1.
+- **Dashboard:** tab Agent của project liệt kê thẳng agent (thêm, sửa, mặc định, tạm dừng, lịch sử, xuất, áp gói); bỏ trang Mô hình.
+
+## ADR-100: Quy trình nâng cao: cổng và biểu quyết
+- **Cổng** (`gates`, `workflow_gate`): `approve` mở thẻ duyệt sẵn có (action `workflow_gate`, ghi điều cần duyệt), người duyệt/từ chối xong thì điều phối được gọi lại; `check` chạy một lệnh kiểm tra của project (lệnh trong cổng, hoặc điều phối chọn trong các lệnh được tự chạy), trong worktree của vai đã sửa code nếu có. `required` thì `workflow_done` bị từ chối khi cổng chưa qua.
+- **Biểu quyết** (`vote`, `workflow_vote`): office hỏi các vai trong `vote.roles` song song, đọc phiếu ở dòng đầu (ĐỒNG Ý / KHÔNG ĐỒNG Ý; không rõ tính là không), đếm theo `quorum`; vai trong `veto` không đồng ý thì không thông qua dù đủ phiếu. Kết quả gửi lại điều phối.
+- **Mẫu thêm:** Làm tính năng, Sửa bug, Review PR, Viết nội dung, Hội đồng 3 bên (thay quản trị hội đồng của ADR-015).
+

@@ -14,8 +14,7 @@ import (
 func TestAutomationOfPausedAgentIsSkipped(t *testing.T) {
 	ctx := context.Background()
 	st, p := openStore(t)
-	m, _ := st.OrgModels().Create(ctx, storage.OrgModel{RepoID: p.ID, Key: "m", Name: "m", Kind: "solo"})
-	ag, _ := st.Agents().Create(ctx, storage.Agent{OrgModelID: m.ID, Key: "a", Name: "A", Tier: storage.TierLead, ModelTier: "fast"})
+	ag, _ := st.Agents().Create(ctx, storage.Agent{ProjectID: p.ID, Key: "a", Name: "A", ModelTier: "fast"})
 	if err := st.Agents().SetEnabled(ctx, ag.ID, false); err != nil {
 		t.Fatal(err)
 	}

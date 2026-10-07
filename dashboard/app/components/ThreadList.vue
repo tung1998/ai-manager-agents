@@ -13,9 +13,9 @@ const filtered = computed(() => origin.value !== 'all' || tagFilter.value.length
 const filtersOpen = ref(filtered.value)
 const emit = defineEmits<{ open: [Thread], new: [], more: [] }>()
 const { t, dateLocale } = useLang()
-// a skill's or template's editor chat, else where it started (web, a bot, an automation)
-const kindIcon = (c: Thread) => c.purpose === 'burn' ? 'i-lucide-flame' : c.purpose === 'skill' ? 'i-lucide-sparkles' : c.purpose === 'template' ? 'i-lucide-network' : sourceIcon[c.source ?? 'web']
-const kindTitle = (c: Thread) => c.purpose === 'burn' ? t('burn.title') : c.purpose === 'skill' ? t('chat.skillChat') : c.purpose === 'template' ? t('chat.templateChat') : t(`source.${c.source ?? 'web'}`)
+// a skill's or workflow's editor chat, else where it started (web, a bot, an automation)
+const kindIcon = (c: Thread) => c.purpose === 'burn' ? 'i-lucide-flame' : c.purpose === 'skill' ? 'i-lucide-sparkles' : c.purpose === 'workflow' || c.purpose === 'template' ? 'i-lucide-workflow' : sourceIcon[c.source ?? 'web']
+const kindTitle = (c: Thread) => c.purpose === 'burn' ? t('burn.title') : c.purpose === 'skill' ? t('chat.skillChat') : c.purpose === 'workflow' || c.purpose === 'template' ? t('chat.workflowChat') : t(`source.${c.source ?? 'web'}`)
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 </script>
 

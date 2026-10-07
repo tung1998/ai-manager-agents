@@ -11,12 +11,12 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
@@ -84,14 +84,13 @@ echo '{"type":"system","subtype":"init","session_id":"s1"}'
 echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
 `), 0o755)
 	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	project, err = st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
 	engine := chat.NewEngine(st, provs, u)
 	agents, _ := engine.Agents(ctx, project.ID)
 	agent, err = st.Agents().Get(ctx, agents[0].ID)

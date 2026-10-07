@@ -14,7 +14,7 @@ func TestAPIGzip(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	req, _ := http.NewRequest("GET", e.srv.URL+"/api/templates", nil)
+	req, _ := http.NewRequest("GET", e.srv.URL+"/api/packs", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
 	resp, err := admin.Do(req)
 	if err != nil {
@@ -30,7 +30,7 @@ func TestAPIGzip(t *testing.T) {
 	}
 	raw, _ := io.ReadAll(zr)
 	var body map[string]any
-	if err := json.Unmarshal(raw, &body); err != nil || body["templates"] == nil {
+	if err := json.Unmarshal(raw, &body); err != nil || body["packs"] == nil {
 		t.Fatalf("body = %s %v", raw, err)
 	}
 }

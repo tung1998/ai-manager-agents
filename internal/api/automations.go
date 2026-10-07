@@ -568,14 +568,9 @@ func (s *server) automationWeeklyReset(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"weekly_reset": nil}
 	if s.cfg.Burn != nil {
 		agentID := r.URL.Query().Get("agent_id")
-		if agentID == "" { // the lead that is on
-			if agents, err := s.cfg.Chat.Agents(r.Context(), r.PathValue("id")); err == nil {
-				for _, a := range storage.OnAgents(agents) {
-					if a.Tier == storage.TierLead {
-						agentID = a.ID
-						break
-					}
-				}
+		if agentID == "" { // the project's default agent
+			if a, err := s.cfg.Chat.DefaultAgent(r.Context(), r.PathValue("id")); err == nil {
+				agentID = a.ID
 			}
 		}
 		if t, ok := s.cfg.Burn.WeeklyReset(r.Context(), agentID); ok {

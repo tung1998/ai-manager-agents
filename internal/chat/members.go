@@ -56,6 +56,9 @@ func (e *Engine) Delegate(ctx context.Context, sc officetools.Scope, agentName, 
 	if task == "" {
 		return "", errors.New("hãy ghi rõ việc cần làm")
 	}
+	if _, inRun := e.WorkflowScope(sc); inRun {
+		return "", errors.New("đang trong một quy trình: giao việc bằng workflow_delegate / workflow_send (chỉ agent điều phối)")
+	}
 	agents, err := e.Agents(ctx, conv.ProjectID)
 	if err != nil {
 		return "", err
@@ -149,6 +152,9 @@ type turnSpec struct {
 	tier       string        // model tier for this turn ("" = the agent's)
 	ceiling    string        // the most the person's message may have run (ADR-081)
 	limit      time.Duration // how long it may take (0: none; <0: a chat's default, none) — the message's, ADR-082
+	// a workflow's turn: its run, the role ("" = the coordinator), a ballot
+	wfRun, wfRole string
+	wfVote        bool
 }
 
 // startTurn starts an agent's answer; nil and why when it cannot: the agent
@@ -175,7 +181,8 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 	runCtx, cancel := withTimeout(WithModelTier(base, s.tier), limit)
 	t := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
 		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor, total: s.total, tier: s.tier, ceiling: s.ceiling, limit: limit,
-		agentID: s.agent.ID, agentName: s.agent.Name, background: s.background, delegator: s.delegator}
+		agentID: s.agent.ID, agentName: s.agent.Name, background: s.background, delegator: s.delegator,
+		wfRun: s.wfRun, wfRole: s.wfRole, wfVote: s.wfVote}
 	e.mu.Lock()
 	key := conv.ID + "/" + s.agent.ID
 	if _, working := e.bg[key]; working { // one session, one worktree: never twice at once
@@ -237,6 +244,11 @@ func (e *Engine) note(conv storage.Conversation, text string) {
 //     the chat is free (otherwise it sees the result on its next turn);
 //   - the next agent the person tagged answers.
 func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversation, project storage.Repo, agent storage.Agent, reply string) string {
+	// a workflow's turn: the coordinator's asks start, a role's answer is
+	// counted (its coordinator is called back when its batch is done)
+	if e.wfAfter(prev, conv, project, reply) {
+		return ""
+	}
 	if ctx.Err() != nil {
 		return ""
 	}
@@ -361,7 +373,7 @@ func (e *Engine) groupBrief(ctx context.Context, conv storage.Conversation, self
 		} else if in[a.ID] {
 			mark = " (đang trong cuộc chat)"
 		}
-		fmt.Fprintf(&b, "- @%s: %s, quyền %s%s\n", a.Name, firstNonEmpty(a.Role, string(a.Tier)), perm.Label(perm.Agent(a)), mark)
+		fmt.Fprintf(&b, "- @%s: %s, quyền %s%s\n", a.Name, firstNonEmpty(a.Role, "agent"), perm.Label(perm.Agent(a)), mark)
 	}
 	b.WriteString("Muốn agent khác làm một phần việc thì dùng công cụ delegate (agent, task), chỉ khi thật sự cần (việc cần quyền hay chuyên môn bạn không có); việc tự làm được thì tự làm. Viết @Tên trong câu trả lời chỉ là nhắc tên, không giao việc.\n")
 	return b.String()
@@ -379,6 +391,7 @@ func (e *Engine) chatTree(ctx context.Context, conv storage.Conversation, agent 
 // StopAll stops everything in a chat: the answer the person waits for and the
 // hand-offs in the background (none reports back); how many were stopped.
 func (e *Engine) StopAll(conversationID string) int {
+	e.stopRun(conversationID) // its workflow ends first: nothing calls the coordinator back
 	e.mu.Lock()
 	var stop []*Turn
 	if t, ok := e.active[conversationID]; ok {

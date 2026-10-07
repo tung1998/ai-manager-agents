@@ -6,10 +6,10 @@ import (
 	"slices"
 	"testing"
 
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 )
 
 func TestSuggestPattern(t *testing.T) {
@@ -49,15 +49,13 @@ func alwaysStore(t *testing.T) (storage.Store, storage.Repo, storage.Agent) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p"}) // no folder: every built-in pack
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	if _, err := org.ApplyToRepo(ctx, proj.ID, solo.ID, false); err != nil {
+	solo, _ := team.PackByKey("solo")
+	if err := org.ApplyPack(ctx, proj.ID, solo, false); err != nil {
 		t.Fatal(err)
 	}
-	model, _ := st.OrgModels().GetForRepo(ctx, proj.ID)
-	agents, _ := st.Agents().List(ctx, model.ID)
+	agents, _ := st.Agents().List(ctx, proj.ID)
 	return st, proj, agents[0]
 }
 

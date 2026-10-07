@@ -20,6 +20,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 	"bitbucket.org/senprints/agent-office/internal/worktree"
 	"context"
 	"errors"
@@ -103,6 +104,8 @@ func serveCmd() *cobra.Command {
 			}
 			// and their tasks, so the tasks list is right and "Chạy lại" works
 			_, _ = a.store.Tasks().FailRunning(ctx, "Office khởi động lại khi Việc đang chạy", time.Now().UTC())
+			// and the workflows they were part of (their turns do not run again)
+			_, _ = a.store.WorkflowRuns().FailRunning(ctx, "office khởi động lại khi quy trình đang chạy", time.Now().UTC())
 			chatEngine := chat.NewEngine(a.store, a.providers, a.usage)
 			chatEngine.SetAttachments(attach.Store{Dir: filepath.Join(h.Dir, "attachments")})
 			// agents edit and check in their own git worktrees (ADR-037)
@@ -118,7 +121,8 @@ func serveCmd() *cobra.Command {
 			// agents' long-term notes (ADR-068); too long, a fast model compacts them
 			mem := memory.New(a.store, compactNotes(a.store, chatEngine))
 			acts.SetMemory(mem)
-			acts.SetSender(chatEngine) // send_to_chat: an agent writes to another chat in its person's name
+			acts.SetSender(chatEngine)  // send_to_chat: an agent writes to another chat in its person's name
+			chatEngine.SetActions(acts) // a workflow's gates: approval cards and check commands
 			office := officetools.New(a.store, procs, acts)
 			mcp := mcpserver.New(office, version)
 			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")
@@ -127,7 +131,7 @@ func serveCmd() *cobra.Command {
 			runner := trigger.New(a.store, officeExecutor{chat: chatEngine})
 			go runner.Run(ctx)
 			// the office assistant: a hidden project whose chats span projects (ADR-046)
-			if _, err := assistant.Ensure(ctx, a.store, a.org, filepath.Join(h.Dir, "assistant")); err != nil {
+			if _, err := assistant.Ensure(ctx, a.store, filepath.Join(h.Dir, "assistant")); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "office: không dựng được trợ lý office: %v\n", err)
 			}
 			assistantID := func(ctx context.Context) string { return assistant.ID(ctx, a.store) }
@@ -207,8 +211,8 @@ func serveCmd() *cobra.Command {
 				Office: office, Channels: bots, Memory: mem, Events: liveBus,
 				Store: st, Auth: a.auth, AllowedOrigins: origins,
 				SecureCookies: secureCookies, TrustedProxies: proxies, Logger: log, Version: version,
-				Providers: a.providers, Org: a.org, Setup: setup.New(a.store, a.providers, a.org),
-				Transfer:   transfer.New(a.store, a.providers, a.org),
+				Providers: a.providers, Team: a.team, Setup: setup.New(a.store, a.providers, a.team),
+				Transfer:   transfer.New(a.store, a.providers, a.team, a.workflows.Lib),
 				Usage:      a.usage,
 				CLITools:   cliTools,
 				Chat:       chatEngine,
@@ -216,6 +220,7 @@ func serveCmd() *cobra.Command {
 				Cleanup:    cleaner,
 				Trigger:    runner,
 				Automation: newAutomation(a, h),
+				Workflows:  a.workflows,
 				Ops:        procs,
 				Monitors:   monitors,
 				MCP:        mcp,
@@ -330,6 +335,11 @@ func newAutomation(a *app, h home.Home) *automation.Service {
 			return out
 		},
 	}
+}
+
+// workflowLibrary is the office's workflows (library/workflows/<key>.md).
+func workflowLibrary(h home.Home) workflow.Library {
+	return workflow.Library{Dir: filepath.Join(h.Dir, "library", "workflows")}
 }
 
 // loopback turns a listen address into one reachable from this machine

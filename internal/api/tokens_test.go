@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/assistant"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -24,7 +23,7 @@ func TestPersonalTokenForCLI(t *testing.T) {
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
 	ctx := context.Background()
-	if _, err := assistant.Ensure(ctx, e.st, orgmodel.NewService(e.st), t.TempDir()); err != nil {
+	if _, err := assistant.Ensure(ctx, e.st, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	resp, body := do(t, admin, "POST", e.srv.URL+"/api/me/tokens", map[string]any{"name": "laptop"}, nil)
@@ -91,7 +90,7 @@ func TestPersonalTokenExpiry(t *testing.T) {
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
 	ctx := context.Background()
-	if _, err := assistant.Ensure(ctx, e.st, orgmodel.NewService(e.st), t.TempDir()); err != nil {
+	if _, err := assistant.Ensure(ctx, e.st, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	u, err := e.st.Users().GetByEmail(ctx, "admin@x.io")

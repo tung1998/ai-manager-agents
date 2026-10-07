@@ -27,16 +27,17 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/mcpgateway"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	officesetup "bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 	"bitbucket.org/senprints/agent-office/internal/usage"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
 type env struct {
@@ -79,10 +80,9 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	org := orgmodel.NewService(st)
-	if _, err := org.SeedBuiltins(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	wfs := &workflow.Service{Store: st, Lib: workflow.Library{Dir: filepath.Join(t.TempDir(), "workflows")}}
+	wfs.Lib.Seed()
+	org := team.NewService(st, wfs)
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.UTC)
 	provs.SetUsage(u)
@@ -99,7 +99,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	office.SetOffice(func(ctx context.Context) string { return assistant.ID(ctx, st) })
 	mcp := mcpserver.New(office, "test")
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
-		Providers: provs, Org: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org), Usage: u, CLITools: cliManager(), Chat: chatEng,
+		Providers: provs, Team: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org, wfs.Lib), Workflows: wfs, Usage: u, CLITools: cliManager(), Chat: chatEng,
 		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcp, Memory: mem, Events: bus, Automation: testAutomation(t, st),
 		Gateway: &mcpgateway.Gateway{Store: st, Box: box, Auth: mcp.Authorized, Identify: testIdentify(mcp)}})
 	srv := httptest.NewServer(h)

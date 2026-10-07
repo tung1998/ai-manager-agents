@@ -16,14 +16,8 @@ func TestChatTags(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "claude")
 	os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755)
 	do(t, admin, "POST", e.srv.URL+"/api/providers", map[string]any{"name": "CC", "kind": "claude_cli", "base_url": bin}, nil)
-	_, tpls := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	var soloID string
-	for _, x := range tpls["templates"].([]any) {
-		if x.(map[string]any)["key"] == "solo" {
-			soloID = x.(map[string]any)["id"].(string)
-		}
-	}
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "template_id": soloID}, nil)
+	soloID := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "pack": soloID}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	newChat := func() string {
 		_, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{}, nil)

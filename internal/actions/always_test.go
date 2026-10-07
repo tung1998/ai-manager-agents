@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 )
 
 // "Duyệt & luôn cho phép" runs the command, adds its pattern to a pack of the
@@ -38,13 +38,11 @@ func TestDecideAlways(t *testing.T) {
 			t.Fatal(string(out))
 		}
 	}
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: root})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, proj.ID, solo.ID, false)
-	model, _ := st.OrgModels().GetForRepo(ctx, proj.ID)
-	agents, _ := st.Agents().List(ctx, model.ID)
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, proj.ID, solo, false)
+	agents, _ := st.Agents().List(ctx, proj.ID)
 	ag := agents[0]
 	ag.Permissions = storage.Permissions{Level: perm.Check}
 	st.Agents().Update(ctx, ag)

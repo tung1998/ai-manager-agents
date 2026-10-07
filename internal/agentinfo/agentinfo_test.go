@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/agentinfo"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
+	"bitbucket.org/senprints/agent-office/internal/team"
 )
 
-func setup(t *testing.T) (storage.Store, *orgmodel.Service, storage.Repo, storage.Agent) {
+func setup(t *testing.T) (storage.Store, *team.Service, storage.Repo, storage.Agent) {
 	ctx := context.Background()
 	st, err := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
 	if err != nil {
@@ -20,13 +20,13 @@ func setup(t *testing.T) (storage.Store, *orgmodel.Service, storage.Repo, storag
 	}
 	t.Cleanup(func() { st.Close() })
 	st.Migrate(ctx)
-	org := orgmodel.NewService(st)
-	org.SeedBuiltins(ctx)
+	org := team.NewService(st, nil)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "demo", Path: t.TempDir()})
-	solo, _ := st.OrgModels().GetTemplateByKey(ctx, "solo")
-	org.ApplyToRepo(ctx, project.ID, solo.ID, false)
-	m, _ := st.OrgModels().GetForRepo(ctx, project.ID)
-	agents, _ := st.Agents().List(ctx, m.ID)
+	solo, _ := team.PackByKey("solo")
+	if err := org.ApplyPack(ctx, project.ID, solo, false); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := st.Agents().List(ctx, project.ID)
 	return st, org, project, agents[0]
 }
 

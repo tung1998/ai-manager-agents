@@ -13,17 +13,11 @@ func TestAgentEnabledSwitch(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "GET", e.srv.URL+"/api/templates", nil, nil)
-	solo := ""
-	for _, x := range body["templates"].([]any) {
-		if m := x.(map[string]any); m["key"] == "solo" {
-			solo = m["id"].(string)
-		}
-	}
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "template_id": solo}, nil)
+	solo := "solo"
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
 	project := body["project"].(map[string]any)
 	pid := project["id"].(string)
-	agent := project["model"].(map[string]any)["agents"].([]any)[0].(map[string]any)
+	agent := project["agents"].([]any)[0].(map[string]any)
 	id := agent["id"].(string)
 	if agent["enabled"] != true {
 		t.Fatalf("a new agent should be on: %v", agent["enabled"])

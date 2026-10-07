@@ -2,7 +2,6 @@ package api_test
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/assistant"
-	"bitbucket.org/senprints/agent-office/internal/orgmodel"
 	"context"
 	"testing"
 	"time"
@@ -143,7 +142,7 @@ func TestJobGroupLinks(t *testing.T) {
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
 	ctx := context.Background()
-	aid, _ := assistant.Ensure(ctx, e.st, orgmodel.NewService(e.st), t.TempDir())
+	aid, _ := assistant.Ensure(ctx, e.st, t.TempDir())
 	ac, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: aid, Title: "Báo cáo", CreatedBy: "human:admin@x.io"})
 	e.st.Jobs().Create(ctx, storage.Job{ProjectID: aid, Kind: "chat_turn", Origin: "user", CreatedBy: "human:admin@x.io", ConversationID: ac.ID, Status: "done"})
 	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
