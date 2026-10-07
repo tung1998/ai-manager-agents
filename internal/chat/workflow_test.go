@@ -792,3 +792,31 @@ steps:
 		t.Fatalf("run = %+v", r)
 	}
 }
+
+// a graph of steps has no coordinator deciding: a role bound to the agent
+// that runs it (the chat's) is filled by that agent, not dropped
+func TestWorkflowStepsRoleOfTheRunsAgent(t *testing.T) {
+	g := newWFGroup(t)
+	src := `---
+key: chinh-minh
+name: Chính mình
+roles:
+  - { key: tong-hop, name: Tổng hợp, access: analyze }
+steps:
+  - { id: tong_hop, type: agent, role: tong-hop, prompt: "Tổng hợp", next: xong }
+  - { id: xong, type: end }
+---
+`
+	if _, err := g.svc.Create(g.context, g.f.project.ID, src, map[string]string{"tong-hop": g.lead}); err != nil {
+		t.Fatal(err)
+	}
+	call0, _, err := g.engine.Send(g.context, g.conv.ID, "#chinh-minh x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, call0)
+	r := g.run(t)
+	if r.Status != storage.RunDone || r.Roles[0].AgentID != g.lead {
+		t.Fatalf("run = %+v", r)
+	}
+}

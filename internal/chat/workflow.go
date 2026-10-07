@@ -233,7 +233,9 @@ func (e *Engine) newRun(ctx context.Context, projectID string, w storage.Workflo
 	for _, r := range def.Roles {
 		rr := storage.RunRole{Role: r.Key, Name: r.Name, Access: r.Access, Status: "idle", Workflow: r.Workflow}
 		if id := w.Bindings[r.Key]; id != "" { // a sub-workflow's: the agent coordinating it (the coordinator too)
-			if a, ok := byID[id]; ok && !a.Disabled && (a.ID != coord.ID || r.Workflow != "") {
+			// the coordinator does not take a role it hands work to; a graph
+			// of steps has no coordinator deciding, any agent fills a role
+			if a, ok := byID[id]; ok && !a.Disabled && (a.ID != coord.ID || r.Workflow != "" || def.StepMode()) {
 				run.bindings[r.Key] = a.ID
 				rr.AgentID, rr.AgentName = a.ID, a.Name
 			}
@@ -675,7 +677,7 @@ func (e *Engine) pickAgent(ctx context.Context, run *wfRun, role, name string) (
 	} else {
 		var names []string
 		for _, x := range storage.OnAgents(agents) {
-			if x.ID != run.coord.ID {
+			if x.ID != run.coord.ID || run.def.StepMode() {
 				names = append(names, x.Name)
 			}
 		}
@@ -684,7 +686,7 @@ func (e *Engine) pickAgent(ctx context.Context, run *wfRun, role, name string) (
 	if a.Disabled {
 		return a, errors.New(storage.OffNotice(a.Name))
 	}
-	if a.ID == run.coord.ID {
+	if a.ID == run.coord.ID && !run.def.StepMode() {
 		return a, errors.New("agent điều phối không tự nhận vai; chọn agent khác")
 	}
 	return a, nil
