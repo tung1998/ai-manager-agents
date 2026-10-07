@@ -6,11 +6,14 @@
 interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_subagents: number,
   result_mode: 'branch' | 'patch', focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit',
-  waiting_until?: string, started_by?: string, started_at?: string
+  waiting_until?: string, started_by?: string, started_at?: string,
+  review_stages: ReviewStage[], review_agent_id: string, review_workflow: string, review_conversation_id?: string
 }
+type ReviewStage = 'issue' | 'plan' | 'result'
 interface Item {
   id: string, title: string, kind: 'unfinished' | 'upgrade' | 'bug', detail: string, status: string, priority: number,
-  branch: string, worktree: string, summary: string, subagents: number, cost_usd: number, updated_at: string
+  branch: string, worktree: string, summary: string, subagents: number, cost_usd: number, updated_at: string,
+  reviewed: ReviewStage[], review_note: string
 }
 interface AgentLite { id: string, name: string, tier: string, enabled?: boolean }
 const props = defineProps<{ projectId: string }>()
@@ -40,9 +43,15 @@ function left(iso: string) {
 
 // settings (a drawer): saved as they are
 const settingsOpen = ref(false)
-const form = reactive({ agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_subagents: 2, result_mode: 'branch' as Burn['result_mode'], order: 'roadmap' as Burn['order'], focus: '' })
+const form = reactive({
+  agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_subagents: 2, result_mode: 'branch' as Burn['result_mode'], order: 'roadmap' as Burn['order'], focus: '',
+  review_stages: [] as ReviewStage[], review_agent_id: '', review_workflow: ''
+})
 const { stale, reset: resync } = useDraft(burn, form, (b) => {
-  Object.assign(form, { agent_id: b.agent_id, model_tier: b.model_tier, max_subagents: b.max_subagents, result_mode: b.result_mode, order: b.order ?? 'roadmap', focus: b.focus })
+  Object.assign(form, {
+    agent_id: b.agent_id, model_tier: b.model_tier, max_subagents: b.max_subagents, result_mode: b.result_mode, order: b.order ?? 'roadmap', focus: b.focus,
+    review_stages: [...(b.review_stages ?? [])], review_agent_id: b.review_agent_id ?? '', review_workflow: b.review_workflow ?? ''
+  })
 })
 const saving = ref(false)
 async function saveSettings() {
@@ -62,6 +71,16 @@ async function saveSettings() {
 // the agent picked is paused: saving and starting are refused until it is changed or turned on
 const offAgent = computed(() => agents.value.find(a => a.id === form.agent_id && a.enabled === false))
 const agentItems = computed(() => agents.value.map(a => ({ value: a.id, label: a.enabled === false ? `${a.name} (${t('burn.agentOffTag')})` : a.name })))
+// review (ADR-112): checkpoints a reviewer must agree to; none = as before
+const reviewStages: ReviewStage[] = ['issue', 'plan', 'result']
+const reviewStageItems = computed(() => reviewStages.map(v => ({ value: v, label: t(`burn.review.${v}`), description: t(`burn.review.${v}Help`) })))
+const reviewAgentItems = computed(() => [{ value: '__burn', label: t('burn.review.agentSame') }, ...agentItems.value])
+const reviewAgent = computed({ get: () => form.review_agent_id || '__burn', set: (v: string) => { form.review_agent_id = v === '__burn' ? '' : v } })
+const { data: wfData } = useLiveFetch<{ workflows: ProjectWorkflow[] }>(() => `/api/projects/${props.projectId}/workflows`, { lazy: true })
+const reviewWorkflowItems = computed(() => [{ value: '__none', label: t('burn.review.workflowNone') },
+  ...(wfData.value?.workflows ?? []).filter(w => w.enabled && !w.error && w.callable !== 'sub').map(w => ({ value: w.key, label: `#${w.key} · ${w.name}` }))])
+const reviewWorkflow = computed({ get: () => form.review_workflow || '__none', set: (v: string) => { form.review_workflow = v === '__none' ? '' : v } })
+const reviewSummary = computed(() => form.review_stages.map(v => t(`burn.review.${v}`)).join(', '))
 const tierItems = computed(() => (['strong', 'balanced', 'fast'] as const).map(v => ({ value: v, label: t(`burn.tier.${v}`) })))
 
 // starting asks first: what it means, and when it stops
@@ -113,7 +132,7 @@ async function stop() {
 // the board
 const columns = computed(() => [
   { key: 'found', label: t('burn.col.found'), statuses: ['found'] },
-  { key: 'doing', label: t('burn.col.doing'), statuses: ['doing', 'queued'] },
+  { key: 'doing', label: t('burn.col.doing'), statuses: ['doing', 'review', 'queued'] },
   { key: 'paused', label: t('burn.col.paused'), statuses: ['paused'] },
   { key: 'done', label: t('burn.col.done'), statuses: ['done'] },
   { key: 'other', label: t('burn.col.other'), statuses: ['failed', 'skipped'] }
@@ -149,6 +168,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         <span v-if="burn?.state === 'waiting_limit' && burn.waiting_until" class="text-xs text-(--ui-text-muted)">{{ t('burn.waitingUntil', { at: when(burn.waiting_until) }) }}</span>
         <div class="ms-auto flex flex-wrap items-center gap-1.5">
           <UButton v-if="burn?.conversation_id" size="sm" color="neutral" variant="ghost" icon="i-lucide-messages-square" :label="t('burn.openChat')" :to="`/projects/${projectId}?tab=chat&c=${burn.conversation_id}`" />
+          <UButton v-if="burn?.review_conversation_id" size="sm" color="neutral" variant="ghost" icon="i-lucide-scan-eye" :label="t('burn.review.openChat')" :to="`/projects/${projectId}?tab=chat&c=${burn.review_conversation_id}`" />
           <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-settings-2" :label="t('burn.settings')" @click="settingsOpen = true" />
           <UButton v-if="running" size="sm" color="neutral" icon="i-lucide-square" :label="t('burn.stop')" :loading="acting === 'stop'" @click="stop" />
           <UButton v-else size="sm" color="warning" icon="i-lucide-flame" :label="t('burn.start')" @click="openStart" />
@@ -156,6 +176,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
       </div>
       <p class="text-xs text-(--ui-text-muted)">
         {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_subagents, mode: t(`burn.mode.${form.result_mode}`) }) }} · {{ t(`burn.order.${form.order}`) }}
+        <template v-if="form.review_stages.length"> · {{ t('burn.review.summary', { stages: reviewSummary }) }}</template>
         <template v-if="items.length"> · {{ t('burn.cost', { usd: totalCost.toFixed(2), n: items.filter(i => i.status === 'done').length }) }}</template>
       </p>
       <UAlert v-if="offAgent" color="warning" variant="subtle" icon="i-lucide-power-off" :title="t('burn.agentOff', { name: offAgent.name })"
@@ -171,22 +192,28 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         <div v-for="it in col.items" :key="it.id" class="space-y-1.5 rounded-lg bg-(--ui-bg-elevated)/60 p-2.5 text-sm">
           <div class="flex items-start gap-2">
             <UIcon v-if="it.status === 'doing'" name="i-lucide-loader-circle" class="mt-0.5 size-4 shrink-0 animate-spin text-(--ui-warning)" />
+            <UIcon v-else-if="it.status === 'review'" name="i-lucide-scan-eye" class="mt-0.5 size-4 shrink-0 text-(--ui-info)" :title="t('burn.review.waiting')" />
             <span class="min-w-0 flex-1 font-medium">{{ it.title }}</span>
             <UBadge :label="t(`burn.kind.${it.kind}`)" :color="kindColor(it.kind)" variant="subtle" size="sm" />
           </div>
           <p v-if="it.summary" class="line-clamp-4 whitespace-pre-line text-xs text-(--ui-text-muted)">{{ it.summary }}</p>
           <p v-else-if="it.detail" class="line-clamp-3 text-xs text-(--ui-text-muted)">{{ it.detail }}</p>
+          <p v-if="it.review_note" class="flex gap-1 text-xs text-(--ui-text-muted)" :title="it.review_note">
+            <UIcon name="i-lucide-scan-eye" class="mt-0.5 size-3.5 shrink-0" /><span class="line-clamp-2">{{ it.review_note }}</span>
+          </p>
           <button v-if="it.branch && it.status !== 'found'" type="button" class="flex max-w-full items-center gap-1 truncate font-mono text-xs text-(--ui-text-toned) hover:text-(--ui-text)" :title="t('burn.copyBranch')" @click="copy(`git switch ${it.branch}`)">
             <UIcon name="i-lucide-git-branch" class="size-3.5 shrink-0" /><span class="truncate">{{ it.branch }}</span>
           </button>
           <div class="flex flex-wrap items-center gap-x-2 text-xs text-(--ui-text-dimmed)">
             <span v-if="it.cost_usd">${{ it.cost_usd.toFixed(2) }}</span>
             <span v-if="it.subagents">{{ t('burn.subagents', { n: it.subagents }) }}</span>
+            <span v-if="it.status === 'review'" class="text-(--ui-info)">{{ t('burn.review.waiting') }}</span>
+            <span v-else-if="it.reviewed?.length">{{ t('burn.review.passed', { stages: it.reviewed.map(v => t(`burn.review.${v}`)).join(', ') }) }}</span>
             <span>{{ when(it.updated_at) }}</span>
           </div>
           <div class="flex flex-wrap gap-1">
             <UButton v-if="['found', 'skipped', 'failed'].includes(it.status)" size="xs" color="neutral" variant="outline" icon="i-lucide-arrow-up-to-line" :label="t('burn.first')" :loading="itemActing === it.id + 'first'" @click="itemAction(it, 'first')" />
-            <UButton v-if="['found', 'queued', 'paused'].includes(it.status)" size="xs" color="neutral" variant="ghost" :label="t('burn.skip')" :loading="itemActing === it.id + 'skip'" @click="itemAction(it, 'skip')" />
+            <UButton v-if="['found', 'queued', 'paused', 'review'].includes(it.status)" size="xs" color="neutral" variant="ghost" :label="t('burn.skip')" :loading="itemActing === it.id + 'skip'" @click="itemAction(it, 'skip')" />
             <UButton v-if="it.worktree && ['done', 'failed', 'skipped'].includes(it.status)" size="xs" color="neutral" variant="ghost" icon="i-lucide-trash-2" :label="t('burn.dropWorktree')" :loading="itemActing === it.id + 'drop-worktree'" @click="itemAction(it, 'drop-worktree')" />
           </div>
         </div>
@@ -216,6 +243,17 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
           <UFormField :label="t('burn.modeLabel')">
             <URadioGroup v-model="form.result_mode" :items="[{ value: 'branch', label: t('burn.mode.branch'), description: t('burn.mode.branchHelp') }, { value: 'patch', label: t('burn.mode.patch'), description: t('burn.mode.patchHelp') }]" />
           </UFormField>
+          <UFormField :label="t('burn.review.label')" :help="t('burn.review.help')">
+            <UCheckboxGroup v-model="form.review_stages" :items="reviewStageItems" />
+          </UFormField>
+          <template v-if="form.review_stages.length">
+            <UFormField :label="t('burn.review.agent')">
+              <USelect v-model="reviewAgent" :items="reviewAgentItems" class="w-full" />
+            </UFormField>
+            <UFormField :label="t('burn.review.workflow')" :help="t('burn.review.workflowHelp')">
+              <USelect v-model="reviewWorkflow" :items="reviewWorkflowItems" class="w-full" />
+            </UFormField>
+          </template>
           <UFormField :label="t('burn.focus')" :help="t('burn.focusHelp')">
             <UTextarea v-model="form.focus" :rows="3" autoresize class="w-full" :placeholder="t('burn.focusPlaceholder')" />
           </UFormField>

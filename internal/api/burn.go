@@ -4,49 +4,60 @@ import (
 	"cmp"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/audit"
+	"bitbucket.org/senprints/agent-office/internal/burn"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
 // A project's Burn (spec 2026-10-01-burn-design): its settings, state and
 // the pieces of work it found. Admins only: it runs with the machine.
 
 type burnDTO struct {
-	ID             string     `json:"id,omitempty"`
-	ConversationID string     `json:"conversation_id,omitempty"`
-	AgentID        string     `json:"agent_id"`
-	ModelTier      string     `json:"model_tier"`
-	MaxSubagents   int        `json:"max_subagents"`
-	ResultMode     string     `json:"result_mode"`
-	Focus          string     `json:"focus"`
-	Order          string     `json:"order"`
-	EndsAt         *time.Time `json:"ends_at"`
-	State          string     `json:"state"`
-	WaitingUntil   *time.Time `json:"waiting_until,omitempty"`
-	StartedBy      string     `json:"started_by,omitempty"`
-	StartedAt      *time.Time `json:"started_at,omitempty"`
+	ID             string `json:"id,omitempty"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	AgentID        string `json:"agent_id"`
+	ModelTier      string `json:"model_tier"`
+	MaxSubagents   int    `json:"max_subagents"`
+	ResultMode     string `json:"result_mode"`
+	Focus          string `json:"focus"`
+	Order          string `json:"order"`
+	// review (ADR-112): none = as before
+	ReviewStages         []string   `json:"review_stages"`
+	ReviewAgentID        string     `json:"review_agent_id"`
+	ReviewWorkflow       string     `json:"review_workflow"`
+	ReviewConversationID string     `json:"review_conversation_id,omitempty"`
+	EndsAt               *time.Time `json:"ends_at"`
+	State                string     `json:"state"`
+	WaitingUntil         *time.Time `json:"waiting_until,omitempty"`
+	StartedBy            string     `json:"started_by,omitempty"`
+	StartedAt            *time.Time `json:"started_at,omitempty"`
 }
 
 type burnItemDTO struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Kind      string    `json:"kind"`
-	Detail    string    `json:"detail"`
-	Status    string    `json:"status"`
-	Priority  int       `json:"priority"`
-	Branch    string    `json:"branch"`
-	Worktree  string    `json:"worktree"`
-	Summary   string    `json:"summary"`
-	Subagents int       `json:"subagents"`
-	CostUSD   float64   `json:"cost_usd"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         string    `json:"id"`
+	Title      string    `json:"title"`
+	Kind       string    `json:"kind"`
+	Detail     string    `json:"detail"`
+	Status     string    `json:"status"`
+	Priority   int       `json:"priority"`
+	Branch     string    `json:"branch"`
+	Worktree   string    `json:"worktree"`
+	Summary    string    `json:"summary"`
+	Subagents  int       `json:"subagents"`
+	CostUSD    float64   `json:"cost_usd"`
+	Reviewed   []string  `json:"reviewed"`
+	ReviewNote string    `json:"review_note"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
-	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxSubagents, b.ResultMode, b.Focus, cmp.Or(b.Order, "roadmap"), b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
+	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxSubagents, b.ResultMode, b.Focus, cmp.Or(b.Order, "roadmap"),
+		listOrEmpty(b.ReviewStages), b.ReviewAgentID, b.ReviewWorkflow, b.ReviewConversationID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
@@ -77,7 +88,8 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 	if b.ID != "" {
 		list, _ := s.cfg.Store.Burn().Items(r.Context(), b.ID)
 		for _, it := range list {
-			items = append(items, burnItemDTO{it.ID, it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Subagents, it.CostUSD, it.UpdatedAt})
+			items = append(items, burnItemDTO{it.ID, it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Subagents, it.CostUSD,
+				listOrEmpty(it.Reviewed), it.ReviewNote, it.UpdatedAt})
 		}
 	}
 	out := map[string]any{"burn": toBurnDTO(b), "items": items}
@@ -88,17 +100,20 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 }
 
 type burnInput struct {
-	AgentID      *string    `json:"agent_id"`
-	ModelTier    *string    `json:"model_tier"`
-	MaxSubagents *int       `json:"max_subagents"`
-	ResultMode   *string    `json:"result_mode"`
-	Focus        *string    `json:"focus"`
-	Order        *string    `json:"order"`
-	EndsAt       *time.Time `json:"ends_at"`
-	NoEnd        bool       `json:"no_end"` // run until stopped by hand
+	AgentID        *string    `json:"agent_id"`
+	ModelTier      *string    `json:"model_tier"`
+	MaxSubagents   *int       `json:"max_subagents"`
+	ResultMode     *string    `json:"result_mode"`
+	Focus          *string    `json:"focus"`
+	Order          *string    `json:"order"`
+	ReviewStages   *[]string  `json:"review_stages"`
+	ReviewAgentID  *string    `json:"review_agent_id"` // "" = the Burn's agent
+	ReviewWorkflow *string    `json:"review_workflow"` // "" = the agent answers itself
+	EndsAt         *time.Time `json:"ends_at"`
+	NoEnd          bool       `json:"no_end"` // run until stopped by hand
 }
 
-func (s *server) applyBurn(in burnInput, b *storage.BurnSession) {
+func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession) error {
 	if in.AgentID != nil && *in.AgentID != "" {
 		b.AgentID = *in.AgentID
 	}
@@ -126,6 +141,38 @@ func (s *server) applyBurn(in burnInput, b *storage.BurnSession) {
 		t := in.EndsAt.UTC()
 		b.EndsAt = &t
 	}
+	if in.ReviewStages != nil {
+		b.ReviewStages = nil
+		for _, st := range burn.ReviewStages { // in their order, once
+			if slices.Contains(*in.ReviewStages, st) {
+				b.ReviewStages = append(b.ReviewStages, st)
+			}
+		}
+	}
+	if in.ReviewAgentID != nil {
+		b.ReviewAgentID = strings.TrimSpace(*in.ReviewAgentID)
+	}
+	if in.ReviewWorkflow != nil {
+		b.ReviewWorkflow = strings.TrimPrefix(strings.TrimSpace(*in.ReviewWorkflow), "#")
+	}
+	if b.ReviewWorkflow != "" { // a workflow of the project a chat may run (ADR-109)
+		wf, err := s.cfg.Store.Workflows().GetByKey(r.Context(), b.ProjectID, b.ReviewWorkflow)
+		if err != nil {
+			return errors.New("project chưa cài quy trình #" + b.ReviewWorkflow)
+		}
+		if def, err := workflow.Parse(wf.Source); err == nil && def.Callable == workflow.CallableSub {
+			return errors.New("quy trình #" + b.ReviewWorkflow + " chỉ để quy trình khác gọi (callable: sub)")
+		}
+	}
+	if s.cfg.Burn != nil {
+		if err := s.cfg.Burn.CheckAgent(r.Context(), b.AgentID); err != nil {
+			return err
+		}
+		if err := s.cfg.Burn.CheckAgent(r.Context(), b.ReviewAgentID); err != nil {
+			return errors.New("người review: " + err.Error())
+		}
+	}
+	return nil
 }
 
 func (s *server) saveBurn(w http.ResponseWriter, r *http.Request) {
@@ -139,12 +186,9 @@ func (s *server) saveBurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	before := toBurnDTO(b)
-	s.applyBurn(in, &b)
-	if s.cfg.Burn != nil {
-		if err := s.cfg.Burn.CheckAgent(r.Context(), b.AgentID); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
+	if err := s.applyBurn(r, in, &b); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	if b, err = s.cfg.Store.Burn().SaveSession(r.Context(), b); err != nil {
 		s.internal(w, r, err)
@@ -166,8 +210,7 @@ func (s *server) startBurn(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	s.applyBurn(in, &b)
-	if err := s.cfg.Burn.CheckAgent(r.Context(), b.AgentID); err != nil { // before saving: nothing changes
+	if err := s.applyBurn(r, in, &b); err != nil { // before saving: nothing changes
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -241,4 +284,12 @@ func (s *server) burnItemAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// listOrEmpty: [] rather than null in JSON.
+func listOrEmpty(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }

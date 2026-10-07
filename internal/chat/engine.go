@@ -1671,7 +1671,7 @@ func (e *Engine) TreeWanted(ctx context.Context, name string) (keep, pinned bool
 	}
 	if id, ok := strings.CutPrefix(name, "burn-"); ok {
 		it, err := e.store.Burn().Item(ctx, id)
-		return err == nil, err == nil && (it.Status == "doing" || it.Status == "paused")
+		return err == nil, err == nil && (it.Status == "doing" || it.Status == "paused" || it.Status == "review")
 	}
 	id, ok := strings.CutPrefix(name, "chat-")
 	if !ok {
@@ -1726,4 +1726,28 @@ func (e *Engine) refreshAndDiff(ctx context.Context, project storage.Repo, p sto
 	p.Diff, p.Files = diff, files
 	_ = e.store.Chat().SetPatchDiff(ctx, p.ID, diff, files)
 	return p, nil
+}
+
+// ProposeTree puts what a worktree (at dir, named tree) changed up as a diff
+// to approve, on the conversation's last answer: a Burn piece its reviewer
+// agreed to (ADR-112), its turn having run with no diff.
+func (e *Engine) ProposeTree(ctx context.Context, conversationID, dir, tree string) error {
+	conv, err := e.store.Chat().GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	msgs, err := e.store.Chat().ListMessages(ctx, conv.ID)
+	if err != nil {
+		return err
+	}
+	messageID := ""
+	for i := len(msgs) - 1; i >= 0 && messageID == ""; i-- {
+		if msgs[i].Role == "assistant" {
+			messageID = msgs[i].ID
+		}
+	}
+	if pt, ok := e.treePatch(ctx, conv, messageID, dir, tree, perm.LoadPolicy(ctx, e.store, conv.ProjectID)); ok {
+		_, err = e.store.Chat().AddPatch(ctx, pt)
+	}
+	return err
 }

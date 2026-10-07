@@ -110,6 +110,10 @@ Mỗi lúc chỉ chạy một lượt; các việc làm lần lượt. Muốn so
   - Xóa worktree: với việc đã xong và đã merge.
 - **Lịch sử phiên:** các lần bật, tắt, thời gian chạy, số việc xong.
 
+## Review (ADR-112)
+
+- Tùy chọn trong Cài đặt: review **vấn đề**, **cách làm** (trước khi làm) và **kết quả** (sau khi xong), bằng một agent review hoặc quy trình mà agent đó chạy. Không chọn bước nào thì Burn chạy như trên. Chi tiết ở ADR-112.
+
 ## An toàn
 
 - Chỉ admin bật được, và phải qua hộp xác nhận. Người bật được ghi Nhật ký (`burn.start`, `burn.stop`).

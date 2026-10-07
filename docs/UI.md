@@ -250,7 +250,7 @@ Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-star
 
 | Method | Path | Mô tả |
 |---|---|---|
-| GET/PUT | `/api/projects/:id/burn` | phiên + việc / lưu cài đặt |
+| GET/PUT | `/api/projects/:id/burn` | phiên + việc / lưu cài đặt (kể cả `review_stages`, `review_agent_id`, `review_workflow` — ADR-112) |
 | POST | `/api/projects/:id/burn/start` | cài đặt kèm `ends_at?`, `no_end?`; mặc định tắt lúc reset hạn mức tuần, không có thì sau 8 giờ |
 | POST | `/api/projects/:id/burn/stop` | tắt, việc đang làm thành tạm dừng |
 | POST | `/api/burn-items/:item/skip\|first\|drop-worktree` | thao tác trên một việc |

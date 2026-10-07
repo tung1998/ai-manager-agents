@@ -135,7 +135,7 @@ func (s *Service) scan(ctx context.Context) (Files, error) {
 func (s *Service) junkTree(ctx context.Context, name string) bool {
 	if id, ok := strings.CutPrefix(name, "burn-"); ok && !strings.HasPrefix(name, "burn-scan-") {
 		it, err := s.store.Burn().Item(ctx, id)
-		return err != nil || (it.Status != "doing" && it.Status != "paused" && it.Status != "queued")
+		return err != nil || (it.Status != "doing" && it.Status != "paused" && it.Status != "queued" && it.Status != "review")
 	}
 	if id, ok := strings.CutPrefix(name, "task-"); ok { // a task's, while it runs: kept
 		t, err := s.store.Tasks().Get(ctx, id)

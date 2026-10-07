@@ -30,6 +30,7 @@ type fx struct {
 	trees   *worktree.Manager
 	project storage.Repo
 	dir     string
+	bin     string // the fake Claude Code: a test may write its own
 }
 
 // setup: a git project, its lead, a Claude Code that writes a file where it
@@ -78,7 +79,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lư�
 	engine.SetWorktrees(trees)
 	svc := burn.New(st, engine, trees)
 	svc.SetIdle(50 * time.Millisecond)
-	return fx{st: st, svc: svc, engine: engine, trees: trees, project: project, dir: dir}
+	return fx{st: st, svc: svc, engine: engine, trees: trees, project: project, dir: dir, bin: bin}
 }
 
 func waitItem(t *testing.T, st storage.Store, id, status string) storage.BurnItem {
@@ -256,7 +257,7 @@ func TestBurnReadOnlyAgentStillWorksInItsWorktree(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.dir, "made-by-agent.txt")); err == nil {
 		t.Fatal("a read-only agent with full access wrote in the project's own folder")
 	}
-	if strings.Contains(it.Summary, "không commit được") {
+	if strings.Contains(it.Summary, "không giao được") {
 		t.Fatalf("not committed: %s", it.Summary)
 	}
 	f.svc.Stop(ctx, f.project.ID)
@@ -361,4 +362,82 @@ func TestBurnNeedsGit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "git") {
 		t.Fatalf("Burn on a folder without git: %v", err)
 	}
+}
+
+// reviewer answers the Burn's reviews (ADR-112): the problem turned down,
+// the result agreed; a work turn writes a file, as setup's.
+const reviewer = `#!/bin/sh
+p=$(cat)
+case "$p" in
+*"Review vấn đề"*) r="KẾT LUẬN: KHÔNG ĐỒNG Ý. Không có thật";;
+*"Review kết quả"*) r="KẾT LUẬN: ĐỒNG Ý. Đúng phạm vi";;
+*) echo "do agent viết" > made-by-agent.txt; sleep 1; r="xong lượt";;
+esac
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`
+
+// The problem's review turns a chosen piece down: skipped with why, never done.
+func TestBurnReviewTurnsAPieceDown(t *testing.T) {
+	f := setup(t)
+	os.WriteFile(f.bin, []byte(reviewer), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewStages: []string{"issue"}})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Lỗi tưởng tượng", Kind: "bug"})
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: items[0].ID})
+	it := waitItem(t, f.st, items[0].ID, "skipped")
+	if !strings.Contains(it.Summary, "Review vấn đề") || !strings.Contains(it.ReviewNote, "Không có thật") || it.Worktree != "" {
+		t.Fatalf("item = %+v", it)
+	}
+	cur, _ := f.st.Burn().SessionByID(ctx, b.ID)
+	if cur.ReviewConversationID == "" || cur.ReviewConversationID == cur.ConversationID {
+		t.Fatalf("reviews have no chat of their own: %+v", cur)
+	}
+	if _, err := f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: cur.ReviewConversationID}, "burn_done", burn.ToolInput{Item: it.ID, Summary: "x"}); err == nil {
+		t.Fatal("the reviewer's chat used a burn_* tool")
+	}
+	f.svc.Stop(ctx, f.project.ID)
+}
+
+// The result's review: done waits for it, agreed it is committed.
+func TestBurnReviewAgreesTheResult(t *testing.T) {
+	f := setup(t)
+	os.WriteFile(f.bin, []byte(reviewer), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewStages: []string{"result"}})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Thêm file", Kind: "upgrade"})
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: items[0].ID})
+	it := waitItem(t, f.st, items[0].ID, "doing")
+	f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: it.ID, Summary: "đã thêm"})
+	if got, _ := f.st.Burn().Item(ctx, it.ID); got.Status != "review" {
+		t.Fatalf("done before its review: %s", got.Status)
+	}
+	it = waitItem(t, f.st, it.ID, "done")
+	if !strings.Contains(strings.Join(it.Reviewed, ","), "result") || !strings.Contains(it.ReviewNote, "Đúng phạm vi") {
+		t.Fatalf("item = %+v", it)
+	}
+	show := exec.Command("git", "show", "--stat", it.Branch)
+	show.Dir = f.dir
+	if got, _ := show.CombinedOutput(); !strings.Contains(string(got), "made-by-agent.txt") {
+		t.Fatalf("branch %s: %s", it.Branch, got)
+	}
+	f.svc.Stop(ctx, f.project.ID)
 }

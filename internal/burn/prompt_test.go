@@ -62,3 +62,16 @@ func TestWorkPromptFeature(t *testing.T) {
 		t.Errorf("a roadmap piece should update the roadmap docs:\n%s", p)
 	}
 }
+
+func TestVerdict(t *testing.T) {
+	for text, want := range map[string]string{
+		"KẾT LUẬN: ĐỒNG Ý\nổn":            "yes",
+		"**KẾT LUẬN: KHÔNG ĐỒNG Ý**\nsai": "no",
+		"Ket luan: dong y":                "yes",
+		"Tôi nghĩ là được":                "unclear",
+	} {
+		if got := verdict(text); got != want {
+			t.Errorf("verdict(%q) = %s, want %s", text, got, want)
+		}
+	}
+}

@@ -218,6 +218,18 @@ func (s *Service) loop(ctx context.Context, projectID string) {
 		}
 		items, _ := s.store.Burn().Items(ctx, b.ID)
 		if it, ok := next(items); ok {
+			if it.Status == "review" { // done: its result waits for the reviewer (ADR-112)
+				if s.finish(ctx, b, it) && !s.waitLimit(ctx, b) {
+					sleep(ctx, time.Minute) // the review could not run: ask again in a while
+				}
+				continue
+			}
+			if proceed, failed := s.gate(ctx, b, it); !proceed { // reviewed before it is done
+				if failed && !s.waitLimit(ctx, b) {
+					sleep(ctx, time.Minute)
+				}
+				continue
+			}
 			if failed := s.work(ctx, b, it); failed && s.waitLimit(ctx, b) {
 				continue // the connection's limit: it waits for the reset
 			}
@@ -250,9 +262,10 @@ func (s *Service) idleAfter(n int) time.Duration {
 	return min(d, time.Hour)
 }
 
-// next: a paused piece (it goes on), else the one chosen first.
+// next: a piece done waiting for its review, a paused one (it goes on),
+// else the one chosen first.
 func next(items []storage.BurnItem) (storage.BurnItem, bool) {
-	for _, st := range []string{"paused", "doing", "queued"} {
+	for _, st := range []string{"review", "paused", "doing", "queued"} {
 		for _, it := range items {
 			if it.Status == st {
 				return it, true
@@ -281,6 +294,7 @@ type turnResult struct {
 	subagents int
 	cost      float64
 	failed    string
+	text      string // the answer
 }
 
 // run sends text in the Burn's conversation and waits for the answer (a
@@ -312,8 +326,11 @@ func (s *Service) run(ctx context.Context, conversationID, text string) (turnRes
 				res.subagents++
 			case e.Type == "error":
 				res.failed = e.Text
-			case e.Type == "done" && e.Message != nil && e.Message.CostUSD != nil:
-				res.cost += *e.Message.CostUSD
+			case e.Type == "done" && e.Message != nil:
+				res.text = e.Message.Content
+				if e.Message.CostUSD != nil {
+					res.cost += *e.Message.CostUSD
+				}
 			}
 		}
 		if done {
@@ -331,7 +348,7 @@ func (s *Service) run(ctx context.Context, conversationID, text string) (turnRes
 // work runs one piece in its own worktree; reported done, it is committed
 // to its branch (branch mode) — a diff to approve otherwise.
 func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.BurnItem) (failed bool) {
-	again := it.Status == "paused" || it.Status == "doing"
+	again := it.Status == "paused" || it.Status == "doing" || it.Worktree != "" // a retry goes on from what is there
 	tree := "burn-" + it.ID
 	it.Status, it.Attempts = "doing", it.Attempts+1
 	if it.Branch == "" {
@@ -350,7 +367,8 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 		return false
 	}
 	_ = s.store.Burn().UpdateItem(ctx, it)
-	res, err := s.run(runCtx(ctx, b, tree, b.ResultMode != "patch"), b.ConversationID, workPrompt(b, it, again))
+	// held back for its review (ADR-112): no diff until the reviewer agrees
+	res, err := s.run(runCtx(ctx, b, tree, b.ResultMode != "patch" || reviews(b, "result")), b.ConversationID, workPrompt(b, it, again))
 	cur, gerr := s.store.Burn().Item(context.WithoutCancel(ctx), it.ID)
 	if gerr != nil {
 		return false
@@ -369,12 +387,11 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 			break
 		}
 		cur.Status, cur.Summary = s.failedOrAgain(cur, firstNonEmpty(res.failed, errText(err)))
+	case cur.Status == "review": // the reviewer next, in the loop
+	case cur.Status == "done" && reviews(b, "result"): // review turned on meanwhile
+		cur.Status = "review"
 	case cur.Status == "done":
-		if b.ResultMode != "patch" {
-			if cerr := commit(context.WithoutCancel(ctx), cur.Worktree, cur.Branch, cur.Title, cur.Summary); cerr != nil {
-				cur.Summary = strings.TrimSpace(cur.Summary + "\n(không commit được: " + cerr.Error() + ")")
-			}
-		}
+		s.deliver(context.WithoutCancel(ctx), b, &cur)
 	case cur.Status == "doing": // it said nothing of how it went
 		cur.Status, cur.Summary = s.failedOrAgain(cur, "agent không báo kết quả (burn_done/burn_fail)")
 	}
@@ -477,6 +494,9 @@ func workPrompt(b storage.BurnSession, it storage.BurnItem, again bool) string {
 	if b.Focus != "" {
 		fmt.Fprintf(&sb, "Trọng tâm người dùng dặn: %s\n", b.Focus)
 	}
+	if it.ReviewNote != "" {
+		fmt.Fprintf(&sb, "Ý kiến của người review (làm theo, trừ khi code cho thấy khác):\n%s\n", it.ReviewNote)
+	}
 	fmt.Fprintf(&sb, "\nBạn làm trong worktree riêng của việc này, có toàn quyền. Được dùng tối đa %d subagent (công cụ Agent/Task) cho phần chạy song song; ", b.MaxSubagents)
 	if b.MaxSubagents == 0 {
 		sb.WriteString("lần này không dùng subagent; ")
@@ -484,6 +504,9 @@ func workPrompt(b storage.BurnSession, it storage.BurnItem, again bool) string {
 	sb.WriteString("không push, không merge. Sửa xong thì chạy build/test liên quan cho tới khi đạt.\n")
 	if it.Kind == "unfinished" {
 		sb.WriteString("Nếu đây là một phần của tính năng trong lộ trình: làm đúng phạm vi phần này, ghi quyết định thiết kế vào tài liệu của project (spec/ADR) và đánh dấu tiến độ trong tài liệu kế hoạch; phần sau để lượt sau.\n")
+	}
+	if reviews(b, "result") {
+		sb.WriteString("Báo xong thì kết quả được review trước; review không đạt thì việc quay lại với ý kiến review.\n")
 	}
 	if b.ResultMode == "patch" {
 		sb.WriteString("Thay đổi trong worktree sẽ thành một diff chờ người dùng duyệt.\n")
