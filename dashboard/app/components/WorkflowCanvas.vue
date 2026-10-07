@@ -4,6 +4,8 @@
 // in the middle, the selected node's form on the right. Every change is a new
 // def (update:def); the editor writes it back to the file. A workflow without
 // steps (a coordinator decides) shows as a star: the coordinator and its roles.
+// One output may be wired to several steps (they run at once, ADR-110); a
+// switch has an output per case and one for "none matched".
 import { VueFlow, Handle, Position, MarkerType, useVueFlow } from '@vue-flow/core'
 import type { Node, Edge, Connection, NodeChange, EdgeChange, NodeDragEvent, NodeMouseEvent } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -72,12 +74,12 @@ const inputPos = ref<{ x: number, y: number } | null>(null)
 function autoLayout(list: WorkflowStep[]) {
   const by = new Map(list.map(s => [s.id, s]))
   const depth = new Map<string, number>()
-  if (list[0]) depth.set(list[0].id, 1)
-  const queue = list[0] ? [list[0].id] : []
+  const queue = stepStarts(props.def).filter(id => by.has(id))
+  for (const id of queue) depth.set(id, 1)
   while (queue.length) {
     const s = by.get(queue.shift()!)!
-    for (const to of [s.next, s.then, s.else]) {
-      if (to && by.has(to) && !depth.has(to)) {
+    for (const to of stepOuts(s)) {
+      if (by.has(to) && !depth.has(to)) {
         depth.set(to, depth.get(s.id)! + 1)
         queue.push(to)
       }
@@ -98,10 +100,10 @@ function autoLayout(list: WorkflowStep[]) {
 const nodes = shallowRef<Node[]>([])
 const edges = shallowRef<Edge[]>([])
 
-function edge(source: string, handle: string, target: string, label?: string): Edge {
+function edge(source: string, handle: string, target: string, label?: string, deletable = true): Edge {
   return {
-    id: `e:${source}:${handle}`, source, target, sourceHandle: handle, label,
-    deletable: source !== INPUT, markerEnd: MarkerType.ArrowClosed, data: { field: handle },
+    id: `e:${source}:${handle}:${target}`, source, target, sourceHandle: handle, label,
+    deletable, markerEnd: MarkerType.ArrowClosed, data: { field: handle },
     class: handle === 'else' ? 'wf-edge-else' : undefined
   }
 }
@@ -109,24 +111,30 @@ function edge(source: string, handle: string, target: string, label?: string): E
 function buildSteps() {
   const auto = autoLayout(steps.value)
   const ids = new Set(steps.value.map(s => s.id))
-  const first = steps.value[0]
+  const starts = stepStarts(props.def).filter(id => ids.has(id))
+  const first = steps.value.find(s => s.id === starts[0])
   const firstPos = first ? first.position ?? auto.get(first.id)! : { x: COL, y: 0 }
   nodes.value = [
     { id: INPUT, type: 'wf-input', position: inputPos.value ?? { x: firstPos.x - COL, y: firstPos.y }, deletable: false, data: {} },
     ...steps.value.map(s => ({
       id: s.id, type: 'wf-step', position: s.position ?? auto.get(s.id)!,
-      data: { step: s, bad: stepMissing(s, props.def).length > 0, first: s.id === first?.id }
+      data: { step: s, bad: stepMissing(s, props.def).length > 0, first: starts.includes(s.id) }
     }))
   ]
-  const list: Edge[] = []
-  if (first) list.push(edge(INPUT, 'next', first.id))
+  const list: Edge[] = starts.map(id => edge(INPUT, 'next', id, undefined, starts.length > 1)) // the last start stays
+  const out = (s: WorkflowStep, h: StepLink, label?: string) => {
+    for (const to of linksOf(s, h)) if (ids.has(to)) list.push(edge(s.id, h, to, label))
+  }
   for (const s of steps.value) {
-    if (s.next && ids.has(s.next) && s.type !== 'end' && s.type !== 'condition') list.push(edge(s.id, 'next', s.next))
     if (s.type === 'condition') {
-      if (s.then && ids.has(s.then)) list.push(edge(s.id, 'then', s.then, t('wf.canvas.yes')))
-      if (s.else && ids.has(s.else)) list.push(edge(s.id, 'else', s.else, t('wf.canvas.no')))
-    } else if ((s.type === 'approve' || s.type === 'check') && s.else && ids.has(s.else)) {
-      list.push(edge(s.id, 'else', s.else, t('wf.canvas.notPassed')))
+      out(s, 'then', t('wf.canvas.yes'))
+      out(s, 'else', t('wf.canvas.no'))
+    } else if (s.type === 'switch') {
+      s.cases?.forEach((c, i) => out(s, `case:${i}`, c.when || '?'))
+      out(s, 'else', t('wf.canvas.otherwise'))
+    } else if (s.type !== 'end') {
+      out(s, 'next')
+      if (s.type === 'approve' || s.type === 'check') out(s, 'else', t('wf.canvas.notPassed'))
     }
   }
   edges.value = list
@@ -159,17 +167,19 @@ watch(stepMode, () => nextTick(() => fitView({ padding: 0.2 })))
 // ---- graph edits ----
 function onConnect(c: Connection) {
   if (!stepMode.value || !c.target || c.target === INPUT) return
-  if (c.source === INPUT) { // the start: that step goes first
+  if (c.source === INPUT) { // one more first step: they start at once
     edit((d) => {
-      const i = d.steps!.findIndex(s => s.id === c.target)
-      if (i > 0) d.steps!.unshift(...d.steps!.splice(i, 1))
+      const list = stepStarts(d)
+      if (!list.includes(c.target)) d.start = [...list, c.target]
     })
     return
   }
-  const field = (c.sourceHandle ?? 'next') as 'next' | 'then' | 'else'
+  // one more step this output goes to (they run at once)
+  const field = (c.sourceHandle ?? 'next') as StepLink
   edit((d) => {
-    const s = d.steps!.find(x => x.id === c.source)
-    if (s) s[field] = c.target
+    const i = d.steps!.findIndex(x => x.id === c.source)
+    const list = i >= 0 ? linksOf(d.steps![i]!, field) : []
+    if (i >= 0 && c.target !== c.source && !list.includes(c.target)) d.steps![i] = withLinks(d.steps![i]!, field, [...list, c.target])
   })
 }
 
@@ -177,10 +187,8 @@ function onNodesChange(changes: NodeChange[]) {
   const gone = changes.filter(c => c.type === 'remove').map(c => c.id).filter(id => id !== INPUT)
   if (!gone.length || !stepMode.value) return
   edit((d) => {
-    d.steps = d.steps!.filter(s => !gone.includes(s.id))
-    for (const s of d.steps) {
-      for (const f of ['next', 'then', 'else'] as const) if (s[f] && gone.includes(s[f]!)) s[f] = ''
-    }
+    d.steps = d.steps!.filter(s => !gone.includes(s.id)).map(s => unlink(s, gone))
+    if (d.start?.length) d.start = d.start.filter(x => !gone.includes(x))
     if (!d.steps.length) d.steps = [{ id: 'end', type: 'end', position: { x: COL, y: 0 } }] // still a graph
   })
   if (gone.includes(selected.value)) selected.value = ''
@@ -189,11 +197,15 @@ function onNodesChange(changes: NodeChange[]) {
 function onEdgesChange(changes: EdgeChange[]) {
   if (!stepMode.value) return
   for (const c of changes) {
-    if (c.type !== 'remove' || c.source === INPUT) continue
-    const field = (c.sourceHandle ?? 'next') as 'next' | 'then' | 'else'
+    if (c.type !== 'remove') continue
+    if (c.source === INPUT) {
+      edit((d) => { d.start = stepStarts(d).filter(x => x !== c.target) })
+      continue
+    }
+    const field = (c.sourceHandle ?? 'next') as StepLink
     edit((d) => {
-      const s = d.steps!.find(x => x.id === c.source)
-      if (s && s[field] === c.target) s[field] = ''
+      const i = d.steps!.findIndex(x => x.id === c.source)
+      if (i >= 0) d.steps![i] = withLinks(d.steps![i]!, field, linksOf(d.steps![i]!, field).filter(x => x !== c.target))
     })
   }
 }
@@ -282,7 +294,8 @@ function addStep(p: Drop, position: { x: number, y: number }, link: boolean) {
       workflow: { workflow: '', inputs: {} },
       code: { lang: 'bash', script: '' },
       http: { method: 'GET', url: '' },
-      condition: { if: '', then: '', else: '' },
+      condition: { if: '', then: [], else: [] },
+      switch: { value: '', cases: [{ when: '', next: [] }] },
       approve: { note: '' },
       check: { command: '' },
       end: {}
@@ -295,7 +308,7 @@ function addStep(p: Drop, position: { x: number, y: number }, link: boolean) {
     if (role) d.roles.push(role)
     d.steps!.push(s)
     const src = link ? d.steps!.find(x => x.id === from) : undefined
-    if (src && src.type !== 'end' && src.type !== 'condition' && !src.next) src.next = s.id
+    if (src && src.type !== 'end' && src.type !== 'condition' && src.type !== 'switch' && !src.next?.length) src.next = [s.id]
   })
   if (bindings) emit('update:bindings', bindings)
   selected.value = s.id
@@ -407,11 +420,23 @@ const coordLabel = computed(() => t('wf.canvas.coordinator'))
               {{ data.step.id }}<template v-if="data.step.type === 'agent' && data.step.role"> · {{ data.step.role }}</template><template v-else-if="data.step.type === 'workflow' && data.step.workflow"> · /{{ data.step.workflow }}</template>
             </p>
             <p v-if="data.step.type === 'condition' && data.step.if" class="truncate font-mono text-[11px] text-(--ui-text-dimmed)">{{ data.step.if }}</p>
+            <!-- a switch: an output per case, and one when none matches -->
+            <div v-if="data.step.type === 'switch'" class="mt-1 space-y-1">
+              <p v-if="data.step.value" class="truncate font-mono text-[11px] text-(--ui-text-dimmed)">{{ data.step.value }}</p>
+              <div v-for="(c, i) in data.step.cases ?? []" :key="i" class="relative rounded bg-(--ui-bg-elevated) px-1.5 py-0.5 pe-3 text-[11px]">
+                <span class="block truncate font-mono">= {{ c.when || '?' }}</span>
+                <Handle :id="`case:${i}`" type="source" :position="Position.Right" class="wf-h-case" />
+              </div>
+              <div class="relative px-1.5 py-0.5 pe-3 text-[11px] text-(--ui-text-muted)">
+                {{ t('wf.canvas.otherwise') }}
+                <Handle id="else" type="source" :position="Position.Right" class="wf-h-else" />
+              </div>
+            </div>
             <template v-if="data.step.type === 'condition'">
               <Handle id="then" type="source" :position="Position.Right" class="wf-h-then" style="top: 35%" />
               <Handle id="else" type="source" :position="Position.Right" class="wf-h-else" style="top: 75%" />
             </template>
-            <template v-else-if="data.step.type !== 'end'">
+            <template v-else-if="data.step.type !== 'end' && data.step.type !== 'switch'">
               <Handle id="next" type="source" :position="Position.Right" />
               <Handle v-if="data.step.type === 'approve' || data.step.type === 'check'" id="else" type="source" :position="Position.Bottom" class="wf-h-else" />
             </template>
@@ -503,6 +528,8 @@ const coordLabel = computed(() => t('wf.canvas.coordinator'))
 }
 .wf-canvas .vue-flow__handle.wf-h-then { border-color: var(--ui-success); }
 .wf-canvas .vue-flow__handle.wf-h-else { border-color: var(--ui-error); }
+.wf-canvas .vue-flow__handle.wf-h-case { border-color: var(--ui-primary); }
+.wf-canvas .wf-node .relative > .vue-flow__handle { right: -11px; }
 .wf-canvas .vue-flow__handle:hover { border-color: var(--ui-primary); }
 .wf-canvas .vue-flow__edge-path { stroke: var(--ui-border-accented); stroke-width: 1.5; }
 .wf-canvas .vue-flow__edge.selected .vue-flow__edge-path,

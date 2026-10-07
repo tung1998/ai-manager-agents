@@ -1,8 +1,10 @@
 package workflow
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -269,7 +271,7 @@ func TestStepsParseRenderEval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again, err := Parse(out); err != nil || len(again.Steps) != 3 || again.Steps[1].Else != "x" {
+	if again, err := Parse(out); err != nil || len(again.Steps) != 3 || !slices.Equal(again.Steps[1].Else, Targets{"x"}) {
 		t.Fatalf("format round trip: %v\n%s", err, out)
 	}
 	bad := "---\nkey: s\nname: S\nsteps:\n  - { id: x, type: agent, role: nope }\n  - { id: h, type: http, url: ftp://x, next: zz }\n  - { id: k, type: code, lang: ruby }\n---\n"
@@ -299,5 +301,67 @@ func TestParseCall(t *testing.T) {
 	}
 	if Call("review", " x ") != "#review x" || Call("review", "") != "#review" {
 		t.Error("Call")
+	}
+}
+
+// next/then/else take one step or a list; a switch picks its case; a join
+// is found by Reaches; an id with "_" says why it is refused
+func TestStepTargetsAndSwitch(t *testing.T) {
+	src := `---
+key: nhanh
+name: Nhánh
+start: [a, b]
+steps:
+  - { id: a, type: code, lang: bash, script: "echo a", next: [c, d] }
+  - { id: b, type: code, lang: bash, script: "echo b", next: c }
+  - id: c
+    type: switch
+    value: "{{steps.a.output}}"
+    cases:
+      - { when: "ok", next: [d, e] }
+    else: e
+  - { id: d, type: end }
+  - { id: e, type: end }
+---
+`
+	d, err := Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(d.Starts(), []string{"a", "b"}) || !slices.Equal(d.Steps[0].Next, Targets{"c", "d"}) || !slices.Equal(d.Steps[1].Next, Targets{"c"}) {
+		t.Fatalf("targets = %v %v %v", d.Start, d.Steps[0].Next, d.Steps[1].Next)
+	}
+	if !d.Reaches("a", "e") || d.Reaches("d", "a") || d.Reaches("c", "b") {
+		t.Fatal("reaches")
+	}
+	v := Vars{Steps: map[string]StepResult{"a": {Output: " OK "}}}
+	if got, next := d.Steps[2].Pick(v); got != "OK" || !slices.Equal(next, Targets{"d", "e"}) {
+		t.Fatalf("pick = %q %v", got, next)
+	}
+	v.Steps["a"] = StepResult{Output: "khác"}
+	if _, next := d.Steps[2].Pick(v); !slices.Equal(next, Targets{"e"}) {
+		t.Fatalf("pick else = %v", next)
+	}
+	out, err := Format(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "next: c\n") || !strings.Contains(out, "- c\n") {
+		t.Fatalf("one step stays a string, several a list:\n%s", out)
+	}
+	if again, err := Parse(out); err != nil || !slices.Equal(again.Steps[0].Next, Targets{"c", "d"}) {
+		t.Fatalf("round trip: %v\n%s", err, out)
+	}
+	var s Step
+	if err := json.Unmarshal([]byte(`{"id":"x","next":"y","then":["a","b"]}`), &s); err != nil || !slices.Equal(s.Next, Targets{"y"}) || len(s.Then) != 2 {
+		t.Fatalf("json = %+v %v", s, err)
+	}
+	bad := strings.Replace(src, "id: e, type: end", "id: e_x, type: end", 1)
+	bad = strings.Replace(bad, "value: \"{{steps.a.output}}\"", "value: \"\"", 1)
+	_, err = Parse(bad)
+	for _, want := range []string{"không dùng _", "thiếu value", `else "e" không có`} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%q not in %v", want, err)
+		}
 	}
 }

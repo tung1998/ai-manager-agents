@@ -63,19 +63,25 @@ export interface WorkflowDef {
   outputs?: WorkflowField[]
   callable?: WorkflowCallable
   steps?: WorkflowStep[] // a graph the office runs in order (ADR-108); none: a coordinator decides
+  start?: string[] | null // the first steps, run at once (none: the first of steps) (ADR-110)
   body: string
 }
 
 // Steps (ADR-108): one node of a workflow's graph. Data goes from step to
 // step by templates: {{input.key}}, {{steps.<id>.output}},
 // {{steps.<id>.json.a.b}}, {{steps.<id>.status}}.
-export type StepType = 'agent' | 'workflow' | 'code' | 'http' | 'condition' | 'approve' | 'check' | 'end'
+// One output may go to several steps (a list): they run at once; a step
+// several branches reach waits for them all (ADR-110).
+export type StepType = 'agent' | 'workflow' | 'code' | 'http' | 'condition' | 'switch' | 'approve' | 'check' | 'end'
+
+// a switch's way out: the value it matches and where it goes
+export interface WorkflowCase { when: string, next: string[] | null }
 
 export interface WorkflowStep {
   id: string
   type: StepType
   name?: string
-  next?: string
+  next?: string[] | null
   on_error?: '' | 'stop' | 'continue'
   role?: string // agent
   prompt?: string
@@ -89,8 +95,10 @@ export interface WorkflowStep {
   headers?: Record<string, string>
   body?: string
   if?: string // condition
-  then?: string
-  else?: string // condition; approve/check: when it does not pass
+  then?: string[] | null
+  else?: string[] | null // condition; switch: no case matched; approve/check: when it does not pass
+  value?: string // switch: what is compared with each case
+  cases?: WorkflowCase[]
   max_loops?: number
   note?: string // approve
   command?: string // check
@@ -106,6 +114,7 @@ export const STEP_TYPES: { type: StepType, icon: string }[] = [
   { type: 'code', icon: 'i-lucide-code' },
   { type: 'http', icon: 'i-lucide-globe' },
   { type: 'condition', icon: 'i-lucide-split' },
+  { type: 'switch', icon: 'i-lucide-route' },
   { type: 'approve', icon: 'i-lucide-user-check' },
   { type: 'check', icon: 'i-lucide-test-tube' },
   { type: 'end', icon: 'i-lucide-flag' }
@@ -115,13 +124,37 @@ export const stepIcon = (type: string) => STEP_TYPES.find(s => s.type === type)?
 const STEP_KEY = /^[a-z0-9][a-z0-9-]{0,39}$/
 export const validStepKey = (k: string) => STEP_KEY.test(k)
 
+// an output of a step (a node's handle): next, then, else, or a switch's case:<i>
+export type StepLink = 'next' | 'then' | 'else' | `case:${number}`
+export function linksOf(s: WorkflowStep, h: StepLink): string[] {
+  if (h.startsWith('case:')) return s.cases?.[Number(h.slice(5))]?.next ?? []
+  return s[h as 'next' | 'then' | 'else'] ?? []
+}
+// the step with that output going to list
+export function withLinks(s: WorkflowStep, h: StepLink, list: string[]): WorkflowStep {
+  if (h.startsWith('case:')) {
+    const i = Number(h.slice(5))
+    return { ...s, cases: (s.cases ?? []).map((c, j) => j === i ? { ...c, next: list } : c) }
+  }
+  return { ...s, [h]: list.length ? list : undefined }
+}
+// every step it may go to
+export const stepOuts = (s: WorkflowStep) => [...(s.next ?? []), ...(s.then ?? []), ...(s.else ?? []), ...(s.cases ?? []).flatMap(c => c.next ?? [])]
+// the first steps
+export const stepStarts = (d: WorkflowDef) => d.start?.length ? d.start : d.steps?.[0] ? [d.steps[0].id] : []
+// a step gone: no link goes to it any more
+export function unlink(s: WorkflowStep, gone: string[]): WorkflowStep {
+  const keep = (l?: string[] | null) => l?.length ? l.filter(x => !gone.includes(x)) : l
+  return { ...s, next: keep(s.next), then: keep(s.then), else: keep(s.else), cases: s.cases?.map(c => ({ ...c, next: keep(c.next) ?? [] })) }
+}
+
 // what a step lacks (internal/workflow validateSteps): the fields to mark
 export function stepMissing(s: WorkflowStep, def: WorkflowDef): string[] {
   const ids = new Set((def.steps ?? []).map(x => x.id))
   const bad: string[] = []
-  const ref = (field: 'next' | 'then' | 'else', need: boolean) => {
-    const to = s[field]
-    if ((!to && need) || (to && !ids.has(to))) bad.push(field)
+  const ref = (field: StepLink, need: boolean) => {
+    const to = linksOf(s, field)
+    if ((!to.length && need) || to.some(x => !ids.has(x))) bad.push(field)
   }
   if (!validStepKey(s.id) || (def.steps ?? []).filter(x => x.id === s.id).length > 1) bad.push('id')
   switch (s.type) {
@@ -146,6 +179,19 @@ export function stepMissing(s: WorkflowStep, def: WorkflowDef): string[] {
       ref('then', true)
       ref('else', true)
       break
+    case 'switch': {
+      if (!s.value?.trim()) bad.push('value')
+      if (!s.cases?.length) bad.push('cases')
+      const seen = new Set<string>()
+      s.cases?.forEach((c, i) => {
+        const w = c.when.trim().toLowerCase()
+        if (!w || seen.has(w)) bad.push(`when:${i}`)
+        seen.add(w)
+        ref(`case:${i}`, true)
+      })
+      ref('else', false)
+      break
+    }
     case 'approve':
       if (!s.note?.trim()) bad.push('note')
       ref('else', false)
@@ -155,7 +201,7 @@ export function stepMissing(s: WorkflowStep, def: WorkflowDef): string[] {
       ref('else', false)
       break
   }
-  if (s.type !== 'end' && s.type !== 'condition') ref('next', true)
+  if (s.type !== 'end' && s.type !== 'condition' && s.type !== 'switch') ref('next', true)
   return bad
 }
 
@@ -167,8 +213,9 @@ export function renameStep(steps: WorkflowStep[], from: string, to: string): Wor
   return steps.map((s) => {
     const n: WorkflowStep = { ...s }
     if (n.id === from) n.id = to
-    for (const f of ['next', 'then', 'else'] as const) if (n[f] === from) n[f] = to
-    for (const f of ['prompt', 'script', 'url', 'body', 'if', 'note', 'command', 'summary'] as const) {
+    for (const f of ['next', 'then', 'else'] as const) if (n[f]) n[f] = n[f]!.map(x => x === from ? to : x)
+    n.cases = n.cases?.map(c => ({ when: tpl(c.when), next: (c.next ?? []).map(x => x === from ? to : x) }))
+    for (const f of ['prompt', 'script', 'url', 'body', 'if', 'value', 'note', 'command', 'summary'] as const) {
       if (n[f]) n[f] = tpl(n[f]!)
     }
     n.inputs = map(n.inputs)

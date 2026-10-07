@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -81,70 +83,173 @@ func inputsFrom(d workflow.Def, text string) map[string]string {
 }
 
 // runSteps runs a graph of steps to its end (or until the run is stopped).
+// The steps one output goes to run at once (up to limits.concurrency); a
+// step waits while a running or waiting step can still reach it (a join),
+// so it runs once with every branch's output. The run ends when no step is
+// left; the end steps reached give its summary and outputs.
 func (e *Engine) runSteps(ctx context.Context, own storage.Conversation, run *wfRun) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	d := run.def
 	vars := workflow.Vars{Input: run.inputs, Steps: map[string]workflow.StepResult{}}
 	visits := map[string]int{}
-	cur := run.def.Steps[0].ID
 	fail := func(why string) {
 		if ctx.Err() == nil {
 			e.note(own, "⚠️ "+why)
 			e.finishRun(own.ID, run.rec.ID, storage.RunFailed, "", why)
 		}
 	}
-	for n := 0; ; n++ {
-		if ctx.Err() != nil {
-			return
-		}
-		if n >= workflow.MaxStepsRun {
-			fail(fmt.Sprintf("quá %d bước trong một lần chạy", workflow.MaxStepsRun))
-			return
-		}
-		s, ok := run.def.Step(cur)
-		if !ok {
-			fail("không có bước " + cur)
-			return
-		}
-		visits[cur]++
-		if most := cmp.Or(s.MaxLoops, workflow.DefaultMaxLoops); visits[cur] > most+1 { // a way back is a loop: bounded
-			fail(fmt.Sprintf("bước %s lặp quá %d lần (max_loops)", workflow.StepLabel(s), most))
-			return
-		}
-		e.wf.mu.Lock()
-		run.logf("Bước %s", workflow.StepLabel(s))
-		rec := run.rec
-		e.wf.mu.Unlock()
-		e.saveRun(rec)
-		if s.Type == workflow.StepEnd {
-			e.endSteps(own, run, s, vars)
-			return
-		}
-		if s.Type == workflow.StepCondition {
-			next := s.Else
-			if workflow.Eval(s.If, vars) {
-				next = s.Then
+	type result struct {
+		s   workflow.Step
+		res workflow.StepResult
+		err error
+	}
+	results := make(chan result)
+	running := map[string]bool{}
+	var pending []string // reached, waiting their turn (no step twice)
+	reach := func(ids []string) {
+		for _, id := range ids {
+			if !slices.Contains(pending, id) {
+				pending = append(pending, id)
 			}
-			vars.Steps[s.ID] = workflow.NewResult(next, strconv.FormatBool(next == s.Then))
-			cur = next
-			continue
 		}
-		res, err := e.runStep(ctx, own, run, s, vars)
+	}
+	// free: no other running or waiting step can still reach id
+	free := func(id string) bool {
+		for _, other := range pending {
+			if other != id && d.Reaches(other, id) {
+				return false
+			}
+		}
+		for other := range running {
+			if other != id && d.Reaches(other, id) {
+				return false
+			}
+		}
+		return true
+	}
+	var (
+		ended   bool
+		summary string
+		outputs = map[string]string{}
+		last    string // the step that finished last: the summary when the end says none
+	)
+	reach(d.Starts())
+	for n := 0; ; {
 		if ctx.Err() != nil {
 			return
 		}
-		vars.Steps[s.ID] = res
+		// start every step that may go now
+		for progress := true; progress; {
+			progress = false
+			force := len(running) == 0 && !slices.ContainsFunc(pending, free) // a loop waiting on itself: its first step goes
+			for i := 0; i < len(pending); i++ {
+				id := pending[i]
+				if !(force && i == 0) && !free(id) {
+					continue
+				}
+				s, ok := d.Step(id)
+				if ok && s.Type == workflow.StepAgent && slices.ContainsFunc(slices.Collect(maps.Keys(running)), func(r string) bool { o, _ := d.Step(r); return o.Type == workflow.StepAgent && o.Role == s.Role }) {
+					continue // one role answers one step at a time
+				}
+				if len(running) >= d.Limits.Concurrency && ok && s.Type != workflow.StepEnd && s.Type != workflow.StepCondition && s.Type != workflow.StepSwitch {
+					continue
+				}
+				pending = slices.Delete(pending, i, i+1)
+				i--
+				progress, force = true, false
+				if n++; n > workflow.MaxStepsRun {
+					fail(fmt.Sprintf("quá %d bước trong một lần chạy", workflow.MaxStepsRun))
+					return
+				}
+				if !ok {
+					fail("không có bước " + id)
+					return
+				}
+				visits[id]++
+				if most := cmp.Or(s.MaxLoops, workflow.DefaultMaxLoops); visits[id] > most+1 { // a way back is a loop: bounded
+					fail(fmt.Sprintf("bước %s lặp quá %d lần (max_loops)", workflow.StepLabel(s), most))
+					return
+				}
+				e.wf.mu.Lock()
+				run.logf("Bước %s", workflow.StepLabel(s))
+				rec := run.rec
+				e.wf.mu.Unlock()
+				e.saveRun(rec)
+				switch s.Type {
+				case workflow.StepEnd:
+					ended = true
+					if v := strings.TrimSpace(workflow.Render(s.Summary, vars)); v != "" {
+						summary = v
+					}
+					for k, v := range s.Outputs {
+						outputs[k] = strings.TrimSpace(workflow.Render(v, vars))
+					}
+				case workflow.StepCondition:
+					next := s.Else
+					yes := workflow.Eval(s.If, vars)
+					if yes {
+						next = s.Then
+					}
+					vars.Steps[s.ID] = workflow.NewResult(strings.Join(next, ","), strconv.FormatBool(yes))
+					reach(next)
+				case workflow.StepSwitch:
+					got, next := s.Pick(vars)
+					vars.Steps[s.ID] = workflow.NewResult(strings.Join(next, ","), got)
+					reach(next)
+				default:
+					running[id] = true
+					snap := workflow.Vars{Input: vars.Input, Steps: maps.Clone(vars.Steps)}
+					go func() {
+						res, err := e.runStep(ctx, own, run, s, snap)
+						select {
+						case results <- result{s, res, err}:
+						case <-ctx.Done():
+						}
+					}()
+				}
+			}
+		}
+		if len(running) == 0 && len(pending) == 0 {
+			break
+		}
+		var r result
+		select {
+		case r = <-results:
+		case <-ctx.Done():
+			return
+		}
+		s, err := r.s, r.err
+		delete(running, s.ID)
+		if err != nil && ctx.Err() != nil {
+			return
+		}
+		if err != nil { // a failure is an output too, for the steps after it
+			r.res.Status = cmp.Or(r.res.Status, "error")
+			r.res.Output = cmp.Or(r.res.Output, err.Error())
+		}
+		vars.Steps[s.ID], last = r.res, s.ID
 		switch {
 		case err == nil:
-			cur = s.Next
-		case errors.Is(err, workflow.ErrStepFailed) && s.Else != "": // a check that failed, an approval refused
-			cur = s.Else
+			reach(s.Next)
+		case errors.Is(err, workflow.ErrStepFailed) && len(s.Else) > 0: // a check that failed, an approval refused
+			reach(s.Else)
 		case s.OnError == "continue":
 			e.note(own, fmt.Sprintf("Bước %s lỗi, đi tiếp: %s", workflow.StepLabel(s), err))
-			cur = s.Next
+			reach(s.Next)
 		default:
 			fail(fmt.Sprintf("bước %s: %s", workflow.StepLabel(s), err))
 			return
 		}
 	}
+	if !ended {
+		fail("không nhánh nào tới bước end")
+		return
+	}
+	if summary == "" { // the last step's output
+		summary = strings.TrimSpace(vars.Steps[last].Output)
+	}
+	e.endSteps(own, run, summary, outputs)
 }
 
 // post puts a step's result in the run's chat.
@@ -390,17 +495,7 @@ func (e *Engine) stepDecide(ctx context.Context, own storage.Conversation, run *
 }
 
 // endSteps ends a graph of steps with its summary and outputs.
-func (e *Engine) endSteps(own storage.Conversation, run *wfRun, s workflow.Step, vars workflow.Vars) {
-	summary := strings.TrimSpace(workflow.Render(s.Summary, vars))
-	if summary == "" { // the last step's output
-		for i := len(run.def.Steps) - 1; i >= 0 && summary == ""; i-- {
-			summary = strings.TrimSpace(vars.Steps[run.def.Steps[i].ID].Output)
-		}
-	}
-	outputs := map[string]string{}
-	for k, v := range s.Outputs {
-		outputs[k] = strings.TrimSpace(workflow.Render(v, vars))
-	}
+func (e *Engine) endSteps(own storage.Conversation, run *wfRun, summary string, outputs map[string]string) {
 	if err := run.def.CheckOutputs(outputs); err != nil {
 		e.note(own, "⚠️ "+err.Error())
 		e.finishRun(own.ID, run.rec.ID, storage.RunFailed, summary, err.Error())

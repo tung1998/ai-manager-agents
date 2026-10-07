@@ -640,3 +640,85 @@ steps:
 		t.Fatalf("run's chat: code %d, request %d, dev %d\n%+v", code, req, dev, msgs)
 	}
 }
+
+// one output goes to several steps at once; a join waits for both
+// branches and runs once; a switch takes the case its value matches; a
+// failure is an output for the steps after it (on_error: continue)
+func TestWorkflowStepsBranchAndJoin(t *testing.T) {
+	g := newWFGroup(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	src := `---
+key: nhanh
+name: Nhánh
+inputs:
+  - { key: a, required: true }
+  - { key: b }
+outputs:
+  - { key: gom, required: true }
+  - { key: loai, required: true }
+  - { key: loi }
+roles:
+  - { key: viet, name: Người viết, access: analyze }
+start: [mot, hai]
+steps:
+  - id: mot
+    type: code
+    lang: bash
+    script: sleep 1; echo "1-$OFFICE_INPUT_A"
+    next: gom
+  - id: hai
+    type: code
+    lang: bash
+    script: sleep 1; echo "2-$OFFICE_INPUT_B"
+    next: [gom, hong]
+  - id: hong
+    type: code
+    lang: bash
+    script: echo boom; exit 3
+    on_error: continue
+    next: gom
+  - id: gom
+    type: code
+    lang: bash
+    script: echo "{\"kind\":\"bug\"}"; echo x >> "$HOME/.gom"
+    next: chon
+  - id: chon
+    type: switch
+    value: "{{steps.gom.json.kind}}"
+    cases:
+      - { when: feature, next: sai }
+      - { when: BUG, next: xong }
+    else: sai
+  - id: sai
+    type: end
+    outputs: { gom: sai, loai: sai }
+  - id: xong
+    type: end
+    summary: "{{steps.mot.output}} {{steps.hai.output}}"
+    outputs:
+      gom: "{{steps.mot.output}}+{{steps.hai.output}}"
+      loai: "{{steps.chon.status}}"
+      loi: "{{steps.hong.status}}:{{steps.hong.output}}"
+---
+`
+	if _, err := g.svc.Create(g.context, g.f.project.ID, src, map[string]string{"viet": g.dev.ID}); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	call0, _, err := g.engine.Send(g.context, g.conv.ID, "#nhanh {\"a\": \"x\", \"b\": \"y\"}", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, call0)
+	r := g.run(t)
+	if r.Status != storage.RunDone || r.Outputs["gom"] != "1-x+2-y" || r.Outputs["loai"] != "bug" || r.Outputs["loi"] != "3:boom" {
+		t.Fatalf("run = %+v", r)
+	}
+	if took := time.Since(start); took > 1900*time.Millisecond {
+		t.Fatalf("the two branches did not run at once: %v", took)
+	}
+	if b, _ := os.ReadFile(filepath.Join(home, ".gom")); string(b) != "x\n" {
+		t.Fatalf("the join ran %q", b)
+	}
+}

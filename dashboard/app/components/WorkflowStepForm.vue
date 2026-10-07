@@ -36,35 +36,35 @@ function commitId() {
   const from = step.value?.id
   if (!from || idDraft.value === from) return
   if (idBad.value) { idDraft.value = from; return }
-  setDef({ steps: renameStep(steps.value, from, idDraft.value) })
+  setDef({ steps: renameStep(steps.value, from, idDraft.value), start: props.def.start?.map(x => x === from ? idDraft.value : x) })
   emit('select', idDraft.value)
 }
 
 function remove() {
   const id = props.sel
-  const rest = steps.value.filter(s => s.id !== id).map((s) => {
-    const n = { ...s }
-    for (const f of ['next', 'then', 'else'] as const) if (n[f] === id) n[f] = ''
-    return n
-  })
-  setDef({ steps: rest.length ? rest : [{ id: 'end', type: 'end' }] })
+  const rest = steps.value.filter(s => s.id !== id).map(s => unlink(s, [id]))
+  setDef({ steps: rest.length ? rest : [{ id: 'end', type: 'end' }], start: props.def.start?.filter(x => x !== id) })
   emit('select', '')
 }
 
-// where a link may go
-const targetItems = computed(() => [
-  { label: t('wf.step.none'), value: NONE },
-  ...steps.value.filter(s => s.id !== props.sel).map(s => ({ label: s.name ? `${s.name} · ${s.id}` : s.id, value: s.id, icon: stepIcon(s.type) }))
-])
-const link = (f: 'next' | 'then' | 'else') => step.value?.[f] || NONE
-const setLink = (f: 'next' | 'then' | 'else', v: string) => patch({ [f]: v === NONE ? '' : v })
+// where an output may go: one step or several (they run at once)
+const targetItems = computed(() => steps.value.filter(s => s.id !== props.sel).map(s => ({ label: s.name ? `${s.name} · ${s.id}` : s.id, value: s.id, icon: stepIcon(s.type) })))
+const link = (f: StepLink) => step.value ? linksOf(step.value, f) : []
+function setLink(f: StepLink, v: unknown) {
+  const id = props.sel
+  setDef({ steps: steps.value.map(s => s.id === id ? withLinks(s, f, (v as string[]) ?? []) : s) })
+}
+
+// ---- switch: its cases ----
+const cases = computed(() => step.value?.cases ?? [])
+const setCases = (list: WorkflowCase[]) => patch({ cases: list })
 
 // the templates usable here: the inputs, and the steps that may run before it
 const vars = computed(() => {
   const before = new Set<string>()
   const preds = new Map<string, string[]>()
   for (const s of steps.value) {
-    for (const to of [s.next, s.then, s.else]) if (to) preds.set(to, [...(preds.get(to) ?? []), s.id])
+    for (const to of stepOuts(s)) preds.set(to, [...(preds.get(to) ?? []), s.id])
   }
   const queue = [props.sel]
   while (queue.length) {
@@ -229,15 +229,42 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
       </UFormField>
       <div class="grid grid-cols-2 gap-2">
         <UFormField :label="t('wf.canvas.yes')" :hint="miss('then')" :ui="ui">
-          <USelect :model-value="link('then')" :items="targetItems" size="sm" class="w-full" @update:model-value="v => setLink('then', String(v))" />
+          <USelect multiple :model-value="link('then')" :items="targetItems" size="sm" class="w-full" :placeholder="t('wf.step.none')" @update:model-value="v => setLink('then', v)" />
         </UFormField>
         <UFormField :label="t('wf.canvas.no')" :hint="miss('else')" :ui="ui">
-          <USelect :model-value="link('else')" :items="targetItems" size="sm" class="w-full" @update:model-value="v => setLink('else', String(v))" />
+          <USelect multiple :model-value="link('else')" :items="targetItems" size="sm" class="w-full" :placeholder="t('wf.step.none')" @update:model-value="v => setLink('else', v)" />
         </UFormField>
       </div>
       <UFormField :label="t('wf.step.maxLoops')">
         <template #hint><UTooltip :text="t('wf.step.maxLoopsInfo')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" /></UTooltip></template>
         <UInputNumber :model-value="step.max_loops ?? 0" :min="0" :max="50" size="sm" class="w-32" @update:model-value="v => patch({ max_loops: v || undefined })" />
+      </UFormField>
+    </template>
+
+    <!-- switch: the value, a case per way out -->
+    <template v-else-if="step.type === 'switch'">
+      <UFormField :label="t('wf.step.value')" :hint="miss('value')" :ui="ui">
+        <UInput :model-value="step.value ?? ''" size="sm" class="w-full font-mono" placeholder="{{steps.a.json.kind}}" @update:model-value="v => patch({ value: String(v) })" />
+        <template #help><span class="text-xs">{{ t('wf.step.valueInfo') }}</span></template>
+      </UFormField>
+      <UFormField :label="t('wf.step.cases')" :hint="miss('cases')" :ui="ui">
+        <div class="space-y-1.5">
+          <div v-for="(c, i) in cases" :key="i" class="flex items-start gap-1">
+            <UInput
+              :model-value="c.when" size="sm" class="w-24 shrink-0 font-mono" :color="missing.includes(`when:${i}`) ? 'error' : undefined" :placeholder="t('wf.step.when')"
+              @update:model-value="v => setCases(cases.map((x, j) => j === i ? { ...x, when: String(v) } : x))"
+            />
+            <USelect
+              multiple :model-value="link(`case:${i}`)" :items="targetItems" size="sm" class="min-w-0 flex-1" :color="missing.includes(`case:${i}`) ? 'error' : undefined" :placeholder="t('wf.step.none')"
+              @update:model-value="v => setLink(`case:${i}`, v)"
+            />
+            <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('wf.delete')" @click="setCases(cases.filter((_, j) => j !== i))" />
+          </div>
+          <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-plus" :label="t('wf.step.addCase')" @click="setCases([...cases, { when: '', next: [] }])" />
+        </div>
+      </UFormField>
+      <UFormField :label="t('wf.canvas.otherwise')" :hint="miss('else')" :ui="ui">
+        <USelect multiple :model-value="link('else')" :items="targetItems" size="sm" class="w-full" :placeholder="t('wf.step.none')" @update:model-value="v => setLink('else', v)" />
       </UFormField>
     </template>
 
@@ -269,15 +296,15 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
     </template>
 
     <!-- where it goes next -->
-    <div v-if="step.type !== 'end' && step.type !== 'condition'" class="grid grid-cols-2 gap-2">
+    <div v-if="step.type !== 'end' && step.type !== 'condition' && step.type !== 'switch'" class="grid grid-cols-2 gap-2">
       <UFormField :label="t('wf.step.next')" :hint="miss('next')" :ui="ui">
-        <USelect :model-value="link('next')" :items="targetItems" size="sm" class="w-full" @update:model-value="v => setLink('next', String(v))" />
+        <USelect multiple :model-value="link('next')" :items="targetItems" size="sm" class="w-full" :placeholder="t('wf.step.none')" @update:model-value="v => setLink('next', v)" />
       </UFormField>
       <UFormField v-if="step.type === 'approve' || step.type === 'check'" :label="t('wf.canvas.notPassed')" :hint="miss('else')" :ui="ui">
-        <USelect :model-value="link('else')" :items="targetItems" size="sm" class="w-full" @update:model-value="v => setLink('else', String(v))" />
+        <USelect multiple :model-value="link('else')" :items="targetItems" size="sm" class="w-full" :placeholder="t('wf.step.none')" @update:model-value="v => setLink('else', v)" />
       </UFormField>
     </div>
-    <UFormField v-if="step.type !== 'end' && step.type !== 'condition'" :label="t('wf.step.onError')">
+    <UFormField v-if="step.type !== 'end' && step.type !== 'condition' && step.type !== 'switch'" :label="t('wf.step.onError')">
       <USelect :model-value="step.on_error || 'stop'" :items="onErrorItems" size="sm" class="w-full" @update:model-value="v => patch({ on_error: v === 'stop' ? undefined : v as WorkflowStep['on_error'] })" />
     </UFormField>
 

@@ -61,6 +61,8 @@ type Def struct {
 	Callable string `yaml:"callable,omitempty" json:"callable,omitempty"`
 	// Steps: the graph the office runs in order (ADR-108); none = a coordinator decides
 	Steps []Step `yaml:"steps,omitempty" json:"steps,omitempty"`
+	// Start: the first steps, run at once ("" = the first of Steps)
+	Start Targets `yaml:"start,omitempty" json:"start,omitempty"`
 	// Body is what the coordinator follows (the file below the header).
 	Body string `yaml:"-" json:"body"`
 }

@@ -9,7 +9,7 @@ const { t } = useLang()
 const BRIEF = ['outcome', 'question', 'context', 'constraints', 'current_option', 'tried', 'files', 'done_when', 'must_not']
 const briefLabel = (k: string) => BRIEF.includes(k) ? t(`wf.brief.${k}` as MessageKey) : k
 // where a step goes: condition then / else, approve/check next / else
-const goes = (s: WorkflowStep) => (s.type === 'condition' ? [s.then, s.else] : [s.next, s.else]).filter(Boolean).join(' / ')
+const goes = (s: WorkflowStep) => (s.type === 'condition' ? [s.then, s.else] : s.type === 'switch' ? [...(s.cases ?? []).map(c => c.next), s.else] : [s.next, s.else]).map(l => (l ?? []).join(' + ')).filter(Boolean).join(' / ')
 </script>
 
 <template>

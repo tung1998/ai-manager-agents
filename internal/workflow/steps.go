@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // Steps (ADR-108): a workflow may be a graph of steps the office runs in
@@ -20,6 +22,12 @@ import (
 // a person's approval, a check command, the end. Data goes from step to
 // step by templates: {{input.key}}, {{steps.<id>.output}},
 // {{steps.<id>.json.a.b}}, {{steps.<id>.status}}.
+//
+// One output may go to several steps (next: [a, b]): they run at once; a
+// step several branches reach waits for every branch that can still reach
+// it, then runs once (a join). A switch sends its output to the case its
+// value matches. A step that failed still has an output (status "error")
+// for the steps after it when on_error is continue.
 
 // Step types.
 const (
@@ -28,21 +36,23 @@ const (
 	StepCode      = "code"
 	StepHTTP      = "http"
 	StepCondition = "condition"
+	StepSwitch    = "switch"
 	StepApprove   = "approve"
 	StepCheck     = "check"
 	StepEnd       = "end"
 )
 
 // StepTypes are the step types, in the order the editor offers them.
-var StepTypes = []string{StepAgent, StepWorkflow, StepCode, StepHTTP, StepCondition, StepApprove, StepCheck, StepEnd}
+var StepTypes = []string{StepAgent, StepWorkflow, StepCode, StepHTTP, StepCondition, StepSwitch, StepApprove, StepCheck, StepEnd}
 
 // Step is one node of a workflow's graph.
 type Step struct {
 	ID   string `yaml:"id" json:"id"`
 	Type string `yaml:"type" json:"type"`
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
-	// Next is the step after this one (approve: once approved; condition: Then/Else)
-	Next string `yaml:"next,omitempty" json:"next,omitempty"`
+	// Next are the steps after this one, run at once (approve: once
+	// approved; condition: Then/Else; switch: its Cases, Else by default)
+	Next Targets `yaml:"next,omitempty" json:"next,omitempty"`
 	// OnError: "stop" (default) ends the run when the step fails; "continue" goes on to Next
 	OnError string `yaml:"on_error,omitempty" json:"on_error,omitempty"`
 
@@ -64,10 +74,13 @@ type Step struct {
 	Body    string            `yaml:"body,omitempty" json:"body,omitempty"`
 	// condition: If (see Eval) chooses Then or Else. Going back to an
 	// earlier step is a loop: any step runs at most MaxLoops+1 times (default 5)
-	If       string `yaml:"if,omitempty" json:"if,omitempty"`
-	Then     string `yaml:"then,omitempty" json:"then,omitempty"`
-	Else     string `yaml:"else,omitempty" json:"else,omitempty"`
-	MaxLoops int    `yaml:"max_loops,omitempty" json:"max_loops,omitempty"`
+	If       string  `yaml:"if,omitempty" json:"if,omitempty"`
+	Then     Targets `yaml:"then,omitempty" json:"then,omitempty"`
+	Else     Targets `yaml:"else,omitempty" json:"else,omitempty"`
+	MaxLoops int     `yaml:"max_loops,omitempty" json:"max_loops,omitempty"`
+	// switch: Value (a template) goes to the case it equals (no case: Else)
+	Value string `yaml:"value,omitempty" json:"value,omitempty"`
+	Cases []Case `yaml:"cases,omitempty" json:"cases,omitempty"`
 	// approve: what the person decides (rejected: Else, or the run stops)
 	Note string `yaml:"note,omitempty" json:"note,omitempty"`
 	// check: a command that must pass (the project's command rules apply)
@@ -77,6 +90,115 @@ type Step struct {
 	Outputs map[string]string `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 	// Position on the editor's canvas (the office does not read it)
 	Position *Position `yaml:"position,omitempty" json:"position,omitempty"`
+}
+
+// Case is one way out of a switch: the value it matches (case aside) and
+// the steps it goes to.
+type Case struct {
+	When string  `yaml:"when" json:"when"`
+	Next Targets `yaml:"next" json:"next"`
+}
+
+// Targets are the steps an output goes to: one id, or a list in the file.
+type Targets []string
+
+// UnmarshalYAML reads "a" or [a, b].
+func (t *Targets) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		*t = nil
+		if v := strings.TrimSpace(n.Value); v != "" {
+			*t = Targets{v}
+		}
+		return nil
+	}
+	var list []string
+	if err := n.Decode(&list); err != nil {
+		return err
+	}
+	*t = Targets(list)
+	return nil
+}
+
+// MarshalYAML writes one step as "a", several as a list.
+func (t Targets) MarshalYAML() (any, error) {
+	if len(t) == 1 {
+		return t[0], nil
+	}
+	return []string(t), nil
+}
+
+// UnmarshalJSON reads "a" or ["a", "b"] (the editor sends a list).
+func (t *Targets) UnmarshalJSON(b []byte) error {
+	var one string
+	if json.Unmarshal(b, &one) == nil {
+		*t = nil
+		if one != "" {
+			*t = Targets{one}
+		}
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(b, &list); err != nil {
+		return err
+	}
+	*t = Targets(list)
+	return nil
+}
+
+// Outs are every step a step may go to.
+func (s Step) Outs() []string {
+	out := append(append(append([]string{}, s.Next...), s.Then...), s.Else...)
+	for _, c := range s.Cases {
+		out = append(out, c.Next...)
+	}
+	return out
+}
+
+// Pick is where a switch goes for its value (no case: Else).
+func (s Step) Pick(v Vars) (string, Targets) {
+	got := strings.TrimSpace(unquote(Render(s.Value, v)))
+	for _, c := range s.Cases {
+		if strings.EqualFold(got, strings.TrimSpace(unquote(Render(c.When, v)))) {
+			return got, c.Next
+		}
+	}
+	return got, s.Else
+}
+
+// Reaches: step to may come after step from (from itself aside, unless a
+// loop leads back to it), not through to itself.
+func (d Def) Reaches(from, to string) bool {
+	seen := map[string]bool{to: true}
+	todo := []string{from}
+	for len(todo) > 0 {
+		id := todo[len(todo)-1]
+		todo = todo[:len(todo)-1]
+		s, ok := d.Step(id)
+		if !ok {
+			continue
+		}
+		for _, x := range s.Outs() {
+			if x == to {
+				return true
+			}
+			if !seen[x] {
+				seen[x] = true
+				todo = append(todo, x)
+			}
+		}
+	}
+	return false
+}
+
+// Starts are the first steps (start, or the first of the list).
+func (d Def) Starts() []string {
+	if len(d.Start) > 0 {
+		return d.Start
+	}
+	if len(d.Steps) > 0 {
+		return []string{d.Steps[0].ID}
+	}
+	return nil
 }
 
 // Position is a step's place on the canvas.
@@ -111,16 +233,23 @@ func (d Def) validateSteps(add func(string, ...any)) {
 	ids := map[string]bool{}
 	for _, s := range d.Steps {
 		if !ValidKey(s.ID) || ids[s.ID] {
-			add("bước %q: id không hợp lệ hoặc bị trùng", s.ID)
+			add("bước %q: id chỉ dùng chữ thường, số, gạch ngang (không dùng _) và không được trùng", s.ID)
 		}
 		ids[s.ID] = true
 	}
-	ref := func(s Step, field, to string, need bool) {
-		switch {
-		case to == "" && need:
+	ref := func(s Step, field string, to Targets, need bool) {
+		if len(to) == 0 && need {
 			add("bước %q: thiếu %s", s.ID, field)
-		case to != "" && !ids[to]:
-			add("bước %q: %s %q không có", s.ID, field, to)
+		}
+		for _, x := range to {
+			if !ids[x] {
+				add("bước %q: %s %q không có", s.ID, field, x)
+			}
+		}
+	}
+	for _, x := range d.Start {
+		if !ids[x] {
+			add("start: bước %q không có", x)
 		}
 	}
 	ends := 0
@@ -167,6 +296,23 @@ func (d Def) validateSteps(add func(string, ...any)) {
 			}
 			ref(s, "then", s.Then, true)
 			ref(s, "else", s.Else, true)
+		case StepSwitch:
+			if strings.TrimSpace(s.Value) == "" {
+				add("bước %q: thiếu value (giá trị để chọn nhánh)", s.ID)
+			}
+			if len(s.Cases) == 0 {
+				add("bước %q: cần ít nhất một case", s.ID)
+			}
+			seen := map[string]bool{}
+			for _, c := range s.Cases {
+				w := strings.ToLower(strings.TrimSpace(c.When))
+				if w == "" || seen[w] {
+					add("bước %q: case %q trống hoặc bị trùng", s.ID, c.When)
+				}
+				seen[w] = true
+				ref(s, "next của case "+strconv.Quote(c.When), c.Next, true)
+			}
+			ref(s, "else", s.Else, false)
 		case StepApprove:
 			if strings.TrimSpace(s.Note) == "" {
 				add("bước %q: thiếu note (điều người dùng duyệt)", s.ID)
@@ -180,7 +326,7 @@ func (d Def) validateSteps(add func(string, ...any)) {
 		case StepEnd:
 			ends++
 		}
-		if s.Type != StepEnd && s.Type != StepCondition {
+		if s.Type != StepEnd && s.Type != StepCondition && s.Type != StepSwitch {
 			ref(s, "next", s.Next, true)
 		}
 	}
