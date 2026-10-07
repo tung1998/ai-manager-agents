@@ -189,9 +189,10 @@ type Engine struct {
 	providers *provider.Service
 	usage     *usage.Service
 	files     attach.Store
-	onRunning func(conversationID string) // an answer started or ended there (the dashboard's live data)
-	decided   decisions                   // proposals a person decided on the dashboard: the agent goes on (ADR-084)
-	deciding  sync.Map                    // patches being decided now: one decision applies a patch
+	onRunning func(conversationID string)                // an answer started or ended there (the dashboard's live data)
+	onRunWait func(ctx context.Context, callerID string) // a workflow's turn ended: what it waits on a person for goes to the chat that called it (a bot's)
+	decided   decisions                                  // proposals a person decided on the dashboard: the agent goes on (ADR-084)
+	deciding  sync.Map                                   // patches being decided now: one decision applies a patch
 	onLimits  func(p storage.Provider, l Limits)
 	office    *officetools.Toolbox
 	mcp       *mcpserver.Server
@@ -662,8 +663,14 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	// project (spec 2026-10-07-workflows-design); otherwise "/skill request":
 	// the agent gets the skill's instructions. The conversation keeps what the
 	// person typed.
-	run, wfPrompt, isWorkflow, err := e.prepWorkflow(ctx, conv, agent, text)
-	if err != nil {
+	var (
+		run        *wfRun
+		wfPrompt   string
+		isWorkflow bool
+	)
+	if p := preparedOf(ctx, conv.ID); p != nil { // the run's own chat, started by the chat that called it
+		run, wfPrompt, isWorkflow = p.run, p.prompt, true
+	} else if run, wfPrompt, isWorkflow, err = e.prepWorkflow(ctx, conv, agent, text); err != nil {
 		return nil, storage.Message{}, err
 	}
 	prompt := text
@@ -695,6 +702,9 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		if err := e.usage.Check(ctx, project.ID); err != nil {
 			return nil, storage.Message{}, err
 		}
+	}
+	if run != nil && preparedOf(ctx, conv.ID) == nil { // called here: it runs in a chat of its own
+		return e.callWorkflow(ctx, conv, agent, run, text, wfPrompt, pageContext, attachmentIDs, files)
 	}
 	wfID := "" // the chat runs a workflow this agent coordinates: the message is part of it
 	if r := e.runOf(conv.ID); r != nil && r.coord.ID == agent.ID {
@@ -849,6 +859,9 @@ func (e *Engine) offReply(ctx context.Context, conv storage.Conversation, text, 
 }
 
 func (e *Engine) finish(t *Turn) {
+	if caller := e.rootCaller(t.ConversationID); caller != "" && e.onRunWait != nil {
+		go e.onRunWait(context.Background(), caller)
+	}
 	e.mu.Lock()
 	if e.active[t.ConversationID] == t { // the next agent's turn may already hold the chat
 		delete(e.active, t.ConversationID)

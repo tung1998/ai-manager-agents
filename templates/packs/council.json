@@ -4,10 +4,10 @@
   "description": "Ba agent cùng cấp kiểm soát lẫn nhau: Lập kế hoạch, Thực thi, Giám sát (có quyền phủ quyết), cùng các worker. Quyết định qua quy trình Hội đồng 3 bên (2/3 đồng ý).",
   "default": "planner",
   "workflows": [
-    "hoi-dong-3-ben",
-    "giao-lai",
-    "co-van",
-    "sua-bug"
+    "council-3",
+    "handoff",
+    "advisor",
+    "bugfix"
   ],
   "agents": [
     {

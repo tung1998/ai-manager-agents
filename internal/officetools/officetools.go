@@ -265,7 +265,7 @@ func (t *Toolbox) Tools() []Tool {
 					"agents": map[string]any{"type": "object", "description": "Gán agent cho vai bỏ phiếu chưa có agent: {\"vai\": \"tên agent\"}", "additionalProperties": map[string]any{"type": "string"}}}, "question")},
 			Tool{Name: "workflow_gate", Description: "Quy trình: mở một cổng. approve: tạo thẻ để người dùng duyệt (ghi note là điều cần duyệt) rồi dừng lượt chờ. check: chạy lệnh kiểm tra (command, khi cổng không ghi sẵn), trong worktree của vai role nếu có.",
 				Schema: obj(map[string]any{"gate": str("Key của cổng"), "note": str("approve: điều người dùng cần duyệt"), "command": str("check: lệnh kiểm tra"), "role": str("check: chạy trong worktree của vai này")}, "gate")},
-			Tool{Name: "workflow_done", Description: "Quy trình: kết thúc khi đã xong (và qua mọi cổng bắt buộc). summary là tóm tắt cho người dùng.",
+			Tool{Name: "workflow_done", Description: "Quy trình: kết thúc khi đã xong (và qua mọi cổng bắt buộc). summary là KẾT QUẢ của quy trình, câu trả lời duy nhất người gọi thấy (Markdown, đầy đủ, tự đọc hiểu được).",
 				Schema: obj(map[string]any{"summary": str("Tóm tắt kết quả")}, "summary")},
 		)
 	}

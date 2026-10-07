@@ -34,7 +34,7 @@ Công cụ AI viết code rất giỏi, nhưng mỗi lần chỉ một cuộc ch
 | | |
 |---|---|
 | 💬 **Chat với cả đội** · trả lời trực tiếp, `@tên` để kéo agent vào nhóm, gọi `/skill`, đính kèm ảnh/PDF/log, tag, tìm lại chat cũ | ![Chat](docs/guide/images/vi/04-chat.png) |
-| 🧑‍🤝‍🧑 **Quy trình** · gõ `/giao-lai`, `/co-van`, `/hoi-dong`, `/lam-tinh-nang`… để nhiều agent phối hợp có ràng buộc (vai, quyền, model khác họ, cổng duyệt, biểu quyết); tự soạn bằng chat | ![Mô hình Team](docs/guide/images/vi/06-team-model.png) |
+| 🧑‍🤝‍🧑 **Quy trình** · gõ `/handoff`, `/advisor`, `/council`, `/feature`… để nhiều agent phối hợp có ràng buộc (vai, quyền, model khác họ, cổng duyệt, biểu quyết); tự soạn bằng chat | ![Mô hình Team](docs/guide/images/vi/06-team-model.png) |
 | ✅ **Duyệt trước khi gộp** · mỗi chat có git worktree riêng; diff, thao tác và đổi cài đặt chờ *Duyệt / Từ chối / Bỏ qua* (hoặc "duyệt & luôn cho phép") | ![Thẻ diff](docs/guide/images/vi/34-dark-chat.png) |
 | ⚙️ **Vận hành** · tìm lệnh của project, chạy/dừng/tự chạy lại như pm2, log trực tiếp, CPU/RAM/cổng, docker compose, "hỏi agent về log này" | ![Vận hành](docs/guide/images/vi/11-operations.png) |
 | 🤖 **Tự động hóa** · lịch (cron + múi giờ), webhook, tin nhắn Discord/Telegram; chạy script miễn phí, chỉ gọi AI khi lỗi hoặc khi gặp `@@agent:` | ![Tự động hóa](docs/guide/images/vi/09-automations.png) |

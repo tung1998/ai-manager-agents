@@ -38,9 +38,14 @@ const (
 	RunStopped = "stopped"
 )
 
-// WorkflowRun is one run of a workflow in a chat.
+// WorkflowRun is one run of a workflow. It runs in a chat of its own
+// (ConversationID, purpose "workflow_run"); the chat that called it
+// (CallerConversationID) shows only its input and its output.
 type WorkflowRun struct {
 	ID, ProjectID, ConversationID string
+	CallerConversationID          string // "" = a run from before, held in ConversationID itself
+	ParentRunID                   string // the run whose role called this one ("" = a chat called it)
+	Depth                         int    // 0 = called from a chat, 1 = by a run called from one…
 	WorkflowID, WorkflowKey       string
 	WorkflowName                  string
 	BodyHash                      string // the workflow as it was when run
@@ -71,7 +76,9 @@ type RunRole struct {
 	Turns     int     `json:"turns"`
 	SessionID string  `json:"session_id,omitempty"` // its own session, resumed by follow-ups
 	Runtime   string  `json:"runtime,omitempty"`
-	Result    string  `json:"result,omitempty"` // its last answer (cut)
+	Result    string  `json:"result,omitempty"`   // its last answer (cut)
+	Workflow  string  `json:"workflow,omitempty"` // a sub-workflow fills it (its key)
+	RunID     string  `json:"run_id,omitempty"`   // that one's latest run
 	CostUSD   float64 `json:"cost_usd"`
 }
 
@@ -97,7 +104,8 @@ type WorkflowRunRepo interface {
 	Create(ctx context.Context, r WorkflowRun) (WorkflowRun, error)
 	Update(ctx context.Context, r WorkflowRun) error
 	Get(ctx context.Context, id string) (WorkflowRun, error)
-	// List is newest first; empty ids match everything.
+	// List is newest first; empty ids match everything. conversationID
+	// matches the run's own chat or the chat that called it.
 	List(ctx context.Context, projectID, conversationID string, limit int) ([]WorkflowRun, error)
 	// FailRunning ends the runs left running (the office restarted under them).
 	FailRunning(ctx context.Context, detail string, at time.Time) (int64, error)

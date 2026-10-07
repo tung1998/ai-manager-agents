@@ -15,19 +15,19 @@ func testWorkflows(t *testing.T, s storage.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := s.Workflows().Create(ctx, storage.Workflow{ProjectID: p.ID, Key: "hoi-dong", Name: "Hội đồng", Source: "---\n---\nx", Enabled: true,
+	w, err := s.Workflows().Create(ctx, storage.Workflow{ProjectID: p.ID, Key: "council", Name: "Hội đồng", Source: "---\n---\nx", Enabled: true,
 		Bindings: map[string]string{"a": "agt_1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Workflows().Create(ctx, storage.Workflow{ProjectID: p.ID, Key: "hoi-dong", Name: "x", Source: "x"}); !errors.Is(err, storage.ErrConflict) {
+	if _, err := s.Workflows().Create(ctx, storage.Workflow{ProjectID: p.ID, Key: "council", Name: "x", Source: "x"}); !errors.Is(err, storage.ErrConflict) {
 		t.Fatalf("duplicate key err = %v", err)
 	}
 	w.Enabled, w.Bindings = false, nil
 	if err := s.Workflows().Update(ctx, w); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.Workflows().GetByKey(ctx, p.ID, "hoi-dong")
+	got, err := s.Workflows().GetByKey(ctx, p.ID, "council")
 	if err != nil || got.Enabled || got.Bindings == nil || len(got.Bindings) != 0 {
 		t.Fatalf("GetByKey = %+v, %v", got, err)
 	}
@@ -35,7 +35,7 @@ func testWorkflows(t *testing.T, s storage.Store) {
 		t.Fatalf("List = %d, %v", len(list), err)
 	}
 
-	r, err := s.WorkflowRuns().Create(ctx, storage.WorkflowRun{ProjectID: p.ID, ConversationID: "cnv_1", WorkflowKey: "hoi-dong", WorkflowName: "Hội đồng",
+	r, err := s.WorkflowRuns().Create(ctx, storage.WorkflowRun{ProjectID: p.ID, ConversationID: "cnv_1", WorkflowKey: "council", WorkflowName: "Hội đồng",
 		Status: storage.RunRunning, Roles: []storage.RunRole{{Role: "a", AgentID: "agt_1"}}})
 	if err != nil {
 		t.Fatal(err)

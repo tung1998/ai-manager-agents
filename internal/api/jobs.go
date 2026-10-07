@@ -2,6 +2,7 @@ package api
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/assistant"
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"context"
 	"net/http"
 	"strconv"
@@ -312,6 +313,11 @@ func (s *server) jobGroups(w http.ResponseWriter, r *http.Request) {
 				}
 				if c.Purpose == "skill" { // a skill editor's chat opens the editor again
 					d.Link = base + "/skills/edit?c=" + c.ID
+				}
+				if c.Purpose == chat.RunPurpose { // a workflow run's own chat: the run's page
+					if runs, err := s.cfg.Store.WorkflowRuns().List(ctx, c.ProjectID, c.ID, 1); err == nil && len(runs) > 0 {
+						d.Link = base + "/workflows/runs/" + runs[0].ID
+					}
 				}
 				if c.Purpose == "workflow" { // a workflow's editor: the library's (the assistant's chat) or the project's
 					d.Link = base + "/workflows/edit?c=" + c.ID

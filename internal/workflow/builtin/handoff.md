@@ -1,5 +1,5 @@
 ---
-key: giao-lai
+key: handoff
 name: Giao lại
 description: Giao trọn việc đang làm cho một agent khác, kèm bản bàn giao đủ bối cảnh. Dùng khi việc cần quyền hay chuyên môn khác, hoặc khi lập kế hoạch ở đây rồi để agent khác làm.
 input: Việc cần giao (có thể kèm @tên agent nhận)

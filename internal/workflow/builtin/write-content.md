@@ -1,5 +1,5 @@
 ---
-key: viet-noi-dung
+key: write-content
 name: Viết nội dung
 description: Viết bài (blog, Facebook, email cho khách), có agent khác hãng model phản biện, người dùng duyệt trước khi đăng hay gửi.
 input: Chủ đề, đối tượng đọc, kênh đăng

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-// A workflow run in its chat (ADR-098): who fills each role and how far they
-// got, its gates, turns and cost; Stop ends it (and every answer of the chat).
+// A workflow run (ADR-098) in the chat that called it: who fills each role
+// and how far they got, its gates (one waiting on a person is decided here),
+// turns and cost; Stop ends it. detail: on the run's own page (no link to it).
 import type { MessageKey } from '~/locales/vi'
 
-const props = defineProps<{ run: WorkflowRun }>()
+const props = defineProps<{ run: WorkflowRun, detail?: boolean }>()
+const { isAdmin } = useAuth()
 const emit = defineEmits<{ updated: [WorkflowRun] }>()
 const toast = useToast()
 const { t, dateLocale } = useLang()
@@ -14,6 +16,22 @@ const roleColor: Record<RunRole['status'], string> = { idle: 'text-(--ui-text-di
 const gateColor: Record<RunGate['status'], 'neutral' | 'warning' | 'success' | 'error'> = { open: 'neutral', waiting: 'warning', passed: 'success', failed: 'error' }
 const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`
 const when = (d: string) => new Date(d).toLocaleTimeString(dateLocale.value, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+const deciding = ref('')
+async function decide(g: RunGate, approve: boolean) {
+  deciding.value = g.key
+  try {
+    await $fetch(`/api/actions/${g.action_id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: {} })
+    const res = await $fetch<{ run: WorkflowRun }>(`/api/workflow-runs/${props.run.id}`)
+    emit('updated', res.run)
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    deciding.value = ''
+  }
+}
+const waiting = computed(() => props.run.status === 'running' ? props.run.gates.filter(g => g.kind === 'approve' && g.status === 'waiting' && g.action_id) : [])
+const pageTo = computed(() => `/projects/${props.run.project_id}/workflows/runs/${props.run.id}`)
 
 const stopping = ref(false)
 async function stop() {
@@ -39,6 +57,7 @@ async function stop() {
       <span class="ms-auto flex items-center gap-2 text-xs text-(--ui-text-muted)">
         <span :title="t('wf.run.turnsInfo')">{{ run.max_turns ? t('wf.run.turnsOf', { n: run.turns, max: run.max_turns }) : t('wf.run.turns', { n: run.turns }) }}</span>
         <span>· {{ usd(run.cost_usd) }}</span>
+        <UButton v-if="!detail" size="xs" color="neutral" variant="ghost" icon="i-lucide-external-link" :label="t('wf.runs.details')" :to="pageTo" />
         <UButton v-if="run.status === 'running'" size="xs" color="neutral" variant="outline" icon="i-lucide-square" :label="t('chat.stop')" :loading="stopping" @click="stop" />
       </span>
     </div>
@@ -53,6 +72,9 @@ async function stop() {
         <UTooltip :text="t(`wf.access.${r.access}` as MessageKey)">
           <UIcon :name="accessIcon[r.access] ?? 'i-lucide-eye'" class="size-3.5 text-(--ui-text-muted)" />
         </UTooltip>
+        <NuxtLink v-if="r.workflow" :to="r.run_id ? `/projects/${run.project_id}/workflows/runs/${r.run_id}` : undefined" class="flex items-center gap-0.5 font-mono text-primary" :title="t('wf.subInfo')">
+          <UIcon name="i-lucide-corner-down-right" class="size-3.5" />/{{ r.workflow }}
+        </NuxtLink>
         <span class="min-w-0 truncate" :class="r.agent_name ? '' : 'text-(--ui-text-dimmed)'">→ {{ r.agent_name || t('wf.unbound') }}</span>
         <span class="ms-auto shrink-0 text-(--ui-text-muted)">
           {{ t('wf.run.turns', { n: r.turns }) }}<template v-if="r.rounds"> · {{ t('wf.run.rounds', { n: r.rounds }) }}</template> · {{ usd(r.cost_usd) }}
@@ -69,8 +91,17 @@ async function stop() {
       />
     </div>
 
+    <div v-for="g in waiting" :key="g.key" class="flex flex-wrap items-center gap-2 rounded-md bg-(--ui-warning)/10 px-2.5 py-1.5 text-xs">
+      <UIcon name="i-lucide-user-check" class="size-4 text-(--ui-warning)" />
+      <span class="min-w-0 flex-1">{{ t('wf.runs.gateWaiting', { name: g.name }) }} <NuxtLink v-if="!detail" :to="pageTo" class="text-primary">{{ t('wf.runs.seeWhat') }}</NuxtLink></span>
+      <template v-if="isAdmin">
+        <UButton size="xs" color="success" icon="i-lucide-check" :label="t('wf.runs.approve')" :loading="deciding === g.key" @click="decide(g, true)" />
+        <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-x" :label="t('wf.runs.reject')" :disabled="deciding === g.key" @click="decide(g, false)" />
+      </template>
+    </div>
+
     <p v-if="run.error" class="whitespace-pre-wrap text-xs text-(--ui-error)">{{ run.error }}</p>
-    <p v-else-if="run.result && run.status !== 'running'" class="line-clamp-3 whitespace-pre-wrap text-xs text-(--ui-text-muted)" :title="run.result">{{ run.result }}</p>
+    <p v-else-if="run.result && run.status !== 'running' && !run.caller_conversation_id && !detail" class="line-clamp-3 whitespace-pre-wrap text-xs text-(--ui-text-muted)" :title="run.result">{{ run.result }}</p>
 
     <details v-if="run.log?.length" class="text-xs text-(--ui-text-muted)">
       <summary class="cursor-pointer">{{ t('wf.run.log', { n: run.log.length }) }}</summary>

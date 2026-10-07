@@ -88,6 +88,9 @@ func Suggest(def Def, agents []storage.Agent, defaultID string) map[string]strin
 		})
 	}
 	for _, r := range def.Roles {
+		if r.Workflow != "" {
+			continue // a sub-workflow: the run's coordinator runs it unless the project picks one
+		}
 		hint := words(r.Hint + " " + r.Name)
 		type scored struct {
 			a storage.Agent
@@ -250,7 +253,7 @@ func (s *Service) InstallDefaults(ctx context.Context, projectID string, keys []
 }
 
 // FillMigrated gives the workflows a migration installed without a body
-// (a council project's org model became "hoi-dong-3-ben", ADR-099) the
+// (a council project's org model became "council-3", ADR-099) the
 // shipped one; a role bound to an agent no longer there is left unbound.
 func (s *Service) FillMigrated(ctx context.Context) (int, error) {
 	list, err := s.Store.Workflows().List(ctx, "")

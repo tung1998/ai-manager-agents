@@ -168,6 +168,7 @@ func serveCmd() *cobra.Command {
 			bots.SetDecider(chatDecider{store: a.store, chat: chatEngine, acts: acts}) // proposals decided from the chat (ADR-054)
 			office.SetSendFile(bots.SendFileFor)                                       // an agent in a bot's chat posts images and files there (ADR-083)
 			chatEngine.SetOnBotDecided(bots.DecidedOnDashboard)                        // a bot chat's card decided on the dashboard: the bot goes on (ADR-084)
+			chatEngine.SetOnRunWait(bots.AnnounceRun)                                  // a workflow a bot's chat called waits on a person: the chat is told
 			// a project's agent running on its own, finding work (spec 2026-10-01-burn-design)
 			burner := burn.New(a.store, chatEngine, trees)
 			office.SetBurn(func(ctx context.Context, sc officetools.Scope, name string, in officetools.BurnInput) (string, error) {

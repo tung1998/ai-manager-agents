@@ -938,7 +938,7 @@ onBeforeUnmount(() => {
         </template>
         <WorkflowRunCard v-for="r in runsAt.after" :key="r.id" :run="r" @updated="onRunUpdated" />
 
-        <div v-if="streaming" class="space-y-2">
+        <div v-if="streaming && !runs.some(r => r.status === 'running' && r.caller_conversation_id === current?.id)" class="space-y-2">
           <div class="flex items-center gap-2 text-xs text-(--ui-text-muted)">
             <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-primary" />
             <span>{{ liveStatus || t('chat.replying') }}</span>

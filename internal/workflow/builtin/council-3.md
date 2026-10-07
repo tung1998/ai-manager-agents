@@ -1,5 +1,5 @@
 ---
-key: hoi-dong-3-ben
+key: council-3
 name: Hội đồng 3 bên
 description: Tam quyền phân lập. Lập kế hoạch đặt mục tiêu và kế hoạch, Thực thi làm theo kế hoạch đã thông qua, Giám sát kiểm tra và có quyền phủ quyết. Mọi quyết định cần 2/3 đồng ý.
 input: Mục tiêu cần làm

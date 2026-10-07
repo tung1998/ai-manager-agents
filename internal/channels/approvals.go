@@ -14,6 +14,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
@@ -91,8 +92,34 @@ func (m *Manager) withPending(channelID, chatID string, fn func()) {
 	fn()
 }
 
-// proposals are what waits for a person in a conversation.
+// proposals are what waits for a person in a conversation, and in the own
+// chats of the workflows it called that still run (each keeps its chat).
 func (m *Manager) proposals(ctx context.Context, conversationID string) []proposal {
+	out := m.ownProposals(ctx, conversationID)
+	callers := []string{conversationID} // and the sub-workflows those called (ADR-102)
+	for depth := 0; len(callers) > 0 && depth < 8; depth++ {
+		var next []string
+		for _, c := range callers {
+			runs, err := m.store.WorkflowRuns().List(ctx, "", c, 20)
+			if err != nil {
+				continue
+			}
+			for _, r := range runs {
+				if r.Status == storage.RunRunning && r.CallerConversationID == c && r.ConversationID != c {
+					for _, p := range m.ownProposals(ctx, r.ConversationID) {
+						p.Conv = r.ConversationID
+						out = append(out, p)
+					}
+					next = append(next, r.ConversationID)
+				}
+			}
+		}
+		callers = next
+	}
+	return out
+}
+
+func (m *Manager) ownProposals(ctx context.Context, conversationID string) []proposal {
 	var out []proposal
 	if ps, err := m.store.Chat().ListPatches(ctx, conversationID); err == nil {
 		for _, p := range ps {
@@ -153,7 +180,10 @@ func (m *Manager) announce(ctx context.Context, ch storage.Channel, ad Adapter, 
 			if known[p.ID] {
 				continue
 			}
-			p.N, next, p.Conv = next, next+1, conversationID
+			p.N, next = next, next+1
+			if p.Conv == "" {
+				p.Conv = conversationID
+			}
 			list = append(list, p)
 			asked = true
 		}
@@ -405,6 +435,12 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	// the agent's answer is over: it goes on with what was decided (it would
 	// otherwise stand still until someone wrote again)
 	for conv, done := range decided {
+		if c, err := m.store.Chat().GetConversation(ctx, conv); err == nil && c.Purpose == chat.RunPurpose {
+			for _, line := range done { // a workflow's own chat: its coordinator goes on there
+				m.engine.Decided(conv, by, line)
+			}
+			continue
+		}
 		m.resume(ctx, ch, in, conv, done, MayDecide(ch, in.UserID))
 	}
 	// all decided: numbers start again (re-read fresh under lock: list was
@@ -507,6 +543,25 @@ func (m *Manager) resume(ctx context.Context, ch storage.Channel, in Incoming, c
 	}
 	if m.root != nil {
 		m.runner.StartReady(m.root, time.Now().UTC())
+	}
+}
+
+// AnnounceRun tells a bot's chat what a workflow it called waits on a
+// person for (a gate, a change to approve), while the run goes on.
+func (m *Manager) AnnounceRun(ctx context.Context, callerConversationID string) {
+	channelID, chatID := m.chatOf(ctx, actions.Scope{ConversationID: callerConversationID})
+	if channelID == "" {
+		return
+	}
+	ch, err := m.store.Channels().Get(ctx, channelID)
+	if err != nil || !ch.Enabled {
+		return
+	}
+	m.mu.Lock()
+	ad := m.adapters[ch.ID]
+	m.mu.Unlock()
+	if ad != nil {
+		m.announce(ctx, ch, ad, chatID, callerConversationID)
 	}
 }
 

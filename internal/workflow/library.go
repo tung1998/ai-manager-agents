@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -38,7 +39,7 @@ func Builtins() ([]Builtin, error) {
 		}
 		out = append(out, Builtin{Def: d, Source: string(raw)})
 	}
-	order := map[string]int{"giao-lai": 0, "co-van": 1, "hoi-dong": 2}
+	order := map[string]int{"handoff": 0, "advisor": 1, "council": 2}
 	sort.SliceStable(out, func(i, j int) bool {
 		oi, iok := order[out[i].Def.Key]
 		oj, jok := order[out[j].Def.Key]
@@ -91,6 +92,9 @@ func (l Library) Seed() (int, error) {
 		return 0, err
 	}
 	seen := l.seen()
+	if err := l.renameOld(seen); err != nil {
+		return 0, err
+	}
 	n := 0
 	for _, b := range list {
 		if seen[b.Def.Key] {
@@ -107,6 +111,40 @@ func (l Library) Seed() (int, error) {
 		n++
 	}
 	return n, l.saveSeen(seen)
+}
+
+// Renamed are shipped workflows whose key changed (Vietnamese → English
+// commands); the key stays in each file's header.
+var Renamed = map[string]string{
+	"giao-lai": "handoff", "co-van": "advisor", "hoi-dong": "council", "hoi-dong-3-ben": "council-3",
+	"lam-tinh-nang": "feature", "sua-bug": "bugfix", "viet-noi-dung": "write-content",
+}
+
+// renameOld moves a shipped workflow written under its old key to the new
+// one, keeping what was changed in it; one already there under the new key
+// leaves the old file as the person's own.
+func (l Library) renameOld(seen map[string]bool) error {
+	for old, key := range Renamed {
+		if seen[old] {
+			delete(seen, old)
+			seen[key] = true
+		}
+		raw, err := os.ReadFile(l.path(old))
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(l.path(key)); err == nil {
+			continue
+		}
+		src := regexp.MustCompile(`(?m)^key:\s*`+regexp.QuoteMeta(old)+`\s*$`).ReplaceAllString(string(raw), "key: "+key)
+		if err := os.WriteFile(l.path(key), []byte(src), 0o644); err != nil {
+			return err
+		}
+		if err := os.Remove(l.path(old)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // seen are the shipped workflows already written once (a deleted one stays deleted).

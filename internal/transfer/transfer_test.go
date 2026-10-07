@@ -58,7 +58,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	agents[0].Name = "Trưởng nhóm shop"
 	src.org.SaveAgent(ctx, agents[0])
 	src.st.Repos().Create(ctx, storage.Repo{Name: "Trợ lý máy"})
-	mine := strings.Replace(workflow.BuiltinSource("giao-lai"), "key: giao-lai", "key: giao-gon", 1)
+	mine := strings.Replace(workflow.BuiltinSource("handoff"), "key: handoff", "key: giao-gon", 1)
 	if _, err := src.wf.Lib.Save("giao-gon", mine); err != nil {
 		t.Fatal(err)
 	}

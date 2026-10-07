@@ -85,7 +85,7 @@ func (e *Engine) goOn(conversationID string) {
 		}
 		return
 	}
-	if err != nil || conv.Purpose != "" || conv.TaskID != "" { // the project's own chats
+	if err != nil || (conv.Purpose != "" && conv.Purpose != RunPurpose) || conv.TaskID != "" { // the project's own chats, a workflow's
 		e.dropDecided(conversationID)
 		return
 	}

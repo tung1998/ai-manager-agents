@@ -1,5 +1,5 @@
 ---
-key: hoi-dong
+key: council
 name: Hội đồng
 description: Hai agent khác hãng model phân tích độc lập rồi thống nhất một kế hoạch. Dùng khi bế tắc, sửa mãi không xong, hay bài toán khó cần lùi lại tìm nguyên nhân gốc.
 input: Vấn đề cần phân tích

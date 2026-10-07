@@ -64,7 +64,7 @@ func TestApplyPackSaveDeleteRestore(t *testing.T) {
 	if err := svc.ApplyPack(ctx, r.ID, p, false); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(wf.keys, "hoi-dong-3-ben") {
+	if !slices.Contains(wf.keys, "council-3") {
 		t.Fatalf("workflows installed = %v", wf.keys)
 	}
 	if err := svc.ApplyPack(ctx, r.ID, p, false); !errors.Is(err, team.ErrHasAgents) {

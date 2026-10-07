@@ -35,7 +35,8 @@ brief: [outcome, context]
 Phần đầu (office ép đúng các luật này khi chạy):
 - key (chữ thường, số, gạch ngang; là lệnh /key trong chat), name, description (quy trình dùng khi nào), input (người dùng cần đưa gì).
 - roles: key, name, hint (chuyên môn cần, để gợi ý agent), access: analyze (chỉ đọc) | propose (đề xuất, người duyệt) | edit (sửa trong worktree), differ_from [vai phải dùng model khác hãng; "dieu-phoi" là agent điều phối].
-- parallel: nhóm vai được chạy cùng lúc; limits: rounds (số lần hỏi lại một vai), turns (tổng lượt), timeout, budget_usd.
+- Vai là quy trình con: thêm workflow: <key quy trình khác của project> (kể cả chính nó: đệ quy). Giao việc cho vai đó là chạy quy trình con trong chat riêng, bản giao là đầu vào, đầu ra của nó là câu trả lời của vai; agent gán cho vai điều phối nó (không gán: agent điều phối hiện tại); access của vai là trần quyền cho cả quy trình con (mặc định edit = không hạ).
+- parallel: nhóm vai được chạy cùng lúc; limits: rounds (số lần hỏi lại một vai), turns (tổng lượt), timeout, budget_usd, depth (số cấp quy trình con được lồng bên dưới, mặc định 2, tối đa 5).
 - brief: mục bắt buộc của bản bàn giao (outcome, question, context, constraints, current_option, tried, files, done_when, must_not).
 - gates (cổng phải qua trước khi xong): key, name, kind: approve (người duyệt) | check (lệnh kiểm tra của project), required.
 - vote (biểu quyết): roles, quorum, veto [vai có quyền phủ quyết].

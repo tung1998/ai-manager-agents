@@ -32,6 +32,7 @@ const briefLabel = (k: string) => BRIEF.includes(k) ? t(`wf.brief.${k}` as Messa
           <span class="font-medium">{{ r.name }}</span>
           <span class="font-mono text-(--ui-text-muted)">{{ r.key }}</span>
           <span v-if="r.hint" class="text-(--ui-text-muted)">· {{ r.hint }}</span>
+          <UBadge v-if="r.workflow" color="primary" variant="soft" size="sm" icon="i-lucide-corner-down-right" :label="`/${r.workflow}`" :title="t('wf.subInfo')" />
           <UBadge v-if="r.differ_from?.length" class="ms-auto" color="neutral" variant="soft" size="sm" icon="i-lucide-split" :label="t('wf.differFrom', { roles: r.differ_from.join(', ') })" :title="t('wf.differFromInfo')" />
         </li>
       </ul>
@@ -42,6 +43,7 @@ const briefLabel = (k: string) => BRIEF.includes(k) ? t(`wf.brief.${k}` as Messa
       <UBadge v-if="def.limits.rounds" color="neutral" variant="outline" size="sm" :label="t('wf.limit.rounds', { n: def.limits.rounds })" :title="t('wf.limit.roundsInfo')" />
       <UBadge v-if="def.limits.turns" color="neutral" variant="outline" size="sm" :label="t('wf.limit.turns', { n: def.limits.turns })" :title="t('wf.limit.turnsInfo')" />
       <UBadge v-if="def.limits.timeout" color="neutral" variant="outline" size="sm" icon="i-lucide-timer" :label="def.limits.timeout" />
+      <UBadge v-if="def.roles.some(r => r.workflow)" color="neutral" variant="outline" size="sm" icon="i-lucide-layers" :label="t('wf.limit.depth', { n: def.limits.depth })" :title="t('wf.limit.depthInfo')" />
       <UBadge v-if="def.limits.budget_usd" color="neutral" variant="outline" size="sm" icon="i-lucide-wallet" :label="`$${def.limits.budget_usd}`" />
     </div>
 

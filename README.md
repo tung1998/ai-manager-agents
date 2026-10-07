@@ -34,7 +34,7 @@ AI coding tools are great one chat at a time. Real work is more than that: sever
 | | |
 |---|---|
 | 💬 **Chat with your team** · stream, `@mention` agents into a group chat, `/skills`, attach images/PDF/logs, tags, search history | ![Chat](docs/guide/images/04-chat.png) |
-| 🧑‍🤝‍🧑 **Workflows** · type `/giao-lai`, `/co-van`, `/hoi-dong`, `/lam-tinh-nang`… to have several agents work together under rules (roles, access, a different model family, approval gates, votes); write your own by chat | ![Team model](docs/guide/images/06-team-model.png) |
+| 🧑‍🤝‍🧑 **Workflows** · type `/handoff`, `/advisor`, `/council`, `/feature`… to have several agents work together under rules (roles, access, a different model family, approval gates, votes); write your own by chat | ![Team model](docs/guide/images/06-team-model.png) |
 | ✅ **Review before merge** · each chat has a git worktree; diffs, actions and setting changes wait for *Approve / Reject / Skip* (or "approve & always allow") | ![Diff card](docs/guide/images/34-dark-chat.png) |
 | ⚙️ **Operations** · detect project commands, run/stop/auto-restart like pm2, live logs, CPU/RAM/ports, docker compose, "ask the agent about this log" | ![Operations](docs/guide/images/11-operations.png) |
 | 🤖 **Automations** · schedule (cron + timezone), webhook, Discord/Telegram message; run a script for free and call an AI only on failure or `@@agent:` | ![Automations](docs/guide/images/09-automations.png) |

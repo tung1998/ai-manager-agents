@@ -1,5 +1,5 @@
 ---
-key: lam-tinh-nang
+key: feature
 name: Làm tính năng
 description: Từ yêu cầu tới code đã kiểm chứng. Lên kế hoạch, phản biện bằng model khác hãng, người dùng duyệt kế hoạch, làm trong worktree, review bằng model khác hãng, rồi build/test phải đạt.
 input: Tính năng cần làm

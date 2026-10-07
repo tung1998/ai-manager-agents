@@ -4,11 +4,11 @@
   "description": "Trưởng nhóm điều phối các agent chuyên môn (sản phẩm, kiến trúc, kỹ sư, QA, theo dõi). Cài sẵn các quy trình giao lại, hội đồng, cố vấn, làm tính năng, sửa bug, review PR.",
   "default": "team-lead",
   "workflows": [
-    "giao-lai",
-    "hoi-dong",
-    "co-van",
-    "lam-tinh-nang",
-    "sua-bug",
+    "handoff",
+    "council",
+    "advisor",
+    "feature",
+    "bugfix",
     "review-pr"
   ],
   "agents": [

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -60,9 +61,15 @@ type workflowDTO struct {
 }
 
 type workflowRunDTO struct {
-	ID              string            `json:"id"`
-	ProjectID       string            `json:"project_id"`
-	ConversationID  string            `json:"conversation_id"`
+	ID             string `json:"id"`
+	ProjectID      string `json:"project_id"`
+	ConversationID string `json:"conversation_id"` // the run's own chat (a run from before: the chat it ran in)
+	// the chat that called it, and its title ("" = a run from before, in ConversationID)
+	CallerConversationID string `json:"caller_conversation_id"`
+	CallerTitle          string `json:"caller_title"`
+	// the run whose role called it (a sub-workflow, ADR-102) and how deep
+	ParentRunID     string            `json:"parent_run_id"`
+	Depth           int               `json:"depth"`
 	WorkflowID      string            `json:"workflow_id"`
 	WorkflowKey     string            `json:"workflow_key"`
 	WorkflowName    string            `json:"workflow_name"`
@@ -88,9 +95,12 @@ func (s *server) toWorkflowRunDTO(ctx context.Context, r storage.WorkflowRun) wo
 		x.SessionID, x.Runtime = "", "" // its sessions stay on the server
 		roles[i] = x
 	}
-	d := workflowRunDTO{ID: r.ID, ProjectID: r.ProjectID, ConversationID: r.ConversationID, WorkflowID: r.WorkflowID, WorkflowKey: r.WorkflowKey,
+	d := workflowRunDTO{ID: r.ID, ProjectID: r.ProjectID, ConversationID: r.ConversationID, CallerConversationID: r.CallerConversationID, ParentRunID: r.ParentRunID, Depth: r.Depth, WorkflowID: r.WorkflowID, WorkflowKey: r.WorkflowKey,
 		WorkflowName: r.WorkflowName, CoordinatorID: r.CoordinatorID, CoordinatorName: r.CoordinatorName, Input: r.Input, Status: r.Status, Turns: r.Turns,
 		CostUSD: r.CostUSD, Result: r.Result, Error: r.Error, Roles: roles, Gates: r.Gates, Log: r.Log, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt}
+	if c, err := s.cfg.Store.Chat().GetConversation(ctx, cmp.Or(r.CallerConversationID, r.ConversationID)); err == nil {
+		d.CallerTitle = c.Title
+	}
 	if w, err := s.cfg.Store.Workflows().Get(ctx, r.WorkflowID); err == nil {
 		if def, err := workflow.Parse(w.Source); err == nil {
 			d.MaxTurns = def.Limits.Turns
@@ -394,7 +404,12 @@ func (s *server) resetLibraryWorkflow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
+	// ?conversation=: a chat's (called from it, or run in it); ?workflow=: one workflow's
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	wf := r.URL.Query().Get("workflow")
+	if wf != "" {
+		limit = 500 // filtered below
+	}
 	runs, err := s.cfg.Store.WorkflowRuns().List(r.Context(), r.PathValue("id"), r.URL.Query().Get("conversation"), limit)
 	if err != nil {
 		s.internal(w, r, err)
@@ -402,7 +417,9 @@ func (s *server) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]workflowRunDTO, 0, len(runs))
 	for _, x := range runs {
-		out = append(out, s.toWorkflowRunDTO(r.Context(), x))
+		if wf == "" || x.WorkflowID == wf {
+			out = append(out, s.toWorkflowRunDTO(r.Context(), x))
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"runs": out})
 }
@@ -413,7 +430,16 @@ func (s *server) getWorkflowRun(w http.ResponseWriter, r *http.Request) {
 		s.workflowError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"run": s.toWorkflowRunDTO(r.Context(), x)})
+	// the sub-workflows it called (its own chat called them)
+	children := []workflowRunDTO{}
+	if list, err := s.cfg.Store.WorkflowRuns().List(r.Context(), x.ProjectID, x.ConversationID, 100); err == nil {
+		for _, c := range list {
+			if c.ParentRunID == x.ID {
+				children = append(children, s.toWorkflowRunDTO(r.Context(), c))
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"run": s.toWorkflowRunDTO(r.Context(), x), "children": children})
 }
 
 // stopWorkflowRun stops a run and every answer of its chat (as the chat's Dừng).

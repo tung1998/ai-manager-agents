@@ -23,9 +23,11 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
-// Workflows (spec 2026-10-07-workflows-design) run inside a chat: "/key …"
-// starts one, the chat's agent coordinates it with the workflow_* tools, and
-// the roles answer in the background like hand-offs. What the workflow's
+// Workflows (spec 2026-10-07-workflows-design): "/key …" in a chat starts
+// one in a chat of its own (purpose "workflow_run", not listed); the chat it
+// was called from shows only the input and, when it ends, the output. In the
+// run's chat the agent coordinates it with the workflow_* tools and the roles
+// answer in the background like hand-offs; no person writes there. What the workflow's
 // header says (roles, their permission, limits, the brief, gates, votes) is
 // enforced here; the body only guides the coordinator.
 
@@ -43,6 +45,46 @@ type wfRun struct {
 	voting   *wfVoting       // a vote in progress
 	notes    []string        // what the coordinator is told when called back (a role failed…)
 	tries    int             // call-backs that found the chat busy
+	done     chan struct{}   // closed when the run ends
+	// sub-workflows (ADR-102): how many levels may still go below this run,
+	// and the deadline of the run that called it (zero: called from a chat)
+	depthLeft int
+	until     time.Time
+}
+
+// RunPurpose is the purpose of a workflow run's own chat.
+const RunPurpose = "workflow_run"
+
+// prepared is a run the chat that called it starts in the run's own chat.
+type prepared struct {
+	conv   string // the run's chat
+	run    *wfRun
+	prompt string
+}
+
+type preparedKey struct{}
+
+func withPrepared(ctx context.Context, p *prepared) context.Context {
+	return context.WithValue(ctx, preparedKey{}, p)
+}
+
+func preparedOf(ctx context.Context, conversationID string) *prepared {
+	if p, _ := ctx.Value(preparedKey{}).(*prepared); p != nil && p.conv == conversationID {
+		return p
+	}
+	return nil
+}
+
+// calledFrom is the run a chat called that is still running (nil = none).
+func (e *Engine) calledFrom(conversationID string) *wfRun {
+	e.wf.mu.Lock()
+	defer e.wf.mu.Unlock()
+	for _, r := range e.wf.byConv {
+		if r.rec.CallerConversationID == conversationID {
+			return r
+		}
+	}
+	return nil
 }
 
 // wfVoting is a vote waiting for its roles' answers.
@@ -57,6 +99,7 @@ type wfAsk struct {
 	agent  storage.Agent
 	prompt string
 	vote   bool
+	flow   bool // the role is a sub-workflow: the turn is a run of it
 }
 
 // wfState is the engine's running workflows.
@@ -142,6 +185,9 @@ func (e *Engine) prepWorkflow(ctx context.Context, conv storage.Conversation, co
 		return nil, "", false, nil // a bot's chat runs only what its command names
 	}
 	w, err := e.store.Workflows().GetByKey(ctx, conv.ProjectID, name)
+	if key, ok := workflow.Renamed[name]; ok && errors.Is(err, storage.ErrNotFound) {
+		w, err = e.store.Workflows().GetByKey(ctx, conv.ProjectID, key) // the old Vietnamese command still works
+	}
 	if err != nil || !w.Enabled {
 		return nil, "", false, nil
 	}
@@ -149,28 +195,30 @@ func (e *Engine) prepWorkflow(ctx context.Context, conv storage.Conversation, co
 	if err != nil {
 		return nil, "", true, fmt.Errorf("quy trình /%s không hợp lệ: %w", name, err)
 	}
-	e.wf.mu.Lock()
-	e.wf.init()
-	_, busy := e.wf.byConv[conv.ID]
-	e.wf.mu.Unlock()
-	if busy {
+	if e.calledFrom(conv.ID) != nil {
 		return nil, "", true, ErrWorkflowRunning
 	}
-	agents, err := e.Agents(ctx, conv.ProjectID)
+	run, prompt, err := e.newRun(ctx, conv.ProjectID, w, def, coord, rest)
+	return run, prompt, true, err
+}
+
+// newRun prepares a run of workflow w coordinated by coord, asked input.
+func (e *Engine) newRun(ctx context.Context, projectID string, w storage.Workflow, def workflow.Def, coord storage.Agent, rest string) (*wfRun, string, error) {
+	agents, err := e.Agents(ctx, projectID)
 	if err != nil {
-		return nil, "", true, err
+		return nil, "", err
 	}
 	byID := map[string]storage.Agent{}
 	for _, a := range agents {
 		byID[a.ID] = a
 	}
-	run := &wfRun{def: def, bindings: map[string]string{}, coord: coord, batch: map[string]bool{}}
-	run.rec = storage.WorkflowRun{ProjectID: conv.ProjectID, ConversationID: conv.ID, WorkflowID: w.ID, WorkflowKey: def.Key, WorkflowName: def.Name,
+	run := &wfRun{def: def, bindings: map[string]string{}, coord: coord, batch: map[string]bool{}, done: make(chan struct{}), depthLeft: def.Limits.Depth}
+	run.rec = storage.WorkflowRun{ProjectID: projectID, WorkflowID: w.ID, WorkflowKey: def.Key, WorkflowName: def.Name,
 		BodyHash: hashOf(w.Source), CoordinatorID: coord.ID, CoordinatorName: coord.Name, Input: rest, Status: storage.RunRunning}
 	for _, r := range def.Roles {
-		rr := storage.RunRole{Role: r.Key, Name: r.Name, Access: r.Access, Status: "idle"}
-		if id := w.Bindings[r.Key]; id != "" {
-			if a, ok := byID[id]; ok && !a.Disabled && a.ID != coord.ID {
+		rr := storage.RunRole{Role: r.Key, Name: r.Name, Access: r.Access, Status: "idle", Workflow: r.Workflow}
+		if id := w.Bindings[r.Key]; id != "" { // a sub-workflow's: the agent coordinating it (the coordinator too)
+			if a, ok := byID[id]; ok && !a.Disabled && (a.ID != coord.ID || r.Workflow != "") {
 				run.bindings[r.Key] = a.ID
 				rr.AgentID, rr.AgentName = a.ID, a.Name
 			}
@@ -182,16 +230,16 @@ func (e *Engine) prepWorkflow(ctx context.Context, conv storage.Conversation, co
 	}
 	if warn := e.differWarnings(ctx, run, byID); len(warn) > 0 {
 		if def.Strict {
-			return nil, "", true, fmt.Errorf("quy trình /%s cần các vai dùng kết nối AI khác hãng: %s", name, strings.Join(warn, "; "))
+			return nil, "", fmt.Errorf("quy trình /%s cần các vai dùng kết nối AI khác hãng: %s", def.Key, strings.Join(warn, "; "))
 		}
 		run.notes = append(run.notes, "Cảnh báo: "+strings.Join(warn, "; "))
 	}
 	input := strings.TrimSpace(rest)
 	if input == "" {
-		input = "(người dùng không ghi thêm; hỏi lại nếu cần)"
+		input = "(không ghi thêm)"
 	}
 	prompt := fmt.Sprintf("Người dùng chạy quy trình **%s** (/%s) với yêu cầu:\n%s\n\nBắt đầu theo hướng dẫn của quy trình ở phần hệ thống.", def.Name, def.Key, input) // i18n-ignore
-	return run, prompt, true, nil
+	return run, prompt, nil
 }
 
 // differWarnings: roles already filled whose agents share a vendor family
@@ -209,7 +257,7 @@ func (e *Engine) differWarnings(ctx context.Context, run *wfRun, byID map[string
 	var out []string
 	for _, r := range run.def.Roles {
 		f, p := fam(r.Key)
-		if f == "" {
+		if f == "" || r.Workflow != "" {
 			continue
 		}
 		for _, o := range r.DifferFrom {
@@ -226,6 +274,10 @@ func (e *Engine) startRun(conv storage.Conversation, run *wfRun, turn *Turn) {
 	ctx := context.Background()
 	run.tier, run.ceiling = turn.tier, turn.ceiling
 	run.deadline = time.Now().Add(run.def.Timeout())
+	if !run.until.IsZero() && run.until.Before(run.deadline) { // no later than the run that called it
+		run.deadline = run.until
+	}
+	run.rec.ConversationID = conv.ID // its own chat (the caller's is CallerConversationID)
 	run.rec.Actor, run.rec.StartedAt = turn.actor, time.Now().UTC()
 	run.rec.Log = append(run.rec.Log, storage.RunLog{At: run.rec.StartedAt, Text: "Bắt đầu, " + run.coord.Name + " điều phối"})
 	for _, n := range run.notes {
@@ -239,7 +291,7 @@ func (e *Engine) startRun(conv storage.Conversation, run *wfRun, turn *Turn) {
 	e.wf.mu.Lock()
 	e.wf.init()
 	e.wf.byConv[conv.ID] = run
-	run.timer = time.AfterFunc(run.def.Timeout(), func() { e.wfExpire(conv.ID, rec.ID) })
+	run.timer = time.AfterFunc(time.Until(run.deadline), func() { e.wfExpire(conv.ID, rec.ID) })
 	e.wf.mu.Unlock()
 	e.mu.Lock()
 	turn.wfRun = rec.ID // the chat shows the run's card where it started (the dashboard puts it by time)
@@ -306,6 +358,7 @@ func (e *Engine) finishRun(conversationID, runID, status, result, errText string
 	if run.timer != nil {
 		run.timer.Stop()
 	}
+	defer close(run.done)
 	now := time.Now().UTC()
 	run.rec.Status, run.rec.FinishedAt = status, &now
 	run.rec.Result, run.rec.Error = result, errText
@@ -318,8 +371,17 @@ func (e *Engine) finishRun(conversationID, runID, status, result, errText string
 		run.logf("Thất bại: %s", errText)
 	}
 	rec := run.rec
+	var children []string // its sub-workflows still running end with it
+	for conv, r := range e.wf.byConv {
+		if r.rec.ParentRunID == runID {
+			children = append(children, conv)
+		}
+	}
 	e.wf.mu.Unlock()
 	e.saveRun(rec)
+	for _, c := range children {
+		e.StopAll(c)
+	}
 }
 
 // wfExpire ends a run that ran out of time, stopping its roles' turns.
@@ -385,6 +447,13 @@ func (e *Engine) wfBrief(ctx context.Context, run *wfRun, projectID string) stri
 			who = "chưa gán: chọn agent bằng tham số agent khi giao" // i18n-ignore
 		}
 		d, _ := def.Role(r.Role)
+		if d.Workflow != "" {
+			if r.AgentName == "" {
+				who = "bạn" // i18n-ignore
+			}
+			fmt.Fprintf(&b, "- `%s` %s: QUY TRÌNH CON /%s (điều phối: %s, trần quyền %s); %s, đã chạy lại %d lần\n", r.Role, r.Name, d.Workflow, who, accessLabel(r.Access), roleStatus(r.Status), r.Rounds) // i18n-ignore
+			continue
+		}
 		extra := ""
 		if len(d.DifferFrom) > 0 {
 			extra = ", phải khác hãng model với " + strings.Join(d.DifferFrom, ", ")
@@ -393,6 +462,9 @@ func (e *Engine) wfBrief(ctx context.Context, run *wfRun, projectID string) stri
 		if d.Hint != "" {
 			fmt.Fprintf(&b, "  sở trường: %s\n", d.Hint)
 		}
+	}
+	if slices.ContainsFunc(def.Roles, func(r workflow.Role) bool { return r.Workflow != "" }) {
+		fmt.Fprintf(&b, "Vai là quy trình con: giao bằng workflow_delegate như vai thường (bản giao là đầu vào của nó). Nó chạy trong chat riêng; đầu ra của nó thành một tin trong cuộc chat này khi xong. workflow_send chạy lại nó với nội dung mới. Còn lồng được %d cấp.\n", run.depthLeft) // i18n-ignore
 	}
 	if len(def.Parallel) > 0 {
 		var g []string
@@ -433,9 +505,10 @@ func (e *Engine) wfBrief(ctx context.Context, run *wfRun, projectID string) stri
 	b.WriteString(`
 ### Cách điều phối
 - Giao việc CHỈ bằng workflow_delegate (lần đầu), workflow_send (gửi tiếp cho vai đã giao, vai giữ mạch), workflow_vote (biểu quyết). Không tự làm phần việc của các vai; không dùng delegate.
-- Gọi xong thì trả lời người dùng ngắn gọn (đã giao gì cho ai) rồi DỪNG lượt. Các vai làm ở nền; khi tất cả vai vừa giao đã xong, office gọi lại bạn, kết quả của họ là các tin ngay trên trong cuộc chat.
+- Cuộc chat này là của riêng lần chạy: không ai nhắn vào, người gọi chỉ thấy yêu cầu ban đầu và summary của workflow_done. Đừng hỏi lại người dùng; thiếu thông tin thì tự quyết theo hướng an toàn và ghi rõ giả định trong kết quả.
+- Gọi xong thì ghi ngắn (đã giao gì cho ai) rồi DỪNG lượt. Các vai làm ở nền; khi tất cả vai vừa giao đã xong, office gọi lại bạn, kết quả của họ là các tin ngay trên trong cuộc chat.
 - Bản giao việc nêu kết quả cần đạt, ràng buộc và phương án đang thử; không viết sẵn cách sửa từng file hay từng hàm, để vai đọc code rồi tự quyết.
-- Xong hết (và qua các cổng bắt buộc) thì gọi workflow_done với tóm tắt cho người dùng.
+- Xong hết (và qua các cổng bắt buộc) thì gọi workflow_done; summary là kết quả gửi người gọi (đầy đủ, không dẫn chiếu "ở trên").
 `) // i18n-ignore
 	if agents, err := e.Agents(ctx, projectID); err == nil {
 		b.WriteString("\nAgent của project có thể gán vào vai: ") // i18n-ignore
@@ -594,6 +667,9 @@ func (e *Engine) checkDiffer(ctx context.Context, run *wfRun, role string, a sto
 		return storage.Agent{}, false
 	}
 	d, _ := run.def.Role(role)
+	if d.Workflow != "" {
+		return nil
+	}
 	others := slices.Clone(d.DifferFrom)
 	for _, r := range run.def.Roles { // roles that must differ from this one
 		if slices.Contains(r.DifferFrom, role) {
@@ -618,6 +694,9 @@ func (e *Engine) wfDelegate(ctx context.Context, sc officetools.Scope, run *wfRu
 	d, ok := run.def.Role(role)
 	if !ok {
 		return "", fmt.Errorf("quy trình không có vai %q (có: %s)", role, roleKeys(run.def))
+	}
+	if d.Workflow != "" {
+		return e.wfDelegateFlow(ctx, sc, run, d, agentName, brief)
 	}
 	a, err := e.pickAgent(ctx, run, role, agentName)
 	if err != nil {
@@ -719,6 +798,9 @@ func (e *Engine) wfSend(ctx context.Context, sc officetools.Scope, run *wfRun, r
 	}
 	agentID := r.AgentID
 	e.wf.mu.Unlock()
+	if d.Workflow != "" { // a sub-workflow: it runs again with this as its input
+		return e.wfAskFlow(ctx, sc, run, d, agentID, message, true)
+	}
 	a, err := e.store.Agents().Get(ctx, agentID)
 	if err != nil {
 		return "", err
@@ -981,8 +1063,11 @@ func (e *Engine) wfDone(ctx context.Context, sc officetools.Scope, run *wfRun, s
 	if len(working) > 0 || queued > 0 {
 		return "", errors.New("còn vai đang làm hoặc vừa giao: " + strings.Join(working, ", ") + "; đợi xong rồi mới kết thúc")
 	}
+	if strings.TrimSpace(summary) == "" {
+		return "", errors.New("summary là kết quả gửi người gọi quy trình (họ chỉ thấy phần này): hãy viết đầy đủ")
+	}
 	e.finishRun(run.rec.ConversationID, run.rec.ID, storage.RunDone, strings.TrimSpace(summary), "")
-	return "Đã kết thúc quy trình. Báo kết quả cho người dùng trong câu trả lời này.", nil
+	return "Đã kết thúc quy trình; summary đã gửi tới chat gọi nó. Kết thúc lượt bằng một dòng ngắn.", nil
 }
 
 // ---- after a turn ----
@@ -1022,6 +1107,9 @@ func (e *Engine) wfAfter(prev *Turn, conv storage.Conversation, project storage.
 
 // startRole starts one turn a coordinator asked for.
 func (e *Engine) startRole(run *wfRun, conv storage.Conversation, project storage.Repo, a wfAsk) bool {
+	if a.flow {
+		return e.startChild(run, conv, project, a)
+	}
 	d, _ := run.def.Role(a.role)
 	level := accessLevel(d.Access)
 	if a.vote {

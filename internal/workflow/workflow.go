@@ -60,6 +60,10 @@ type Role struct {
 	Hint       string   `yaml:"hint,omitempty" json:"hint,omitempty"`
 	Access     string   `yaml:"access,omitempty" json:"access"`
 	DifferFrom []string `yaml:"differ_from,omitempty" json:"differ_from,omitempty"`
+	// Workflow: the seat is filled by another workflow of the project (a
+	// sub-workflow, this one's own key too: recursion, bounded by
+	// limits.depth); the agent bound to it coordinates that run.
+	Workflow string `yaml:"workflow,omitempty" json:"workflow,omitempty"`
 }
 
 // Limits bound one run.
@@ -68,6 +72,7 @@ type Limits struct {
 	Turns     int     `yaml:"turns,omitempty" json:"turns"`           // turns of all roles together
 	Timeout   string  `yaml:"timeout,omitempty" json:"timeout"`       // the whole run
 	BudgetUSD float64 `yaml:"budget_usd,omitempty" json:"budget_usd"` // 0 = none
+	Depth     int     `yaml:"depth,omitempty" json:"depth"`           // how deep sub-workflows may go below a run of this one
 }
 
 // Gate is a point the run must pass.
@@ -92,6 +97,8 @@ const (
 	DefaultTurns   = 12
 	DefaultTimeout = time.Hour
 	MaxTimeout     = 24 * time.Hour
+	DefaultDepth   = 2
+	MaxDepth       = 5
 )
 
 // BriefFields are the parts a brief may have, in the order they are shown.
@@ -160,7 +167,10 @@ func (d *Def) normalize() {
 	for i := range d.Roles {
 		r := &d.Roles[i]
 		r.Key, r.Name = strings.TrimSpace(r.Key), strings.TrimSpace(r.Name)
-		if r.Access == "" {
+		switch {
+		case r.Access == "" && r.Workflow != "":
+			r.Access = AccessEdit // a sub-workflow: its own roles' access, no lower cap unless asked
+		case r.Access == "":
 			r.Access = AccessAnalyze
 		}
 		if r.Name == "" {
@@ -175,6 +185,9 @@ func (d *Def) normalize() {
 	}
 	if d.Limits.Timeout == "" {
 		d.Limits.Timeout = DefaultTimeout.String()
+	}
+	if d.Limits.Depth == 0 {
+		d.Limits.Depth = DefaultDepth
 	}
 	for i := range d.Gates {
 		if d.Gates[i].Name == "" {
@@ -250,6 +263,9 @@ func (d Def) Validate() error {
 		if r.Access != AccessAnalyze && r.Access != AccessPropose && r.Access != AccessEdit {
 			add("vai %q: access phải là analyze | propose | edit", r.Key)
 		}
+		if r.Workflow != "" && !ValidKey(r.Workflow) {
+			add("vai %q: workflow %q không phải key quy trình", r.Key, r.Workflow)
+		}
 	}
 	for _, r := range d.Roles {
 		for _, o := range r.DifferFrom {
@@ -285,6 +301,9 @@ func (d Def) Validate() error {
 	}
 	if t, err := time.ParseDuration(d.Limits.Timeout); err != nil || t <= 0 || t > MaxTimeout {
 		add("limits.timeout %q: thời lượng như 30m, 2h (tối đa 24h)", d.Limits.Timeout)
+	}
+	if d.Limits.Depth < 0 || d.Limits.Depth > MaxDepth {
+		add("limits.depth: 0–%d", MaxDepth)
 	}
 	if d.Limits.BudgetUSD < 0 {
 		add("limits.budget_usd không được âm")

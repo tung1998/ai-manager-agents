@@ -13,7 +13,7 @@ func TestBuiltinsParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) < 3 || list[0].Def.Key != "giao-lai" || list[1].Def.Key != "co-van" || list[2].Def.Key != "hoi-dong" {
+	if len(list) < 3 || list[0].Def.Key != "handoff" || list[1].Def.Key != "advisor" || list[2].Def.Key != "council" {
 		t.Fatalf("builtins = %d, first %v", len(list), list[0].Def.Key)
 	}
 	for _, b := range list {
@@ -103,16 +103,16 @@ func TestLibrary(t *testing.T) {
 	if err != nil || n < 3 {
 		t.Fatalf("Seed = %d, %v", n, err)
 	}
-	if err := l.Delete("co-van"); err != nil {
+	if err := l.Delete("advisor"); err != nil {
 		t.Fatal(err)
 	}
 	if n, _ := l.Seed(); n != 0 {
 		t.Fatalf("a deleted builtin came back: %d", n)
 	}
-	if _, err := l.Get("co-van"); err != ErrNotFound {
+	if _, err := l.Get("advisor"); err != ErrNotFound {
 		t.Fatalf("Get deleted = %v", err)
 	}
-	if _, err := l.Reset("co-van"); err != nil {
+	if _, err := l.Reset("advisor"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := l.Save("khac", good); err == nil {
@@ -121,9 +121,9 @@ func TestLibrary(t *testing.T) {
 	if _, err := l.Save("thu", good); err != nil {
 		t.Fatal(err)
 	}
-	it, err := l.Get("giao-lai")
+	it, err := l.Get("handoff")
 	if err != nil || !it.Builtin || it.Modified {
-		t.Fatalf("giao-lai = %+v, %v", it, err)
+		t.Fatalf("handoff = %+v, %v", it, err)
 	}
 	_ = os.WriteFile(filepath.Join(l.Dir, "hong.md"), []byte("---\nkey: hong\n---\n"), 0o644)
 	list, err := l.List()
@@ -138,5 +138,49 @@ func TestLibrary(t *testing.T) {
 	}
 	if !broken {
 		t.Fatal("a broken file is not listed with its error")
+	}
+}
+
+// a library seeded under the old Vietnamese keys moves to the English ones,
+// keeping what was changed
+func TestSeedRenamesOldKeys(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "workflows")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := strings.Replace(BuiltinSource("advisor"), "key: advisor", "key: co-van", 1) + "\nghi chú riêng\n"
+	if err := os.WriteFile(filepath.Join(dir, "co-van.md"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".seeded"), []byte("co-van\ngiao-lai\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l := Library{Dir: dir}
+	if _, err := l.Seed(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "co-van.md")); !os.IsNotExist(err) {
+		t.Fatal("old file kept")
+	}
+	it, err := l.Get("advisor")
+	if err != nil || it.Error != "" || !strings.Contains(it.Source, "ghi chú riêng") || !it.Modified {
+		t.Fatalf("advisor = %+v, %v", it, err)
+	}
+	// giao-lai was seeded once and deleted on purpose: handoff stays deleted
+	if _, err := l.Get("handoff"); err != ErrNotFound {
+		t.Fatalf("handoff came back: %v", err)
+	}
+}
+
+func TestParseSubWorkflowRole(t *testing.T) {
+	d, err := Parse("---\nkey: cha\nname: Cha\nroles:\n  - key: con\n    workflow: advisor\n  - key: ban\n---\nx\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Roles[0].Access != AccessEdit || d.Roles[1].Access != AccessAnalyze || d.Limits.Depth != DefaultDepth {
+		t.Fatalf("defaults = %+v %+v", d.Roles, d.Limits)
+	}
+	if _, err := Parse("---\nkey: cha\nname: Cha\nroles:\n  - key: con\n    workflow: Bad Key\nlimits:\n  depth: 9\n---\nx\n"); err == nil || !strings.Contains(err.Error(), "workflow") || !strings.Contains(err.Error(), "depth") {
+		t.Fatalf("bad sub-workflow: %v", err)
 	}
 }

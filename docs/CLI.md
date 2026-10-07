@@ -90,7 +90,7 @@ Config đã tồn tại. Diff đề xuất:
 $ office init ~/code/shop --pack team -y
 Dữ liệu office: /Users/you/.agent-office (chế độ global)
 ✓ Đã đăng ký repo demo-shop (/Users/you/code/shop)
-✓ Dùng gói Nhóm phát triển: 9 agent, quy trình giao-lai, hoi-dong, co-van, lam-tinh-nang, sua-bug, review-pr
+✓ Dùng gói Nhóm phát triển: 9 agent, quy trình handoff, council, advisor, feature, bugfix, review-pr
     team-lead          Điều phối, chốt quyết định, báo cáo cho người
     product-manager    Yêu cầu và giá trị cho người dùng
     ...

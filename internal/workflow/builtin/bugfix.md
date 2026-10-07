@@ -1,5 +1,5 @@
 ---
-key: sua-bug
+key: bugfix
 name: Sửa bug
 description: Tìm nguyên nhân gốc trước khi sửa. Một agent điều tra (không sửa), một agent sửa, một agent khác hãng model kiểm chứng; build/test phải đạt.
 input: Mô tả lỗi (log, cách tái hiện)

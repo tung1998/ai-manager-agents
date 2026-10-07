@@ -9,6 +9,7 @@ export interface WorkflowRole {
   hint?: string
   access: WorkflowAccess
   differ_from?: string[]
+  workflow?: string // a sub-workflow fills it (ADR-102)
 }
 
 export interface WorkflowGate {
@@ -30,6 +31,7 @@ export interface WorkflowLimits {
   turns: number
   timeout: string
   budget_usd: number
+  depth: number // how deep sub-workflows may go below a run
 }
 
 export interface WorkflowDef {
@@ -68,6 +70,8 @@ export interface RunRole {
   turns: number
   result?: string
   cost_usd: number
+  workflow?: string // a sub-workflow fills it
+  run_id?: string // its latest run
 }
 
 export interface RunGate {
@@ -80,10 +84,16 @@ export interface RunGate {
   detail?: string
 }
 
+// A run: it works in a chat of its own (conversation_id); the chat that
+// called it (caller_conversation_id) shows only its input and output.
 export interface WorkflowRun {
   id: string
   project_id: string
   conversation_id: string
+  caller_conversation_id: string // '' = a run from before, held in conversation_id itself
+  caller_title: string
+  parent_run_id: string // the run whose role called it ('' = a chat did)
+  depth: number
   workflow_id: string
   workflow_key: string
   workflow_name: string

@@ -99,7 +99,7 @@ type workflowRunRepo struct{ db dbtx }
 
 func (s *Store) WorkflowRuns() storage.WorkflowRunRepo { return workflowRunRepo{s.q} }
 
-const workflowRunCols = `id, project_id, conversation_id, workflow_id, workflow_key, workflow_name, body_hash, coordinator_id, coordinator_name,
+const workflowRunCols = `id, project_id, conversation_id, caller_conversation_id, parent_run_id, depth, workflow_id, workflow_key, workflow_name, body_hash, coordinator_id, coordinator_name,
 	input, status, turns, cost_usd, result, error, roles, gates, log, actor, started_at, finished_at`
 
 func scanWorkflowRun(row scanner) (storage.WorkflowRun, error) {
@@ -109,7 +109,7 @@ func scanWorkflowRun(row scanner) (storage.WorkflowRun, error) {
 		started            string
 		finished           sql.NullString
 	)
-	if err := row.Scan(&r.ID, &r.ProjectID, &r.ConversationID, &r.WorkflowID, &r.WorkflowKey, &r.WorkflowName, &r.BodyHash, &r.CoordinatorID, &r.CoordinatorName,
+	if err := row.Scan(&r.ID, &r.ProjectID, &r.ConversationID, &r.CallerConversationID, &r.ParentRunID, &r.Depth, &r.WorkflowID, &r.WorkflowKey, &r.WorkflowName, &r.BodyHash, &r.CoordinatorID, &r.CoordinatorName,
 		&r.Input, &r.Status, &r.Turns, &r.CostUSD, &r.Result, &r.Error, &roles, &gates, &logs, &r.Actor, &started, &finished); err != nil {
 		return r, notFound(err)
 	}
@@ -153,8 +153,8 @@ func (r workflowRunRepo) Create(ctx context.Context, x storage.WorkflowRun) (sto
 	if x.StartedAt.IsZero() {
 		x.StartedAt = time.Now().UTC()
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO workflow_runs (`+workflowRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		x.ID, x.ProjectID, x.ConversationID, x.WorkflowID, x.WorkflowKey, x.WorkflowName, x.BodyHash, x.CoordinatorID, x.CoordinatorName,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO workflow_runs (`+workflowRunCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		x.ID, x.ProjectID, x.ConversationID, x.CallerConversationID, x.ParentRunID, x.Depth, x.WorkflowID, x.WorkflowKey, x.WorkflowName, x.BodyHash, x.CoordinatorID, x.CoordinatorName,
 		x.Input, x.Status, x.Turns, x.CostUSD, x.Result, x.Error, listJSON(x.Roles), listJSON(x.Gates), listJSON(x.Log), x.Actor,
 		fmtTime(x.StartedAt), optTime(x.FinishedAt))
 	return x, err
@@ -174,8 +174,8 @@ func (r workflowRunRepo) List(ctx context.Context, projectID, conversationID str
 		limit = 50
 	}
 	rows, err := r.db.QueryContext(ctx, `SELECT `+workflowRunCols+` FROM workflow_runs
-		WHERE (?='' OR project_id=?) AND (?='' OR conversation_id=?) ORDER BY started_at DESC, id DESC LIMIT ?`,
-		projectID, projectID, conversationID, conversationID, limit)
+		WHERE (?='' OR project_id=?) AND (?='' OR conversation_id=? OR caller_conversation_id=?) ORDER BY started_at DESC, id DESC LIMIT ?`,
+		projectID, projectID, conversationID, conversationID, conversationID, limit)
 	if err != nil {
 		return nil, err
 	}

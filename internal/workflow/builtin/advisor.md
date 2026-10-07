@@ -1,5 +1,5 @@
 ---
-key: co-van
+key: advisor
 name: Cố vấn
 description: Hỏi ý kiến thứ hai từ một agent dùng model khác hãng, không giao việc cho nó. Dùng khi phân vân giữa các hướng, muốn soát lại một quyết định hay một thay đổi rủi ro.
 input: Câu hỏi cần cố vấn
