@@ -55,6 +55,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("PATCH /api/providers/{id}", admin(s.updateProvider))
 	mux.Handle("DELETE /api/providers/{id}", admin(s.deleteProvider))
 	mux.Handle("POST /api/providers/{id}/default", admin(s.defaultProvider))
+	mux.Handle("PATCH /api/providers/{id}/enabled", admin(s.setProviderEnabled))
 	mux.Handle("POST /api/providers/{id}/test", admin(s.testProvider))
 	mux.Handle("GET /api/limit-alert", admin(s.getLimitAlert))
 	mux.Handle("PUT /api/limit-alert", admin(s.setLimitAlert))
@@ -412,6 +413,36 @@ func (s *server) defaultProvider(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// setProviderEnabled turns a connection on or off: off, agents on it go to
+// their next connection (provider.Chain).
+func (s *server) setProviderEnabled(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Enabled == nil {
+		writeError(w, http.StatusBadRequest, "thiếu enabled")
+		return
+	}
+	p, err := s.cfg.Store.Providers().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if p.Enabled != *in.Enabled {
+		p.Enabled = *in.Enabled
+		if err := s.cfg.Store.Providers().Update(r.Context(), p); err != nil {
+			s.writeDomainError(w, r, err)
+			return
+		}
+		s.audit(r, audit.Change{Action: "provider.enabled", ResourceID: p.ID,
+			Before: map[string]any{"enabled": !p.Enabled}, After: map[string]any{"enabled": p.Enabled}, Detail: map[string]any{"name": p.Name}})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"provider": toProviderDTO(p)})
+}
+
 func (s *server) testProvider(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Prompt string `json:"prompt"`
@@ -634,9 +665,11 @@ func (s *server) applyAgent(r *http.Request, in agentInput, a *storage.Agent) er
 	}
 	if in.Fallbacks != nil {
 		a.FallbackProviderIDs = []string{}
-		for _, id := range *in.Fallbacks {
-			if id = strings.TrimSpace(id); id != "" && id != a.ProviderID && !slices.Contains(a.FallbackProviderIDs, id) {
-				a.FallbackProviderIDs = append(a.FallbackProviderIDs, id)
+		for _, entry := range *in.Fallbacks { // the same connection again only with another model
+			id, model := storage.SplitFallback(entry)
+			entry = storage.FallbackEntry(id, model)
+			if id != "" && entry != a.ProviderID && !slices.Contains(a.FallbackProviderIDs, entry) {
+				a.FallbackProviderIDs = append(a.FallbackProviderIDs, entry)
 			}
 		}
 	}
@@ -656,7 +689,10 @@ func (s *server) applyAgent(r *http.Request, in agentInput, a *storage.Agent) er
 func (s *server) checkProvider(r *http.Request, id string, fallbacks *[]string) error {
 	ids := []string{id}
 	if fallbacks != nil {
-		ids = append(ids, *fallbacks...)
+		for _, entry := range *fallbacks {
+			fid, _ := storage.SplitFallback(entry)
+			ids = append(ids, fid)
+		}
 	}
 	for _, id := range ids {
 		if id = strings.TrimSpace(id); id == "" {

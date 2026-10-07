@@ -178,9 +178,9 @@ func portable(t team.Snapshot, names map[string]string) team.Snapshot {
 	for i, a := range t.Agents {
 		a.Provider, a.ProviderID = names[a.ProviderID], ""
 		a.FallbackNames = nil
-		for _, id := range a.Fallbacks {
-			if n := names[id]; n != "" {
-				a.FallbackNames = append(a.FallbackNames, n)
+		for _, entry := range a.Fallbacks { // "name|model" keeps the model
+			if id, model := storage.SplitFallback(entry); names[id] != "" {
+				a.FallbackNames = append(a.FallbackNames, storage.FallbackEntry(names[id], model))
 			}
 		}
 		a.Fallbacks = nil
@@ -276,8 +276,8 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 			}
 			a.Provider, a.Fallbacks = "", nil
 			for _, n := range a.FallbackNames { // unknown ones are left out
-				if p, ok := byName[n]; ok {
-					a.Fallbacks = append(a.Fallbacks, p.ID)
+				if name, model := storage.SplitFallback(n); byName[name].ID != "" {
+					a.Fallbacks = append(a.Fallbacks, storage.FallbackEntry(byName[name].ID, model))
 				}
 			}
 			a.FallbackNames = nil

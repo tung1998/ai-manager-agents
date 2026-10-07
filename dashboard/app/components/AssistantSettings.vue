@@ -90,7 +90,7 @@ async function save() {
             <option v-for="m in chosen?.models ?? []" :key="m" :value="m" />
           </datalist>
         </UFormField>
-        <FallbackPicker v-model="form.fallback_provider_ids" :providers="providers" :main-id="chosen?.id" />
+        <FallbackPicker v-model="form.fallback_provider_ids" :providers="providers" :main-id="chosen?.id" :tier="form.model_tier" />
 
       </div>
     </template>

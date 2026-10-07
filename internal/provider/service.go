@@ -338,28 +338,45 @@ type Choice struct {
 
 // Chain is every connection an agent may run on, in the order to try them:
 // its own (ResolveModel) first, then its fallbacks top to bottom. A fallback
-// runs the agent's tier model of that connection (an explicit model belongs
-// to the first one); deleted, disabled or repeated ones are left out.
+// runs the model its entry names, else the agent's tier model of that
+// connection (an explicit model belongs to the first one). Deleted, turned
+// off or repeated ones are left out: a turned-off own connection hands the
+// agent to the next one.
 func (s *Service) Chain(ctx context.Context, a storage.Agent) ([]Choice, error) {
 	p, model, err := s.ResolveModel(ctx, a)
-	if err != nil {
+	if err != nil && len(a.FallbackProviderIDs) == 0 {
 		return nil, err
 	}
-	out := []Choice{{Provider: p, Model: model}}
-	seen := map[string]bool{p.ID: true}
-	for _, id := range a.FallbackProviderIDs {
-		if seen[id] {
-			continue
+	var out []Choice
+	seen := map[string]bool{}
+	if err == nil {
+		seen[storage.FallbackEntry(p.ID, model)] = true
+		if p.Enabled {
+			out = append(out, Choice{Provider: p, Model: model})
 		}
-		seen[id] = true
+	}
+	for _, entry := range a.FallbackProviderIDs {
+		id, m := storage.SplitFallback(entry)
 		fp, err := s.store.Providers().Get(ctx, id)
 		if err != nil || !fp.Enabled {
 			continue
 		}
-		out = append(out, Choice{Provider: fp, Model: fp.TierModels[a.ModelTier]})
+		if m == "" {
+			m = fp.TierModels[a.ModelTier]
+		}
+		if key := storage.FallbackEntry(id, m); !seen[key] {
+			seen[key] = true
+			out = append(out, Choice{Provider: fp, Model: m})
+		}
+	}
+	if len(out) == 0 {
+		return nil, ErrAllOff
 	}
 	return out, nil
 }
+
+// ErrAllOff: every connection an agent may run on is turned off.
+var ErrAllOff = errors.New("các kết nối AI của agent đều đang tắt")
 
 // Default returns the default provider.
 func (s *Service) Default(ctx context.Context) (storage.Provider, error) {

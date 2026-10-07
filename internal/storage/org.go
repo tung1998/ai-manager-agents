@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -115,10 +116,27 @@ type Agent struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	// FallbackProviderIDs: the connections tried next, top to bottom, when
-	// the agent's own one (ProviderID, or the default) fails or is over its limit.
+	// the agent's own one (ProviderID, or the default) fails, is over its
+	// limit or is turned off. An entry may name a model ("id|model",
+	// FallbackEntry): the same connection can come back with another model.
 	FallbackProviderIDs []string
 	// Effort: how hard it thinks by default (ValidEffort; "" = the CLI's own).
 	Effort string
+}
+
+// FallbackEntry is a fallback list entry: a connection id, and a model of it
+// ("" = the agent's tier model there).
+func FallbackEntry(providerID, model string) string {
+	if model = strings.TrimSpace(model); model != "" {
+		return providerID + "|" + model
+	}
+	return providerID
+}
+
+// SplitFallback reads an entry FallbackEntry made.
+func SplitFallback(entry string) (providerID, model string) {
+	id, model, _ := strings.Cut(strings.TrimSpace(entry), "|")
+	return strings.TrimSpace(id), strings.TrimSpace(model)
 }
 
 // Efforts are the thinking levels a turn may ask for, lowest first ("max" is

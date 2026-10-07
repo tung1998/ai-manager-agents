@@ -171,7 +171,7 @@ const fieldLabel = (f: string) => ({
 // connection ids read as their names (empty main connection = the default one)
 const showField = (f: string, v: unknown) => f === 'provider_id'
   ? (v ? providerName(String(v)) : t('org.form.providerDefault', { suffix: '' }))
-  : f === 'fallback_provider_ids' && Array.isArray(v) ? show(v.map(id => providerName(String(id))))
+  : f === 'fallback_provider_ids' && Array.isArray(v) ? show(v.map((e) => { const [id = '', m] = String(e).split('|'); return m ? `${providerName(id)} · ${m}` : providerName(id) }))
     : f === 'effort' ? (v ? effortLabel(String(v), t) : t('effort.default')) : show(v)
 const show = (v: unknown): string => v === '' || v == null ? '—' : typeof v === 'string' ? v : Array.isArray(v) ? (v.length ? v.join(', ') : '—') : JSON.stringify(v, null, 1)
 // line diff of long text: lines only before (−) and only after (+)
@@ -369,7 +369,7 @@ async function restore(e: Entry) {
               <EffortSelect v-model="form.effort" class="w-full" :disabled="!isAdmin" />
             </UFormField>
           </div>
-          <FallbackPicker v-model="form.fallback_provider_ids" :providers="providers" :main-id="formProvider?.id" :disabled="!isAdmin" />
+          <FallbackPicker v-model="form.fallback_provider_ids" :providers="providers" :main-id="formProvider?.id" :tier="form.model_tier" :disabled="!isAdmin" />
           <UButton v-if="isAdmin" size="sm" icon="i-lucide-save" :label="t('org.form.save')" :loading="saving === 'model'" :disabled="!!saving" @click="save('model')" />
         </UCard>
 

@@ -247,3 +247,35 @@ esac
 		t.Fatalf("signed in = %+v", res)
 	}
 }
+
+// A turned-off connection is skipped (the own one too); a fallback entry may
+// name the same connection with another model.
+func TestChainSkipsOffAndKeepsModels(t *testing.T) {
+	svc, st, srv := setup(t)
+	ctx := context.Background()
+	def, _ := svc.Create(ctx, provider.Input{Name: "Claude", Kind: storage.ProviderAnthropic, BaseURL: srv.URL, APIKey: ptr("sk-ant-good-key-1234")})
+	other, _ := svc.Create(ctx, provider.Input{Name: "Local", Kind: storage.ProviderOpenAICompatible, BaseURL: "http://x/v1",
+		TierModels: map[string]string{"fast": "llama-small"}})
+	a := storage.Agent{ModelTier: "fast", LLMModel: "claude-sonnet-5", FallbackProviderIDs: []string{
+		storage.FallbackEntry(def.ID, "claude-haiku-4-5"), storage.FallbackEntry(def.ID, "claude-sonnet-5"), other.ID}}
+	name := func(cs []provider.Choice) string {
+		var out []string
+		for _, c := range cs {
+			out = append(out, c.Provider.Name+":"+c.Model)
+		}
+		return strings.Join(out, ",")
+	}
+	if cs, err := svc.Chain(ctx, a); err != nil || name(cs) != "Claude:claude-sonnet-5,Claude:claude-haiku-4-5,Local:llama-small" {
+		t.Fatalf("chain = %s %v", name(cs), err)
+	}
+	def.Enabled = false
+	st.Providers().Update(ctx, def)
+	if cs, err := svc.Chain(ctx, a); err != nil || name(cs) != "Local:llama-small" {
+		t.Fatalf("own off = %s %v", name(cs), err)
+	}
+	other.Enabled = false
+	st.Providers().Update(ctx, other)
+	if _, err := svc.Chain(ctx, a); !errors.Is(err, provider.ErrAllOff) {
+		t.Fatalf("all off = %v", err)
+	}
+}

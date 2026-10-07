@@ -194,6 +194,20 @@ async function setDefault(p: Provider) {
   }
 }
 
+// off: agents on it go on with their next connection
+const toggling = ref<string | null>(null)
+async function setEnabled(p: Provider, enabled: boolean) {
+  toggling.value = p.id
+  try {
+    await $fetch(`/api/providers/${p.id}/enabled`, { method: 'PATCH', body: { enabled } })
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    toggling.value = null
+  }
+}
+
 async function remove(p: Provider) {
   if (!confirm(t('prov.confirmDelete', { name: p.name }))) return
   try {
@@ -296,7 +310,11 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
               </p>
             </div>
             <div class="flex shrink-0 items-center gap-1">
-              <UBadge :label="statusText(p.status)" :color="statusColor(p.status)" variant="subtle" size="sm" />
+              <UTooltip v-if="isAdmin" :text="p.enabled ? t('prov.turnOff') : t('prov.turnOn')">
+                <USwitch :model-value="p.enabled" size="sm" :loading="toggling === p.id" :disabled="!!toggling" :aria-label="t('prov.enabled')" @update:model-value="(v: boolean) => setEnabled(p, v)" />
+              </UTooltip>
+              <UBadge v-if="!p.enabled" :label="t('prov.off')" color="neutral" variant="subtle" size="sm" />
+              <UBadge v-else :label="statusText(p.status)" :color="statusColor(p.status)" variant="subtle" size="sm" />
               <UButton
                 v-if="isAdmin" icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="xs"
                 :loading="testing === p.id" :aria-label="t('prov.testConnection')" @click="runTest(p)"

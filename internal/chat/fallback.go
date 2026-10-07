@@ -60,5 +60,13 @@ func tryNext(ctx context.Context, res RunResult, err error) bool {
 
 // switchNote is the status line shown when a turn moves to the next connection.
 func switchNote(agent string, from, to provider.Choice, err error) string {
-	return fmt.Sprintf("%s: %s lỗi (%s), chuyển sang %s", agent, from.Provider.Name, truncate(err.Error(), 160), to.Provider.Name)
+	return fmt.Sprintf("%s: %s lỗi (%s), chuyển sang %s", agent, choiceName(from, to), truncate(err.Error(), 160), choiceName(to, from))
+}
+
+// choiceName names a connection, with its model when other names the same one.
+func choiceName(c, other provider.Choice) string {
+	if c.Provider.ID == other.Provider.ID && c.Model != "" {
+		return c.Provider.Name + " · " + c.Model
+	}
+	return c.Provider.Name
 }

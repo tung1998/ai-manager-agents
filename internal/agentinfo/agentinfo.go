@@ -519,9 +519,11 @@ func (s *Service) Restore(ctx context.Context, a storage.Agent, revisionID strin
 		a.ProviderID = spec.ProviderID
 	}
 	a.FallbackProviderIDs = nil // a deleted connection in the list is skipped when it runs
-	for _, id := range spec.Fallbacks {
-		if _, err := s.store.Providers().Get(ctx, id); err == nil {
-			a.FallbackProviderIDs = append(a.FallbackProviderIDs, id)
+	for _, entry := range spec.Fallbacks {
+		if id, _ := storage.SplitFallback(entry); id != "" {
+			if _, err := s.store.Providers().Get(ctx, id); err == nil {
+				a.FallbackProviderIDs = append(a.FallbackProviderIDs, entry)
+			}
 		}
 	}
 	return s.team.SaveAgent(ctx, a)
