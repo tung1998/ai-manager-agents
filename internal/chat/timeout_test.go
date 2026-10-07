@@ -6,12 +6,17 @@ import (
 	"time"
 )
 
-// ADR-082: a chat's turn has 20 minutes; an automation's says its own, and 0
+// ADR-082: a chat's turn has no limit; an automation's says its own, and 0
 // is no limit at all.
 func TestTurnTimeout(t *testing.T) {
 	ctx := context.Background()
-	if turnTimeout(ctx) != 20*time.Minute {
+	if turnTimeout(ctx) != 0 {
 		t.Fatalf("default = %v", turnTimeout(ctx))
+	}
+	c0, cancel0 := withTimeout(ctx, turnTimeout(ctx))
+	defer cancel0()
+	if _, has := c0.Deadline(); has {
+		t.Fatal("a chat's turn still has a deadline")
 	}
 	none := WithTurnTimeout(ctx, 0)
 	if turnTimeout(none) != 0 {

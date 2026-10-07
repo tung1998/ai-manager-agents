@@ -681,7 +681,7 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	}
 	turnID := fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano())
 	base = proctrack.With(base, proctrack.Info{Kind: "agent", TurnID: turnID, ConversationID: conv.ID, ProjectID: conv.ProjectID, Label: agent.Name})
-	limit := turnTimeout(ctx) // 20 minutes, or an automation's own (0: none, ADR-082)
+	limit := turnTimeout(ctx) // none, or an automation's own (ADR-082)
 	runCtx, cancel := withTimeout(WithInstructions(WithModelTier(base, ModelTierFrom(ctx)), instructionsOf(ctx)), limit)
 	turn := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
 		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx), limit: limit}

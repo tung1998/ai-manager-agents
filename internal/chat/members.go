@@ -148,7 +148,7 @@ type turnSpec struct {
 	total      *atomic.Int32 // replies to the person's message so far, hand-offs included
 	tier       string        // model tier for this turn ("" = the agent's)
 	ceiling    string        // the most the person's message may have run (ADR-081)
-	limit      time.Duration // how long it may take (0: none; <0: a chat's 20 minutes) — the message's, ADR-082
+	limit      time.Duration // how long it may take (0: none; <0: a chat's default, none) — the message's, ADR-082
 }
 
 // startTurn starts an agent's answer; nil and why when it cannot: the agent

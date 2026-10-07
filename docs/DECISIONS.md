@@ -334,7 +334,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - **Claude Code**: chạy headless, cô lập khỏi cấu hình cá nhân (`--setting-sources project,local`, `--strict-mcp-config`, `--disable-slash-commands`), chỉ có `Read`, `Glob`, `Grep`, chặn đọc `.env`/khóa; stream từng đoạn (`--include-partial-messages`); tiếp tục phiên bằng `--resume`, tự chạy lại kèm lịch sử nếu phiên mất. Cô lập giảm chi phí một lượt nhỏ từ ~$0.073 xuống ~$0.023 và không chạy hook/plugin của người dùng. *(ADR-036: nay mặc định dùng cấu hình như CLI của người dùng, cô lập thành tùy chọn theo project.)*
 - **Claude API / OpenAI / API tương thích**: office chạy vòng lặp tool (tối đa 20 vòng) với `list_dir`, `read_file`, `search_text`, giới hạn trong thư mục project (chặn symlink ra ngoài, file bí mật, thư mục build). Nội dung trả về của assistant được gửi lại nguyên vẹn (giữ thinking block).
 - **Codex**: `codex exec --json --sandbox read-only`, lịch sử gửi dạng transcript.
-- Mỗi lượt kiểm tra ngân sách trước, ghi `runs` loại `chat` sau (ADR-020). Một lượt mỗi cuộc trò chuyện tại một thời điểm, tối đa 20 phút, dừng được.
+- Mỗi lượt kiểm tra ngân sách trước, ghi `runs` loại `chat` sau (ADR-020). Một lượt mỗi cuộc trò chuyện tại một thời điểm, dừng được (không giới hạn thời gian, xem ADR-082).
 - Dashboard nhận sự kiện qua SSE (`/api/chat/turns/:id/stream`, phát lại từ `Last-Event-ID`), hiển thị chữ đang stream, công cụ đã dùng, và thẻ diff có nút Duyệt/Từ chối. Markdown render bằng `marked` và làm sạch bằng DOMPurify.
 
 **Phương án đã loại.** Cho agent ghi file trực tiếp (không kiểm soát được). Dùng `--permission-prompt-tool` của Claude Code để hỏi duyệt từng lần ghi (chỉ dùng được cho Claude Code, không thống nhất với runtime khác). Chạy Claude Code với cấu hình cá nhân (tốn gấp ~3 lần và chạy hook/plugin không liên quan).
@@ -1728,7 +1728,7 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 
 ## ADR-082: Tự động hóa chạy song song, không giới hạn thời gian
 - **Bối cảnh:** "migrate mỗi 20 phút" lỗi `context deadline exceeded` sau đúng 20 phút, vì mỗi lượt agent bị cắt cứng ở 20 phút. Tới giờ mà lần trước chưa xong thì lịch bỏ qua, trình chạy job cũng chỉ cho một job mỗi tự động hóa chạy cùng lúc.
-- `Limits.MaxMinutes` (thời gian tối đa mỗi lần, 0 = không giới hạn): tự động hóa mặc định không giới hạn; chat thường vẫn 20 phút. Giá trị đi qua `trigger.WithTimeLimit` → `chat.WithTurnTimeout` và áp cho cả các lượt giao việc của lần chạy đó.
+- `Limits.MaxMinutes` (thời gian tối đa mỗi lần, 0 = không giới hạn): tự động hóa mặc định không giới hạn. Chat thường trước cắt ở 20 phút, nay cũng không giới hạn: việc lớn ("triển khai toàn bộ") bị cắt giữa chừng với lỗi `context deadline exceeded`; lượt chạy tới khi xong hoặc người dùng bấm dừng. Giá trị đi qua `trigger.WithTimeLimit` → `chat.WithTurnTimeout` và áp cho cả các lượt giao việc của lần chạy đó.
 - `Limits.MaxParallel` (mặc định 1, tối đa 10):
   - Tới giờ, nếu số lần đang chạy ít hơn N thì mở thêm một lần mới bên cạnh. Đủ N thì bỏ qua lần này, không dừng lần nào đang chạy.
   - Trình chạy đếm số job đang chạy của từng tự động hóa (`busy`), cho tới N.

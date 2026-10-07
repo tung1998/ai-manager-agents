@@ -76,7 +76,7 @@ func noTools(ctx context.Context) bool { v, _ := ctx.Value(noToolsKey{}).(bool);
 type turnTimeoutKey struct{}
 
 // WithTurnTimeout is how long a turn may take (0: no limit) instead of the
-// chat's 20 minutes: an automation's own (ADR-082); its hand-offs keep it.
+// chat's none: an automation's own (ADR-082); its hand-offs keep it.
 func WithTurnTimeout(ctx context.Context, d time.Duration) context.Context {
 	return context.WithValue(ctx, turnTimeoutKey{}, d)
 }
@@ -89,8 +89,9 @@ func turnTimeout(ctx context.Context) time.Duration {
 	return defaultTurnTimeout
 }
 
-// defaultTurnTimeout: a chat's turn, when nothing says otherwise.
-const defaultTurnTimeout = 20 * time.Minute
+// defaultTurnTimeout: a chat's turn, when nothing says otherwise: no limit,
+// it runs until done or stopped (a big task outlasts any fixed cut).
+const defaultTurnTimeout time.Duration = 0
 
 // withTimeout bounds ctx by d (0: only cancelled).
 func withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
