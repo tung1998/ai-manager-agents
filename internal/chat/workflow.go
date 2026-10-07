@@ -22,7 +22,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
-// Workflows (spec 2026-10-07-workflows-design): "/key …" in a chat starts
+// Workflows (spec 2026-10-07-workflows-design): "#key …" (or "/key …") in a chat starts
 // one in a chat of its own (purpose "workflow_run", not listed); the chat it
 // was called from shows only the input and, when it ends, the output. In the
 // run's chat the agent coordinates it with the workflow_* tools and the roles
@@ -55,6 +55,10 @@ type wfRun struct {
 	// concurrency bound it (ADR-103)
 	parent     *wfRun
 	parentRole string
+	// a graph of steps (ADR-108): the values its caller gave by key, and
+	// what stops it when the run ends
+	inputs map[string]string
+	stop   context.CancelFunc
 }
 
 // rootOf is the top of a run's tree (with the lock held).
@@ -112,7 +116,8 @@ type wfAsk struct {
 	agent  storage.Agent
 	prompt string
 	vote   bool
-	flow   bool // the role is a sub-workflow: the turn is a run of it
+	flow   bool              // the role is a sub-workflow: the turn is a run of it
+	inputs map[string]string // a sub-workflow's inputs by key
 }
 
 // wfState is the engine's running workflows.
@@ -179,7 +184,12 @@ var ErrWorkflowRunning = errors.New("cuộc chat đang chạy một quy trình; 
 // (handled false) when no enabled workflow has that key; the skill of that
 // name, if any, then runs as before.
 func (e *Engine) prepWorkflow(ctx context.Context, conv storage.Conversation, coord storage.Agent, text string) (*wfRun, string, bool, error) {
-	name, rest, isCall := automation.ParseSkillCall(text)
+	name, rest, isCall := workflow.ParseCall(text) // "#key", or "/key" as before
+	sign := workflow.Prefix
+	if !isCall {
+		name, rest, isCall = automation.ParseSkillCall(text)
+		sign = "/"
+	}
 	if !isCall || !teamChat(conv) {
 		return nil, "", false, nil
 	}
@@ -195,10 +205,10 @@ func (e *Engine) prepWorkflow(ctx context.Context, conv storage.Conversation, co
 	}
 	def, err := workflow.Parse(w.Source)
 	if err != nil {
-		return nil, "", true, fmt.Errorf("quy trình /%s không hợp lệ: %w", name, err)
+		return nil, "", true, fmt.Errorf("quy trình %s%s không hợp lệ: %w", sign, name, err)
 	}
 	if def.Callable == workflow.CallableSub {
-		return nil, "", true, fmt.Errorf("quy trình /%s chỉ để quy trình khác gọi (callable: sub)", def.Key)
+		return nil, "", true, fmt.Errorf("quy trình %s%s chỉ để quy trình khác gọi (callable: sub)", sign, def.Key)
 	}
 	if e.calledFrom(conv.ID) != nil {
 		return nil, "", true, ErrWorkflowRunning
@@ -279,15 +289,28 @@ func (e *Engine) differWarnings(ctx context.Context, run *wfRun, byID map[string
 
 // startRun keeps a prepared run going once its first turn has started.
 func (e *Engine) startRun(conv storage.Conversation, run *wfRun, turn *Turn) {
+	e.beginRun(conv, run, turn.actor, turn.tier, turn.ceiling)
+	e.mu.Lock()
+	turn.wfRun = run.rec.ID // the chat shows the run's card where it started (the dashboard puts it by time)
+	e.mu.Unlock()
+}
+
+// beginRun records a run and keeps it going in its chat (with no turn: a
+// graph of steps starts this way).
+func (e *Engine) beginRun(conv storage.Conversation, run *wfRun, actorOf, tier, ceiling string) {
 	ctx := context.Background()
-	run.tier, run.ceiling = turn.tier, turn.ceiling
+	run.tier, run.ceiling = tier, ceiling
 	run.deadline = time.Now().Add(run.def.Timeout())
 	if !run.until.IsZero() && run.until.Before(run.deadline) { // no later than the run that called it
 		run.deadline = run.until
 	}
 	run.rec.ConversationID = conv.ID // its own chat (the caller's is CallerConversationID)
-	run.rec.Actor, run.rec.StartedAt = turn.actor, time.Now().UTC()
-	run.rec.Log = append(run.rec.Log, storage.RunLog{At: run.rec.StartedAt, Text: "Bắt đầu, " + run.coord.Name + " điều phối"})
+	run.rec.Actor, run.rec.StartedAt = actorOf, time.Now().UTC()
+	start := "Bắt đầu, " + run.coord.Name + " điều phối"
+	if run.def.StepMode() {
+		start = "Bắt đầu, chạy theo các bước"
+	}
+	run.rec.Log = append(run.rec.Log, storage.RunLog{At: run.rec.StartedAt, Text: start})
 	for _, n := range run.notes {
 		run.rec.Log = append(run.rec.Log, storage.RunLog{At: run.rec.StartedAt, Text: n})
 	}
@@ -301,9 +324,6 @@ func (e *Engine) startRun(conv storage.Conversation, run *wfRun, turn *Turn) {
 	e.wf.byConv[conv.ID] = run
 	run.timer = time.AfterFunc(time.Until(run.deadline), func() { e.wfExpire(conv.ID, rec.ID) })
 	e.wf.mu.Unlock()
-	e.mu.Lock()
-	turn.wfRun = rec.ID // the chat shows the run's card where it started (the dashboard puts it by time)
-	e.mu.Unlock()
 }
 
 // runOf is the chat's running workflow (nil = none).
@@ -367,6 +387,9 @@ func (e *Engine) finishRun(conversationID, runID, status, result, errText string
 		run.timer.Stop()
 	}
 	defer close(run.done)
+	if run.stop != nil {
+		defer run.stop() // a graph of steps stops where it is
+	}
 	now := time.Now().UTC()
 	run.rec.Status, run.rec.FinishedAt = status, &now
 	run.rec.Result, run.rec.Error = result, errText
@@ -832,7 +855,7 @@ func (e *Engine) wfSend(ctx context.Context, sc officetools.Scope, run *wfRun, r
 	agentID := r.AgentID
 	e.wf.mu.Unlock()
 	if d.Workflow != "" { // a sub-workflow: it runs again with this as its input
-		return e.wfAskFlow(ctx, sc, run, d, agentID, message, true)
+		return e.wfAskFlow(ctx, sc, run, d, agentID, message, map[string]string{"text": message}, true)
 	}
 	a, err := e.store.Agents().Get(ctx, agentID)
 	if err != nil {
@@ -1118,6 +1141,21 @@ func (e *Engine) wfDone(ctx context.Context, sc officetools.Scope, run *wfRun, s
 func (e *Engine) wfAfter(prev *Turn, conv storage.Conversation, project storage.Repo, reply string) (role bool) {
 	if prev.wfRun == "" {
 		return false
+	}
+	if prev.wfStep != "" { // a step's turn: its answer goes to the runner waiting for it
+		e.wf.mu.Lock()
+		key := prev.wfRun + "#" + prev.wfStep
+		ch, ok := e.wf.waiting[key]
+		delete(e.wf.waiting, key)
+		e.wf.mu.Unlock()
+		if ok {
+			if prev.err != "" {
+				ch <- "\x00" + prev.err
+			} else {
+				ch <- reply
+			}
+		}
+		return true
 	}
 	if prev.wfRole != "" {
 		e.wfRoleDone(prev, conv, project, reply)

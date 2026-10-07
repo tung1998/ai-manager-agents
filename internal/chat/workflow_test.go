@@ -2,9 +2,13 @@ package chat_test
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -198,22 +202,22 @@ func TestWorkflowCommitteeRunsInParallelAndCallsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := g.during(t, "workflow_done", map[string]any{"summary": "Do race."}); err != nil {
+	if _, err := g.during(t, "workflow_done", map[string]any{"summary": "Do race.", "outputs": map[string]string{"plan": "sửa race", "agreed": "true"}}); err != nil {
 		t.Fatal(err)
 	}
 	collect(t, turn)
-	if r := g.run(t); r.Status != storage.RunDone || r.Result != "Do race." || r.FinishedAt == nil {
+	if r := g.run(t); r.Status != storage.RunDone || r.Result != "Do race." || r.Outputs["agreed"] != "true" || r.FinishedAt == nil {
 		t.Fatalf("run after done = %+v", r)
 	}
 	if g.engine.RunningWorkflow(own) != "" {
 		t.Fatal("still running")
 	}
 	// the chat that called it: only the input and the output
-	if evs := collect(t, call0); evs[len(evs)-1].Message == nil || evs[len(evs)-1].Message.Content != "Do race." {
+	if evs := collect(t, call0); evs[len(evs)-1].Message == nil || !strings.HasPrefix(evs[len(evs)-1].Message.Content, "Do race.") || !strings.Contains(evs[len(evs)-1].Message.Content, "`plan`: sửa race") {
 		t.Fatalf("caller's answer = %+v", evs)
 	}
 	msgs, _ := g.f.st.Chat().ListMessages(g.context, g.conv.ID)
-	if len(msgs) != 2 || msgs[0].Role != "user" || msgs[1].Role != "assistant" || msgs[1].Content != "Do race." || msgs[1].Author != g.leadNm {
+	if len(msgs) != 2 || msgs[0].Role != "user" || msgs[1].Role != "assistant" || !strings.HasPrefix(msgs[1].Content, "Do race.") || msgs[1].Author != g.leadNm {
 		t.Fatalf("caller's chat = %+v", msgs)
 	}
 	if c, _ := g.f.st.Chat().GetConversation(g.context, own); c.Purpose != chat.RunPurpose {
@@ -344,14 +348,14 @@ func TestWorkflowCallsASubWorkflow(t *testing.T) {
 		t.Fatalf("child = %+v", child)
 	}
 	// limits.depth 1: the child cannot go deeper (advisor has no sub-workflow anyway)
-	if _, err := g.duringIn(t, child.ConversationID, "workflow_done", map[string]any{"summary": "Ý kiến con"}); err != nil {
+	if _, err := g.duringIn(t, child.ConversationID, "workflow_done", map[string]any{"summary": "Ý kiến con", "outputs": map[string]string{"recommendation": "làm A"}}); err != nil {
 		t.Fatal(err)
 	}
 	os.Remove(filepath.Join(g.dir, "sleep-lead"))
 	deadline = time.Now().Add(10 * time.Second)
 	for {
 		r := g.run(t)
-		if len(r.Roles) == 1 && r.Roles[0].Status == "done" && r.Roles[0].Result == "Ý kiến con" && r.Roles[0].RunID == child.ID {
+		if len(r.Roles) == 1 && r.Roles[0].Status == "done" && strings.HasPrefix(r.Roles[0].Result, "Ý kiến con") && r.Roles[0].RunID == child.ID {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -515,4 +519,124 @@ func TestWorkflowAskWaitsForTheAnswer(t *testing.T) {
 	}
 	g.engine.StopAll(g.conv.ID)
 	collect(t, call0)
+}
+
+// the run's own chat starts empty: its coordinator gets the end of the chat
+// that called it
+func TestWorkflowSeesTheCallingChat(t *testing.T) {
+	g := newWFGroup(t)
+	g.install(t, "handoff", map[string]string{"nguoi-nhan": g.dev.ID})
+	g.sendAll(t, "API /orders trả 500 khi giỏ hàng trống")
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	defer os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	call0, _, err := g.engine.Send(g.context, g.conv.ID, "/handoff giao Dev sửa lỗi trên", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.own(t)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, in := call(t, g.dir, 2); strings.Contains(in, "cuộc chat đã gọi quy trình") {
+			if !strings.Contains(in, "API /orders trả 500") {
+				t.Fatalf("coordinator's input lacks the chat:\n%s", in)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no coordinator call")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	g.engine.StopAll(g.conv.ID)
+	collect(t, call0)
+}
+
+// a graph of steps runs in order without a coordinator: code, a condition
+// that loops back, an HTTP request, an agent, the end (ADR-108)
+func TestWorkflowStepsRunInOrder(t *testing.T) {
+	g := newWFGroup(t)
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		body, _ := io.ReadAll(r.Body)
+		w.Write([]byte(`{"ok":true,"got":` + strconv.Quote(string(body)) + `}`))
+	}))
+	defer srv.Close()
+	os.WriteFile(filepath.Join(g.dir, "reply-dev"), []byte("Tóm tắt: ổn"), 0o644)
+	src := `---
+key: buoc
+name: Theo bước
+inputs:
+  - { key: ten, required: true }
+outputs:
+  - { key: ket-qua, required: true }
+  - { key: so-lan, type: number, required: true }
+roles:
+  - { key: viet, name: Người viết, access: analyze }
+steps:
+  - id: dem
+    type: code
+    lang: bash
+    script: |
+      n=$(cat "$HOME/.dem" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$HOME/.dem"
+      echo "{\"n\": $n, \"ten\": \"$OFFICE_INPUT_TEN\"}"
+    next: du-chua
+  - id: du-chua
+    type: condition
+    if: "{{steps.dem.json.n}} >= 2"
+    then: goi
+    else: dem
+  - id: goi
+    type: http
+    method: POST
+    url: ` + srv.URL + `
+    body: '{"ten": "{{steps.dem.json.ten}}"}'
+    next: tom-tat
+  - id: tom-tat
+    type: agent
+    role: viet
+    prompt: "Tóm tắt kết quả: {{steps.goi.output}}"
+    next: xong
+  - id: xong
+    type: end
+    summary: "{{steps.tom-tat.output}}"
+    outputs:
+      ket-qua: "{{steps.goi.json.ok}}"
+      so-lan: "{{steps.dem.json.n}}"
+---
+`
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if _, err := g.svc.Create(g.context, g.f.project.ID, src, map[string]string{"viet": g.dev.ID}); err != nil {
+		t.Fatal(err)
+	}
+	call0, _, err := g.engine.Send(g.context, g.conv.ID, "#buoc An", nil) // "#key": a workflow (ADR-109)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := collect(t, call0)
+	last := evs[len(evs)-1]
+	if last.Message == nil || !strings.Contains(last.Message.Content, "Tóm tắt: ổn") || !strings.Contains(last.Message.Content, "`so-lan`: 2") || !strings.Contains(last.Message.Content, "`ket-qua`: true") {
+		t.Fatalf("caller's answer = %+v", last)
+	}
+	r := g.run(t)
+	if r.Status != storage.RunDone || hits != 1 || r.Outputs["so-lan"] != "2" {
+		t.Fatalf("run = %+v, hits %d", r, hits)
+	}
+	// the run's chat holds each step: the code twice, the request, the agent's answer
+	msgs, _ := g.f.st.Chat().ListMessages(g.context, r.ConversationID)
+	var code, req, dev int
+	for _, m := range msgs {
+		switch {
+		case strings.Contains(m.Content, "dem (code)"):
+			code++
+		case strings.Contains(m.Content, "goi (http)") && strings.Contains(m.Content, `\"ten\": \"An\"`):
+			req++
+		case m.Author == "Dev":
+			dev++
+		}
+	}
+	if code != 2 || req != 1 || dev != 1 {
+		t.Fatalf("run's chat: code %d, request %d, dev %d\n%+v", code, req, dev, msgs)
+	}
 }

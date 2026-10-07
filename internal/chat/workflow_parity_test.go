@@ -77,7 +77,7 @@ func TestWorkflowToolsOverTheAPIAndMCP(t *testing.T) {
 			if !strings.Contains(body, "[office · quy trình") {
 				fail("not a call-back")
 			}
-			reply(w, `{"type":"tool_use","id":"t2","name":"workflow_done","input":{"summary":"Kết luận: làm A."}}`, true)
+			reply(w, `{"type":"tool_use","id":"t2","name":"workflow_done","input":{"summary":"Kết luận: làm A.","outputs":{"recommendation":"làm A"}}}`, true)
 		default:
 			reply(w, text("Xong."), false)
 		}

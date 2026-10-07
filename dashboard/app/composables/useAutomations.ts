@@ -40,6 +40,7 @@ export interface AutomationConfig {
   // …or a custom slash command of the bot, and the text typed after it ("" = none)
   command?: string, command_description?: string, command_arg?: string
   skill?: string // the command calls this project skill
+  workflow?: string // action workflow: the workflow it runs, the prompt being its input (ADR-109)
   reply_mode?: '' | 'answer' | 'steps' // what the bot shows of a run ('' = the bot's own)
   own_setup?: boolean // a bot's command set up on its own; false = the bot's default setup
   pull_request?: boolean // a GitHub/Bitbucket PR webhook: runs on a PR opened or updated, with {{diff}}
@@ -66,7 +67,7 @@ export interface Automation {
   enabled: boolean
   source: 'schedule' | 'webhook' | 'telegram' | 'discord'
   config: AutomationConfig
-  action: 'chat' | 'script'
+  action: 'chat' | 'script' | 'workflow'
   agent_id: string
   prompt: string
   edit_mode: 'worktree' | 'direct'

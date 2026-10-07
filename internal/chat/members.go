@@ -155,6 +155,7 @@ type turnSpec struct {
 	// a workflow's turn: its run, the role ("" = the coordinator), a ballot
 	wfRun, wfRole string
 	wfVote        bool
+	wfStep        string // a step of a graph of steps (ADR-108)
 }
 
 // startTurn starts an agent's answer; nil and why when it cannot: the agent
@@ -182,7 +183,7 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 	t := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
 		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor, total: s.total, tier: s.tier, ceiling: s.ceiling, limit: limit,
 		agentID: s.agent.ID, agentName: s.agent.Name, background: s.background, delegator: s.delegator,
-		wfRun: s.wfRun, wfRole: s.wfRole, wfVote: s.wfVote}
+		wfRun: s.wfRun, wfRole: s.wfRole, wfVote: s.wfVote, wfStep: s.wfStep}
 	e.mu.Lock()
 	key := conv.ID + "/" + s.agent.ID
 	if _, working := e.bg[key]; working { // one session, one worktree: never twice at once

@@ -14,6 +14,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
 // Automations: schedules and webhooks that start jobs (ADR-040).
@@ -194,8 +195,22 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 		return errors.New("cấp model phải là mạnh, cân bằng hoặc nhanh")
 	}
 	a.ModelTier = in.ModelTier
-	if in.Action != "chat" && in.Action != "script" {
-		return errors.New("hành động phải là gửi tin (chat) hoặc chạy code (script)")
+	if in.Action != "chat" && in.Action != "script" && in.Action != "workflow" {
+		return errors.New("hành động phải là gửi tin (chat), chạy code (script) hoặc chạy quy trình (workflow)")
+	}
+	workflowKey := ""
+	if in.Action == "workflow" { // ADR-109: a workflow of the project, on and callable from a chat
+		workflowKey = strings.TrimSpace(in.Config.Workflow)
+		if workflowKey == "" {
+			return errors.New("hãy chọn quy trình để chạy")
+		}
+		wf, err := s.cfg.Store.Workflows().GetByKey(r.Context(), a.ProjectID, workflowKey)
+		if err != nil {
+			return errors.New("project chưa cài quy trình #" + workflowKey)
+		}
+		if def, err := workflow.Parse(wf.Source); err == nil && def.Callable == workflow.CallableSub {
+			return errors.New("quy trình #" + workflowKey + " chỉ để quy trình khác gọi (callable: sub)")
+		}
 	}
 	if in.Action == "script" {
 		src := in.Source
@@ -288,6 +303,7 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 			return errors.New("hãy điền channel/chat id để gửi kết quả")
 		}
 	}
+	cfg.Workflow = workflowKey
 	tags, err := cleanTags(in.Config.Tags) // put on the chat of each run
 	if err != nil {
 		return err

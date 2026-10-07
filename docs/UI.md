@@ -19,7 +19,7 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 | `/skills`, `/mcp` (admin) | Skills, MCP servers | Hai mục riêng trên sidebar (`/library` cũ tự chuyển): **Đã cài** (mọi nơi trên máy, nhóm theo nơi cài), **Thư viện**, MCP **Phổ biến**, **Tìm MCP** | Xem, cài vào nơi khác, lưu vào thư viện, gỡ, tạo và sửa |
 | `/workflows` (admin) | Thư viện quy trình | Quy trình dùng chung (có sẵn, đã sửa, tự tạo), lỗi nếu file sai (ADR-098) | Tạo / Sửa / Khôi phục / Xoá |
 | `/projects/:id/workflows/runs/:runId` | Lần chạy quy trình | Chat đã gọi, đầu vào, đầu ra, vai/cổng/chi phí, nội dung (chat riêng của lần chạy, chỉ xem) — ADR-101 | Dừng, duyệt cổng |
-| `/workflows/edit?key=`, `/projects/:id/workflows/edit?w=` | Soạn quy trình | Soạn quy trình của thư viện hoặc của project bằng chat (`purpose=workflow`), xem trước vai/giới hạn/cổng/biểu quyết (ADR-098) | Lưu |
+| `/workflows/edit?key=`, `/projects/:id/workflows/edit?w=` | Soạn quy trình | Canvas kéo thả (bước, agent, quy trình con; form điền phần thiếu, Đầu vào/Đầu ra — ADR-108), văn bản, và chat (`purpose=workflow`); ba cách cùng sửa một file | Lưu |
 | `/jobs` | Job | Mọi lượt chạy (chat, Việc, automation) của mọi project: trạng thái, lọc theo project, lỗi 24h, chi phí 24h | |
 | `/providers` | Kết nối AI | Danh sách kết nối (Anthropic, OpenAI, API tương thích, CLI…), gửi thử, thống kê theo kết nối | Thêm / Sửa / Xoá / Đặt mặc định |
 | `/watch` | Theo dõi | Nhiều khung chat của các project cạnh nhau, chia dọc/ngang, lưu trong trình duyệt (không đồng bộ máy khác) | Thêm/xoá khung |

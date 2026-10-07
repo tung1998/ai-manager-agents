@@ -152,7 +152,7 @@ async function runNow(a: Automation) {
           <span class="block truncate font-medium">{{ a.name }}</span>
           <span class="block truncate text-xs text-(--ui-text-muted)">
             {{ scheduleText(a, t) }}
-            · {{ a.action === 'script' ? t('auto.toScript') : t('auto.toChat', { agent: agentName(a.agent_id) }) }}
+            · {{ a.action === 'script' ? t('auto.toScript') : a.action === 'workflow' ? t('auto.toWorkflow', { key: a.config.workflow ?? '' }) : t('auto.toChat', { agent: agentName(a.agent_id) }) }}
           </span>
         </NuxtLink>
         <span v-if="a.config.tags?.length" class="flex flex-wrap items-center gap-1"><ChatTags :tags="a.config.tags" /></span>

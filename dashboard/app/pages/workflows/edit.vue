@@ -8,7 +8,7 @@ const { data: asst } = await useLiveFetch<{ project_id: string }>('/api/assistan
 </script>
 
 <template>
-  <PageShell :title="key ? `/${key}` : t('wf.new')">
+  <PageShell :title="key ? `#${key}` : t('wf.new')">
     <UButton :to="'/workflows'" icon="i-lucide-arrow-left" size="xs" color="neutral" variant="ghost" class="-ms-2 mb-2" :label="t('wf.library')" />
     <WorkflowEditor v-if="asst?.project_id" :key="key" :chat-project-id="asst.project_id" :lib-key="key || undefined" />
   </PageShell>

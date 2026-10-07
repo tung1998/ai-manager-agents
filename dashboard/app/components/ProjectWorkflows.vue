@@ -148,7 +148,7 @@ const runsOf = (w: ProjectWorkflow) => router.replace({ query: { ...route.query,
             <span class="min-w-0 flex-1 truncate" :title="r.hint">{{ r.name }}</span>
             <UBadge
               v-if="r.workflow" :color="installedKeys.has(r.workflow) ? 'primary' : 'error'" variant="soft" size="sm" icon="i-lucide-corner-down-right"
-              :label="`/${r.workflow}`" :title="installedKeys.has(r.workflow) ? t('wf.subInfo') : t('wf.subMissing', { key: r.workflow })"
+              :label="`#${r.workflow}`" :title="installedKeys.has(r.workflow) ? t('wf.subInfo') : t('wf.subMissing', { key: r.workflow })"
             />
             <USelect
               :model-value="w.bindings[r.key] || NONE" :items="r.workflow ? flowItems : agentItems" size="sm" class="w-44 shrink-0" :disabled="!isAdmin || busy === w.id"

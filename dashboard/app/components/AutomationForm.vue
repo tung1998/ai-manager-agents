@@ -76,8 +76,15 @@ const actions = computed(() => [
   fromChannel.value
     ? { value: 'chat' as const, icon: 'i-lucide-message-circle-reply', title: t('auto.cardReply'), desc: t('auto.cardReplyDesc') }
     : { value: 'chat' as const, icon: 'i-lucide-send', title: t('auto.cardAgent'), desc: t('auto.cardAgentDesc') },
-  { value: 'script' as const, icon: 'i-lucide-square-terminal', title: t('auto.cardScript'), desc: fromChannel.value ? t('auto.cardScriptChannelDesc') : t('auto.cardScriptDesc') }
+  { value: 'script' as const, icon: 'i-lucide-square-terminal', title: t('auto.cardScript'), desc: fromChannel.value ? t('auto.cardScriptChannelDesc') : t('auto.cardScriptDesc') },
+  // a bot's command runs a workflow by its skill instead
+  ...(fromChannel.value ? [] : [{ value: 'workflow' as const, icon: 'i-lucide-workflow', title: t('auto.cardWorkflow'), desc: t('auto.cardWorkflowDesc') }])
 ])
+// the project's workflows a chat may run (ADR-109)
+const { data: wfData } = useLiveFetch<{ workflows: ProjectWorkflow[] }>(() => `/api/projects/${props.projectId}/workflows`, { lazy: true })
+const workflowItems = computed(() => (wfData.value?.workflows ?? []).filter(w => w.enabled && !w.error && w.callable !== 'sub')
+  .map(w => ({ label: `#${w.key} · ${w.name}`, value: w.key })))
+const workflowKey = computed({ get: () => form.config.workflow ?? '', set: (v: string) => { form.config.workflow = v } })
 
 // when a schedule stops on its own, as a Burn: the weekly limit's reset, after
 // some hours, at a time, or never (turned off by hand)
@@ -310,11 +317,14 @@ async function testRun() {
           </template>
         </div>
       </template>
-      <div v-else-if="form.action === 'chat'" class="space-y-2">
+      <div v-else class="space-y-2">
         <div class="flex flex-wrap items-end gap-3">
-          <UFormField :label="t('channels.agent')"><USelect v-model="chatAgent" :items="replyAgentOptions" class="min-w-56" /></UFormField>
+          <UFormField v-if="form.action === 'workflow'" :label="t('auto.workflow')" required :class="hl('config')">
+            <USelect v-model="workflowKey" :items="workflowItems" :placeholder="workflowItems.length ? t('auto.workflowPick') : t('auto.workflowNone')" class="min-w-64" />
+          </UFormField>
+          <UFormField :label="form.action === 'workflow' ? t('auto.workflowCoord') : t('channels.agent')"><USelect v-model="chatAgent" :items="replyAgentOptions" class="min-w-56" /></UFormField>
         </div>
-        <p class="text-xs text-(--ui-text-muted)">{{ t('auto.replyNoTools') }}</p>
+        <p v-if="form.action === 'chat'" class="text-xs text-(--ui-text-muted)">{{ t('auto.replyNoTools') }}</p>
         <UFormField :label="t('auto.tags')" :class="hl('config')">
           <template #hint>
             <UTooltip :text="t('auto.tagsHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
@@ -327,9 +337,9 @@ async function testRun() {
     <!-- 3. content -->
     <section v-if="form.action !== 'script'" class="space-y-3" :class="[box, hl('prompt')]">
       <p class="flex items-center gap-2 text-sm font-semibold">
-        <span v-if="!command" class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">3</span>{{ t('auto.stepPrompt') }}
+        <span v-if="!command" class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">3</span>{{ form.action === 'workflow' ? t('auto.stepWorkflowInput') : t('auto.stepPrompt') }}
       </p>
-      <UTextarea ref="promptEl" v-model="form.prompt" :rows="5" autoresize class="w-full" :placeholder="fromChannel ? t('auto.promptChannelPlaceholder') : t('auto.promptPlaceholder')" />
+      <UTextarea ref="promptEl" v-model="form.prompt" :rows="5" autoresize class="w-full" :placeholder="form.action === 'workflow' ? t('auto.workflowInputPlaceholder') : fromChannel ? t('auto.promptChannelPlaceholder') : t('auto.promptPlaceholder')" />
       <div class="flex flex-wrap items-center gap-1 text-xs text-(--ui-text-muted)">
         {{ t('auto.insert') }}
         <button v-for="p in placeholders" :key="p" type="button" class="rounded bg-(--ui-bg-elevated) px-1.5 py-0.5 font-mono hover:text-(--ui-text)" @click="insert(p)">{{ p }}</button>
@@ -353,7 +363,7 @@ async function testRun() {
     </section>
 
     <!-- permission (ADR-074) -->
-    <section v-if="form.action === 'chat'" class="space-y-3" :class="box">
+    <section v-if="form.action !== 'script'" class="space-y-3" :class="box">
       <p class="flex items-center gap-2 text-sm font-semibold"><UIcon name="i-lucide-shield" class="size-4" />{{ t('auto.permTitle') }}</p>
       <div v-if="isAdmin" class="flex flex-wrap gap-2">
         <button

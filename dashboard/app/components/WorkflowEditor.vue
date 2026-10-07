@@ -16,12 +16,18 @@ const back = computed(() => library.value ? { path: '/workflows' } : { path: `/p
 
 const source = ref('')
 const loaded = ref(!editing.value)
+// a project's workflow: which agent fills each role (the canvas may add some)
+const bindings = ref<Record<string, string>>({})
 onMounted(async () => {
   if (!editing.value) return
   try {
-    source.value = library.value
-      ? (await $fetch<{ workflow: LibraryWorkflow }>(`/api/workflow-library/${props.libKey}`)).workflow.source ?? ''
-      : (await $fetch<{ workflow: ProjectWorkflow }>(`/api/workflows/${props.workflowId}`)).workflow.source
+    if (library.value) {
+      source.value = (await $fetch<{ workflow: LibraryWorkflow }>(`/api/workflow-library/${props.libKey}`)).workflow.source ?? ''
+    } else {
+      const w = (await $fetch<{ workflow: ProjectWorkflow }>(`/api/workflows/${props.workflowId}`)).workflow
+      bindings.value = { ...(w.bindings ?? {}) }
+      source.value = w.source
+    }
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
@@ -32,18 +38,72 @@ onMounted(async () => {
 // checked as it is written: the preview, or what is wrong
 const def = ref<WorkflowDef | null>(null)
 const error = ref('')
+// Canvas or text (ADR-108): both edit the one file. The canvas works on a
+// def (draft); its changes are written back as the file (format), and the
+// file's changes (typed, or the chat's) give the canvas its def again.
+const mode = ref<'canvas' | 'text'>(editing.value ? 'text' : 'canvas')
+let modeChosen = !editing.value
+watch(mode, () => { modeChosen = true })
+const modes = computed(() => [
+  { value: 'canvas', label: t('wf.canvas.tab'), icon: 'i-lucide-git-fork' },
+  { value: 'text', label: t('wf.canvas.textTab'), icon: 'i-lucide-file-code' }
+])
+const draft = ref<WorkflowDef | null>(null)
+const blank = (): WorkflowDef => ({
+  key: '', name: '', description: '', roles: [], body: '', inputs: [], outputs: [],
+  limits: { rounds: 0, turns: 0, timeout: '', budget_usd: 0, depth: 0, concurrency: 0 },
+  steps: [{ id: 'end', type: 'end', position: { x: 280, y: 0 } }]
+})
+const canvasDef = computed(() => draft.value ?? (source.value.trim() ? null : blank()))
+
 let timer: ReturnType<typeof setTimeout> | undefined
+let fromCanvas: string | null = null // the file the canvas last wrote: its def is the draft already
 watch(source, (s) => {
   clearTimeout(timer)
+  if (s === fromCanvas) return
   timer = setTimeout(async () => {
-    if (!s.trim()) { def.value = null; error.value = ''; return }
+    if (!s.trim()) { def.value = null; draft.value = null; error.value = ''; return }
     try {
-      const res = await $fetch<{ ok: boolean, def?: WorkflowDef, error?: string }>('/api/workflow-library/validate', { method: 'POST', body: { source: s } })
+      const res = await $fetch<{ ok: boolean, def?: WorkflowDef, draft?: WorkflowDef, error?: string }>('/api/workflow-library/validate', { method: 'POST', body: { source: s } })
+      if (s !== source.value) return // written again since
       def.value = res.ok ? res.def ?? null : null
       error.value = res.ok ? '' : res.error ?? ''
+      if (res.ok && res.def) draft.value = res.def
+      else if (res.draft) draft.value = res.draft // it reads but does not check: the canvas still shows it, with the error
+      if (!modeChosen) { // an existing one opens on the canvas when it has steps
+        if ((res.def ?? res.draft)?.steps?.length) mode.value = 'canvas'
+        modeChosen = true
+      }
     } catch { /* checked again on Save */ }
   }, 400)
 })
+
+// the canvas changed the def: written as the file (one call per pause)
+let fmtTimer: ReturnType<typeof setTimeout> | undefined
+let fmtSeq = 0
+let fmtDirty = false
+function onCanvasDef(d: WorkflowDef) {
+  draft.value = d
+  fmtDirty = true
+  clearTimeout(fmtTimer)
+  fmtTimer = setTimeout(() => { void formatNow() }, 400)
+}
+async function formatNow() {
+  clearTimeout(fmtTimer)
+  if (!fmtDirty || !draft.value) return
+  fmtDirty = false
+  const seq = ++fmtSeq
+  try {
+    const res = await $fetch<{ source: string, error?: string }>('/api/workflow-library/format', { method: 'POST', body: { def: draft.value } })
+    if (seq !== fmtSeq) return
+    fromCanvas = res.source
+    source.value = res.source
+    error.value = res.error ?? ''
+    def.value = res.error ? null : draft.value
+  } catch (e) {
+    if (seq === fmtSeq) error.value = apiError(e)
+  }
+}
 
 // the chat next to it fills the editor
 const highlight = ref(false)
@@ -67,8 +127,10 @@ const saving = ref(false)
 async function save() {
   saving.value = true
   try {
+    await formatNow() // what the canvas has not written yet
+    if (error.value) return toast.add({ title: t('wf.invalid'), description: error.value, color: 'error' })
     if (library.value) {
-      const res = await $fetch<{ ok: boolean, def?: WorkflowDef, error?: string }>('/api/workflow-library/validate', { method: 'POST', body: { source: source.value } })
+      const res = await $fetch<{ ok: boolean, def?: WorkflowDef, error?: string }>('/api/workflow-library/validate', { method: 'POST', body: { source: source.value, bindings: bindings.value } })
       if (!res.ok || !res.def) {
         error.value = res.error ?? ''
         return toast.add({ title: t('wf.invalid'), description: res.error, color: 'error' })
@@ -81,9 +143,9 @@ async function save() {
       }
       await $fetch(`/api/workflow-library/${key}`, { method: 'PUT', body: { source: source.value } })
     } else if (editing.value) {
-      await $fetch(`/api/workflows/${props.workflowId}`, { method: 'PATCH', body: { source: source.value } })
+      await $fetch(`/api/workflows/${props.workflowId}`, { method: 'PATCH', body: { source: source.value, bindings: bindings.value } })
     } else {
-      await $fetch(`/api/projects/${props.projectId}/workflows`, { method: 'POST', body: { source: source.value } })
+      await $fetch(`/api/projects/${props.projectId}/workflows`, { method: 'POST', body: { source: source.value, bindings: bindings.value } })
     }
     toast.add({ title: t('wf.saved'), color: 'success' })
     await navigateTo(back.value)
@@ -96,22 +158,34 @@ async function save() {
 </script>
 
 <template>
-  <div class="grid gap-4 lg:h-[calc(100vh-9rem)] lg:min-h-[36rem] lg:grid-cols-2">
-    <div class="flex flex-col lg:min-h-0">
-      <div class="space-y-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pe-1">
-        <div v-if="!loaded" class="p-4 text-sm text-(--ui-text-muted)">{{ t('common.loading') }}</div>
-        <template v-else>
-          <UFormField :label="t('wf.source')" :class="highlight && 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition'">
-            <template #hint>
-              <UTooltip :text="t('wf.sourceInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
-            </template>
-            <UTextarea v-model="source" :rows="18" autoresize :maxrows="40" class="w-full font-mono text-xs" placeholder="---&#10;key: …&#10;name: …&#10;roles: …&#10;---" />
-          </UFormField>
-          <UAlert v-if="error" color="warning" variant="subtle" icon="i-lucide-triangle-alert" :title="t('wf.invalid')" :description="error" />
-          <div v-else-if="def" class="rounded-lg border border-(--ui-border) p-3">
-            <WorkflowPreview :def="def" />
-          </div>
-        </template>
+  <div class="grid gap-4 lg:h-[calc(100vh-9rem)] lg:min-h-[36rem]" :class="mode === 'canvas' ? 'lg:grid-cols-[minmax(0,7fr)_minmax(20rem,3fr)]' : 'lg:grid-cols-2'">
+    <div class="flex min-w-0 flex-col gap-2 lg:min-h-0">
+      <div class="flex items-center gap-2">
+        <SegmentedNav v-model="mode" :items="modes" />
+        <UTooltip :text="t('wf.canvas.modeInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+      </div>
+      <div v-if="!loaded" class="p-4 text-sm text-(--ui-text-muted)">{{ t('common.loading') }}</div>
+      <template v-else-if="mode === 'canvas'">
+        <div class="flex min-h-0 flex-1 flex-col *:flex-1" :class="highlight && 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition'">
+          <WorkflowCanvas
+            v-if="canvasDef" :def="canvasDef" :project-id="projectId" :bindings="bindings"
+            @update:def="onCanvasDef" @update:bindings="b => bindings = b"
+          />
+          <UAlert v-else color="warning" variant="subtle" icon="i-lucide-triangle-alert" :title="t('wf.canvas.cannotDraw')" :description="error" />
+        </div>
+        <UAlert v-if="error && canvasDef" color="warning" variant="subtle" icon="i-lucide-triangle-alert" :title="t('wf.invalid')" :description="error" :ui="{ description: 'max-h-24 overflow-y-auto whitespace-pre-line' }" />
+      </template>
+      <div v-else class="space-y-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pe-1">
+        <UFormField :label="t('wf.source')" :class="highlight && 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition'">
+          <template #hint>
+            <UTooltip :text="t('wf.sourceInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+          </template>
+          <UTextarea v-model="source" :rows="18" autoresize :maxrows="40" class="w-full font-mono text-xs" placeholder="---&#10;key: …&#10;name: …&#10;roles: …&#10;---" />
+        </UFormField>
+        <UAlert v-if="error" color="warning" variant="subtle" icon="i-lucide-triangle-alert" :title="t('wf.invalid')" :description="error" />
+        <div v-else-if="def" class="rounded-lg border border-(--ui-border) p-3">
+          <WorkflowPreview :def="def" />
+        </div>
       </div>
       <div class="flex justify-end gap-2 border-t border-(--ui-border) pt-3">
         <UButton color="neutral" variant="ghost" :label="t('common.close')" :to="back" />

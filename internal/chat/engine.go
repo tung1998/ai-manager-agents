@@ -144,6 +144,7 @@ type Turn struct {
 	// the role it answers as ("" = the coordinator); wfVote: a ballot
 	wfRun, wfRole string
 	wfVote        bool
+	wfStep        string // a step of a graph of steps: its answer goes to the run's runner (ADR-108)
 	err           string // why it failed ("" = it answered)
 
 	mu     sync.Mutex
@@ -659,7 +660,7 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 			paused = []storage.Agent{agent}
 		}
 	}
-	// "/workflow request": the chat's agent coordinates a workflow of the
+	// "#workflow request" (or "/workflow request"): the chat's agent coordinates a workflow of the
 	// project (spec 2026-10-07-workflows-design); otherwise "/skill request":
 	// the agent gets the skill's instructions. The conversation keeps what the
 	// person typed.

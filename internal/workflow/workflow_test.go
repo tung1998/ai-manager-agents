@@ -223,3 +223,81 @@ func TestOutputTypes(t *testing.T) {
 		t.Fatalf("bad type: %v", err)
 	}
 }
+
+// a library file still as an earlier version shipped it takes the new one;
+// one changed here is kept
+func TestSeedUpdatesUntouchedBuiltins(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "workflows")
+	l := Library{Dir: dir}
+	if _, err := l.Seed(); err != nil {
+		t.Fatal(err)
+	}
+	old := strings.Replace(BuiltinSource("advisor"), "Cố vấn", "Cố vấn cũ", 1)
+	mine := strings.Replace(BuiltinSource("council"), "Hội đồng", "Hội đồng của tôi", 1)
+	os.WriteFile(filepath.Join(dir, "advisor.md"), []byte(old), 0o644)
+	os.WriteFile(filepath.Join(dir, "council.md"), []byte(mine), 0o644)
+	defer func(m map[string][]string) { shippedBefore = m }(shippedBefore)
+	shippedBefore = map[string][]string{"advisor": {Hash(old)}}
+	if n, err := l.Seed(); err != nil || n != 1 {
+		t.Fatalf("seed = %d, %v", n, err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "advisor.md")); string(raw) != BuiltinSource("advisor") {
+		t.Fatal("the untouched old version was not updated")
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "council.md")); string(raw) != mine {
+		t.Fatal("a changed one was overwritten")
+	}
+}
+
+func TestStepsParseRenderEval(t *testing.T) {
+	src := "---\nkey: s\nname: S\nroles:\n  - key: a\nsteps:\n  - { id: x, type: agent, role: a, prompt: 'hi {{input.ten}}', next: c }\n  - { id: c, type: condition, if: '{{steps.x.json.n}} > 2', then: e, else: x }\n  - { id: e, type: end }\n---\n"
+	d, err := Parse(src)
+	if err != nil || !d.StepMode() {
+		t.Fatalf("parse: %v", err)
+	}
+	v := Vars{Input: map[string]string{"ten": "An"}, Steps: map[string]StepResult{"x": NewResult(`{"n": 3, "l": ["p", "q"]}`, "")}}
+	if Render(d.Steps[0].Prompt, v) != "hi An" || Render("{{steps.x.json.l.1}}|{{steps.nope.output}}", v) != "q|" {
+		t.Fatal("render")
+	}
+	for expr, want := range map[string]bool{"{{steps.x.json.n}} > 2": true, "{{steps.x.json.n}} == 3.0": true, "{{input.ten}} contains A": true, "{{input.ten}} != An": false, "{{steps.nope.output}}": false, "{{input.ten}}": true} {
+		if Eval(expr, v) != want {
+			t.Fatalf("eval %q", expr)
+		}
+	}
+	// the canvas writes the file back from the definition: it parses the same
+	out, err := Format(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := Parse(out); err != nil || len(again.Steps) != 3 || again.Steps[1].Else != "x" {
+		t.Fatalf("format round trip: %v\n%s", err, out)
+	}
+	bad := "---\nkey: s\nname: S\nsteps:\n  - { id: x, type: agent, role: nope }\n  - { id: h, type: http, url: ftp://x, next: zz }\n  - { id: k, type: code, lang: ruby }\n---\n"
+	_, err = Parse(bad)
+	for _, want := range []string{`role "nope"`, "thiếu prompt", "url", `next "zz"`, "lang", "thiếu script", "bước end"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("missing %q in %v", want, err)
+		}
+	}
+}
+
+func TestParseCall(t *testing.T) {
+	for _, c := range []struct {
+		in, key, rest string
+		ok            bool
+	}{
+		{"#review fix the bug", "review", "fix the bug", true},
+		{"#review", "review", "", true},
+		{"# heading", "", "# heading", false},
+		{"/review x", "", "/review x", false},
+		{"see #review", "", "see #review", false},
+	} {
+		k, r, ok := ParseCall(c.in)
+		if k != c.key || r != c.rest || ok != c.ok {
+			t.Errorf("ParseCall(%q) = %q %q %v", c.in, k, r, ok)
+		}
+	}
+	if Call("review", " x ") != "#review x" || Call("review", "") != "#review" {
+		t.Error("Call")
+	}
+}

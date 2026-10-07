@@ -166,6 +166,9 @@ type AutomationConfig struct {
 	CommandArg         string `json:"command_arg,omitempty"`
 	// Skill: the command calls this project skill ("/skill text" to the chat)
 	Skill string `json:"skill,omitempty"`
+	// Workflow: action "workflow" runs this workflow of the project, its
+	// prompt being the input ("#key input" to the chat, ADR-109)
+	Workflow string `json:"workflow,omitempty"`
 	// ReplyMode: what the bot shows of a run, answer | steps ("" = the bot's own)
 	ReplyMode string `json:"reply_mode,omitempty"`
 	// OwnSetup: a bot's command set up on its own; false = its bot's default

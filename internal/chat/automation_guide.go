@@ -11,7 +11,7 @@ Bên cạnh khung chat là form tự động hóa; mỗi tin nhắn kèm bản n
 {"name":"Đếm lỗi log","source":"schedule","config":{"cron":"0 8 * * 1-5","timezone":"Asia/Ho_Chi_Minh"},
  "action":"script","script":{"lang":"bash","body":"grep -c ERROR logs/app.log || true","timeout_s":120}}
 ` + "```" + `
-Các trường: name; source (schedule | webhook | telegram | discord); config {every_minutes | cron, timezone, auth, auth_name}; action (CHỈ script | chat, không còn task);
+Các trường: name; source (schedule | webhook | telegram | discord); config {every_minutes | cron, timezone, auth, auth_name}; action (CHỈ script | chat | workflow, không còn task); config.workflow (action=workflow: key quy trình của project; prompt là đầu vào, agent_id điều phối);
 agent_id (agent nhận việc, làm theo quyền của nó và có thể giao cho đội bằng delegate; rỗng = trưởng nhóm); prompt (cho chat, có {{payload}}, {{today}}…); script {lang: bash|node|python, body, timeout_s};
 limits {max_runs_per_hour, daily_cost_usd, disable_after_failures, debounce_seconds, debounce_key, debounce_max_seconds}. Không có escalate: script không gọi agent.
 Review Pull Request: source=webhook, config.pull_request=true (chỉ chạy khi PR GitHub/Bitbucket mở hoặc có commit mới; office tự fetch và đưa diff vào {{diff}}; payload gọn: {{payload.number}}, {{payload.title}}, {{payload.author}}, {{payload.url}}, {{payload.source}}, {{payload.target}}), action=chat.

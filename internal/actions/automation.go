@@ -24,6 +24,11 @@ func (s *Service) automationSpec(ctx context.Context, projectID, kind string, ra
 	if err := trigger.CheckAgents(ctx, s.store, projectID, spec.AgentID, spec.Escalate.AgentID); err != nil {
 		return spec, err
 	}
+	if spec.Action == "workflow" { // a workflow the project has
+		if _, err := s.store.Workflows().GetByKey(ctx, projectID, spec.Workflow); err != nil {
+			return spec, errors.New("project chưa cài quy trình #" + spec.Workflow)
+		}
+	}
 	if kind == "update_automation" {
 		a, err := s.store.Automations().Get(ctx, spec.AutomationID)
 		if err != nil || a.ProjectID != projectID {

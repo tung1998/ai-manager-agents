@@ -59,6 +59,8 @@ type Def struct {
 	// Callable: who may run it: "" = a chat (/key) and other workflows,
 	// "chat" = only a chat, "sub" = only other workflows (hidden from /).
 	Callable string `yaml:"callable,omitempty" json:"callable,omitempty"`
+	// Steps: the graph the office runs in order (ADR-108); none = a coordinator decides
+	Steps []Step `yaml:"steps,omitempty" json:"steps,omitempty"`
 	// Body is what the coordinator follows (the file below the header).
 	Body string `yaml:"-" json:"body"`
 }
@@ -297,11 +299,15 @@ func (d Def) Validate() error {
 	if d.Name == "" {
 		add("thiếu name")
 	}
-	if strings.TrimSpace(d.Body) == "" {
-		add("thiếu phần hướng dẫn cho agent điều phối (dưới phần đầu YAML)")
-	}
-	if len(d.Roles) == 0 {
-		add("cần ít nhất một vai (roles)")
+	if d.StepMode() {
+		d.validateSteps(add)
+	} else {
+		if strings.TrimSpace(d.Body) == "" {
+			add("thiếu phần hướng dẫn cho agent điều phối (dưới phần đầu YAML)")
+		}
+		if len(d.Roles) == 0 {
+			add("cần ít nhất một vai (roles), hoặc các bước (steps)")
+		}
 	}
 	roles := map[string]bool{}
 	for _, r := range d.Roles {
@@ -544,4 +550,21 @@ func typeOK(t, v string) bool {
 		return json.Valid([]byte(v))
 	}
 	return true
+}
+
+// Format is a workflow's file from its definition (the editor's canvas
+// changes the definition; the file stays the source).
+func Format(d Def) (string, error) {
+	var b bytes.Buffer
+	enc := yaml.NewEncoder(&b)
+	enc.SetIndent(2)
+	if err := enc.Encode(d); err != nil {
+		return "", err
+	}
+	_ = enc.Close()
+	body := strings.TrimSpace(d.Body)
+	if body == "" && d.StepMode() {
+		body = "Quy trình chạy theo các bước ở phần đầu (steps)."
+	}
+	return "---\n" + b.String() + "---\n" + body + "\n", nil
 }

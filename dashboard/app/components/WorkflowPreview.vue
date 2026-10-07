@@ -8,6 +8,8 @@ const { t } = useLang()
 // the brief's parts the office knows (internal/workflow BriefFields)
 const BRIEF = ['outcome', 'question', 'context', 'constraints', 'current_option', 'tried', 'files', 'done_when', 'must_not']
 const briefLabel = (k: string) => BRIEF.includes(k) ? t(`wf.brief.${k}` as MessageKey) : k
+// where a step goes: condition then / else, approve/check next / else
+const goes = (s: WorkflowStep) => (s.type === 'condition' ? [s.then, s.else] : [s.next, s.else]).filter(Boolean).join(' / ')
 </script>
 
 <template>
@@ -23,7 +25,21 @@ const briefLabel = (k: string) => BRIEF.includes(k) ? t(`wf.brief.${k}` as Messa
       <p v-if="def.input" class="text-xs"><span class="text-(--ui-text-muted)">{{ t('wf.input') }}:</span> {{ def.input }}</p>
     </div>
 
-    <div class="space-y-1">
+    <div v-if="def.steps?.length" class="space-y-1">
+      <p class="text-xs font-medium text-(--ui-text-muted)">{{ t('wf.step.count', { n: def.steps.length }) }}</p>
+      <ul class="divide-y divide-(--ui-border) rounded-md border border-(--ui-border)">
+        <li v-for="s in def.steps" :key="s.id" class="flex items-center gap-2 px-2.5 py-1 text-xs">
+          <UTooltip :text="t(`wf.step.type.${s.type}` as MessageKey)">
+            <UIcon :name="stepIcon(s.type)" class="size-4 shrink-0 text-primary" />
+          </UTooltip>
+          <span class="font-mono">{{ s.id }}</span>
+          <span v-if="s.name" class="truncate text-(--ui-text-muted)">{{ s.name }}</span>
+          <span v-if="goes(s)" class="ms-auto shrink-0 font-mono text-(--ui-text-dimmed)">→ {{ goes(s) }}</span>
+        </li>
+      </ul>
+    </div>
+
+    <div v-if="def.roles.length || !def.steps?.length" class="space-y-1">
       <p class="text-xs font-medium text-(--ui-text-muted)">{{ t('wf.roles', { n: def.roles.length }) }}</p>
       <ul class="divide-y divide-(--ui-border) rounded-md border border-(--ui-border)">
         <li v-for="r in def.roles" :key="r.key" class="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2.5 py-1.5 text-xs">
@@ -34,7 +50,7 @@ const briefLabel = (k: string) => BRIEF.includes(k) ? t(`wf.brief.${k}` as Messa
           <span class="font-mono text-(--ui-text-muted)">{{ r.key }}</span>
           <span v-if="r.hint" class="text-(--ui-text-muted)">· {{ r.hint }}</span>
           <UBadge v-if="r.prefer?.tier || r.prefer?.family" color="neutral" variant="soft" size="sm" icon="i-lucide-target" :label="[r.prefer?.tier, r.prefer?.family].filter(Boolean).join(' · ')" :title="t('wf.preferInfo')" />
-          <UBadge v-if="r.workflow" color="primary" variant="soft" size="sm" icon="i-lucide-corner-down-right" :label="`/${r.workflow}`" :title="t('wf.subInfo')" />
+          <UBadge v-if="r.workflow" color="primary" variant="soft" size="sm" icon="i-lucide-corner-down-right" :label="`#${r.workflow}`" :title="t('wf.subInfo')" />
           <UBadge v-if="r.differ_from?.length" class="ms-auto" color="neutral" variant="soft" size="sm" icon="i-lucide-split" :label="t('wf.differFrom', { roles: r.differ_from.join(', ') })" :title="t('wf.differFromInfo')" />
         </li>
       </ul>

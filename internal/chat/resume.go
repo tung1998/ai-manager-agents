@@ -89,6 +89,10 @@ func (e *Engine) goOn(conversationID string) {
 		e.dropDecided(conversationID)
 		return
 	}
+	if r := e.runOf(conversationID); r != nil && r.def.StepMode() { // a graph of steps waits on the card itself
+		e.dropDecided(conversationID)
+		return
+	}
 	if _, busy := e.Active(conversationID); busy || len(e.Running(conversationID)) > 0 {
 		d.mu.Lock()
 		if b.tries++; b.tries < 120 { // up to 10 minutes: its answer ends first

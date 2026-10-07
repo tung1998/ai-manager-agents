@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -81,7 +82,22 @@ var ErrNotFound = errors.New("không có quy trình này trong thư viện")
 
 func (l Library) path(key string) string { return filepath.Join(l.Dir, key+".md") }
 
-// Seed writes the shipped workflows that are not there yet (one deleted on
+// shippedBefore are the hashes (Hash) of earlier shipped versions of each
+// workflow: a library file still exactly one of them was not changed here,
+// so Seed brings it up to date. Add the old hash whenever a builtin changes.
+var shippedBefore = map[string][]string{
+	"advisor":       {"10880d9f499cd790"},
+	"bugfix":        {"b92f60681164b12a"},
+	"council-3":     {"31d3dbe01a69c284"},
+	"council":       {"64b2ae32e4a621fe"},
+	"feature":       {"b62577236d4c8b78"},
+	"handoff":       {"3b2e7a5fe034b4cc"},
+	"review-pr":     {"15be50acea4fd2dc"},
+	"write-content": {"27ee98aa775be3b2"},
+}
+
+// Seed writes the shipped workflows that are not there yet, and updates the
+// ones still as an earlier version shipped them (one deleted on
 // purpose comes back only with Reset).
 func (l Library) Seed() (int, error) {
 	list, err := Builtins()
@@ -97,12 +113,19 @@ func (l Library) Seed() (int, error) {
 	}
 	n := 0
 	for _, b := range list {
-		if seen[b.Def.Key] {
+		if raw, err := os.ReadFile(l.path(b.Def.Key)); err == nil {
+			seen[b.Def.Key] = true
+			// an earlier shipped version nobody changed takes the new one
+			if h := Hash(string(raw)); h != Hash(b.Source) && slices.Contains(shippedBefore[b.Def.Key], h) {
+				if err := os.WriteFile(l.path(b.Def.Key), []byte(b.Source), 0o644); err != nil {
+					return n, err
+				}
+				n++
+			}
 			continue
 		}
-		if _, err := os.Stat(l.path(b.Def.Key)); err == nil {
-			seen[b.Def.Key] = true
-			continue
+		if seen[b.Def.Key] {
+			continue // deleted on purpose
 		}
 		if err := os.WriteFile(l.path(b.Def.Key), []byte(b.Source), 0o644); err != nil {
 			return n, err

@@ -42,7 +42,7 @@ func (e *Engine) wfDelegateFlow(ctx context.Context, sc officetools.Scope, run *
 			return "", err
 		}
 	}
-	return e.wfAskFlow(ctx, sc, run, d, coord.ID, input, false)
+	return e.wfAskFlow(ctx, sc, run, d, coord.ID, input, brief, false)
 }
 
 // flowCoordinator: the agent named, else the one bound to the role, else
@@ -78,7 +78,7 @@ func (e *Engine) flowCoordinator(ctx context.Context, run *wfRun, role, name str
 }
 
 // wfAskFlow queues a run of a sub-workflow role; again: a follow-up (a round).
-func (e *Engine) wfAskFlow(ctx context.Context, sc officetools.Scope, run *wfRun, d workflow.Role, agentID, input string, again bool) (string, error) {
+func (e *Engine) wfAskFlow(ctx context.Context, sc officetools.Scope, run *wfRun, d workflow.Role, agentID, input string, inputs map[string]string, again bool) (string, error) {
 	if run.depthLeft <= 0 {
 		return "", fmt.Errorf("vai %s là quy trình con /%s nhưng đã tới giới hạn lồng (limits.depth); tự làm phần này hoặc tổng kết", d.Name, d.Workflow)
 	}
@@ -109,7 +109,7 @@ func (e *Engine) wfAskFlow(ctx context.Context, sc officetools.Scope, run *wfRun
 		r.Rounds++
 	}
 	r.AgentID, r.AgentName = a.ID, a.Name
-	e.wf.pending[sc.RunRef] = append(e.wf.pending[sc.RunRef], wfAsk{role: d.Key, agent: a, prompt: input, flow: true})
+	e.wf.pending[sc.RunRef] = append(e.wf.pending[sc.RunRef], wfAsk{role: d.Key, agent: a, prompt: input, flow: true, inputs: inputs})
 	run.logf("Giao vai %s: quy trình con /%s, %s điều phối", d.Name, d.Workflow, a.Name)
 	rec := run.rec
 	go e.saveRun(rec)
@@ -171,7 +171,8 @@ func (e *Engine) startChild(run *wfRun, conv storage.Conversation, project stora
 		level = perm.Min(level, run.ceiling)
 	}
 	sctx := WithCeiling(WithModelTier(actor.With(ctx, run.rec.Actor), run.tier), level)
-	if _, _, err := e.SendWithContext(withPrepared(sctx, &prepared{conv: own.ID, run: child, prompt: prompt}), own.ID, "/"+def.Key+" "+a.prompt, "", nil); err != nil {
+	child.inputs = a.inputs
+	if err := e.launch(sctx, own, child, "/"+def.Key+" "+a.prompt, prompt, "", nil); err != nil {
 		_ = e.store.Chat().DeleteConversation(ctx, own.ID)
 		e.wf.mu.Lock()
 		delete(run.batch, a.role)

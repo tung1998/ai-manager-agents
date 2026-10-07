@@ -19,7 +19,8 @@ type Spec struct {
 	EveryMinutes int                        `json:"every_minutes,omitempty"`
 	Cron         string                     `json:"cron,omitempty"`
 	Timezone     string                     `json:"timezone,omitempty"`
-	Action       string                     `json:"action"` // script | chat | task
+	Action       string                     `json:"action"`             // script | chat | workflow
+	Workflow     string                     `json:"workflow,omitempty"` // workflow: its key; prompt is the input
 	AgentID      string                     `json:"agent_id,omitempty"`
 	Prompt       string                     `json:"prompt,omitempty"`
 	Script       storage.AutomationScript   `json:"script"`
@@ -31,14 +32,16 @@ type Spec struct {
 // Check rejects what could not run: a bad schedule, an unknown language, a
 // script too large or too slow, an unknown escalation.
 func (s *Spec) Check() error {
-	s.Name = strings.TrimSpace(s.Name)
+	s.Name, s.Workflow = strings.TrimSpace(s.Name), strings.TrimSpace(s.Workflow)
 	switch {
 	case s.Name == "":
 		return errors.New("tự động hóa cần tên")
 	case s.Source != "schedule" && s.Source != "webhook":
 		return errors.New("nguồn phải là schedule hoặc webhook")
-	case s.Action != "script" && s.Action != "chat":
-		return errors.New("hành động phải là script hoặc chat")
+	case s.Action != "script" && s.Action != "chat" && s.Action != "workflow":
+		return errors.New("hành động phải là script, chat hoặc workflow")
+	case s.Action == "workflow" && strings.TrimSpace(s.Workflow) == "":
+		return errors.New("hãy chọn quy trình để chạy")
 	}
 	var tags []string
 	for _, t := range s.Tags {
@@ -89,6 +92,10 @@ func (s Spec) Apply(a *storage.Automation, now time.Time) {
 	cfg := s.config()
 	cfg.Auth, cfg.AuthName, cfg.SecretHash, cfg.ConversationID = a.Config.Auth, a.Config.AuthName, a.Config.SecretHash, a.Config.ConversationID
 	cfg.Tags = a.Config.Tags
+	cfg.Workflow = ""
+	if s.Action == "workflow" {
+		cfg.Workflow = strings.TrimSpace(s.Workflow)
+	}
 	if len(s.Tags) > 0 {
 		cfg.Tags = s.Tags
 	}

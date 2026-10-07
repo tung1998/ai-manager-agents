@@ -9,7 +9,8 @@
     "advisor",
     "feature",
     "bugfix",
-    "review-pr"
+    "review-pr",
+    "fix-tests"
   ],
   "agents": [
     {

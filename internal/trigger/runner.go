@@ -14,6 +14,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/usage"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
 // ErrBusy is returned by an Executor when the project (or the chat) is busy:
@@ -235,7 +236,7 @@ func (r *Runner) Retry(ctx context.Context, a storage.Automation, origTrigger st
 // dirs entirely (even to turn full access off or to no extra dirs); it never
 // adds to or falls back to the agent's own.
 func (r *Runner) effectivePermissions(ctx context.Context, a storage.Automation, trig, payload string, forceUntrusted, channelAdmin bool) (full bool, fullBy string, dirs []string) {
-	if a.Action != "chat" {
+	if a.Action != "chat" && a.Action != "workflow" {
 		return false, "", nil
 	}
 	ag, ok := r.answerer(ctx, a, trig, payload)
@@ -449,6 +450,16 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		var instr string
 		prompt, instr = replyPrompt(a, j, now, loc)
 		actx = WithSkill(WithInstructions(actx, instr), a.Config.Skill)
+	}
+	if a.Action == "workflow" && a.Config.Workflow != "" { // the prompt is the workflow's input (ADR-109)
+		if fromChannel { // what the person typed after the command
+			prompt = strings.TrimSpace(channelPayloadOf(origin).Message)
+			if c := a.Config.Command; c != "" && prompt == "/"+c {
+				prompt = ""
+			}
+		}
+		prompt = workflow.Call(a.Config.Workflow, prompt)
+		actx = WithSkill(actx, a.Config.Workflow) // a bot's chat runs only the workflow its command names
 	}
 	// gắn skill cho cả lịch/webhook (ADR-074)
 	if !fromChannel && a.Config.Skill != "" {

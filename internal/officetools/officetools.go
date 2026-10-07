@@ -163,7 +163,7 @@ func (t *Toolbox) Tools() []Tool {
 		list = append(list, Tool{Name: "propose_automation", Description: "Đề xuất một tự động hóa cho project (luôn chờ người dùng duyệt). " +
 			"Ưu tiên action=script (bash/node/python, chạy trong thư mục project, KHÔNG tốn token AI): script nhận payload qua stdin và $OFFICE_PAYLOAD, in kết quả ra stdout; " +
 			"thoát khác 0 khi có lỗi; in dòng '@@agent: <nội dung>' khi cần agent xem. escalate.when: never | failure (mặc định, khi script lỗi) | signal (khi có dòng @@agent). " +
-			"Chỉ dùng action=chat/task khi mỗi lần chạy thật sự cần AI. Lịch: every_minutes hoặc cron 5 trường kèm timezone (IANA). Có automation_id thì là sửa tự động hóa đó.",
+			"Chỉ dùng action=chat/task khi mỗi lần chạy thật sự cần AI; action=workflow chạy một quy trình của project (workflow = key, prompt = đầu vào). Lịch: every_minutes hoặc cron 5 trường kèm timezone (IANA). Có automation_id thì là sửa tự động hóa đó.",
 			Schema: obj(map[string]any{
 				"automation_id": str("Sửa tự động hóa này (bỏ trống = tạo mới)"),
 				"name":          str("Tên ngắn"),
@@ -171,9 +171,10 @@ func (t *Toolbox) Tools() []Tool {
 				"every_minutes": map[string]any{"type": "integer"},
 				"cron":          str("Ví dụ 0 8 * * 1-5"),
 				"timezone":      str("Ví dụ Asia/Ho_Chi_Minh"),
-				"action":        map[string]any{"type": "string", "enum": []string{"script", "chat", "task"}},
+				"action":        map[string]any{"type": "string", "enum": []string{"script", "chat", "task", "workflow"}},
+				"workflow":      str("workflow: key của quy trình chạy (agent_id là agent điều phối)"),
 				"agent_id":      str("chat: agent trả lời (bỏ trống = trưởng nhóm)"),
-				"prompt":        str("chat/task: nội dung gửi agent, có {{payload}}, {{today}}…"),
+				"prompt":        str("chat/task: nội dung gửi agent; workflow: đầu vào của quy trình; có {{payload}}, {{today}}…"),
 				"script": obj(map[string]any{
 					"lang":      map[string]any{"type": "string", "enum": []string{"bash", "node", "python"}},
 					"body":      str("Mã nguồn script"),

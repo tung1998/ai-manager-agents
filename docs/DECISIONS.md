@@ -1944,3 +1944,28 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Kiểm tra / đăng nhập:** đã đăng nhập = `agy models` trả danh sách model (cũng là danh sách model của kết nối). Đăng nhập trên dashboard: `agy` là giao diện toàn màn hình, nên job PTY trả lời các câu hỏi terminal (`ESC[>c`, màu nền, keyboard protocol), mở cửa sổ rộng 1000 cột để link không bị xuống dòng, tự Enter ở menu "Select login method" (Google OAuth); người dùng mở link, dán mã; `agy models` chạy được thì kết thúc job. Đường kẻ khung dài được rút gọn khi hiển thị.
 - **Cài:** Homebrew cask `antigravity-cli`, kèm gỡ cờ quarantine của thư mục cask: file tải về chờ hộp thoại Gatekeeper mà không ai ở dashboard bấm được (binary do Google LLC ký).
 - **MCP:** chưa nối. `agy` chỉ đọc MCP từ `~/.gemini/config/mcp_config.json` hoặc plugin trong customization root; cách đưa server của office vào từng lượt chạy chốt sau khi thử với tài khoản thật.
+
+## ADR-107: Soát lại các quy trình có sẵn theo ADR-101 → 104
+- **Bối cảnh cho điều phối:** chat riêng của lần chạy (ADR-101) bắt đầu trống, nên tin đầu tiên của điều phối có thêm phần cuối của chat đã gọi (12 tin gần nhất, mỗi tin tối đa 1.500 ký tự, tổng 12.000; ghi rõ là dữ liệu). `/handoff`, `/advisor` cần đúng bối cảnh này.
+- **Mẫu viết lại:** bỏ "báo người dùng" ở giữa các bước (không ai đọc chat riêng), bước cuối là `workflow_done` với `summary` và `outputs`. Mọi mẫu có `inputs` (cùng key với `brief`, nên làm quy trình con được) và `outputs` có kiểu (ví dụ `/bugfix`: `root_cause`, `fix`, `checks_passed: boolean`; `/review-pr`: `verdict`, `blocking: number`). `/advisor` hỏi bằng `workflow_ask`; vai lập kế hoạch/điều tra/review có `prefer: { tier: strong }`; vai sửa code có `limits.idle: 45m`. Key của các vai giữ nguyên để bản gán agent ở project không mất.
+- **Cập nhật thư viện:** file mẫu trong thư viện còn đúng một bản đã phát hành trước (so hash, `shippedBefore`) thì lúc khởi động được thay bằng bản mới; file đã sửa giữ nguyên. Bản chép trong project vẫn theo ADR-098: hiện "có bản mới", người dùng bấm cập nhật.
+
+## ADR-108: Quy trình dạng các bước (kiểu n8n) và trình soạn kéo thả
+- **Bối cảnh:** đối chiếu n8n, Dify, Flowise Agentflow V2, OpenAI Agent Builder, LangGraph, CrewAI. Cái mạnh của n8n là trộn đồ thị bước chạy chắc chắn với node agent tự quyết. Thay mục "không làm đồ thị bước" của ADR-098: quy trình có hai chế độ trong cùng một file.
+- **`steps`:** danh sách bước, bước đầu là bước bắt đầu, nối bằng `next` (điều kiện: `then`/`else`; duyệt/kiểm tra: `else` khi không qua). Loại bước:
+  - `agent` (`role` của quy trình, project gán agent; `prompt`), chạy một lượt của agent trong chat riêng của lần chạy, trần quyền theo `access` của vai;
+  - `workflow` (quy trình con theo key, `inputs` theo key);
+  - `code` (bash/node/python, chạy trong thư mục project bằng bộ chạy script của tự động hóa ADR-041: giới hạn thời gian, ẩn key AI; dữ liệu qua stdin JSON và `OFFICE_INPUT_*`; thoát mã khác 0 là không qua);
+  - `http` (method, url, headers, body; giữ tối đa 256KB; mã ≥ 400 là không qua);
+  - `condition` (`A == B`, `!=`, `>`, `<`, `>=`, `<=`, `contains`, hoặc một giá trị; quay lại bước trước là lặp, tối đa `max_loops`, mặc định 5);
+  - `approve` (thẻ duyệt như cổng ADR-100) và `check` (lệnh qua `run_command`, theo luật lệnh của project);
+  - `end` (`summary`, `outputs` theo template).
+- **Dữ liệu:** template `{{input.key}}`, `{{steps.<id>.output}}`, `{{steps.<id>.json.a.b}}`, `{{steps.<id>.status}}`. Gọi từ chat: đầu vào là JSON, dòng `key: value`, hoặc cả câu cho đầu vào đầu tiên. Gọi làm quy trình con: đầu vào theo key.
+- **Chạy:** không có agent điều phối; office chạy từng bước trong chat riêng (ADR-101), mỗi bước để lại một tin (code/http/kiểm tra ký "⚙ Quy trình", agent là tin của agent). Tối đa 200 bước một lần chạy; `timeout`, ngân sách, `depth`, dừng cha dừng con như chế độ điều phối. Bước lỗi dừng lần chạy, trừ `on_error: continue`. Quyết thẻ trong chế độ các bước không gọi agent nào làm tiếp: bộ chạy tự đọc kết quả thẻ.
+- **Trình soạn:** canvas Vue Flow (thêm `@vue-flow/core`): kéo bước, agent của project, quy trình vào canvas, nối mũi tên, form bên phải điền phần còn thiếu (báo đỏ), node Đầu vào/Đầu ra. Canvas sửa định nghĩa rồi gọi `POST /api/workflow-library/format` để ra file; file vẫn là nguồn duy nhất (sửa văn bản, chat hay canvas đều cùng một file).
+- **Bảo mật:** sửa quy trình vẫn chỉ admin (hoặc qua đề xuất được duyệt), nên code/http là của admin như script tự động hóa; người gọi `#key` (kể cả người dùng bot) chạy được các bước đó như chạy một tự động hóa admin đã cài.
+
+## ADR-109: Gọi quy trình bằng `#key`; tự động hóa chạy quy trình
+- **Ký hiệu riêng:** trong chat, `/` là skill, `@` là agent, `#key nội dung` là quy trình. Ô nhập mở danh sách quy trình khi gõ `#` (có nút riêng); danh sách `/` chỉ còn skill. `/key` vẫn chạy quy trình như trước (lệnh bot, tự động hóa, thói quen cũ không vỡ). `#` giữa câu hay `# tiêu đề` không phải lời gọi; `#key` không khớp quy trình nào là tin thường.
+- **Tự động hóa:** thêm hành động `workflow` (lịch, webhook): `config.workflow` là key quy trình của project (bật, không phải `callable: sub`), `prompt` là đầu vào (vẫn có `{{payload}}`, `{{today}}`…), `agent_id` là agent điều phối. Mỗi lần chạy gửi `#key đầu vào` vào chat của lần chạy, nên lần chạy quy trình có chat riêng và tự động hóa nhận đầu ra như câu trả lời. Quyền như hành động chat (ADR-074). Lệnh bot vẫn gọi quy trình qua skill của lệnh.
+- **Lưu trữ:** migration 00068 dựng lại bảng `automations` để CHECK nhận `workflow`. `propose_automation` có thêm `action=workflow`, `workflow`.

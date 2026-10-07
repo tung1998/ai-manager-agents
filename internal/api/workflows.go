@@ -28,6 +28,7 @@ func (s *server) workflowRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/workflows/{id}/to-library", admin(s.workflowToLibrary))
 	mux.Handle("GET /api/workflow-library", auth(s.listWorkflowLibrary))
 	mux.Handle("POST /api/workflow-library/validate", auth(s.validateWorkflow))
+	mux.Handle("POST /api/workflow-library/format", auth(s.formatWorkflow))
 	mux.Handle("GET /api/workflow-library/{key}", auth(s.getLibraryWorkflow))
 	mux.Handle("PUT /api/workflow-library/{key}", admin(s.saveLibraryWorkflow))
 	mux.Handle("DELETE /api/workflow-library/{key}", admin(s.deleteLibraryWorkflow))
@@ -352,10 +353,35 @@ func (s *server) validateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	d, err := workflow.Parse(in.Source)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		out := map[string]any{"ok": false, "error": err.Error()}
+		if d.Key != "" || len(d.Roles) > 0 || len(d.Steps) > 0 { // it reads, it only does not check: the canvas can still show it
+			out["draft"] = d
+		}
+		writeJSON(w, http.StatusOK, out)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "def": d})
+}
+
+// formatWorkflow writes a workflow's file from its definition (the editor's
+// canvas changes the definition): the file, and what is wrong with it.
+func (s *server) formatWorkflow(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Def workflow.Def `json:"def"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	src, err := workflow.Format(in.Def)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	out := map[string]any{"source": src}
+	if _, err := workflow.Parse(src); err != nil {
+		out["error"] = err.Error()
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *server) saveLibraryWorkflow(w http.ResponseWriter, r *http.Request) {

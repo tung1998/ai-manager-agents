@@ -480,3 +480,37 @@ func TestChannelAdminWithDefaultAgent(t *testing.T) {
 		t.Fatal("the conversation's agent's full access did not count")
 	}
 }
+
+// An automation that runs a workflow sends "#key input" to its chat (ADR-109).
+func TestWorkflowActionCallsTheWorkflow(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	ex := &fakeExec{}
+	r := trigger.New(st, ex)
+	past := time.Now().UTC().Add(-time.Minute)
+	if _, err := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "nightly", Source: "schedule", Action: "workflow", Enabled: true,
+		Prompt: "scope: api", Config: storage.AutomationConfig{EveryMinutes: 60, Workflow: "fix-tests"}, NextRunAt: &past}); err != nil {
+		t.Fatal(err)
+	}
+	r.Tick(ctx, time.Now().UTC())
+	r.Wait()
+	if len(ex.chats) != 1 || ex.chats[0] != "#fix-tests scope: api" {
+		t.Fatalf("chats = %q", ex.chats)
+	}
+}
+
+func TestSpecWorkflowNeedsKey(t *testing.T) {
+	s := trigger.Spec{Name: "x", Source: "webhook", Action: "workflow"}
+	if s.Check() == nil {
+		t.Fatal("a workflow action without a workflow passed")
+	}
+	s.Workflow = " review "
+	if err := s.Check(); err != nil {
+		t.Fatal(err)
+	}
+	var a storage.Automation
+	s.Apply(&a, time.Now())
+	if a.Action != "workflow" || a.Config.Workflow != "review" {
+		t.Fatalf("applied %+v", a)
+	}
+}
