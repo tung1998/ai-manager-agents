@@ -88,7 +88,7 @@ func (e *Engine) awaitRun(ctx context.Context, turn *Turn, conv storage.Conversa
 	if err != nil {
 		rec = run.rec
 	}
-	role, content := "assistant", strings.TrimSpace(rec.Result)
+	role, content := "assistant", strings.TrimSpace(rec.Result)+outputsText(rec)
 	var runErr, stopped error
 	switch rec.Status {
 	case storage.RunDone:

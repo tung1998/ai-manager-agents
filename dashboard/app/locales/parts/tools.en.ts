@@ -191,7 +191,6 @@ const en: Record<keyof typeof vi, string> = {
   'prov.send': 'Send',
   'prov.detectedOnMachine': 'Available on this machine',
   'prov.defaultTestPrompt': 'Hi, briefly introduce yourself and which model you are.',
-  'tools.libraryPageTitle': 'Library',
   'tools.skillsTab': 'Skills',
   'tools.mcpTab': 'MCP servers',
   'tools.mcpConnected': 'Connected',

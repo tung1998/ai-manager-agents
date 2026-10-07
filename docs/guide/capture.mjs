@@ -425,7 +425,7 @@ async function capture({ ao, shop, lead }) {
     ['22-watch', '/watch'],
     ['23-providers', '/providers'],
     ['24-templates', '/workflows'],
-    ['25-library', '/library'],
+    ['25-library', '/skills'],
     ['26-jobs', '/jobs'],
     ['27-stats', '/?tab=stats'],
     ['37-machine', '/?tab=machine'],

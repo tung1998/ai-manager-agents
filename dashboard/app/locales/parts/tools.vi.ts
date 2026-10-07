@@ -195,7 +195,6 @@ export default {
   'prov.detectedOnMachine': 'Có sẵn trên máy',
   'prov.defaultTestPrompt': 'Chào bạn, hãy giới thiệu ngắn gọn bạn là model nào.',
   // library.vue page
-  'tools.libraryPageTitle': 'Thư viện',
   'tools.skillsTab': 'Skills',
   'tools.mcpTab': 'MCP servers',
   'tools.mcpConnected': 'Đã kết nối',

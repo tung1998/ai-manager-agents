@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
@@ -43,6 +45,50 @@ func (s *Service) agents(ctx context.Context, projectID string) ([]storage.Agent
 	return agents, d.ID, nil
 }
 
+// families is the vendor family of each agent's connection (its own, else
+// the default one).
+func (s *Service) families(ctx context.Context, agents []storage.Agent) map[string]string {
+	provs, err := s.Store.Providers().List(ctx)
+	if err != nil {
+		return nil
+	}
+	byID, def := map[string]storage.Provider{}, storage.Provider{}
+	for _, p := range provs {
+		byID[p.ID] = p
+		if p.IsDefault {
+			def = p
+		}
+	}
+	out := map[string]string{}
+	for _, a := range agents {
+		p, ok := byID[a.ProviderID]
+		if !ok {
+			p = def
+		}
+		if p.ID != "" {
+			out[a.ID] = Family(p)
+		}
+	}
+	return out
+}
+
+// Family is the vendor family of a connection: two roles that must differ
+// may not share one; a role may prefer one.
+func Family(p storage.Provider) string {
+	switch p.Kind {
+	case storage.ProviderAnthropic, storage.ProviderClaudeCLI:
+		return "anthropic"
+	case storage.ProviderOpenAI, storage.ProviderCodexCLI:
+		return "openai"
+	case storage.ProviderGeminiCLI:
+		return "google"
+	}
+	if u, err := url.Parse(p.BaseURL); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return cmpOr(p.Preset, string(p.Kind)+":"+p.ID)
+}
+
 // checkBindings keeps the bindings of def's roles to agents of the project.
 func (s *Service) checkBindings(ctx context.Context, projectID string, def Def, b map[string]string) (map[string]string, error) {
 	out := map[string]string{}
@@ -69,9 +115,10 @@ func (s *Service) checkBindings(ctx context.Context, projectID string, def Def, 
 }
 
 // Suggest fills the roles of def with agents of the project by what their
-// hints say, never the default agent (it coordinates), and two roles that
-// work at once never with the same agent.
-func Suggest(def Def, agents []storage.Agent, defaultID string) map[string]string {
+// hints say and what they prefer (a model tier, a vendor family: families
+// maps agent id → family, may be nil), never the default agent (it
+// coordinates), and two roles that work at once never with the same agent.
+func Suggest(def Def, agents []storage.Agent, defaultID string, families map[string]string) map[string]string {
 	out := map[string]string{}
 	var pool []storage.Agent
 	for _, a := range storage.OnAgents(agents) {
@@ -107,6 +154,14 @@ func Suggest(def Def, agents []storage.Agent, defaultID string) map[string]strin
 			}
 			if r.Access == AccessEdit && (a.Permissions.ReadOnly && a.Permissions.Level == "") {
 				n -= 3 // it cannot edit
+			}
+			if p := r.Prefer; p != nil {
+				if p.Tier != "" && a.ModelTier == p.Tier {
+					n += 2
+				}
+				if p.Family != "" && families[a.ID] == p.Family {
+					n += 3
+				}
 			}
 			best = append(best, scored{a, n})
 		}
@@ -155,7 +210,7 @@ func (s *Service) create(ctx context.Context, projectID, source, from string, bi
 		if err != nil {
 			return storage.Workflow{}, err
 		}
-		bindings = Suggest(def, agents, def0)
+		bindings = Suggest(def, agents, def0, s.families(ctx, agents))
 	}
 	b, err := s.checkBindings(ctx, projectID, def, bindings)
 	if err != nil {
@@ -298,4 +353,33 @@ func cmpOr(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// EndInterrupted ends the runs the office restarted under (their turns do
+// not run again) and tells each chat that called one: a chat would
+// otherwise wait for an output that never comes.
+func (s *Service) EndInterrupted(ctx context.Context) (int, error) {
+	runs, err := s.Store.WorkflowRuns().List(ctx, "", "", 500)
+	if err != nil {
+		return 0, err
+	}
+	const why = "office khởi động lại khi quy trình đang chạy"
+	if _, err := s.Store.WorkflowRuns().FailRunning(ctx, why, time.Now().UTC()); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range runs {
+		if r.Status != storage.RunRunning {
+			continue
+		}
+		n++
+		note := "⚠️ Quy trình " + r.WorkflowName + " đã dừng vì office khởi động lại. Gõ lại /" + r.WorkflowKey + " để chạy lại."
+		if r.ConversationID != "" {
+			_, _ = s.Store.Chat().AddMessage(ctx, storage.Message{ConversationID: r.ConversationID, Role: "error", Content: note})
+		}
+		if r.CallerConversationID != "" && r.ParentRunID == "" { // the chat that called the top run (a sub-run's caller is its parent's chat, told above)
+			_, _ = s.Store.Chat().AddMessage(ctx, storage.Message{ConversationID: r.CallerConversationID, Role: "error", Content: note})
+		}
+	}
+	return n, nil
 }

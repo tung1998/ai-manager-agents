@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -45,11 +44,25 @@ type wfRun struct {
 	voting   *wfVoting       // a vote in progress
 	notes    []string        // what the coordinator is told when called back (a role failed…)
 	tries    int             // call-backs that found the chat busy
+	owed     bool            // a role answered while another was asked and waited for: the coordinator is called back for it
 	done     chan struct{}   // closed when the run ends
 	// sub-workflows (ADR-102): how many levels may still go below this run,
 	// and the deadline of the run that called it (zero: called from a chat)
 	depthLeft int
 	until     time.Time
+	// the run whose role called it and that role (nil: called from a chat):
+	// its cost goes up the tree as it is spent, the tree's budgets and
+	// concurrency bound it (ADR-103)
+	parent     *wfRun
+	parentRole string
+}
+
+// rootOf is the top of a run's tree (with the lock held).
+func rootOf(r *wfRun) *wfRun {
+	for r.parent != nil {
+		r = r.parent
+	}
+	return r
 }
 
 // RunPurpose is the purpose of a workflow run's own chat.
@@ -105,13 +118,14 @@ type wfAsk struct {
 // wfState is the engine's running workflows.
 type wfState struct {
 	mu      sync.Mutex
-	byConv  map[string]*wfRun  // conversation id → its running workflow
-	pending map[string][]wfAsk // coordinator turn id → turns to start after it
+	byConv  map[string]*wfRun      // conversation id → its running workflow
+	pending map[string][]wfAsk     // coordinator turn id → turns to start after it
+	waiting map[string]chan string // run id/role → a coordinator waiting for that role's answer (workflow_ask)
 }
 
 func (s *wfState) init() {
 	if s.byConv == nil {
-		s.byConv, s.pending = map[string]*wfRun{}, map[string][]wfAsk{}
+		s.byConv, s.pending, s.waiting = map[string]*wfRun{}, map[string][]wfAsk{}, map[string]chan string{}
 	}
 }
 
@@ -136,22 +150,8 @@ func accessLabel(access string) string {
 	return "chỉ phân tích"
 }
 
-// family is the vendor family of a connection: two roles that must differ
-// may not share one.
-func family(p storage.Provider) string {
-	switch p.Kind {
-	case storage.ProviderAnthropic, storage.ProviderClaudeCLI:
-		return "anthropic"
-	case storage.ProviderOpenAI, storage.ProviderCodexCLI:
-		return "openai"
-	case storage.ProviderGeminiCLI:
-		return "google"
-	}
-	if u, err := url.Parse(p.BaseURL); err == nil && u.Host != "" {
-		return u.Host
-	}
-	return cmp.Or(p.Preset, string(p.Kind)+":"+p.ID)
-}
+// family is the vendor family of a connection (workflow.Family).
+func family(p storage.Provider) string { return workflow.Family(p) }
 
 // agentFamily is the family of the connection an agent's turns run on first.
 func (e *Engine) agentFamily(ctx context.Context, a storage.Agent) (string, string) {
@@ -197,6 +197,9 @@ func (e *Engine) prepWorkflow(ctx context.Context, conv storage.Conversation, co
 	if err != nil {
 		return nil, "", true, fmt.Errorf("quy trình /%s không hợp lệ: %w", name, err)
 	}
+	if def.Callable == workflow.CallableSub {
+		return nil, "", true, fmt.Errorf("quy trình /%s chỉ để quy trình khác gọi (callable: sub)", def.Key)
+	}
 	if e.calledFrom(conv.ID) != nil {
 		return nil, "", true, ErrWorkflowRunning
 	}
@@ -241,6 +244,9 @@ func (e *Engine) newRun(ctx context.Context, projectID string, w storage.Workflo
 		input = "(không ghi thêm)"
 	}
 	prompt := fmt.Sprintf("Người dùng chạy quy trình **%s** (/%s) với yêu cầu:\n%s\n\nBắt đầu theo hướng dẫn của quy trình ở phần hệ thống.", def.Name, def.Key, input) // i18n-ignore
+	if len(def.Inputs) > 0 {
+		prompt += "\nĐầu vào quy trình cần (lấy từ yêu cầu trên; thiếu thì tự quyết và ghi giả định): " + fieldList(def.Inputs) // i18n-ignore
+	}
 	return run, prompt, nil
 }
 
@@ -464,9 +470,15 @@ func (e *Engine) wfBrief(ctx context.Context, run *wfRun, projectID string) stri
 		if d.Hint != "" {
 			fmt.Fprintf(&b, "  sở trường: %s\n", d.Hint)
 		}
+		if p := d.Prefer; p != nil && (p.Tier != "" || p.Family != "") {
+			fmt.Fprintf(&b, "  nên dùng agent: %s\n", strings.Trim(p.Tier+" "+p.Family, " ")) // i18n-ignore
+		}
 	}
 	if slices.ContainsFunc(def.Roles, func(r workflow.Role) bool { return r.Workflow != "" }) {
 		fmt.Fprintf(&b, "Vai là quy trình con: giao bằng workflow_delegate như vai thường (bản giao là đầu vào của nó). Nó chạy trong chat riêng; đầu ra của nó thành một tin trong cuộc chat này khi xong. workflow_send chạy lại nó với nội dung mới. Còn lồng được %d cấp.\n", run.depthLeft) // i18n-ignore
+	}
+	if len(def.Outputs) > 0 {
+		fmt.Fprintf(&b, "Kết thúc bằng workflow_done kèm outputs (object theo key): %s.\n", fieldList(def.Outputs)) // i18n-ignore
 	}
 	if len(def.Parallel) > 0 {
 		var g []string
@@ -506,7 +518,7 @@ func (e *Engine) wfBrief(ctx context.Context, run *wfRun, projectID string) stri
 	b.WriteString("\n\n### Hướng dẫn của quy trình\n" + def.Body + "\n")
 	b.WriteString(`
 ### Cách điều phối
-- Giao việc CHỈ bằng workflow_delegate (lần đầu), workflow_send (gửi tiếp cho vai đã giao, vai giữ mạch), workflow_vote (biểu quyết). Không tự làm phần việc của các vai; không dùng delegate.
+- Giao việc CHỈ bằng workflow_delegate (lần đầu), workflow_send (gửi tiếp cho vai đã giao, vai giữ mạch), workflow_vote (biểu quyết). Câu hỏi ngắn cho vai chỉ phân tích thì dùng workflow_ask: chờ câu trả lời ngay trong lượt, không phải đợi gọi lại. Không tự làm phần việc của các vai; không dùng delegate.
 - Cuộc chat này là của riêng lần chạy: không ai nhắn vào, người gọi chỉ thấy yêu cầu ban đầu và summary của workflow_done. Đừng hỏi lại người dùng; thiếu thông tin thì tự quyết theo hướng an toàn và ghi rõ giả định trong kết quả.
 - Gọi xong thì ghi ngắn (đã giao gì cho ai) rồi DỪNG lượt. Các vai làm ở nền; khi tất cả vai vừa giao đã xong, office gọi lại bạn, kết quả của họ là các tin ngay trên trong cuộc chat.
 - Bản giao việc nêu kết quả cần đạt, ràng buộc và phương án đang thử; không viết sẵn cách sửa từng file hay từng hàm, để vai đọc code rồi tự quyết.
@@ -588,6 +600,8 @@ func (e *Engine) WorkflowCall(ctx context.Context, sc officetools.Scope, name st
 		Note     string            `json:"note"`
 		Command  string            `json:"command"`
 		Summary  string            `json:"summary"`
+		Outputs  map[string]string `json:"outputs"`
+		Wait     int               `json:"wait_seconds"`
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &in); err != nil {
@@ -597,6 +611,8 @@ func (e *Engine) WorkflowCall(ctx context.Context, sc officetools.Scope, name st
 	switch name {
 	case "workflow_delegate":
 		return e.wfDelegate(ctx, sc, run, in.Role, in.Agent, in.Brief)
+	case "workflow_ask":
+		return e.wfAskNow(ctx, sc, run, in.Role, in.Question, in.Wait)
 	case "workflow_send":
 		return e.wfSend(ctx, sc, run, in.Role, in.Message)
 	case "workflow_vote":
@@ -604,7 +620,7 @@ func (e *Engine) WorkflowCall(ctx context.Context, sc officetools.Scope, name st
 	case "workflow_gate":
 		return e.wfGate(ctx, sc, run, in.Gate, in.Note, in.Command, in.Role)
 	case "workflow_done":
-		return e.wfDone(ctx, sc, run, in.Summary)
+		return e.wfDone(ctx, sc, run, in.Summary, in.Outputs)
 	}
 	return "", fmt.Errorf("không có công cụ %s", name)
 }
@@ -741,8 +757,23 @@ func (e *Engine) canAsk(run *wfRun, turnID, role string, a storage.Agent) error 
 	if run.rec.Turns+len(run.batch)+len(queued) >= run.def.Limits.Turns {
 		return fmt.Errorf("đã hết %d lượt của các vai trong quy trình; tổng kết kết quả hiện có rồi gọi workflow_done", run.def.Limits.Turns)
 	}
-	if b := run.def.Limits.BudgetUSD; b > 0 && run.rec.CostUSD >= b {
-		return fmt.Errorf("quy trình đã dùng hết ngân sách $%.2f; tổng kết rồi gọi workflow_done", b)
+	for r := run; r != nil; r = r.parent { // its own budget and those of the runs above it
+		if b := r.def.Limits.BudgetUSD; b > 0 && r.rec.CostUSD >= b {
+			if r == run {
+				return fmt.Errorf("quy trình đã dùng hết ngân sách $%.2f; tổng kết rồi gọi workflow_done", b)
+			}
+			return fmt.Errorf("quy trình cấp trên /%s đã dùng hết ngân sách $%.2f; tổng kết rồi gọi workflow_done", r.def.Key, b)
+		}
+	}
+	root := rootOf(run) // roles answering at once in the whole tree
+	busyN := len(queued)
+	for _, x := range e.wf.byConv {
+		if rootOf(x) == root {
+			busyN += len(x.batch)
+		}
+	}
+	if limit := root.def.Limits.Concurrency; limit > 0 && busyN >= limit {
+		return fmt.Errorf("đã có %d vai đang làm trong cả cây quy trình (limits.concurrency %d); đợi bớt rồi giao tiếp", busyN, limit)
 	}
 	busy := map[string]bool{}
 	for k := range run.batch {
@@ -1043,7 +1074,7 @@ func (e *Engine) refreshGates(ctx context.Context, run *wfRun) {
 	}
 }
 
-func (e *Engine) wfDone(ctx context.Context, sc officetools.Scope, run *wfRun, summary string) (string, error) {
+func (e *Engine) wfDone(ctx context.Context, sc officetools.Scope, run *wfRun, summary string, outputs map[string]string) (string, error) {
 	e.refreshGates(ctx, run)
 	e.wf.mu.Lock()
 	var missing, working []string
@@ -1068,6 +1099,12 @@ func (e *Engine) wfDone(ctx context.Context, sc officetools.Scope, run *wfRun, s
 	if strings.TrimSpace(summary) == "" {
 		return "", errors.New("summary là kết quả gửi người gọi quy trình (họ chỉ thấy phần này): hãy viết đầy đủ")
 	}
+	if err := run.def.CheckOutputs(outputs); err != nil {
+		return "", fmt.Errorf("%w (%s); gọi lại workflow_done kèm outputs", err, fieldList(run.def.Outputs))
+	}
+	e.wf.mu.Lock()
+	run.rec.Outputs = outputs
+	e.wf.mu.Unlock()
 	e.finishRun(run.rec.ConversationID, run.rec.ID, storage.RunDone, strings.TrimSpace(summary), "")
 	return "Đã kết thúc quy trình; summary đã gửi tới chat gọi nó. Kết thúc lượt bằng một dòng ngắn.", nil
 }
@@ -1155,6 +1192,7 @@ func (e *Engine) startRole(run *wfRun, conv storage.Conversation, project storag
 	rec := run.rec
 	e.wf.mu.Unlock()
 	e.saveRun(rec)
+	e.watchIdle(run, conv, a.role)
 	return true
 }
 
@@ -1191,6 +1229,18 @@ func (e *Engine) wfRoleDone(prev *Turn, conv storage.Conversation, project stora
 	}
 	delete(run.batch, prev.wfRole)
 	last := len(run.batch) == 0
+	key := run.rec.ID + "/" + prev.wfRole
+	if ch, ok := e.wf.waiting[key]; ok { // its coordinator waits for it (workflow_ask): the answer goes there
+		delete(e.wf.waiting, key)
+		answer := reply
+		if prev.err != "" {
+			answer = "(lỗi) " + prev.err
+		}
+		ch <- answer
+		last = last && run.owed // others answered meanwhile: they are told by a call-back
+	} else if !last {
+		run.owed = true
+	}
 	id, rec := run.rec.ID, run.rec
 	e.wf.mu.Unlock()
 	e.saveRun(rec)
@@ -1258,7 +1308,7 @@ func (e *Engine) wfCallBack(runID string, conv storage.Conversation, project sto
 		return
 	}
 	e.wf.mu.Lock()
-	run.tries, run.notes, run.voting = 0, nil, nil
+	run.tries, run.notes, run.voting, run.owed = 0, nil, nil, false
 	e.wf.mu.Unlock()
 }
 
@@ -1276,6 +1326,12 @@ func (e *Engine) wfCost(turn *Turn, conversationID string, cost *float64) {
 	run.rec.CostUSD += *cost
 	if r := run.role(turn.wfRole); r != nil {
 		r.CostUSD += *cost
+	}
+	for r := run; r.parent != nil; r = r.parent { // the runs above it pay for it too, as it spends
+		r.parent.rec.CostUSD += *cost
+		if pr := r.parent.role(r.parentRole); pr != nil {
+			pr.CostUSD += *cost
+		}
 	}
 	e.wf.mu.Unlock()
 }
@@ -1321,3 +1377,122 @@ type actionsProposer interface {
 
 // SetActions lets workflows open gates (approval cards, check commands).
 func (e *Engine) SetActions(a actionsProposer) { e.acts = a }
+
+// fieldList names declared inputs or outputs for a prompt.
+func fieldList(fs []workflow.Field) string {
+	out := make([]string, 0, len(fs))
+	for _, f := range fs {
+		x := "`" + f.Key + "`"
+		if f.Type != "" && f.Type != "string" {
+			x += " [" + f.Type + "]"
+		}
+		if f.Description != "" {
+			x += " (" + f.Description + ")"
+		}
+		if f.Required {
+			x += " bắt buộc" // i18n-ignore
+		}
+		out = append(out, x)
+	}
+	return strings.Join(out, ", ")
+}
+
+// outputsText is a run's outputs as Markdown, after its summary.
+func outputsText(rec storage.WorkflowRun) string {
+	if len(rec.Outputs) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(rec.Outputs))
+	for k := range rec.Outputs {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	var b strings.Builder
+	b.WriteString("\n\n**Đầu ra**\n") // i18n-ignore
+	for _, k := range keys {
+		fmt.Fprintf(&b, "- `%s`: %s\n", k, rec.Outputs[k])
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// wfAskNow asks an analyze role a question and waits for its answer within
+// the coordinator's turn (workflow_ask); past the wait it goes on in the
+// background and the coordinator is called back as for workflow_delegate.
+func (e *Engine) wfAskNow(ctx context.Context, sc officetools.Scope, run *wfRun, role, question string, waitSec int) (string, error) {
+	d, ok := run.def.Role(role)
+	if !ok {
+		return "", fmt.Errorf("quy trình không có vai %q (có: %s)", role, roleKeys(run.def))
+	}
+	if d.Workflow != "" || d.Access != workflow.AccessAnalyze {
+		return "", fmt.Errorf("workflow_ask chỉ dùng cho vai chỉ phân tích (access analyze); vai %s dùng workflow_delegate / workflow_send", d.Name)
+	}
+	if strings.TrimSpace(question) == "" {
+		return "", errors.New("hãy ghi câu hỏi")
+	}
+	a, err := e.pickAgent(ctx, run, role, "")
+	if err != nil {
+		return "", err
+	}
+	conv, err := e.store.Chat().GetConversation(ctx, run.rec.ConversationID)
+	if err != nil {
+		return "", err
+	}
+	project, err := e.store.Repos().Get(ctx, run.rec.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	e.wf.mu.Lock()
+	r := run.role(role)
+	if r.Status == "working" {
+		e.wf.mu.Unlock()
+		return "", fmt.Errorf("vai %s đang làm; đợi xong", d.Name)
+	}
+	again := r.Status != "idle"
+	if again && r.Rounds >= run.def.Limits.Rounds {
+		e.wf.mu.Unlock()
+		return "", fmt.Errorf("đã hỏi vai %s %d lần (giới hạn); tổng kết với kết quả hiện có", d.Name, r.Rounds)
+	}
+	if err := e.canAsk(run, sc.RunRef, role, a); err != nil {
+		e.wf.mu.Unlock()
+		return "", err
+	}
+	e.wf.mu.Unlock()
+	if !again {
+		if err := e.checkDiffer(ctx, run, role, a); err != nil {
+			return "", err
+		}
+	}
+	e.wf.mu.Lock()
+	r = run.role(role)
+	if again {
+		r.Rounds++
+	}
+	r.AgentID, r.AgentName = a.ID, a.Name
+	key := run.rec.ID + "/" + role
+	ch := make(chan string, 1)
+	e.wf.waiting[key] = ch
+	run.logf("Hỏi %s (%s) và chờ", d.Name, a.Name)
+	e.wf.mu.Unlock()
+	prompt := fmt.Sprintf("%s (điều phối quy trình %s) hỏi bạn, vai %s:\n%s\n\nTrả lời ngắn gọn, đủ ý. %s", run.coord.Name, run.def.Name, d.Name, strings.TrimSpace(question), workflow.AccessNote(d.Access)) // i18n-ignore
+	if !e.startRole(run, conv, project, wfAsk{role: role, agent: a, prompt: prompt}) {
+		e.wf.mu.Lock()
+		delete(e.wf.waiting, key)
+		e.wf.mu.Unlock()
+		return "", fmt.Errorf("vai %s không bắt đầu được (chat bận hoặc hết giờ)", d.Name)
+	}
+	wait := time.Duration(min(max(cmp.Or(waitSec, 60), 10), 120)) * time.Second
+	select {
+	case answer := <-ch:
+		return fmt.Sprintf("%s (vai %s) trả lời:\n%s", a.Name, d.Name, answer), nil
+	case <-time.After(wait):
+	case <-ctx.Done():
+	}
+	e.wf.mu.Lock()
+	if _, still := e.wf.waiting[key]; still { // not answered yet: as a hand-off from here on
+		delete(e.wf.waiting, key)
+		e.wf.mu.Unlock()
+		return fmt.Sprintf("%s chưa trả lời sau %s; vai làm tiếp ở nền, khi xong bạn được gọi lại (như workflow_delegate). Ghi ngắn rồi dừng lượt.", a.Name, wait), nil
+	}
+	e.wf.mu.Unlock()
+	return fmt.Sprintf("%s (vai %s) trả lời:\n%s", a.Name, d.Name, <-ch), nil
+}

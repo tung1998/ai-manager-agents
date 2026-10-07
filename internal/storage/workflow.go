@@ -56,6 +56,7 @@ type WorkflowRun struct {
 	Turns                         int    // turns of the roles so far
 	CostUSD                       float64
 	Result, Error                 string
+	Outputs                       map[string]string // its declared outputs, by key (ADR-103)
 	Roles                         []RunRole
 	Gates                         []RunGate
 	Log                           []RunLog

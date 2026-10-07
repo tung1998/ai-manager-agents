@@ -158,3 +158,26 @@ func TestClaudeArgsExtraDirsDeniesWriteWithoutFullAccess(t *testing.T) {
 		t.Fatalf("extra dir denied with the wrong (relative) syntax: %q", deny)
 	}
 }
+
+// A subagent Claude Code starts on its own (Task): its steps show under it.
+func TestClaudeShowsItsSubagents(t *testing.T) {
+	dir := t.TempDir()
+	lines := []string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tk1","name":"Task","input":{"description":"tìm chỗ gọi API","subagent_type":"Explore"}}]}}`,
+		`{"type":"assistant","parent_tool_use_id":"tk1","message":{"content":[{"type":"tool_use","id":"g1","name":"Grep","input":{"pattern":"fetch("}}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"r1","name":"Read","input":{"file_path":"a.go"}}]}}`,
+		`{"type":"result","subtype":"success","result":"ok","usage":{"input_tokens":1,"output_tokens":1}}`,
+	}
+	fixture := filepath.Join(dir, "out.jsonl")
+	os.WriteFile(fixture, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	bin := filepath.Join(dir, "claude")
+	os.WriteFile(bin, []byte("#!/bin/sh\ncat >/dev/null\ncat "+fixture+"\n"), 0o755)
+	res, err := claudeRunner{}.Run(context.Background(), RunRequest{Bin: bin, WorkDir: dir, Prompt: "hi"}, func(Event) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Tools) != 3 || res.Tools[0].Summary != "Giao subagent Explore: tìm chỗ gọi API" ||
+		res.Tools[1].Summary != `↳ Explore · tìm chỗ gọi API: Tìm "fetch("` || res.Tools[2].Summary != "Đọc a.go" {
+		t.Fatalf("tools = %+v", res.Tools)
+	}
+}

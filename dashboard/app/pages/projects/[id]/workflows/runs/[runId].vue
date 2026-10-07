@@ -66,6 +66,12 @@ useHead({ title: () => run.value?.workflow_name ?? t('wf.section') })
         <!-- eslint-disable-next-line vue/no-v-html -->
         <div v-else-if="run.result" class="markdown rounded-lg border border-(--ui-border) px-3 py-2 text-sm" v-html="renderMarkdown(run.result)" />
         <p v-else class="text-sm text-(--ui-text-muted)">{{ run.status === 'running' ? t('wf.runPage.notYet') : t('wf.runPage.noOutput') }}</p>
+        <dl v-if="run.outputs && Object.keys(run.outputs).length" class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border) text-sm">
+          <div v-for="(v, k) in run.outputs" :key="k" class="grid gap-1 px-3 py-2 sm:grid-cols-[10rem_1fr]">
+            <dt class="font-mono text-xs text-(--ui-text-muted)">{{ k }}</dt>
+            <dd class="whitespace-pre-wrap">{{ v }}</dd>
+          </div>
+        </dl>
       </section>
       <section class="space-y-2">
         <div class="flex items-center gap-2">

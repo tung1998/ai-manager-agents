@@ -184,3 +184,42 @@ func TestParseSubWorkflowRole(t *testing.T) {
 		t.Fatalf("bad sub-workflow: %v", err)
 	}
 }
+
+func TestParseContract(t *testing.T) {
+	d, err := Parse("---\nkey: a\nname: A\ncallable: sub\ninputs:\n  - key: q\n    required: true\noutputs:\n  - key: r\nroles:\n  - key: x\n    prefer: { tier: Strong, family: OpenAI }\nlimits: { idle: 10m }\n---\nx\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Roles[0].Prefer.Tier != "strong" || d.Roles[0].Prefer.Family != "openai" || d.Limits.Concurrency != DefaultConcurrency || d.IdleAfter() != 10*time.Minute {
+		t.Fatalf("def = %+v", d)
+	}
+	if _, err := d.RenderInputs(map[string]string{}); err == nil {
+		t.Fatal("a required input missing")
+	}
+	if in, err := d.RenderInputs(map[string]string{"q": "Q?", "extra": "E"}); err != nil || !strings.Contains(in, "Q?") || !strings.Contains(in, "E") {
+		t.Fatalf("inputs = %q, %v", in, err)
+	}
+	if _, err := Parse("---\nkey: a\nname: A\ncallable: nope\nroles:\n  - key: x\n    prefer: { tier: huge }\nlimits: { idle: 5s, concurrency: 99 }\n---\nx\n"); err == nil ||
+		!strings.Contains(err.Error(), "callable") || !strings.Contains(err.Error(), "prefer.tier") || !strings.Contains(err.Error(), "idle") || !strings.Contains(err.Error(), "concurrency") {
+		t.Fatalf("bad contract: %v", err)
+	}
+}
+
+func TestOutputTypes(t *testing.T) {
+	d, err := Parse("---\nkey: a\nname: A\noutputs:\n  - { key: n, type: number, required: true }\n  - { key: ok, type: boolean }\n  - { key: files, type: list }\n  - { key: raw, type: json }\nroles:\n  - key: x\n---\nx\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CheckOutputs(map[string]string{"n": "3.5", "ok": "true", "files": `["a.go"]`, "raw": `{"a":1}`}); err != nil {
+		t.Fatal(err)
+	}
+	err = d.CheckOutputs(map[string]string{"n": "ba", "ok": "có", "files": "a.go", "raw": "{"})
+	for _, k := range []string{"n (phải là number)", "ok (phải là boolean)", "files (phải là list)", "raw (phải là json)"} {
+		if err == nil || !strings.Contains(err.Error(), k) {
+			t.Fatalf("missing %q in %v", k, err)
+		}
+	}
+	if _, err := Parse("---\nkey: a\nname: A\noutputs:\n  - { key: n, type: date }\nroles:\n  - key: x\n---\nx\n"); err == nil || !strings.Contains(err.Error(), "type") {
+		t.Fatalf("bad type: %v", err)
+	}
+}

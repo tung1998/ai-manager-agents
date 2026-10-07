@@ -16,6 +16,7 @@ const briefLabel = (k: string) => BRIEF.includes(k) ? t(`wf.brief.${k}` as Messa
       <p class="flex flex-wrap items-center gap-2">
         <span class="font-semibold">{{ def.name }}</span>
         <span class="font-mono text-xs text-(--ui-text-muted)">/{{ def.key }}</span>
+        <UBadge v-if="def.callable" color="neutral" variant="outline" size="sm" :label="t(`wf.callable.${def.callable}` as MessageKey)" :title="t('wf.callableInfo')" />
         <UBadge v-if="def.strict" color="warning" variant="subtle" size="sm" :label="t('wf.strict')" :title="t('wf.strictInfo')" />
       </p>
       <p v-if="def.description" class="text-xs text-(--ui-text-muted)">{{ def.description }}</p>
@@ -32,6 +33,7 @@ const briefLabel = (k: string) => BRIEF.includes(k) ? t(`wf.brief.${k}` as Messa
           <span class="font-medium">{{ r.name }}</span>
           <span class="font-mono text-(--ui-text-muted)">{{ r.key }}</span>
           <span v-if="r.hint" class="text-(--ui-text-muted)">· {{ r.hint }}</span>
+          <UBadge v-if="r.prefer?.tier || r.prefer?.family" color="neutral" variant="soft" size="sm" icon="i-lucide-target" :label="[r.prefer?.tier, r.prefer?.family].filter(Boolean).join(' · ')" :title="t('wf.preferInfo')" />
           <UBadge v-if="r.workflow" color="primary" variant="soft" size="sm" icon="i-lucide-corner-down-right" :label="`/${r.workflow}`" :title="t('wf.subInfo')" />
           <UBadge v-if="r.differ_from?.length" class="ms-auto" color="neutral" variant="soft" size="sm" icon="i-lucide-split" :label="t('wf.differFrom', { roles: r.differ_from.join(', ') })" :title="t('wf.differFromInfo')" />
         </li>
@@ -44,7 +46,21 @@ const briefLabel = (k: string) => BRIEF.includes(k) ? t(`wf.brief.${k}` as Messa
       <UBadge v-if="def.limits.turns" color="neutral" variant="outline" size="sm" :label="t('wf.limit.turns', { n: def.limits.turns })" :title="t('wf.limit.turnsInfo')" />
       <UBadge v-if="def.limits.timeout" color="neutral" variant="outline" size="sm" icon="i-lucide-timer" :label="def.limits.timeout" />
       <UBadge v-if="def.roles.some(r => r.workflow)" color="neutral" variant="outline" size="sm" icon="i-lucide-layers" :label="t('wf.limit.depth', { n: def.limits.depth })" :title="t('wf.limit.depthInfo')" />
+      <UBadge v-if="def.limits.concurrency" color="neutral" variant="outline" size="sm" icon="i-lucide-users" :label="t('wf.limit.concurrency', { n: def.limits.concurrency })" :title="t('wf.limit.concurrencyInfo')" />
+      <UBadge v-if="def.limits.idle" color="neutral" variant="outline" size="sm" icon="i-lucide-hourglass" :label="t('wf.limit.idle', { d: def.limits.idle })" :title="t('wf.limit.idleInfo')" />
       <UBadge v-if="def.limits.budget_usd" color="neutral" variant="outline" size="sm" icon="i-lucide-wallet" :label="`$${def.limits.budget_usd}`" />
+    </div>
+
+    <div v-for="io in ([['inputs', def.inputs], ['outputs', def.outputs]] as const)" v-show="io[1]?.length" :key="io[0]" class="space-y-1">
+      <p class="text-xs font-medium text-(--ui-text-muted)">{{ t(`wf.${io[0]}` as MessageKey) }}</p>
+      <ul class="space-y-0.5 text-xs">
+        <li v-for="f in io[1] ?? []" :key="f.key" class="flex flex-wrap items-center gap-1.5">
+          <code class="rounded bg-(--ui-bg-elevated) px-1 font-mono">{{ f.key }}</code>
+          <span v-if="f.type && f.type !== 'string'" class="font-mono text-(--ui-text-dimmed)">{{ f.type }}</span>
+          <span v-if="f.description" class="text-(--ui-text-muted)">{{ f.description }}</span>
+          <UBadge v-if="f.required" color="warning" variant="subtle" size="sm" :label="t('wf.required')" />
+        </li>
+      </ul>
     </div>
 
     <div v-if="def.brief?.length" class="space-y-1">

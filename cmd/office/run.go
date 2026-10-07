@@ -104,8 +104,11 @@ func serveCmd() *cobra.Command {
 			}
 			// and their tasks, so the tasks list is right and "Chạy lại" works
 			_, _ = a.store.Tasks().FailRunning(ctx, "Office khởi động lại khi Việc đang chạy", time.Now().UTC())
-			// and the workflows they were part of (their turns do not run again)
-			_, _ = a.store.WorkflowRuns().FailRunning(ctx, "office khởi động lại khi quy trình đang chạy", time.Now().UTC())
+			// and the workflows they were part of (their turns do not run again);
+			// the chats that called them are told
+			if n, err := a.workflows.EndInterrupted(ctx); err == nil && n > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "office: %d quy trình đang chạy dở được đánh dấu lỗi (khởi động lại)\n", n)
+			}
 			chatEngine := chat.NewEngine(a.store, a.providers, a.usage)
 			chatEngine.SetAttachments(attach.Store{Dir: filepath.Join(h.Dir, "attachments")})
 			// agents edit and check in their own git worktrees (ADR-037)

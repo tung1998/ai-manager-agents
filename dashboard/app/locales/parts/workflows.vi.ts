@@ -118,5 +118,15 @@ export default {
   'wf.runPage.sub': 'Quy trình con (cấp {depth}), được một vai của quy trình khác gọi',
   'wf.runPage.parent': 'Mở quy trình cha',
   'wf.runPage.children': 'Quy trình con ({n})',
-  'wf.runs.sub': 'Quy trình con, cấp {depth}'
+  'wf.runs.sub': 'Quy trình con, cấp {depth}',
+  'wf.callable.chat': 'Chỉ gọi từ chat',
+  'wf.callable.sub': 'Chỉ làm quy trình con',
+  'wf.callableInfo': 'callable: ai được chạy quy trình này (chat bằng /key, hay quy trình khác)',
+  'wf.preferInfo': 'Loại agent vai này muốn (prefer): office dùng để gợi ý khi cài',
+  'wf.limit.concurrency': 'Tối đa {n} vai cùng lúc',
+  'wf.limit.concurrencyInfo': 'Số vai làm cùng lúc trong cả cây quy trình con (limits.concurrency)',
+  'wf.limit.idle': 'Báo khi vai làm quá {d}',
+  'wf.limit.idleInfo': 'Vai làm quá lâu mà chưa xong thì office ghi lại và báo điều phối (limits.idle)',
+  'wf.inputs': 'Đầu vào',
+  'wf.outputs': 'Đầu ra'
 }

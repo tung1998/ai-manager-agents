@@ -127,6 +127,7 @@ const runsOf = (w: ProjectWorkflow) => router.replace({ query: { ...route.query,
             <p class="flex flex-wrap items-center gap-2">
               <NuxtLink :to="editTo(w)" class="font-semibold hover:text-primary">{{ w.name }}</NuxtLink>
               <span class="font-mono text-xs text-(--ui-text-muted)">/{{ w.key }}</span>
+              <UBadge v-if="w.callable" color="neutral" variant="outline" size="sm" :label="t(`wf.callable.${w.callable}` as MessageKey)" :title="t('wf.callableInfo')" />
               <UBadge v-if="w.error" color="error" variant="subtle" size="sm" icon="i-lucide-circle-alert" :label="t('wf.invalid')" :title="w.error" />
               <UButton v-if="w.has_update && isAdmin" size="xs" color="primary" variant="soft" icon="i-lucide-download" :label="t('wf.fromLibrary')" :loading="busy === w.id" @click="fromLibrary(w)" />
             </p>

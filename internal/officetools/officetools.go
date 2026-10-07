@@ -260,13 +260,17 @@ func (t *Toolbox) Tools() []Tool {
 				Schema: obj(map[string]any{"role": str("Key của vai"), "agent": str("Tên agent nhận vai (bỏ trống = agent đã gán cho vai)"), "brief": brief}, "role", "brief")},
 			Tool{Name: "workflow_send", Description: "Quy trình: gửi tiếp cho một vai đã giao (vai giữ mạch, nhớ những gì đã làm). Mỗi lần là một vòng, có giới hạn.",
 				Schema: obj(map[string]any{"role": str("Key của vai"), "message": str("Nội dung gửi, ví dụ lập luận của vai khác cần phản hồi")}, "role", "message")},
+			Tool{Name: "workflow_ask", Description: "Quy trình: hỏi một vai chỉ phân tích (access analyze) và CHỜ câu trả lời ngay trong lượt này (tối đa wait_seconds). Hợp với câu hỏi ngắn cho cố vấn; quá hạn thì vai làm tiếp ở nền và bạn được gọi lại như workflow_delegate.",
+				Schema: obj(map[string]any{"role": str("Key của vai (access analyze)"), "question": str("Câu hỏi, kèm bối cảnh cần thiết"),
+					"wait_seconds": map[string]any{"type": "integer", "description": "Chờ tối đa bao nhiêu giây (10–120, mặc định 60)"}}, "role", "question")},
 			Tool{Name: "workflow_vote", Description: "Quy trình: đưa một điều ra biểu quyết giữa các vai của quy trình (song song, chỉ phân tích). Office đếm phiếu theo quorum/phủ quyết rồi gọi lại bạn kèm kết quả.",
 				Schema: obj(map[string]any{"question": str("Điều cần biểu quyết, kèm đủ bối cảnh"),
 					"agents": map[string]any{"type": "object", "description": "Gán agent cho vai bỏ phiếu chưa có agent: {\"vai\": \"tên agent\"}", "additionalProperties": map[string]any{"type": "string"}}}, "question")},
 			Tool{Name: "workflow_gate", Description: "Quy trình: mở một cổng. approve: tạo thẻ để người dùng duyệt (ghi note là điều cần duyệt) rồi dừng lượt chờ. check: chạy lệnh kiểm tra (command, khi cổng không ghi sẵn), trong worktree của vai role nếu có.",
 				Schema: obj(map[string]any{"gate": str("Key của cổng"), "note": str("approve: điều người dùng cần duyệt"), "command": str("check: lệnh kiểm tra"), "role": str("check: chạy trong worktree của vai này")}, "gate")},
 			Tool{Name: "workflow_done", Description: "Quy trình: kết thúc khi đã xong (và qua mọi cổng bắt buộc). summary là KẾT QUẢ của quy trình, câu trả lời duy nhất người gọi thấy (Markdown, đầy đủ, tự đọc hiểu được).",
-				Schema: obj(map[string]any{"summary": str("Tóm tắt kết quả")}, "summary")},
+				Schema: obj(map[string]any{"summary": str("Tóm tắt kết quả"),
+					"outputs": map[string]any{"type": "object", "description": "Đầu ra theo key, khi quy trình khai báo outputs (bắt buộc với key required)", "additionalProperties": map[string]any{"type": "string"}}}, "summary")},
 		)
 	}
 	return list
@@ -467,7 +471,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 			return "send_file chỉ dùng trong cuộc chat của bot Discord/Telegram", true
 		}
 		out, err = t.sendFile(ctx, sc, in.Path, in.Caption)
-	case "workflow_delegate", "workflow_send", "workflow_vote", "workflow_gate", "workflow_done":
+	case "workflow_delegate", "workflow_send", "workflow_ask", "workflow_vote", "workflow_gate", "workflow_done":
 		if t.wf == nil {
 			return "Không có quy trình ở đây", true
 		}

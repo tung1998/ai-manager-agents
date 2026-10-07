@@ -24,7 +24,7 @@ const { data: skillData } = await useLiveFetch<{ skills: Skill[] }>(() => `/api/
 // the project's workflows on, run by "/key" as a skill (ADR-098); a workflow wins over a skill of its name
 const { data: wfData } = useLiveFetch<{ workflows: ProjectWorkflow[] }>(() => `/api/projects/${props.projectId}/workflows`, { lazy: true })
 const skills = computed<Skill[]>(() => {
-  const wfs = (wfData.value?.workflows ?? []).filter(w => w.enabled && !w.error).map(w => ({ name: w.key, description: w.description || w.name, source: 'workflow' as const }))
+  const wfs = (wfData.value?.workflows ?? []).filter(w => w.enabled && !w.error && w.callable !== 'sub').map(w => ({ name: w.key, description: w.description || w.name, source: 'workflow' as const }))
   const taken = new Set(wfs.map(w => w.name))
   return [...wfs, ...(skillData.value?.skills ?? []).filter(s => !taken.has(s.name))]
 })

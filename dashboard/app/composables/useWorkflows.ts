@@ -10,7 +10,18 @@ export interface WorkflowRole {
   access: WorkflowAccess
   differ_from?: string[]
   workflow?: string // a sub-workflow fills it (ADR-102)
+  prefer?: { tier?: string, family?: string } // the agent it wants (ADR-103)
 }
+
+// An input a caller gives a workflow, or an output it gives back (ADR-103).
+export interface WorkflowField {
+  key: string
+  description?: string
+  required: boolean
+  type?: 'string' | 'number' | 'boolean' | 'list' | 'json'
+}
+
+export type WorkflowCallable = '' | 'chat' | 'sub'
 
 export interface WorkflowGate {
   key: string
@@ -32,6 +43,8 @@ export interface WorkflowLimits {
   timeout: string
   budget_usd: number
   depth: number // how deep sub-workflows may go below a run
+  concurrency: number // roles at once in a whole tree of runs
+  idle?: string // a role working this long is noted
 }
 
 export interface WorkflowDef {
@@ -46,6 +59,9 @@ export interface WorkflowDef {
   gates?: WorkflowGate[]
   vote?: WorkflowVote | null
   strict?: boolean
+  inputs?: WorkflowField[]
+  outputs?: WorkflowField[]
+  callable?: WorkflowCallable
   body: string
 }
 
@@ -109,6 +125,7 @@ export interface WorkflowRun {
   roles: RunRole[]
   gates: RunGate[]
   log: { at: string, text: string }[]
+  outputs?: Record<string, string> // its declared outputs, by key
   started_at: string
   finished_at: string | null
 }
@@ -130,6 +147,9 @@ export interface ProjectWorkflow {
   vote: WorkflowVote | null
   limits: WorkflowLimits
   brief: string[]
+  inputs: WorkflowField[]
+  outputs: WorkflowField[]
+  callable: WorkflowCallable
   error?: string
   source_key: string // the library workflow it was copied from
   has_update: boolean // that one changed since

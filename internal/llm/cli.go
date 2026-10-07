@@ -37,10 +37,16 @@ func runEnv(ctx context.Context, bin string, stdin string, env []string, args ..
 		return "", fmt.Errorf("không tìm thấy lệnh %q trong PATH", bin)
 	}
 	if err != nil {
-		return stdout.String(), fmt.Errorf("%s: %v: %s", bin, err, cliFailure(stdout.String(), stderr.String()))
+		return stdout.String(), &cliError{msg: fmt.Sprintf("%s: %v: %s", bin, err, cliFailure(stdout.String(), stderr.String())), stderr: stderr.String()}
 	}
 	return stdout.String(), nil
 }
+
+// cliError keeps a failed run's whole stderr for CLIs whose reason is not
+// at the end (Gemini prints it first, then a stack trace).
+type cliError struct{ msg, stderr string }
+
+func (e *cliError) Error() string { return e.msg }
 
 // cliFailure turns a failed run's output into one readable line. CLIs print
 // their result as JSON whose reason (result/subtype/errors) sits at the END of
@@ -327,6 +333,12 @@ func (c *geminiCLI) Complete(ctx context.Context, req Request) (Result, error) {
 	}
 	jerr := json.Unmarshal([]byte(lastJSONObject(out)), &res)
 	if err != nil || jerr != nil || res.Error != nil {
+		var ce *cliError
+		if errors.As(err, &ce) && res.Error == nil {
+			if msg := GeminiError(ce.stderr); msg != "" {
+				return Result{}, fmt.Errorf("gemini: %s", msg)
+			}
+		}
 		if !GeminiSignedIn() {
 			return Result{}, fmt.Errorf("%w: Gemini CLI chưa đăng nhập", ErrNeedsLogin)
 		}
@@ -350,6 +362,48 @@ func (c *geminiCLI) Complete(ctx context.Context, req Request) (Result, error) {
 		return Result{}, errors.New("gemini: không có câu trả lời trong output")
 	}
 	return r, nil
+}
+
+var (
+	ansiColor  = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	geminiFail = regexp.MustCompile(`(?:Error[^:]*|[A-Za-z]+Error): (.+)$`)
+)
+
+// GeminiError reads why Gemini CLI failed from its stderr: the first error
+// line without its "Error authenticating: XError:" prefixes and the stack
+// trace after it, with a hint for the refusals people can act on.
+func GeminiError(stderr string) string {
+	var lines []string
+	for _, l := range strings.Split(stderr, "\n") {
+		l = strings.TrimSpace(ansiColor.ReplaceAllString(l, ""))
+		if l != "" && !strings.HasPrefix(l, "at ") && !slices.Contains(lines, l) {
+			lines = append(lines, l)
+		}
+	}
+	msg := ""
+	for _, l := range lines {
+		if m := geminiFail.FindStringSubmatch(l); m != nil {
+			msg = m[1]
+			for { // "Error authenticating: IneligibleTierError: reason"
+				n := geminiFail.FindStringSubmatch(msg)
+				if n == nil {
+					break
+				}
+				msg = n[1]
+			}
+			break
+		}
+	}
+	if msg == "" {
+		msg = strings.Join(lines, "\n")
+	}
+	switch {
+	case strings.Contains(stderr, "UNSUPPORTED_CLIENT") || strings.Contains(stderr, "IneligibleTierError"):
+		msg += " — Google không còn cho Gemini CLI dùng tài khoản Google cá nhân (gói miễn phí): dùng API key (GEMINI_API_KEY từ aistudio.google.com/apikey) hoặc gói Code Assist có dự án Google Cloud (GOOGLE_CLOUD_PROJECT)."
+	case strings.Contains(stderr, "ProjectIdRequiredError"):
+		msg += " — tài khoản này cần dự án Google Cloud: đặt GOOGLE_CLOUD_PROJECT cho office."
+	}
+	return clip(msg, 600)
 }
 
 // lastJSONObject returns the last line that looks like a JSON object, since

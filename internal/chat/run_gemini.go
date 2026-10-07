@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/attach"
+	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -115,7 +116,6 @@ func geminiHome(servers map[string]any, userMCP bool) (string, func(), error) {
 
 var (
 	geminiUnsafe = regexp.MustCompile(`[^a-zA-Z0-9_\-.:]`)
-	ansiColor    = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 )
 
 // geminiMCPName turns Gemini's "mcp_<server>_<tool>" (names sanitized) back
@@ -287,7 +287,7 @@ func (geminiRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (
 	if res.Text == "" && (werr != nil || failure != "") {
 		msg := failure
 		if msg == "" {
-			msg = geminiStderr(stderr.String())
+			msg = llm.GeminiError(stderr.String())
 		}
 		if msg == "" {
 			msg = werr.Error()
@@ -295,16 +295,4 @@ func (geminiRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (
 		return res, fmt.Errorf("gemini: %s", truncate(msg, 500))
 	}
 	return res, nil
-}
-
-// geminiStderr keeps the readable lines of Gemini's stderr, not stack frames.
-func geminiStderr(s string) string {
-	var keep []string
-	for _, l := range strings.Split(s, "\n") {
-		l = strings.TrimSpace(ansiColor.ReplaceAllString(l, ""))
-		if l != "" && !strings.HasPrefix(l, "at ") && !slices.Contains(keep, l) {
-			keep = append(keep, l)
-		}
-	}
-	return strings.Join(keep, "\n")
 }

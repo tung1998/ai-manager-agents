@@ -103,7 +103,8 @@ const items = computed<NavigationMenuItem[][]>(() => {
     { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' },
     ...(isAdmin.value
       ? [
-          { label: t('nav.library'), icon: 'i-lucide-library', to: '/library' },
+          { label: t('tools.skillsTab'), icon: 'i-lucide-sparkles', to: '/skills' },
+          { label: t('tools.mcpTab'), icon: 'i-lucide-plug-zap', to: '/mcp' },
           { label: t('wf.section'), icon: 'i-lucide-workflow', to: '/workflows' }
         ]
       : [])

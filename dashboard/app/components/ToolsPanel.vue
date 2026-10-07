@@ -462,7 +462,7 @@ const summary = (tpl: MCPTemplate) => {
               </UTooltip>
               <template v-if="kind === 'mcp' && candOf(i)">
                 <UTooltip v-if="inOffice(candOf(i))" :text="t('tools.mcpInOfficeInfo', { name: candOf(i)!.moved_as || candOf(i)!.suggested })">
-                  <NuxtLink to="/library?kind=mcp#office-mcp">
+                  <NuxtLink to="/mcp#office-mcp">
                     <UBadge color="primary" variant="subtle" size="sm" icon="i-lucide-network" :label="t('tools.mcpInOffice')" />
                   </NuxtLink>
                 </UTooltip>
@@ -516,7 +516,7 @@ const summary = (tpl: MCPTemplate) => {
           <p class="mt-2 font-medium">{{ t('tools.libraryEmptyTitle') }}</p>
           <p class="text-sm text-(--ui-text-muted)">
             <template v-if="scoped">
-              {{ t('tools.libraryEmptyScopedHintPrefix') }} <NuxtLink to="/library" class="text-(--ui-primary)">{{ t('tools.libraryPageTitle') }}</NuxtLink>.
+              {{ t('tools.libraryEmptyScopedHintPrefix') }} <NuxtLink :to="kind === 'mcp' ? '/mcp' : '/skills'" class="text-(--ui-primary)">{{ kind === 'mcp' ? t('tools.mcpTab') : t('tools.skillsTab') }}</NuxtLink>.
             </template>
             <template v-else>{{ t('tools.libraryEmptyHint') }}</template>
           </p>

@@ -28,9 +28,19 @@ func (e *Engine) wfDelegateFlow(ctx context.Context, sc officetools.Scope, run *
 	if err != nil {
 		return "", err
 	}
-	input, err := run.def.RenderBrief(d, brief)
-	if err != nil {
-		return "", err
+	// the sub-workflow's declared inputs, by key; else the brief this one asks
+	var input string
+	if w, err := e.store.Workflows().GetByKey(ctx, run.rec.ProjectID, d.Workflow); err == nil {
+		if cd, err := workflow.Parse(w.Source); err == nil && len(cd.Inputs) > 0 {
+			if input, err = cd.RenderInputs(brief); err != nil {
+				return "", fmt.Errorf("%w; đầu vào của /%s: %s", err, cd.Key, fieldList(cd.Inputs))
+			}
+		}
+	}
+	if input == "" {
+		if input, err = run.def.RenderBrief(d, brief); err != nil {
+			return "", err
+		}
 	}
 	return e.wfAskFlow(ctx, sc, run, d, coord.ID, input, false)
 }
@@ -72,8 +82,12 @@ func (e *Engine) wfAskFlow(ctx context.Context, sc officetools.Scope, run *wfRun
 	if run.depthLeft <= 0 {
 		return "", fmt.Errorf("vai %s là quy trình con /%s nhưng đã tới giới hạn lồng (limits.depth); tự làm phần này hoặc tổng kết", d.Name, d.Workflow)
 	}
-	if _, err := e.store.Workflows().GetByKey(ctx, run.rec.ProjectID, d.Workflow); err != nil {
+	w, err := e.store.Workflows().GetByKey(ctx, run.rec.ProjectID, d.Workflow)
+	if err != nil {
 		return "", fmt.Errorf("project chưa cài quy trình /%s (vai %s)", d.Workflow, d.Name)
+	}
+	if cd, err := workflow.Parse(w.Source); err == nil && cd.Callable == workflow.CallableChat {
+		return "", fmt.Errorf("quy trình /%s chỉ chạy từ chat (callable: chat), không làm quy trình con được", d.Workflow)
 	}
 	a, err := e.store.Agents().Get(ctx, agentID)
 	if err != nil {
@@ -133,7 +147,11 @@ func (e *Engine) startChild(run *wfRun, conv storage.Conversation, project stora
 	if err != nil {
 		return failed(err.Error())
 	}
+	if def.Callable == workflow.CallableChat {
+		return failed("quy trình này chỉ chạy từ chat (callable: chat)")
+	}
 	child.depthLeft, child.until = min(run.depthLeft-1, def.Limits.Depth), run.deadline
+	child.parent, child.parentRole = run, a.role
 	child.rec.CallerConversationID, child.rec.ParentRunID, child.rec.Depth = conv.ID, run.rec.ID, run.rec.Depth+1
 	own, err := e.store.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, AgentID: a.agent.ID, AgentName: a.agent.Name, CreatedBy: run.rec.Actor,
 		Purpose: RunPurpose, Title: truncate(def.Name+": "+oneLine(a.prompt), 80), Mode: conv.Mode, EditMode: conv.EditMode, Effort: conv.Effort})
@@ -168,6 +186,7 @@ func (e *Engine) startChild(run *wfRun, conv storage.Conversation, project stora
 	rec := run.rec
 	e.wf.mu.Unlock()
 	e.saveRun(rec)
+	e.watchIdle(run, conv, a.role)
 	go e.awaitChild(run.rec.ID, conv, project, a.role, child)
 	return true
 }
@@ -182,7 +201,7 @@ func (e *Engine) awaitChild(parentID string, conv storage.Conversation, project 
 		rec = child.rec
 	}
 	head := fmt.Sprintf("**Quy trình con /%s** (vai %s): ", rec.WorkflowKey, role) // i18n-ignore
-	msg := storage.Message{ConversationID: conv.ID, Role: "assistant", Author: rec.CoordinatorName, Content: head + "\n\n" + strings.TrimSpace(rec.Result)}
+	msg := storage.Message{ConversationID: conv.ID, Role: "assistant", Author: rec.CoordinatorName, Content: head + "\n\n" + strings.TrimSpace(rec.Result) + outputsText(rec)}
 	if rec.Status != storage.RunDone {
 		msg = storage.Message{ConversationID: conv.ID, Role: "error", Content: head + cmp.Or(rec.Error, "đã dừng")}
 	}
@@ -198,10 +217,9 @@ func (e *Engine) awaitChild(parentID string, conv storage.Conversation, project 
 		e.wf.mu.Unlock()
 		return
 	}
-	r.CostUSD += rec.CostUSD
-	run.rec.CostUSD += rec.CostUSD
+	// its cost went up the tree as it was spent (wfCost)
 	if rec.Status == storage.RunDone {
-		r.Status, r.Result = "done", truncate(rec.Result, 4000)
+		r.Status, r.Result = "done", truncate(strings.TrimSpace(rec.Result)+outputsText(rec), 4000)
 		run.logf("%s: quy trình con /%s xong", r.Name, rec.WorkflowKey)
 	} else {
 		r.Status = "failed"
@@ -230,4 +248,34 @@ func (e *Engine) rootCaller(conversationID string) string {
 		out, conversationID = r.rec.CallerConversationID, r.rec.CallerConversationID
 	}
 	return out
+}
+
+// watchIdle notes a role still working once the workflow's limits.idle has
+// passed (once per turn of it): in the run's chat and for its coordinator.
+func (e *Engine) watchIdle(run *wfRun, conv storage.Conversation, role string) {
+	after := run.def.IdleAfter()
+	if after <= 0 {
+		return
+	}
+	e.wf.mu.Lock()
+	gen := 0
+	if r := run.role(role); r != nil {
+		gen = r.Turns
+	}
+	e.wf.mu.Unlock()
+	time.AfterFunc(after, func() {
+		e.wf.mu.Lock()
+		r := run.role(role)
+		if e.wf.byConv[conv.ID] != run || r == nil || r.Status != "working" || r.Turns != gen {
+			e.wf.mu.Unlock()
+			return
+		}
+		text := fmt.Sprintf("⏳ Vai %s (%s) đã làm quá %s mà chưa xong.", r.Name, cmp.Or(r.AgentName, r.Workflow), after)
+		run.notes = append(run.notes, text)
+		run.logf("%s", text)
+		rec := run.rec
+		e.wf.mu.Unlock()
+		e.saveRun(rec)
+		e.note(conv, text)
+	})
 }

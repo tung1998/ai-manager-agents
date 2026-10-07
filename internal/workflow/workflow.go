@@ -8,10 +8,12 @@ package workflow
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,6 +51,14 @@ type Def struct {
 	Vote        *Vote      `yaml:"vote,omitempty" json:"vote,omitempty"`
 	// Strict: a differ_from that cannot be met refuses to run (default: a warning).
 	Strict bool `yaml:"strict,omitempty" json:"strict,omitempty"`
+	// Inputs a caller gives it and outputs it gives back (ADR-103): a
+	// sub-workflow's role is given its inputs by name; workflow_done must
+	// give every required output.
+	Inputs  []Field `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	Outputs []Field `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+	// Callable: who may run it: "" = a chat (/key) and other workflows,
+	// "chat" = only a chat, "sub" = only other workflows (hidden from /).
+	Callable string `yaml:"callable,omitempty" json:"callable,omitempty"`
 	// Body is what the coordinator follows (the file below the header).
 	Body string `yaml:"-" json:"body"`
 }
@@ -64,7 +74,35 @@ type Role struct {
 	// sub-workflow, this one's own key too: recursion, bounded by
 	// limits.depth); the agent bound to it coordinates that run.
 	Workflow string `yaml:"workflow,omitempty" json:"workflow,omitempty"`
+	// Prefer: the kind of agent the seat wants (installing suggests by it).
+	Prefer *Prefer `yaml:"prefer,omitempty" json:"prefer,omitempty"`
 }
+
+// Field is an input or an output of a workflow.
+type Field struct {
+	Key         string `yaml:"key" json:"key"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	Required    bool   `yaml:"required,omitempty" json:"required"`
+	// Type of an output: string (default) | number | boolean | list (a JSON
+	// array) | json (any JSON); workflow_done is refused when a value is not one
+	Type string `yaml:"type,omitempty" json:"type,omitempty"`
+}
+
+// FieldTypes are the types an output may have.
+var FieldTypes = []string{"string", "number", "boolean", "list", "json"}
+
+// Prefer is what a role wants of its agent: a model tier, a vendor family
+// (anthropic, openai, google, or a connection's host).
+type Prefer struct {
+	Tier   string `yaml:"tier,omitempty" json:"tier,omitempty"`
+	Family string `yaml:"family,omitempty" json:"family,omitempty"`
+}
+
+// Callable values.
+const (
+	CallableChat = "chat"
+	CallableSub  = "sub"
+)
 
 // Limits bound one run.
 type Limits struct {
@@ -73,6 +111,10 @@ type Limits struct {
 	Timeout   string  `yaml:"timeout,omitempty" json:"timeout"`       // the whole run
 	BudgetUSD float64 `yaml:"budget_usd,omitempty" json:"budget_usd"` // 0 = none
 	Depth     int     `yaml:"depth,omitempty" json:"depth"`           // how deep sub-workflows may go below a run of this one
+	// Concurrency: roles answering at once in a run and every run below it
+	Concurrency int `yaml:"concurrency,omitempty" json:"concurrency"`
+	// Idle: a role working this long without being done is noted ("" = never)
+	Idle string `yaml:"idle,omitempty" json:"idle,omitempty"`
 }
 
 // Gate is a point the run must pass.
@@ -99,6 +141,9 @@ const (
 	MaxTimeout     = 24 * time.Hour
 	DefaultDepth   = 2
 	MaxDepth       = 5
+	// DefaultConcurrency bounds the roles answering at once in a tree of runs.
+	DefaultConcurrency = 6
+	MaxConcurrency     = 20
 )
 
 // BriefFields are the parts a brief may have, in the order they are shown.
@@ -189,6 +234,15 @@ func (d *Def) normalize() {
 	if d.Limits.Depth == 0 {
 		d.Limits.Depth = DefaultDepth
 	}
+	if d.Limits.Concurrency == 0 {
+		d.Limits.Concurrency = DefaultConcurrency
+	}
+	d.Callable = strings.TrimSpace(d.Callable)
+	for i := range d.Roles {
+		if p := d.Roles[i].Prefer; p != nil {
+			p.Tier, p.Family = strings.ToLower(strings.TrimSpace(p.Tier)), strings.ToLower(strings.TrimSpace(p.Family))
+		}
+	}
 	for i := range d.Gates {
 		if d.Gates[i].Name == "" {
 			d.Gates[i].Name = d.Gates[i].Key
@@ -266,6 +320,9 @@ func (d Def) Validate() error {
 		if r.Workflow != "" && !ValidKey(r.Workflow) {
 			add("vai %q: workflow %q không phải key quy trình", r.Key, r.Workflow)
 		}
+		if p := r.Prefer; p != nil && p.Tier != "" && p.Tier != "strong" && p.Tier != "balanced" && p.Tier != "fast" {
+			add("vai %q: prefer.tier phải là strong | balanced | fast", r.Key)
+		}
 	}
 	for _, r := range d.Roles {
 		for _, o := range r.DifferFrom {
@@ -304,6 +361,32 @@ func (d Def) Validate() error {
 	}
 	if d.Limits.Depth < 0 || d.Limits.Depth > MaxDepth {
 		add("limits.depth: 0–%d", MaxDepth)
+	}
+	if d.Limits.Concurrency < 1 || d.Limits.Concurrency > MaxConcurrency {
+		add("limits.concurrency: 1–%d", MaxConcurrency)
+	}
+	if d.Limits.Idle != "" {
+		if t, err := time.ParseDuration(d.Limits.Idle); err != nil || t < time.Minute {
+			add("limits.idle %q: thời lượng như 10m (ít nhất 1m)", d.Limits.Idle)
+		}
+	}
+	if d.Callable != "" && d.Callable != CallableChat && d.Callable != CallableSub {
+		add("callable: chat | sub (bỏ trống = cả hai)")
+	}
+	for _, fs := range []struct {
+		name string
+		list []Field
+	}{{"inputs", d.Inputs}, {"outputs", d.Outputs}} {
+		seen := map[string]bool{}
+		for _, f := range fs.list {
+			if !ValidKey(strings.ReplaceAll(f.Key, "_", "-")) || seen[f.Key] {
+				add("%s: key %q không hợp lệ hoặc bị trùng", fs.name, f.Key)
+			}
+			if f.Type != "" && !slices.Contains(FieldTypes, f.Type) {
+				add("%s: %q có type %q (%s)", fs.name, f.Key, f.Type, strings.Join(FieldTypes, " | "))
+			}
+			seen[f.Key] = true
+		}
 	}
 	if d.Limits.BudgetUSD < 0 {
 		add("limits.budget_usd không được âm")
@@ -387,4 +470,78 @@ func AccessNote(access string) string {
 		return "Bạn không sửa file trực tiếp: đề xuất diff hoặc thao tác để người dùng duyệt. Làm xong thì trả lời ngắn kết quả."
 	}
 	return "Chỉ phân tích, không sửa file, không viết code. Trả lời kết luận kèm lý do."
+}
+
+// IdleAfter is how long a role may work before it is noted (0 = never).
+func (d Def) IdleAfter() time.Duration {
+	t, err := time.ParseDuration(d.Limits.Idle)
+	if err != nil {
+		return 0
+	}
+	return t
+}
+
+// RenderInputs is a sub-workflow's input from the values its caller gave,
+// by the inputs it declares; a required one missing is an error.
+func (d Def) RenderInputs(values map[string]string) (string, error) {
+	var b strings.Builder
+	var missing []string
+	for _, f := range d.Inputs {
+		v := strings.TrimSpace(values[f.Key])
+		if v == "" {
+			if f.Required {
+				missing = append(missing, f.Key)
+			}
+			continue
+		}
+		fmt.Fprintf(&b, "### %s\n%s\n\n", cmpOr(f.Description, f.Key), v)
+	}
+	if len(missing) > 0 {
+		return "", fmt.Errorf("quy trình /%s cần đầu vào: %s (ghi trong brief theo đúng key)", d.Key, strings.Join(missing, ", "))
+	}
+	for k, v := range values { // what it does not declare, kept as context
+		if !slices.ContainsFunc(d.Inputs, func(f Field) bool { return f.Key == k }) && strings.TrimSpace(v) != "" {
+			fmt.Fprintf(&b, "### %s\n%s\n\n", k, strings.TrimSpace(v))
+		}
+	}
+	return strings.TrimSpace(b.String()), nil
+}
+
+// CheckOutputs: every required output is there; the error names those missing.
+func (d Def) CheckOutputs(values map[string]string) error {
+	var bad []string
+	for _, f := range d.Outputs {
+		v := strings.TrimSpace(values[f.Key])
+		if v == "" {
+			if f.Required {
+				bad = append(bad, f.Key+" (thiếu)")
+			}
+			continue
+		}
+		if !typeOK(f.Type, v) {
+			bad = append(bad, fmt.Sprintf("%s (phải là %s)", f.Key, f.Type))
+		}
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("đầu ra không hợp lệ trong outputs: %s", strings.Join(bad, ", "))
+	}
+	return nil
+}
+
+// typeOK: v is a value of an output of type t.
+func typeOK(t, v string) bool {
+	switch t {
+	case "number":
+		_, err := strconv.ParseFloat(v, 64)
+		return err == nil
+	case "boolean":
+		_, err := strconv.ParseBool(v)
+		return err == nil
+	case "list":
+		var a []any
+		return json.Unmarshal([]byte(v), &a) == nil
+	case "json":
+		return json.Valid([]byte(v))
+	}
+	return true
 }

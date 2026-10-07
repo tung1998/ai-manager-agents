@@ -53,6 +53,9 @@ type workflowDTO struct {
 	Vote        *workflow.Vote    `json:"vote"`
 	Limits      workflow.Limits   `json:"limits"`
 	Brief       []string          `json:"brief"`
+	Inputs      []workflow.Field  `json:"inputs"`
+	Outputs     []workflow.Field  `json:"outputs"`
+	Callable    string            `json:"callable"`
 	Error       string            `json:"error,omitempty"`
 	SourceKey   string            `json:"source_key"`
 	HasUpdate   bool              `json:"has_update"`
@@ -85,6 +88,7 @@ type workflowRunDTO struct {
 	Roles           []storage.RunRole `json:"roles"`
 	Gates           []storage.RunGate `json:"gates"`
 	Log             []storage.RunLog  `json:"log"`
+	Outputs         map[string]string `json:"outputs"`
 	StartedAt       time.Time         `json:"started_at"`
 	FinishedAt      *time.Time        `json:"finished_at"`
 }
@@ -97,7 +101,7 @@ func (s *server) toWorkflowRunDTO(ctx context.Context, r storage.WorkflowRun) wo
 	}
 	d := workflowRunDTO{ID: r.ID, ProjectID: r.ProjectID, ConversationID: r.ConversationID, CallerConversationID: r.CallerConversationID, ParentRunID: r.ParentRunID, Depth: r.Depth, WorkflowID: r.WorkflowID, WorkflowKey: r.WorkflowKey,
 		WorkflowName: r.WorkflowName, CoordinatorID: r.CoordinatorID, CoordinatorName: r.CoordinatorName, Input: r.Input, Status: r.Status, Turns: r.Turns,
-		CostUSD: r.CostUSD, Result: r.Result, Error: r.Error, Roles: roles, Gates: r.Gates, Log: r.Log, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt}
+		CostUSD: r.CostUSD, Result: r.Result, Error: r.Error, Roles: roles, Gates: r.Gates, Log: r.Log, Outputs: r.Outputs, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt}
 	if c, err := s.cfg.Store.Chat().GetConversation(ctx, cmp.Or(r.CallerConversationID, r.ConversationID)); err == nil {
 		d.CallerTitle = c.Title
 	}
@@ -111,11 +115,12 @@ func (s *server) toWorkflowRunDTO(ctx context.Context, r storage.WorkflowRun) wo
 
 func (s *server) toWorkflowDTO(ctx context.Context, w storage.Workflow, withRun bool) workflowDTO {
 	d := workflowDTO{ID: w.ID, ProjectID: w.ProjectID, Key: w.Key, Name: w.Name, Description: w.Description, Enabled: w.Enabled, Source: w.Source,
-		Bindings: w.Bindings, SourceKey: w.SourceKey, UpdatedAt: w.UpdatedAt, Roles: []workflow.Role{}, Gates: []workflow.Gate{}, Parallel: [][]string{}, Brief: []string{}}
+		Bindings: w.Bindings, SourceKey: w.SourceKey, UpdatedAt: w.UpdatedAt, Roles: []workflow.Role{}, Inputs: []workflow.Field{}, Outputs: []workflow.Field{}, Gates: []workflow.Gate{}, Parallel: [][]string{}, Brief: []string{}}
 	if def, err := workflow.Parse(w.Source); err != nil {
 		d.Error = err.Error()
 	} else {
-		d.Input, d.Roles, d.Vote, d.Limits = def.Input, def.Roles, def.Vote, def.Limits
+		d.Input, d.Roles, d.Vote, d.Limits, d.Callable = def.Input, def.Roles, def.Vote, def.Limits, def.Callable
+		d.Inputs, d.Outputs = append([]workflow.Field{}, def.Inputs...), append([]workflow.Field{}, def.Outputs...)
 		if def.Gates != nil {
 			d.Gates = def.Gates
 		}

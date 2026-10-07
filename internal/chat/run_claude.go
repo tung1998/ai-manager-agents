@@ -3,6 +3,7 @@ package chat
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -211,8 +212,9 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 		resErr   error
 		gotFinal bool
 	)
-	pending := map[string]int{} // tool_use id → index in res.Tools
-	mainModel := ""             // the model of the last call (its context window is the one shown)
+	pending := map[string]int{}      // tool_use id → index in res.Tools
+	subagents := map[string]string{} // a Task call's id → the subagent's label, for the steps it takes
+	mainModel := ""                  // the model of the last call (its context window is the one shown)
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
@@ -220,7 +222,9 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 			Type      string `json:"type"`
 			Subtype   string `json:"subtype"`
 			SessionID string `json:"session_id"`
-			Event     struct {
+			// set on what a subagent of Claude's own (Task) does: the Task call it runs under
+			ParentToolUseID string `json:"parent_tool_use_id"`
+			Event           struct {
 				Type  string `json:"type"`
 				Delta struct {
 					Type string `json:"type"`
@@ -291,6 +295,12 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 			for _, c := range ev.Message.Content {
 				if c.Type == "tool_use" {
 					tc := storage.ToolCall{Name: c.Name, Summary: toolSummary(c.Name, c.Input)}
+					if label, ok := subagents[ev.ParentToolUseID]; ok { // a step of a subagent: shown under it
+						tc.Summary = "↳ " + label + ": " + tc.Summary
+					}
+					if l := subagentLabel(c.Name, c.Input); l != "" {
+						subagents[c.ID] = l
+					}
 					pending[c.ID] = len(res.Tools)
 					res.Tools = append(res.Tools, tc)
 					emit(Event{Type: "tool", Tool: &tc})
@@ -433,6 +443,8 @@ func toolSummary(name string, input json.RawMessage) string {
 		return "Xem thư mục " + p
 	case "write_file", "replace":
 		return "Sửa " + str("file_path")
+	case "task", "agent": // a subagent of Claude's own; its steps are shown under it
+		return "Giao subagent " + str("subagent_type") + ": " + str("description")
 	case "bash", "command_execution", "run_shell_command":
 		return "Chạy " + str("command")
 	}
@@ -572,4 +584,18 @@ func windowOf(model string, seen int) int {
 		return seen
 	}
 	return 200_000
+}
+
+// subagentLabel names a subagent Claude Code starts on its own (the Task /
+// Agent tool): its type and what it was asked ("" = not such a call).
+func subagentLabel(name string, input json.RawMessage) string {
+	if name != "Task" && name != "Agent" {
+		return ""
+	}
+	var in struct {
+		Description string `json:"description"`
+		Type        string `json:"subagent_type"`
+	}
+	_ = json.Unmarshal(input, &in)
+	return truncate(strings.TrimSpace(cmp.Or(in.Type, "subagent")+" · "+in.Description), 60)
 }

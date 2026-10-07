@@ -415,3 +415,104 @@ func TestWorkflowRecursionStopsAtItsDepth(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// declared inputs and outputs, and a workflow only other workflows call (ADR-103)
+func TestSubWorkflowInputsOutputs(t *testing.T) {
+	g := newWFGroup(t)
+	child := "---\nkey: con-ra\nname: Con\ncallable: sub\ninputs:\n  - key: cau-hoi\n    required: true\noutputs:\n  - key: ket-luan\n    required: true\nroles:\n  - key: x\n---\nTrả lời câu hỏi.\n"
+	parent := "---\nkey: cha2\nname: Cha\nroles:\n  - key: con\n    workflow: con-ra\n---\nGiao vai con.\n"
+	if _, err := g.svc.Create(g.context, g.f.project.ID, child, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.svc.Create(g.context, g.f.project.ID, parent, map[string]string{"con": g.lead}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := g.engine.Send(g.context, g.conv.ID, "/con-ra thử", nil); err == nil || !strings.Contains(err.Error(), "callable") {
+		t.Fatalf("a sub-only workflow ran from the chat: %v", err)
+	}
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("3"), 0o644)
+	defer os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	call0, _, err := g.engine.Send(g.context, g.conv.ID, "/cha2 làm đi", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := g.own(t)
+	if _, err := g.duringIn(t, own, "workflow_delegate", map[string]any{"role": "con", "brief": map[string]string{}}); err == nil || !strings.Contains(err.Error(), "cau-hoi") {
+		t.Fatalf("a missing input: %v", err)
+	}
+	if _, err := g.duringIn(t, own, "workflow_delegate", map[string]any{"role": "con", "brief": map[string]string{"cau-hoi": "Q?"}}); err != nil {
+		t.Fatal(err)
+	}
+	var sub storage.WorkflowRun
+	deadline := time.Now().Add(10 * time.Second)
+	for sub.ID == "" {
+		runs, _ := g.f.st.WorkflowRuns().List(g.context, g.f.project.ID, own, 5)
+		for _, r := range runs {
+			if r.CallerConversationID == own {
+				sub = r
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no sub-run")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(sub.Input, "Q?") {
+		t.Fatalf("sub input = %q", sub.Input)
+	}
+	if _, err := g.duringIn(t, sub.ConversationID, "workflow_done", map[string]any{"summary": "xong"}); err == nil || !strings.Contains(err.Error(), "ket-luan") {
+		t.Fatalf("done without its outputs: %v", err)
+	}
+	if _, err := g.duringIn(t, sub.ConversationID, "workflow_done", map[string]any{"summary": "xong", "outputs": map[string]string{"ket-luan": "A"}}); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		r := g.run(t)
+		if r.Roles[0].Status == "done" && strings.Contains(r.Roles[0].Result, "`ket-luan`: A") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("parent run = %+v", r)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got, _ := g.f.st.WorkflowRuns().Get(g.context, sub.ID); got.Outputs["ket-luan"] != "A" {
+		t.Fatalf("outputs = %v", got.Outputs)
+	}
+	g.engine.StopAll(g.conv.ID)
+	collect(t, call0)
+}
+
+// workflow_ask: the coordinator gets an analyze role's answer within its own
+// turn, and is not called back for it (ADR-104)
+func TestWorkflowAskWaitsForTheAnswer(t *testing.T) {
+	g := newWFGroup(t)
+	g.install(t, "advisor", map[string]string{"co-van": g.dev.ID})
+	os.WriteFile(filepath.Join(g.dir, "reply-dev"), []byte("Nên dùng hàng đợi."), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("3"), 0o644)
+	defer os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	call0, _, err := g.engine.Send(g.context, g.conv.ID, "/advisor có nên dùng hàng đợi", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := g.own(t)
+	if _, err := g.duringIn(t, own, "workflow_ask", map[string]any{"role": "nope", "question": "?"}); err == nil {
+		t.Fatal("an unknown role was asked")
+	}
+	got, err := g.duringIn(t, own, "workflow_ask", map[string]any{"role": "co-van", "question": "Hàng đợi hay gọi thẳng?", "wait_seconds": 20})
+	if err != nil || !strings.Contains(got, "Nên dùng hàng đợi.") {
+		t.Fatalf("ask = %q, %v", got, err)
+	}
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	authors := g.waitIn(t, own, 2)
+	time.Sleep(300 * time.Millisecond) // no call-back follows
+	if authors = g.waitIn(t, own, 2); len(authors) != 2 {
+		t.Fatalf("authors = %v", authors)
+	}
+	if r := g.run(t); r.Roles[0].Status != "done" || r.Turns != 1 {
+		t.Fatalf("run = %+v", r)
+	}
+	g.engine.StopAll(g.conv.ID)
+	collect(t, call0)
+}

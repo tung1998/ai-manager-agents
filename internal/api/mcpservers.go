@@ -515,11 +515,11 @@ func (s *server) mcpLoginCallback(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(status)
 	script := ""
 	if ok {
-		script = `try{if(window.opener){window.close()}}catch(e){}setTimeout(function(){location.replace('/library?tab=mcp')},1500)`
+		script = `try{if(window.opener){window.close()}}catch(e){}setTimeout(function(){location.replace('/mcp')},1500)`
 	}
 	_, _ = w.Write([]byte(`<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Agent Office</title>` +
 		`<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem"><p>` + html.EscapeString(msg) +
-		`</p><p><a href="/library?tab=mcp">Về trang MCP</a></p><script>` + script + `</script></body></html>`))
+		`</p><p><a href="/mcp">Về trang MCP</a></p><script>` + script + `</script></body></html>`))
 }
 
 // logoutMCP forgets office's OAuth tokens for the server.

@@ -119,7 +119,17 @@ const en: Record<keyof typeof vi, string> = {
   'wf.runPage.sub': 'Sub-workflow (level {depth}), called by a role of another workflow',
   'wf.runPage.parent': 'Open the parent run',
   'wf.runPage.children': 'Sub-workflows ({n})',
-  'wf.runs.sub': 'Sub-workflow, level {depth}'
+  'wf.runs.sub': 'Sub-workflow, level {depth}',
+  'wf.callable.chat': 'Chat only',
+  'wf.callable.sub': 'Sub-workflow only',
+  'wf.callableInfo': 'callable: who may run this workflow (a chat with /key, or another workflow)',
+  'wf.preferInfo': 'The kind of agent this role wants (prefer): used to suggest one when installing',
+  'wf.limit.concurrency': 'At most {n} roles at once',
+  'wf.limit.concurrencyInfo': 'Roles working at once in the whole tree of sub-workflows (limits.concurrency)',
+  'wf.limit.idle': 'Noted after {d}',
+  'wf.limit.idleInfo': 'A role working this long without being done is noted for the coordinator (limits.idle)',
+  'wf.inputs': 'Inputs',
+  'wf.outputs': 'Outputs'
 }
 
 export default en

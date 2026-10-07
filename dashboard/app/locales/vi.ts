@@ -39,7 +39,6 @@ const vi = {
   'nav.addProject': 'Thêm project',
   'nav.providers': 'Kết nối AI',
   'nav.costs': 'Chi phí',
-  'nav.library': 'Thư viện',
   'nav.admin': 'Quản trị',
   'nav.users': 'Tài khoản',
   'nav.audit': 'Audit log',

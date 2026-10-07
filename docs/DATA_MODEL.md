@@ -342,7 +342,7 @@ Index `(day, agent_id)`, `(incident_id)`. View `cost_daily` group theo `day, age
 ### `workflows` / `workflow_runs` (ADR-098)
 `workflows`: bản quy trình của project: `project_id`, `key` (unique trong project), `name`, `description`, `source` (cả file), `source_key`/`source_hash` (mẫu thư viện đã chép), `bindings` (vai → agent_id), `enabled`.
 
-`workflow_runs`: một lần chạy: `project_id`, `conversation_id` (chat riêng của lần chạy, ADR-101), `caller_conversation_id` (chat đã gọi; '' = lần chạy cũ), `parent_run_id`, `depth` (quy trình con, ADR-102), `workflow_id`, `workflow_key`, `coordinator_id`, `input`, `status` (`running` \| `done` \| `failed` \| `stopped`), `turns`, `cost_usd`, `roles` (json: vai, agent, phiên, round, trạng thái, chi phí), `gates`, `log`, `result`, `error`, `started_at`, `finished_at`.
+`workflow_runs`: một lần chạy: `project_id`, `conversation_id` (chat riêng của lần chạy, ADR-101), `caller_conversation_id` (chat đã gọi; '' = lần chạy cũ), `parent_run_id`, `depth` (quy trình con, ADR-102), `outputs` (đầu ra theo key, ADR-103), `workflow_id`, `workflow_key`, `coordinator_id`, `input`, `status` (`running` \| `done` \| `failed` \| `stopped`), `turns`, `cost_usd`, `roles` (json: vai, agent, phiên, round, trạng thái, chi phí), `gates`, `log`, `result`, `error`, `started_at`, `finished_at`.
 
 ### `audit_log`
 
