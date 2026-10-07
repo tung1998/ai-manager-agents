@@ -67,6 +67,7 @@ type waiter struct {
 	// as the CLI does; lines are the ones of the status message shown now
 	verbose bool
 	lines   []string
+	stopped bool // /stop or /push ended it: nothing more goes to the chat
 }
 
 // MaxPending is how many messages of one outside chat may wait at once.
@@ -237,6 +238,30 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		return // not allowed (an empty list allows no one): no answer to a message
 	}
 	key := ch.ID + "/" + in.ChatID
+	say := func(text string) { // a slash command waits for its answer; a message gets a new one
+		if in.Respond != nil {
+			_, _ = in.Respond(ctx, text)
+		} else {
+			_, _ = ad.Send(ctx, in.ChatID, text)
+		}
+	}
+	if cmd, arg, isCmd := command(in.Text); isCmd && (cmd == "stop" || cmd == "push") { // before the flood check: it frees the chat
+		if cmd == "push" && arg == "" {
+			say("Hãy nhập tin sau lệnh, ví dụ: /push …")
+			return
+		}
+		n, convs := m.stopChat(ctx, key)
+		if cmd == "stop" {
+			if n == 0 {
+				say("Không có gì đang chạy.")
+			} else {
+				say(fmt.Sprintf("⏹️ Đã dừng %d việc.", n))
+			}
+			return
+		}
+		m.waitIdle(ctx, convs) // the stopped answer ends first: the new one is not put back as busy
+		in.Text = arg
+	}
 	if !m.pending.Take(key) {
 		return // a flood from one chat: the rest is dropped
 	}
@@ -253,13 +278,6 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 	project, err := m.store.Repos().Get(ctx, ch.ProjectID)
 	if err != nil {
 		return
-	}
-	say := func(text string) { // a slash command waits for its answer; a message gets a new one
-		if in.Respond != nil {
-			_, _ = in.Respond(ctx, text)
-		} else {
-			_, _ = ad.Send(ctx, in.ChatID, text)
-		}
 	}
 	cmd, arg, isCmd := command(in.Text)
 	switch cmd {
@@ -406,8 +424,8 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 			m.settle(ctx, ad, w)
 		}
 	}
-	if ad == nil {
-		return // the channel is off now
+	if ad == nil || (waited && w.stopped) {
+		return // the channel is off now, or the chat stopped it (/stop)
 	}
 	if final && err == nil && p.ConversationID != "" { // after the answer: what it left waiting for a person
 		defer func() {
@@ -624,6 +642,10 @@ func command(text string) (cmd, arg string, ok bool) {
 		return "skip", rest, true
 	case "mode":
 		return "mode", rest, true
+	case "stop", "dung":
+		return "stop", "", true
+	case "push":
+		return "push", rest, true
 	}
 	return "", "", false
 }

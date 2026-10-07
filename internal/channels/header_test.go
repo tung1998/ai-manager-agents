@@ -1348,3 +1348,33 @@ func TestSendFileFor(t *testing.T) {
 		t.Error("sent from a run that is no bot's chat")
 	}
 }
+
+func TestStopAndPushCommands(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	engine := chat.NewEngine(st, provider.NewService(st, box, llm.Options{}), usage.New(st, time.UTC))
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "telegram", Name: "Dev", Enabled: true, Allow: []string{"*"}, Header: "-"})
+	m := channels.NewManager(st, engine, trigger.New(st, chatExec{engine}), func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); m.State(ch.ID) != "running"; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "/stop", Addressed: true}
+	if got := bot.wait(t, "42", 1); got[0] != "Không có gì đang chạy." {
+		t.Fatalf("stop = %q", got)
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", Text: "/push", Addressed: true}
+	if got := bot.wait(t, "42", 2); !strings.Contains(got[1], "/push") {
+		t.Fatalf("push without text = %q", got)
+	}
+}

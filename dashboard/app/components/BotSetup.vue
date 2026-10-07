@@ -147,6 +147,8 @@ const systemCommands = computed(() => [
   { name: 'pending', arg: '', desc: t('cmd.pending') },
   { name: 'approve', arg: t('cmd.numberArg'), desc: t('cmd.approve') },
   { name: 'reject', arg: t('cmd.numberArg'), desc: t('cmd.reject') },
+  { name: 'stop', arg: '', desc: t('cmd.stop') },
+  { name: 'push', arg: t('cmd.messageArg'), desc: t('cmd.push') },
   { name: 'mode', arg: 'ask | direct', desc: t('cmd.mode') }
 ])
 const keywordsText = (c: Cmd) => (c.draft.config.keywords ?? []).join(', ')
