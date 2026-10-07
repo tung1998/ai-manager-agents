@@ -185,3 +185,33 @@ func TestCLIProviderUsesBinResolver(t *testing.T) {
 		t.Fatalf("test via resolver = %+v", res)
 	}
 }
+
+func TestGeminiCLIProvider(t *testing.T) {
+	svc, _, _ := setup(t)
+	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	t.Setenv("GEMINI_API_KEY", "")
+	bin := filepath.Join(t.TempDir(), "gemini")
+	os.WriteFile(bin, []byte("#!/bin/sh\necho '0.63.0'\n"), 0o755)
+	svc.SetBinResolver(func(name string) string {
+		if name == "gemini" {
+			return bin
+		}
+		return ""
+	})
+	// the kind is stored (no CHECK left to refuse it)
+	p, err := svc.Create(ctx, provider.Input{Name: "Gemini", Kind: storage.ProviderGeminiCLI,
+		TierModels: map[string]string{"strong": "pro", "balanced": "flash", "fast": "flash-lite"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := svc.Test(ctx, p.ID, "", ""); res.OK || !res.NeedsLogin || res.CLITool != "gemini" {
+		t.Fatalf("signed out = %+v", res)
+	}
+	os.MkdirAll(filepath.Join(home, ".gemini"), 0o700)
+	os.WriteFile(filepath.Join(home, ".gemini", "oauth_creds.json"), []byte("{}"), 0o600)
+	if res, _ := svc.Test(ctx, p.ID, "", ""); !res.OK || res.Version != "0.63.0" {
+		t.Fatalf("signed in = %+v", res)
+	}
+}
