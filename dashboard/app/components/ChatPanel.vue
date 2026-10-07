@@ -671,6 +671,17 @@ function fencedBlocks(text: string, lang: string): Record<string, unknown>[] {
   return out
 }
 
+// a code block's Apply (useMarkdown): the draft fills the editor next to the chat again
+function onMarkdownClick(e: MouseEvent) {
+  const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-md-act="apply"]')
+  const lang = btn?.dataset.lang
+  const code = btn?.closest('.md-code')?.querySelector('code')?.textContent
+  if (!lang || code == null || lang !== props.purpose) return
+  const blocks = fencedBlocks('```' + lang + '\n' + code.replace(/\n$/, '') + '\n```', lang)
+  if (!blocks.length) return toast.add({ title: t('chat.applyBad'), color: 'error' })
+  for (const b of blocks) emit(`${lang}-patch` as 'workflow-patch', b)
+}
+
 // a skill an agent drafted in the chat (Claude Code may not write .claude/): the
 // editor opens with it, a person reviews and saves
 const skillDrafts = (text: string) => text.includes('```skill') ? fencedBlocks(text, 'skill').filter(d => typeof d.name === 'string' && typeof d.body === 'string') : []
@@ -965,7 +976,7 @@ onBeforeUnmount(() => {
               </ul>
             </details>
             <!-- eslint-disable-next-line vue/no-v-html -->
-            <div class="markdown min-w-0 text-sm" v-html="renderMarkdown(m.content)" />
+            <div class="markdown min-w-0 text-sm" :class="purpose && `md-apply-${purpose}`" @click="onMarkdownClick" v-html="renderMarkdown(m.content)" />
             <UButton
               v-for="(d, i) in (purpose || current?.purpose === 'skill' || current?.purpose === 'workflow' ? [] : skillDrafts(m.content))" :key="`sk${i}`"
               icon="i-lucide-sparkles" size="sm" color="neutral" variant="outline" :label="t('chat.openSkillEditor', { name: String(d.name) })"

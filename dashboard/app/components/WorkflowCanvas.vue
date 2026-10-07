@@ -7,10 +7,10 @@
 // is written so once edited (ADR-111).
 // One output may be wired to several steps (they run at once, ADR-110); a
 // switch has an output per case and one for "none matched".
-import { VueFlow, Handle, Position, MarkerType, useVueFlow } from '@vue-flow/core'
+import { VueFlow, Handle, Position, MarkerType, useVueFlow, getRectOfNodes } from '@vue-flow/core'
 import type { Node, Edge, Connection, NodeChange, EdgeChange, NodeDragEvent, NodeMouseEvent } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
+import { Controls, ControlButton } from '@vue-flow/controls'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
@@ -21,7 +21,7 @@ const emit = defineEmits<{ 'update:def': [WorkflowDef], 'update:bindings': [Reco
 const { t } = useLang()
 
 const flowId = `wf-canvas-${useId()}`
-const { project, fitView, vueFlowRef } = useVueFlow(flowId)
+const { project, fitView, fitBounds, getNodes, vueFlowRef } = useVueFlow(flowId)
 
 const INPUT = '__input'
 const COL = 280
@@ -295,19 +295,46 @@ const fitted = ref(false)
 function onNodesInitialized() {
   if (fitted.value) return
   fitted.value = true
-  fitView({ padding: 0.2 })
+  fitFree()
 }
 
 // the roles a coordinate step hands work to (none named: every role but its coordinator)
 const coordRoles = (s: WorkflowStep) => s.roles?.length ? s.roles : view.value.roles.filter(r => r.key !== s.role).map(r => r.key)
 
+// the floating panels (wider screens): hidden for more room
+const paletteOpen = ref(true)
+const formOpen = ref(true)
+const paletteEl = ref<HTMLElement>()
+const formEl = ref<HTMLElement>()
+// fit the graph into the room the panels leave (the whole box on a phone)
+function fitFree() {
+  const box = vueFlowRef.value?.getBoundingClientRect()
+  const nodes = getNodes.value
+  if (!box?.width || !nodes.length) return
+  const side = (el?: HTMLElement, open = true) => open && el && getComputedStyle(el).position === 'absolute' ? el.offsetWidth + 8 : 0
+  const left = side(formEl.value, formOpen.value)
+  const right = side(paletteEl.value, paletteOpen.value)
+  const free = box.width - left - right
+  if (free < box.width * 0.3) return fitView({ padding: 0.2 })
+  const r = getRectOfNodes(nodes)
+  const width = r.width * box.width / free // the graph spans the free part, the panels' part is empty room
+  fitBounds({ x: r.x - (width - r.width) * left / (left + right || 1), y: r.y, width, height: r.height }, { padding: 0.12 })
+}
+watch(selected, (id) => { if (id) formOpen.value = true }) // a node picked: its form shows
+
 const palette = computed(() => STEP_TYPES.map(s => ({ ...s, label: stepLabel(s.type) })))
 </script>
 
 <template>
-  <div class="wf-canvas flex flex-col overflow-hidden md:h-[40rem] lg:h-full lg:min-h-[30rem] rounded-lg border border-(--ui-border) md:flex-row">
+  <!-- a phone: palette, graph, form one under the other; wider: the graph
+       fills the box, the form floats on the left and the palette on the right -->
+  <div class="wf-canvas relative flex flex-col overflow-hidden rounded-lg border border-(--ui-border) md:block md:h-[40rem] lg:h-full lg:min-h-[30rem]">
     <!-- palette -->
-    <aside class="flex shrink-0 gap-3 overflow-auto border-b border-(--ui-border) p-2 md:w-44 md:flex-col md:border-e md:border-b-0">
+    <aside
+      ref="paletteEl" class="flex shrink-0 gap-3 overflow-auto border-b border-(--ui-border) p-2 md:absolute md:end-2 md:top-2 md:z-10 md:max-h-[calc(100%-1rem)] md:w-44 md:flex-col md:rounded-lg md:border md:bg-(--ui-bg)/95 md:shadow-lg md:backdrop-blur"
+      :class="!paletteOpen && 'md:hidden'"
+    >
+      <UButton class="hidden self-end md:inline-flex" size="xs" color="neutral" variant="ghost" icon="i-lucide-panel-right-close" :aria-label="t('wf.canvas.hidePanel')" @click="paletteOpen = false" />
       <div class="space-y-1">
         <p class="flex items-center gap-1 px-1 text-xs font-medium text-(--ui-text-muted)">
           {{ t('wf.canvas.steps') }}
@@ -352,8 +379,11 @@ const palette = computed(() => STEP_TYPES.map(s => ({ ...s, label: stepLabel(s.t
       </div>
     </aside>
 
+    <UButton v-if="!paletteOpen" class="absolute end-2 top-2 z-10 max-md:hidden" size="sm" color="neutral" variant="outline" icon="i-lucide-panel-right-open" :label="t('wf.canvas.steps')" @click="paletteOpen = true" />
+    <UButton v-if="!formOpen" class="absolute start-2 top-2 z-10 max-md:hidden" size="sm" color="neutral" variant="outline" icon="i-lucide-panel-left-open" :label="t('wf.canvas.details')" @click="formOpen = true" />
+
     <!-- the graph -->
-    <div class="relative h-[26rem] min-w-0 flex-1 md:h-auto" @dragover="onDragOver" @drop="onDrop">
+    <div class="relative h-[26rem] min-w-0 shrink-0 md:absolute md:inset-0 md:h-auto" @dragover="onDragOver" @drop="onDrop">
       <VueFlow
         :id="flowId" :nodes="nodes" :edges="edges"
         :edges-updatable="false"
@@ -363,7 +393,9 @@ const palette = computed(() => STEP_TYPES.map(s => ({ ...s, label: stepLabel(s.t
         @node-drag-stop="onDragStop" @node-click="onNodeClick" @pane-click="selected = ''"
       >
         <Background :gap="18" :size="1.2" />
-        <Controls :show-interactive="false" />
+        <Controls :show-interactive="false" :show-fit-view="false" position="bottom-center">
+          <ControlButton :title="t('wf.canvas.fit')" @click="fitFree()"><UIcon name="i-lucide-maximize" /></ControlButton>
+        </Controls>
 
         <template #node-wf-input>
           <div class="wf-node w-44" :class="selected === INPUT && 'wf-node-selected'">
@@ -422,7 +454,11 @@ const palette = computed(() => STEP_TYPES.map(s => ({ ...s, label: stepLabel(s.t
     </div>
 
     <!-- the selected node's form -->
-    <aside class="max-h-[36rem] shrink-0 overflow-y-auto border-t border-(--ui-border) p-3 md:max-h-none md:min-h-0 md:w-80 md:border-s md:border-t-0">
+    <aside
+      ref="formEl" class="max-h-[36rem] shrink-0 overflow-y-auto border-t border-(--ui-border) p-3 md:absolute md:start-2 md:top-2 md:z-10 md:max-h-[calc(100%-1rem)] md:w-80 md:rounded-lg md:border md:bg-(--ui-bg)/95 md:shadow-lg md:backdrop-blur"
+      :class="!formOpen && 'md:hidden'"
+    >
+      <UButton class="float-end hidden md:inline-flex" size="xs" color="neutral" variant="ghost" icon="i-lucide-panel-left-close" :aria-label="t('wf.canvas.hidePanel')" @click="formOpen = false" />
       <WorkflowStepForm
         :def="view" :sel="selected" :project-id="projectId" :bindings="bindings"
         :agents="agents" :workflows="workflows"

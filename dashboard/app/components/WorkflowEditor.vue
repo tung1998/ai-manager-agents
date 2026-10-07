@@ -166,8 +166,10 @@ async function save() {
 </script>
 
 <template>
-  <div class="grid gap-4 lg:h-[calc(100vh-9rem)] lg:min-h-[36rem]" :class="mode === 'canvas' ? 'lg:grid-cols-[minmax(0,7fr)_minmax(20rem,3fr)]' : 'lg:grid-cols-2'">
-    <div class="flex min-w-0 flex-col gap-2 lg:min-h-0">
+  <!-- the canvas: the editor over its chat (the whole width for the graph);
+       the text: side by side -->
+  <div class="grid gap-4" :class="mode === 'canvas' ? '' : 'lg:h-[calc(100vh-9rem)] lg:min-h-[36rem] lg:grid-cols-2'">
+    <div class="flex min-w-0 flex-col gap-2 lg:min-h-0" :class="mode === 'canvas' && 'lg:h-[calc(100vh-9rem)] lg:min-h-[36rem]'">
       <div class="flex items-center gap-2">
         <SegmentedNav v-model="mode" :items="modes" />
         <UTooltip :text="t('wf.canvas.modeInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
@@ -200,7 +202,7 @@ async function save() {
         <UButton icon="i-lucide-save" :loading="saving" :disabled="!isAdmin || !source.trim() || !!error" :label="t('auto.save')" @click="save()" />
       </div>
     </div>
-    <div class="h-[32rem] lg:h-auto lg:min-h-0">
+    <div class="h-[32rem] lg:min-h-0" :class="mode !== 'canvas' && 'lg:h-auto'">
       <ChatPanel
         :project-id="chatProjectId" purpose="workflow" :subject="subject" :page-context="pageContext"
         @workflow-patch="applyPatch" @history="replay" @conversation="(id) => { conversationId = id }"

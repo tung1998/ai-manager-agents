@@ -296,6 +296,8 @@ const en: Record<keyof typeof vi, string> = {
   'admin.usersNewPassword': 'New password',
 
   'pages.genericError': 'Something went wrong, try again later',
+  'md.copy': 'Copy',
+  'md.apply': 'Apply',
   'md.diffHidden': '_(proposed change shown below)_',
   'burn.title': 'Burn',
   'burn.start': 'Start Burn',

@@ -87,6 +87,7 @@ const en: Record<keyof typeof vi, string> = {
   'chat.budgetHit': 'Hit the cost cap',
   'chat.skillChat': 'A skill editor chat',
   'chat.backToSkillEditor': 'Open the skill editor',
+  'chat.applyBad': 'This draft cannot be read (not valid JSON)',
   'chat.clearEditorChat': 'Clear chat',
   'chat.clearEditorConfirm': 'Clear this chat and start over? What the form has is kept.',
   'chat.workflowChat': 'A workflow editor chat',

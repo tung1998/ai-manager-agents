@@ -295,6 +295,8 @@ export default {
   'admin.usersNewPassword': 'Mật khẩu mới',
 
   'pages.genericError': 'Có lỗi xảy ra, thử lại sau',
+  'md.copy': 'Sao chép',
+  'md.apply': 'Áp dụng',
   'md.diffHidden': '_(đề xuất thay đổi ở bên dưới)_',
   'burn.title': 'Burn',
   'burn.start': 'Bật Burn',

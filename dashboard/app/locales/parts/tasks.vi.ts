@@ -86,6 +86,7 @@ export default {
   'chat.budgetHit': 'Đã chạm trần chi phí',
   'chat.skillChat': 'Chat soạn skill',
   'chat.backToSkillEditor': 'Mở trình soạn skill',
+  'chat.applyBad': 'Không đọc được bản nháp này (JSON không hợp lệ)',
   'chat.clearEditorChat': 'Xóa chat',
   'chat.clearEditorConfirm': 'Xóa chat này để bắt đầu lại? Nội dung trong form vẫn giữ.',
   'chat.workflowChat': 'Chat soạn quy trình',
