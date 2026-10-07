@@ -146,7 +146,7 @@ const steps = computed(() => [
     done: projects.value.length > 0 && withAgents.value === projects.value.length,
     title: t('team.home.step3Title'),
     text: projects.value.length ? t('team.home.step3TextDone', { n: withAgents.value, total: projects.value.length }) : t('team.home.step3TextTodo'),
-    to: projects.value.length ? '/projects' : '/library?tab=workflows', icon: 'i-lucide-bot'
+    to: projects.value.length ? '/projects' : '/workflows', icon: 'i-lucide-bot'
   }
 ])
 </script>

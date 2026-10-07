@@ -101,7 +101,12 @@ const items = computed<NavigationMenuItem[][]>(() => {
   const settings: NavigationMenuItem[] = [
     { label: t('nav.settings'), type: 'label' },
     { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' },
-    ...(isAdmin.value ? [{ label: t('nav.library'), icon: 'i-lucide-library', to: '/library' }] : [])
+    ...(isAdmin.value
+      ? [
+          { label: t('nav.library'), icon: 'i-lucide-library', to: '/library' },
+          { label: t('wf.section'), icon: 'i-lucide-workflow', to: '/workflows' }
+        ]
+      : [])
   ]
   const admin: NavigationMenuItem[] = isAdmin.value
     ? [

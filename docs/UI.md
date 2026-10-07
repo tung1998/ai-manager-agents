@@ -16,7 +16,8 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 | `/projects/:id/automations/new`, `/automations/:aid`, `/automations/:aid/edit` | Tự động hoá | Tạo/sửa 1 automation (lịch, webhook, điều kiện, script hoặc chat); xem 1 cái: trạng thái, bật/tắt, Việc đã chạy | Chạy thử, sửa, xoá, copy URL webhook |
 | `/projects/:id/bots/new`, `/bots/:bid`, `/bots/:bid/edit` | Bot (Discord/Telegram) | Kết nối bot (ADR-049), trạng thái, thiết lập chung của các lệnh và kiểu trả lời (ADR-097), danh sách lệnh (mỗi lệnh là 1 automation riêng; Nâng cao → thiết lập riêng), Việc đã chạy | Kết nối/ngắt, thêm/sửa lệnh |
 | `/projects/:id/skills/edit?name=&scope=` | Soạn skill | Soạn skill của project hoặc riêng máy (`?scope=user`) bằng chat có theo dõi (ADR-062) | Lưu |
-| `/library` (admin) | Thư viện | Skills / MCP servers / Quy trình (`?tab=workflows`, ADR-098): **Đã cài** (mọi nơi trên máy, nhóm theo nơi cài), **Thư viện**, MCP **Phổ biến**, **Tìm MCP** | Xem, cài vào nơi khác, lưu vào thư viện, gỡ, tạo và sửa |
+| `/library` (admin) | Thư viện | Skills / MCP servers: **Đã cài** (mọi nơi trên máy, nhóm theo nơi cài), **Thư viện**, MCP **Phổ biến**, **Tìm MCP** | Xem, cài vào nơi khác, lưu vào thư viện, gỡ, tạo và sửa |
+| `/workflows` (admin) | Thư viện quy trình | Quy trình dùng chung (có sẵn, đã sửa, tự tạo), lỗi nếu file sai (ADR-098) | Tạo / Sửa / Khôi phục / Xoá |
 | `/workflows/edit?key=`, `/projects/:id/workflows/edit?w=` | Soạn quy trình | Soạn quy trình của thư viện hoặc của project bằng chat (`purpose=workflow`), xem trước vai/giới hạn/cổng/biểu quyết (ADR-098) | Lưu |
 | `/jobs` | Job | Mọi lượt chạy (chat, Việc, automation) của mọi project: trạng thái, lọc theo project, lỗi 24h, chi phí 24h | |
 | `/providers` | Kết nối AI | Danh sách kết nối (Anthropic, OpenAI, API tương thích, CLI…), gửi thử, thống kê theo kết nối | Thêm / Sửa / Xoá / Đặt mặc định |
@@ -31,7 +32,7 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 
 `/costs` và `/incidents` đã bỏ, gộp vào Tổng quan (`/`): biểu đồ chi phí + danh sách cần xử lý (ADR-060, ADR-051); hai đường dẫn cũ chuyển hướng về `/`. Không có trang `/setup` (chỉ `/projects/:id/setup`), `/agents/:id` (thay bằng `/projects/:id/agents/:agentId`), `/blackboard`, hay `/ask` — đó là thiết kế sơ khai ban đầu, chưa từng lên app thật.
 
-Sidebar 4 nhóm (xem `dashboard/app/layouts/default.vue`): **Project** (5 project mở nhiều nhất gần đây — đếm trong localStorage, mỗi project mở rộng ra các tab con; "Tất cả project" mở `/projects`); **Làm việc** (Trợ lý office, Theo dõi, Tổng quan có badge đếm, Job); **Cài đặt** (Kết nối AI, Thư viện — chỉ admin); **Admin** (Người dùng, Nhật ký, Chuyển máy, Cập nhật).
+Sidebar 4 nhóm (xem `dashboard/app/layouts/default.vue`): **Project** (5 project mở nhiều nhất gần đây — đếm trong localStorage, mỗi project mở rộng ra các tab con; "Tất cả project" mở `/projects`); **Làm việc** (Trợ lý office, Theo dõi, Tổng quan có badge đếm, Job); **Cài đặt** (Kết nối AI, Thư viện, Quy trình — chỉ admin); **Admin** (Người dùng, Nhật ký, Chuyển máy, Cập nhật).
 
 ## Luồng người dùng
 

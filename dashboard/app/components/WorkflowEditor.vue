@@ -12,7 +12,7 @@ const { t } = useLang()
 const { isAdmin } = useAuth()
 const library = computed(() => !props.projectId)
 const editing = computed(() => !!(library.value ? props.libKey : props.workflowId))
-const back = computed(() => library.value ? { path: '/library', query: { tab: 'workflows' } } : { path: `/projects/${props.projectId}`, query: { tab: 'workflows' } })
+const back = computed(() => library.value ? { path: '/workflows' } : { path: `/projects/${props.projectId}`, query: { tab: 'workflows' } })
 
 const source = ref('')
 const loaded = ref(!editing.value)

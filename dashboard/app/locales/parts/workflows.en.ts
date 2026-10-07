@@ -2,7 +2,6 @@ import type vi from './workflows.vi'
 
 const en: Record<keyof typeof vi, string> = {
   'wf.section': 'Workflows',
-  'wf.tab': 'Workflows',
   'wf.library': 'Workflow library',
   'wf.count': '{n} workflows',
   'wf.projectInfo': 'How the agents work together. Type /key in a chat to run one; each role goes to the agent bound to it (left empty, the coordinator picks).',

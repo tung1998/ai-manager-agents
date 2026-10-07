@@ -1,7 +1,6 @@
 // Vietnamese strings for workflows (source of truth for keys).
 export default {
   'wf.section': 'Quy trình',
-  'wf.tab': 'Quy trình',
   'wf.library': 'Thư viện quy trình',
   'wf.count': '{n} quy trình',
   'wf.projectInfo': 'Cách các agent phối hợp. Gõ /key trong chat để chạy; mỗi vai do agent được gán đảm nhận (để trống thì agent điều phối tự chọn).',
