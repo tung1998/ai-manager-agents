@@ -124,6 +124,8 @@ func runnerFor(kind storage.ProviderKind) Runner {
 		return codexRunner{}
 	case storage.ProviderGeminiCLI:
 		return geminiRunner{}
+	case storage.ProviderAntigravityCLI:
+		return antigravityRunner{}
 	case storage.ProviderAnthropic:
 		return anthropicRunner{}
 	default:

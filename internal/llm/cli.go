@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -404,6 +405,95 @@ func GeminiError(stderr string) string {
 		msg += " — tài khoản này cần dự án Google Cloud: đặt GOOGLE_CLOUD_PROJECT cho office."
 	}
 	return clip(msg, 600)
+}
+
+// ---- Antigravity ----
+
+type antigravityCLI struct{ bin string }
+
+// agyModel is a model slug in `agy models` output.
+var agyModel = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$`)
+
+// AntigravityModels lists the models of the signed-in account (`agy models`);
+// a signed-out CLI gives ErrNeedsLogin.
+func AntigravityModels(ctx context.Context, bin string, env []string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, bin, "models")
+	if len(env) > 0 {
+		cmd.Env = env
+	}
+	out, err := cmd.CombinedOutput()
+	text := string(out)
+	if strings.Contains(strings.ToLower(text), "sign in") || strings.Contains(text, "authentication") {
+		return nil, fmt.Errorf("%w: hãy bấm Đăng nhập (tài khoản Google) cho Antigravity CLI", ErrNeedsLogin)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("agy models: %v: %s", err, clip(strings.TrimSpace(text), 300))
+	}
+	var models []string
+	for _, l := range strings.Split(text, "\n") {
+		f := strings.Fields(strings.Trim(l, " \t-*•>"))
+		if len(f) > 0 && agyModel.MatchString(f[0]) && !slices.Contains(models, f[0]) {
+			models = append(models, f[0])
+		}
+	}
+	return models, nil
+}
+
+func (c *antigravityCLI) Check(ctx context.Context) (CheckResult, error) {
+	out, err := run(ctx, c.bin, "", "--version")
+	if err != nil {
+		return CheckResult{}, err
+	}
+	v := strings.TrimSpace(out)
+	models, err := AntigravityModels(ctx, c.bin, nil)
+	if err != nil {
+		return CheckResult{}, fmt.Errorf("%s · %w", v, err)
+	}
+	return CheckResult{Version: v, Models: models, Detail: v}, nil
+}
+
+// agyResult is Antigravity's json output (and the payload of its
+// stream-json "result" event).
+type agyResult struct {
+	ConversationID string `json:"conversation_id"`
+	Status         string `json:"status"`
+	Response       string `json:"response"`
+	Error          string `json:"error"`
+	Usage          struct {
+		InputTokens     int `json:"input_tokens"`
+		OutputTokens    int `json:"output_tokens"`
+		ThinkingTokens  int `json:"thinking_tokens"`
+		CacheReadTokens int `json:"cache_read_tokens"`
+	} `json:"usage"`
+}
+
+func (c *antigravityCLI) Complete(ctx context.Context, req Request) (Result, error) {
+	start := time.Now()
+	// the prompt on stdin runs one turn non-interactively; plan mode only reads
+	args := []string{"--output-format", "json", "--mode", "plan", "--disable-slash-commands"}
+	if req.Model != "" {
+		args = append(args, "--model", req.Model)
+	}
+	prompt := req.Prompt
+	if req.System != "" {
+		prompt = req.System + "\n\n" + req.Prompt
+	}
+	out, err := run(ctx, c.bin, prompt, args...)
+	var res agyResult
+	if jerr := json.Unmarshal([]byte(lastJSONObject(out)), &res); jerr != nil {
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{}, fmt.Errorf("agy: không đọc được output JSON: %w", jerr)
+	}
+	if res.Status != "SUCCESS" {
+		if strings.Contains(res.Error, "authentication") {
+			return Result{}, fmt.Errorf("%w: Antigravity CLI chưa đăng nhập", ErrNeedsLogin)
+		}
+		return Result{}, fmt.Errorf("agy: %s", clip(cmp.Or(res.Error, res.Status), 400))
+	}
+	return Result{Text: strings.TrimSpace(res.Response), Model: req.Model, DurationMS: time.Since(start).Milliseconds(),
+		InputTokens: res.Usage.InputTokens + res.Usage.CacheReadTokens, OutputTokens: res.Usage.OutputTokens + res.Usage.ThinkingTokens}, nil
 }
 
 // lastJSONObject returns the last line that looks like a JSON object, since

@@ -181,6 +181,9 @@ func detectProviders(cmd *cobra.Command, a *app, yes bool) error {
 	if _, err := exec.LookPath("gemini"); err == nil && !have[storage.ProviderGeminiCLI] {
 		cands = append(cands, cand{"Gemini CLI (lệnh gemini trên máy)", provider.Input{Name: "Gemini CLI", Kind: storage.ProviderGeminiCLI}})
 	}
+	if _, err := exec.LookPath("agy"); err == nil && !have[storage.ProviderAntigravityCLI] {
+		cands = append(cands, cand{"Antigravity CLI (lệnh agy trên máy)", provider.Input{Name: "Antigravity CLI", Kind: storage.ProviderAntigravityCLI}})
+	}
 	if os.Getenv("ANTHROPIC_API_KEY") != "" && !have[storage.ProviderAnthropic] {
 		cands = append(cands, cand{"Claude API (đọc ANTHROPIC_API_KEY)", provider.Input{Name: "Claude API", Kind: storage.ProviderAnthropic, APIKeyEnv: "ANTHROPIC_API_KEY"}})
 	}

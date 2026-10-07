@@ -44,8 +44,9 @@ type Tool struct {
 	// loginEnv / prepareLogin set up a sign-in that is no subcommand of its
 	// own; loginDone ends it once signed in (Gemini's sign-in opens its chat).
 	loginEnv     []string
+	loginTerm    term
 	prepareLogin func() error
-	loginDone    func() bool
+	loginDone    func(ctx context.Context, bin string, env []string) bool
 }
 
 // Auth is a tool's sign-in state.
@@ -105,8 +106,37 @@ var tools = []Tool{
 		},
 		status:       geminiStatus,
 		prepareLogin: geminiPrepareLogin,
-		loginDone:    llm.GeminiSignedIn,
+		loginDone:    func(context.Context, string, []string) bool { return llm.GeminiSignedIn() },
 	},
+	{
+		// Antigravity CLI replaces Gemini CLI for Google accounts (AI Pro/Ultra
+		// and free) since June 2026 (ADR-106)
+		ID: "antigravity", Name: "Antigravity CLI", Bin: "agy", DocsURL: "https://antigravity.google/docs/cli",
+		LoginCmd: "agy", loginArgv: []string{"agy"},
+		// a full-screen sign-in: it waits for answers to its terminal queries,
+		// wraps the link at the window width, and starts on a method menu
+		loginTerm: term{cols: 1000, answer: true, keys: []autoKey{{after: "Select login method", keys: "\r"}}},
+		methods: []Method{
+			// a cask straight from the internet waits on a Gatekeeper dialog
+			// nobody at the dashboard can click; Google signs the binary
+			{ID: "brew", Label: "Homebrew", Command: "brew install --cask antigravity-cli", Requires: "brew", Recommended: true,
+				argv: []string{"/bin/sh", "-c", `brew install --cask antigravity-cli && xattr -dr com.apple.quarantine "$(brew --prefix)/Caskroom/antigravity-cli"`}},
+		},
+		status: antigravityStatus,
+		loginDone: func(ctx context.Context, bin string, env []string) bool {
+			_, err := llm.AntigravityModels(ctx, bin, env)
+			return err == nil
+		},
+	},
+}
+
+// antigravityStatus asks Antigravity CLI for its models, which needs a
+// signed-in account; it has no status subcommand.
+func antigravityStatus(ctx context.Context, bin string, env []string) Auth {
+	if _, err := llm.AntigravityModels(ctx, bin, env); err != nil {
+		return Auth{Detail: err.Error()}
+	}
+	return Auth{LoggedIn: true}
 }
 
 // geminiStatus: Gemini CLI has no status subcommand; read its credentials.
@@ -368,7 +398,7 @@ func (m *Manager) Install(id, method string) (*Job, error) {
 		}
 		// brew asks [y/n] before installing (the default since Homebrew 6, or
 		// HOMEBREW_ASK before); the install box cannot answer
-		return m.start(id, "install", meth.argv, 15*time.Minute, "HOMEBREW_NO_ASK=1", "HOMEBREW_ASK=")
+		return m.start(id, "install", meth.argv, 15*time.Minute, term{}, "HOMEBREW_NO_ASK=1", "HOMEBREW_ASK=")
 	}
 	return nil, ErrUnknownMethod
 }
@@ -389,7 +419,7 @@ func (m *Manager) Login(id string) (*Job, error) {
 		}
 	}
 	argv := append([]string{path}, t.loginArgv[1:]...)
-	j, err := m.start(id, "login", argv, 15*time.Minute, t.loginEnv...)
+	j, err := m.start(id, "login", argv, 15*time.Minute, t.loginTerm, t.loginEnv...)
 	if err == nil && t.loginDone != nil {
 		go func() {
 			tick := time.NewTicker(2 * time.Second)
@@ -399,7 +429,10 @@ func (m *Manager) Login(id string) (*Job, error) {
 				case <-j.done:
 					return
 				case <-tick.C:
-					if t.loginDone() {
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					done := t.loginDone(ctx, path, m.Env())
+					cancel()
+					if done {
 						j.finish()
 						return
 					}
@@ -410,7 +443,7 @@ func (m *Manager) Login(id string) (*Job, error) {
 	return j, err
 }
 
-func (m *Manager) start(tool, action string, argv []string, timeout time.Duration, env ...string) (*Job, error) {
+func (m *Manager) start(tool, action string, argv []string, timeout time.Duration, tm term, env ...string) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if j := m.last[tool]; j != nil && j.Snapshot().State == "running" {
@@ -419,7 +452,7 @@ func (m *Manager) start(tool, action string, argv []string, timeout time.Duratio
 	if p := m.lookPathLocked(argv[0]); p != "" {
 		argv = append([]string{p}, argv[1:]...)
 	}
-	j, err := startJob(tool, action, argv, append(slices.Clone(m.env), env...), timeout)
+	j, err := startJob(tool, action, argv, append(slices.Clone(m.env), env...), timeout, tm)
 	if err != nil {
 		return nil, err
 	}

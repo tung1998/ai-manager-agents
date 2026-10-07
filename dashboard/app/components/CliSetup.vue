@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Installs and signs in a local AI CLI (Claude Code, Codex, Gemini CLI) through the office
+// Installs and signs in a local AI CLI (Claude Code, Codex, Gemini CLI, Antigravity CLI) through the office
 // server, which runs on the same machine. Emits `ready` once usable.
 interface Method { id: string, label: string, command: string, requires: string, available: boolean, recommended: boolean }
 interface JobView {
@@ -25,7 +25,7 @@ interface ToolStatus {
   job?: JobView
 }
 
-const props = defineProps<{ tool: 'claude' | 'codex' | 'gemini' }>()
+const props = defineProps<{ tool: 'claude' | 'codex' | 'gemini' | 'antigravity' }>()
 const emit = defineEmits<{ ready: [boolean] }>()
 const toast = useToast()
 const { t } = useLang()

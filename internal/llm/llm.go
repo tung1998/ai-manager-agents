@@ -1,5 +1,5 @@
 // Package llm talks to model providers: HTTP APIs (Anthropic, OpenAI,
-// OpenAI-compatible) and local CLIs (claude, codex, gemini).
+// OpenAI-compatible) and local CLIs (claude, codex, gemini, agy).
 //
 // This is the thin connection layer used to test a provider and send a single
 // prompt. The agent runtime (tool use, sessions, streaming) builds on top later.
@@ -87,6 +87,8 @@ func New(p storage.Provider, apiKey string, opts Options) (Client, error) {
 		return &codexCLI{bin: orDefault(p.BaseURL, "codex")}, nil
 	case storage.ProviderGeminiCLI:
 		return &geminiCLI{bin: orDefault(p.BaseURL, "gemini")}, nil
+	case storage.ProviderAntigravityCLI:
+		return &antigravityCLI{bin: orDefault(p.BaseURL, "agy")}, nil
 	}
 	return nil, fmt.Errorf("llm: unknown provider kind %q", p.Kind)
 }

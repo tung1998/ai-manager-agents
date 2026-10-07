@@ -215,3 +215,35 @@ func TestGeminiCLIProvider(t *testing.T) {
 		t.Fatalf("signed in = %+v", res)
 	}
 }
+
+func TestAntigravityCLIProvider(t *testing.T) {
+	svc, _, _ := setup(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "agy")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+case "$1" in
+  --version) echo "1.3.1";;
+  models) if [ -f "`+dir+`/in" ]; then echo "Fetching available models..."; echo "gemini-3.8-flash-high"; echo "gemini-3.5-pro (default)"
+          else echo "Error: Please sign in to view available models. Launch the CLI without arguments to sign in."; exit 1; fi;;
+esac
+`), 0o755)
+	svc.SetBinResolver(func(name string) string {
+		if name == "agy" {
+			return bin
+		}
+		return ""
+	})
+	p, err := svc.Create(ctx, provider.Input{Name: "AGY", Kind: storage.ProviderAntigravityCLI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := svc.Test(ctx, p.ID, "", ""); res.OK || !res.NeedsLogin || res.CLITool != "antigravity" {
+		t.Fatalf("signed out = %+v", res)
+	}
+	os.WriteFile(filepath.Join(dir, "in"), nil, 0o600)
+	res, _ := svc.Test(ctx, p.ID, "", "")
+	if !res.OK || res.Version != "1.3.1" || strings.Join(res.Models, ",") != "gemini-3.8-flash-high,gemini-3.5-pro" {
+		t.Fatalf("signed in = %+v", res)
+	}
+}

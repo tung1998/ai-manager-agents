@@ -186,7 +186,7 @@ func (s *Service) APIKey(p storage.Provider) (string, error) {
 }
 
 // cliBins is the command each CLI provider runs.
-var cliBins = map[storage.ProviderKind]string{storage.ProviderClaudeCLI: "claude", storage.ProviderCodexCLI: "codex", storage.ProviderGeminiCLI: "gemini"}
+var cliBins = map[storage.ProviderKind]string{storage.ProviderClaudeCLI: "claude", storage.ProviderCodexCLI: "codex", storage.ProviderGeminiCLI: "gemini", storage.ProviderAntigravityCLI: "agy"}
 
 // CLIBin returns the binary a CLI provider runs (explicit path, or the resolver's
 // lookup, or the bare command name).
@@ -230,7 +230,7 @@ type TestResult struct {
 	Response *llm.Result      `json:"response,omitempty"`
 	Provider storage.Provider `json:"-"`
 	// NeedsLogin marks a CLI provider whose account is signed out; CLITool is
-	// the tool the dashboard can sign in without a terminal (claude | codex | gemini).
+	// the tool the dashboard can sign in without a terminal (claude | codex | gemini | antigravity).
 	NeedsLogin bool   `json:"needs_login,omitempty"`
 	CLITool    string `json:"cli_tool,omitempty"`
 }
@@ -244,6 +244,8 @@ func cliToolOf(p storage.Provider) string {
 		return "codex"
 	case storage.ProviderGeminiCLI:
 		return "gemini"
+	case storage.ProviderAntigravityCLI:
+		return "antigravity"
 	}
 	return ""
 }

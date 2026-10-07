@@ -18,12 +18,13 @@ const (
 	ProviderClaudeCLI        ProviderKind = "claude_cli"        // local `claude -p`
 	ProviderCodexCLI         ProviderKind = "codex_cli"         // local `codex exec`
 	ProviderGeminiCLI        ProviderKind = "gemini_cli"        // local `gemini` (headless)
+	ProviderAntigravityCLI   ProviderKind = "antigravity_cli"   // local `agy` (print mode)
 )
 
 // Valid reports whether k is known.
 func (k ProviderKind) Valid() bool {
 	switch k {
-	case ProviderAnthropic, ProviderOpenAI, ProviderOpenAICompatible, ProviderClaudeCLI, ProviderCodexCLI, ProviderGeminiCLI:
+	case ProviderAnthropic, ProviderOpenAI, ProviderOpenAICompatible, ProviderClaudeCLI, ProviderCodexCLI, ProviderGeminiCLI, ProviderAntigravityCLI:
 		return true
 	}
 	return false
@@ -31,7 +32,7 @@ func (k ProviderKind) Valid() bool {
 
 // IsCLI reports whether the provider runs a local binary instead of an HTTP API.
 func (k ProviderKind) IsCLI() bool {
-	return k == ProviderClaudeCLI || k == ProviderCodexCLI || k == ProviderGeminiCLI
+	return k == ProviderClaudeCLI || k == ProviderCodexCLI || k == ProviderGeminiCLI || k == ProviderAntigravityCLI
 }
 
 // Model tiers let templates say "strong model" without naming a vendor model.

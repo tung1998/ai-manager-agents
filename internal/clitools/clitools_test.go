@@ -292,3 +292,65 @@ func TestToolEnvPrefersNvm(t *testing.T) {
 	}
 	t.Fatal("no PATH")
 }
+
+// fakeAgy acts like Antigravity CLI's full-screen sign-in: it waits for an
+// answer to its terminal query, starts on a method menu, and prints the link
+// at the window's width; `agy models` works once signed in.
+const fakeAgy = `#!/bin/sh
+STATE="$(dirname "$0")/.agy-signed-in"
+case "$1" in
+  --version) echo "1.3.1"; exit 0;;
+  models) if [ -f "$STATE" ]; then echo "Fetching available models..."; echo "  gemini-3.8-flash-high"; echo "  gemini-3.5-pro"; exit 0; fi
+          echo "Error: Please sign in to view available models."; exit 1;;
+esac
+stty raw -echo
+printf '\033[>c'
+REPLY=$(head -c 11)
+case "$REPLY" in *">0;276;0c"*) ;; *) echo "no terminal reply"; exit 1;; esac
+printf 'Select login method:\r\n > 1. Google OAuth\r\n'
+KEY=$(head -c 1)
+[ "$KEY" = "$(printf '\r')" ] || { echo "no enter"; exit 1; }
+printf 'Open the URL below in your browser:\r\n'
+printf 'https://accounts.google.com/o/oauth2/auth?client_id=x&state=%0'"$(stty size | cut -d' ' -f2)"'d\r\n' 0 | cut -c1-200
+stty sane
+printf 'authorization code... '
+read CODE
+[ "$CODE" = "good-code" ] && touch "$STATE"
+echo "Signed in"
+sleep 600
+`
+
+func TestAntigravityLogin(t *testing.T) {
+	m, dir := testManager(t)
+	writeBin(t, dir, "agy", fakeAgy)
+	ctx := context.Background()
+	if s, _ := m.Status(ctx, "antigravity"); !s.Installed || s.Version != "1.3.1" || s.Auth.LoggedIn {
+		t.Fatalf("status = %+v", s)
+	}
+	j, err := m.Login("antigravity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(j.Snapshot().URLs) == 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	v := j.Snapshot()
+	// the window is wide enough that the link is not wrapped
+	if len(v.URLs) != 1 || !strings.HasPrefix(v.URLs[0], "https://accounts.google.com/") || len(v.URLs[0]) < 150 {
+		t.Fatalf("urls = %v, output = %q", v.URLs, v.Output)
+	}
+	if err := j.Input("good-code"); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, j, "succeeded") // signed in: the job ends though the CLI keeps running
+	if s, _ := m.Status(ctx, "antigravity"); !s.Auth.LoggedIn {
+		t.Fatalf("after login = %+v", s.Auth)
+	}
+}
+
+func TestCleanOutputShortensRules(t *testing.T) {
+	if got := cleanOutput(strings.Repeat("─", 1000) + "\nx"); got != strings.Repeat("─", 20)+"\nx" {
+		t.Fatalf("got %q", got)
+	}
+}
