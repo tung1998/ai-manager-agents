@@ -125,6 +125,9 @@ export const stepIcon = (type: string) => STEP_TYPES.find(s => s.type === type)?
 
 const STEP_KEY = /^[a-z0-9][a-z0-9-]{0,39}$/
 export const validStepKey = (k: string) => STEP_KEY.test(k)
+// a step's id may have "_" too (internal/workflow ValidStepID)
+const STEP_ID = /^[a-z0-9][a-z0-9_-]{0,39}$/
+export const validStepId = (k: string) => STEP_ID.test(k)
 
 // an output of a step (a node's handle): next, then, else, or a switch's case:<i>
 export type StepLink = 'next' | 'then' | 'else' | `case:${number}`
@@ -158,7 +161,7 @@ export function stepMissing(s: WorkflowStep, def: WorkflowDef): string[] {
     const to = linksOf(s, field)
     if ((!to.length && need) || to.some(x => !ids.has(x))) bad.push(field)
   }
-  if (!validStepKey(s.id) || (def.steps ?? []).filter(x => x.id === s.id).length > 1) bad.push('id')
+  if (!validStepId(s.id) || (def.steps ?? []).filter(x => x.id === s.id).length > 1) bad.push('id')
   switch (s.type) {
     case 'agent':
       if (!def.roles.some(r => r.key === s.role)) bad.push('role')

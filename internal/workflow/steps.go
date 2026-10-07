@@ -233,6 +233,12 @@ func (d Def) CoordinateDef(s Step, body string) Def {
 	return c
 }
 
+var stepIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
+
+// ValidStepID: a step's id; "_" too, as people and agents write it
+// ({{steps.goc_nhin_a.output}} reads it), unlike a workflow's key.
+func ValidStepID(id string) bool { return stepIDRe.MatchString(id) }
+
 // Starts are the first steps (start, or the first of the list).
 func (d Def) Starts() []string {
 	if len(d.Start) > 0 {
@@ -275,8 +281,8 @@ var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 func (d Def) validateSteps(add func(string, ...any)) {
 	ids := map[string]bool{}
 	for _, s := range d.Steps {
-		if !ValidKey(s.ID) || ids[s.ID] {
-			add("bước %q: id chỉ dùng chữ thường, số, gạch ngang (không dùng _) và không được trùng", s.ID)
+		if !ValidStepID(s.ID) || ids[s.ID] {
+			add("bước %q: id chỉ dùng chữ thường, số, gạch ngang, gạch dưới và không được trùng", s.ID)
 		}
 		ids[s.ID] = true
 	}

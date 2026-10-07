@@ -356,10 +356,10 @@ steps:
 	if err := json.Unmarshal([]byte(`{"id":"x","next":"y","then":["a","b"]}`), &s); err != nil || !slices.Equal(s.Next, Targets{"y"}) || len(s.Then) != 2 {
 		t.Fatalf("json = %+v %v", s, err)
 	}
-	bad := strings.Replace(src, "id: e, type: end", "id: e_x, type: end", 1)
+	bad := strings.Replace(src, "id: e, type: end", "id: E-x, type: end", 1)
 	bad = strings.Replace(bad, "value: \"{{steps.a.output}}\"", "value: \"\"", 1)
 	_, err = Parse(bad)
-	for _, want := range []string{"không dùng _", "thiếu value", `else "e" không có`} {
+	for _, want := range []string{"gạch dưới", "thiếu value", `else "e" không có`} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%q not in %v", want, err)
 		}

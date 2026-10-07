@@ -31,7 +31,7 @@ function patch(p: Partial<WorkflowStep>) {
 // the id: renamed on Enter or leaving the field, links and templates follow
 const idDraft = ref('')
 watch(() => props.sel, () => { idDraft.value = step.value?.id ?? '' }, { immediate: true })
-const idBad = computed(() => idDraft.value !== step.value?.id && (!validStepKey(idDraft.value) || steps.value.some(s => s.id === idDraft.value)))
+const idBad = computed(() => idDraft.value !== step.value?.id && (!validStepId(idDraft.value) || steps.value.some(s => s.id === idDraft.value)))
 function commitId() {
   const from = step.value?.id
   if (!from || idDraft.value === from) return
