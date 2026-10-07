@@ -89,6 +89,7 @@ const providerOptions = computed(() => [
   ...providers.value.map(p => ({ label: p.name, value: p.id }))
 ])
 const formProvider = computed(() => providers.value.find(p => p.id === form.provider_id) ?? defaultProvider.value)
+const formEfforts = computed(() => effortsFor(formProvider.value?.kind, form.llm_model || formProvider.value?.tier_models[form.model_tier]))
 const providerName = (id: string) => providers.value.find(p => p.id === id)?.name ?? id
 const saving = ref('')
 const avatarEditing = ref(false)
@@ -362,11 +363,11 @@ async function restore(e: Entry) {
               <UInput v-model="form.llm_model" list="agent-page-models" :placeholder="formProvider?.tier_models[form.model_tier] || ''" class="w-full font-mono" />
               <datalist id="agent-page-models"><option v-for="m in formProvider?.models ?? []" :key="m" :value="m" /></datalist>
             </UFormField>
-            <UFormField :label="t('org.form.effort')">
+            <UFormField v-if="formEfforts.length" :label="t('org.form.effort')">
               <template #hint>
                 <UTooltip :text="t('org.form.effortHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
               </template>
-              <EffortSelect v-model="form.effort" class="w-full" :disabled="!isAdmin" />
+              <EffortSelect v-model="form.effort" :options="formEfforts" class="w-full" :disabled="!isAdmin" />
             </UFormField>
           </div>
           <FallbackPicker v-model="form.fallback_provider_ids" :providers="providers" :main-id="formProvider?.id" :tier="form.model_tier" :disabled="!isAdmin" />

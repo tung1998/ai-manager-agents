@@ -145,6 +145,32 @@ var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 func ValidEffort(e string) bool { return e == "" || slices.Contains(Efforts, e) }
 
+// EffortsFor are the levels a model takes on a kind of connection, lowest
+// first; none = it has no choice. Antigravity names the level in the model
+// (gemini-3.8-flash-high) or takes none (claude-sonnet-4-6): only its own
+// default model picks one, up to high.
+func EffortsFor(kind ProviderKind, model string) []string {
+	if kind == ProviderAntigravityCLI {
+		if model != "" {
+			return nil
+		}
+		return Efforts[:3]
+	}
+	return Efforts
+}
+
+// FitEffort is the level a turn asks that model for: e when it takes it,
+// else the highest it takes below e, else "" (left to the model).
+func FitEffort(kind ProviderKind, model, e string) string {
+	fit, want := "", slices.Index(Efforts, e)
+	for _, x := range EffortsFor(kind, model) {
+		if slices.Index(Efforts, x) <= want {
+			fit = x
+		}
+	}
+	return fit
+}
+
 // OffNotice is what anyone calling a paused agent gets (chat, delegate, bots,
 // automations), instead of an AI run.
 func OffNotice(name string) string {

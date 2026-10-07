@@ -133,6 +133,12 @@ export interface Agent {
 // how hard the model thinks, lowest first ('max' shows as Ultra)
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export type Effort = typeof EFFORTS[number]
+// the levels a model takes on a connection (storage.EffortsFor): Antigravity
+// names it in the model (gemini-3.8-flash-high), so only its default model picks one
+export function effortsFor(kind: string | undefined, model: string | undefined): readonly string[] {
+  if (kind === 'antigravity_cli') return model ? [] : EFFORTS.slice(0, 3)
+  return EFFORTS
+}
 export function effortLabel(e: string, t: (k: `effort.${Effort}`) => string) {
   return (EFFORTS as readonly string[]).includes(e) ? t(`effort.${e as Effort}`) : e
 }

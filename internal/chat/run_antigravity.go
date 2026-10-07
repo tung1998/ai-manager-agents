@@ -51,14 +51,6 @@ type agyEvent struct {
 	} `json:"result"`
 }
 
-// agyEffort maps office's effort onto agy's (low|medium|high|xhigh|max).
-func agyEffort(e string) string {
-	if slices.Contains([]string{"low", "medium", "high", "xhigh", "max"}, e) {
-		return e
-	}
-	return ""
-}
-
 func (r antigravityRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
 	res, err := r.run(ctx, req, emit)
 	// a conversation agy no longer has: start over with the transcript
@@ -83,7 +75,8 @@ func (antigravityRunner) run(ctx context.Context, req RunRequest, emit func(Even
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
-	if e := agyEffort(req.Effort); e != "" {
+	// the model names its level, or the default model takes up to high (ADR-106)
+	if e := storage.FitEffort(storage.ProviderAntigravityCLI, req.Model, req.Effort); e != "" {
 		args = append(args, "--effort", e)
 	}
 	if req.SessionID != "" {

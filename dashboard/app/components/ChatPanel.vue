@@ -137,6 +137,13 @@ watch([() => current.value?.id, () => current.value?.agent_id, agents, () => mes
 }, { immediate: true })
 const picked = computed(() => agents.value.find(a => a.id === pick.value))
 const agentItems = computed(() => onAgents.value.map(a => ({ label: `${a.name} · ${permOf(agentLevel(a.permissions)).label}`, value: a.id, icon: permOf(agentLevel(a.permissions)).icon })))
+// the levels the picked agent's model takes: none, no picker (Antigravity names it in the model)
+const { data: provData } = useLiveFetch<{ providers: Provider[] }>('/api/providers', { lazy: true })
+const pickedEfforts = computed(() => {
+  const ps = provData.value?.providers
+  const p = ps?.find(x => x.id === picked.value?.provider_id) ?? ps?.find(x => x.is_default)
+  return effortsFor(p?.kind, picked.value?.llm_model || (picked.value && p?.tier_models[picked.value.model_tier]) || '')
+})
 const pickedLevel = computed(() => picked.value ? agentLevel(picked.value.permissions) : 'read')
 const prompt = ref<{ busy: boolean, focus?: () => void } | null>(null)
 
@@ -998,7 +1005,7 @@ onBeforeUnmount(() => {
               v-if="!single && onAgents.length > 1" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink"
               :icon="permOf(pickedLevel).icon" :title="permOf(pickedLevel).description" :aria-label="t('chat.pickAgent')"
             />
-            <EffortSelect v-model="effort" :fallback="picked?.effort ?? ''" size="sm" class="min-w-0 max-w-44 shrink" :title="t('chat.effort')" :aria-label="t('chat.effort')" />
+            <EffortSelect v-if="pickedEfforts.length" v-model="effort" :options="pickedEfforts" :fallback="picked?.effort ?? ''" size="sm" class="min-w-0 max-w-44 shrink" :title="t('chat.effort')" :aria-label="t('chat.effort')" />
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
             <!-- while it answers: queued, sent next -->

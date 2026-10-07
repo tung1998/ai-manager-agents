@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
 // A thinking level goes to Claude Code as --effort in every kind of run, to
@@ -26,5 +28,22 @@ func TestEffortArgs(t *testing.T) {
 	}
 	if codexEffortArgs("") != nil {
 		t.Fatal("codex: no level, yet args")
+	}
+}
+
+// Antigravity takes a level only on its default model (up to high): a named
+// model carries its own (gemini-3.8-flash-high) or none, so none is sent.
+func TestAntigravityEffort(t *testing.T) {
+	agy := storage.ProviderAntigravityCLI
+	for _, c := range []struct{ model, in, want string }{
+		{"gemini-3.8-flash-high", "max", ""}, {"gemini-3.8-flash-high", "high", ""}, {"claude-sonnet-4-6", "low", ""},
+		{"", "max", "high"}, {"", "medium", "medium"}, {"", "", ""},
+	} {
+		if got := storage.FitEffort(agy, c.model, c.in); got != c.want {
+			t.Fatalf("agy %q %q = %q, want %q", c.model, c.in, got, c.want)
+		}
+	}
+	if got := storage.FitEffort(storage.ProviderClaudeCLI, "x", "max"); got != "max" {
+		t.Fatalf("claude max = %q", got)
 	}
 }
