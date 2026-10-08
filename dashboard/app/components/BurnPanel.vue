@@ -172,6 +172,7 @@ const columns = computed(() => [
 const kindColor = (k: Item['kind']) => ({ bug: 'error', unfinished: 'warning', upgrade: 'info' } as const)[k]
 const itemActing = ref('')
 async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') {
+  if (itemActing.value) return
   if (action === 'drop-worktree' && !confirm(t('burn.dropConfirm', { branch: it.branch }))) return
   itemActing.value = it.id + action
   try {
