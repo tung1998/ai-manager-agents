@@ -2030,3 +2030,9 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Giới hạn kết nối:** `waitLimit` đọc lại phiên trước khi ghi (worker giữ bản cũ); dừng Burn hay hết giờ thì mọi việc đang làm chuyển "tạm dừng".
 - Agent vẫn được dùng subagent của Claude Code nếu muốn, office không đặt số; số lần gọi vẫn đếm trên thẻ việc.
 - **Mỗi lần bắt đầu một chat mới:** `Begin` khi Burn đang tắt luôn mở hội thoại Burn mới (tiêu đề "Burn dd/mm hh:mm"); chat của các lần trước giữ trong danh sách Chat (lọc Burn) để xem lại, không dùng được `burn_*` nữa. Khởi động lại office thì Burn đang chạy vẫn ở chat cũ.
+
+## ADR-118: Tắt Burn là làm nốt rồi tắt; Dừng hẳn là tắt ngay
+- **Bối cảnh:** nút Tắt hủy ngay lượt đang chạy, việc đang làm dở bị tạm dừng giữa chừng. Người dùng muốn Burn làm xong việc đang dở rồi mới tắt.
+- **Trạng thái `draining`** ("đang hoàn thành nốt", `POST /burn/drain`): không quét, không nhận việc mới (`queued` giữ nguyên); worker chỉ đưa tiếp việc `doing`/`paused`/`review` (gồm review kết quả). Lượt quét đang chạy bị hủy. Hết việc dở thì phiên tự sang `stopped`. Chạm giới hạn kết nối thì vẫn `draining`, chờ `waiting_until` rồi làm nốt.
+- **Hai nút trong lúc đó:** **Tiếp tục** (`POST /burn/resume`: về `running`, hoặc `waiting_limit` nếu còn chờ reset) và **Dừng hẳn** (`POST /burn/stop`, như nút Tắt cũ: hủy lượt, việc dở thành `paused`). Tới giờ tắt vẫn dừng hẳn.
+- `draining` tính là đang chạy (`BurnSession.Active`): office khởi động lại thì chạy tiếp để làm nốt, dọn dẹp không xóa chat của nó, bắt đầu lại không mở chat mới. Vòng lặp có kênh đánh thức theo project để Tắt/Tiếp tục có hiệu lực ngay cả khi đang chờ lâu.

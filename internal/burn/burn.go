@@ -37,11 +37,12 @@ type Service struct {
 	mu    sync.Mutex
 	root  context.Context
 	loops map[string]context.CancelFunc // by project
+	wakes map[string]chan struct{}      // by project: its loop looks again now
 }
 
 // New builds a Service; Start runs the Burns that were running.
 func New(st storage.Store, engine *chat.Engine, trees *worktree.Manager) *Service {
-	return &Service{store: st, chat: engine, trees: trees, idle: 5 * time.Minute, loops: map[string]context.CancelFunc{}}
+	return &Service{store: st, chat: engine, trees: trees, idle: 5 * time.Minute, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}}
 }
 
 // SetIdle is how long a Burn with nothing to do waits before looking again.
@@ -83,7 +84,7 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 	if err := s.CheckReviewers(ctx, b.ReviewProfileID); err != nil {
 		return b, err
 	}
-	if b.State != "running" && b.State != "waiting_limit" {
+	if !b.Active() {
 		b.ConversationID = "" // each start, a chat of its own: the earlier ones stay as they were
 	}
 	if err := s.ensureConversation(ctx, &b); err != nil {
@@ -174,6 +175,63 @@ func (s *Service) Stop(ctx context.Context, projectID string) error {
 	return nil
 }
 
+// Drain lets a project's Burn finish what it has in progress (the pieces
+// being done, paused or waiting for their result's review), then it stops: no
+// scan, no new piece. The scan running now is cancelled.
+func (s *Service) Drain(ctx context.Context, projectID string) error {
+	b, err := s.store.Burn().Session(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if !b.Active() {
+		return errors.New("Burn không chạy")
+	}
+	if b.State == "draining" {
+		return nil
+	}
+	b.State = "draining" // a limit's wait (WaitingUntil) still holds
+	if _, err := s.store.Burn().SaveSession(ctx, b); err != nil {
+		return err
+	}
+	if b.ConversationID != "" {
+		s.chat.StopAll(b.ConversationID)
+	}
+	s.spawn(projectID) // its loop ends it once nothing is left
+	s.wake(projectID)
+	return nil
+}
+
+// Resume takes a draining Burn back to work as before.
+func (s *Service) Resume(ctx context.Context, projectID string) error {
+	b, err := s.store.Burn().Session(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if b.State != "draining" {
+		return errors.New("Burn không ở trạng thái đang hoàn thành nốt")
+	}
+	b.State = "running"
+	if b.WaitingUntil != nil && b.WaitingUntil.After(time.Now()) {
+		b.State = "waiting_limit"
+	}
+	if _, err := s.store.Burn().SaveSession(ctx, b); err != nil {
+		return err
+	}
+	s.spawn(projectID)
+	s.wake(projectID)
+	return nil
+}
+
+// wake has a project's loop look again now (it may be waiting a long while).
+func (s *Service) wake(projectID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	select {
+	case s.wakes[projectID] <- struct{}{}:
+	default:
+	}
+}
+
 func (s *Service) pauseDoing(ctx context.Context, sessionID string) {
 	items, _ := s.store.Burn().Items(ctx, sessionID)
 	for _, it := range items {
@@ -191,34 +249,38 @@ func (s *Service) spawn(projectID string) {
 		return
 	}
 	ctx, cancel := context.WithCancel(s.root)
-	s.loops[projectID] = cancel
+	wake := make(chan struct{}, 1)
+	s.loops[projectID], s.wakes[projectID] = cancel, wake
 	go func() {
 		defer func() {
 			s.mu.Lock()
 			delete(s.loops, projectID)
+			if s.wakes[projectID] == wake {
+				delete(s.wakes, projectID)
+			}
 			s.mu.Unlock()
 			cancel()
 		}()
-		s.loop(ctx, projectID)
+		s.loop(ctx, projectID, wake)
 	}()
 }
 
 // loop: the paused and chosen pieces first, up to its cap at once (ADR-117),
 // each in its own worktree and chat; a slot free and nothing to go on with,
 // the main agent looks for work and chooses; with nothing to do, it waits a
-// while.
-func (s *Service) loop(ctx context.Context, projectID string) {
+// while. Draining, it only finishes what is in progress, then stops.
+// wake: a worker is done, or the Burn was drained or resumed.
+func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}) {
 	var (
 		mu   sync.Mutex
 		busy = map[string]bool{} // the pieces a worker has
 		wg   sync.WaitGroup
 	)
-	freed := make(chan struct{}, 1) // a worker is done: look again
 	defer wg.Wait()
 	empty := 0 // scans in a row that found nothing
 	for ctx.Err() == nil {
 		b, err := s.store.Burn().Session(ctx, projectID)
-		if err != nil || (b.State != "running" && b.State != "waiting_limit") {
+		if err != nil || !b.Active() {
 			return
 		}
 		now := time.Now()
@@ -226,14 +288,18 @@ func (s *Service) loop(ctx context.Context, projectID string) {
 			_ = s.Stop(context.WithoutCancel(ctx), projectID) // its time is up
 			return
 		}
-		if b.State == "waiting_limit" {
+		if b.WaitingUntil != nil || b.State == "waiting_limit" {
 			if b.WaitingUntil != nil && b.WaitingUntil.After(now) {
-				sleep(ctx, min(time.Until(*b.WaitingUntil), time.Minute))
+				wait(ctx, wake, min(time.Until(*b.WaitingUntil), time.Minute))
 				continue
 			}
-			b.State, b.WaitingUntil = "running", nil
+			if b.State == "waiting_limit" {
+				b.State = "running"
+			}
+			b.WaitingUntil = nil
 			b, _ = s.store.Burn().SaveSession(ctx, b)
 		}
+		draining := b.State == "draining"
 		if conv := b.ConversationID; s.ensureConversation(ctx, &b) == nil && b.ConversationID != conv { // its agent was changed while it ran
 			b, _ = s.store.Burn().SaveSession(ctx, b)
 		}
@@ -241,7 +307,7 @@ func (s *Service) loop(ctx context.Context, projectID string) {
 		mu.Lock()
 		free := max(b.MaxParallel, 1) - len(busy)
 		for ; free > 0; free-- {
-			it, ok := next(items, busy)
+			it, ok := next(items, busy, draining)
 			if !ok {
 				break
 			}
@@ -254,40 +320,59 @@ func (s *Service) loop(ctx context.Context, projectID string) {
 				delete(busy, it.ID)
 				mu.Unlock()
 				select {
-				case freed <- struct{}{}:
+				case wake <- struct{}{}:
 				default:
 				}
 			}()
 		}
 		working := len(busy)
 		mu.Unlock()
+		if draining {
+			if working == 0 && s.drained(ctx, b.ID) {
+				return // all it had is finished
+			}
+			wait(ctx, wake, time.Minute)
+			continue
+		}
 		if free <= 0 { // every slot taken: wait for one
-			wait(ctx, freed, time.Minute)
+			wait(ctx, wake, time.Minute)
 			continue
 		}
 		before := len(items)
 		if err := s.plan(ctx, b, items, empty, free); err != nil && ctx.Err() == nil {
+			if cur, err := s.store.Burn().SessionByID(ctx, b.ID); err == nil && cur.State != "running" {
+				continue // drained or stopped meanwhile: the scan was cancelled
+			}
 			slog.Warn("burn: plan", "project", projectID, "err", err)
 			if !s.waitLimit(ctx, b) {
-				sleep(ctx, time.Minute)
+				wait(ctx, wake, time.Minute)
 			}
 			continue
 		}
 		after, _ := s.store.Burn().Items(ctx, b.ID)
 		mu.Lock()
-		_, chosen := next(after, busy)
+		_, chosen := next(after, busy, false)
 		mu.Unlock()
 		switch {
 		case chosen || len(after) != before:
 			empty = 0
-		case working > 0: // nothing new, but pieces are being worked on: scan again once one is done
+		default: // nothing new, nothing chosen: wait longer each time (a piece done wakes it)
 			empty++
-			wait(ctx, freed, s.idleAfter(empty))
-		default:
-			empty++
-			sleep(ctx, s.idleAfter(empty)) // nothing new, nothing chosen: wait longer each time
+			wait(ctx, wake, s.idleAfter(empty))
 		}
 	}
+}
+
+// drained ends a draining Burn with nothing left in progress; false when it
+// was resumed meanwhile.
+func (s *Service) drained(ctx context.Context, sessionID string) bool {
+	b, err := s.store.Burn().SessionByID(ctx, sessionID)
+	if err != nil || b.State != "draining" {
+		return err != nil
+	}
+	b.State, b.WaitingUntil = "stopped", nil
+	_, _ = s.store.Burn().SaveSession(ctx, b)
+	return true
 }
 
 // step takes a piece one step on: its review once done, the reviews before it
@@ -320,9 +405,14 @@ func (s *Service) idleAfter(n int) time.Duration {
 }
 
 // next: a piece done waiting for its review, a paused one (it goes on),
-// else the one chosen first — none a worker has already.
-func next(items []storage.BurnItem, busy map[string]bool) (storage.BurnItem, bool) {
-	for _, st := range []string{"review", "paused", "doing", "queued"} {
+// else the one chosen first — none a worker has already; draining, only the
+// pieces in progress.
+func next(items []storage.BurnItem, busy map[string]bool, draining bool) (storage.BurnItem, bool) {
+	order := []string{"review", "paused", "doing", "queued"}
+	if draining {
+		order = order[:3]
+	}
+	for _, st := range order {
 		for _, it := range items {
 			if it.Status == st && !busy[it.ID] {
 				return it, true
@@ -811,7 +901,7 @@ func (s *Service) waitLimit(ctx context.Context, b storage.BurnSession) bool {
 	}
 	// as it is now: pieces run side by side, b may be a while old
 	if cur, err := s.store.Burn().SessionByID(ctx, b.ID); err == nil {
-		if cur.State == "stopped" {
+		if !cur.Active() {
 			return true
 		}
 		b = cur
@@ -820,7 +910,10 @@ func (s *Service) waitLimit(ctx context.Context, b storage.BurnSession) bool {
 		_ = s.Stop(context.WithoutCancel(ctx), b.ProjectID)
 		return true
 	}
-	b.State, b.WaitingUntil = "waiting_limit", &until
+	if b.State != "draining" { // draining: it still finishes, after the reset
+		b.State = "waiting_limit"
+	}
+	b.WaitingUntil = &until
 	_, _ = s.store.Burn().SaveSession(ctx, b)
 	return true
 }

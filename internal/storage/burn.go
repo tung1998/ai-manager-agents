@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+// Active: the Burn runs (working, waiting for its limit, or finishing what it has).
+func (b BurnSession) Active() bool {
+	return b.State == "running" || b.State == "waiting_limit" || b.State == "draining"
+}
+
 // BurnSession is a project's Burn: its settings and whether it runs.
 type BurnSession struct {
 	ID, ProjectID, ConversationID, AgentID string
@@ -16,7 +21,7 @@ type BurnSession struct {
 	ReviewProfileID                        string // its review profile (ADR-113); "" = none
 	Scanned                                string // what its scans looked at, latest last (ADR-116)
 	EndsAt                                 *time.Time
-	State                                  string // running | stopped | waiting_limit
+	State                                  string // running | waiting_limit | draining (finishing what is in progress) | stopped
 	WaitingUntil                           *time.Time
 	StartedBy                              string
 	StartedAt                              *time.Time

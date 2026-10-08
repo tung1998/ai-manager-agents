@@ -5,7 +5,7 @@
 // page shows its conversation.
 interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_parallel: number,
-  result_mode: 'branch' | 'patch', focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit',
+  result_mode: 'branch' | 'patch', focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining',
   waiting_until?: string, started_by?: string, started_at?: string,
   review_profile_id: string
 }
@@ -27,7 +27,8 @@ const { data: agentsData } = useLiveFetch<{ agents: AgentLite[] }>(() => `/api/p
 const burn = computed(() => data.value?.burn)
 const items = computed(() => data.value?.items ?? [])
 const agents = computed(() => agentsData.value?.agents ?? [])
-const running = computed(() => burn.value?.state === 'running' || burn.value?.state === 'waiting_limit')
+const running = computed(() => burn.value?.state === 'running' || burn.value?.state === 'waiting_limit' || burn.value?.state === 'draining')
+const draining = computed(() => burn.value?.state === 'draining')
 
 // the time left, ticking
 const now = ref(Date.now())
@@ -127,12 +128,13 @@ async function start() {
     acting.value = ''
   }
 }
-async function stop() {
-  acting.value = 'stop'
+// stop: drain (finish what is in progress), resume, or stop now
+async function stop(how: 'drain' | 'resume' | 'stop') {
+  acting.value = how
   try {
-    await $fetch(`${base.value}/stop`, { method: 'POST' })
+    await $fetch(`${base.value}/${how}`, { method: 'POST' })
     await refresh()
-    toast.add({ title: t('burn.stopped'), color: 'success' })
+    toast.add({ title: t(how === 'drain' ? 'burn.draining' : how === 'resume' ? 'burn.resumed' : 'burn.stopped'), color: 'success' })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
@@ -173,14 +175,18 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         <p class="flex items-center gap-2 font-semibold">
           <UIcon name="i-lucide-flame" class="size-5" :class="running ? 'text-(--ui-warning)' : 'text-(--ui-text-muted)'" />{{ t('burn.title') }}
         </p>
-        <UBadge v-if="burn" :label="t(`burn.state.${burn.state}`)" :color="burn.state === 'running' ? 'warning' : burn.state === 'waiting_limit' ? 'info' : 'neutral'" variant="subtle" />
+        <UBadge v-if="burn" :label="t(`burn.state.${burn.state}`)" :color="burn.state === 'running' ? 'warning' : burn.state === 'waiting_limit' || burn.state === 'draining' ? 'info' : 'neutral'" variant="subtle" />
         <span v-if="running && burn?.ends_at" class="text-xs tabular-nums text-(--ui-text-muted)">{{ t('burn.endsIn', { left: left(burn.ends_at), at: when(burn.ends_at) }) }}</span>
         <span v-else-if="running" class="text-xs text-(--ui-text-muted)">{{ t('burn.noEnd') }}</span>
         <span v-if="burn?.state === 'waiting_limit' && burn.waiting_until" class="text-xs text-(--ui-text-muted)">{{ t('burn.waitingUntil', { at: when(burn.waiting_until) }) }}</span>
         <div class="ms-auto flex flex-wrap items-center gap-1.5">
           <UButton v-if="burn?.conversation_id" size="sm" color="neutral" variant="ghost" icon="i-lucide-messages-square" :label="t('burn.openChat')" :to="`/projects/${projectId}?tab=chat&c=${burn.conversation_id}`" />
           <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-settings-2" :label="t('burn.settings')" @click="settingsOpen = true" />
-          <UButton v-if="running" size="sm" color="neutral" icon="i-lucide-square" :label="t('burn.stop')" :loading="acting === 'stop'" @click="stop" />
+          <template v-if="draining">
+            <UButton size="sm" color="warning" variant="outline" icon="i-lucide-play" :label="t('burn.resume')" :loading="acting === 'resume'" @click="stop('resume')" />
+            <UButton size="sm" color="neutral" icon="i-lucide-square" :label="t('burn.stopNow')" :loading="acting === 'stop'" @click="stop('stop')" />
+          </template>
+          <UButton v-else-if="running" size="sm" color="neutral" icon="i-lucide-square" :label="t('burn.stop')" :loading="acting === 'drain'" @click="stop('drain')" />
           <UButton v-else size="sm" color="warning" icon="i-lucide-flame" :label="t('burn.start')" @click="openStart" />
         </div>
       </div>

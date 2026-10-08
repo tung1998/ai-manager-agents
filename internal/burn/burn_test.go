@@ -246,6 +246,48 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lư�
 	}
 }
 
+// Drained, a Burn finishes the piece in progress, starts no other, then stops
+// on its own; resumed meanwhile, it goes on as before.
+func TestBurnDrainFinishesThenStops(t *testing.T) {
+	f := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, ResultMode: "branch", State: "stopped"})
+	b, _ := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	defer f.svc.Stop(context.Background(), f.project.ID)
+	first, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "đang làm", Kind: "upgrade", Status: "queued"})
+	waitItem(t, f.st, first.ID, "doing")
+	second, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "chưa làm", Kind: "upgrade", Status: "queued"})
+	if err := f.svc.Drain(ctx, f.project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Resume(ctx, f.project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if cur, _ := f.st.Burn().Session(ctx, f.project.ID); cur.State != "running" {
+		t.Fatalf("resumed: %s", cur.State)
+	}
+	f.svc.Drain(ctx, f.project.ID)
+	f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}, "burn_done", burn.ToolInput{Item: first.ID, Summary: "xong"})
+	waitItem(t, f.st, first.ID, "done")
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(30 * time.Millisecond) {
+		cur, _ := f.st.Burn().Session(ctx, f.project.ID)
+		if cur.State == "stopped" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("drained Burn still %s", cur.State)
+		}
+	}
+	if it, _ := f.st.Burn().Item(ctx, second.ID); it.Status != "queued" || it.Worktree != "" {
+		t.Fatalf("a new piece was started while draining: %+v", it)
+	}
+	if err := f.svc.Resume(ctx, f.project.ID); err == nil {
+		t.Fatal("a stopped Burn resumed")
+	}
+}
+
 // The real case (2026-10-05): its agent changed (the old one paused), a Burn
 // started again talks with the new one, in a chat of its own.
 func TestBurnFollowsItsAgent(t *testing.T) {

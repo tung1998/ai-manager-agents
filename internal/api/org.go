@@ -32,6 +32,8 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/projects/{id}/burn", admin(s.saveBurn))
 	mux.Handle("POST /api/projects/{id}/burn/start", admin(s.startBurn))
 	mux.Handle("POST /api/projects/{id}/burn/stop", admin(s.stopBurn))
+	mux.Handle("POST /api/projects/{id}/burn/drain", admin(s.drainBurn))
+	mux.Handle("POST /api/projects/{id}/burn/resume", admin(s.resumeBurn))
 	mux.Handle("POST /api/burn-items/{item}/{action}", admin(s.burnItemAction))
 	mux.Handle("GET /api/projects/{id}/burn/review-profiles", admin(s.listBurnProfiles))
 	mux.Handle("POST /api/projects/{id}/burn/review-profiles", admin(s.createBurnProfile))

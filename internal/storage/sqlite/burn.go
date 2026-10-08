@@ -90,7 +90,7 @@ func (r burnRepo) SetScanned(ctx context.Context, id, scanned string) error {
 }
 
 func (r burnRepo) Running(ctx context.Context) ([]storage.BurnSession, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT `+burnSessionCols+` FROM burn_sessions WHERE state IN ('running','waiting_limit')`)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+burnSessionCols+` FROM burn_sessions WHERE state IN ('running','waiting_limit','draining')`)
 	if err != nil {
 		return nil, err
 	}

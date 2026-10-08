@@ -168,7 +168,7 @@ func (s *Service) busy(ctx context.Context, it storage.DataItem) string {
 		}
 	}
 	if it.Kind == storage.DataBurn {
-		if b, err := s.store.Burn().SessionByConversation(ctx, it.ID); err == nil && (b.State == "running" || b.State == "waiting_limit") {
+		if b, err := s.store.Burn().SessionByConversation(ctx, it.ID); err == nil && b.Active() {
 			return "Burn đang chạy"
 		}
 	}

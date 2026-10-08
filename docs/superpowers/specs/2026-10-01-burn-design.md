@@ -80,7 +80,8 @@ Tối đa "số việc chạy cùng lúc" việc được làm song song, mỗi 
 
 ## Tắt, tạm dừng, làm tiếp
 
-- **Tắt** (bằng tay hoặc tới giờ hẹn): hủy lượt đang chạy. Việc đang làm chuyển sang **tạm dừng**; giữ nguyên worktree, nhánh và những gì đã sửa. Phiên chuyển sang **đã tắt**.
+- **Tắt** (bằng tay, ADR-118): phiên chuyển sang **đang hoàn thành nốt**: không quét, không nhận việc mới, làm xong các việc đang làm, tạm dừng hoặc chờ review kết quả rồi tự sang **đã tắt**. Trong lúc đó có hai nút: **Tiếp tục** (chạy lại như trước) và **Dừng hẳn** (như dưới).
+- **Dừng hẳn** (bằng tay hoặc tới giờ hẹn): hủy lượt đang chạy. Việc đang làm chuyển sang **tạm dừng**; giữ nguyên worktree, nhánh và những gì đã sửa. Phiên chuyển sang **đã tắt**.
 - **Bật lại:** runner ưu tiên việc tạm dừng. Lượt làm việc chạy lại trong **đúng worktree cũ**, với lời dặn "đây là việc đang dở; xem `git status`/`git diff` và làm tiếp".
 - **Office khởi động lại khi đang chạy:** phiên vẫn ở trạng thái "đang chạy", runner tự chạy tiếp (việc dở thành tạm dừng rồi được làm tiếp ngay).
 - **Chạm giới hạn của kết nối AI** (hết hạn mức 5 giờ hay hạn mức tuần): phiên **chờ** tới lúc reset rồi tự chạy tiếp, trừ khi đã quá giờ tắt.

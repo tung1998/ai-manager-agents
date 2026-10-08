@@ -222,6 +222,28 @@ func (s *server) stopBurn(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// drainBurn: the Burn finishes what it has in progress, then stops.
+func (s *server) drainBurn(w http.ResponseWriter, r *http.Request) {
+	pid := r.PathValue("id")
+	if err := s.cfg.Burn.Drain(r.Context(), pid); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	s.audit(r, audit.Change{Action: "burn.drain", Resource: "burn", ProjectID: pid})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// resumeBurn: a draining Burn goes back to work.
+func (s *server) resumeBurn(w http.ResponseWriter, r *http.Request) {
+	pid := r.PathValue("id")
+	if err := s.cfg.Burn.Resume(r.Context(), pid); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	s.audit(r, audit.Change{Action: "burn.resume", Resource: "burn", ProjectID: pid})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // burnItemAction: skip, first (do it next), or drop its worktree.
 func (s *server) burnItemAction(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
