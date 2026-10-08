@@ -94,14 +94,15 @@ const profile = computed(() => profiles.value.find(p => p.id === form.review_pro
 const reviewSummary = computed(() => profile.value ? `${profile.value.name} (${reviewStages.filter(v => profile.value!.stages[v]).map(v => t(`burn.review.${v}`)).join(', ')})` : '')
 // a piece's own chats, hidden, read here: its work (ADR-116), its reviews (ADR-114)
 type ChatTab = ReviewStage | 'work'
-const reviewing = ref<Item | null>(null)
+const reviewingId = ref<string | null>(null)
+const reviewing = computed(() => items.value.find(i => i.id === reviewingId.value) ?? null)
 const reviewTab = ref<ChatTab>('work')
 const chatOf = (it: Item | null, v: ChatTab) => v === 'work' ? it?.work_conversation_id : it?.review_conversations?.[v]
 const chatTabs = (it: Item | null): ChatTab[] => (['work', ...reviewStages] as ChatTab[]).filter(v => chatOf(it, v))
 const reviewTabs = computed(() => chatTabs(reviewing.value).map(v => ({ value: v, label: t(v === 'work' ? 'burn.workChat' : `burn.review.${v}`) })))
 const hasReviews = (it: Item) => chatTabs(it).length > 0
 function openReviews(it: Item) {
-  reviewing.value = it
+  reviewingId.value = it.id
   reviewTab.value = chatTabs(it).at(-1) ?? 'work' // the latest
 }
 const profilesPage = computed(() => `/projects/${props.projectId}/burn/reviews`)
@@ -310,7 +311,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
     </USlideover>
 
     <!-- a piece's reviews, to read -->
-    <USlideover :open="!!reviewing" :title="t('burn.review.viewTitle', { title: reviewing?.title ?? '' })" :ui="{ content: 'sm:max-w-2xl' }" @update:open="v => { if (!v) reviewing = null }">
+    <USlideover :open="!!reviewing" :title="t('burn.review.viewTitle', { title: reviewing?.title ?? '' })" :ui="{ content: 'sm:max-w-2xl' }" @update:open="v => { if (!v) reviewingId = null }">
       <template #body>
         <div v-if="reviewing" class="space-y-3">
           <UTabs v-if="reviewTabs.length > 1" v-model="reviewTab" :items="reviewTabs" :content="false" size="sm" />
