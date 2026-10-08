@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"slices"
@@ -352,6 +353,15 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 			}
 		}
 	}
+	if serr := sc.Err(); serr != nil && resErr == nil {
+		// the scan stopped on a read/buffer error (e.g. a JSON line over the
+		// 16MB cap), not a clean EOF: without this, a result that never
+		// arrived reads as a silent success instead of a failure
+		resErr = fmt.Errorf("claude: đọc output lỗi: %w", serr)
+	}
+	// the CLI may still be writing (e.g. the rest of the oversized line): drain
+	// it so that write doesn't block forever and deadlock cmd.Wait() below
+	io.Copy(io.Discard, out)
 	werr := cmd.Wait()
 	res.Usage.DurationMS = time.Since(start).Milliseconds()
 	// A signed-out CLI fails before any API call: say what to do instead of

@@ -159,6 +159,30 @@ func TestClaudeArgsExtraDirsDeniesWriteWithoutFullAccess(t *testing.T) {
 	}
 }
 
+// A JSON line over the scanner's 16MB cap must fail the run instead of
+// silently returning an empty "success" (the "result" event never gets read).
+func TestClaudeFailsOnOversizedLine(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	// nothing is written after the oversized line: once the scanner gives up
+	// reading it, nobody drains the pipe, so a script that kept writing (e.g.
+	// the real "result" event) would block forever on a full pipe and hang
+	// cmd.Wait() — not what this test is checking.
+	script := `#!/bin/sh
+cat >/dev/null
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+python3 -c 'print("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + "x"*(17*1024*1024) + "\"}]}}")'
+`
+	os.WriteFile(bin, []byte(script), 0o755)
+	res, err := claudeRunner{}.Run(context.Background(), RunRequest{Bin: bin, WorkDir: dir, Prompt: "hi"}, func(Event) {})
+	if err == nil {
+		t.Fatalf("expected an error for an oversized line, got res = %+v", res)
+	}
+	if res.Text != "" {
+		t.Fatalf("result must not be read past the oversized line: res = %+v", res)
+	}
+}
+
 // A subagent Claude Code starts on its own (Task): its steps show under it.
 func TestClaudeShowsItsSubagents(t *testing.T) {
 	dir := t.TempDir()
