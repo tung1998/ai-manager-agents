@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -365,6 +366,9 @@ func (m *Manager) ComposeLogs(ctx context.Context, projectID, file, service stri
 	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", file, "--profile", "*", "logs", "--follow", "--tail", "300", "--no-color", "--no-log-prefix", service)
 	cmd.Dir = dir
 	cmd.Env = m.env
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // own group: kill reaches children docker may spawn
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second // force-close pipes if Wait() still blocks after Cancel
 	pr, pw := io.Pipe()
 	cmd.Stdout, cmd.Stderr = pw, pw
 	if err := cmd.Start(); err != nil {
