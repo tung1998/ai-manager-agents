@@ -89,18 +89,20 @@ func telegramURL(bot, chat, msg string) string {
 
 // threadMade binds a new thread to the conversation of the message it grew from.
 func (m *Manager) threadMade(ctx context.Context, ch storage.Channel, in Incoming) {
-	conv, err := m.store.Channels().Thread(ctx, ch.ID, msgKey(in.ThreadOf))
-	if (err != nil || conv == "") && in.ParentID != "" { // a bot answer remembered before threads were (its reply key)
-		conv, err = m.store.Channels().Thread(ctx, ch.ID, "msg:"+in.ParentID+":"+in.ThreadOf)
-	}
-	if err != nil || conv == "" {
-		return // a thread of a message office did not take part in
-	}
-	if cur, _ := m.store.Channels().Thread(ctx, ch.ID, inKey(in.ChatID)); cur == conv {
-		return // bound already (an open thread seen again on connect)
-	}
-	_ = m.store.Channels().SetThread(ctx, ch.ID, inKey(in.ChatID), conv)
-	_ = m.store.Settings().Set(ctx, linkKey+conv, discordURL(in.GuildID, in.ChatID, ""))
+	m.withThread(ch.ID, in.ChatID, func() {
+		conv, err := m.store.Channels().Thread(ctx, ch.ID, msgKey(in.ThreadOf))
+		if (err != nil || conv == "") && in.ParentID != "" { // a bot answer remembered before threads were (its reply key)
+			conv, err = m.store.Channels().Thread(ctx, ch.ID, "msg:"+in.ParentID+":"+in.ThreadOf)
+		}
+		if err != nil || conv == "" {
+			return // a thread of a message office did not take part in
+		}
+		if cur, _ := m.store.Channels().Thread(ctx, ch.ID, inKey(in.ChatID)); cur == conv {
+			return // bound already (an open thread seen again on connect)
+		}
+		_ = m.store.Channels().SetThread(ctx, ch.ID, inKey(in.ChatID), conv)
+		_ = m.store.Settings().Set(ctx, linkKey+conv, discordURL(in.GuildID, in.ChatID, ""))
+	})
 }
 
 // ThreadMaker is an adapter that can open a thread (Discord): from a message
@@ -198,25 +200,30 @@ func closedKey(channelID, chatID string) string { return "channel_closed/" + cha
 // the bot's latest answer here (tagging, then keeping: nothing lost), unless
 // that one was closed with /close-conversation (then a fresh one).
 func (m *Manager) startKeep(ctx context.Context, ch storage.Channel, chatID string) string {
-	var last, closed string
-	_, _ = m.store.Settings().Get(ctx, lastKey(ch.ID, chatID), &last)
-	_, _ = m.store.Settings().Get(ctx, closedKey(ch.ID, chatID), &closed)
-	msg := m.setKeep(ctx, ch.ID, chatID, true)
-	if last == "" || last == closed {
-		return msg
-	}
-	conv, _ := m.store.Channels().Thread(ctx, ch.ID, msgKey(last))
-	if conv == "" {
-		conv, _ = m.store.Channels().Thread(ctx, ch.ID, "msg:"+chatID+":"+last)
-	}
-	c, err := m.store.Chat().GetConversation(ctx, conv)
-	if conv == "" || err != nil {
-		return msg
-	}
-	if err := m.store.Channels().SetThread(ctx, ch.ID, chatID+"#"+c.AgentID+"#"+m.keep(ctx, ch.ID, chatID), conv); err != nil {
-		return msg
-	}
-	return "Đã bật hội thoại, tiếp tục từ câu trả lời gần nhất của mình: từ giờ không cần tag, mình nhớ những gì đã nói. Gửi /close-conversation để kết thúc."
+	var out string
+	m.withThread(ch.ID, chatID, func() {
+		var last, closed string
+		_, _ = m.store.Settings().Get(ctx, lastKey(ch.ID, chatID), &last)
+		_, _ = m.store.Settings().Get(ctx, closedKey(ch.ID, chatID), &closed)
+		msg := m.setKeep(ctx, ch.ID, chatID, true)
+		out = msg
+		if last == "" || last == closed {
+			return
+		}
+		conv, _ := m.store.Channels().Thread(ctx, ch.ID, msgKey(last))
+		if conv == "" {
+			conv, _ = m.store.Channels().Thread(ctx, ch.ID, "msg:"+chatID+":"+last)
+		}
+		c, err := m.store.Chat().GetConversation(ctx, conv)
+		if conv == "" || err != nil {
+			return
+		}
+		if err := m.store.Channels().SetThread(ctx, ch.ID, chatID+"#"+c.AgentID+"#"+m.keep(ctx, ch.ID, chatID), conv); err != nil {
+			return
+		}
+		out = "Đã bật hội thoại, tiếp tục từ câu trả lời gần nhất của mình: từ giờ không cần tag, mình nhớ những gì đã nói. Gửi /close-conversation để kết thúc."
+	})
+	return out
 }
 
 // stopKeep ends it; the next /create-conversation starts afresh.

@@ -92,6 +92,34 @@ func (m *Manager) withPending(channelID, chatID string, fn func()) {
 	fn()
 }
 
+// threadLock gives the one mutex that serializes a (channelID, chatID)'s
+// conversation-mapping read-check-create-write (thread(), threadMade,
+// startKeep): two messages for the same chat arriving at once would
+// otherwise both see no mapping, both create a conversation, and the later
+// write would silently orphan the earlier one.
+func (m *Manager) threadLock(channelID, chatID string) *sync.Mutex {
+	key := channelID + "/" + chatID
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.threadLocks == nil {
+		m.threadLocks = map[string]*sync.Mutex{}
+	}
+	lk := m.threadLocks[key]
+	if lk == nil {
+		lk = &sync.Mutex{}
+		m.threadLocks[key] = lk
+	}
+	return lk
+}
+
+// withThread runs fn with the (channelID, chatID) thread-mapping lock held.
+func (m *Manager) withThread(channelID, chatID string, fn func()) {
+	lk := m.threadLock(channelID, chatID)
+	lk.Lock()
+	defer lk.Unlock()
+	fn()
+}
+
 // proposals are what waits for a person in a conversation, and in the own
 // chats of the workflows it called that still run (each keeps its chat).
 func (m *Manager) proposals(ctx context.Context, conversationID string) []proposal {

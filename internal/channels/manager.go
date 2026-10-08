@@ -51,6 +51,11 @@ type Manager struct {
 	// pendingLocks: guards read-modify-write of a (channelID, chatID)'s pending-
 	// proposals list (channel_pending/...), keyed by channelID+"/"+chatID.
 	pendingLocks map[string]*sync.Mutex
+	// threadLocks: guards the read-check-create-write of a (channelID, chatID)'s
+	// conversation mapping (thread(), threadMade, startKeep), keyed the same
+	// way; kept separate from pendingLocks so nothing nested under one can
+	// deadlock on the other.
+	threadLocks map[string]*sync.Mutex
 	// ProgressAfter: a run longer than this shows its steps in a status message
 	ProgressAfter time.Duration
 	decider       Decider // decides proposals from the chat (nil = only on the dashboard)
@@ -601,36 +606,47 @@ func (m *Manager) thread(ctx context.Context, ch storage.Channel, rule storage.A
 			}
 		}
 	}
-	if id := m.threadOf(ctx, ch, in.ChatID); id != "" { // a thread of a conversation: that one
-		if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID && c.Cleaned == "" {
-			return id, nil
-		}
-	}
-	keep := m.keep(ctx, ch.ID, in.ChatID)
-	key := in.ChatID + "#" + agent.ID + "#" + keep
-	if keep != "" {
-		if id, err := m.store.Channels().Thread(ctx, ch.ID, key); err == nil && id != "" {
+	var id, out string
+	var outErr error
+	m.withThread(ch.ID, in.ChatID, func() {
+		if id = m.threadOf(ctx, ch, in.ChatID); id != "" { // a thread of a conversation: that one
 			if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID && c.Cleaned == "" {
-				return id, nil
+				out, outErr = id, nil
+				return
 			}
 		}
-	}
-	conv, err := m.engine.StartConversationPurpose(ctx, ch.ProjectID, agent.ID, "channel")
-	if err != nil {
-		return "", err
-	}
-	if err := m.engine.SetMode(ctx, conv.ID, perm.Operate); err != nil { // no extra ceiling: the agent's own rights apply
-		return "", err
-	}
-	if in.InThread { // a thread is one conversation: the first tag makes it, the rest go on in it
-		if err := m.store.Channels().SetThread(ctx, ch.ID, inKey(in.ChatID), conv.ID); err != nil {
-			return "", err
+		keep := m.keep(ctx, ch.ID, in.ChatID)
+		key := in.ChatID + "#" + agent.ID + "#" + keep
+		if keep != "" {
+			if id, err := m.store.Channels().Thread(ctx, ch.ID, key); err == nil && id != "" {
+				if c, err := m.store.Chat().GetConversation(ctx, id); err == nil && c.AgentID == agent.ID && c.Cleaned == "" {
+					out, outErr = id, nil
+					return
+				}
+			}
 		}
-	}
-	if keep == "" {
-		return conv.ID, nil
-	}
-	return conv.ID, m.store.Channels().SetThread(ctx, ch.ID, key, conv.ID)
+		conv, err := m.engine.StartConversationPurpose(ctx, ch.ProjectID, agent.ID, "channel")
+		if err != nil {
+			outErr = err
+			return
+		}
+		if err := m.engine.SetMode(ctx, conv.ID, perm.Operate); err != nil { // no extra ceiling: the agent's own rights apply
+			outErr = err
+			return
+		}
+		if in.InThread { // a thread is one conversation: the first tag makes it, the rest go on in it
+			if err := m.store.Channels().SetThread(ctx, ch.ID, inKey(in.ChatID), conv.ID); err != nil {
+				outErr = err
+				return
+			}
+		}
+		if keep == "" {
+			out, outErr = conv.ID, nil
+			return
+		}
+		out, outErr = conv.ID, m.store.Channels().SetThread(ctx, ch.ID, key, conv.ID)
+	})
+	return out, outErr
 }
 
 // command reads the bot's own commands: create, close, or job with its text.
