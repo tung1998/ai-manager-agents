@@ -99,6 +99,24 @@ function openEdit(p: Provider) {
 
 async function save() {
   formError.value = ''
+  if (!form.name.trim()) {
+    formError.value = t('prov.errNameRequired')
+    return
+  }
+  if (form.kind === 'openai_compatible' && !form.preset && !form.base_url.trim()) {
+    formError.value = t('prov.errUrlRequired')
+    return
+  }
+  if (needsKey.value && !selectedKind.value?.is_cli) {
+    if (form.keyMode === 'paste' && !form.api_key && !editing.value?.has_api_key) {
+      formError.value = t('prov.errKeyRequired')
+      return
+    }
+    if (form.keyMode === 'env' && !form.api_key_env.trim()) {
+      formError.value = t('prov.errKeyEnvRequired')
+      return
+    }
+  }
   saving.value = true
   const body: Record<string, unknown> = {
     name: form.name,
