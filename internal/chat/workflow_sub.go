@@ -102,7 +102,7 @@ func (e *Engine) wfAskFlow(ctx context.Context, sc officetools.Scope, run *wfRun
 	if again && r.Rounds >= run.def.Limits.Rounds {
 		return "", fmt.Errorf("đã chạy lại vai %s %d lần (giới hạn); tổng kết với kết quả hiện có", d.Name, r.Rounds)
 	}
-	if err := e.canAsk(run, sc.RunRef, d.Key, storage.Agent{}); err != nil {
+	if err := e.canAsk(run, sc.RunRef, d.Key, a); err != nil {
 		return "", err
 	}
 	if again {
