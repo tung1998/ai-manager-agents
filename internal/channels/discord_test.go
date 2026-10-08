@@ -3,12 +3,14 @@ package channels
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -666,5 +668,112 @@ func TestLiveMarks(t *testing.T) {
 		if !strings.Contains(all, want) {
 			t.Errorf("no %q in\n%s", want, all)
 		}
+	}
+}
+
+// A 429 with a short retry_after body is retried once, then succeeds.
+func TestDiscordRateLimitBodyRetryAfter(t *testing.T) {
+	var calls int32
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"message":"You are being rate limited.","retry_after":0.05,"global":false}`))
+			return
+		}
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", APIBase: rest.URL}
+	if err := d.rest(context.Background(), "/x", nil); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 2 {
+		t.Fatalf("calls = %d, want 2", n)
+	}
+}
+
+// A 429 with no body (e.g. a proxy in front of Discord) but a Retry-After
+// header is also retried.
+func TestDiscordRateLimitHeaderRetryAfter(t *testing.T) {
+	var calls int32
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.Header().Set("Retry-After", "0.05")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", APIBase: rest.URL}
+	if err := d.rest(context.Background(), "/x", nil); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 2 {
+		t.Fatalf("calls = %d, want 2", n)
+	}
+}
+
+// A 429 that never lets up gives up after maxRetries and returns the error.
+func TestDiscordRateLimitGivesUp(t *testing.T) {
+	var calls int32
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"message":"You are being rate limited.","retry_after":0.01,"global":false}`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", APIBase: rest.URL}
+	err := d.rest(context.Background(), "/x", nil)
+	if discordCode(err) != 0 || !strings.Contains(err.Error(), "429") && !strings.Contains(err.Error(), "Too Many Requests") {
+		t.Fatalf("err = %v", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != maxRetries+1 {
+		t.Fatalf("calls = %d, want %d", n, maxRetries+1)
+	}
+}
+
+// Cancelling ctx while do() is sleeping between retries aborts the wait.
+func TestDiscordRateLimitCtxCancelled(t *testing.T) {
+	var calls int32
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"retry_after":5,"global":false}`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", APIBase: rest.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	err := d.rest(ctx, "/x", nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Fatalf("calls = %d, want 1", n)
+	}
+}
+
+// retry_after past maxRetryWait returns the 429 right away, without sleeping.
+func TestDiscordRateLimitPastMaxWait(t *testing.T) {
+	var calls int32
+	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"message":"You are being rate limited.","retry_after":30,"global":false}`))
+	}))
+	defer rest.Close()
+	d := &Discord{Token: "TOK", APIBase: rest.URL}
+	start := time.Now()
+	err := d.rest(context.Background(), "/x", nil)
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("took %v, want an immediate return (no sleep)", elapsed)
+	}
+	var de *discordError
+	if !errors.As(err, &de) || de.HTTP != http.StatusTooManyRequests {
+		t.Fatalf("err = %v, want a 429 discordError", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Fatalf("calls = %d, want 1 (no retry)", n)
 	}
 }
