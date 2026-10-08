@@ -459,10 +459,25 @@ func (m *Manager) Reply(ctx context.Context, origin storage.Job, text string, er
 	}
 	switch {
 	case text != "":
-		ids, _ := ad.Send(ctx, p.ChatID, text)
+		ids, sendErr := ad.Send(ctx, p.ChatID, text)
+		if sendErr != nil && len(ids) == 0 && ctx.Err() == nil {
+			// retry only if nothing went out yet: Send can split a long reply into
+			// several messages, and resending the whole text after a partial send
+			// would duplicate the parts that already landed.
+			ids, sendErr = ad.Send(ctx, p.ChatID, text)
+		}
+		if sendErr != nil {
+			slog.Error("channels: send reply", "channel", p.ChannelID, "chat", p.ChatID, "err", sendErr)
+		}
 		m.remember(ctx, p, origin, ids...)
 	case err != nil && !errors.Is(err, trigger.ErrNoAnswer) && final:
-		_, _ = ad.Send(ctx, p.ChatID, "Xin lỗi, mình chưa trả lời được lúc này.") // what went wrong stays in office
+		ids, sendErr := ad.Send(ctx, p.ChatID, "Xin lỗi, mình chưa trả lời được lúc này.")
+		if sendErr != nil && len(ids) == 0 && ctx.Err() == nil {
+			_, sendErr = ad.Send(ctx, p.ChatID, "Xin lỗi, mình chưa trả lời được lúc này.")
+		}
+		if sendErr != nil {
+			slog.Error("channels: send error reply", "channel", p.ChannelID, "chat", p.ChatID, "err", sendErr)
+		}
 	}
 }
 

@@ -27,6 +27,13 @@ type fakeBot struct {
 	mu   sync.Mutex
 	in   chan channels.Incoming
 	sent map[string][]string
+
+	// failNext, when > 0 for a chat, makes the next Send to that chat fail
+	// (decrementing the count); failPartial marks that failure as a partial
+	// send: a part still lands in sent and Send still returns its id, the way
+	// Discord/Telegram report a long reply split into several messages.
+	failNext    map[string]int
+	failPartial map[string]bool
 }
 
 func (b *fakeBot) Run(ctx context.Context, onReady func(string), onMessage func(channels.Incoming)) error {
@@ -43,6 +50,14 @@ func (b *fakeBot) Run(ctx context.Context, onReady func(string), onMessage func(
 func (b *fakeBot) Send(_ context.Context, chatID, text string) ([]string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.failNext[chatID] > 0 {
+		b.failNext[chatID]--
+		if b.failPartial[chatID] {
+			b.sent[chatID] = append(b.sent[chatID], text)
+			return []string{fmt.Sprint(len(b.sent[chatID]))}, fmt.Errorf("fake: partial send failure")
+		}
+		return nil, fmt.Errorf("fake: send failure")
+	}
 	b.sent[chatID] = append(b.sent[chatID], text)
 	return []string{fmt.Sprint(len(b.sent[chatID]))}, nil // numbered per chat, as Telegram does
 }
@@ -366,5 +381,62 @@ func TestFloodIsCapped(t *testing.T) {
 	q.Done("chat")
 	if !q.Take("chat") {
 		t.Fatal("a slot freed is not taken again")
+	}
+}
+
+// Review (channels/manager.go Reply): a dropped final reply must not be lost
+// silently, but retrying after a send that already landed part of a long
+// reply would duplicate it. Send retries only when nothing went out yet.
+func TestManagerReplyRetriesOnlyWhenNothingSent(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	provs := provider.NewService(st, box, llm.Options{})
+	u := usage.New(st, time.UTC)
+	provs.SetUsage(u)
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	engine := chat.NewEngine(st, provs, u)
+	runner := trigger.New(st, chatExec{engine})
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "telegram", Name: "Hỗ trợ", Enabled: true, Allow: []string{"*"}})
+	st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "Echo", Source: "telegram", Action: "script", Enabled: true,
+		Config: storage.AutomationConfig{ChannelID: ch.ID},
+		Script: storage.AutomationScript{Lang: "bash", Body: `echo "OK"`, TimeoutS: 10}})
+
+	// a full send failure: nothing landed, so a retry recovers the reply.
+	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{},
+		failNext: map[string]int{"42": 1}}
+	m := channels.NewManager(st, engine, runner, func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	runner.SetOnReply(m.Reply)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "1", Text: "oi", Addressed: true}
+	got := bot.wait(t, "42", 1)
+	if len(got) != 1 || !strings.Contains(got[0], "OK") {
+		t.Fatalf("a full send failure must still deliver one reply after retry, got %v", got)
+	}
+
+	// a partial send failure: part already landed, so it must not retry and
+	// duplicate it.
+	bot2 := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{},
+		failNext: map[string]int{"43": 1}, failPartial: map[string]bool{"43": true}}
+	m2 := channels.NewManager(st, engine, runner, func(storage.Channel) (channels.Adapter, error) { return bot2, nil })
+	runner.SetOnReply(m2.Reply)
+	run2Ctx, cancel2 := context.WithCancel(ctx)
+	defer cancel2()
+	m2.Start(run2Ctx)
+
+	bot2.in <- channels.Incoming{ChatID: "43", UserID: "2", Text: "oi", Addressed: true}
+	got2 := bot2.wait(t, "43", 1)
+	time.Sleep(200 * time.Millisecond) // give a wrongful retry time to show up
+	bot2.mu.Lock()
+	n := len(bot2.sent["43"])
+	bot2.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("a partial send failure must not retry (would duplicate the part already sent), got %d sends: %v", n, got2)
 	}
 }
