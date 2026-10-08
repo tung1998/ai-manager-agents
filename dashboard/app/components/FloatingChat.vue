@@ -17,7 +17,8 @@ watch(inProject, v => { scope.value = v ? 'project' : 'office' }, { immediate: t
 const target = computed(() => scope.value === 'project' && inProject.value ? projectId.value : assistantId.value)
 const hidden = computed(() => {
   const p = route.path
-  if (p.startsWith('/assistant') || p === '/login' || p === '/watch') return true // the assistant's own page; the watch screen is all chats
+  if (p.startsWith('/assistant') || p === '/login' || p === '/watch') return true
+  if (p === '/workflows/edit') return true // the library's editor has its own chat // the assistant's own page; the watch screen is all chats
   if (inProject.value) {
     if (p === `/projects/${projectId.value}` && (!route.query.tab || route.query.tab === 'chat' || route.query.tab === 'tasks')) return true // the Chat tab itself; Tasks has its own talk
     if (p.includes('/bots/') || p.endsWith('/skills/edit')) return true // a page with its own chat

@@ -36,7 +36,7 @@ export default {
   'wf.saved': 'Đã lưu quy trình',
   'wf.keyChanged': 'Không đổi được key của quy trình đã có (#{key}); tạo quy trình mới thay vì sửa.',
   'wf.askAI': 'Nhờ AI viết hoặc sửa quy trình',
-  'wf.askAIHint': 'VD: hai agent khác hãng review một PR rồi gom ý kiến; thêm cổng người duyệt trước khi xong. AI điền vào bên trái, bạn xem rồi bấm Lưu.',
+  'wf.askAIHint': 'VD: hai agent khác hãng review một PR rồi gom ý kiến; thêm cổng người duyệt trước khi xong. AI điền vào bản nháp, bạn xem rồi bấm Lưu.',
   'wf.input': 'Đầu vào',
   'wf.roles': 'Vai ({n})',
   'wf.differFrom': 'khác hãng với {roles}',

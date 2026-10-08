@@ -37,7 +37,7 @@ const en: Record<keyof typeof vi, string> = {
   'wf.saved': 'Workflow saved',
   'wf.keyChanged': 'The key of an existing workflow (#{key}) cannot change; create a new workflow instead.',
   'wf.askAI': 'Ask AI to write or edit the workflow',
-  'wf.askAIHint': 'E.g.: two agents from different vendors review a PR, then merge their views; add a human approval gate before done. The AI fills in the left side; review it and click Save.',
+  'wf.askAIHint': 'E.g.: two agents from different vendors review a PR, then merge their views; add a human approval gate before done. The AI fills in the draft; review it and click Save.',
   'wf.input': 'Input',
   'wf.roles': 'Roles ({n})',
   'wf.differFrom': 'different vendor from {roles}',

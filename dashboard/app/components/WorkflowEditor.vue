@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Writing a workflow (ADR-098): its file on one side, checked as it is
-// written, its own chat on the other; the chat's ```workflow blocks replace
+// written, its own chat in the corner; the chat's ```workflow blocks replace
 // the file and nothing is saved until Save.
 // chatProjectId: where the chat lives (the office assistant's project for the
 // library). libKey: a library workflow to edit; projectId (+ workflowId): a
@@ -105,7 +105,8 @@ async function formatNow() {
   }
 }
 
-// the chat next to it fills the editor
+// the chat in the corner fills the editor; back on its chat (?c=) it opens
+const chatOpen = ref(!!useRoute().query.c)
 const highlight = ref(false)
 function applyPatch(p: Record<string, unknown>) {
   if (typeof p.source !== 'string') return
@@ -166,47 +167,62 @@ async function save() {
 </script>
 
 <template>
-  <!-- the canvas: the editor over its chat (the whole width for the graph);
-       the text: side by side -->
-  <div class="grid gap-4" :class="mode === 'canvas' ? '' : 'lg:h-[calc(100vh-9rem)] lg:min-h-[36rem] lg:grid-cols-2'">
-    <div class="flex min-w-0 flex-col gap-2 lg:min-h-0" :class="mode === 'canvas' && 'lg:h-[calc(100vh-9rem)] lg:min-h-[36rem]'">
-      <div class="flex items-center gap-2">
-        <SegmentedNav v-model="mode" :items="modes" />
-        <UTooltip :text="t('wf.canvas.modeInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+  <!-- the editor gets the whole width; its chat sits in the corner like the
+       office's (ADR-042), kept mounted so it fills the draft while closed -->
+  <div class="flex flex-col gap-2 lg:h-[calc(100vh-9rem)] lg:min-h-[36rem]">
+    <div class="flex items-center gap-2">
+      <SegmentedNav v-model="mode" :items="modes" />
+      <UTooltip :text="t('wf.canvas.modeInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+    </div>
+    <div v-if="!loaded" class="p-4 text-sm text-(--ui-text-muted)">{{ t('common.loading') }}</div>
+    <template v-else-if="mode === 'canvas'">
+      <div class="flex min-h-[32rem] flex-1 flex-col *:flex-1 lg:min-h-0" :class="highlight && 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition'">
+        <WorkflowCanvas
+          v-if="canvasDef" :def="canvasDef" :project-id="projectId" :bindings="bindings"
+          @update:def="onCanvasDef" @update:bindings="b => bindings = b"
+        />
+        <UAlert v-else color="warning" variant="subtle" icon="i-lucide-triangle-alert" :title="t('wf.canvas.cannotDraw')" :description="error" />
       </div>
-      <div v-if="!loaded" class="p-4 text-sm text-(--ui-text-muted)">{{ t('common.loading') }}</div>
-      <template v-else-if="mode === 'canvas'">
-        <div class="flex min-h-0 flex-1 flex-col *:flex-1" :class="highlight && 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition'">
-          <WorkflowCanvas
-            v-if="canvasDef" :def="canvasDef" :project-id="projectId" :bindings="bindings"
-            @update:def="onCanvasDef" @update:bindings="b => bindings = b"
-          />
-          <UAlert v-else color="warning" variant="subtle" icon="i-lucide-triangle-alert" :title="t('wf.canvas.cannotDraw')" :description="error" />
-        </div>
-        <UAlert v-if="error && canvasDef" color="warning" variant="subtle" icon="i-lucide-triangle-alert" :title="t('wf.invalid')" :description="error" :ui="{ description: 'max-h-24 overflow-y-auto whitespace-pre-line' }" />
-      </template>
-      <div v-else class="space-y-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pe-1">
-        <UFormField :label="t('wf.source')" :class="highlight && 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition'">
-          <template #hint>
-            <UTooltip :text="t('wf.sourceInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
-          </template>
-          <UTextarea v-model="source" :rows="18" autoresize :maxrows="40" class="w-full font-mono text-xs" placeholder="---&#10;key: …&#10;name: …&#10;roles: …&#10;---" />
-        </UFormField>
+      <UAlert v-if="error && canvasDef" color="warning" variant="subtle" icon="i-lucide-triangle-alert" :title="t('wf.invalid')" :description="error" :ui="{ description: 'max-h-24 overflow-y-auto whitespace-pre-line' }" />
+    </template>
+    <div v-else class="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-2">
+      <UFormField :label="t('wf.source')" class="lg:min-h-0 lg:overflow-y-auto lg:pe-1" :class="highlight && 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition'">
+        <template #hint>
+          <UTooltip :text="t('wf.sourceInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+        </template>
+        <UTextarea v-model="source" :rows="18" autoresize :maxrows="40" class="w-full font-mono text-xs" placeholder="---&#10;key: …&#10;name: …&#10;roles: …&#10;---" />
+      </UFormField>
+      <div class="lg:min-h-0 lg:overflow-y-auto lg:pe-1">
         <UAlert v-if="error" color="warning" variant="subtle" icon="i-lucide-triangle-alert" :title="t('wf.invalid')" :description="error" />
         <div v-else-if="def" class="rounded-lg border border-(--ui-border) p-3">
           <WorkflowPreview :def="def" />
         </div>
       </div>
-      <div class="flex justify-end gap-2 border-t border-(--ui-border) pt-3">
-        <UButton color="neutral" variant="ghost" :label="t('common.close')" :to="back" />
-        <UButton icon="i-lucide-save" :loading="saving" :disabled="!isAdmin || !source.trim() || !!error" :label="t('auto.save')" @click="save()" />
+    </div>
+    <div class="flex justify-end gap-2 border-t border-(--ui-border) pt-3 pe-16">
+      <UButton color="neutral" variant="ghost" :label="t('common.close')" :to="back" />
+      <UButton icon="i-lucide-save" :loading="saving" :disabled="!isAdmin || !source.trim() || !!error" :label="t('auto.save')" @click="save()" />
+    </div>
+
+    <UButton
+      v-show="!chatOpen" icon="i-lucide-sparkles" size="xl" class="fixed bottom-5 end-5 z-40 rounded-full shadow-lg"
+      :aria-label="t('wf.askAI')" :title="t('wf.askAI')" @click="chatOpen = true"
+    />
+    <!-- not a modal: the canvas stays in view while the agent fills it -->
+    <aside
+      v-show="chatOpen"
+      class="fixed inset-y-0 end-0 z-50 flex w-full max-w-lg flex-col border-s border-(--ui-border) bg-(--ui-bg) shadow-xl"
+    >
+      <div class="flex items-center gap-1 border-b border-(--ui-border) p-2">
+        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-arrow-right" :aria-label="t('common.close')" @click="chatOpen = false" />
+        <p class="min-w-0 flex-1 truncate font-semibold">{{ t('wf.askAI') }}</p>
       </div>
-    </div>
-    <div class="h-[32rem] lg:min-h-0" :class="mode !== 'canvas' && 'lg:h-auto'">
-      <ChatPanel
-        :project-id="chatProjectId" purpose="workflow" :subject="subject" :page-context="pageContext"
-        @workflow-patch="applyPatch" @history="replay" @conversation="(id) => { conversationId = id }"
-      />
-    </div>
+      <div class="min-h-0 flex-1 p-2">
+        <ChatPanel
+          :project-id="chatProjectId" purpose="workflow" :subject="subject" :page-context="pageContext"
+          @workflow-patch="applyPatch" @history="replay" @conversation="(id) => { conversationId = id }"
+        />
+      </div>
+    </aside>
   </div>
 </template>
