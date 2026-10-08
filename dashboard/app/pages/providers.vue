@@ -9,11 +9,9 @@ const next = computed(() => {
   return typeof n === 'string' && n.startsWith('/') && !n.startsWith('//') ? n : ''
 })
 
-const _f1 = useLiveFetch<{ providers: Provider[] }>('/api/providers')
-const { data, refresh } = _f1
-const _f2 = useLiveFetch<{ kinds: ProviderKind[], presets: ProviderPreset[] }>('/api/provider-kinds')
-const { data: kindsData } = _f2
-await Promise.all([_f1, _f2]) // started together: one round trip, not 2 (a phone over a VPN)
+const { data, refresh } = await useLiveFetch<{ providers: Provider[] }>('/api/providers')
+// lazy: detecting CLIs on the machine runs each one (seconds), the list does not wait for it
+const { data: kindsData, pending: kindsPending } = useLiveFetch<{ kinds: ProviderKind[], presets: ProviderPreset[] }>('/api/provider-kinds', { lazy: true })
 const { data: statsData, refresh: refreshStats } = useLiveFetch<{ days: number, providers: ProviderStat[], today: { calls: number, errors: number, tokens: number, cost_usd: number } }>('/api/providers/stats', { query: { days: 7 }, lazy: true })
 const providers = computed(() => data.value?.providers ?? [])
 const kinds = computed(() => kindsData.value?.kinds ?? [])
@@ -84,6 +82,8 @@ function openCreate() {
   formError.value = ''
   formOpen.value = true
 }
+// the form was opened before the kinds arrived: pick the default again
+watch(kinds, () => { if (formOpen.value && !editing.value && !form.preset && !form.name) openCreate() })
 
 function openEdit(p: Provider) {
   editing.value = p
@@ -376,7 +376,10 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
       <template #body>
         <form id="provider-form" class="space-y-5" @submit.prevent="save">
           <!-- kind: main accounts, then third-party APIs -->
-          <div v-if="!editing" class="space-y-3">
+          <p v-if="!editing && !kinds.length && kindsPending" class="flex items-center gap-2 text-sm text-(--ui-text-muted)">
+            <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> {{ t('common.loading') }}
+          </p>
+          <div v-else-if="!editing" class="space-y-3">
             <div class="flex flex-wrap items-center gap-2">
               <button
                 v-for="k in kinds.filter(k => k.kind !== 'openai_compatible')" :key="k.kind" type="button"

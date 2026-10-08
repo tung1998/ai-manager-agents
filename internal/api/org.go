@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
@@ -287,8 +288,8 @@ func detectCLI(bin string) *detected {
 // detectTool asks the CLI manager (same lookup as install/login) when enabled.
 func (s *server) detectTool(r *http.Request, id string) *detected {
 	if s.cfg.CLITools != nil {
-		if st, err := s.cfg.CLITools.Status(r.Context(), id); err == nil {
-			return &detected{Installed: st.Installed, Version: st.Version}
+		if installed, version, err := s.cfg.CLITools.Detect(r.Context(), id); err == nil {
+			return &detected{Installed: installed, Version: version}
 		}
 	}
 	return detectCLI(id)
@@ -306,10 +307,19 @@ func (s *server) providerKinds(w http.ResponseWriter, r *http.Request) {
 		return kindInfo{Kind: string(kind), Label: label, Description: desc, Common: common, NeedsKey: needsKey, IsCLI: kind.IsCLI(),
 			BaseURLHint: hint, TierModels: llm.DefaultTierModels(kind), Detected: d}
 	}
+	// each CLI runs --version; detect them together so the page waits for the slowest only
+	tools := []string{"claude", "codex", "gemini", "antigravity"}
+	found := make([]*detected, len(tools))
+	var wg sync.WaitGroup
+	for i, id := range tools {
+		wg.Add(1)
+		go func() { defer wg.Done(); found[i] = s.detectTool(r, id) }()
+	}
+	wg.Wait()
 	writeJSON(w, http.StatusOK, map[string]any{"presets": provider.Presets(), "kinds": []kindInfo{
 		k(storage.ProviderClaudeCLI, "Claude Code trên máy",
 			"Dùng tài khoản Claude đã đăng nhập trong Claude Code trên máy này (gói Pro/Max). Không cần API key.",
-			"claude", false, true, s.detectTool(r, "claude")),
+			"claude", false, true, found[0]),
 		k(storage.ProviderAnthropic, "Claude API",
 			"Trả tiền theo lượng dùng qua API key lấy tại console.anthropic.com.",
 			"https://api.anthropic.com", true, true, detectEnv("ANTHROPIC_API_KEY")),
@@ -318,13 +328,13 @@ func (s *server) providerKinds(w http.ResponseWriter, r *http.Request) {
 			"https://api.openai.com/v1", true, true, detectEnv("OPENAI_API_KEY")),
 		k(storage.ProviderCodexCLI, "Codex trên máy",
 			"Dùng tài khoản ChatGPT đã đăng nhập trong Codex CLI trên máy này.",
-			"codex", false, false, s.detectTool(r, "codex")),
+			"codex", false, false, found[1]),
 		k(storage.ProviderGeminiCLI, "Gemini CLI trên máy",
 			"Dùng tài khoản Google đã đăng nhập trong Gemini CLI trên máy này (hoặc GEMINI_API_KEY). Không cần nhập key ở đây.",
-			"gemini", false, false, s.detectTool(r, "gemini")),
+			"gemini", false, false, found[2]),
 		k(storage.ProviderAntigravityCLI, "Antigravity CLI trên máy",
 			"Dùng tài khoản Google (gói Google AI Pro/Ultra hoặc miễn phí) đã đăng nhập trong Antigravity CLI trên máy này. Không cần API key.",
-			"agy", false, false, s.detectTool(r, "antigravity")),
+			"agy", false, false, found[3]),
 		k(storage.ProviderOpenAICompatible, "API tương thích OpenAI",
 			"Model chạy local hoặc cổng trung gian: Ollama, LM Studio, vLLM, OpenRouter, LiteLLM…",
 			"http://localhost:11434/v1", false, false, nil),

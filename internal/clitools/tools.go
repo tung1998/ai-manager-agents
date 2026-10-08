@@ -383,6 +383,23 @@ func (m *Manager) Status(ctx context.Context, id string) (Status, error) {
 	return s, nil
 }
 
+// Detect is the cheap part of Status: installed and version, no sign-in check
+// (those can take seconds, e.g. Antigravity lists its models).
+func (m *Manager) Detect(ctx context.Context, id string) (installed bool, version string, err error) {
+	t, ok := m.find(id)
+	if !ok {
+		return false, "", ErrUnknownTool
+	}
+	path := m.lookPath(t.Bin)
+	if path == "" {
+		return false, "", nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	v, _ := runOut(ctx, m.env, path, "--version")
+	return true, strings.TrimSpace(strings.SplitN(v, "\n", 2)[0]), nil
+}
+
 // Install starts an install job with one of the tool's methods.
 func (m *Manager) Install(id, method string) (*Job, error) {
 	t, ok := m.find(id)
