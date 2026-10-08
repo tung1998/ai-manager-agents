@@ -38,12 +38,19 @@ async function act(fn: () => Promise<unknown>, ok?: string) {
 }
 const toggle = (enabled: boolean) => act(() => $fetch(`/api/channels/${bid.value}`, { method: 'PATCH', body: { enabled } }))
 const reconnect = () => act(() => $fetch(`/api/channels/${bid.value}`, { method: 'PATCH', body: { enabled: true } }), t('auto.reconnecting'))
+const removing = ref(false)
 async function remove() {
+  if (removing.value) return
   if (!confirm(t('bot.deleteConfirm', { name: name.value }))) return
-  await act(async () => {
-    for (const a of cmds.value) await $fetch(`/api/automations/${a.id}`, { method: 'DELETE' }) // the last one takes the bot along
-  })
-  await navigateTo({ path: `/projects/${projectId.value}`, query: { tab: 'automations' } })
+  removing.value = true
+  try {
+    await act(async () => {
+      for (const a of cmds.value) await $fetch(`/api/automations/${a.id}`, { method: 'DELETE' }) // the last one takes the bot along
+    })
+    await navigateTo({ path: `/projects/${projectId.value}`, query: { tab: 'automations' } })
+  } finally {
+    removing.value = false
+  }
 }
 </script>
 
@@ -55,7 +62,7 @@ async function remove() {
         <UDropdownMenu
           :content="{ align: 'end' }"
           :items="[[{ label: t('auto.reconnect'), icon: 'i-lucide-refresh-cw', onSelect: reconnect }],
-                   [{ label: t('auto.delete'), icon: 'i-lucide-trash', color: 'error' as const, onSelect: remove }]]"
+                   [{ label: t('auto.delete'), icon: 'i-lucide-trash', color: 'error' as const, disabled: removing, onSelect: remove }]]"
         >
           <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" :aria-label="t('project.actionsAria')" />
         </UDropdownMenu>
