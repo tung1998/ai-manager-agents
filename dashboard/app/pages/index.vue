@@ -52,9 +52,9 @@ async function seen(x: Incident) {
   }
 }
 // skip: rejected, and its agent is not run again about it
-async function act(x: Incident, what: 'approve' | 'reject' | 'skip' | 'retry' | 'dismiss' | 'continue') {
+async function act(x: Incident, what: 'approve' | 'reject' | 'skip' | 'retry' | 'dismiss' | 'continue'): Promise<boolean> {
   const key = x.key + what
-  if (acting.has(key)) return
+  if (acting.has(key)) return false
   acting.add(key)
   try {
     const decide = what === 'skip' ? 'reject' : what
@@ -68,8 +68,10 @@ async function act(x: Incident, what: 'approve' | 'reject' | 'skip' | 'retry' | 
     else await $fetch('/api/incidents/retry', { method: 'POST', body: { kind: x.kind, id: x.id } })
     toast.add({ title: t(`home.done_${what}`), color: 'success' })
     await refreshInc()
+    return true
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+    return false
   } finally {
     acting.delete(key)
   }
@@ -329,7 +331,7 @@ const steps = computed(() => [
         <template v-if="isAdmin">
           <UButton v-if="canRetry(shown.kind)" color="neutral" variant="outline" icon="i-lucide-rotate-cw" :label="t('home.retry')" :loading="acting.has(shown.key + 'retry')" @click="act(shown, 'retry')" />
           <UButton color="neutral" variant="outline" icon="i-lucide-search-check" :label="t('home.investigate')" @click="investigate(shown)" />
-          <UButton color="neutral" variant="ghost" :label="t('home.dismiss')" :loading="acting.has(shown.key + 'dismiss')" @click="act(shown, 'dismiss').then(() => { shown = null })" />
+          <UButton color="neutral" variant="ghost" :label="t('home.dismiss')" :loading="acting.has(shown.key + 'dismiss')" @click="act(shown, 'dismiss').then((ok) => { if (ok) shown = null })" />
         </template>
       </template>
     </WorkDetailModal>
