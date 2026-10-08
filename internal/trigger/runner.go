@@ -511,27 +511,18 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	}
 	var be *usage.BudgetError
 	budget := errors.As(err, &be)
-	// the automation learns how it went (a budget stop is not its failure)
-	if a, gerr := r.store.Automations().Get(ctx, a.ID); gerr == nil {
-		t := r.now().UTC()
-		a.LastRunAt = &t
-		if keptConv != "" {
-			a.Config.ConversationID = keptConv
-		}
-		if err != nil && !budget {
-			a.Failures++
-			limit := a.Limits.DisableAfterFailures
-			if limit <= 0 {
-				limit = 5
-			}
-			if a.Failures >= limit {
-				a.Enabled, a.DisabledCode, a.DisabledReason = false, "failures", err.Error()
-			}
-		} else if err == nil {
-			a.Failures = 0
-		}
-		_ = r.store.Automations().Update(ctx, a)
+	// the automation learns how it went (a budget stop is not its failure),
+	// via one atomic UPDATE so two runs of the same automation finishing
+	// close together (Parallel()>1) can't read the same Failures and
+	// overwrite each other's increment.
+	result, reason := "ok", ""
+	switch {
+	case budget:
+		result = "skip"
+	case err != nil:
+		result, reason = "fail", err.Error()
 	}
+	_ = r.store.Automations().RecordRun(ctx, a.ID, r.now().UTC(), result, reason, a.Limits.DisableAfterFailures, keptConv)
 }
 
 // settle ends a job the executor left running, or puts a busy one back.

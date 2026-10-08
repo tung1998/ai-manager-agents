@@ -94,6 +94,26 @@ func (r automationRepo) Update(ctx context.Context, a storage.Automation) error 
 		a.PermissionMode, a.OverrideFullAccess, a.OverrideAdminBy, toJSON(a.OverrideExtraDirs), a.ID)
 }
 
+func (r automationRepo) RecordRun(ctx context.Context, id string, now time.Time, result, failReason string, limit int, keptConv string) error {
+	if limit <= 0 {
+		limit = 5
+	}
+	ok, fail := result == "ok", result == "fail"
+	return execOne(ctx, r.db, `UPDATE automations SET
+		last_run_at = ?,
+		failures = CASE WHEN ? THEN 0 WHEN ? THEN failures + 1 ELSE failures END,
+		enabled = CASE WHEN ? AND failures + 1 >= ? THEN 0 ELSE enabled END,
+		disabled_code = CASE WHEN ? AND failures + 1 >= ? THEN 'failures' ELSE disabled_code END,
+		disabled_reason = CASE WHEN ? AND failures + 1 >= ? THEN ? ELSE disabled_reason END,
+		config = CASE WHEN ? <> '' THEN json_set(config, '$.conversation_id', ?) ELSE config END,
+		updated_at = ?
+		WHERE id = ?`,
+		optTime(&now), ok, fail,
+		fail, limit, fail, limit, fail, limit, failReason,
+		keptConv, keptConv,
+		fmtTime(time.Now()), id)
+}
+
 func (r automationRepo) Delete(ctx context.Context, id string) error {
 	return execOne(ctx, r.db, `DELETE FROM automations WHERE id=?`, id)
 }

@@ -40,23 +40,11 @@ func (r *Runner) runScriptJob(ctx context.Context, a storage.Automation, j stora
 	}
 	answer(withoutSignals(out), failed, true) // what it printed is the answer
 
-	if a, err := r.store.Automations().Get(ctx, a.ID); err == nil {
-		t := r.now().UTC()
-		a.LastRunAt = &t
-		if runErr != nil || timedOut {
-			a.Failures++
-			limit := a.Limits.DisableAfterFailures
-			if limit <= 0 {
-				limit = 5
-			}
-			if a.Failures >= limit {
-				a.Enabled, a.DisabledCode, a.DisabledReason = false, "failures", firstNonEmpty(msg, "script lỗi")
-			}
-		} else {
-			a.Failures = 0
-		}
-		_ = r.store.Automations().Update(ctx, a)
+	result, reason := "ok", ""
+	if runErr != nil || timedOut {
+		result, reason = "fail", firstNonEmpty(msg, "script lỗi")
 	}
+	_ = r.store.Automations().RecordRun(ctx, a.ID, r.now().UTC(), result, reason, a.Limits.DisableAfterFailures, "")
 }
 
 // withoutSignals is a script's output without its @@agent lines.

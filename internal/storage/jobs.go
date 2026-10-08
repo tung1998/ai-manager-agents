@@ -235,6 +235,14 @@ type AutomationRepo interface {
 	List(ctx context.Context, projectID string) ([]Automation, error)
 	// Due lists enabled schedules whose next run has come.
 	Due(ctx context.Context, now time.Time) ([]Automation, error)
+	// RecordRun applies the result of one run — last run time, the
+	// consecutive-failure counter, and the kept conversation id (if any) — in
+	// a single atomic statement, so two runs of the same automation finishing
+	// close together (Parallel()>1) can't read the same Failures and
+	// overwrite each other's increment. result is "ok" (reset Failures to 0),
+	// "fail" (increment Failures, disabling the automation once it reaches
+	// limit) or "skip" (a budget stop: Failures untouched either way).
+	RecordRun(ctx context.Context, id string, now time.Time, result, failReason string, limit int, keptConv string) error
 }
 
 // JobGroup is the jobs of one piece of work: a chat's turns, a task, an
