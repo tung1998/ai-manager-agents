@@ -197,13 +197,16 @@ async function loadChanges() {
   }
 }
 // one file's diff at a time: light however much changed
+let pickChangeToken = 0
 async function pickChange(c: Change) {
   picked.value = c.path
   changeDiff.value = null
+  const token = ++pickChangeToken
   try {
-    changeDiff.value = (await $fetch<{ diff: string }>(`${base.value}/file/diff`, { query: { path: c.path } })).diff
+    const diff = (await $fetch<{ diff: string }>(`${base.value}/file/diff`, { query: { path: c.path } })).diff
+    if (token === pickChangeToken) changeDiff.value = diff
   } catch (e) {
-    changeDiff.value = ''
+    if (token === pickChangeToken) changeDiff.value = ''
     toast.add({ title: apiError(e), color: 'error' })
   }
 }
