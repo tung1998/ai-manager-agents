@@ -158,7 +158,7 @@ func TestWorkflowCommitteeRunsInParallelAndCallsBack(t *testing.T) {
 	for i := 2; i <= 4; i++ {
 		a, in := call(t, g.dir, i)
 		switch {
-		case strings.Contains(a, "Bạn là Dev"):
+		case strings.Contains(a, "You are Dev"):
 			devIn = in
 		case strings.Contains(in, "[office · quy trình Hội đồng]"):
 			back = in
@@ -189,7 +189,7 @@ func TestWorkflowCommitteeRunsInParallelAndCallsBack(t *testing.T) {
 	g.waitIn(t, own, 7)
 	var resumed bool
 	for i := 5; i <= 7; i++ {
-		if a, in := call(t, g.dir, i); strings.Contains(a, "Bạn là Dev") && strings.Contains(a, "--resume sess-dev") && strings.Contains(in, "race") {
+		if a, in := call(t, g.dir, i); strings.Contains(a, "You are Dev") && strings.Contains(a, "--resume sess-dev") && strings.Contains(in, "race") {
 			resumed = true
 		}
 	}

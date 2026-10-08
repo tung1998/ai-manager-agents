@@ -92,7 +92,7 @@ func TestAnthropicToolLoopAndPatch(t *testing.T) {
 			System   string            `json:"system"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
-		if !strings.Contains(body.System, "không ghi file trực tiếp") {
+		if !strings.Contains(body.System, "You do not write files directly") {
 			t.Errorf("system prompt missing patch rule: %q", body.System)
 		}
 		if calls == 1 {
@@ -354,7 +354,7 @@ echo "$*" > `+dir+`/call$n.args
 rmdir `+dir+`/.lock
 cat > `+dir+`/call$n.in
 who=lead
-case "$*" in *"Bạn là Dev"*) who=dev;; esac
+case "$*" in *"You are Dev"*) who=dev;; esac
 echo '{"type":"system","subtype":"init","session_id":"sess-'$who'"}'
 echo '{"type":"result","subtype":"success","is_error":false,"result":"'$who': `+reply+`","session_id":"sess-'$who'","usage":{"input_tokens":1,"output_tokens":1}}'
 `), 0o755)
@@ -422,7 +422,7 @@ echo "$*" > `+dir+`/call$n.args
 rmdir `+dir+`/.lock
 cat > `+dir+`/call$n.in
 who=lead
-case "$*" in *"Bạn là Dev"*) who=dev;; *"Bạn là QA"*) who=qa;; esac
+case "$*" in *"You are Dev"*) who=dev;; *"You are QA"*) who=qa;; esac
 case "$*" in *"-p /compact"*) echo '{"type":"system","subtype":"compact_boundary","compact_metadata":{"pre_tokens":150000,"post_tokens":4000}}'; echo '{"type":"result","subtype":"success","is_error":false,"result":""}'; exit 0;; esac
 if [ -f `+dir+`/fail-$who ]; then rm `+dir+`/fail-$who; echo '{"type":"system","subtype":"init","session_id":"sess-'$who'"}'; echo 'boom' >&2; exit 1; fi
 [ -f `+dir+`/sleep-$who ] && sleep $(cat `+dir+`/sleep-$who)
@@ -1089,7 +1089,7 @@ func TestCeilingCapsTheTurn(t *testing.T) {
 	}
 	collect(t, turn)
 	args, _ := call(t, g.dir, 1)
-	if !strings.Contains(args, "Quyền của bạn trong lượt này: "+perm.Label(perm.Propose)) {
+	if !strings.Contains(args, "Your permission this turn: "+perm.Label(perm.Propose)) {
 		t.Fatalf("the cap was not applied:\n%s", args)
 	}
 }

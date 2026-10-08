@@ -29,10 +29,10 @@ func TestPlanPromptDigsDeeper(t *testing.T) {
 	if strings.Contains(p, "liên tiếp") {
 		t.Error("first scan should not mention empty scans")
 	}
-	if !strings.Contains(p, "ĐÚNG MỘT") || !strings.Contains(planPrompt(b, nil, 0, 3), "chọn đủ 3 việc") {
+	if !strings.Contains(p, "EXACTLY ONE") || !strings.Contains(planPrompt(b, nil, 0, 3), "pick 3 pieces") {
 		t.Error("a scan picks as many pieces as there are free slots")
 	}
-	if p2 := planPrompt(b, nil, 2, 1); !strings.Contains(p2, "2 lần quét liên tiếp") {
+	if p2 := planPrompt(b, nil, 2, 1); !strings.Contains(p2, "2 scans in a row") {
 		t.Errorf("repeat scan should say how many came back empty:\n%s", p2)
 	}
 }
@@ -61,30 +61,30 @@ func TestScannedIsKept(t *testing.T) {
 
 func TestPlanPromptOrder(t *testing.T) {
 	road := planPrompt(storage.BurnSession{Order: "roadmap"}, nil, 0, 1)
-	for _, want := range []string{"LỘ TRÌNH TRƯỚC", "chưa được duyệt", "thiết kế ngắn", "phần 1"} {
+	for _, want := range []string{"ROADMAP FIRST", "not approved yet", "short design", "part 1"} {
 		if !strings.Contains(road, want) {
 			t.Errorf("roadmap prompt lacks %q", want)
 		}
 	}
-	if i, j := strings.Index(road, "Lộ trình"), strings.Index(road, "Lỗi chi tiết"); i < 0 || j < 0 || i > j {
+	if i, j := strings.Index(road, "- Roadmap:"), strings.Index(road, "- Bugs in detail"); i < 0 || j < 0 || i > j {
 		t.Errorf("roadmap should come before bugs")
 	}
 	bugs := planPrompt(storage.BurnSession{Order: "bugs"}, nil, 0, 1)
-	if i, j := strings.Index(bugs, "Lộ trình"), strings.Index(bugs, "Lỗi chi tiết"); i < 0 || j < 0 || j > i {
+	if i, j := strings.Index(bugs, "- Roadmap:"), strings.Index(bugs, "- Bugs in detail"); i < 0 || j < 0 || j > i {
 		t.Errorf("bugs order should list bugs first")
 	}
-	if strings.Contains(bugs, "LỘ TRÌNH TRƯỚC") {
+	if strings.Contains(bugs, "ROADMAP FIRST") {
 		t.Error("bugs order should not push the roadmap first")
 	}
 	// an old row with no order behaves as roadmap
-	if !strings.Contains(planPrompt(storage.BurnSession{}, nil, 0, 1), "LỘ TRÌNH TRƯỚC") {
+	if !strings.Contains(planPrompt(storage.BurnSession{}, nil, 0, 1), "ROADMAP FIRST") {
 		t.Error("empty order should default to roadmap")
 	}
 }
 
 func TestWorkPromptFeature(t *testing.T) {
 	p := workPrompt(storage.BurnSession{}, storage.BurnItem{Kind: "unfinished", Title: "Thông báo sự cố: phần 1"}, false, false)
-	if !strings.Contains(p, "đánh dấu tiến độ") {
+	if !strings.Contains(p, "mark the progress") {
 		t.Errorf("a roadmap piece should update the roadmap docs:\n%s", p)
 	}
 }
@@ -94,6 +94,8 @@ func TestVerdict(t *testing.T) {
 		"KẾT LUẬN: ĐỒNG Ý\nổn":            "yes",
 		"**KẾT LUẬN: KHÔNG ĐỒNG Ý**\nsai": "no",
 		"Ket luan: dong y":                "yes",
+		"VERDICT: AGREE\nfine":            "yes",
+		"**VERDICT: DISAGREE**\nwrong":    "no",
 		"Tôi nghĩ là được":                "unclear",
 	} {
 		if got := verdict(text); got != want {
@@ -115,33 +117,33 @@ func TestPlanPromptTrimsClosed(t *testing.T) {
 	if strings.Contains(p, "bit_done") || strings.Contains(p, "tóm tắt dài") {
 		t.Error("closed items should be title only")
 	}
-	if strings.Contains(p, "xong 0\n") || !strings.Contains(p, "xong 19") || !strings.Contains(p, "5 việc cũ hơn") {
+	if strings.Contains(p, "xong 4\n") || !strings.Contains(p, "xong 9") || !strings.Contains(p, "burn_list(what=\"closed\")") {
 		t.Errorf("only the latest closed items should be listed:\n%s", p)
 	}
 }
 
-// The focus steers each step (ADR-120): a scan above its order, with what to
-// look at for a known focus; the work's checks; a reviewer's no.
+// The focus steers, not limits (ADR-120): first in a scan and its picks, with
+// what to look at for a known focus; the work's checks; no reviewer's no.
 func TestFocusSteers(t *testing.T) {
 	b := storage.BurnSession{Focus: "tập trung vào bảo mật API"}
 	p := planPrompt(b, nil, 0, 1)
-	if !strings.Contains(p, "TRỌNG TÂM CỦA NGƯỜI DÙNG") || !strings.Contains(p, "injection") || !strings.Contains(p, "phạm vi TRỌNG TÂM") {
+	if !strings.Contains(p, "not a limit") || !strings.Contains(p, "injection") || !strings.Contains(p, "come before the order") {
 		t.Errorf("scan prompt does not lead with the focus:\n%s", p)
 	}
-	if !strings.Contains(p, "ĐỂ NGUYÊN") {
+	if !strings.Contains(p, "Never burn_skip a piece only because it is off the focus") {
 		t.Error("an out-of-focus piece may be skipped (the real case, 2026-10-08)")
 	}
-	if p3 := planPrompt(b, nil, 0, 3); !strings.Contains(p3, "chọn đủ 3 việc") || !strings.Contains(p3, "quét thêm vùng mới") {
+	if p3 := planPrompt(b, nil, 0, 3); !strings.Contains(p3, "pick 3 pieces") || !strings.Contains(p3, "scan more new areas") {
 		t.Errorf("free slots are not filled:\n%s", p3)
 	}
 	if strings.Contains(p, "trạng thái đang tải") {
 		t.Error("a security focus got the UI lens")
 	}
-	if w := workPrompt(storage.BurnSession{Focus: "UI/UX trang checkout"}, storage.BurnItem{}, false, false); !strings.Contains(w, "màn hẹp") {
+	if w := workPrompt(storage.BurnSession{Focus: "UI/UX trang checkout"}, storage.BurnItem{}, false, false); !strings.Contains(w, "narrow screens") {
 		t.Errorf("work prompt lacks the UI checks:\n%s", w)
 	}
-	if r := reviewPrompt(b, storage.BurnItem{}, "issue"); !strings.Contains(r, "không phục vụ trọng tâm") {
-		t.Errorf("issue review ignores the focus:\n%s", r)
+	if r := reviewPrompt(b, storage.BurnItem{}, "issue"); !strings.Contains(r, "not a reason to turn other work down") {
+		t.Errorf("issue review turns down what is off the focus:\n%s", r)
 	}
 	if focusLenses("build xong") != nil || focusPlan("") != "" {
 		t.Error("no focus, or none known: no lens")

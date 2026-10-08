@@ -5,8 +5,9 @@ import (
 	"strings"
 )
 
-// The person's focus steers every step of a Burn (ADR-120): what a scan looks
-// for and picks, how a piece is done and checked, what a reviewer accepts.
+// The person's focus steers a Burn (ADR-120): a direction, not a limit — it
+// still does all its work; what fits the focus is looked at and picked first,
+// and done and checked its way.
 // Some focuses come with what to look at (a lens), found by their words.
 
 type lens struct {
@@ -17,20 +18,20 @@ type lens struct {
 
 var lenses = []lens{
 	{[]string{"bảo mật", "security", "an toàn", "secure", "lỗ hổng", "auth"},
-		"kiểm tra quyền và xác thực ở mọi API/route, injection (SQL, lệnh shell, đường dẫn), XSS, CSRF, SSRF, lộ bí mật (log, lỗi, response), mã hóa và lưu token/mật khẩu, giới hạn tốc độ, file upload, phụ thuộc có lỗ hổng",
-		"thêm test cho trường hợp tấn công/không có quyền, không làm lộ thêm thông tin trong lỗi hay log"},
+		"authorization and authentication on every API/route, injection (SQL, shell commands, paths), XSS, CSRF, SSRF, leaked secrets (logs, errors, responses), how tokens/passwords are encrypted and stored, rate limits, file uploads, vulnerable dependencies",
+		"add tests for the attack / no-permission cases, and leak nothing more in errors or logs"},
 	{[]string{"ui", "ux", "giao diện", "trải nghiệm", "frontend", "design"},
-		"luồng thao tác chính có gọn không, trạng thái đang tải/lỗi/rỗng, phản hồi sau thao tác, mobile và màn hẹp, chữ khó hiểu hoặc chưa dịch, nhất quán giữa các trang, truy cập bằng bàn phím và độ tương phản",
-		"chạy typecheck/lint của giao diện, xem lại trên màn hẹp và các trạng thái tải/lỗi/rỗng, không đổi hành vi ngoài phạm vi"},
+		"whether the main flows are short, loading/error/empty states, feedback after an action, mobile and narrow screens, unclear or untranslated text, consistency across pages, keyboard access and contrast",
+		"run the UI typecheck/lint, check narrow screens and the loading/error/empty states, change no behaviour out of scope"},
 	{[]string{"hiệu năng", "performance", "tốc độ", "nhanh", "chậm", "tối ưu"},
-		"truy vấn N+1 và thiếu index, vòng lặp hay I/O thừa, rò rỉ goroutine/bộ nhớ, payload lớn, render lại thừa ở giao diện, cache",
-		"đo trước và sau (benchmark, thời gian, số truy vấn) và ghi số đo vào tóm tắt"},
+		"N+1 queries and missing indexes, wasted loops or I/O, goroutine/memory leaks, large payloads, needless UI re-renders, caching",
+		"measure before and after (benchmark, timings, query counts) and put the numbers in the summary"},
 	{[]string{"test", "kiểm thử", "coverage"},
-		"đường quan trọng chưa có test, test chập chờn, trường hợp biên chưa được kiểm",
-		"test mới phải fail khi bỏ phần sửa và chạy ổn định"},
+		"key paths without tests, flaky tests, untested edge cases",
+		"a new test must fail without the fix and run reliably"},
 	{[]string{"tài liệu", "docs", "document"},
-		"tài liệu lệch với code, hướng dẫn thiếu bước, API/cấu hình chưa được mô tả",
-		"đối chiếu từng câu với code thật"},
+		"docs out of step with the code, guides missing steps, undocumented APIs/settings",
+		"check each sentence against the real code"},
 }
 
 // focusLenses are the lenses the focus asks for.
@@ -62,13 +63,12 @@ func focusPlan(focus string) string {
 		return ""
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "\nTRỌNG TÂM CỦA NGƯỜI DÙNG (ưu tiên trên thứ tự bên dưới):\n%s\n", focus)
-	sb.WriteString("- Hiểu trọng tâm theo nghĩa rộng của người dùng: trước tiên liệt kê các vùng code/tài liệu liên quan tới nó (đọc cấu trúc project), rồi quét lần lượt từng vùng, không dừng ở một file.\n")
-	sb.WriteString("- Ưu tiên ghi và chọn việc phục vụ trọng tâm. Việc ngoài trọng tâm chỉ ghi khi nghiêm trọng (bảo mật, mất dữ liệu, hỏng chức năng chính).\n")
-	sb.WriteString("- Việc đã có mà nằm ngoài trọng tâm thì ĐỂ NGUYÊN (không burn_skip vì lý do trọng tâm: skip là bỏ hẳn). Hết việc trong trọng tâm thì chọn chúng.\n")
-	sb.WriteString("- Trong chi tiết mỗi việc, ghi rõ nó phục vụ trọng tâm thế nào.\n")
+	fmt.Fprintf(&sb, "\nThe person's focus (a direction, not a limit):\n%s\n", focus)
+	sb.WriteString("- Burn still scans and does all kinds of work as usual; the focus only decides what is looked at and picked first.\n")
+	sb.WriteString("- When scanning, look at the areas related to the focus first (read it broadly), then the others.\n")
+	sb.WriteString("- When picking, pieces serving the focus go first; with none, pick other pieces as usual. Never burn_skip a piece only because it is off the focus.\n")
 	for _, l := range focusLenses(focus) {
-		fmt.Fprintf(&sb, "- Với trọng tâm này hãy xem: %s.\n", l.look)
+		fmt.Fprintf(&sb, "- For this focus, look at: %s.\n", l.look)
 	}
 	return sb.String()
 }
@@ -79,9 +79,9 @@ func focusWork(focus string) string {
 		return ""
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Trọng tâm người dùng dặn (theo nó khi có lựa chọn cách làm): %s\n", focus)
+	fmt.Fprintf(&sb, "The person's focus (lean towards it when there is a choice of how): %s\n", focus)
 	for _, l := range focusLenses(focus) {
-		fmt.Fprintf(&sb, "Kiểm chứng theo trọng tâm: %s.\n", l.check)
+		fmt.Fprintf(&sb, "Verify for the focus: %s.\n", l.check)
 	}
 	return sb.String()
 }
@@ -91,13 +91,11 @@ func focusReview(focus, stage string) string {
 	if focus == "" {
 		return ""
 	}
-	s := fmt.Sprintf("Trọng tâm người dùng dặn: %s\n", focus)
+	s := fmt.Sprintf("The person's focus (a direction, not a reason to turn other work down): %s\n", focus)
 	switch stage {
-	case "issue":
-		s += "Việc không phục vụ trọng tâm thì KHÔNG ĐỒNG Ý, trừ khi là lỗi nghiêm trọng (bảo mật, mất dữ liệu, hỏng chức năng chính).\n"
 	case "result":
 		for _, l := range focusLenses(focus) {
-			s += "Xem kết quả có đạt theo trọng tâm: " + l.check + ".\n"
+			s += "Check the result for the focus: " + l.check + ".\n"
 		}
 	}
 	return s

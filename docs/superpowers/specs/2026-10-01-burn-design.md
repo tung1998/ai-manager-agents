@@ -38,7 +38,7 @@ Lưu theo project, sửa được khi đang tắt; một số mục sửa đư�
 | Số việc chạy cùng lúc (ADR-117) | 1–5 | 1 |
 | Kết quả mỗi việc | **nhánh riêng** (commit local) / **diff chờ duyệt** | nhánh riêng |
 | Tắt lúc | sau X giờ / tới giờ cụ thể / không hẹn | lần reset giới hạn tuần tiếp theo của kết nối AI mà agent chính dùng (`seven_day.resets_at`); không có dữ liệu thì sau 8 giờ |
-| Trọng tâm (tùy chọn) | chữ tự do tới 2000 ký tự, có gợi ý Bảo mật / UI/UX / Hiệu năng / Test; chi phối quét, làm, review (ADR-120) | trống |
+| Trọng tâm (tùy chọn) | chữ tự do tới 2000 ký tự, có gợi ý Bảo mật / UI/UX / Hiệu năng / Test; định hướng ưu tiên, không giới hạn việc (ADR-120) | trống |
 | Gửi tổng kết khi dừng | một bot của project + chat ID (Discord/Telegram) | chỉ trong chat Burn |
 
 ## Cách chạy

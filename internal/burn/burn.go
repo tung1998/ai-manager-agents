@@ -640,8 +640,11 @@ func (s *Service) plan(ctx context.Context, b storage.BurnSession, items []stora
 	return err
 }
 
-// scannedMark starts the line of a scan's answer that says what it looked at.
-const scannedMark = "VÙNG ĐÃ XEM:"
+// scannedMark starts the line of a scan's answer that says what it looked at
+// (scannedMarks: also the one older answers used).
+const scannedMark = "AREAS SCANNED:"
+
+var scannedMarks = []string{scannedMark, "VÙNG ĐÃ XEM:"}
 
 // maxScanned caps what is kept of the areas scanned (the latest stay).
 const maxScanned = 2000
@@ -649,9 +652,12 @@ const maxScanned = 2000
 // scannedOf is what a scan said it looked at.
 func scannedOf(text string) string {
 	for _, line := range strings.Split(text, "\n") {
-		l := strings.TrimLeft(strings.TrimSpace(line), "*-_# ")
-		if r := []rune(l); len(r) > len([]rune(scannedMark)) && strings.EqualFold(string(r[:len([]rune(scannedMark))]), scannedMark) {
-			return oneLine(strings.Trim(string(r[len([]rune(scannedMark)):]), "*_ "), 400)
+		l := []rune(strings.TrimLeft(strings.TrimSpace(line), "*-_# "))
+		for _, mark := range scannedMarks {
+			m := len([]rune(mark))
+			if len(l) > m && strings.EqualFold(string(l[:m]), mark) {
+				return oneLine(strings.Trim(string(l[m:]), "*_ "), 400)
+			}
 		}
 	}
 	return ""
@@ -667,109 +673,119 @@ func addScanned(kept, area string, at time.Time) string {
 	return strings.Join(lines, "\n")
 }
 
-// maxClosedInPlan caps the closed items listed in the plan prompt.
-const maxClosedInPlan = 15
+// What the plan prompt carries inline (ADR-121): the open pieces in full, the
+// latest closed ones and scanned areas only; the rest is a burn_list call away.
+const (
+	maxClosedInPlan  = 5
+	maxScannedInPlan = 5
+)
 
 func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty, free int) string {
 	var sb strings.Builder
-	sb.WriteString("[Burn] Lượt điều phối. Bạn đang chạy Burn cho project này: tự tìm và làm việc, với toàn quyền.\n")
+	sb.WriteString("[Burn] Coordination turn. You run Burn for this project: you find work and do it on your own, with full access.\n")
 	sb.WriteString(focusPlan(b.Focus))
-	sb.WriteString("\nViệc đã có:\n")
-	if len(items) == 0 {
-		sb.WriteString("(chưa có)\n")
-	}
-	// Open items in full; closed ones (done, skipped, failed) only by title so
-	// the agent does not re-add them, and only the latest few: a long session
-	// would otherwise fill the context with history.
+	sb.WriteString("\nOpen pieces:\n")
 	var closed []storage.BurnItem
+	open := 0
 	for _, it := range items {
 		switch it.Status {
 		case "done", "skipped", "failed":
 			closed = append(closed, it)
 			continue
 		}
+		open++
 		fmt.Fprintf(&sb, "- %s [%s, %s] %s", it.ID, it.Kind, it.Status, it.Title)
 		if it.Summary != "" {
-			fmt.Fprintf(&sb, " — %s", oneLine(it.Summary, 160))
+			fmt.Fprintf(&sb, " — %s", oneLine(it.Summary, 120))
 		}
 		sb.WriteString("\n")
 	}
+	if open == 0 {
+		sb.WriteString("(none)\n")
+	}
 	if len(closed) > 0 {
-		sb.WriteString("Đã xong/bỏ qua (không ghi lại, không chọn lại):\n")
-		if n := len(closed) - maxClosedInPlan; n > 0 {
-			fmt.Fprintf(&sb, "(%d việc cũ hơn không liệt kê)\n", n)
-			closed = closed[n:]
+		fmt.Fprintf(&sb, "Closed (done/skipped/failed: do not add or pick again): %d", len(closed))
+		if len(closed) > maxClosedInPlan {
+			sb.WriteString(", the latest below; burn_list(what=\"closed\") lists them all, check it before burn_add")
+			closed = closed[len(closed)-maxClosedInPlan:]
 		}
+		sb.WriteString("\n")
 		for _, it := range closed {
 			fmt.Fprintf(&sb, "- [%s] %s\n", it.Status, oneLine(it.Title, 100))
 		}
 	}
 	if b.Scanned != "" {
-		sb.WriteString("\nVùng các lượt quét trước đã xem (cũ trước, mới sau):\n" + b.Scanned + "\n")
+		lines := strings.Split(strings.TrimSpace(b.Scanned), "\n")
+		sb.WriteString("\nAreas earlier scans looked at (oldest first")
+		if len(lines) > maxScannedInPlan {
+			sb.WriteString("; the latest only, burn_list(what=\"scanned\") has them all")
+			lines = lines[len(lines)-maxScannedInPlan:]
+		}
+		sb.WriteString("):\n" + strings.Join(lines, "\n") + "\n")
 	}
 	if empty > 0 {
-		fmt.Fprintf(&sb, "\nĐã có %d lần quét liên tiếp không ra việc. Đừng quét lại những vùng đã xem ở trên; chọn vùng khác và đào sâu hơn.\n", empty)
+		fmt.Fprintf(&sb, "\n%d scans in a row found nothing. Do not scan the areas above again; pick other areas and dig deeper.\n", empty)
 	}
-	roadmap := `   - Lộ trình: đọc tài liệu kế hoạch của project (PLAN, ROADMAP, TODO, spec, ADR) tìm tính năng ghi "chưa làm" hoặc làm dở. Bỏ qua mục chưa được duyệt (đang thiết kế, ý tưởng, nháp chờ duyệt). Tính năng lớn thì tự viết thiết kế ngắn dựa trên spec/ADR liên quan rồi chia thành các phần chạy được độc lập: mỗi phần một burn_add, tiêu đề "<tính năng>: phần 1", "phần 2"…, chi tiết gồm thiết kế, phạm vi phần đó và cách kiểm chứng; làm lần lượt từ phần 1.
-   - Việc dang dở khác: TODO/FIXME, nhánh làm dở, test/build đang fail, đề xuất còn treo trong các chat (dùng search_history).
+	roadmap := `   - Roadmap: read the project's planning docs (PLAN, ROADMAP, TODO, specs, ADRs) for features marked not done or half done. Skip what is not approved yet (being designed, ideas, drafts awaiting approval). For a large feature, write a short design from the related spec/ADR and split it into parts that run on their own: one burn_add each, titled "<feature>: part 1", "part 2"…, the detail holding the design, that part's scope and how to verify it; do them in order from part 1.
+   - Other unfinished work: TODO/FIXME, half-done branches, failing tests/builds, proposals still pending in chats (search_history).
 `
-	bugs := `   - Lỗi chi tiết: đi từng vùng (package, trang, API), đọc code tìm lỗi thật: xử lý lỗi bị bỏ qua, race/khóa, rò rỉ goroutine/bộ nhớ, trường hợp biên (rỗng, rất lớn, trùng, hủy giữa chừng), kiểm tra quyền, dữ liệu sai sau khi cập nhật.
+	bugs := `   - Bugs in detail: go area by area (package, page, API) and read the code for real bugs: ignored errors, races/locks, goroutine or memory leaks, edge cases (empty, very large, duplicate, cancelled midway), permission checks, wrong data after an update.
 `
-	upgrades := `   - Nâng cấp: đường quan trọng chưa có test, chỗ chậm, giao diện khó dùng hoặc thiếu trạng thái (đang tải, lỗi, rỗng), chữ chưa dịch, tài liệu lệch với code.
+	upgrades := `   - Upgrades: key paths without tests, slow spots, UI that is hard to use or lacks states (loading, error, empty), untranslated text, docs out of step with the code.
 `
 	sb.WriteString(`
-Việc của lượt này:
-1. Nếu số việc "found" ít hơn số chỗ trống, QUÉT KỸ project (vùng chưa xem trong danh sách ở trên). Build/test sạch và không có TODO chưa phải là hết việc; phải đọc tài liệu và code thật.
+This turn:
+1. If there are fewer "found" pieces than free slots, SCAN the project thoroughly (areas not in the list above). A clean build/test and no TODOs do not mean there is nothing to do; read the real docs and code.
 `)
 	if b.Focus != "" {
-		sb.WriteString("   Thứ tự dưới đây chỉ áp dụng trong phạm vi TRỌNG TÂM ở trên.\n")
+		sb.WriteString("   Pieces serving the focus above come before the order below; otherwise follow it as usual.\n")
 	}
 	switch b.Order {
 	case "bugs":
-		sb.WriteString("   Ưu tiên LỖI TRƯỚC, rồi tới lộ trình, rồi nâng cấp.\n" + bugs + roadmap + upgrades)
+		sb.WriteString("   BUGS FIRST, then the roadmap, then upgrades.\n" + bugs + roadmap + upgrades)
 	case "auto":
-		sb.WriteString("   Tự cân nhắc thứ tự theo lợi ích cho người dùng.\n" + roadmap + bugs + upgrades)
+		sb.WriteString("   Weigh the order yourself by what helps the person most.\n" + roadmap + bugs + upgrades)
 	default: // roadmap
-		sb.WriteString("   Ưu tiên LỘ TRÌNH TRƯỚC: tính năng còn thiếu theo kế hoạch được chọn trước lỗi nhỏ và nâng cấp (lỗi nghiêm trọng như bảo mật, mất dữ liệu thì vẫn làm trước). Danh sách chưa có việc nào từ lộ trình thì quét lộ trình ngay, dù đã có nhiều việc khác.\n" + roadmap + bugs + upgrades)
+		sb.WriteString("   ROADMAP FIRST: missing features from the plan are picked before small bugs and upgrades (serious bugs such as security or data loss still come first). If no piece comes from the roadmap yet, scan the roadmap now, however many other pieces there are.\n" + roadmap + bugs + upgrades)
 	}
-	sb.WriteString("   Được dùng subagent (công cụ Agent/Task) để quét song song các vùng khác nhau; bạn tự gộp và lọc kết quả.\n")
-	pick := "2. Chọn ĐÚNG MỘT việc đáng làm nhất bằng burn_pick"
+	sb.WriteString("   You may use subagents (the Agent/Task tool) to scan different areas in parallel; merge and filter what they find yourself.\n")
+	pick := "2. Pick EXACTLY ONE piece, the most worth doing, with burn_pick"
 	if free > 1 {
-		pick = fmt.Sprintf("2. Đang trống %d chỗ chạy song song: chọn đủ %d việc bằng burn_pick (mỗi việc chạy trong worktree riêng: chọn các việc ít đụng cùng file với nhau và với việc đang làm). Chưa đủ việc \"found\" thì quét thêm vùng mới cho tới khi đủ, đừng kết thúc lượt chỉ để chờ việc đang chạy", free, free)
+		pick = fmt.Sprintf("2. %d parallel slots are free: pick %d pieces with burn_pick (each runs in its own worktree: pick pieces that touch different files from each other and from those in progress). Not enough \"found\" pieces: scan more new areas until there are; do not end the turn just to wait for the running ones", free, free)
 	}
-	sb.WriteString(`   Ghi từng việc bằng burn_add (tiêu đề ngắn, kind unfinished|upgrade|bug, chi tiết kèm file:dòng và cách sửa). Chỉ ghi việc có thật, có lợi; không ghi trùng việc đã có.
-` + pick + `; việc không đáng làm thì burn_skip kèm lý do (skip là bỏ hẳn: việc chỉ chưa tới lượt thì để nguyên).
-3. Không sửa code ở lượt này (worktree của lượt này bị bỏ). Chỉ được nói "hết việc" sau khi đã xem kỹ.
-Trả lời ngắn: tìm được gì, chọn việc nào và vì sao. Dòng CUỐI phải là "` + scannedMark + ` <các vùng lượt này đã xem, ngắn gọn>" (office lưu lại để lần sau quét vùng khác).`)
+	sb.WriteString(`   Record each piece with burn_add (short title, kind unfinished|upgrade|bug, detail with file:line and how to fix it). Only real, useful pieces; never one already listed.
+` + pick + `; a piece not worth doing gets burn_skip with the reason (skip drops it for good: a piece whose turn has not come is left as it is).
+3. Do not change code in this turn (its worktree is thrown away). Only say there is nothing left after looking thoroughly.
+Answer briefly: what you found, which pieces you picked and why. The LAST line must be "` + scannedMark + ` <the areas this turn looked at, briefly>" (office keeps it so later scans look elsewhere).`)
 	return sb.String()
 }
 
 func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "[Burn] Làm việc %s (%s): %s\n", it.ID, it.Kind, it.Title)
+	fmt.Fprintf(&sb, "[Burn] Work on piece %s (%s): %s\n", it.ID, it.Kind, it.Title)
 	if it.Detail != "" {
-		fmt.Fprintf(&sb, "Chi tiết: %s\n", it.Detail)
+		fmt.Fprintf(&sb, "Detail: %s\n", it.Detail)
 	}
 	if again {
-		sb.WriteString("Đây là việc đang làm dở: xem git status / git diff trong worktree này để biết đã làm tới đâu, rồi làm tiếp.\n")
+		sb.WriteString("This piece is half done: look at git status / git diff in this worktree to see how far it got, then go on.\n")
 	}
 	sb.WriteString(focusWork(b.Focus))
 	if it.ReviewNote != "" {
-		fmt.Fprintf(&sb, "Ý kiến của người review (làm theo, trừ khi code cho thấy khác):\n%s\n", it.ReviewNote)
+		fmt.Fprintf(&sb, "The reviewer's notes (follow them unless the code shows otherwise):\n%s\n", it.ReviewNote)
 	}
-	sb.WriteString("\nBạn làm trong worktree riêng của việc này, có toàn quyền; các việc khác của Burn có thể đang chạy song song trong worktree của chúng. Không push, không merge. Sửa xong thì chạy build/test liên quan cho tới khi đạt.\n")
+	sb.WriteString("\nYou work in this piece's own worktree, with full access; other Burn pieces may run in parallel in theirs. Do not push or merge. After changing code, run the related build/test until they pass.\n")
 	if it.Kind == "unfinished" {
-		sb.WriteString("Nếu đây là một phần của tính năng trong lộ trình: làm đúng phạm vi phần này, ghi quyết định thiết kế vào tài liệu của project (spec/ADR) và đánh dấu tiến độ trong tài liệu kế hoạch; phần sau để lượt sau.\n")
+		sb.WriteString("If this is a part of a roadmap feature: do exactly this part's scope, record design decisions in the project's docs (spec/ADR) and mark the progress in the planning docs; later parts are for later turns.\n")
 	}
 	if reviewed {
-		sb.WriteString("Báo xong thì kết quả được review trước; review không đạt thì việc quay lại với ý kiến review.\n")
+		sb.WriteString("Once you report done, the result is reviewed first; if the review fails, the piece comes back with the reviewer's notes.\n")
 	}
 	if b.ResultMode == "patch" {
-		sb.WriteString("Thay đổi trong worktree sẽ thành một diff chờ người dùng duyệt.\n")
+		sb.WriteString("The changes in the worktree become a diff the person approves.\n")
 	} else {
-		sb.WriteString("Office sẽ commit mọi thay đổi trong worktree lên nhánh " + it.Branch + " khi bạn báo xong.\n")
+		sb.WriteString("Office commits every change in the worktree to branch " + it.Branch + " once you report done.\n")
 	}
-	fmt.Fprintf(&sb, "Kết thúc bằng burn_done(item=%q, summary=tóm tắt đã làm gì và kiểm chứng ra sao) hoặc burn_fail(item=%q, reason=…) nếu không làm được.", it.ID, it.ID)
+	fmt.Fprintf(&sb, "Finish with burn_done(item=%q, summary=what you did and how you verified it) or burn_fail(item=%q, reason=…) if you cannot do it.", it.ID, it.ID)
 	return sb.String()
 }
 

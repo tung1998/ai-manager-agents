@@ -316,7 +316,7 @@ export default {
   'burn.summary': 'Mức tiêu {tier} · {n} việc cùng lúc · {mode}',
   'burn.cost': 'đã tiêu ${usd} · {n} việc xong',
   'burn.focus': 'Trọng tâm',
-  'burn.focusHelp': 'Chi phối mọi bước: quét và chọn việc, cách làm và kiểm chứng, review',
+  'burn.focusHelp': 'Định hướng ưu tiên: Burn vẫn làm mọi việc, việc hợp trọng tâm được xem và chọn trước',
   'burn.focusPlaceholder': 'VD: ưu tiên checkout, bỏ qua docs',
   'burn.focusPreset.security': 'Bảo mật',
   'burn.focusPreset.securityText': 'Tập trung vào bảo mật: quyền truy cập, injection, lộ bí mật.',

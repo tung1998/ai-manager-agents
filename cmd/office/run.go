@@ -175,7 +175,7 @@ func serveCmd() *cobra.Command {
 			// a project's agent running on its own, finding work (spec 2026-10-01-burn-design)
 			burner := burn.New(a.store, chatEngine, trees)
 			office.SetBurn(func(ctx context.Context, sc officetools.Scope, name string, in officetools.BurnInput) (string, error) {
-				return burner.Tool(ctx, sc, name, burn.ToolInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason})
+				return burner.Tool(ctx, sc, name, burn.ToolInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason, What: in.What})
 			})
 			burner.SetNotify(bots.Notify) // a run's summary to the bot's chat its Burn names (ADR-120)
 			burner.Start(ctx)

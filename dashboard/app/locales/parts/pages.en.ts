@@ -317,7 +317,7 @@ const en: Record<keyof typeof vi, string> = {
   'burn.summary': '{tier} · {n} at a time · {mode}',
   'burn.cost': 'spent ${usd} · {n} done',
   'burn.focus': 'Focus',
-  'burn.focusHelp': 'Steers every step: scanning and picking work, how it is done and checked, reviews',
+  'burn.focusHelp': 'A direction, not a limit: Burn still does all its work, what fits comes first',
   'burn.focusPlaceholder': 'e.g. checkout first, skip docs',
   'burn.focusPreset.security': 'Security',
   'burn.focusPreset.securityText': 'Focus on security: access checks, injection, leaked secrets.',

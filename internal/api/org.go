@@ -64,6 +64,8 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/providers/{id}/default", admin(s.defaultProvider))
 	mux.Handle("PATCH /api/providers/{id}/enabled", admin(s.setProviderEnabled))
 	mux.Handle("POST /api/providers/{id}/test", admin(s.testProvider))
+	mux.Handle("GET /api/language", admin(s.getLanguage))
+	mux.Handle("PUT /api/language", admin(s.setLanguage))
 	mux.Handle("GET /api/limit-alert", admin(s.getLimitAlert))
 	mux.Handle("PUT /api/limit-alert", admin(s.setLimitAlert))
 	mux.Handle("POST /api/limit-alert/test", admin(s.testLimitAlert))

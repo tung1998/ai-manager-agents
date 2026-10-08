@@ -75,7 +75,7 @@ func (t *Toolbox) SetDelegate(fn func(ctx context.Context, sc Scope, agent, task
 }
 
 // BurnInput is what the burn_* tools take.
-type BurnInput struct{ Title, Kind, Detail, Item, Summary, Reason string }
+type BurnInput struct{ Title, Kind, Detail, Item, Summary, Reason, What string }
 
 // SetBurn turns on the burn_* tools (a Burn's conversation only).
 func (t *Toolbox) SetBurn(fn func(ctx context.Context, sc Scope, name string, in BurnInput) (string, error)) {
@@ -230,6 +230,9 @@ func (t *Toolbox) Tools() []Tool {
 			Tool{Name: "burn_pick", Description: "Burn: chọn việc làm tiếp theo.", Schema: obj(map[string]any{"item": item}, "item")},
 			Tool{Name: "burn_skip", Description: "Burn: bỏ qua một việc không đáng làm.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
 			Tool{Name: "burn_done", Description: "Burn: báo xong việc đang làm.", Schema: obj(map[string]any{"item": item, "summary": map[string]any{"type": "string", "description": "Đã làm gì, kiểm chứng ra sao"}}, "item", "summary")},
+			Tool{Name: "burn_list", Description: "Burn: list this Burn's data kept out of the coordination prompt: its open pieces in full, all closed ones (done/skipped/failed, to avoid adding one again), or every area earlier scans looked at.", Schema: obj(map[string]any{
+				"what": map[string]any{"type": "string", "enum": []string{"open", "closed", "scanned"}},
+			}, "what")},
 			Tool{Name: "burn_fail", Description: "Burn: báo không làm được việc đang làm.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
 		)
 	}
@@ -362,6 +365,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		Kind     string          `json:"kind"`
 		Detail   string          `json:"detail"`
 		Item     string          `json:"item"`
+		What     string          `json:"what"`
 		Summary  string          `json:"summary"`
 		Author   string          `json:"author"`
 		Caption  string          `json:"caption"`
@@ -463,11 +467,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		out, err = t.readLink(ctx, sc, in.URL)
 	case "search_history":
 		out, err = t.searchHistory(ctx, sc, in.Query, in.Days, in.Author)
-	case "burn_add", "burn_pick", "burn_skip", "burn_done", "burn_fail":
+	case "burn_add", "burn_pick", "burn_skip", "burn_done", "burn_fail", "burn_list":
 		if t.burn == nil || !t.burnChat(sc) {
 			return "Các công cụ burn_* chỉ dùng trong hội thoại Burn", true
 		}
-		out, err = t.burn(ctx, sc, name, BurnInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason})
+		out, err = t.burn(ctx, sc, name, BurnInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason, What: in.What})
 	case "send_file":
 		if t.sendFile == nil || !t.botChat(sc) {
 			return "send_file chỉ dùng trong cuộc chat của bot Discord/Telegram", true

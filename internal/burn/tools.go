@@ -21,6 +21,14 @@ func (s *Service) Tool(ctx context.Context, sc actions.Scope, name string, in To
 	if name == "burn_add" && b.ConversationID == sc.ConversationID {
 		return s.add(ctx, b, in)
 	}
+	if name == "burn_list" { // its own chat or a piece's (a reviewer's only reads)
+		if b.ConversationID != sc.ConversationID {
+			if _, err := s.workItem(ctx, b.ID, sc.ConversationID); err != nil {
+				return "", errors.New("các công cụ burn_* chỉ dùng trong hội thoại Burn")
+			}
+		}
+		return s.list(ctx, b, in.What)
+	}
 	it, err := s.store.Burn().Item(ctx, strings.TrimSpace(in.Item))
 	if b.ConversationID != sc.ConversationID { // a piece's work chat (a reviewer's only reads)
 		own, oerr := s.workItem(ctx, b.ID, sc.ConversationID)
@@ -88,6 +96,7 @@ func (s *Service) workItem(ctx context.Context, sessionID, conversationID string
 // ToolInput is what the Burn tools take.
 type ToolInput struct {
 	Title, Kind, Detail, Item, Summary, Reason string
+	What                                       string // burn_list: open | closed | scanned
 }
 
 func (s *Service) add(ctx context.Context, b storage.BurnSession, in ToolInput) (string, error) {
@@ -110,4 +119,40 @@ func (s *Service) add(ctx context.Context, b storage.BurnSession, in ToolInput) 
 		return "", err
 	}
 	return "Đã ghi việc " + it.ID + ".", nil
+}
+
+// list is what burn_list gives (ADR-121): the Burn's data kept out of the
+// coordination prompt, read when needed.
+func (s *Service) list(ctx context.Context, b storage.BurnSession, what string) (string, error) {
+	if what == "scanned" {
+		if b.Scanned == "" {
+			return "No scan has recorded its areas yet.", nil
+		}
+		return "Areas earlier scans looked at (oldest first):\n" + b.Scanned, nil
+	}
+	items, err := s.store.Burn().Items(ctx, b.ID)
+	if err != nil {
+		return "", err
+	}
+	closed := map[string]bool{"done": true, "skipped": true, "failed": true}
+	var sb strings.Builder
+	n := 0
+	for _, it := range items {
+		if closed[it.Status] != (what == "closed") {
+			continue
+		}
+		n++
+		fmt.Fprintf(&sb, "- %s [%s, %s] %s", it.ID, it.Kind, it.Status, it.Title)
+		switch {
+		case what == "closed" && it.Summary != "":
+			fmt.Fprintf(&sb, " — %s", oneLine(it.Summary, 160))
+		case what != "closed" && it.Detail != "":
+			fmt.Fprintf(&sb, "\n  %s", oneLine(it.Detail, 600))
+		}
+		sb.WriteString("\n")
+	}
+	if n == 0 {
+		return "None.", nil
+	}
+	return sb.String(), nil
 }

@@ -504,8 +504,8 @@ func TestBurnNeedsGit(t *testing.T) {
 const reviewer = `#!/bin/sh
 p=$(cat)
 case "$p" in
-*"Review vấn đề"*) r="KẾT LUẬN: KHÔNG ĐỒNG Ý. Không có thật";;
-*"Review kết quả"*) r="KẾT LUẬN: ĐỒNG Ý. Đúng phạm vi";;
+*"issue review"*) r="VERDICT: DISAGREE. Không có thật";;
+*"result review"*) r="VERDICT: AGREE. Đúng phạm vi";;
 *) echo "do agent viết" > made-by-agent.txt; sleep 1; r="xong lượt";;
 esac
 echo '{"type":"system","subtype":"init","session_id":"s1"}'
@@ -596,4 +596,26 @@ func TestBurnReviewAgreesTheResult(t *testing.T) {
 		t.Fatalf("branch %s: %s", it.Branch, got)
 	}
 	f.svc.Stop(ctx, f.project.ID)
+}
+
+// burn_list gives what the coordination prompt leaves out (ADR-121).
+func TestBurnListTool(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", State: "stopped"})
+	b, _ := f.svc.Begin(ctx, f.project.ID, "a")
+	f.svc.Stop(ctx, f.project.ID)
+	f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "việc mở", Kind: "bug", Detail: "ở a.go:1", Status: "found"})
+	f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "việc xong", Kind: "bug", Status: "done", Summary: "đã sửa"})
+	f.st.Burn().SetScanned(ctx, b.ID, "08/10 09:00 internal/chat")
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	for what, want := range map[string]string{"open": "a.go:1", "closed": "đã sửa", "scanned": "internal/chat"} {
+		out, err := f.svc.Tool(ctx, sc, "burn_list", burn.ToolInput{What: what})
+		if err != nil || !strings.Contains(out, want) {
+			t.Errorf("burn_list(%s) = %q, %v", what, out, err)
+		}
+	}
+	if out, _ := f.svc.Tool(ctx, sc, "burn_list", burn.ToolInput{What: "open"}); strings.Contains(out, "việc xong") {
+		t.Errorf("open lists a closed piece: %s", out)
+	}
 }
