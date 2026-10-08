@@ -45,13 +45,19 @@ async function createUser() {
 }
 
 // ---- disable / enable ----
+const togglingId = ref<string | null>(null)
+
 async function setDisabled(u: OfficeUser, disabled: boolean) {
+  if (togglingId.value) return
+  togglingId.value = u.id
   try {
     await $fetch(`/api/users/${u.id}`, { method: 'PATCH', body: { disabled } })
     toast.add({ title: disabled ? t('admin.usersDisabledToast', { email: u.email }) : t('admin.usersEnabledToast', { email: u.email }), color: 'success' })
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    togglingId.value = null
   }
 }
 
@@ -78,11 +84,12 @@ async function doReset() {
 }
 
 function rowActions(u: OfficeUser) {
+  const busy = togglingId.value === u.id
   const items = [[{ label: t('admin.usersResetPassword'), icon: 'i-lucide-key-round', onSelect: () => { resetTarget.value = u } }]]
   if (u.id !== me.value?.id) {
     items.push([u.disabled
-      ? { label: t('admin.usersEnable'), icon: 'i-lucide-user-check', onSelect: () => setDisabled(u, false) }
-      : { label: t('admin.usersDisable'), icon: 'i-lucide-user-x', color: 'error', onSelect: () => setDisabled(u, true) }] as never)
+      ? { label: t('admin.usersEnable'), icon: 'i-lucide-user-check', disabled: busy, onSelect: () => setDisabled(u, false) }
+      : { label: t('admin.usersDisable'), icon: 'i-lucide-user-x', color: 'error', disabled: busy, onSelect: () => setDisabled(u, true) }] as never)
   }
   return items
 }
