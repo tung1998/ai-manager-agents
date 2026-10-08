@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -271,6 +272,10 @@ func (s *Service) spawn(projectID string) {
 	s.loops[projectID], s.wakes[projectID] = cancel, wake
 	go func() {
 		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("burn: loop panic", "project", projectID, "panic", r, "stack", string(debug.Stack()))
+				_ = s.stop(context.WithoutCancel(ctx), projectID, fmt.Sprintf("lỗi hệ thống: %v", r))
+			}
 			s.mu.Lock()
 			delete(s.loops, projectID)
 			if s.wakes[projectID] == wake {
@@ -333,7 +338,20 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				s.step(ctx, b, it)
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("burn: step panic", "project", projectID, "item", it.ID, "panic", r, "stack", string(debug.Stack()))
+							cur, cerr := s.store.Burn().Item(context.WithoutCancel(ctx), it.ID)
+							if cerr != nil {
+								cur = it
+							}
+							cur.Status, cur.Summary = "failed", fmt.Sprintf("lỗi trong lúc chạy: %v", r)
+							_ = s.store.Burn().UpdateItem(context.WithoutCancel(ctx), cur)
+						}
+					}()
+					s.step(ctx, b, it)
+				}()
 				mu.Lock()
 				delete(busy, it.ID)
 				mu.Unlock()

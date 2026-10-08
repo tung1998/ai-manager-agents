@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,17 +35,22 @@ type fx struct {
 }
 
 // setup: a git project, its lead, a Claude Code that writes a file where it
-// runs (the item's worktree) and takes a moment.
-func setup(t *testing.T) fx {
+// runs (the item's worktree) and takes a moment. wrap, when given, lets a
+// test swap in a storage.Store that misbehaves on purpose (eg. panics).
+func setup(t *testing.T, wrap ...func(storage.Store) storage.Store) fx {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git missing")
 	}
 	ctx := context.Background()
 	tmp := t.TempDir()
-	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
-	t.Cleanup(func() { st.Close() })
-	st.Migrate(ctx)
+	real, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	t.Cleanup(func() { real.Close() })
+	real.Migrate(ctx)
+	var st storage.Store = real
+	for _, w := range wrap {
+		st = w(st)
+	}
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.UTC)
@@ -702,5 +708,67 @@ func TestBurnListTool(t *testing.T) {
 	}
 	if out, _ := f.svc.Tool(ctx, sc, "burn_list", burn.ToolInput{What: "open"}); strings.Contains(out, "việc xong") {
 		t.Errorf("open lists a closed piece: %s", out)
+	}
+}
+
+// panicOnWorktreeSave panics once UpdateItem is called right after work()
+// has saved a piece's worktree and work chat (burn.go: the save right before
+// it runs the agent) — the spot a real panic in run/gate/finish would follow.
+type panicOnWorktreeSave struct {
+	storage.Store
+	armed *int32
+}
+
+func (w panicOnWorktreeSave) Burn() storage.BurnRepo {
+	return panicBurnRepo{w.Store.Burn(), w.armed}
+}
+
+type panicBurnRepo struct {
+	storage.BurnRepo
+	armed *int32
+}
+
+func (r panicBurnRepo) UpdateItem(ctx context.Context, it storage.BurnItem) error {
+	if it.Status == "doing" && it.Worktree != "" && it.WorkConversationID != "" && atomic.CompareAndSwapInt32(r.armed, 0, 1) {
+		_ = r.BurnRepo.UpdateItem(ctx, it) // the real save still happens first, as it would before any later panic
+		panic("boom: simulated panic in work/run")
+	}
+	return r.BurnRepo.UpdateItem(ctx, it)
+}
+
+// A panic while a piece is worked on fails only that piece — its worktree
+// and work chat stay as they were, and the office (and other projects'
+// Burns) keep running.
+func TestBurnStepPanicFailsThePieceNotTheOffice(t *testing.T) {
+	var armed int32
+	f := setup(t, func(st storage.Store) storage.Store { return panicOnWorktreeSave{st, &armed} })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	defer f.svc.Stop(ctx, f.project.ID)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, ResultMode: "branch", State: "stopped"})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	out, err := f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc sẽ panic", Kind: "bug", Detail: "x"})
+	if err != nil || !strings.Contains(out, "bit_") {
+		t.Fatal(out, err)
+	}
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	it := items[0]
+	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: it.ID})
+	it = waitItem(t, f.st, it.ID, "failed")
+	if it.Worktree == "" || it.WorkConversationID == "" {
+		t.Fatalf("item lost its worktree/work chat after the panic: %+v", it)
+	}
+	if !atomic.CompareAndSwapInt32(&armed, 1, 1) { // it did panic, not skipped
+		t.Fatal("the panic never fired")
+	}
+	// the project's Burn loop is still alive: it can still take new work
+	out, err = f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc sau panic", Kind: "bug"})
+	if err != nil || !strings.Contains(out, "bit_") {
+		t.Fatal(out, err)
 	}
 }
