@@ -467,6 +467,7 @@ async function open(c: Conversation, messageId?: string) {
   } finally {
     loadingMsgs.value = false
   }
+  if (current.value?.id !== c.id) return // đã chuyển sang chat khác trong lúc chờ: bỏ kết quả cũ
   messages.value = res.messages
   hasOlder.value = !!res.has_more
   current.value = res.conversation
