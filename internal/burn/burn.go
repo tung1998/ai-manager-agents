@@ -38,7 +38,15 @@ type Service struct {
 	root  context.Context
 	loops map[string]context.CancelFunc // by project
 	wakes map[string]chan struct{}      // by project: its loop looks again now
+
+	notify Notify // a run's summary to a bot's chat (ADR-120); nil: none
 }
+
+// Notify posts text to a bot's chat (the channels manager).
+type Notify func(ctx context.Context, channelID, chatID, text string) error
+
+// SetNotify sends the runs' summaries to the bots' chats the Burns name.
+func (s *Service) SetNotify(n Notify) { s.notify = n }
 
 // New builds a Service; Start runs the Burns that were running.
 func New(st storage.Store, engine *chat.Engine, trees *worktree.Manager) *Service {
@@ -147,10 +155,16 @@ func (s *Service) ensureConversation(ctx context.Context, b *storage.BurnSession
 // Stop stops a project's Burn: the answer running now is cancelled, its
 // piece of work waits.
 func (s *Service) Stop(ctx context.Context, projectID string) error {
+	return s.stop(ctx, projectID, "dừng hẳn")
+}
+
+// stop is Stop saying why, in the run's summary (ADR-120).
+func (s *Service) stop(ctx context.Context, projectID, why string) error {
 	b, err := s.store.Burn().Session(ctx, projectID)
 	if err != nil {
 		return err
 	}
+	ran := b.Active()
 	b.State, b.WaitingUntil = "stopped", nil
 	if _, err := s.store.Burn().SaveSession(ctx, b); err != nil {
 		return err
@@ -172,6 +186,9 @@ func (s *Service) Stop(ctx context.Context, projectID string) error {
 		}
 	}
 	s.pauseDoing(ctx, b.ID)
+	if ran {
+		s.report(context.WithoutCancel(ctx), b, why)
+	}
 	return nil
 }
 
@@ -285,7 +302,7 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 		}
 		now := time.Now()
 		if b.EndsAt != nil && !b.EndsAt.After(now) {
-			_ = s.Stop(context.WithoutCancel(ctx), projectID) // its time is up
+			_ = s.stop(context.WithoutCancel(ctx), projectID, "tới giờ tắt") // its time is up
 			return
 		}
 		if b.WaitingUntil != nil || b.State == "waiting_limit" {
@@ -372,6 +389,7 @@ func (s *Service) drained(ctx context.Context, sessionID string) bool {
 	}
 	b.State, b.WaitingUntil = "stopped", nil
 	_, _ = s.store.Burn().SaveSession(ctx, b)
+	s.report(context.WithoutCancel(ctx), b, "đã làm nốt việc dở")
 	return true
 }
 
@@ -655,9 +673,7 @@ const maxClosedInPlan = 15
 func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty, free int) string {
 	var sb strings.Builder
 	sb.WriteString("[Burn] Lượt điều phối. Bạn đang chạy Burn cho project này: tự tìm và làm việc, với toàn quyền.\n")
-	if b.Focus != "" {
-		fmt.Fprintf(&sb, "Trọng tâm người dùng dặn: %s\n", b.Focus)
-	}
+	sb.WriteString(focusPlan(b.Focus))
 	sb.WriteString("\nViệc đã có:\n")
 	if len(items) == 0 {
 		sb.WriteString("(chưa có)\n")
@@ -705,6 +721,9 @@ func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty, free int
 Việc của lượt này:
 1. Nếu còn ít việc "found", QUÉT KỸ project. Build/test sạch và không có TODO chưa phải là hết việc; phải đọc tài liệu và code thật.
 `)
+	if b.Focus != "" {
+		sb.WriteString("   Thứ tự dưới đây chỉ áp dụng trong phạm vi TRỌNG TÂM ở trên.\n")
+	}
 	switch b.Order {
 	case "bugs":
 		sb.WriteString("   Ưu tiên LỖI TRƯỚC, rồi tới lộ trình, rồi nâng cấp.\n" + bugs + roadmap + upgrades)
@@ -734,9 +753,7 @@ func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool
 	if again {
 		sb.WriteString("Đây là việc đang làm dở: xem git status / git diff trong worktree này để biết đã làm tới đâu, rồi làm tiếp.\n")
 	}
-	if b.Focus != "" {
-		fmt.Fprintf(&sb, "Trọng tâm người dùng dặn: %s\n", b.Focus)
-	}
+	sb.WriteString(focusWork(b.Focus))
 	if it.ReviewNote != "" {
 		fmt.Fprintf(&sb, "Ý kiến của người review (làm theo, trừ khi code cho thấy khác):\n%s\n", it.ReviewNote)
 	}
@@ -907,7 +924,7 @@ func (s *Service) waitLimit(ctx context.Context, b storage.BurnSession) bool {
 		b = cur
 	}
 	if b.EndsAt != nil && !until.Before(*b.EndsAt) {
-		_ = s.Stop(context.WithoutCancel(ctx), b.ProjectID)
+		_ = s.stop(context.WithoutCancel(ctx), b.ProjectID, "chạm giới hạn kết nối AI, reset sau giờ tắt")
 		return true
 	}
 	if b.State != "draining" { // draining: it still finishes, after the reset

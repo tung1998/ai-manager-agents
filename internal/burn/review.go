@@ -200,9 +200,7 @@ func reviewPrompt(b storage.BurnSession, it storage.BurnItem, stage string) stri
 	if it.Detail != "" {
 		fmt.Fprintf(&sb, "Chi tiết agent ghi: %s\n", it.Detail)
 	}
-	if b.Focus != "" {
-		fmt.Fprintf(&sb, "Trọng tâm người dùng dặn: %s\n", b.Focus)
-	}
+	sb.WriteString(focusReview(b.Focus, stage))
 	if it.ReviewNote != "" && stage == "result" {
 		fmt.Fprintf(&sb, "Ý kiến review trước đó: %s\n", oneLine(it.ReviewNote, 600))
 	}

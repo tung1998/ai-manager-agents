@@ -5,7 +5,7 @@
 // page shows its conversation.
 interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_parallel: number,
-  result_mode: 'branch' | 'patch', focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining',
+  result_mode: 'branch' | 'patch', focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
   waiting_until?: string, started_by?: string, started_at?: string,
   review_profile_id: string
 }
@@ -46,12 +46,12 @@ function left(iso: string) {
 const settingsOpen = ref(false)
 const form = reactive({
   agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_parallel: 1, result_mode: 'branch' as Burn['result_mode'], order: 'roadmap' as Burn['order'], focus: '',
-  review_profile_id: ''
+  review_profile_id: '', notify_channel_id: '', notify_chat_id: ''
 })
 const { stale, reset: resync } = useDraft(burn, form, (b) => {
   Object.assign(form, {
     agent_id: b.agent_id, model_tier: b.model_tier, max_parallel: b.max_parallel, result_mode: b.result_mode, order: b.order ?? 'roadmap', focus: b.focus,
-    review_profile_id: b.review_profile_id ?? ''
+    review_profile_id: b.review_profile_id ?? '', notify_channel_id: b.notify_channel_id ?? '', notify_chat_id: b.notify_chat_id ?? ''
   })
 })
 const saving = ref(false)
@@ -76,6 +76,18 @@ const agentItems = computed(() => agents.value.map(a => ({ value: a.id, label: a
 const reviewStages = reviewStageKeys
 const { data: profData } = useLiveFetch<{ profiles: BurnReviewProfile[] }>(() => `/api/projects/${props.projectId}/burn/review-profiles`, { lazy: true })
 const profiles = computed(() => profData.value?.profiles ?? [])
+// the focus: a few common ones to start from (written into the box, editable)
+const focusPresets = computed(() => (['security', 'uiux', 'performance', 'tests'] as const).map(k => ({ key: k, label: t(`burn.focusPreset.${k}`), text: t(`burn.focusPreset.${k}Text`) })))
+function addFocus(text: string) {
+  if (form.focus.includes(text)) return
+  form.focus = [form.focus.trim(), text].filter(Boolean).join('\n')
+}
+// where its summary goes when it stops (ADR-120): a bot of the project, its chat
+interface Bot { id: string, name: string, kind: 'discord' | 'telegram' }
+const { data: botsData } = useLiveFetch<{ channels: Bot[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true })
+const notifyBot = computed({ get: () => form.notify_channel_id || '__none', set: (v: string) => { form.notify_channel_id = v === '__none' ? '' : v } })
+const botItems = computed(() => [{ value: '__none', label: t('burn.notify.off') }, ...(botsData.value?.channels ?? []).map(b => ({ value: b.id, label: `${b.name} · ${b.kind === 'discord' ? 'Discord' : 'Telegram'}` }))])
+const notifyKind = computed(() => botsData.value?.channels.find(b => b.id === form.notify_channel_id)?.kind)
 const profileItems = computed(() => [{ value: '__none', label: t('burn.review.none') }, ...profiles.value.map(p => ({ value: p.id, label: p.name }))])
 const reviewProfile = computed({ get: () => form.review_profile_id || '__none', set: (v: string) => { form.review_profile_id = v === '__none' ? '' : v } })
 const profile = computed(() => profiles.value.find(p => p.id === form.review_profile_id))
@@ -276,7 +288,18 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
             </div>
           </UFormField>
           <UFormField :label="t('burn.focus')" :help="t('burn.focusHelp')">
-            <UTextarea v-model="form.focus" :rows="3" autoresize class="w-full" :placeholder="t('burn.focusPlaceholder')" />
+            <div class="space-y-2">
+              <div class="flex flex-wrap gap-1">
+                <UButton v-for="f in focusPresets" :key="f.key" size="xs" color="neutral" variant="outline" icon="i-lucide-plus" :label="f.label" @click="addFocus(f.text)" />
+              </div>
+              <UTextarea v-model="form.focus" :rows="4" :maxlength="2000" autoresize class="w-full" :placeholder="t('burn.focusPlaceholder')" />
+            </div>
+          </UFormField>
+          <UFormField :label="t('burn.notify.label')" :help="t('burn.notify.help')">
+            <div class="grid gap-2 sm:grid-cols-2">
+              <USelect v-model="notifyBot" :items="botItems" class="w-full" />
+              <UInput v-model="form.notify_chat_id" class="w-full font-mono text-xs" :disabled="!form.notify_channel_id" :placeholder="notifyKind === 'telegram' ? t('alert.chatTelegram') : t('alert.chatDiscord')" />
+            </div>
           </UFormField>
         </div>
       </template>

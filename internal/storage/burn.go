@@ -20,6 +20,7 @@ type BurnSession struct {
 	Order                                  string // roadmap | bugs | auto: what it looks for first
 	ReviewProfileID                        string // its review profile (ADR-113); "" = none
 	Scanned                                string // what its scans looked at, latest last (ADR-116)
+	NotifyChannelID, NotifyChatID          string // a bot's chat its summary goes to when it stops (ADR-120); "" = none
 	EndsAt                                 *time.Time
 	State                                  string // running | waiting_limit | draining (finishing what is in progress) | stopped
 	WaitingUntil                           *time.Time

@@ -3,6 +3,7 @@ package api
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -24,7 +25,10 @@ type burnDTO struct {
 	Focus          string `json:"focus"`
 	Order          string `json:"order"`
 	// review (ADR-113): the profile followed ("" = none)
-	ReviewProfileID string     `json:"review_profile_id"`
+	ReviewProfileID string `json:"review_profile_id"`
+	// where its summary goes when it stops (ADR-120): a bot and its chat
+	NotifyChannelID string     `json:"notify_channel_id"`
+	NotifyChatID    string     `json:"notify_chat_id"`
 	EndsAt          *time.Time `json:"ends_at"`
 	State           string     `json:"state"`
 	WaitingUntil    *time.Time `json:"waiting_until,omitempty"`
@@ -53,7 +57,7 @@ type burnItemDTO struct {
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
 	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.ResultMode, b.Focus, cmp.Or(b.Order, "roadmap"),
-		b.ReviewProfileID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
+		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
@@ -95,6 +99,9 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// maxFocus caps what the person writes as the Burn's focus.
+const maxFocus = 2000
+
 type burnInput struct {
 	AgentID         *string    `json:"agent_id"`
 	ModelTier       *string    `json:"model_tier"`
@@ -103,6 +110,8 @@ type burnInput struct {
 	Focus           *string    `json:"focus"`
 	Order           *string    `json:"order"`
 	ReviewProfileID *string    `json:"review_profile_id"` // "" = no review
+	NotifyChannelID *string    `json:"notify_channel_id"` // "" = only its own chat
+	NotifyChatID    *string    `json:"notify_chat_id"`
 	EndsAt          *time.Time `json:"ends_at"`
 	NoEnd           bool       `json:"no_end"` // run until stopped by hand
 }
@@ -125,6 +134,20 @@ func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession
 	}
 	if in.Focus != nil {
 		b.Focus = strings.TrimSpace(*in.Focus)
+		if r := []rune(b.Focus); len(r) > maxFocus {
+			return fmt.Errorf("trọng tâm dài quá %d ký tự", maxFocus)
+		}
+	}
+	if in.NotifyChannelID != nil {
+		b.NotifyChannelID = strings.TrimSpace(*in.NotifyChannelID)
+		if b.NotifyChannelID != "" {
+			if _, err := s.cfg.Store.Channels().Get(r.Context(), b.NotifyChannelID); err != nil {
+				return errors.New("không có bot này")
+			}
+		}
+	}
+	if in.NotifyChatID != nil {
+		b.NotifyChatID = strings.TrimSpace(*in.NotifyChatID)
 	}
 	if in.Order != nil && (*in.Order == "roadmap" || *in.Order == "bugs" || *in.Order == "auto") {
 		b.Order = *in.Order

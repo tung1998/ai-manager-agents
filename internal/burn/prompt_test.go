@@ -119,3 +119,47 @@ func TestPlanPromptTrimsClosed(t *testing.T) {
 		t.Errorf("only the latest closed items should be listed:\n%s", p)
 	}
 }
+
+// The focus steers each step (ADR-120): a scan above its order, with what to
+// look at for a known focus; the work's checks; a reviewer's no.
+func TestFocusSteers(t *testing.T) {
+	b := storage.BurnSession{Focus: "tập trung vào bảo mật API"}
+	p := planPrompt(b, nil, 0, 1)
+	if !strings.Contains(p, "TRỌNG TÂM CỦA NGƯỜI DÙNG") || !strings.Contains(p, "injection") || !strings.Contains(p, "phạm vi TRỌNG TÂM") {
+		t.Errorf("scan prompt does not lead with the focus:\n%s", p)
+	}
+	if strings.Contains(p, "trạng thái đang tải") {
+		t.Error("a security focus got the UI lens")
+	}
+	if w := workPrompt(storage.BurnSession{Focus: "UI/UX trang checkout"}, storage.BurnItem{}, false, false); !strings.Contains(w, "màn hẹp") {
+		t.Errorf("work prompt lacks the UI checks:\n%s", w)
+	}
+	if r := reviewPrompt(b, storage.BurnItem{}, "issue"); !strings.Contains(r, "không phục vụ trọng tâm") {
+		t.Errorf("issue review ignores the focus:\n%s", r)
+	}
+	if focusLenses("build xong") != nil || focusPlan("") != "" {
+		t.Error("no focus, or none known: no lens")
+	}
+}
+
+// A run's summary: what this run did, what is left (ADR-120).
+func TestSummary(t *testing.T) {
+	start := time.Now().Add(-90 * time.Minute)
+	b := storage.BurnSession{StartedAt: &start, ResultMode: "branch"}
+	items := []storage.BurnItem{
+		{Title: "Sửa lỗi A", Status: "done", Branch: "burn/a", Summary: "đã sửa", CostUSD: 1.5, UpdatedAt: time.Now()},
+		{Title: "Cũ", Status: "done", UpdatedAt: start.Add(-time.Hour)},
+		{Title: "Làm B", Status: "paused", UpdatedAt: time.Now()},
+		{Title: "C", Status: "failed", Summary: "không build được", UpdatedAt: time.Now()},
+		{Title: "D", Status: "found"},
+	}
+	s := summary(b, items, "demo", "dừng hẳn", time.Now())
+	for _, want := range []string{"Burn demo đã dừng", "1 giờ 30 phút", "Sửa lỗi A", "burn/a", "Làm B", "không build được", "$1.50", "1 việc tìm thấy"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("summary lacks %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "Cũ") {
+		t.Errorf("an earlier run's piece is in it:\n%s", s)
+	}
+}

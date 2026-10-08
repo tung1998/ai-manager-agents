@@ -177,6 +177,7 @@ func serveCmd() *cobra.Command {
 			office.SetBurn(func(ctx context.Context, sc officetools.Scope, name string, in officetools.BurnInput) (string, error) {
 				return burner.Tool(ctx, sc, name, burn.ToolInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason})
 			})
+			burner.SetNotify(bots.Notify) // a run's summary to the bot's chat its Burn names (ADR-120)
 			burner.Start(ctx)
 			chatEngine.SendAllQueued(ctx) // messages that waited in chats when office stopped
 			bots.Start(ctx)

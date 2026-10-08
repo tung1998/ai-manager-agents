@@ -253,7 +253,14 @@ func TestBurnDrainFinishesThenStops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	f.svc.Start(ctx)
-	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, ResultMode: "branch", State: "stopped"})
+	sent := make(chan string, 4)
+	f.svc.SetNotify(func(_ context.Context, channelID, chatID, text string) error {
+		sent <- channelID + "/" + chatID + ": " + text
+		return nil
+	})
+	ch, _ := f.st.Channels().Create(ctx, storage.Channel{ProjectID: f.project.ID, Kind: "discord", Name: "bot"})
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, ResultMode: "branch", State: "stopped",
+		NotifyChannelID: ch.ID, NotifyChatID: "123"})
 	b, _ := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
 	defer f.svc.Stop(context.Background(), f.project.ID)
 	first, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "đang làm", Kind: "upgrade", Status: "queued"})
@@ -282,6 +289,19 @@ func TestBurnDrainFinishesThenStops(t *testing.T) {
 	}
 	if it, _ := f.st.Burn().Item(ctx, second.ID); it.Status != "queued" || it.Worktree != "" {
 		t.Fatalf("a new piece was started while draining: %+v", it)
+	}
+	// its summary: the last message of its chat, and to the bot's chat (ADR-120)
+	msgs, _ := f.st.Chat().ListMessages(ctx, b.ConversationID)
+	if last := msgs[len(msgs)-1]; last.Author != "Burn" || !strings.Contains(last.Content, "đã làm nốt việc dở") || !strings.Contains(last.Content, "đang làm") {
+		t.Fatalf("last message: %+v", last)
+	}
+	select {
+	case got := <-sent:
+		if !strings.HasPrefix(got, ch.ID+"/123: ") || !strings.Contains(got, "Xong (1)") {
+			t.Fatalf("sent %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the summary did not go to the bot")
 	}
 	if err := f.svc.Resume(ctx, f.project.ID); err == nil {
 		t.Fatal("a stopped Burn resumed")
