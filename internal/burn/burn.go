@@ -719,7 +719,7 @@ func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty, free int
 `
 	sb.WriteString(`
 Việc của lượt này:
-1. Nếu còn ít việc "found", QUÉT KỸ project. Build/test sạch và không có TODO chưa phải là hết việc; phải đọc tài liệu và code thật.
+1. Nếu số việc "found" ít hơn số chỗ trống, QUÉT KỸ project (vùng chưa xem trong danh sách ở trên). Build/test sạch và không có TODO chưa phải là hết việc; phải đọc tài liệu và code thật.
 `)
 	if b.Focus != "" {
 		sb.WriteString("   Thứ tự dưới đây chỉ áp dụng trong phạm vi TRỌNG TÂM ở trên.\n")
@@ -735,10 +735,10 @@ Việc của lượt này:
 	sb.WriteString("   Được dùng subagent (công cụ Agent/Task) để quét song song các vùng khác nhau; bạn tự gộp và lọc kết quả.\n")
 	pick := "2. Chọn ĐÚNG MỘT việc đáng làm nhất bằng burn_pick"
 	if free > 1 {
-		pick = fmt.Sprintf("2. Chọn tối đa %d việc đáng làm nhất bằng burn_pick (mỗi việc chạy song song trong worktree riêng: chọn các việc ít đụng cùng file với nhau và với việc đang làm)", free)
+		pick = fmt.Sprintf("2. Đang trống %d chỗ chạy song song: chọn đủ %d việc bằng burn_pick (mỗi việc chạy trong worktree riêng: chọn các việc ít đụng cùng file với nhau và với việc đang làm). Chưa đủ việc \"found\" thì quét thêm vùng mới cho tới khi đủ, đừng kết thúc lượt chỉ để chờ việc đang chạy", free, free)
 	}
 	sb.WriteString(`   Ghi từng việc bằng burn_add (tiêu đề ngắn, kind unfinished|upgrade|bug, chi tiết kèm file:dòng và cách sửa). Chỉ ghi việc có thật, có lợi; không ghi trùng việc đã có.
-` + pick + `; việc không đáng làm thì burn_skip kèm lý do.
+` + pick + `; việc không đáng làm thì burn_skip kèm lý do (skip là bỏ hẳn: việc chỉ chưa tới lượt thì để nguyên).
 3. Không sửa code ở lượt này (worktree của lượt này bị bỏ). Chỉ được nói "hết việc" sau khi đã xem kỹ.
 Trả lời ngắn: tìm được gì, chọn việc nào và vì sao. Dòng CUỐI phải là "` + scannedMark + ` <các vùng lượt này đã xem, ngắn gọn>" (office lưu lại để lần sau quét vùng khác).`)
 	return sb.String()

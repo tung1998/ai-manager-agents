@@ -29,7 +29,7 @@ func TestPlanPromptDigsDeeper(t *testing.T) {
 	if strings.Contains(p, "liên tiếp") {
 		t.Error("first scan should not mention empty scans")
 	}
-	if !strings.Contains(p, "ĐÚNG MỘT") || !strings.Contains(planPrompt(b, nil, 0, 3), "tối đa 3 việc") {
+	if !strings.Contains(p, "ĐÚNG MỘT") || !strings.Contains(planPrompt(b, nil, 0, 3), "chọn đủ 3 việc") {
 		t.Error("a scan picks as many pieces as there are free slots")
 	}
 	if p2 := planPrompt(b, nil, 2, 1); !strings.Contains(p2, "2 lần quét liên tiếp") {
@@ -127,6 +127,12 @@ func TestFocusSteers(t *testing.T) {
 	p := planPrompt(b, nil, 0, 1)
 	if !strings.Contains(p, "TRỌNG TÂM CỦA NGƯỜI DÙNG") || !strings.Contains(p, "injection") || !strings.Contains(p, "phạm vi TRỌNG TÂM") {
 		t.Errorf("scan prompt does not lead with the focus:\n%s", p)
+	}
+	if !strings.Contains(p, "ĐỂ NGUYÊN") {
+		t.Error("an out-of-focus piece may be skipped (the real case, 2026-10-08)")
+	}
+	if p3 := planPrompt(b, nil, 0, 3); !strings.Contains(p3, "chọn đủ 3 việc") || !strings.Contains(p3, "quét thêm vùng mới") {
+		t.Errorf("free slots are not filled:\n%s", p3)
 	}
 	if strings.Contains(p, "trạng thái đang tải") {
 		t.Error("a security focus got the UI lens")

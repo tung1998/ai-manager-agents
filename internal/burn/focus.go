@@ -63,7 +63,9 @@ func focusPlan(focus string) string {
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\nTRỌNG TÂM CỦA NGƯỜI DÙNG (ưu tiên trên thứ tự bên dưới):\n%s\n", focus)
-	sb.WriteString("- Quét theo góc nhìn của trọng tâm trước; chỉ ghi và chọn việc phục vụ trọng tâm. Việc ngoài trọng tâm chỉ ghi khi nghiêm trọng (bảo mật, mất dữ liệu, hỏng chức năng chính) và chọn sau.\n")
+	sb.WriteString("- Hiểu trọng tâm theo nghĩa rộng của người dùng: trước tiên liệt kê các vùng code/tài liệu liên quan tới nó (đọc cấu trúc project), rồi quét lần lượt từng vùng, không dừng ở một file.\n")
+	sb.WriteString("- Ưu tiên ghi và chọn việc phục vụ trọng tâm. Việc ngoài trọng tâm chỉ ghi khi nghiêm trọng (bảo mật, mất dữ liệu, hỏng chức năng chính).\n")
+	sb.WriteString("- Việc đã có mà nằm ngoài trọng tâm thì ĐỂ NGUYÊN (không burn_skip vì lý do trọng tâm: skip là bỏ hẳn). Hết việc trong trọng tâm thì chọn chúng.\n")
 	sb.WriteString("- Trong chi tiết mỗi việc, ghi rõ nó phục vụ trọng tâm thế nào.\n")
 	for _, l := range focusLenses(focus) {
 		fmt.Fprintf(&sb, "- Với trọng tâm này hãy xem: %s.\n", l.look)
