@@ -274,7 +274,11 @@ func TestBurnFollowsItsAgent(t *testing.T) {
 		t.Fatalf("conversation %s (first %s) of %s, want %s", b.ConversationID, first, c.AgentID, other.ID)
 	}
 	if again, _ := f.svc.Begin(ctx, f.project.ID, "a"); again.ConversationID != b.ConversationID {
-		t.Fatal("same agent, a new chat each start")
+		t.Fatal("running: started again, a new chat")
+	}
+	f.svc.Stop(ctx, f.project.ID)
+	if again, _ := f.svc.Begin(ctx, f.project.ID, "a"); again.ConversationID == b.ConversationID {
+		t.Fatal("each start, a chat of its own")
 	}
 	f.svc.Stop(ctx, f.project.ID)
 	f.st.Agents().SetEnabled(ctx, other.ID, false) // paused: refused at once, with what to do

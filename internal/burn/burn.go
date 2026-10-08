@@ -83,6 +83,9 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 	if err := s.CheckReviewers(ctx, b.ReviewProfileID); err != nil {
 		return b, err
 	}
+	if b.State != "running" && b.State != "waiting_limit" {
+		b.ConversationID = "" // each start, a chat of its own: the earlier ones stay as they were
+	}
 	if err := s.ensureConversation(ctx, &b); err != nil {
 		return b, err
 	}
@@ -113,7 +116,7 @@ func (s *Service) CheckAgent(ctx context.Context, agentID string) error {
 
 // ensureConversation gives the Burn a chat with its agent: its own while the
 // agent is the same, a new one once the agent was changed (the old one stays
-// with the agent it had, which may be paused now).
+// with the agent it had, which may be paused now) or the Burn started again.
 func (s *Service) ensureConversation(ctx context.Context, b *storage.BurnSession) error {
 	if b.ConversationID != "" {
 		c, err := s.store.Chat().GetConversation(ctx, b.ConversationID)
@@ -128,7 +131,7 @@ func (s *Service) ensureConversation(ctx context.Context, b *storage.BurnSession
 	if err != nil {
 		return err
 	}
-	conv.Title = "Burn"
+	conv.Title = "Burn " + time.Now().Format("02/01 15:04")
 	_ = s.store.Chat().UpdateConversation(ctx, conv)
 	// saved before SetMode: a failure there must not lose the conversation just made
 	b.ConversationID = conv.ID
