@@ -889,8 +889,8 @@ func (e *Engine) wfSend(ctx context.Context, sc officetools.Scope, run *wfRun, r
 		return "", errors.New(storage.OffNotice(a.Name))
 	}
 	e.wf.mu.Lock()
-	defer e.wf.mu.Unlock()
 	if err := e.canAsk(run, sc.RunRef, role, a); err != nil {
+		e.wf.mu.Unlock()
 		return "", err
 	}
 	run.role(role).Rounds++
@@ -898,7 +898,8 @@ func (e *Engine) wfSend(ctx context.Context, sc officetools.Scope, run *wfRun, r
 	e.wf.pending[sc.RunRef] = append(e.wf.pending[sc.RunRef], wfAsk{role: role, agent: a, prompt: prompt})
 	run.logf("Gửi tiếp cho %s (%s)", d.Name, a.Name)
 	rec := run.rec
-	go e.saveRun(rec)
+	e.wf.mu.Unlock()
+	e.saveRun(rec)
 	return fmt.Sprintf("Sent to %s (role %s); it starts when you finish this turn. Write a short note and stop your turn.", a.Name, d.Name), nil
 }
 
@@ -933,11 +934,12 @@ func (e *Engine) wfVote(ctx context.Context, sc officetools.Scope, run *wfRun, q
 		asks = append(asks, wfAsk{role: role, agent: a, prompt: prompt, vote: true})
 	}
 	e.wf.mu.Lock()
-	defer e.wf.mu.Unlock()
 	if run.voting != nil || len(run.batch) > 0 || len(e.queuedAsks(sc.RunRef)) > 0 {
+		e.wf.mu.Unlock()
 		return "", errors.New("đang có vai làm việc hoặc cuộc biểu quyết khác; đợi xong rồi biểu quyết")
 	}
 	if run.rec.Turns+len(asks) > run.def.Limits.Turns {
+		e.wf.mu.Unlock()
 		return "", fmt.Errorf("không đủ lượt cho %d phiếu (còn %d)", len(asks), run.def.Limits.Turns-run.rec.Turns)
 	}
 	for _, a := range asks {
@@ -949,7 +951,8 @@ func (e *Engine) wfVote(ctx context.Context, sc officetools.Scope, run *wfRun, q
 	e.wf.pending[sc.RunRef] = append(e.wf.pending[sc.RunRef], asks...)
 	run.logf("Biểu quyết: %s", truncate(oneLine(question), 120))
 	rec := run.rec
-	go e.saveRun(rec)
+	e.wf.mu.Unlock()
+	e.saveRun(rec)
 	return fmt.Sprintf("Sent the vote to %d roles; it starts when you finish this turn. Office counts the votes (%d AGREE needed) and calls you back with the result.", len(asks), v.Quorum), nil
 }
 
