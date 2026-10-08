@@ -120,7 +120,7 @@ const (
 // DefaultPolicy keeps agents at "propose" and protects secrets.
 func DefaultPolicy() Policy {
 	return Policy{MaxLevel: Operate, Packs: []Pack{},
-		DenyPaths: []string{".env", ".env.*", "**/.env", "**/*.pem", "**/*.key"}, WorktreeLinks: []string{}}
+		DenyPaths: []string{".env", "**/.env.*", "**/.env", "**/*.pem", "**/*.key"}, WorktreeLinks: []string{}}
 }
 
 func policyKey(projectID string) string { return "policy:" + projectID }
@@ -137,6 +137,11 @@ func LoadPolicy(ctx context.Context, st storage.Store, projectID string) Policy 
 	}
 	if p.WorktreeLinks == nil {
 		p.WorktreeLinks = []string{}
+	}
+	for i, pat := range p.DenyPaths {
+		if pat == ".env.*" {
+			p.DenyPaths[i] = "**/.env.*"
+		}
 	}
 	root := ""
 	if r, err := st.Repos().Get(ctx, projectID); err == nil {

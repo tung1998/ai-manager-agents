@@ -1,11 +1,14 @@
 package perm
 
 import (
+	"context"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 )
 
 func TestLevels(t *testing.T) {
@@ -34,6 +37,37 @@ func TestDenied(t *testing.T) {
 	got := p.Denied([]string{".env", "a/b/cert.pem", "migrations/0001.sql", "dashboard/nuxt.config.ts", "app/x.vue", "cert.pem"})
 	if len(got) != 5 {
 		t.Fatalf("denied: %v", got)
+	}
+}
+
+func TestDefaultPolicyDeniesNestedEnv(t *testing.T) {
+	p := DefaultPolicy()
+	for _, f := range []string{"backend/.env.local", "api/.env.production", "a/b/.env.test", ".env.local", ".env"} {
+		if len(p.Denied([]string{f})) != 1 {
+			t.Errorf("%q should be denied", f)
+		}
+	}
+	if len(p.Denied([]string{"src/env.go"})) != 0 {
+		t.Error("src/env.go should not be denied")
+	}
+}
+
+func TestLoadPolicyUpgradesOldEnvPattern(t *testing.T) {
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	old := Policy{DenyPaths: []string{".env", ".env.*", "**/*.pem"}}
+	if err := SavePolicy(context.Background(), st, "proj", old); err != nil {
+		t.Fatal(err)
+	}
+	p := LoadPolicy(context.Background(), st, "proj")
+	if len(p.Denied([]string{"backend/.env.local"})) != 1 {
+		t.Fatalf("stale saved policy should still block nested .env files: %v", p.DenyPaths)
 	}
 }
 
