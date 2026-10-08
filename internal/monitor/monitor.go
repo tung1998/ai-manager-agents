@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -139,7 +140,9 @@ func (s *Service) CheckNow(ctx context.Context, id string) (storage.Monitor, err
 		m.LastMessage = res.Message
 		return m, s.store.Monitors().SaveStatus(ctx, m)
 	}
-	_ = s.store.Monitors().AddCheck(ctx, storage.MonitorCheck{MonitorID: m.ID, At: now, OK: res.OK, LatencyMS: res.LatencyMS, Message: res.Message})
+	if err := s.store.Monitors().AddCheck(ctx, storage.MonitorCheck{MonitorID: m.ID, At: now, OK: res.OK, LatencyMS: res.LatencyMS, Message: res.Message}); err != nil {
+		slog.Error("monitor: save check failed", "monitor_id", m.ID, "error", err)
+	}
 	m.LastLatencyMS, m.LastMessage = res.LatencyMS, res.Message
 	prev := m.Status
 	threshold := downAfter
