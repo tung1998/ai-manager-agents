@@ -30,14 +30,18 @@ function openAdd(path = '', name = '') {
 // folders Claude Code has opened on this machine that office does not manage yet
 // stop managing one (its folder stays): it comes back under "found on the machine"
 const toast = useToast()
+const removing = reactive(new Set<string>())
 async function remove(p: Project) {
-  if (!confirm(t('project.confirmUnmanage', { name: p.name }))) return
+  if (removing.has(p.id) || !confirm(t('project.confirmUnmanage', { name: p.name }))) return
+  removing.add(p.id)
   try {
     await $fetch(`/api/projects/${p.id}`, { method: 'DELETE' })
     await refresh()
     scanMachine()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    removing.delete(p.id)
   }
 }
 const found = ref<MachineProject[]>([])
@@ -124,7 +128,8 @@ async function add() {
           <UBadge v-else :label="t('team.noAgents')" color="warning" variant="subtle" />
           <UButton
             v-if="isAdmin" size="xs" color="neutral" variant="ghost" icon="i-lucide-trash-2" class="hover:text-(--ui-error)"
-            :aria-label="t('project.unmanage')" :title="t('project.unmanage')" @click.prevent.stop="remove(p)"
+            :aria-label="t('project.unmanage')" :title="t('project.unmanage')" :loading="removing.has(p.id)" :disabled="removing.has(p.id)"
+            @click.prevent.stop="remove(p)"
           />
           <UIcon name="i-lucide-chevron-right" class="size-4 text-(--ui-text-dimmed)" />
         </NuxtLink>
