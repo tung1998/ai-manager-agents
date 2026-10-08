@@ -113,18 +113,20 @@ func (s *Service) Restore(ctx context.Context, revisionID, by string) error {
 	if err != nil {
 		return err
 	}
-	now, err := s.store.Memories().List(ctx, rev.ProjectID, rev.AgentID)
-	if err != nil {
-		return err
-	}
-	if _, err := s.store.Memories().SaveRevision(ctx, storage.MemoryRevision{ProjectID: rev.ProjectID, AgentID: rev.AgentID, Items: now, Reason: "trước khi khôi phục (" + by + ")"}); err != nil {
-		return err
-	}
-	items := make([]storage.Memory, len(rev.Items))
-	for i, m := range rev.Items {
-		items[i] = storage.Memory{Text: m.Text, Source: m.Source, CreatedBy: m.CreatedBy, CreatedAt: m.CreatedAt}
-	}
-	return s.store.Memories().Replace(ctx, rev.ProjectID, rev.AgentID, items)
+	return s.store.InTx(ctx, func(tx storage.Store) error {
+		now, err := tx.Memories().List(ctx, rev.ProjectID, rev.AgentID)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Memories().SaveRevision(ctx, storage.MemoryRevision{ProjectID: rev.ProjectID, AgentID: rev.AgentID, Items: now, Reason: "trước khi khôi phục (" + by + ")"}); err != nil {
+			return err
+		}
+		items := make([]storage.Memory, len(rev.Items))
+		for i, m := range rev.Items {
+			items[i] = storage.Memory{Text: m.Text, Source: m.Source, CreatedBy: m.CreatedBy, CreatedAt: m.CreatedAt}
+		}
+		return tx.Memories().Replace(ctx, rev.ProjectID, rev.AgentID, items)
+	})
 }
 
 // Block is the notes as a conversation's system prompt gets them ("" = none).
