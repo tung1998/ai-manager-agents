@@ -20,7 +20,7 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 | `/workflows` (admin) | Thư viện quy trình | Quy trình dùng chung (có sẵn, đã sửa, tự tạo), lỗi nếu file sai (ADR-098) | Tạo / Sửa / Khôi phục / Xoá |
 | `/projects/:id/workflows/runs/:runId` | Lần chạy quy trình | Chat đã gọi, đầu vào, đầu ra, vai/cổng/chi phí, nội dung (chat riêng của lần chạy, chỉ xem) — ADR-101 | Dừng, duyệt cổng |
 | `/projects/:id/burn/reviews` | Hồ sơ review của Burn (admin) | Danh sách hồ sơ; mỗi hồ sơ: tên, từng bước (vấn đề, cách làm, kết quả) bật/tắt kèm agent và quy trình review riêng — ADR-113 | Tạo, lưu, xóa |
-| `/workflows/edit?key=`, `/projects/:id/workflows/edit?w=` | Soạn quy trình | Canvas kéo thả (bước, agent, quy trình con; form điền phần thiếu, Đầu vào/Đầu ra — ADR-108), văn bản, và chat (`purpose=workflow`, nút ở góc mở khung bên phải như chat hỗ trợ, không chặn thao tác trên canvas); ba cách cùng sửa một file | Lưu |
+| `/workflows/edit?key=`, `/projects/:id/workflows/edit?w=` | Soạn quy trình | Canvas kéo thả (bước, agent, quy trình con; form điền phần thiếu, Đầu vào/Đầu ra — ADR-108), văn bản, và chat (`purpose=workflow`, nút ở góc mở khung bên phải như chat hỗ trợ, không chặn thao tác trên canvas; tab văn bản trên desktop thì chat mở sẵn, chia đôi màn hình); ba cách cùng sửa một file | Lưu |
 | `/jobs` | Job | Mọi lượt chạy (chat, Việc, automation) của mọi project: trạng thái, lọc theo project, lỗi 24h, chi phí 24h | |
 | `/providers` | Kết nối AI | Danh sách kết nối (Anthropic, OpenAI, API tương thích, CLI…), gửi thử, thống kê theo kết nối | Thêm / Sửa / Xoá / Đặt mặc định |
 | `/watch` | Theo dõi | Nhiều khung chat của các project cạnh nhau, chia dọc/ngang, lưu trong trình duyệt (không đồng bộ máy khác) | Thêm/xoá khung |
