@@ -37,16 +37,20 @@ function query(before = '') {
   set('limit', '20') // a page: the rest comes with "Xem thêm"
   return q.toString()
 }
+let loadToken = 0
 async function load(more = false) {
+  const token = ++loadToken
   loading.value = true
   try {
     const res = await $fetch<{ jobs: Job[], next_before: string }>(`/api/jobs?${query(more ? nextBefore.value : '')}`)
+    if (token !== loadToken) return // a newer load() started since: drop this stale response
     jobs.value = more ? [...jobs.value, ...res.jobs] : res.jobs
     nextBefore.value = res.next_before
   } catch (e) {
+    if (token !== loadToken) return
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
-    loading.value = false
+    if (token === loadToken) loading.value = false
   }
 }
 watch([kind, origin, searchQ, status, project, since, () => props.filter?.origin_id], () => load(), { immediate: true })
