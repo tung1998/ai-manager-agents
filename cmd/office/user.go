@@ -59,8 +59,10 @@ func userCreateCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if len(users) == 0 || (onlyDefault && !force) {
-					role = string(storage.RoleAdmin) // the first account, or the default admin's place
+				if len(users) == 0 || onlyDefault {
+					// the first account, or the default admin's place: always admin,
+					// even with --force, so admin/admin never survives unnoticed
+					role = string(storage.RoleAdmin)
 				}
 				u, err := svc.CreateUser(ctx, auth.NewUser{Email: email, Name: name, Role: storage.Role(role), Password: pw}, cliActor)
 				if err != nil {
