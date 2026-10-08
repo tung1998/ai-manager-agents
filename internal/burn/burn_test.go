@@ -621,7 +621,7 @@ case "$p" in
   echo "fatal: reviewer crashed" >&2
   exit 1
   ;;
-*) echo "do agent viết" > made-by-agent.txt; sleep 1; r="xong lượt";;
+*) [ "$1" = auth ] || echo "do agent viết" > made-by-agent.txt; sleep 1; r="xong lượt";; # not the CLI login probe after a failed turn: it runs in the package folder
 esac
 echo '{"type":"system","subtype":"init","session_id":"s1"}'
 echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
@@ -664,7 +664,7 @@ case "$p" in
   fi
   r="VERDICT: AGREE. Có thật"
   ;;
-*) echo "do agent viết" > made-by-agent.txt; sleep 1; r="xong lượt";;
+*) [ "$1" = auth ] || echo "do agent viết" > made-by-agent.txt; sleep 1; r="xong lượt";; # not the CLI login probe after a failed turn: it runs in the package folder
 esac
 echo '{"type":"system","subtype":"init","session_id":"s1"}'
 echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
