@@ -41,6 +41,11 @@ func (e *Engine) overLimit(ctx context.Context, providerID string) bool {
 		return false
 	}
 	now := time.Now()
+	if l.Status == "rejected" && len(l.Windows) == 0 {
+		// Rejected without window detail: no reset time to trust, so treat the
+		// rejection as valid for a short cooldown instead of ignoring it.
+		return l.UpdatedAt.Add(RejectedCooldown).After(now)
+	}
 	for _, w := range l.Windows {
 		if w.ResetsAt.After(now) && (l.Status == "rejected" || w.Utilization >= 1) {
 			return true
@@ -48,6 +53,11 @@ func (e *Engine) overLimit(ctx context.Context, providerID string) bool {
 	}
 	return false
 }
+
+// RejectedCooldown is how long a provider stays deprioritized/blocked after a
+// "rejected" report that carried no window detail to time a real reset by.
+// Shared with burn.limitHit so chat fallback and Burn's wait agree on it.
+const RejectedCooldown = 5 * time.Minute
 
 // tryNext: a failed run moves on to the next connection only when it failed
 // before doing anything (no tokens written, no tool; its text is then the

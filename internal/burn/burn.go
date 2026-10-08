@@ -867,7 +867,14 @@ func (s *Service) limitHit(ctx context.Context, agentID string) (time.Time, bool
 		}
 	}
 	if until.IsZero() {
-		until = time.Now().Add(30 * time.Minute)
+		// No window carried a reset time (e.g. a hard "rejected" with no window
+		// detail at all) — fall back to a short cooldown timed from the report
+		// itself, not from now, so a stale record expires instead of pushing
+		// the wait out further on every check (matches chat.RejectedCooldown).
+		until = l.UpdatedAt.Add(chat.RejectedCooldown)
+		if !until.After(time.Now()) {
+			return time.Time{}, false
+		}
 	}
 	return until, true
 }

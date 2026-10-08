@@ -32,7 +32,12 @@ func LimitsKey(providerID string) string { return "provider_limits:" + providerI
 
 // keepLimits stores the usage windows a run reported for its provider.
 func (e *Engine) keepLimits(p storage.Provider, l *Limits) {
-	if l == nil || len(l.Windows) == 0 {
+	if l == nil || (l.Status == "" && len(l.Windows) == 0) {
+		return
+	}
+	if len(l.Windows) == 0 && l.Status != "rejected" {
+		// Status-only report with no window detail: nothing new to persist,
+		// and saving it would wipe out whatever window data we already had.
 		return
 	}
 	_ = e.store.Settings().Set(context.Background(), LimitsKey(p.ID), l)
