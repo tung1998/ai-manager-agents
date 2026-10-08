@@ -7,7 +7,9 @@ const { t, dateLocale } = useLang()
 const data = ref<{ job: Job, children: Job[] | null } | null>(null)
 watch(() => props.jobId, async (id) => {
   data.value = null
-  if (id) data.value = await $fetch(`/api/jobs/${id}`)
+  if (!id) return
+  const res = await $fetch(`/api/jobs/${id}`)
+  if (id === props.jobId) data.value = res
 }, { immediate: true })
 const open = computed({ get: () => !!props.jobId, set: (v: boolean) => { if (!v) emit('close') } })
 const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit' })
