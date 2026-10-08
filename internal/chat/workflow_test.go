@@ -310,6 +310,83 @@ func TestWorkflowVoteTallies(t *testing.T) {
 	}
 }
 
+const strictVoteSource = `---
+key: strict-vote
+name: Strict Vote
+description: test workflow with a vote and a differ_from
+input: X
+inputs:
+  - { key: x, description: "x", required: true }
+outputs:
+  - { key: ok, description: "ok", type: boolean, required: true }
+roles:
+  - key: a
+    name: A
+    hint: role a
+    access: analyze
+  - key: b
+    name: B
+    hint: role b
+    access: analyze
+    differ_from: [a]
+vote:
+  roles: [a, b]
+  quorum: 1
+limits: { rounds: 2, turns: 8, timeout: 1h }
+---
+1. Put something to a vote with workflow_vote.
+2. Call workflow_done.
+`
+
+// TestWorkflowVoteChecksDifferFrom: wfVote must enforce differ_from for
+// roles picked fresh in the vote itself (no prior binding), not just at
+// workflow_delegate/workflow_ask time.
+func TestWorkflowVoteChecksDifferFrom(t *testing.T) {
+	g := newWFGroup(t)
+	w, err := g.svc.Create(g.context, g.f.project.ID, strings.Replace(strictVoteSource, "key: strict-vote", "key: strict-vote\nstrict: true", 1), map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := g.engine.Send(g.context, g.conv.ID, "/"+w.Key+" làm X", nil); err != nil {
+		t.Fatal(err)
+	}
+	// a and b are both unbound; picking the same-family Dev and QA for the
+	// vote at once must be refused in strict mode, even though neither role
+	// has an AgentID saved yet.
+	if _, err := g.during(t, "workflow_vote", map[string]any{"question": "ok?", "agents": map[string]string{"a": g.dev.Name, "b": g.qa.Name}}); err == nil || !strings.Contains(err.Error(), "khác hãng") {
+		t.Fatalf("strict vote with same-family roles should be refused, got: %v", err)
+	}
+}
+
+// TestWorkflowVoteWarnsOnSharedFamily: a non-strict workflow lets the vote
+// through but records a warning note told back to the coordinator.
+func TestWorkflowVoteWarnsOnSharedFamily(t *testing.T) {
+	g := newWFGroup(t)
+	w, err := g.svc.Create(g.context, g.f.project.ID, strictVoteSource, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	if _, _, err := g.engine.Send(g.context, g.conv.ID, "/"+w.Key+" làm X", nil); err != nil {
+		t.Fatal(err)
+	}
+	own := g.own(t)
+	if _, err := g.during(t, "workflow_vote", map[string]any{"question": "ok?", "agents": map[string]string{"a": g.dev.Name, "b": g.qa.Name}}); err != nil {
+		t.Fatalf("non-strict vote with same-family roles should still be sent: %v", err)
+	}
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	g.waitIn(t, own, 3)
+	var back string
+	for i := 2; i <= 4; i++ {
+		if _, in := call(t, g.dir, i); strings.Contains(in, "Vote result") {
+			back = in
+		}
+	}
+	if !strings.Contains(back, "must use a different model vendor") {
+		t.Fatalf("call-back should carry the differ_from warning:\n%s", back)
+	}
+}
+
 // a role filled by another workflow: it runs in a chat of its own, its
 // output is the role's answer in the run that called it (ADR-102)
 func TestWorkflowCallsASubWorkflow(t *testing.T) {

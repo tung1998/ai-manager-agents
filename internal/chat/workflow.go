@@ -714,6 +714,12 @@ func (e *Engine) pickAgent(ctx context.Context, run *wfRun, role, name string) (
 // checkDiffer: agent a in role must not share a vendor family with the
 // roles it must differ from (or, for those, with role).
 func (e *Engine) checkDiffer(ctx context.Context, run *wfRun, role string, a storage.Agent) error {
+	return e.checkDifferAmong(ctx, run, role, a, nil)
+}
+
+// checkDifferAmong is checkDiffer, but also consults picked for roles being
+// assigned in the same batch (e.g. a vote) whose AgentID isn't saved yet.
+func (e *Engine) checkDifferAmong(ctx context.Context, run *wfRun, role string, a storage.Agent, picked map[string]storage.Agent) error {
 	fam, prov := e.agentFamily(ctx, a)
 	if fam == "" {
 		return nil
@@ -721,6 +727,9 @@ func (e *Engine) checkDiffer(ctx context.Context, run *wfRun, role string, a sto
 	against := func(other string) (storage.Agent, bool) {
 		if other == workflow.Coordinator {
 			return run.coord, true
+		}
+		if ag, ok := picked[other]; ok {
+			return ag, true
 		}
 		if r := run.role(other); r != nil && r.AgentID != "" {
 			ag, err := e.store.Agents().Get(ctx, r.AgentID)
@@ -919,6 +928,7 @@ func (e *Engine) wfVote(ctx context.Context, sc officetools.Scope, run *wfRun, q
 	}
 	var asks []wfAsk
 	seen := map[string]string{}
+	picked := map[string]storage.Agent{}
 	for _, role := range v.Roles {
 		a, err := e.pickAgent(ctx, run, role, names[role])
 		if err != nil {
@@ -927,7 +937,11 @@ func (e *Engine) wfVote(ctx context.Context, sc officetools.Scope, run *wfRun, q
 		if other, dup := seen[a.ID]; dup {
 			return "", fmt.Errorf("%s đang bỏ phiếu ở vai %s; mỗi vai bỏ phiếu phải là một agent khác", a.Name, other)
 		}
+		if err := e.checkDifferAmong(ctx, run, role, a, picked); err != nil {
+			return "", err
+		}
 		seen[a.ID] = role
+		picked[role] = a
 		d, _ := run.def.Role(role)
 		prompt := prompts.Render("workflow/vote", struct{ Coordinator, Workflow, Role, Question, Agree, Disagree string }{
 			run.coord.Name, run.def.Name, d.Name, question, ballotLine, ballotNo})
@@ -943,7 +957,7 @@ func (e *Engine) wfVote(ctx context.Context, sc officetools.Scope, run *wfRun, q
 		return "", fmt.Errorf("không đủ lượt cho %d phiếu (còn %d)", len(asks), run.def.Limits.Turns-run.rec.Turns)
 	}
 	for _, a := range asks {
-		if r := run.role(a.role); r != nil && r.AgentID == "" {
+		if r := run.role(a.role); r != nil {
 			r.AgentID, r.AgentName = a.agent.ID, a.agent.Name
 		}
 	}
