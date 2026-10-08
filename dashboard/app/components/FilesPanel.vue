@@ -78,15 +78,19 @@ const diff = ref<string | null>(null)
 function leaveOk() {
   return !dirty.value || confirm(t('files.leave'))
 }
+let openRequestPath = ''
 async function openFile(path: string, force = false) {
   if (!force && !leaveOk()) return
+  openRequestPath = path
   try {
     const f = await $fetch<OpenFile>(`${base.value}/file`, { query: { path } })
+    if (openRequestPath !== path) return
     file.value = f
     draft.value = f.content ?? ''
     diff.value = null
     if (showDiff.value) loadDiff()
   } catch (e) {
+    if (openRequestPath !== path) return
     toast.add({ title: apiError(e), color: 'error' })
   }
 }
