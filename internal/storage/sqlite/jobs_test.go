@@ -36,9 +36,9 @@ func TestJobsQueueAndFinish(t *testing.T) {
 	if _, err := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "task", Origin: "automation", OriginID: "aut_1", Status: "pending", DedupeKey: "d1"}); !errors.Is(err, storage.ErrConflict) {
 		t.Fatalf("duplicate dedupe err = %v", err)
 	}
-	// busy origins are skipped; claimed jobs become running
-	if got, _ := st.Jobs().Claim(ctx, now.Add(time.Second), 2, []string{"aut_1"}); len(got) != 0 {
-		t.Fatalf("claimed a busy origin: %+v", got)
+	// a full origin (0 remaining) is skipped; claimed jobs become running
+	if got, _ := st.Jobs().Claim(ctx, now.Add(time.Second), 2, map[string]int{"aut_1": 0}); len(got) != 0 {
+		t.Fatalf("claimed a full origin: %+v", got)
 	}
 	got, err := st.Jobs().Claim(ctx, now.Add(time.Second), 2, nil)
 	if err != nil || len(got) != 1 || got[0].Status != "running" || got[0].StartedAt == nil {
@@ -118,6 +118,49 @@ func TestDebounceOnlyTouchesPending(t *testing.T) { // I2
 	}
 	if got, _ := st.Jobs().Get(ctx, j.ID); got.Status != "running" || got.Payload == `{"n":2}` {
 		t.Fatalf("job = %+v", got)
+	}
+}
+
+// A batch with several due jobs of the same origin is capped by its real
+// capacity, not by 1: an origin missing from remaining (nothing running yet)
+// is capped by the automation's own Parallel(), and one already in remaining
+// is capped by exactly how many more it may run right now.
+func TestClaimCapsEachOriginByItsCapacity(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	now := time.Now().UTC()
+	a3, err := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "p3", Source: "schedule", Action: "chat", Limits: storage.AutomationLimits{MaxParallel: 3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: a3.ID, Status: "pending", NextAttemptAt: &now})
+	}
+	// a3 is new to Claim (not in remaining): capped by its own Parallel()=3, not the batch limit of 5
+	got, err := st.Jobs().Claim(ctx, now.Add(time.Second), 5, nil)
+	if err != nil || len(got) != 3 {
+		t.Fatalf("claim new origin = %d %v, want 3 (Parallel limit)", len(got), err)
+	}
+	if n, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a3.ID, Status: "pending"}); len(n) != 2 {
+		t.Fatalf("pending left = %d, want 2", len(n))
+	}
+
+	// a free origin already partly running: remaining says exactly how many more
+	a1, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "p1", Source: "schedule", Action: "chat", Limits: storage.AutomationLimits{MaxParallel: 5}})
+	for i := 0; i < 3; i++ {
+		st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: a1.ID, Status: "pending", NextAttemptAt: &now})
+	}
+	got, err = st.Jobs().Claim(ctx, now.Add(time.Second), 5, map[string]int{a3.ID: 0, a1.ID: 1})
+	if err != nil || len(got) != 1 || got[0].OriginID != a1.ID {
+		t.Fatalf("claim with remaining=1 = %+v %v, want 1 job of a1", got, err)
+	}
+
+	// an origin at 0 remaining is excluded entirely, however many are due
+	a0, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "p0", Source: "schedule", Action: "chat", Limits: storage.AutomationLimits{MaxParallel: 5}})
+	st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: a0.ID, Status: "pending", NextAttemptAt: &now})
+	got, err = st.Jobs().Claim(ctx, now.Add(time.Second), 5, map[string]int{a3.ID: 0, a1.ID: 0, a0.ID: 0})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("claim with remaining=0 = %d %v, want 0", len(got), err)
 	}
 }
 

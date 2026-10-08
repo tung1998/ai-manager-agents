@@ -158,14 +158,12 @@ reserve:
 		return
 	}
 	r.mu.Lock()
-	busy := make([]string, 0, len(r.busy))
+	remaining := make(map[string]int, len(r.busy))
 	for id, n := range r.busy {
-		if n >= max(r.cap[id], 1) { // at its limit: its next waits
-			busy = append(busy, id)
-		}
+		remaining[id] = max(r.cap[id]-n, 0) // how many more of it may run now
 	}
 	r.mu.Unlock()
-	jobs, err := r.store.Jobs().Claim(ctx, now, free, busy)
+	jobs, err := r.store.Jobs().Claim(ctx, now, free, remaining)
 	if err != nil {
 		jobs = nil
 	}

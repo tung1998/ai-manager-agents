@@ -86,8 +86,10 @@ type JobRepo interface {
 	Update(ctx context.Context, j Job) error
 	// Finish ends a job; cost, tokens and duration come from its model calls.
 	Finish(ctx context.Context, id, status, errCode, errMsg string, at time.Time) (Job, error)
-	// Claim marks up to limit due pending jobs running, skipping busy origins.
-	Claim(ctx context.Context, now time.Time, limit int, busy []string) ([]Job, error)
+	// Claim marks up to limit due pending jobs running. remaining is, for an
+	// origin with jobs already running, how many more of it may run now
+	// (0 = none); an origin missing from it has nothing running yet.
+	Claim(ctx context.Context, now time.Time, limit int, remaining map[string]int) ([]Job, error)
 	List(ctx context.Context, f JobFilter) ([]Job, error)
 	// Active counts pending and running jobs of an origin.
 	Active(ctx context.Context, origin, originID string) (int, error)

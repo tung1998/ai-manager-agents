@@ -131,52 +131,97 @@ func (r jobRepo) Finish(ctx context.Context, id, status, errCode, errMsg string,
 	return r.Get(ctx, id)
 }
 
-func (r jobRepo) Claim(ctx context.Context, now time.Time, limit int, busy []string) ([]storage.Job, error) {
+// Claim marks up to limit due pending jobs running. remaining is, for every
+// origin the caller already has jobs running for, how many more it may run
+// at once right now (its Parallel() minus how many are running); an origin
+// at 0 is excluded entirely. An origin missing from remaining has nothing
+// running yet, so Claim looks up its own limit (1, or an automation's
+// Parallel()) and applies that instead.
+func (r jobRepo) Claim(ctx context.Context, now time.Time, limit int, remaining map[string]int) ([]storage.Job, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	if len(busy) == 0 {
-		busy = []string{""}
+	full := []string{""}
+	for id, n := range remaining {
+		if id != "" && n <= 0 {
+			full = append(full, id)
+		}
 	}
 	args := []any{fmtTime(now), fmtTime(now)}
-	for _, b := range busy {
+	for _, b := range full {
 		args = append(args, b)
 	}
 	args = append(args, limit)
 	rows, err := r.db.QueryContext(ctx, `UPDATE jobs SET status='running', started_at=?
 		WHERE id IN (SELECT id FROM jobs WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-			AND (origin_id = '' OR origin_id NOT IN (?`+strings.Repeat(",?", len(busy)-1)+`))
+			AND (origin_id = '' OR origin_id NOT IN (?`+strings.Repeat(",?", len(full)-1)+`))
 			ORDER BY next_attempt_at, created_at LIMIT ?)
 		RETURNING `+jobCols, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []storage.Job
 	for rows.Next() {
 		j, err := scanJob(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, j)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	rowsErr := rows.Err()
+	rows.Close() // must be closed before originParallel/requeue queries below share the connection
+	if rowsErr != nil {
+		return nil, rowsErr
 	}
-	// Two due jobs of one origin: keep the first running, put the rest back.
+	// Due jobs of one origin beyond its remaining capacity: keep the first
+	// ones running, put the rest back.
 	var keep []storage.Job
-	taken := map[string]bool{}
+	taken := map[string]int{}
+	max := map[string]int{}
 	for _, j := range out {
-		if j.OriginID != "" && taken[j.OriginID] {
+		if j.OriginID == "" {
+			keep = append(keep, j)
+			continue
+		}
+		m, ok := max[j.OriginID]
+		if !ok {
+			m, ok = remaining[j.OriginID]
+			if !ok {
+				m = 1
+				if j.Origin == "automation" {
+					m = r.originParallel(ctx, j.OriginID)
+				}
+			}
+			max[j.OriginID] = m
+		}
+		if taken[j.OriginID] >= m {
 			if _, err := r.db.ExecContext(ctx, `UPDATE jobs SET status='pending', started_at=NULL WHERE id=?`, j.ID); err != nil {
 				return nil, err
 			}
 			continue
 		}
-		taken[j.OriginID] = true
+		taken[j.OriginID]++
 		keep = append(keep, j)
 	}
 	return keep, nil
+}
+
+// originParallel is how many runs of an automation may be running at once
+// (storage.Automation.Parallel), looked up straight from the table so Claim
+// doesn't need the whole automation. Only used the first time Claim sees an
+// origin with nothing running yet; once a job of it starts, the runner caches
+// its limit and Claim is told the remaining capacity directly instead.
+func (r jobRepo) originParallel(ctx context.Context, originID string) int {
+	var keepContext bool
+	var limitsJSON string
+	if err := r.db.QueryRowContext(ctx, `SELECT keep_context, limits FROM automations WHERE id=?`, originID).Scan(&keepContext, &limitsJSON); err != nil {
+		return 1
+	}
+	var limits storage.AutomationLimits
+	_ = json.Unmarshal([]byte(limitsJSON), &limits)
+	a := storage.Automation{KeepContext: keepContext, Limits: limits}
+	return a.Parallel()
 }
 
 func (r jobRepo) where(f storage.JobFilter) (string, []any) {

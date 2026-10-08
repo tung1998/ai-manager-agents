@@ -458,6 +458,62 @@ func TestScheduleRunsInParallelUpToItsLimit(t *testing.T) {
 	}
 }
 
+// blockingExec holds every RunChat until told to let it go, so a test can
+// catch the runner mid-flight with a known number of jobs actually running.
+type blockingExec struct {
+	mu      sync.Mutex
+	started int
+	release chan struct{}
+}
+
+func (b *blockingExec) RunChat(ctx context.Context, projectID, agentID, conv, prompt, edit string) (string, string, error) {
+	b.mu.Lock()
+	b.started++
+	b.mu.Unlock()
+	<-b.release
+	return "cnv_x", "ok", nil
+}
+
+// Claim must enforce an automation's Parallel() against jobs actually
+// running, not just against the batch it is about to claim: with 3 already
+// running (the limit), a due job of it waits even though runner slots are
+// free (the bug this piece fixes — StartReady must not over-claim an origin
+// across repeated calls once the runner's own busy count already tracks it).
+func TestStartReadyNeverExceedsParallelAcrossCalls(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	ex := &blockingExec{release: make(chan struct{})}
+	r := trigger.New(st, ex)
+	a, err := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "fanout", Source: "schedule", Action: "chat", Enabled: true,
+		Prompt: "x", Limits: storage.AutomationLimits{MaxParallel: 3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if _, _, err := r.Enqueue(ctx, a, "manual", "", "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	running := func() int {
+		jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID, Status: "running"})
+		return len(jobs)
+	}
+	r.StartReady(ctx, time.Now().UTC()) // first call: nothing running yet, fills up to Parallel()=3
+	if n := running(); n != 3 {
+		t.Fatalf("first StartReady started %d, want 3 (Parallel limit)", n)
+	}
+	r.StartReady(ctx, time.Now().UTC()) // second call: 3 already running, at its limit
+	if n := running(); n != 3 {
+		t.Fatalf("second StartReady started more beyond Parallel: %d running, want still 3", n)
+	}
+	pending, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID, Status: "pending"})
+	if len(pending) != 2 {
+		t.Fatalf("pending = %d, want 2 (5 enqueued - 3 at the Parallel limit)", len(pending))
+	}
+	close(ex.release) // let everything finish so the goroutines don't leak past the test
+	r.Wait()
+}
+
 // A bot rule that names no agent answers with the project's lead (or the
 // conversation's agent): its full access counts for an admin's message.
 func TestChannelAdminWithDefaultAgent(t *testing.T) {
