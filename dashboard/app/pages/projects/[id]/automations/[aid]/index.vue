@@ -15,13 +15,18 @@ const isBotCmd = computed(() => !!a.value && isChannelSource(a.value.source) && 
 const back = computed(() => isBotCmd.value ? `/projects/${projectId.value}/bots/${a.value!.config.channel_id}` : { path: `/projects/${projectId.value}`, query: { tab: 'automations' } })
 const backLabel = computed(() => isBotCmd.value ? (a.value!.bot_status?.bot_name ? `@${a.value!.bot_status.bot_name}` : t('bot.title')) : t('auto.back'))
 
+const busy = ref(false)
 async function act(fn: () => Promise<unknown>, ok?: string) {
+  if (busy.value) return
+  busy.value = true
   try {
     await fn()
     if (ok) toast.add({ title: ok, color: 'success' })
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    busy.value = false
   }
 }
 const runNow = () => act(() => $fetch(`/api/automations/${aid.value}/run`, { method: 'POST', body: {} }), t('auto.ran'))
@@ -44,13 +49,13 @@ async function remove() {
   <PageShell :title="a?.name ?? ''">
     <template #actions>
       <template v-if="a && isAdmin">
-        <UButton v-if="!isChannelSource(a.source)" size="sm" icon="i-lucide-play" :label="t('auto.runNow')" :title="t('auto.runNowHelp')" @click="runNow" />
+        <UButton v-if="!isChannelSource(a.source)" size="sm" icon="i-lucide-play" :label="t('auto.runNow')" :title="t('auto.runNowHelp')" :loading="busy" :disabled="busy" @click="runNow" />
         <UDropdownMenu
           :content="{ align: 'end' }"
           :items="[[
             { label: t('auto.edit'), icon: 'i-lucide-pencil', to: isBotCmd ? `/projects/${projectId}/bots/${a.config.channel_id}/edit` : `/projects/${projectId}/automations/${aid}/edit` },
-            ...(a.source === 'webhook' ? [{ label: t('auto.rotate'), icon: 'i-lucide-key-round', onSelect: rotate }] : [])
-          ], [{ label: t('auto.delete'), icon: 'i-lucide-trash', color: 'error' as const, onSelect: remove }]]"
+            ...(a.source === 'webhook' ? [{ label: t('auto.rotate'), icon: 'i-lucide-key-round', disabled: busy, onSelect: rotate }] : [])
+          ], [{ label: t('auto.delete'), icon: 'i-lucide-trash', color: 'error' as const, disabled: busy, onSelect: remove }]]"
         >
           <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" :aria-label="t('project.actionsAria')" />
         </UDropdownMenu>
@@ -67,7 +72,7 @@ async function remove() {
       </div>
       <UAlert
         v-if="a.disabled_code" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="t('auto.disabledBy', { reason: a.disabled_reason })"
-        :actions="isAdmin ? [{ label: t('auto.enable'), color: 'error', variant: 'outline', onClick: enable }] : []"
+        :actions="isAdmin ? [{ label: t('auto.enable'), color: 'error', variant: 'outline', loading: busy, disabled: busy, onClick: enable }] : []"
       />
       <p class="text-sm font-medium">{{ t('auto.history') }}</p>
       <JobsTable :filter="{ origin_id: aid }" />
