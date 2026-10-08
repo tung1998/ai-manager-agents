@@ -207,18 +207,25 @@ function toggle(k: string) {
   else s.add(k)
   picked.value = s
 }
+const adding = ref(false)
 async function addSuggested() {
-  for (const s of suggestions.value.filter(s => picked.value.has(s.key))) {
-    try {
-      await $fetch(`/api/projects/${props.projectId}/monitors`, {
-        method: 'POST', body: { name: s.name, type: s.type, target: s.target, interval_s: 60, config: s.file ? { file: s.file } : {} }
-      })
-    } catch (e) {
-      toast.add({ title: `${s.name}: ${apiError(e)}`, color: 'error' })
+  if (adding.value) return
+  adding.value = true
+  try {
+    for (const s of suggestions.value.filter(s => picked.value.has(s.key))) {
+      try {
+        await $fetch(`/api/projects/${props.projectId}/monitors`, {
+          method: 'POST', body: { name: s.name, type: s.type, target: s.target, interval_s: 60, config: s.file ? { file: s.file } : {} }
+        })
+      } catch (e) {
+        toast.add({ title: `${s.name}: ${apiError(e)}`, color: 'error' })
+      }
     }
+    suggestOpen.value = false
+    setTimeout(refresh, 1500)
+  } finally {
+    adding.value = false
   }
-  suggestOpen.value = false
-  setTimeout(refresh, 1500)
 }
 </script>
 
@@ -460,8 +467,8 @@ async function addSuggested() {
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" :label="t('monitor.suggest.cancel')" @click="suggestOpen = false" />
-          <UButton :label="t('monitor.suggest.add', { n: picked.size })" :disabled="!picked.size" @click="addSuggested" />
+          <UButton color="neutral" variant="ghost" :label="t('monitor.suggest.cancel')" :disabled="adding" @click="suggestOpen = false" />
+          <UButton :label="t('monitor.suggest.add', { n: picked.size })" :loading="adding" :disabled="!picked.size || adding" @click="addSuggested" />
         </div>
       </template>
     </UModal>
