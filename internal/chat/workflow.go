@@ -80,6 +80,10 @@ const RunPurpose = "workflow_run"
 // hidden like a run's, nobody writes there; it may run a workflow.
 const BurnReviewPurpose = "burn_review"
 
+// BurnWorkPurpose is the purpose of the hidden chat a Burn piece is done in
+// (ADR-116): the burn_* tools work there, for that piece only.
+const BurnWorkPurpose = "burn_work"
+
 // prepared is a run the chat that called it starts in the run's own chat.
 type prepared struct {
 	conv   string // the run's chat

@@ -807,11 +807,12 @@ func (t *Toolbox) searchHistory(ctx context.Context, sc Scope, query string, day
 	return b.String(), nil
 }
 
-// burnChat: the run is a Burn's conversation, where the burn_* tools work.
+// burnChat: the run is a Burn's conversation or one of its pieces' work
+// chats, where the burn_* tools work.
 func (t *Toolbox) burnChat(sc Scope) bool {
 	if sc.ConversationID == "" {
 		return false
 	}
 	c, err := t.store.Chat().GetConversation(context.Background(), sc.ConversationID)
-	return err == nil && c.Purpose == "burn"
+	return err == nil && (c.Purpose == "burn" || c.Purpose == "burn_work")
 }

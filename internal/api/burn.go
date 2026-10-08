@@ -47,6 +47,7 @@ type burnItemDTO struct {
 	Reviewed            []string          `json:"reviewed"`
 	ReviewNote          string            `json:"review_note"`
 	ReviewConversations map[string]string `json:"review_conversations"` // stage → its hidden review chat (ADR-114)
+	WorkConversationID  string            `json:"work_conversation_id"` // its hidden work chat (ADR-116)
 	UpdatedAt           time.Time         `json:"updated_at"`
 }
 
@@ -84,7 +85,7 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 		list, _ := s.cfg.Store.Burn().Items(r.Context(), b.ID)
 		for _, it := range list {
 			items = append(items, burnItemDTO{it.ID, it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Subagents, it.CostUSD,
-				listOrEmpty(it.Reviewed), it.ReviewNote, mapOrEmpty(it.ReviewConversations), it.UpdatedAt})
+				listOrEmpty(it.Reviewed), it.ReviewNote, mapOrEmpty(it.ReviewConversations), it.WorkConversationID, it.UpdatedAt})
 		}
 	}
 	out := map[string]any{"burn": toBurnDTO(b), "items": items}

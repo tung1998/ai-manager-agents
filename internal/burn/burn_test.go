@@ -139,6 +139,30 @@ func TestBurnDoesAPieceOnItsBranch(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.dir, "made-by-agent.txt")); err == nil {
 		t.Fatal("the project's own folder was changed")
 	}
+	// it was done in a hidden chat of its own (ADR-116), kept after it is done
+	wc := it.WorkConversationID
+	if c, err := f.st.Chat().GetConversation(ctx, wc); wc == "" || wc == b.ConversationID || err != nil || c.Purpose != chat.BurnWorkPurpose {
+		t.Fatalf("work chat %q = %+v, %v", wc, c, err)
+	}
+	if s, err := f.st.Burn().SessionByConversation(ctx, wc); err != nil || s.ID != b.ID {
+		t.Fatalf("its Burn = %+v, %v", s, err)
+	}
+	// there the burn_* tools touch that piece only
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc khác", Kind: "upgrade"})
+	var other storage.BurnItem
+	items, _ = f.st.Burn().Items(ctx, b.ID)
+	for _, x := range items {
+		if x.ID != it.ID {
+			other = x
+		}
+	}
+	wsc := actions.Scope{ProjectID: f.project.ID, ConversationID: wc}
+	if _, err := f.svc.Tool(ctx, wsc, "burn_fail", burn.ToolInput{Item: other.ID, Reason: "x"}); err == nil {
+		t.Fatal("a piece's chat reported another piece")
+	}
+	if _, err := f.svc.Tool(ctx, wsc, "burn_pick", burn.ToolInput{Item: other.ID}); err == nil {
+		t.Fatal("a piece's chat picked work")
+	}
 	if err := f.svc.Stop(ctx, f.project.ID); err != nil {
 		t.Fatal(err)
 	}

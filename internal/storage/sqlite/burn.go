@@ -17,14 +17,14 @@ type burnRepo struct{ db dbtx }
 
 func (s *Store) Burn() storage.BurnRepo { return burnRepo{s.q} }
 
-const burnSessionCols = `id, project_id, conversation_id, agent_id, model_tier, max_subagents, result_mode, focus, work_order, ends_at, state, waiting_until, started_by, started_at, created_at, updated_at, review_profile_id`
+const burnSessionCols = `id, project_id, conversation_id, agent_id, model_tier, max_subagents, result_mode, focus, work_order, ends_at, state, waiting_until, started_by, started_at, created_at, updated_at, review_profile_id, scanned`
 
 func scanBurnSession(row interface{ Scan(...any) error }) (storage.BurnSession, error) {
 	var s storage.BurnSession
 	var ends, waiting, started sql.NullString
 	var created, updated string
 	err := row.Scan(&s.ID, &s.ProjectID, &s.ConversationID, &s.AgentID, &s.ModelTier, &s.MaxSubagents, &s.ResultMode, &s.Focus, &s.Order, &ends, &s.State, &waiting, &s.StartedBy, &started, &created, &updated,
-		&s.ReviewProfileID)
+		&s.ReviewProfileID, &s.Scanned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, storage.ErrNotFound
 	}
@@ -58,7 +58,8 @@ func (r burnRepo) SessionByConversation(ctx context.Context, conversationID stri
 	if conversationID == "" {
 		return storage.BurnSession{}, storage.ErrNotFound
 	}
-	return scanBurnSession(r.db.QueryRowContext(ctx, `SELECT `+burnSessionCols+` FROM burn_sessions WHERE conversation_id=? OR id IN (SELECT i.session_id FROM burn_items i, json_each(i.review_conversations) j WHERE j.value=?) LIMIT 1`, conversationID, conversationID))
+	return scanBurnSession(r.db.QueryRowContext(ctx, `SELECT `+burnSessionCols+` FROM burn_sessions WHERE conversation_id=? OR id IN (SELECT session_id FROM burn_items WHERE work_conversation_id=?)
+		OR id IN (SELECT i.session_id FROM burn_items i, json_each(i.review_conversations) j WHERE j.value=?) LIMIT 1`, conversationID, conversationID, conversationID))
 }
 
 func (r burnRepo) SaveSession(ctx context.Context, s storage.BurnSession) (storage.BurnSession, error) {
@@ -70,18 +71,22 @@ func (r burnRepo) SaveSession(ctx context.Context, s storage.BurnSession) (stora
 		s.CreatedAt = now
 	}
 	s.UpdatedAt = now
-	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_sessions (`+burnSessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_sessions (`+burnSessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (id) DO UPDATE SET conversation_id=excluded.conversation_id, agent_id=excluded.agent_id, model_tier=excluded.model_tier,
 		max_subagents=excluded.max_subagents, result_mode=excluded.result_mode, focus=excluded.focus, work_order=excluded.work_order, ends_at=excluded.ends_at, state=excluded.state,
 		waiting_until=excluded.waiting_until, started_by=excluded.started_by, started_at=excluded.started_at, updated_at=excluded.updated_at,
-		review_profile_id=excluded.review_profile_id`,
+		review_profile_id=excluded.review_profile_id, scanned=excluded.scanned`,
 		s.ID, s.ProjectID, s.ConversationID, s.AgentID, s.ModelTier, s.MaxSubagents, s.ResultMode, s.Focus, cmp.Or(s.Order, "roadmap"), optTime(s.EndsAt), s.State, optTime(s.WaitingUntil),
 		s.StartedBy, optTime(s.StartedAt), fmtTime(s.CreatedAt), fmtTime(s.UpdatedAt),
-		s.ReviewProfileID)
+		s.ReviewProfileID, s.Scanned)
 	if isUnique(err) {
 		return s, storage.ErrConflict
 	}
 	return s, err
+}
+
+func (r burnRepo) SetScanned(ctx context.Context, id, scanned string) error {
+	return execOne(ctx, r.db, `UPDATE burn_sessions SET scanned=? WHERE id=?`, scanned, id)
 }
 
 func (r burnRepo) Running(ctx context.Context) ([]storage.BurnSession, error) {
@@ -101,13 +106,13 @@ func (r burnRepo) Running(ctx context.Context) ([]storage.BurnSession, error) {
 	return out, rows.Err()
 }
 
-const burnItemCols = `id, session_id, title, kind, detail, status, priority, branch, worktree, summary, attempts, subagents, cost_usd, created_at, updated_at, reviewed, review_note, review_conversations`
+const burnItemCols = `id, session_id, title, kind, detail, status, priority, branch, worktree, summary, attempts, subagents, cost_usd, created_at, updated_at, reviewed, review_note, review_conversations, work_conversation_id`
 
 func scanBurnItem(row interface{ Scan(...any) error }) (storage.BurnItem, error) {
 	var it storage.BurnItem
 	var created, updated, reviewed, convs string
 	err := row.Scan(&it.ID, &it.SessionID, &it.Title, &it.Kind, &it.Detail, &it.Status, &it.Priority, &it.Branch, &it.Worktree, &it.Summary, &it.Attempts, &it.Subagents, &it.CostUSD, &created, &updated,
-		&reviewed, &it.ReviewNote, &convs)
+		&reviewed, &it.ReviewNote, &convs, &it.WorkConversationID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return it, storage.ErrNotFound
 	}
@@ -125,20 +130,20 @@ func (r burnRepo) AddItem(ctx context.Context, it storage.BurnItem) (storage.Bur
 	if it.Status == "" {
 		it.Status = "found"
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_items (`+burnItemCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_items (`+burnItemCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		it.ID, it.SessionID, it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, fmtTime(now), fmtTime(now),
-		strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations))
+		strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), it.WorkConversationID)
 	return it, err
 }
 
 func (r burnRepo) UpdateItem(ctx context.Context, it storage.BurnItem) error {
-	return execOne(ctx, r.db, `UPDATE burn_items SET title=?, kind=?, detail=?, status=?, priority=?, branch=?, worktree=?, summary=?, attempts=?, subagents=?, cost_usd=?, reviewed=?, review_note=?, review_conversations=?, updated_at=? WHERE id=?`,
-		it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), fmtTime(time.Now()), it.ID)
+	return execOne(ctx, r.db, `UPDATE burn_items SET title=?, kind=?, detail=?, status=?, priority=?, branch=?, worktree=?, summary=?, attempts=?, subagents=?, cost_usd=?, reviewed=?, review_note=?, review_conversations=?, work_conversation_id=?, updated_at=? WHERE id=?`,
+		it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), it.WorkConversationID, fmtTime(time.Now()), it.ID)
 }
 
 func (r burnRepo) UpdateItemFrom(ctx context.Context, it storage.BurnItem, fromStatus string) error {
-	if err := execOne(ctx, r.db, `UPDATE burn_items SET title=?, kind=?, detail=?, status=?, priority=?, branch=?, worktree=?, summary=?, attempts=?, subagents=?, cost_usd=?, reviewed=?, review_note=?, review_conversations=?, updated_at=? WHERE id=? AND status=?`,
-		it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), fmtTime(time.Now()), it.ID, fromStatus); err != nil {
+	if err := execOne(ctx, r.db, `UPDATE burn_items SET title=?, kind=?, detail=?, status=?, priority=?, branch=?, worktree=?, summary=?, attempts=?, subagents=?, cost_usd=?, reviewed=?, review_note=?, review_conversations=?, work_conversation_id=?, updated_at=? WHERE id=? AND status=?`,
+		it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), it.WorkConversationID, fmtTime(time.Now()), it.ID, fromStatus); err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return storage.ErrConflict
 		}

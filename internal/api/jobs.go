@@ -314,7 +314,7 @@ func (s *server) jobGroups(w http.ResponseWriter, r *http.Request) {
 				if c.Purpose == "skill" { // a skill editor's chat opens the editor again
 					d.Link = base + "/skills/edit?c=" + c.ID
 				}
-				if c.Purpose == chat.BurnReviewPurpose { // a Burn piece's review: the Burn
+				if c.Purpose == chat.BurnReviewPurpose || c.Purpose == chat.BurnWorkPurpose { // a Burn piece's own chat: the Burn
 					d.Link = base + "?tab=burn"
 				}
 				if c.Purpose == chat.RunPurpose { // a workflow run's own chat: the run's page

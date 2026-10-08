@@ -14,6 +14,7 @@ type BurnSession struct {
 	Focus                                  string
 	Order                                  string // roadmap | bugs | auto: what it looks for first
 	ReviewProfileID                        string // its review profile (ADR-113); "" = none
+	Scanned                                string // what its scans looked at, latest last (ADR-116)
 	EndsAt                                 *time.Time
 	State                                  string // running | stopped | waiting_limit
 	WaitingUntil                           *time.Time
@@ -47,6 +48,7 @@ type BurnItem struct {
 	Reviewed                           []string          // review stages passed
 	ReviewNote                         string            // the reviewer's last word: guidance, or why not
 	ReviewConversations                map[string]string // stage → its hidden review chat (ADR-114)
+	WorkConversationID                 string            // its hidden chat with the agent that does it (ADR-116)
 	CostUSD                            float64
 	CreatedAt, UpdatedAt               time.Time
 }
@@ -55,10 +57,13 @@ type BurnItem struct {
 type BurnRepo interface {
 	// Session is a project's (ErrNotFound: none yet).
 	Session(ctx context.Context, projectID string) (BurnSession, error)
-	// SessionByConversation: the Burn's own chat, or one of its pieces' review chats.
+	// SessionByConversation: the Burn's own chat, or one of its pieces' work or review chats.
 	SessionByConversation(ctx context.Context, conversationID string) (BurnSession, error)
 	SessionByID(ctx context.Context, id string) (BurnSession, error)
 	SaveSession(ctx context.Context, s BurnSession) (BurnSession, error)
+	// SetScanned saves what its scans looked at, nothing else (it runs while
+	// the person may stop it).
+	SetScanned(ctx context.Context, id, scanned string) error
 	Running(ctx context.Context) ([]BurnSession, error)
 	AddItem(ctx context.Context, it BurnItem) (BurnItem, error)
 	UpdateItem(ctx context.Context, it BurnItem) error

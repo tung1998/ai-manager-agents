@@ -33,7 +33,7 @@ var taskSizes = `LEFT JOIN (SELECT task_id, COUNT(*) n, SUM(` + lb("instruction"
 	LEFT JOIN (SELECT c.task_id, COUNT(m.id) n, SUM(` + lb("m.content") + `+` + lb("m.tools") + `) b
 		FROM conversations c JOIN messages m ON m.conversation_id = c.id WHERE c.task_id IS NOT NULL GROUP BY c.task_id) cm ON cm.task_id = t.id`
 
-const convKind = `CASE WHEN c.purpose IN ('burn', 'burn_review') THEN 'burn' ELSE 'chat' END`
+const convKind = `CASE WHEN c.purpose IN ('burn', 'burn_review', 'burn_work') THEN 'burn' ELSE 'chat' END`
 
 func (r dataRepo) Usage(ctx context.Context) ([]storage.DataUsage, error) {
 	q := `SELECT c.project_id, ` + convKind + `, COUNT(*), SUM(c.cleaned <> ''), COALESCE(SUM(m.n), 0), COALESCE(SUM(m.b), 0) + COALESCE(SUM(p.b), 0)

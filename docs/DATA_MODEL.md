@@ -359,9 +359,9 @@ Append-only. Không có API update/delete.
 
 ### `burn_sessions` / `burn_items` (ADR-087)
 
-Mỗi project có một phiên Burn (`project_id` UNIQUE): `conversation_id` (chat `purpose = burn`), `agent_id`, `model_tier`, `max_subagents`, `result_mode` (`branch` | `patch`), `focus`, `ends_at` (null = không hẹn), `state` (`running` | `stopped` | `waiting_limit`), `waiting_until`, `started_by`.
+Mỗi project có một phiên Burn (`project_id` UNIQUE): `conversation_id` (chat `purpose = burn`), `agent_id`, `model_tier`, `max_subagents`, `result_mode` (`branch` | `patch`), `focus`, `ends_at` (null = không hẹn), `state` (`running` | `stopped` | `waiting_limit`), `waiting_until`, `started_by`, `scanned` (vùng các lượt quét đã xem, ADR-116).
 
-Việc của phiên: `title`, `kind` (`unfinished` | `upgrade` | `bug`), `detail`, `status` (`found` | `queued` | `doing` | `paused` | `done` | `failed` | `skipped`), `priority`, `branch`, `worktree`, `summary`, `subagents`, `cost_usd`.
+Việc của phiên: `title`, `kind` (`unfinished` | `upgrade` | `bug`), `detail`, `status` (`found` | `queued` | `doing` | `paused` | `done` | `failed` | `skipped`), `priority`, `branch`, `worktree`, `summary`, `subagents`, `cost_usd`, `work_conversation_id` (chat làm việc ẩn, `purpose = burn_work`, ADR-116).
 
 ## Khác biệt SQLite / Postgres
 

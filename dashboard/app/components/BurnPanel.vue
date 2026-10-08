@@ -12,7 +12,8 @@ interface Burn {
 interface Item {
   id: string, title: string, kind: 'unfinished' | 'upgrade' | 'bug', detail: string, status: string, priority: number,
   branch: string, worktree: string, summary: string, subagents: number, cost_usd: number, updated_at: string,
-  reviewed: ReviewStage[], review_note: string, review_conversations: Partial<Record<ReviewStage, string>>
+  reviewed: ReviewStage[], review_note: string, review_conversations: Partial<Record<ReviewStage, string>>,
+  work_conversation_id: string
 }
 interface AgentLite { id: string, name: string, tier: string, enabled?: boolean }
 const props = defineProps<{ projectId: string }>()
@@ -78,14 +79,17 @@ const profileItems = computed(() => [{ value: '__none', label: t('burn.review.no
 const reviewProfile = computed({ get: () => form.review_profile_id || '__none', set: (v: string) => { form.review_profile_id = v === '__none' ? '' : v } })
 const profile = computed(() => profiles.value.find(p => p.id === form.review_profile_id))
 const reviewSummary = computed(() => profile.value ? `${profile.value.name} (${reviewStages.filter(v => profile.value!.stages[v]).map(v => t(`burn.review.${v}`)).join(', ')})` : '')
-// a piece's reviews (ADR-114): hidden chats, read here
+// a piece's own chats, hidden, read here: its work (ADR-116), its reviews (ADR-114)
+type ChatTab = ReviewStage | 'work'
 const reviewing = ref<Item | null>(null)
-const reviewTab = ref<ReviewStage>('issue')
-const reviewTabs = computed(() => reviewStages.filter(v => reviewing.value?.review_conversations?.[v]).map(v => ({ value: v, label: t(`burn.review.${v}`) })))
-const hasReviews = (it: Item) => Object.values(it.review_conversations ?? {}).some(Boolean)
+const reviewTab = ref<ChatTab>('work')
+const chatOf = (it: Item | null, v: ChatTab) => v === 'work' ? it?.work_conversation_id : it?.review_conversations?.[v]
+const chatTabs = (it: Item | null): ChatTab[] => (['work', ...reviewStages] as ChatTab[]).filter(v => chatOf(it, v))
+const reviewTabs = computed(() => chatTabs(reviewing.value).map(v => ({ value: v, label: t(v === 'work' ? 'burn.workChat' : `burn.review.${v}`) })))
+const hasReviews = (it: Item) => chatTabs(it).length > 0
 function openReviews(it: Item) {
   reviewing.value = it
-  reviewTab.value = [...reviewStages].reverse().find(v => it.review_conversations?.[v]) ?? 'issue' // the latest
+  reviewTab.value = chatTabs(it).at(-1) ?? 'work' // the latest
 }
 const profilesPage = computed(() => `/projects/${props.projectId}/burn/reviews`)
 const tierItems = computed(() => (['strong', 'balanced', 'fast'] as const).map(v => ({ value: v, label: t(`burn.tier.${v}`) })))
@@ -271,7 +275,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
       <template #body>
         <div v-if="reviewing" class="space-y-3">
           <UTabs v-if="reviewTabs.length > 1" v-model="reviewTab" :items="reviewTabs" :content="false" size="sm" />
-          <RunTranscript v-if="reviewing.review_conversations[reviewTab]" :key="reviewTab" :project-id="projectId" :conversation-id="reviewing.review_conversations[reviewTab]!" />
+          <RunTranscript v-if="chatOf(reviewing, reviewTab)" :key="reviewTab" :project-id="projectId" :conversation-id="chatOf(reviewing, reviewTab)!" />
         </div>
       </template>
     </USlideover>

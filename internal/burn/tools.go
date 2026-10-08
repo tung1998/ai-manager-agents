@@ -11,16 +11,30 @@ import (
 )
 
 // Tool is one of the agent's Burn tools (burn_add, burn_pick, burn_skip,
-// burn_done, burn_fail), called from the Burn's conversation only.
+// burn_done, burn_fail), called from the Burn's conversation, or from a
+// piece's work chat (ADR-116) for that piece only (and burn_add).
 func (s *Service) Tool(ctx context.Context, sc actions.Scope, name string, in ToolInput) (string, error) {
 	b, err := s.store.Burn().SessionByConversation(ctx, sc.ConversationID)
-	if err != nil || b.ConversationID != sc.ConversationID { // not the reviewer's: it only reads
+	if err != nil || sc.ConversationID == "" {
 		return "", errors.New("các công cụ burn_* chỉ dùng trong hội thoại Burn")
 	}
-	if name == "burn_add" {
+	if name == "burn_add" && b.ConversationID == sc.ConversationID {
 		return s.add(ctx, b, in)
 	}
 	it, err := s.store.Burn().Item(ctx, strings.TrimSpace(in.Item))
+	if b.ConversationID != sc.ConversationID { // a piece's work chat (a reviewer's only reads)
+		own, oerr := s.workItem(ctx, b.ID, sc.ConversationID)
+		switch {
+		case oerr != nil:
+			return "", errors.New("các công cụ burn_* chỉ dùng trong hội thoại Burn")
+		case name == "burn_add":
+			return s.add(ctx, b, in)
+		case name != "burn_done" && name != "burn_fail":
+			return "", fmt.Errorf("chat của việc %s chỉ báo được burn_done/burn_fail cho chính nó", own.ID)
+		case err != nil || it.ID != own.ID:
+			return "", fmt.Errorf("chat này chỉ báo kết quả cho việc %s", own.ID)
+		}
+	}
 	if err != nil || it.SessionID != b.ID {
 		return "", fmt.Errorf("không có việc %q trong Burn này", in.Item)
 	}
@@ -55,6 +69,20 @@ func (s *Service) Tool(ctx context.Context, sc actions.Scope, name string, in To
 		return "", err
 	}
 	return fmt.Sprintf("Đã ghi: %s → %s.", it.Title, it.Status), nil
+}
+
+// workItem is the piece of session whose work chat conversationID is.
+func (s *Service) workItem(ctx context.Context, sessionID, conversationID string) (storage.BurnItem, error) {
+	items, err := s.store.Burn().Items(ctx, sessionID)
+	if err != nil {
+		return storage.BurnItem{}, err
+	}
+	for _, it := range items {
+		if it.WorkConversationID == conversationID {
+			return it, nil
+		}
+	}
+	return storage.BurnItem{}, storage.ErrNotFound
 }
 
 // ToolInput is what the Burn tools take.

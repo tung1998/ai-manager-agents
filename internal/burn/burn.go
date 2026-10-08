@@ -160,6 +160,13 @@ func (s *Service) Stop(ctx context.Context, projectID string) error {
 	if b.ConversationID != "" {
 		s.chat.StopAll(b.ConversationID)
 	}
+	if items, err := s.store.Burn().Items(ctx, b.ID); err == nil {
+		for _, it := range items {
+			if it.Status == "doing" && it.WorkConversationID != "" {
+				s.chat.StopAll(it.WorkConversationID)
+			}
+		}
+	}
 	s.pauseDoing(ctx, b.ID)
 	return nil
 }
@@ -300,8 +307,8 @@ type turnResult struct {
 	text      string // the answer
 }
 
-// run sends text in the Burn's conversation and waits for the answer (a
-// person chatting there now: it waits its turn).
+// run sends text in one of the Burn's conversations and waits for the answer
+// (a person chatting there now: it waits its turn).
 func (s *Service) run(ctx context.Context, conversationID, text string) (turnResult, error) {
 	var res turnResult
 	var turn *chat.Turn
@@ -369,10 +376,16 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 		_ = s.store.Burn().UpdateItem(ctx, it)
 		return false
 	}
+	// its own chat (ADR-116): what other pieces did does not crowd its context
+	if perr = s.ensureWorkConversation(ctx, b, &it); perr != nil {
+		it.Status, it.Summary = s.failedOrAgain(it, "không tạo được chat làm việc: "+perr.Error())
+		_ = s.store.Burn().UpdateItem(ctx, it)
+		return false
+	}
 	_ = s.store.Burn().UpdateItem(ctx, it)
 	// held back for its review (ADR-112): no diff until the reviewer agrees
 	held := s.reviews(ctx, b, "result")
-	res, err := s.run(runCtx(ctx, b, tree, b.ResultMode != "patch" || held), b.ConversationID, workPrompt(b, it, again, held))
+	res, err := s.run(runCtx(ctx, b, tree, b.ResultMode != "patch" || held), it.WorkConversationID, workPrompt(b, it, again, held))
 	cur, gerr := s.store.Burn().Item(context.WithoutCancel(ctx), it.ID)
 	if gerr != nil {
 		return false
@@ -401,6 +414,29 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	}
 	_ = s.store.Burn().UpdateItem(context.WithoutCancel(ctx), cur)
 	return failed
+}
+
+// ensureWorkConversation gives a piece a hidden chat of its own with the
+// Burn's agent (ADR-116), kept after it is done (a retry goes on there, the
+// person reads it from the Burn); a new one once the agent was changed.
+func (s *Service) ensureWorkConversation(ctx context.Context, b storage.BurnSession, it *storage.BurnItem) error {
+	if id := it.WorkConversationID; id != "" {
+		c, err := s.store.Chat().GetConversation(ctx, id)
+		if err == nil && (b.AgentID == "" || c.AgentID == b.AgentID) && c.Cleaned == "" {
+			return nil
+		}
+		if err != nil && !errors.Is(err, storage.ErrNotFound) {
+			return err
+		}
+	}
+	conv, err := s.chat.StartConversationPurpose(ctx, b.ProjectID, b.AgentID, chat.BurnWorkPurpose)
+	if err != nil {
+		return err
+	}
+	conv.Title = oneLine("Burn: "+it.Title, 80)
+	_ = s.store.Chat().UpdateConversation(ctx, conv)
+	it.WorkConversationID = conv.ID
+	return s.chat.SetMode(ctx, conv.ID, "operate")
 }
 
 // failedOrAgain: a second try, then failed.
@@ -434,8 +470,41 @@ func (s *Service) plan(ctx context.Context, b storage.BurnSession, items []stora
 	if err == nil && res.failed != "" {
 		err = errors.New(res.failed)
 	}
+	if area := scannedOf(res.text); area != "" { // kept off the chat: it is compacted, or the agent changed
+		_ = s.store.Burn().SetScanned(context.WithoutCancel(ctx), b.ID, addScanned(b.Scanned, area, time.Now()))
+	}
 	return err
 }
+
+// scannedMark starts the line of a scan's answer that says what it looked at.
+const scannedMark = "VÙNG ĐÃ XEM:"
+
+// maxScanned caps what is kept of the areas scanned (the latest stay).
+const maxScanned = 2000
+
+// scannedOf is what a scan said it looked at.
+func scannedOf(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		l := strings.TrimLeft(strings.TrimSpace(line), "*-_# ")
+		if r := []rune(l); len(r) > len([]rune(scannedMark)) && strings.EqualFold(string(r[:len([]rune(scannedMark))]), scannedMark) {
+			return oneLine(strings.Trim(string(r[len([]rune(scannedMark)):]), "*_ "), 400)
+		}
+	}
+	return ""
+}
+
+// addScanned adds a scan's areas to what was kept, dropping the oldest lines
+// past maxScanned.
+func addScanned(kept, area string, at time.Time) string {
+	lines := append(strings.Split(strings.TrimSpace(kept), "\n"), at.Local().Format("02/01 15:04")+" "+area)
+	for len(lines) > 1 && (lines[0] == "" || len([]rune(strings.Join(lines, "\n"))) > maxScanned) {
+		lines = lines[1:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// maxClosedInPlan caps the closed items listed in the plan prompt.
+const maxClosedInPlan = 15
 
 func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty int) string {
 	var sb strings.Builder
@@ -447,15 +516,37 @@ func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty int) stri
 	if len(items) == 0 {
 		sb.WriteString("(chưa có)\n")
 	}
+	// Open items in full; closed ones (done, skipped, failed) only by title so
+	// the agent does not re-add them, and only the latest few: a long session
+	// would otherwise fill the context with history.
+	var closed []storage.BurnItem
 	for _, it := range items {
+		switch it.Status {
+		case "done", "skipped", "failed":
+			closed = append(closed, it)
+			continue
+		}
 		fmt.Fprintf(&sb, "- %s [%s, %s] %s", it.ID, it.Kind, it.Status, it.Title)
 		if it.Summary != "" {
 			fmt.Fprintf(&sb, " — %s", oneLine(it.Summary, 160))
 		}
 		sb.WriteString("\n")
 	}
+	if len(closed) > 0 {
+		sb.WriteString("Đã xong/bỏ qua (không ghi lại, không chọn lại):\n")
+		if n := len(closed) - maxClosedInPlan; n > 0 {
+			fmt.Fprintf(&sb, "(%d việc cũ hơn không liệt kê)\n", n)
+			closed = closed[n:]
+		}
+		for _, it := range closed {
+			fmt.Fprintf(&sb, "- [%s] %s\n", it.Status, oneLine(it.Title, 100))
+		}
+	}
+	if b.Scanned != "" {
+		sb.WriteString("\nVùng các lượt quét trước đã xem (cũ trước, mới sau):\n" + b.Scanned + "\n")
+	}
 	if empty > 0 {
-		fmt.Fprintf(&sb, "\nĐã có %d lần quét liên tiếp không ra việc. Đừng quét lại những vùng đã xem (xem các lượt trước trong hội thoại này); chọn vùng khác và đào sâu hơn.\n", empty)
+		fmt.Fprintf(&sb, "\nĐã có %d lần quét liên tiếp không ra việc. Đừng quét lại những vùng đã xem ở trên; chọn vùng khác và đào sâu hơn.\n", empty)
 	}
 	roadmap := `   - Lộ trình: đọc tài liệu kế hoạch của project (PLAN, ROADMAP, TODO, spec, ADR) tìm tính năng ghi "chưa làm" hoặc làm dở. Bỏ qua mục chưa được duyệt (đang thiết kế, ý tưởng, nháp chờ duyệt). Tính năng lớn thì tự viết thiết kế ngắn dựa trên spec/ADR liên quan rồi chia thành các phần chạy được độc lập: mỗi phần một burn_add, tiêu đề "<tính năng>: phần 1", "phần 2"…, chi tiết gồm thiết kế, phạm vi phần đó và cách kiểm chứng; làm lần lượt từ phần 1.
    - Việc dang dở khác: TODO/FIXME, nhánh làm dở, test/build đang fail, đề xuất còn treo trong các chat (dùng search_history).
@@ -481,8 +572,8 @@ Việc của lượt này:
 	}
 	sb.WriteString(`   Ghi từng việc bằng burn_add (tiêu đề ngắn, kind unfinished|upgrade|bug, chi tiết kèm file:dòng và cách sửa). Chỉ ghi việc có thật, có lợi; không ghi trùng việc đã có.
 2. Chọn ĐÚNG MỘT việc đáng làm nhất bằng burn_pick; việc không đáng làm thì burn_skip kèm lý do.
-3. Không sửa code ở lượt này (worktree của lượt này bị bỏ). Chỉ được nói "hết việc" sau khi đã xem kỹ, và phải liệt kê các vùng đã xem để lần sau quét vùng khác.
-Trả lời ngắn: các vùng đã xem, tìm được gì, chọn việc nào và vì sao.`)
+3. Không sửa code ở lượt này (worktree của lượt này bị bỏ). Chỉ được nói "hết việc" sau khi đã xem kỹ.
+Trả lời ngắn: tìm được gì, chọn việc nào và vì sao. Dòng CUỐI phải là "` + scannedMark + ` <các vùng lượt này đã xem, ngắn gọn>" (office lưu lại để lần sau quét vùng khác).`)
 	return sb.String()
 }
 
