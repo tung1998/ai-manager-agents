@@ -87,14 +87,19 @@ function cleanProject(id: string) {
   nextTick(() => document.getElementById('data-clean')?.scrollIntoView({ behavior: 'smooth' }))
 }
 const confirmOpen = ref(false)
+const cleaning = ref(false)
 async function clean() {
-  confirmOpen.value = false
+  if (cleaning.value) return
+  cleaning.value = true
   try {
     await $fetch('/api/data/clean', { method: 'POST', body: request.value })
+    confirmOpen.value = false
     plan.value = null
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    cleaning.value = false
   }
 }
 // while it runs: follow it
@@ -288,8 +293,8 @@ async function saveAuto() {
       </template>
       <template #footer>
         <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="confirmOpen = false" />
-          <UButton :color="form.level === 'delete' ? 'error' : 'primary'" icon="i-lucide-eraser" :label="t('data.cleanN', { n: plan?.count ?? 0 })" @click="clean" />
+          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" :disabled="cleaning" @click="confirmOpen = false" />
+          <UButton :color="form.level === 'delete' ? 'error' : 'primary'" icon="i-lucide-eraser" :label="t('data.cleanN', { n: plan?.count ?? 0 })" :loading="cleaning" :disabled="cleaning" @click="clean" />
         </div>
       </template>
     </UModal>
