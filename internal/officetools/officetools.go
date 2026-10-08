@@ -215,7 +215,7 @@ func (t *Toolbox) Tools() []Tool {
 				"detail": map[string]any{"type": "string", "description": "Enough to do it: where, why, and what done looks like"},
 			}, "title", "kind")},
 			Tool{Name: "burn_pick", Description: "Burn: pick the next piece to work on.", Schema: obj(map[string]any{"item": item}, "item")},
-			Tool{Name: "burn_skip", Description: "Burn: skip a piece not worth doing.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
+			Tool{Name: "burn_skip", Description: "Burn: drop a piece not worth doing for good (permanent, never picked again). A piece that is only outside the current focus or not its turn yet: do NOT skip it, leave it in the queue.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
 			Tool{Name: "burn_done", Description: "Burn: report the current piece done.", Schema: obj(map[string]any{"item": item, "summary": map[string]any{"type": "string", "description": "What was done and how it was checked"}}, "item", "summary")},
 			Tool{Name: "burn_list", Description: "Burn: list this Burn's data kept out of the coordination prompt: its open pieces in full, all closed ones (done/skipped/failed, to avoid adding one again), or every area earlier scans looked at.", Schema: obj(map[string]any{
 				"what": map[string]any{"type": "string", "enum": []string{"open", "closed", "scanned"}},
