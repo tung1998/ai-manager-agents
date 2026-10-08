@@ -42,7 +42,9 @@ func (e *Engine) launch(ctx context.Context, own storage.Conversation, run *wfRu
 	if run.inputs == nil {
 		run.inputs = inputsFrom(run.def, run.rec.Input)
 	}
-	e.beginRun(own, run, actor.From(ctx), ModelTierFrom(ctx), ceilingOf(ctx))
+	if err := e.beginRun(own, run, actor.From(ctx), ModelTierFrom(ctx), ceilingOf(ctx)); err != nil {
+		return err
+	}
 	sctx, stop := context.WithCancel(context.Background())
 	e.wf.mu.Lock()
 	run.stop = stop

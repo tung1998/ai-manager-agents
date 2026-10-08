@@ -772,7 +772,13 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	turn.JobID = job.ID
 	runCtx = usage.WithJob(runCtx, job.ID)
 	if run != nil {
-		e.startRun(conv, run, turn)
+		if err := e.startRun(conv, run, turn); err != nil {
+			e.endJob(job.ID, "", err, nil)
+			e.store.Chat().AddMessage(context.Background(), storage.Message{ConversationID: conv.ID, Role: "error", Content: err.Error()})
+			cancel()
+			e.finish(turn)
+			return nil, storage.Message{}, err
+		}
 	}
 	go e.run(runCtx, turn, conv, project, agent, history, prompt, files)
 	return turn, msg, nil

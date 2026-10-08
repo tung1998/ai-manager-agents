@@ -300,16 +300,19 @@ func (e *Engine) differWarnings(ctx context.Context, run *wfRun, byID map[string
 }
 
 // startRun keeps a prepared run going once its first turn has started.
-func (e *Engine) startRun(conv storage.Conversation, run *wfRun, turn *Turn) {
-	e.beginRun(conv, run, turn.actor, turn.tier, turn.ceiling)
+func (e *Engine) startRun(conv storage.Conversation, run *wfRun, turn *Turn) error {
+	if err := e.beginRun(conv, run, turn.actor, turn.tier, turn.ceiling); err != nil {
+		return err
+	}
 	e.mu.Lock()
 	turn.wfRun = run.rec.ID // the chat shows the run's card where it started (the dashboard puts it by time)
 	e.mu.Unlock()
+	return nil
 }
 
 // beginRun records a run and keeps it going in its chat (with no turn: a
 // graph of steps starts this way).
-func (e *Engine) beginRun(conv storage.Conversation, run *wfRun, actorOf, tier, ceiling string) {
+func (e *Engine) beginRun(conv storage.Conversation, run *wfRun, actorOf, tier, ceiling string) error {
 	ctx := context.Background()
 	run.tier, run.ceiling = tier, ceiling
 	run.deadline = time.Now().Add(run.def.Timeout())
@@ -328,7 +331,7 @@ func (e *Engine) beginRun(conv storage.Conversation, run *wfRun, actorOf, tier, 
 	}
 	rec, err := e.store.WorkflowRuns().Create(ctx, run.rec)
 	if err != nil {
-		slog.Warn("workflow: save run", "err", err)
+		return fmt.Errorf("workflow: save run: %w", err)
 	}
 	run.rec = rec
 	e.wf.mu.Lock()
@@ -336,6 +339,7 @@ func (e *Engine) beginRun(conv storage.Conversation, run *wfRun, actorOf, tier, 
 	e.wf.byConv[conv.ID] = run
 	run.timer = time.AfterFunc(time.Until(run.deadline), func() { e.wfExpire(conv.ID, rec.ID) })
 	e.wf.mu.Unlock()
+	return nil
 }
 
 // runOf is the chat's running workflow (nil = none).
