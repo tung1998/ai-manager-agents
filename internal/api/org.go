@@ -124,6 +124,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("PUT /api/conversations/{id}/subject", auth(s.ownChat(s.setSubject)))
 		mux.Handle("GET /api/projects/{id}/chat-tags", auth(s.projectTags))
 		mux.Handle("POST /api/conversations/{id}/stop", auth(s.ownChat(s.stopConversation)))
+		mux.Handle("DELETE /api/conversations/{id}/queued", auth(s.ownChat(s.unqueue)))
 		mux.Handle("GET /api/patches/{id}", auth(s.getPatch))
 		mux.Handle("POST /api/patches/{id}/approve", admin(s.approvePatch))
 		mux.Handle("POST /api/patches/{id}/reject", admin(s.rejectPatch))

@@ -178,6 +178,7 @@ func serveCmd() *cobra.Command {
 				return burner.Tool(ctx, sc, name, burn.ToolInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason})
 			})
 			burner.Start(ctx)
+			chatEngine.SendAllQueued(ctx) // messages that waited in chats when office stopped
 			bots.Start(ctx)
 			// data management: measuring, cleaning by hand and on its own (ADR-095)
 			cleaner := cleanup.New(a.store, chatEngine, trees, filepath.Join(h.Dir, "attachments"), h.DB())

@@ -560,3 +560,82 @@ func (r chatRepo) SearchMessages(ctx context.Context, query string, f storage.Se
 	}
 	return out, rows.Err()
 }
+
+func (r chatRepo) QueueMessage(ctx context.Context, q storage.QueuedMessage) (storage.QueuedMessage, error) {
+	if q.ID == "" {
+		q.ID = ids.New("chq")
+	}
+	if q.CreatedAt.IsZero() {
+		q.CreatedAt = time.Now().UTC()
+	}
+	if q.Attachments == nil {
+		q.Attachments = []storage.Attachment{}
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO chat_queued (id, conversation_id, author, text, attachments, context, options, created_at) VALUES (?,?,?,?,?,?,?,?)`,
+		q.ID, q.ConversationID, q.Author, q.Text, toJSON(q.Attachments), q.Context, toJSON(q.Options), fmtTime(q.CreatedAt))
+	if err == nil {
+		r.tell(storage.Change{Kind: "conversation", ConversationID: q.ConversationID})
+	}
+	return q, err
+}
+
+func (r chatRepo) QueuedMessages(ctx context.Context, conversationID string) ([]storage.QueuedMessage, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, conversation_id, author, text, attachments, context, options, created_at FROM chat_queued WHERE conversation_id=? ORDER BY created_at, id`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storage.QueuedMessage
+	for rows.Next() {
+		var (
+			q             storage.QueuedMessage
+			att, opts, at string
+		)
+		if err := rows.Scan(&q.ID, &q.ConversationID, &q.Author, &q.Text, &att, &q.Context, &opts, &at); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(att), &q.Attachments)
+		_ = json.Unmarshal([]byte(opts), &q.Options)
+		if q.Attachments == nil {
+			q.Attachments = []storage.Attachment{}
+		}
+		q.CreatedAt, _ = parseTime(at)
+		out = append(out, q)
+	}
+	return out, rows.Err()
+}
+
+func (r chatRepo) DeleteQueued(ctx context.Context, conversationID string, ids ...string) error {
+	q, args := `DELETE FROM chat_queued WHERE conversation_id=?`, []any{conversationID}
+	if len(ids) > 0 {
+		q += ` AND id IN (?` + strings.Repeat(",?", len(ids)-1) + `)`
+		for _, id := range ids {
+			args = append(args, id)
+		}
+	}
+	res, err := r.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		r.tell(storage.Change{Kind: "conversation", ConversationID: conversationID})
+	}
+	return nil
+}
+
+func (r chatRepo) QueuedConversations(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT conversation_id FROM chat_queued`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

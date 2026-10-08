@@ -303,6 +303,7 @@ export default {
   'burn.stop': 'Tắt',
   'burn.resume': 'Tiếp tục',
   'burn.stopNow': 'Dừng hẳn',
+  'burn.showMore': 'Hiện thêm {n} việc',
   'burn.settings': 'Cài đặt',
   'burn.openChat': 'Mở hội thoại',
   'burn.state.running': 'đang chạy',

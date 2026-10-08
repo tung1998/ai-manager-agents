@@ -304,6 +304,7 @@ const en: Record<keyof typeof vi, string> = {
   'burn.stop': 'Stop',
   'burn.resume': 'Resume',
   'burn.stopNow': 'Stop now',
+  'burn.showMore': 'Show {n} more',
   'burn.settings': 'Settings',
   'burn.openChat': 'Open conversation',
   'burn.state.running': 'running',

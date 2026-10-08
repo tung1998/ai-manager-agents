@@ -440,6 +440,25 @@ type Patch struct {
 // ChatRepo stores conversations, messages and patches.
 // Change is a chat written, for the dashboard's live data (ADR-078): a
 // message added (with it), a conversation made, changed or deleted.
+// QueuedMessage is a message written while its chat answered: office sends
+// the chat's waiting ones together as the next message once it is free.
+type QueuedMessage struct {
+	ID, ConversationID string
+	Author             string // who wrote it (actor)
+	Text, Context      string
+	Attachments        []Attachment
+	Options            QueuedOptions
+	CreatedAt          time.Time
+}
+
+// QueuedOptions are the chat settings sent with it, applied when it goes.
+type QueuedOptions struct {
+	Mode     string  `json:"mode,omitempty"`
+	EditMode string  `json:"edit_mode,omitempty"`
+	AgentID  string  `json:"agent_id,omitempty"`
+	Effort   *string `json:"effort,omitempty"`
+}
+
 type Change struct {
 	Kind           string // message | conversation | conversation.deleted
 	ConversationID string
@@ -514,6 +533,15 @@ type ChatRepo interface {
 	// Members lists a chat's agents in the order they joined.
 	Members(ctx context.Context, conversationID string) ([]ChatMember, error)
 	ListMessages(ctx context.Context, conversationID string) ([]Message, error)
+
+	// QueueMessage keeps a message written while the chat answers (sent next).
+	QueueMessage(ctx context.Context, q QueuedMessage) (QueuedMessage, error)
+	// QueuedMessages lists a chat's waiting messages, oldest first.
+	QueuedMessages(ctx context.Context, conversationID string) ([]QueuedMessage, error)
+	// QueuedConversations lists the chats with waiting messages.
+	QueuedConversations(ctx context.Context) ([]string, error)
+	// DeleteQueued drops those of a chat's waiting messages (none named: all).
+	DeleteQueued(ctx context.Context, conversationID string, ids ...string) error
 
 	AddPatch(ctx context.Context, p Patch) (Patch, error)
 	GetPatch(ctx context.Context, id string) (Patch, error)

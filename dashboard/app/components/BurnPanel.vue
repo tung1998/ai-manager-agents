@@ -143,13 +143,20 @@ async function stop(how: 'drain' | 'resume' | 'stop') {
 }
 
 // the board
+// a column shows its first colMax, the rest on asking
+const colMax = 10
+const expanded = ref(new Set<string>())
+function expand(key: string) { expanded.value = new Set([...expanded.value, key]) }
 const columns = computed(() => [
   { key: 'found', label: t('burn.col.found'), statuses: ['found'] },
   { key: 'doing', label: t('burn.col.doing'), statuses: ['doing', 'review', 'queued'] },
   { key: 'paused', label: t('burn.col.paused'), statuses: ['paused'] },
   { key: 'done', label: t('burn.col.done'), statuses: ['done'] },
   { key: 'other', label: t('burn.col.other'), statuses: ['failed', 'skipped'] }
-].map(c => ({ ...c, items: items.value.filter(i => c.statuses.includes(i.status)) })))
+].map((c) => {
+  const all = items.value.filter(i => c.statuses.includes(i.status))
+  return { ...c, all, items: expanded.value.has(c.key) ? all : all.slice(0, colMax) }
+}))
 const kindColor = (k: Item['kind']) => ({ bug: 'error', unfinished: 'warning', upgrade: 'info' } as const)[k]
 const itemActing = ref('')
 async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') {
@@ -201,9 +208,10 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
     </UCard>
 
     <!-- the pieces of work, by where they are -->
-    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-      <div v-for="col in columns" :key="col.key" class="min-w-0 space-y-2 rounded-xl border border-(--ui-border) p-2">
-        <p class="flex items-center gap-2 px-1 text-xs font-medium text-(--ui-text-muted)">{{ col.label }}<UBadge :label="String(col.items.length)" color="neutral" variant="subtle" size="sm" /></p>
+    <!-- side by side on every screen: scrolled across below xl -->
+    <div class="flex snap-x snap-mandatory items-start gap-3 overflow-x-auto pb-2 xl:grid xl:grid-cols-5 xl:overflow-visible xl:pb-0">
+      <div v-for="col in columns" :key="col.key" class="w-[80%] min-w-0 shrink-0 snap-start space-y-2 rounded-xl border border-(--ui-border) p-2 sm:w-[45%] xl:w-auto">
+        <p class="flex items-center gap-2 px-1 text-xs font-medium text-(--ui-text-muted)">{{ col.label }}<UBadge :label="String(col.all.length)" color="neutral" variant="subtle" size="sm" /></p>
         <p v-if="!col.items.length" class="px-1 py-2 text-xs text-(--ui-text-dimmed)">—</p>
         <div v-for="it in col.items" :key="it.id" class="space-y-1.5 rounded-lg bg-(--ui-bg-elevated)/60 p-2.5 text-sm">
           <div class="flex items-start gap-2">
@@ -234,6 +242,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
             <UButton v-if="it.worktree && ['done', 'failed', 'skipped'].includes(it.status)" size="xs" color="neutral" variant="ghost" icon="i-lucide-trash-2" :label="t('burn.dropWorktree')" :loading="itemActing === it.id + 'drop-worktree'" @click="itemAction(it, 'drop-worktree')" />
           </div>
         </div>
+        <UButton v-if="col.all.length > col.items.length" size="xs" color="neutral" variant="ghost" block :label="t('burn.showMore', { n: col.all.length - col.items.length })" @click="expand(col.key)" />
       </div>
     </div>
 

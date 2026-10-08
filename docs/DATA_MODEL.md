@@ -363,6 +363,10 @@ Mỗi project có một phiên Burn (`project_id` UNIQUE): `conversation_id` (ch
 
 Việc của phiên: `title`, `kind` (`unfinished` | `upgrade` | `bug`), `detail`, `status` (`found` | `queued` | `doing` | `paused` | `done` | `failed` | `skipped`), `priority`, `branch`, `worktree`, `summary`, `subagents`, `cost_usd`, `work_conversation_id` (chat làm việc ẩn, `purpose = burn_work`, ADR-116).
 
+### `chat_queued` (ADR-119)
+
+Tin nhắn viết trong lúc chat đang trả lời: `conversation_id` (xóa theo chat), `author`, `text`, `attachments` (JSON tham chiếu file), `context` (trang đang mở), `options` (JSON `mode`, `edit_mode`, `agent_id`, `effort` áp khi gửi), `created_at`. Chat rảnh thì office gửi cả hàng thành một tin rồi xóa.
+
 ## Khác biệt SQLite / Postgres
 
 | Điểm | SQLite | Postgres |

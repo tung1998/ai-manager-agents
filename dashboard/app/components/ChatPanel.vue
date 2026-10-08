@@ -16,7 +16,8 @@ interface Message {
   actions?: ProposedAction[]
   cost_usd?: number
 }
-interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', effort?: string, cleaned?: string, context_tokens?: number, context_window?: number, tags?: string[] }
+interface Queued { id: string, text: string, attachments: Attachment[], created_at: string }
+interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', effort?: string, cleaned?: string, context_tokens?: number, context_window?: number, tags?: string[], queued?: Queued[] }
 interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 'done' | 'error', text?: string, tool?: ToolCall, patch?: Patch, message?: Message, next_turn_id?: string }
 // the agents in a chat and the answers in progress (ADR-044)
 interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
@@ -487,31 +488,32 @@ async function newConversation(agentId = '') {
   }
 }
 
-// written while an answer is on its way (as the CLI): shown greyed under it,
-// sent as the next message once the chat is free (several: as one)
-interface Queued { id: number, convId: string, text: string, files: Attachment[] }
-const queue = ref<Queued[]>([])
-let queueSeq = 0
-const queuedHere = computed(() => queue.value.filter(q => q.convId === current.value?.id))
-function unqueue(id: number) { queue.value = queue.value.filter(q => q.id !== id) }
-// Stop: what waited goes back into the box, not sent after all
-function unqueueAll() {
-  const here = queuedHere.value
-  if (!here.length) return
-  queue.value = queue.value.filter(q => q.convId !== current.value?.id)
-  draft.value = [...here.map(q => q.text), draft.value].filter(Boolean).join('\n\n')
-  draftFiles.value = [...here.flatMap(q => q.files), ...draftFiles.value]
+// written while an answer is on its way (as the CLI): office keeps it (not
+// this page: leaving loses nothing), shown greyed under the answer and sent
+// as the next message once the chat is free (several: as one)
+const queuedHere = computed(() => current.value?.queued ?? [])
+function setQueued(id: string, list: Queued[]) {
+  if (current.value?.id === id) current.value = { ...current.value, queued: list }
 }
-watch([streaming, sending, loadingMsgs, () => current.value?.id], () => {
+async function unqueue(q: Queued) {
+  const id = current.value?.id
+  if (!id) return
+  setQueued(id, queuedHere.value.filter(x => x.id !== q.id))
+  await $fetch(`/api/conversations/${id}/queued`, { method: 'DELETE', query: { id: q.id } }).catch(e => toast.add({ title: apiError(e), color: 'error' }))
+}
+// Stop: what waited goes back into the box, not sent after all
+async function unqueueAll() {
+  const id = current.value?.id
   const here = queuedHere.value
-  if (!here.length || streaming.value || sending.value || loadingMsgs.value) return
-  queue.value = queue.value.filter(q => !here.includes(q))
-  void post(here.map(q => q.text).filter(Boolean).join('\n\n'), here.flatMap(q => q.files))
-})
+  if (!id || !here.length) return
+  setQueued(id, [])
+  draft.value = [...here.map(q => q.text), draft.value].filter(Boolean).join('\n\n')
+  draftFiles.value = [...here.flatMap(q => q.attachments), ...draftFiles.value]
+  await $fetch(`/api/conversations/${id}/queued`, { method: 'DELETE' }).catch(() => {})
+}
 
-// leaving the page: what waited is kept as this chat's draft, not lost
+// leaving the page: what is in the box is kept as this chat's draft
 onBeforeUnmount(() => {
-  unqueueAll()
   drafts.save(draftKey.value, draft.value, draftFiles.value)
 })
 
@@ -519,17 +521,10 @@ function send() {
   const text = draft.value.trim()
   const files = draftFiles.value
   if ((!text && !files.length) || prompt.value?.busy) return
-  if (streaming.value || sending.value) {
-    if (!current.value) return // the new chat is still being made: the box keeps it
-    queue.value.push({ id: ++queueSeq, convId: current.value.id, text, files })
-    draft.value = ''
-    draftFiles.value = []
-    scrollDown(true) // theirs: in view
-    return
-  }
+  if ((streaming.value || sending.value) && !current.value) return // the new chat is still being made: the box keeps it
   draft.value = ''
   draftFiles.value = []
-  return post(text, files)
+  return post(text, files) // answering now: office keeps it for next
 }
 
 // post sends one message; it fails back into the box (with what is there now)
@@ -542,7 +537,13 @@ async function post(text: string, files: Attachment[]) {
   sending.value = true
   try {
     // mode operate: the agent's own rights are the limit (members are capped server-side)
-    const res = await $fetch<{ turn_id: string, message: Message, notice?: Message }>(`/api/conversations/${current.value.id}/messages`, { method: 'POST', body: { text, attachments: files.map(a => a.id), mode: 'operate', edit_mode: editMode.value, effort: effort.value, agent_id: switching, context: props.pageContext?.() ?? '' } })
+    const id = current.value.id
+    const res = await $fetch<{ turn_id: string, message: Message, notice?: Message, queued?: Queued }>(`/api/conversations/${id}/messages`, { method: 'POST', body: { text, attachments: files.map(a => a.id), mode: 'operate', edit_mode: editMode.value, effort: effort.value, agent_id: switching, context: props.pageContext?.() ?? '' } })
+    if (res.queued) { // it answers: sent once it is free (the live row may have it already)
+      if (!queuedHere.value.some(q => q.id === res.queued!.id)) setQueued(id, [...queuedHere.value, res.queued])
+      scrollDown(true) // theirs: in view
+      return
+    }
     if (switching && picked.value && current.value) current.value = { ...current.value, agent_id: picked.value.id, agent_name: picked.value.name }
     const first = !messages.value.some(m => m.id !== res.message.id)
     // the server's push of this message may have come first (ADR-078): once only
@@ -597,6 +598,8 @@ function follow(id: string) {
           break
         }
         finishStream()
+        // what waited was sent as this ended: its answer streams now
+        if (current.value?.active_turn && current.value.active_turn !== id) follow(current.value.active_turn)
         afterTurn()
         if (!single.value) refreshConvs()
         scrollDown()
@@ -630,7 +633,7 @@ async function sendNow() {
   if (streaming.value && turnId) await cancelTurn(turnId)
 }
 async function cancel() {
-  unqueueAll()
+  await unqueueAll()
   // Stop: the answer and every agent working in the background in this chat
   if (current.value && !single.value) await $fetch(`/api/conversations/${current.value.id}/stop`, { method: 'POST', body: {} }).catch(() => {})
   else if (turnId) await $fetch(`/api/chat/turns/${turnId}/cancel`, { method: 'POST', body: {} }).catch(() => {})
@@ -1004,15 +1007,15 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- written while it answers: sent next, greyed until then -->
-        <div v-for="q in queuedHere" :key="`q${q.id}`" class="flex flex-col items-end gap-1 opacity-50">
+        <div v-for="q in queuedHere" :key="q.id" class="flex flex-col items-end gap-1 opacity-50">
           <div v-if="q.text" class="min-w-0 max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--ui-bg-accented) px-3.5 py-2 text-sm">{{ q.text }}</div>
           <div class="flex items-center gap-1 text-xs text-(--ui-text-muted)">
             <UIcon name="i-lucide-clock" class="size-3.5" />
-            <span>{{ q.files.length ? `${t('chat.queued')} · ${q.files.map(f => f.name).join(', ')}` : t('chat.queued') }}</span>
+            <span>{{ q.attachments.length ? `${t('chat.queued')} · ${q.attachments.map(f => f.name).join(', ')}` : t('chat.queued') }}</span>
             <button v-if="streaming" type="button" class="flex items-center gap-0.5 rounded px-1 py-0.5 text-(--ui-text) hover:text-primary" :title="t('chat.sendNowHint')" @click="sendNow">
               <UIcon name="i-lucide-zap" class="size-3.5" />{{ t('chat.sendNow') }}
             </button>
-            <button type="button" class="rounded p-0.5 hover:text-(--ui-error)" :aria-label="t('chat.unqueue')" :title="t('chat.unqueue')" @click="unqueue(q.id)">
+            <button type="button" class="rounded p-0.5 hover:text-(--ui-error)" :aria-label="t('chat.unqueue')" :title="t('chat.unqueue')" @click="unqueue(q)">
               <UIcon name="i-lucide-x" class="size-3.5" />
             </button>
           </div>

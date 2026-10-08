@@ -865,14 +865,19 @@ func (e *Engine) finish(t *Turn) {
 		go e.onRunWait(context.Background(), caller)
 	}
 	e.mu.Lock()
-	if e.active[t.ConversationID] == t { // the next agent's turn may already hold the chat
+	freed := e.active[t.ConversationID] == t // the next agent's turn may already hold the chat
+	if freed {
 		delete(e.active, t.ConversationID)
 	}
 	if k := t.ConversationID + "/" + t.agentID; e.bg[k] == t {
 		delete(e.bg, k)
+		freed = true // an agent waited on may now take what waits
 	}
 	e.mu.Unlock()
 	e.running(t.ConversationID)
+	if freed {
+		go e.SendQueued(t.ConversationID) // what the person wrote meanwhile goes now
+	}
 	// keep the turn for late subscribers, then forget it
 	time.AfterFunc(10*time.Minute, func() {
 		e.mu.Lock()

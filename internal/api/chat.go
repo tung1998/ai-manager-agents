@@ -44,6 +44,15 @@ type conversationDTO struct {
 	ContextWindow int      `json:"context_window"`
 	ExternalURL   string   `json:"external_url,omitempty"` // where it is on Discord: its thread, or its first message
 	Tags          []string `json:"tags"`
+	// written while it answered: sent together once it is free
+	Queued []queuedDTO `json:"queued"`
+}
+
+type queuedDTO struct {
+	ID          string               `json:"id"`
+	Text        string               `json:"text"`
+	Attachments []storage.Attachment `json:"attachments"`
+	CreatedAt   time.Time            `json:"created_at"`
 }
 
 func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
@@ -54,6 +63,12 @@ func (s *server) toConvDTO(c storage.Conversation) conversationDTO {
 	}
 	if t, ok := s.cfg.Chat.Active(c.ID); ok {
 		d.ActiveTurn = t.ID
+	}
+	d.Queued = []queuedDTO{}
+	if list, err := s.cfg.Store.Chat().QueuedMessages(context.Background(), c.ID); err == nil {
+		for _, q := range list {
+			d.Queued = append(d.Queued, queuedDTO{q.ID, q.Text, q.Attachments, q.CreatedAt})
+		}
 	}
 	if c.Purpose == "channel" {
 		d.ExternalURL = channels.ConversationLink(context.Background(), s.cfg.Store, c.ID)
@@ -303,6 +318,18 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "đây là chat riêng của một việc Burn: chỉ để xem, không đổi được")
 		return
 	}
+	// answering now (or messages wait already): it waits, kept by office
+	if _, busy := s.cfg.Chat.Active(r.PathValue("id")); busy || s.cfg.Chat.HasQueued(r.Context(), r.PathValue("id")) {
+		opts := storage.QueuedOptions{AgentID: in.AgentID, Effort: in.Effort}
+		if in.Mode != "" {
+			opts.Mode = s.allowedMode(r, in.Mode)
+		}
+		if in.EditMode != "" {
+			opts.EditMode = s.allowedEditMode(r, in.EditMode)
+		}
+		s.queueMessage(w, r, in.Text, in.Context, in.Attachments, opts)
+		return
+	}
 	if in.Effort != nil {
 		if err := s.cfg.Chat.SetEffort(r.Context(), r.PathValue("id"), *in.Effort); err != nil {
 			s.chatError(w, r, err)
@@ -328,6 +355,10 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	turn, msg, err := s.cfg.Chat.SendWithContext(r.Context(), r.PathValue("id"), in.Text, in.Context, in.Attachments)
+	if errors.Is(err, chat.ErrBusy) { // an answer started just now: it waits
+		s.queueMessage(w, r, in.Text, in.Context, in.Attachments, storage.QueuedOptions{})
+		return
+	}
 	var off *chat.OffError
 	if errors.As(err, &off) && msg.ID != "" { // only paused agents were called: the message and the notice, no turn
 		_ = s.cfg.Store.Chat().MarkSeen(r.Context(), userFrom(r).ID, r.PathValue("id"), true)
@@ -340,6 +371,31 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.cfg.Store.Chat().MarkSeen(r.Context(), userFrom(r).ID, r.PathValue("id"), true) // writing in it: seen
 	writeJSON(w, http.StatusAccepted, map[string]any{"turn_id": turn.ID, "message": plainMessageDTO(msg)})
+}
+
+// queueMessage keeps a message written while the chat answers (202, queued).
+func (s *server) queueMessage(w http.ResponseWriter, r *http.Request, text, pageContext string, attachments []string, opts storage.QueuedOptions) {
+	q, err := s.cfg.Chat.Queue(r.Context(), r.PathValue("id"), text, pageContext, attachments, opts)
+	if err != nil {
+		s.chatError(w, r, err)
+		return
+	}
+	_ = s.cfg.Store.Chat().MarkSeen(r.Context(), userFrom(r).ID, r.PathValue("id"), true)
+	writeJSON(w, http.StatusAccepted, map[string]any{"queued": queuedDTO{q.ID, q.Text, q.Attachments, q.CreatedAt}})
+}
+
+// unqueue drops a waiting message (?id=), or all of the chat's: the person
+// takes them back (Stop puts them into the box again).
+func (s *server) unqueue(w http.ResponseWriter, r *http.Request) {
+	var ids []string
+	if id := r.URL.Query().Get("id"); id != "" {
+		ids = append(ids, id)
+	}
+	if err := s.cfg.Store.Chat().DeleteQueued(r.Context(), r.PathValue("id"), ids...); err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // plainMessageDTO is a message just stored (no tools or diffs yet).
