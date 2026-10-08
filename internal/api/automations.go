@@ -448,6 +448,14 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.lockAutomations(a.ProjectID)()
+	a, err = s.cfg.Store.Automations().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if conflicted(w, in.Version, automationVersion(a)) {
+		return
+	}
 	old := a
 	wasWebhook := a.Source == "webhook"
 	newBot, commitBot, err := s.saveBot(r, &in, a.ProjectID)
