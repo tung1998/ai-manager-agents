@@ -261,17 +261,36 @@ const (
 	verdictDisagree = "VERDICT: DISAGREE"
 )
 
-// verdict reads the reviewer's conclusion from the first lines of its answer
-// (unclear counts as no, as a workflow's vote).
+// verdict reads the reviewer's conclusion from its answer. The prompt asks for
+// a first line starting with "VERDICT:" (older answers: "KẾT LUẬN:"), but
+// reasoning models often write analysis first and put it last, so only lines
+// starting with that prefix count — a bare AGREE/ĐỒNG Ý substring would also
+// fire on quoted prompt text or on the reviewer discussing the format. The
+// first line wins if it matches; otherwise the last matching line (unclear
+// counts as no, as a workflow's vote).
 func verdict(text string) string {
-	for _, line := range strings.SplitN(strings.TrimSpace(text), "\n", 4) {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	verdictOf := func(line string) string {
 		l := strings.ToUpper(strings.Trim(strings.TrimSpace(line), "*`_# "))
+		if !strings.HasPrefix(l, "VERDICT:") && !strings.HasPrefix(l, "KẾT LUẬN:") && !strings.HasPrefix(l, "KET LUAN:") {
+			return ""
+		}
 		switch {
 		case strings.Contains(l, "DISAGREE"), strings.Contains(l, "KHÔNG ĐỒNG Ý"), strings.Contains(l, "KHONG DONG Y"), strings.Contains(l, "PHẢN ĐỐI"):
 			return "no"
 		case strings.Contains(l, "AGREE"), strings.Contains(l, "ĐỒNG Ý"), strings.Contains(l, "DONG Y"), strings.Contains(l, "TÁN THÀNH"):
 			return "yes"
 		}
+		return ""
 	}
-	return "unclear"
+	if v := verdictOf(lines[0]); v != "" {
+		return v
+	}
+	result := "unclear"
+	for _, line := range lines[1:] {
+		if v := verdictOf(line); v != "" {
+			result = v
+		}
+	}
+	return result
 }

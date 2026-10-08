@@ -236,6 +236,16 @@ func TestVerdict(t *testing.T) {
 		"VERDICT: AGREE\nfine":            "yes",
 		"**VERDICT: DISAGREE**\nwrong":    "no",
 		"Tôi nghĩ là được":                "unclear",
+		// analysis first, conclusion last — the reviewer agent's usual style
+		"Phân tích:\ndòng 1\ndòng 2\ndòng 3\ndòng 4\ndòng 5\nKẾT LUẬN: ĐỒNG Ý": "yes",
+		// first line wins even if a later line quotes the opposite verdict
+		"KẾT LUẬN: KHÔNG ĐỒNG Ý\nbài kia dùng `KẾT LUẬN: ĐỒNG Ý` ở dòng cuối": "no",
+		// a mid-paragraph mention of agreement/disagreement is not a verdict line
+		"KẾT LUẬN: ĐỒNG Ý\nmình không đồng ý với X nhưng tổng thể ổn": "yes",
+		// no line starts with the KẾT LUẬN prefix at all
+		"Đây là phân tích tự do, không có kết luận rõ ràng nào cả.":    "unclear",
+		"Analysis:\nline 1\nline 2\nline 3\nline 4\nVERDICT: DISAGREE": "no",
+		"I agree with the approach overall":                            "unclear",
 	} {
 		if got := verdict(text); got != want {
 			t.Errorf("verdict(%q) = %s, want %s", text, got, want)
