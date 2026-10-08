@@ -23,36 +23,36 @@ type burnDTO struct {
 	ResultMode     string `json:"result_mode"`
 	Focus          string `json:"focus"`
 	Order          string `json:"order"`
-	// review (ADR-113): the profile followed ("" = none), each stage's chat
-	ReviewProfileID     string            `json:"review_profile_id"`
-	ReviewConversations map[string]string `json:"review_conversations"`
-	EndsAt              *time.Time        `json:"ends_at"`
-	State               string            `json:"state"`
-	WaitingUntil        *time.Time        `json:"waiting_until,omitempty"`
-	StartedBy           string            `json:"started_by,omitempty"`
-	StartedAt           *time.Time        `json:"started_at,omitempty"`
+	// review (ADR-113): the profile followed ("" = none)
+	ReviewProfileID string     `json:"review_profile_id"`
+	EndsAt          *time.Time `json:"ends_at"`
+	State           string     `json:"state"`
+	WaitingUntil    *time.Time `json:"waiting_until,omitempty"`
+	StartedBy       string     `json:"started_by,omitempty"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
 }
 
 type burnItemDTO struct {
-	ID         string    `json:"id"`
-	Title      string    `json:"title"`
-	Kind       string    `json:"kind"`
-	Detail     string    `json:"detail"`
-	Status     string    `json:"status"`
-	Priority   int       `json:"priority"`
-	Branch     string    `json:"branch"`
-	Worktree   string    `json:"worktree"`
-	Summary    string    `json:"summary"`
-	Subagents  int       `json:"subagents"`
-	CostUSD    float64   `json:"cost_usd"`
-	Reviewed   []string  `json:"reviewed"`
-	ReviewNote string    `json:"review_note"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                  string            `json:"id"`
+	Title               string            `json:"title"`
+	Kind                string            `json:"kind"`
+	Detail              string            `json:"detail"`
+	Status              string            `json:"status"`
+	Priority            int               `json:"priority"`
+	Branch              string            `json:"branch"`
+	Worktree            string            `json:"worktree"`
+	Summary             string            `json:"summary"`
+	Subagents           int               `json:"subagents"`
+	CostUSD             float64           `json:"cost_usd"`
+	Reviewed            []string          `json:"reviewed"`
+	ReviewNote          string            `json:"review_note"`
+	ReviewConversations map[string]string `json:"review_conversations"` // stage → its hidden review chat (ADR-114)
+	UpdatedAt           time.Time         `json:"updated_at"`
 }
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
 	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxSubagents, b.ResultMode, b.Focus, cmp.Or(b.Order, "roadmap"),
-		b.ReviewProfileID, mapOrEmpty(b.ReviewConversations), b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
+		b.ReviewProfileID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
@@ -84,7 +84,7 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 		list, _ := s.cfg.Store.Burn().Items(r.Context(), b.ID)
 		for _, it := range list {
 			items = append(items, burnItemDTO{it.ID, it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Subagents, it.CostUSD,
-				listOrEmpty(it.Reviewed), it.ReviewNote, it.UpdatedAt})
+				listOrEmpty(it.Reviewed), it.ReviewNote, mapOrEmpty(it.ReviewConversations), it.UpdatedAt})
 		}
 	}
 	out := map[string]any{"burn": toBurnDTO(b), "items": items}

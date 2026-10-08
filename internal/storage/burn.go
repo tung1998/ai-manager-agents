@@ -13,15 +13,13 @@ type BurnSession struct {
 	ResultMode                             string // branch | patch
 	Focus                                  string
 	Order                                  string // roadmap | bugs | auto: what it looks for first
-	// review (ADR-113): the profile it follows ("" = none), each stage's chat
-	ReviewProfileID      string
-	ReviewConversations  map[string]string // stage → conversation
-	EndsAt               *time.Time
-	State                string // running | stopped | waiting_limit
-	WaitingUntil         *time.Time
-	StartedBy            string
-	StartedAt            *time.Time
-	CreatedAt, UpdatedAt time.Time
+	ReviewProfileID                        string // its review profile (ADR-113); "" = none
+	EndsAt                                 *time.Time
+	State                                  string // running | stopped | waiting_limit
+	WaitingUntil                           *time.Time
+	StartedBy                              string
+	StartedAt                              *time.Time
+	CreatedAt, UpdatedAt                   time.Time
 }
 
 // BurnReviewProfile is a saved review setup of a project (ADR-113): the
@@ -46,8 +44,9 @@ type BurnItem struct {
 	Priority                           int
 	Branch, Worktree, Summary          string
 	Attempts, Subagents                int
-	Reviewed                           []string // review stages passed
-	ReviewNote                         string   // the reviewer's last word: guidance, or why not
+	Reviewed                           []string          // review stages passed
+	ReviewNote                         string            // the reviewer's last word: guidance, or why not
+	ReviewConversations                map[string]string // stage → its hidden review chat (ADR-114)
 	CostUSD                            float64
 	CreatedAt, UpdatedAt               time.Time
 }
@@ -56,7 +55,7 @@ type BurnItem struct {
 type BurnRepo interface {
 	// Session is a project's (ErrNotFound: none yet).
 	Session(ctx context.Context, projectID string) (BurnSession, error)
-	// SessionByConversation: the Burn's own chat, or one of its reviews'.
+	// SessionByConversation: the Burn's own chat, or one of its pieces' review chats.
 	SessionByConversation(ctx context.Context, conversationID string) (BurnSession, error)
 	SessionByID(ctx context.Context, id string) (BurnSession, error)
 	SaveSession(ctx context.Context, s BurnSession) (BurnSession, error)

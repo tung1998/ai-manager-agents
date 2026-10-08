@@ -412,11 +412,18 @@ func TestBurnReviewTurnsAPieceDown(t *testing.T) {
 	if !strings.Contains(it.Summary, "Review vấn đề") || !strings.Contains(it.ReviewNote, "Không có thật") || it.Worktree != "" {
 		t.Fatalf("item = %+v", it)
 	}
-	cur, _ := f.st.Burn().SessionByID(ctx, b.ID)
-	if id := cur.ReviewConversations["issue"]; id == "" || id == cur.ConversationID {
-		t.Fatalf("the review has no chat of its own: %+v", cur)
+	rc := it.ReviewConversations["issue"]
+	if rc == "" || rc == b.ConversationID {
+		t.Fatalf("the review has no chat of its own: %+v", it)
 	}
-	if _, err := f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: cur.ReviewConversations["issue"]}, "burn_done", burn.ToolInput{Item: it.ID, Summary: "x"}); err == nil {
+	// hidden: of its own kind, not in the chat list
+	if c, err := f.st.Chat().GetConversation(ctx, rc); err != nil || c.Purpose != chat.BurnReviewPurpose {
+		t.Fatalf("review chat = %+v, %v", c, err)
+	}
+	if s, err := f.st.Burn().SessionByConversation(ctx, rc); err != nil || s.ID != b.ID {
+		t.Fatalf("its Burn = %+v, %v", s, err)
+	}
+	if _, err := f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: rc}, "burn_done", burn.ToolInput{Item: it.ID, Summary: "x"}); err == nil {
 		t.Fatal("the reviewer's chat used a burn_* tool")
 	}
 	f.svc.Stop(ctx, f.project.ID)

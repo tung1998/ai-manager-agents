@@ -314,6 +314,9 @@ func (s *server) jobGroups(w http.ResponseWriter, r *http.Request) {
 				if c.Purpose == "skill" { // a skill editor's chat opens the editor again
 					d.Link = base + "/skills/edit?c=" + c.ID
 				}
+				if c.Purpose == chat.BurnReviewPurpose { // a Burn piece's review: the Burn
+					d.Link = base + "?tab=burn"
+				}
 				if c.Purpose == chat.RunPurpose { // a workflow run's own chat: the run's page
 					if runs, err := s.cfg.Store.WorkflowRuns().List(ctx, c.ProjectID, c.ID, 1); err == nil && len(runs) > 0 {
 						d.Link = base + "/workflows/runs/" + runs[0].ID

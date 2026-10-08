@@ -72,6 +72,10 @@ func rootOf(r *wfRun) *wfRun {
 // RunPurpose is the purpose of a workflow run's own chat.
 const RunPurpose = "workflow_run"
 
+// BurnReviewPurpose is the purpose of a Burn piece's review chat (ADR-114):
+// hidden like a run's, nobody writes there; it may run a workflow.
+const BurnReviewPurpose = "burn_review"
+
 // prepared is a run the chat that called it starts in the run's own chat.
 type prepared struct {
 	conv   string // the run's chat
@@ -190,7 +194,7 @@ func (e *Engine) prepWorkflow(ctx context.Context, conv storage.Conversation, co
 		name, rest, isCall = automation.ParseSkillCall(text)
 		sign = "/"
 	}
-	if !isCall || !teamChat(conv) {
+	if !isCall || !teamChat(conv) && conv.Purpose != BurnReviewPurpose { // a Burn's reviewer runs one too (ADR-113)
 		return nil, "", false, nil
 	}
 	if conv.Purpose == "channel" && name != skillOf(ctx) {

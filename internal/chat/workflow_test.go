@@ -820,3 +820,45 @@ steps:
 		t.Fatalf("run = %+v", r)
 	}
 }
+
+// "#key" in a Burn piece's review chat (ADR-113, ADR-114) runs the workflow, as in
+// a team chat, and its answer is the workflow's output: not a plain message.
+func TestWorkflowRunsFromABurnChat(t *testing.T) {
+	g := newWFGroup(t)
+	src := `---
+key: review-burn
+name: Review Burn
+inputs:
+  - { key: yeu-cau, required: true }
+steps:
+  - id: xem
+    type: code
+    lang: bash
+    script: 'echo "KẾT LUẬN: ĐỒNG Ý"'
+    next: xong
+  - id: xong
+    type: end
+    summary: "{{steps.xem.output}}"
+---
+`
+	if _, err := g.svc.Create(g.context, g.f.project.ID, src, nil); err != nil {
+		t.Fatal(err)
+	}
+	conv, err := g.engine.StartConversationPurpose(g.context, g.f.project.ID, "", chat.BurnReviewPurpose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _, err := g.engine.Send(g.context, conv.ID, "#review-burn [Burn · Review kết quả] việc x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := collect(t, turn)
+	last := evs[len(evs)-1]
+	if last.Message == nil || !strings.Contains(last.Message.Content, "KẾT LUẬN: ĐỒNG Ý") {
+		t.Fatalf("answer = %+v", last)
+	}
+	runs, _ := g.f.st.WorkflowRuns().List(g.context, g.f.project.ID, conv.ID, 1)
+	if len(runs) != 1 || runs[0].Status != storage.RunDone {
+		t.Fatalf("runs = %+v", runs)
+	}
+}

@@ -73,7 +73,7 @@ func (s *Service) gate(ctx context.Context, b storage.BurnSession, it storage.Bu
 		if !s.reviews(ctx, b, stage) || slices.Contains(it.Reviewed, stage) {
 			continue
 		}
-		ok, note, err := s.review(ctx, b, it, stage)
+		ok, note, err := s.review(ctx, b, &it, stage)
 		if err != nil {
 			return false, ctx.Err() == nil
 		}
@@ -96,7 +96,7 @@ func (s *Service) gate(ctx context.Context, b storage.BurnSession, it storage.Bu
 // (committed to its branch, or its diff put up); not, it goes again with what
 // the reviewer said, then fails. failed: the review could not run.
 func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.BurnItem) (failed bool) {
-	ok, note, err := s.review(ctx, b, it, "result")
+	ok, note, err := s.review(ctx, b, &it, "result")
 	if err != nil {
 		return ctx.Err() == nil // stays "review": asked again
 	}
@@ -132,16 +132,16 @@ var reviewLabel = map[string]string{"issue": "Review vấn đề", "plan": "Revi
 // review asks the stage's reviewer (an agent, or the workflow it runs) about
 // a piece, in the stage's review chat, read-only: agreed or not, and why.
 // Not reviewed (the profile changed meanwhile): agreed.
-func (s *Service) review(ctx context.Context, b storage.BurnSession, it storage.BurnItem, stage string) (bool, string, error) {
+func (s *Service) review(ctx context.Context, b storage.BurnSession, it *storage.BurnItem, stage string) (bool, string, error) {
 	r, ok := s.reviewer(ctx, b, stage)
 	if !ok {
 		return true, "", nil
 	}
-	conv, err := s.ensureReviewConversation(ctx, b, stage, r.AgentID)
+	conv, err := s.ensureReviewConversation(ctx, b, it, stage, r.AgentID)
 	if err != nil {
 		return false, "", err
 	}
-	text := reviewPrompt(b, it, stage)
+	text := reviewPrompt(b, *it, stage)
 	if r.Workflow != "" {
 		text = workflow.Call(r.Workflow, text)
 	}
@@ -159,10 +159,11 @@ func (s *Service) review(ctx context.Context, b storage.BurnSession, it storage.
 	return verdict(res.text) == "yes", strings.TrimSpace(res.text), nil
 }
 
-// ensureReviewConversation gives a stage's reviews a chat of their own with
-// its reviewer, a new one once the reviewer was changed.
-func (s *Service) ensureReviewConversation(ctx context.Context, b storage.BurnSession, stage, agentID string) (string, error) {
-	if id := b.ReviewConversations[stage]; id != "" {
+// ensureReviewConversation gives a piece's review at stage a hidden chat of
+// its own with the reviewer (ADR-114), a new one once the reviewer was
+// changed; it is kept on the piece, to read from the Burn.
+func (s *Service) ensureReviewConversation(ctx context.Context, b storage.BurnSession, it *storage.BurnItem, stage, agentID string) (string, error) {
+	if id := it.ReviewConversations[stage]; id != "" {
 		c, err := s.store.Chat().GetConversation(ctx, id)
 		if err == nil && (agentID == "" || c.AgentID == agentID) && c.Cleaned == "" {
 			return id, nil
@@ -171,22 +172,23 @@ func (s *Service) ensureReviewConversation(ctx context.Context, b storage.BurnSe
 			return "", err
 		}
 	}
-	conv, err := s.chat.StartConversationPurpose(ctx, b.ProjectID, agentID, "burn")
+	conv, err := s.chat.StartConversationPurpose(ctx, b.ProjectID, agentID, chat.BurnReviewPurpose)
 	if err != nil {
 		return "", err
 	}
-	conv.Title = "Burn · " + reviewLabel[stage]
+	conv.Title = oneLine(reviewLabel[stage]+": "+it.Title, 80)
 	_ = s.store.Chat().UpdateConversation(ctx, conv)
-	// saved on the latest session: the loop's copy may be older than the settings
-	cur, err := s.store.Burn().SessionByID(ctx, b.ID)
+	if it.ReviewConversations == nil {
+		it.ReviewConversations = map[string]string{}
+	}
+	it.ReviewConversations[stage] = conv.ID
+	// saved on the latest piece: the person may have moved it meanwhile
+	cur, err := s.store.Burn().Item(ctx, it.ID)
 	if err != nil {
 		return "", err
 	}
-	if cur.ReviewConversations == nil {
-		cur.ReviewConversations = map[string]string{}
-	}
-	cur.ReviewConversations[stage] = conv.ID
-	if _, err := s.store.Burn().SaveSession(ctx, cur); err != nil {
+	cur.ReviewConversations = it.ReviewConversations
+	if err := s.store.Burn().UpdateItem(ctx, cur); err != nil {
 		return "", err
 	}
 	return conv.ID, nil
@@ -212,7 +214,9 @@ func reviewPrompt(b storage.BurnSession, it storage.BurnItem, stage string) stri
 		sb.WriteString("Hãy phân tích CÁCH LÀM: có nên làm ngay không, phạm vi hợp lý chưa, nên sửa ở đâu và cần kiểm chứng gì. Nếu đồng ý, ghi hướng dẫn ngắn cho agent làm việc (sẽ được chuyển cho nó).\n")
 	case "result":
 		fmt.Fprintf(&sb, "Agent báo đã xong: %s\n", oneLine(it.Summary, 800))
-		sb.WriteString("Hãy review KẾT QUẢ trong worktree này (git status, git diff, git log so với nhánh chính): đúng vấn đề chưa, có lỗi, thiếu test hay sửa ngoài phạm vi không. Chạy build/test để kiểm chứng nếu quyền cho phép. Không đồng ý thì ghi rõ cần sửa gì (sẽ được chuyển cho agent làm lại).\n")
+		// a workflow runs in chats of its own, not in the piece's worktree: where it is
+		fmt.Fprintf(&sb, "Thay đổi nằm ở worktree %s (nhánh %s).\n", it.Worktree, it.Branch)
+		sb.WriteString("Hãy review KẾT QUẢ trong worktree đó (git status, git diff, git log so với nhánh chính): đúng vấn đề chưa, có lỗi, thiếu test hay sửa ngoài phạm vi không. Chạy build/test để kiểm chứng nếu quyền cho phép. Không đồng ý thì ghi rõ cần sửa gì (sẽ được chuyển cho agent làm lại).\n")
 	}
 	sb.WriteString("\nDòng ĐẦU TIÊN của câu trả lời phải đúng một trong hai: `KẾT LUẬN: ĐỒNG Ý` hoặc `KẾT LUẬN: KHÔNG ĐỒNG Ý`; sau đó là lý do ngắn, dựa trên bằng chứng.")
 	return sb.String()

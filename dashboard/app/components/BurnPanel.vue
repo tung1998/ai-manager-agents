@@ -7,12 +7,12 @@ interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_subagents: number,
   result_mode: 'branch' | 'patch', focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit',
   waiting_until?: string, started_by?: string, started_at?: string,
-  review_profile_id: string, review_conversations: Partial<Record<ReviewStage, string>>
+  review_profile_id: string
 }
 interface Item {
   id: string, title: string, kind: 'unfinished' | 'upgrade' | 'bug', detail: string, status: string, priority: number,
   branch: string, worktree: string, summary: string, subagents: number, cost_usd: number, updated_at: string,
-  reviewed: ReviewStage[], review_note: string
+  reviewed: ReviewStage[], review_note: string, review_conversations: Partial<Record<ReviewStage, string>>
 }
 interface AgentLite { id: string, name: string, tier: string, enabled?: boolean }
 const props = defineProps<{ projectId: string }>()
@@ -78,8 +78,15 @@ const profileItems = computed(() => [{ value: '__none', label: t('burn.review.no
 const reviewProfile = computed({ get: () => form.review_profile_id || '__none', set: (v: string) => { form.review_profile_id = v === '__none' ? '' : v } })
 const profile = computed(() => profiles.value.find(p => p.id === form.review_profile_id))
 const reviewSummary = computed(() => profile.value ? `${profile.value.name} (${reviewStages.filter(v => profile.value!.stages[v]).map(v => t(`burn.review.${v}`)).join(', ')})` : '')
-const reviewChats = computed(() => reviewStages.filter(v => burn.value?.review_conversations?.[v])
-  .map(v => ({ label: t(`burn.review.${v}`), icon: 'i-lucide-scan-eye', to: `/projects/${props.projectId}?tab=chat&c=${burn.value!.review_conversations[v]}` })))
+// a piece's reviews (ADR-114): hidden chats, read here
+const reviewing = ref<Item | null>(null)
+const reviewTab = ref<ReviewStage>('issue')
+const reviewTabs = computed(() => reviewStages.filter(v => reviewing.value?.review_conversations?.[v]).map(v => ({ value: v, label: t(`burn.review.${v}`) })))
+const hasReviews = (it: Item) => Object.values(it.review_conversations ?? {}).some(Boolean)
+function openReviews(it: Item) {
+  reviewing.value = it
+  reviewTab.value = [...reviewStages].reverse().find(v => it.review_conversations?.[v]) ?? 'issue' // the latest
+}
 const profilesPage = computed(() => `/projects/${props.projectId}/burn/reviews`)
 const tierItems = computed(() => (['strong', 'balanced', 'fast'] as const).map(v => ({ value: v, label: t(`burn.tier.${v}`) })))
 
@@ -168,9 +175,6 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         <span v-if="burn?.state === 'waiting_limit' && burn.waiting_until" class="text-xs text-(--ui-text-muted)">{{ t('burn.waitingUntil', { at: when(burn.waiting_until) }) }}</span>
         <div class="ms-auto flex flex-wrap items-center gap-1.5">
           <UButton v-if="burn?.conversation_id" size="sm" color="neutral" variant="ghost" icon="i-lucide-messages-square" :label="t('burn.openChat')" :to="`/projects/${projectId}?tab=chat&c=${burn.conversation_id}`" />
-          <UDropdownMenu v-if="reviewChats.length" :items="reviewChats">
-            <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-scan-eye" trailing-icon="i-lucide-chevron-down" :label="t('burn.review.openChat')" />
-          </UDropdownMenu>
           <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-settings-2" :label="t('burn.settings')" @click="settingsOpen = true" />
           <UButton v-if="running" size="sm" color="neutral" icon="i-lucide-square" :label="t('burn.stop')" :loading="acting === 'stop'" @click="stop" />
           <UButton v-else size="sm" color="warning" icon="i-lucide-flame" :label="t('burn.start')" @click="openStart" />
@@ -214,6 +218,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
             <span>{{ when(it.updated_at) }}</span>
           </div>
           <div class="flex flex-wrap gap-1">
+            <UButton v-if="hasReviews(it)" size="xs" color="neutral" variant="ghost" icon="i-lucide-scan-eye" :label="t('burn.review.view')" @click="openReviews(it)" />
             <UButton v-if="['found', 'skipped', 'failed'].includes(it.status)" size="xs" color="neutral" variant="outline" icon="i-lucide-arrow-up-to-line" :label="t('burn.first')" :loading="itemActing === it.id + 'first'" @click="itemAction(it, 'first')" />
             <UButton v-if="['found', 'queued', 'paused', 'review'].includes(it.status)" size="xs" color="neutral" variant="ghost" :label="t('burn.skip')" :loading="itemActing === it.id + 'skip'" @click="itemAction(it, 'skip')" />
             <UButton v-if="it.worktree && ['done', 'failed', 'skipped'].includes(it.status)" size="xs" color="neutral" variant="ghost" icon="i-lucide-trash-2" :label="t('burn.dropWorktree')" :loading="itemActing === it.id + 'drop-worktree'" @click="itemAction(it, 'drop-worktree')" />
@@ -258,6 +263,16 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
       </template>
       <template #footer>
         <UButton :label="t('common.save')" :loading="saving" :disabled="!!offAgent" @click="saveSettings" />
+      </template>
+    </USlideover>
+
+    <!-- a piece's reviews, to read -->
+    <USlideover :open="!!reviewing" :title="t('burn.review.viewTitle', { title: reviewing?.title ?? '' })" :ui="{ content: 'sm:max-w-2xl' }" @update:open="v => { if (!v) reviewing = null }">
+      <template #body>
+        <div v-if="reviewing" class="space-y-3">
+          <UTabs v-if="reviewTabs.length > 1" v-model="reviewTab" :items="reviewTabs" :content="false" size="sm" />
+          <RunTranscript v-if="reviewing.review_conversations[reviewTab]" :key="reviewTab" :project-id="projectId" :conversation-id="reviewing.review_conversations[reviewTab]!" />
+        </div>
       </template>
     </USlideover>
 

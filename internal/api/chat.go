@@ -299,6 +299,9 @@ func (s *server) sendMessage(w http.ResponseWriter, r *http.Request) {
 	if c, err := s.cfg.Store.Chat().GetConversation(r.Context(), r.PathValue("id")); err == nil && c.Purpose == chat.RunPurpose {
 		writeError(w, http.StatusConflict, "đây là chat riêng của một lần chạy quy trình: chỉ để xem, không nhắn vào được")
 		return
+	} else if err == nil && c.Purpose == chat.BurnReviewPurpose {
+		writeError(w, http.StatusConflict, "đây là chat review của Burn: chỉ để xem, không nhắn vào được")
+		return
 	}
 	if in.Effort != nil {
 		if err := s.cfg.Chat.SetEffort(r.Context(), r.PathValue("id"), *in.Effort); err != nil {
