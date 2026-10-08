@@ -555,6 +555,7 @@ async function post(text: string, files: Attachment[]) {
     // mode operate: the agent's own rights are the limit (members are capped server-side)
     const id = current.value.id
     const res = await $fetch<{ turn_id: string, message: Message, notice?: Message, queued?: Queued }>(`/api/conversations/${id}/messages`, { method: 'POST', body: { text, attachments: files.map(a => a.id), mode: 'operate', edit_mode: editMode.value, effort: effort.value, agent_id: switching, context: props.pageContext?.() ?? '' } })
+    if (current.value?.id !== id) return // switched chats while this was in flight: the reply belongs to the old one
     if (res.queued) { // it answers: sent once it is free (the live row may have it already)
       if (!queuedHere.value.some(q => q.id === res.queued!.id)) setQueued(id, [...queuedHere.value, res.queued])
       scrollDown(true) // theirs: in view
