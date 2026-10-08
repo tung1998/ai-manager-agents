@@ -79,6 +79,7 @@ const vi = {
   'account.newHint': 'Tối thiểu 10 ký tự',
   'account.confirm': 'Nhập lại mật khẩu mới',
   'account.mismatch': 'Hai lần nhập mật khẩu mới không khớp',
+'account.tooShort': 'Mật khẩu mới phải có ít nhất 10 ký tự',
   'account.saved': 'Đã đổi mật khẩu',
   'account.savedDesc': 'Các phiên đăng nhập khác đã bị đăng xuất.',
   'common.save': 'Lưu',

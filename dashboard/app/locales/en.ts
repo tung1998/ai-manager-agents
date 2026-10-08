@@ -80,6 +80,7 @@ const en: Record<MessageKey, string> = {
   'account.newHint': 'At least 10 characters',
   'account.confirm': 'Confirm new password',
   'account.mismatch': 'The new passwords do not match',
+'account.tooShort': 'The new password must be at least 10 characters',
   'account.saved': 'Password changed',
   'account.savedDesc': 'Other sessions have been signed out.',
   'common.save': 'Save',

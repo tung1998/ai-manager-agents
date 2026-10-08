@@ -7,6 +7,10 @@ const error = ref('')
 
 async function onSubmit() {
   error.value = ''
+  if (state.new_password.length < 10) {
+    error.value = t('account.tooShort')
+    return
+  }
   if (state.new_password !== state.confirm) {
     error.value = t('account.mismatch')
     return
