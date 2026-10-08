@@ -19,7 +19,7 @@ type burnDTO struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 	AgentID        string `json:"agent_id"`
 	ModelTier      string `json:"model_tier"`
-	MaxSubagents   int    `json:"max_subagents"`
+	MaxParallel    int    `json:"max_parallel"`
 	ResultMode     string `json:"result_mode"`
 	Focus          string `json:"focus"`
 	Order          string `json:"order"`
@@ -52,7 +52,7 @@ type burnItemDTO struct {
 }
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
-	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxSubagents, b.ResultMode, b.Focus, cmp.Or(b.Order, "roadmap"),
+	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.ResultMode, b.Focus, cmp.Or(b.Order, "roadmap"),
 		b.ReviewProfileID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
 }
 
@@ -60,7 +60,7 @@ func toBurnDTO(b storage.BurnSession) burnDTO {
 func (s *server) burnSession(r *http.Request, projectID string) (storage.BurnSession, error) {
 	b, err := s.cfg.Store.Burn().Session(r.Context(), projectID)
 	if errors.Is(err, storage.ErrNotFound) {
-		b = storage.BurnSession{ProjectID: projectID, ModelTier: storage.TierBalanced, MaxSubagents: 2, ResultMode: "branch", Order: "roadmap", State: "stopped"}
+		b = storage.BurnSession{ProjectID: projectID, ModelTier: storage.TierBalanced, MaxParallel: 1, ResultMode: "branch", Order: "roadmap", State: "stopped"}
 		if a, err := s.cfg.Chat.DefaultAgent(r.Context(), projectID); err == nil && !a.Disabled {
 			b.AgentID = a.ID
 		}
@@ -98,7 +98,7 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 type burnInput struct {
 	AgentID         *string    `json:"agent_id"`
 	ModelTier       *string    `json:"model_tier"`
-	MaxSubagents    *int       `json:"max_subagents"`
+	MaxParallel     *int       `json:"max_parallel"`
 	ResultMode      *string    `json:"result_mode"`
 	Focus           *string    `json:"focus"`
 	Order           *string    `json:"order"`
@@ -117,8 +117,8 @@ func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession
 			b.ModelTier = *in.ModelTier
 		}
 	}
-	if in.MaxSubagents != nil {
-		b.MaxSubagents = min(max(*in.MaxSubagents, 0), 5)
+	if in.MaxParallel != nil {
+		b.MaxParallel = min(max(*in.MaxParallel, 1), 5)
 	}
 	if in.ResultMode != nil && (*in.ResultMode == "branch" || *in.ResultMode == "patch") {
 		b.ResultMode = *in.ResultMode

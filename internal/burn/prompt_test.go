@@ -19,8 +19,8 @@ func TestIdleBacksOff(t *testing.T) {
 }
 
 func TestPlanPromptDigsDeeper(t *testing.T) {
-	b := storage.BurnSession{MaxSubagents: 2}
-	p := planPrompt(b, nil, 0)
+	b := storage.BurnSession{MaxParallel: 2}
+	p := planPrompt(b, nil, 0, 1)
 	for _, want := range []string{"subagent", scannedMark} {
 		if !strings.Contains(p, want) {
 			t.Errorf("first scan prompt lacks %q", want)
@@ -29,7 +29,10 @@ func TestPlanPromptDigsDeeper(t *testing.T) {
 	if strings.Contains(p, "liên tiếp") {
 		t.Error("first scan should not mention empty scans")
 	}
-	if p2 := planPrompt(b, nil, 2); !strings.Contains(p2, "2 lần quét liên tiếp") {
+	if !strings.Contains(p, "ĐÚNG MỘT") || !strings.Contains(planPrompt(b, nil, 0, 3), "tối đa 3 việc") {
+		t.Error("a scan picks as many pieces as there are free slots")
+	}
+	if p2 := planPrompt(b, nil, 2, 1); !strings.Contains(p2, "2 lần quét liên tiếp") {
 		t.Errorf("repeat scan should say how many came back empty:\n%s", p2)
 	}
 }
@@ -51,13 +54,13 @@ func TestScannedIsKept(t *testing.T) {
 	if n := len([]rune(kept)); n > maxScanned || !strings.Contains(kept, "vùng 39") || strings.Contains(kept, "vùng 0 ") {
 		t.Fatalf("kept %d runes:\n%s", n, kept)
 	}
-	if p := planPrompt(storage.BurnSession{Scanned: "08/10 09:00 internal/chat"}, nil, 0); !strings.Contains(p, "internal/chat") {
+	if p := planPrompt(storage.BurnSession{Scanned: "08/10 09:00 internal/chat"}, nil, 0, 1); !strings.Contains(p, "internal/chat") {
 		t.Fatal("the next scan is not told what was scanned")
 	}
 }
 
 func TestPlanPromptOrder(t *testing.T) {
-	road := planPrompt(storage.BurnSession{Order: "roadmap"}, nil, 0)
+	road := planPrompt(storage.BurnSession{Order: "roadmap"}, nil, 0, 1)
 	for _, want := range []string{"LỘ TRÌNH TRƯỚC", "chưa được duyệt", "thiết kế ngắn", "phần 1"} {
 		if !strings.Contains(road, want) {
 			t.Errorf("roadmap prompt lacks %q", want)
@@ -66,7 +69,7 @@ func TestPlanPromptOrder(t *testing.T) {
 	if i, j := strings.Index(road, "Lộ trình"), strings.Index(road, "Lỗi chi tiết"); i < 0 || j < 0 || i > j {
 		t.Errorf("roadmap should come before bugs")
 	}
-	bugs := planPrompt(storage.BurnSession{Order: "bugs"}, nil, 0)
+	bugs := planPrompt(storage.BurnSession{Order: "bugs"}, nil, 0, 1)
 	if i, j := strings.Index(bugs, "Lộ trình"), strings.Index(bugs, "Lỗi chi tiết"); i < 0 || j < 0 || j > i {
 		t.Errorf("bugs order should list bugs first")
 	}
@@ -74,7 +77,7 @@ func TestPlanPromptOrder(t *testing.T) {
 		t.Error("bugs order should not push the roadmap first")
 	}
 	// an old row with no order behaves as roadmap
-	if !strings.Contains(planPrompt(storage.BurnSession{}, nil, 0), "LỘ TRÌNH TRƯỚC") {
+	if !strings.Contains(planPrompt(storage.BurnSession{}, nil, 0, 1), "LỘ TRÌNH TRƯỚC") {
 		t.Error("empty order should default to roadmap")
 	}
 }
@@ -105,7 +108,7 @@ func TestPlanPromptTrimsClosed(t *testing.T) {
 		items = append(items, storage.BurnItem{ID: fmt.Sprintf("bit_done%d", i), Status: "done", Title: fmt.Sprintf("xong %d", i), Summary: "tóm tắt dài"})
 	}
 	items = append(items, storage.BurnItem{ID: "bit_open", Status: "found", Title: "mở", Summary: "chi tiết mở"})
-	p := planPrompt(storage.BurnSession{}, items, 0)
+	p := planPrompt(storage.BurnSession{}, items, 0, 1)
 	if !strings.Contains(p, "bit_open") || !strings.Contains(p, "chi tiết mở") {
 		t.Error("open item should be listed in full")
 	}

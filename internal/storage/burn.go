@@ -9,7 +9,7 @@ import (
 type BurnSession struct {
 	ID, ProjectID, ConversationID, AgentID string
 	ModelTier                              string // strong | balanced | fast
-	MaxSubagents                           int
+	MaxParallel                            int    // pieces worked on at once (ADR-117)
 	ResultMode                             string // branch | patch
 	Focus                                  string
 	Order                                  string // roadmap | bugs | auto: what it looks for first

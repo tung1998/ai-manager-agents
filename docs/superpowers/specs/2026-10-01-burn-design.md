@@ -35,7 +35,7 @@ Lưu theo project, sửa được khi đang tắt; một số mục sửa đư�
 |---|---|---|
 | Agent chính | một agent của project | Trưởng nhóm |
 | Mức tiêu (model) | strong / balanced / fast | balanced |
-| Số subagent tối đa | 0–5 | 2 |
+| Số việc chạy cùng lúc (ADR-117) | 1–5 | 1 |
 | Kết quả mỗi việc | **nhánh riêng** (commit local) / **diff chờ duyệt** | nhánh riêng |
 | Tắt lúc | sau X giờ / tới giờ cụ thể / không hẹn | lần reset giới hạn tuần tiếp theo của kết nối AI mà agent chính dùng (`seven_day.resets_at`); không có dữ liệu thì sau 8 giờ |
 | Trọng tâm (tùy chọn) | chữ tự do: "ưu tiên checkout, bỏ qua docs" | trống |
@@ -69,14 +69,14 @@ Chỉ agent chính quyết việc nào chạy, để các việc không giẫm l
 
 - Runner tạo **worktree riêng** cho việc vừa chọn, trên nhánh `burn/<mã việc>-<tên ngắn>` tách từ nhánh hiện tại của project.
 - Runner chạy agent chính trong worktree đó với **toàn quyền** và mức model đã chọn.
-- Agent được dùng subagent (công cụ Agent/Task của Claude Code) trong giới hạn "số subagent tối đa". Giới hạn này ghi trong lời dặn; Claude Code không cho office chặn cứng số subagent. Office đếm số lần gọi công cụ đó và hiện trên bảng việc.
+- Agent được dùng subagent (công cụ Agent/Task của Claude Code), office không đặt số. Office đếm số lần gọi công cụ đó và hiện trên bảng việc.
 - Lượt kết thúc bằng `burn_done(item_id, tóm tắt)` hoặc `burn_fail(item_id, lý do)`.
 - Theo chế độ kết quả:
   - **Nhánh riêng:** runner commit mọi thay đổi còn lại trong worktree lên nhánh của việc, với thông điệp là tóm tắt. Không push.
   - **Diff chờ duyệt:** runner tạo diff (patch) như chat thường, hiện trong Cần xử lý.
 - Xong một việc thì quay về lượt điều phối.
 
-Mỗi lúc chỉ chạy một lượt; các việc làm lần lượt. Muốn song song thì agent dùng subagent bên trong một việc.
+Tối đa "số việc chạy cùng lúc" việc được làm song song, mỗi việc trong worktree và chat riêng (ADR-117); lượt quét chạy khi còn chỗ trống và chọn tối đa số chỗ đó.
 
 ## Tắt, tạm dừng, làm tiếp
 
@@ -90,7 +90,7 @@ Mỗi lúc chỉ chạy một lượt; các việc làm lần lượt. Muốn so
 - Hội thoại Burn là một conversation với `purpose = "burn"`. Trang Chat hiển thị nó với nguồn "Burn".
 - Bảng `burn_sessions`:
   - `id`, `project_id`, `conversation_id`, `agent_id`,
-  - `model_tier`, `max_subagents`, `result_mode` (`branch` | `patch`), `focus`,
+  - `model_tier`, `max_parallel`, `result_mode` (`branch` | `patch`), `focus`,
   - `ends_at` (null = không hẹn), `state` (`running` | `stopped` | `waiting_limit`),
   - `started_by`, `created_at`, `updated_at`.
 - Bảng `burn_items`:

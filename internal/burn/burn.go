@@ -1,7 +1,7 @@
 // Package burn runs a project's Burn (spec 2026-10-01-burn-design): its main
 // agent, on its own and with full access, finds what is unfinished, what
-// could be better and what is broken, and does it — one piece at a time,
-// each in its own worktree — until it is stopped or its time is up. Stopped,
+// could be better and what is broken, and does it — a few pieces at a time
+// (ADR-117), each in its own worktree and chat — until it is stopped or its time is up. Stopped,
 // the piece in progress waits (its worktree kept); started again, it goes on.
 package burn
 
@@ -200,10 +200,18 @@ func (s *Service) spawn(projectID string) {
 	}()
 }
 
-// loop: the paused and chosen pieces first, each in its own worktree; with
-// none, the main agent looks for work and chooses; with nothing to do, it
-// waits a while.
+// loop: the paused and chosen pieces first, up to its cap at once (ADR-117),
+// each in its own worktree and chat; a slot free and nothing to go on with,
+// the main agent looks for work and chooses; with nothing to do, it waits a
+// while.
 func (s *Service) loop(ctx context.Context, projectID string) {
+	var (
+		mu   sync.Mutex
+		busy = map[string]bool{} // the pieces a worker has
+		wg   sync.WaitGroup
+	)
+	freed := make(chan struct{}, 1) // a worker is done: look again
+	defer wg.Wait()
 	empty := 0 // scans in a row that found nothing
 	for ctx.Err() == nil {
 		b, err := s.store.Burn().Session(ctx, projectID)
@@ -227,26 +235,35 @@ func (s *Service) loop(ctx context.Context, projectID string) {
 			b, _ = s.store.Burn().SaveSession(ctx, b)
 		}
 		items, _ := s.store.Burn().Items(ctx, b.ID)
-		if it, ok := next(items); ok {
-			if it.Status == "review" { // done: its result waits for the reviewer (ADR-112)
-				if s.finish(ctx, b, it) && !s.waitLimit(ctx, b) {
-					sleep(ctx, time.Minute) // the review could not run: ask again in a while
+		mu.Lock()
+		free := max(b.MaxParallel, 1) - len(busy)
+		for ; free > 0; free-- {
+			it, ok := next(items, busy)
+			if !ok {
+				break
+			}
+			busy[it.ID] = true
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				s.step(ctx, b, it)
+				mu.Lock()
+				delete(busy, it.ID)
+				mu.Unlock()
+				select {
+				case freed <- struct{}{}:
+				default:
 				}
-				continue
-			}
-			if proceed, failed := s.gate(ctx, b, it); !proceed { // reviewed before it is done
-				if failed && !s.waitLimit(ctx, b) {
-					sleep(ctx, time.Minute)
-				}
-				continue
-			}
-			if failed := s.work(ctx, b, it); failed && s.waitLimit(ctx, b) {
-				continue // the connection's limit: it waits for the reset
-			}
+			}()
+		}
+		working := len(busy)
+		mu.Unlock()
+		if free <= 0 { // every slot taken: wait for one
+			wait(ctx, freed, time.Minute)
 			continue
 		}
 		before := len(items)
-		if err := s.plan(ctx, b, items, empty); err != nil && ctx.Err() == nil {
+		if err := s.plan(ctx, b, items, empty, free); err != nil && ctx.Err() == nil {
 			slog.Warn("burn: plan", "project", projectID, "err", err)
 			if !s.waitLimit(ctx, b) {
 				sleep(ctx, time.Minute)
@@ -254,12 +271,39 @@ func (s *Service) loop(ctx context.Context, projectID string) {
 			continue
 		}
 		after, _ := s.store.Burn().Items(ctx, b.ID)
-		if _, ok := next(after); !ok && len(after) == before {
+		mu.Lock()
+		_, chosen := next(after, busy)
+		mu.Unlock()
+		switch {
+		case chosen || len(after) != before:
+			empty = 0
+		case working > 0: // nothing new, but pieces are being worked on: scan again once one is done
+			empty++
+			wait(ctx, freed, s.idleAfter(empty))
+		default:
 			empty++
 			sleep(ctx, s.idleAfter(empty)) // nothing new, nothing chosen: wait longer each time
-		} else {
-			empty = 0
 		}
+	}
+}
+
+// step takes a piece one step on: its review once done, the reviews before it
+// is done, then its work.
+func (s *Service) step(ctx context.Context, b storage.BurnSession, it storage.BurnItem) {
+	if it.Status == "review" { // done: its result waits for the reviewer (ADR-112)
+		if s.finish(ctx, b, it) && !s.waitLimit(ctx, b) {
+			sleep(ctx, time.Minute) // the review could not run: ask again in a while
+		}
+		return
+	}
+	if proceed, failed := s.gate(ctx, b, it); !proceed { // reviewed before it is done
+		if failed && !s.waitLimit(ctx, b) {
+			sleep(ctx, time.Minute)
+		}
+		return
+	}
+	if failed := s.work(ctx, b, it); failed {
+		s.waitLimit(ctx, b) // the connection's limit: it waits for the reset
 	}
 }
 
@@ -273,16 +317,25 @@ func (s *Service) idleAfter(n int) time.Duration {
 }
 
 // next: a piece done waiting for its review, a paused one (it goes on),
-// else the one chosen first.
-func next(items []storage.BurnItem) (storage.BurnItem, bool) {
+// else the one chosen first — none a worker has already.
+func next(items []storage.BurnItem, busy map[string]bool) (storage.BurnItem, bool) {
 	for _, st := range []string{"review", "paused", "doing", "queued"} {
 		for _, it := range items {
-			if it.Status == st {
+			if it.Status == st && !busy[it.ID] {
 				return it, true
 			}
 		}
 	}
 	return storage.BurnItem{}, false
+}
+
+// wait is sleep that ends early when woken.
+func wait(ctx context.Context, wake <-chan struct{}, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-wake:
+	case <-time.After(d):
+	}
 }
 
 func sleep(ctx context.Context, d time.Duration) {
@@ -463,10 +516,10 @@ func firstNonEmpty(v ...string) string {
 	return ""
 }
 
-// plan: the main agent looks for work and chooses what is next (in a
-// scratch worktree: what it tries there is thrown away).
-func (s *Service) plan(ctx context.Context, b storage.BurnSession, items []storage.BurnItem, empty int) error {
-	res, err := s.run(runCtx(ctx, b, "burn-scan-"+b.ID, true), b.ConversationID, planPrompt(b, items, empty))
+// plan: the main agent looks for work and chooses what is next, up to free
+// pieces (in a scratch worktree: what it tries there is thrown away).
+func (s *Service) plan(ctx context.Context, b storage.BurnSession, items []storage.BurnItem, empty, free int) error {
+	res, err := s.run(runCtx(ctx, b, "burn-scan-"+b.ID, true), b.ConversationID, planPrompt(b, items, empty, free))
 	if err == nil && res.failed != "" {
 		err = errors.New(res.failed)
 	}
@@ -506,7 +559,7 @@ func addScanned(kept, area string, at time.Time) string {
 // maxClosedInPlan caps the closed items listed in the plan prompt.
 const maxClosedInPlan = 15
 
-func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty int) string {
+func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty, free int) string {
 	var sb strings.Builder
 	sb.WriteString("[Burn] Lượt điều phối. Bạn đang chạy Burn cho project này: tự tìm và làm việc, với toàn quyền.\n")
 	if b.Focus != "" {
@@ -567,11 +620,13 @@ Việc của lượt này:
 	default: // roadmap
 		sb.WriteString("   Ưu tiên LỘ TRÌNH TRƯỚC: tính năng còn thiếu theo kế hoạch được chọn trước lỗi nhỏ và nâng cấp (lỗi nghiêm trọng như bảo mật, mất dữ liệu thì vẫn làm trước). Danh sách chưa có việc nào từ lộ trình thì quét lộ trình ngay, dù đã có nhiều việc khác.\n" + roadmap + bugs + upgrades)
 	}
-	if b.MaxSubagents > 0 {
-		fmt.Fprintf(&sb, "   Được dùng tối đa %d subagent (công cụ Agent/Task) để quét song song các vùng khác nhau; bạn tự gộp và lọc kết quả.\n", b.MaxSubagents)
+	sb.WriteString("   Được dùng subagent (công cụ Agent/Task) để quét song song các vùng khác nhau; bạn tự gộp và lọc kết quả.\n")
+	pick := "2. Chọn ĐÚNG MỘT việc đáng làm nhất bằng burn_pick"
+	if free > 1 {
+		pick = fmt.Sprintf("2. Chọn tối đa %d việc đáng làm nhất bằng burn_pick (mỗi việc chạy song song trong worktree riêng: chọn các việc ít đụng cùng file với nhau và với việc đang làm)", free)
 	}
 	sb.WriteString(`   Ghi từng việc bằng burn_add (tiêu đề ngắn, kind unfinished|upgrade|bug, chi tiết kèm file:dòng và cách sửa). Chỉ ghi việc có thật, có lợi; không ghi trùng việc đã có.
-2. Chọn ĐÚNG MỘT việc đáng làm nhất bằng burn_pick; việc không đáng làm thì burn_skip kèm lý do.
+` + pick + `; việc không đáng làm thì burn_skip kèm lý do.
 3. Không sửa code ở lượt này (worktree của lượt này bị bỏ). Chỉ được nói "hết việc" sau khi đã xem kỹ.
 Trả lời ngắn: tìm được gì, chọn việc nào và vì sao. Dòng CUỐI phải là "` + scannedMark + ` <các vùng lượt này đã xem, ngắn gọn>" (office lưu lại để lần sau quét vùng khác).`)
 	return sb.String()
@@ -592,11 +647,7 @@ func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool
 	if it.ReviewNote != "" {
 		fmt.Fprintf(&sb, "Ý kiến của người review (làm theo, trừ khi code cho thấy khác):\n%s\n", it.ReviewNote)
 	}
-	fmt.Fprintf(&sb, "\nBạn làm trong worktree riêng của việc này, có toàn quyền. Được dùng tối đa %d subagent (công cụ Agent/Task) cho phần chạy song song; ", b.MaxSubagents)
-	if b.MaxSubagents == 0 {
-		sb.WriteString("lần này không dùng subagent; ")
-	}
-	sb.WriteString("không push, không merge. Sửa xong thì chạy build/test liên quan cho tới khi đạt.\n")
+	sb.WriteString("\nBạn làm trong worktree riêng của việc này, có toàn quyền; các việc khác của Burn có thể đang chạy song song trong worktree của chúng. Không push, không merge. Sửa xong thì chạy build/test liên quan cho tới khi đạt.\n")
 	if it.Kind == "unfinished" {
 		sb.WriteString("Nếu đây là một phần của tính năng trong lộ trình: làm đúng phạm vi phần này, ghi quyết định thiết kế vào tài liệu của project (spec/ADR) và đánh dấu tiến độ trong tài liệu kế hoạch; phần sau để lượt sau.\n")
 	}
@@ -754,6 +805,13 @@ func (s *Service) waitLimit(ctx context.Context, b storage.BurnSession) bool {
 	until, hit := s.limitHit(ctx, b.AgentID)
 	if !hit {
 		return false
+	}
+	// as it is now: pieces run side by side, b may be a while old
+	if cur, err := s.store.Burn().SessionByID(ctx, b.ID); err == nil {
+		if cur.State == "stopped" {
+			return true
+		}
+		b = cur
 	}
 	if b.EndsAt != nil && !until.Before(*b.EndsAt) {
 		_ = s.Stop(context.WithoutCancel(ctx), b.ProjectID)

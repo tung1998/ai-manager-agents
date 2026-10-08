@@ -102,7 +102,7 @@ func TestBurnDoesAPieceOnItsBranch(t *testing.T) {
 	defer cancel()
 	f.svc.Start(ctx)
 	ends := time.Now().Add(time.Hour)
-	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxSubagents: 1, ResultMode: "branch", EndsAt: &ends, State: "stopped"})
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, ResultMode: "branch", EndsAt: &ends, State: "stopped"})
 	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
 	if err != nil {
 		t.Fatal(err)
@@ -199,6 +199,51 @@ func TestBurnStopPausesAndGoesOn(t *testing.T) {
 	}
 	waitItem(t, f.st, it.ID, "doing")
 	f.svc.Stop(ctx, f.project.ID)
+}
+
+// Pieces run side by side up to the Burn's cap (ADR-117), each in its own
+// worktree; the rest wait their turn.
+func TestBurnWorksPiecesInParallel(t *testing.T) {
+	f := setup(t)
+	os.WriteFile(f.bin, []byte(`#!/bin/sh
+cat > /dev/null
+echo x > made-by-agent.txt
+sleep 3
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lượt","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 2, ResultMode: "branch", State: "stopped"})
+	b, _ := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	defer f.svc.Stop(context.Background(), f.project.ID)
+	for _, title := range []string{"việc một", "việc hai", "việc ba"} {
+		f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: title, Kind: "upgrade", Status: "queued"})
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(30 * time.Millisecond) {
+		items, _ := f.st.Burn().Items(ctx, b.ID)
+		n := map[string]int{}
+		trees := map[string]bool{}
+		for _, it := range items {
+			n[it.Status]++
+			if it.Status == "doing" {
+				trees[it.Worktree] = true
+			}
+		}
+		if n["doing"] == 2 {
+			if n["queued"] != 1 || len(trees) != 2 {
+				t.Fatalf("statuses %v, worktrees %v", n, trees)
+			}
+			return
+		}
+		if n["doing"] > 2 {
+			t.Fatalf("past the cap: %v", n)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("never two at once: %v", n)
+		}
+	}
 }
 
 // The real case (2026-10-05): its agent changed (the old one paused), a Burn

@@ -16,7 +16,7 @@ func TestBurnStore(t *testing.T) {
 		t.Fatalf("no session yet: %v", err)
 	}
 	ends := time.Now().UTC().Add(time.Hour)
-	s, err := b.SaveSession(ctx, storage.BurnSession{ProjectID: p.ID, ConversationID: "cnv_1", ModelTier: "fast", MaxSubagents: 1, ResultMode: "branch", EndsAt: &ends, State: "running"})
+	s, err := b.SaveSession(ctx, storage.BurnSession{ProjectID: p.ID, ConversationID: "cnv_1", ModelTier: "fast", MaxParallel: 1, ResultMode: "branch", EndsAt: &ends, State: "running"})
 	if err != nil {
 		t.Fatal(err)
 	}

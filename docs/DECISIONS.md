@@ -2021,4 +2021,11 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Quyền `burn_*`:** từ hội thoại Burn dùng được tất cả như trước. Từ chat làm việc chỉ `burn_add` và `burn_done`/`burn_fail` cho chính việc đó; chat review vẫn không dùng được.
 - **Vùng đã quét:** lượt quét kết thúc bằng dòng `VÙNG ĐÃ XEM: …`; office lưu vào `burn_sessions.scanned` (kèm giờ, giữ khoảng 2000 ký tự mới nhất, `SetScanned` chỉ ghi cột này) và đưa vào prompt lượt quét sau.
 - **Xem:** nút **Xem chat** trên thẻ việc mở ngăn chỉ xem, tab "Làm việc" và các bước review.
-- **Chưa làm:** chạy song song nhiều việc (giờ đã có thể vì mỗi việc một chat).
+- **Chưa làm:** chạy song song nhiều việc (giờ đã có thể vì mỗi việc một chat). Đã làm ở ADR-117.
+
+## ADR-117: Burn làm nhiều việc cùng lúc thay cho giới hạn subagent
+- **Bối cảnh:** cài đặt "số subagent tối đa" chỉ là lời dặn trong prompt cho subagent bên trong một việc; agent thường không dùng, nên người dùng đặt 3 mà Burn vẫn chỉ làm một việc mỗi lúc. Từ ADR-116 mỗi việc đã có worktree và chat riêng nên chạy song song được.
+- **Quyết định:** bỏ giới hạn subagent; cột `burn_sessions.max_subagents` đổi thành `max_parallel` (migration 00074, giá trị cũ giữ, kẹp 1–5): số việc làm cùng lúc, mặc định 1.
+- **Cách chạy:** vòng lặp của Burn giữ tối đa `max_parallel` worker; mỗi worker đưa một việc đi tiếp (review kết quả, review trước khi làm, rồi làm), không worker nào nhận việc worker khác đang giữ. Còn chỗ trống mà không có việc để làm tiếp thì chạy lượt quét, được chọn tối đa số chỗ trống (dặn chọn việc ít đụng cùng file). Hết chỗ thì chờ một worker xong. Quét không ra việc mà vẫn có việc đang chạy thì quét lại khi một việc xong.
+- **Giới hạn kết nối:** `waitLimit` đọc lại phiên trước khi ghi (worker giữ bản cũ); dừng Burn hay hết giờ thì mọi việc đang làm chuyển "tạm dừng".
+- Agent vẫn được dùng subagent của Claude Code nếu muốn, office không đặt số; số lần gọi vẫn đếm trên thẻ việc.
