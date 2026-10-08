@@ -1,0 +1,1 @@
+- The working directory is a worktree holding the team's changes; you only read it: no file edits, no diffs.

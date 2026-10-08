@@ -1,0 +1,83 @@
+// Package prompts holds the text office itself sends to models (ADR-122): the
+// system prompt's parts, guides, the coordination prompts of Burn and of
+// workflows, hand-offs between agents. In English (ADR-121), one Markdown
+// file each under area/name.md, embedded in the binary, so they are read and
+// changed in one place instead of across the Go code that sends them.
+//
+// Text gives a file as it is; Render fills it as a text/template with [[ ]]
+// delimiters ({{ }} stays literal: guides show the {{payload}} of automations).
+package prompts
+
+import (
+	"bytes"
+	"embed"
+	"fmt"
+	"strings"
+	"sync"
+	"text/template"
+)
+
+//go:embed */*.md
+var files embed.FS
+
+var (
+	mu    sync.Mutex
+	cache = map[string]*template.Template{}
+)
+
+// Funcs are the helpers a template may use.
+var Funcs = template.FuncMap{
+	"join":  strings.Join,
+	"lines": func(s string) []string { return strings.Split(strings.TrimSpace(s), "\n") },
+}
+
+// Text is the prompt name ("area/name", no .md) as written, trimmed. A name
+// with no file is a programming error: it panics (TestEveryPromptParses
+// reads them all).
+func Text(name string) string {
+	raw, err := files.ReadFile(name + ".md")
+	if err != nil {
+		panic(fmt.Sprintf("prompts: no %s.md", name))
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// Render fills the prompt name with data. A template that fails is a
+// programming error too: it panics, tests catch it.
+func Render(name string, data any) string {
+	t := parsed(name)
+	var b bytes.Buffer
+	if err := t.Execute(&b, data); err != nil {
+		panic(fmt.Sprintf("prompts: %s: %v", name, err))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func parsed(name string) *template.Template {
+	mu.Lock()
+	defer mu.Unlock()
+	if t, ok := cache[name]; ok {
+		return t
+	}
+	t := template.Must(template.New(name).Delims("[[", "]]").Funcs(Funcs).Option("missingkey=error").Parse(Text(name)))
+	cache[name] = t
+	return t
+}
+
+// Names lists every prompt ("area/name").
+func Names() []string {
+	var out []string
+	dirs, _ := files.ReadDir(".")
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		list, _ := files.ReadDir(d.Name())
+		for _, f := range list {
+			if strings.HasSuffix(f.Name(), ".md") {
+				out = append(out, d.Name()+"/"+strings.TrimSuffix(f.Name(), ".md"))
+			}
+		}
+	}
+	return out
+}

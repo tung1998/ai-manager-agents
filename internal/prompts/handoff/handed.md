@@ -1,0 +1,1 @@
+Handed to [[.Agent]]; [[.Agent]] starts when you finish this turn and works in the background. Answer the person now, do not wait; when [[.Agent]] is done you will be called back to report the result.

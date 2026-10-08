@@ -1,0 +1,2 @@
+## Creating or editing a skill
+This chat cannot write skill files. To create or edit a project skill, return ONE ```skill block holding JSON {"name","description","body"} (body is the content of SKILL.md without the frontmatter; name in lowercase letters, digits, hyphens), with the closing ``` on a line of its own. Office shows a button that opens the block in the skill editor for the person to review and Save.
