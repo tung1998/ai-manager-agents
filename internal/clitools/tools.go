@@ -474,7 +474,19 @@ func (m *Manager) start(tool, action string, argv []string, timeout time.Duratio
 		return nil, err
 	}
 	m.jobs[j.ID], m.last[tool] = j, j
+	go m.expireJob(j)
 	return j, nil
+}
+
+// expireJob drops a finished job from m.jobs a while after it ends, so
+// m.jobs doesn't grow without bound over a long-lived server; m.last[tool]
+// keeps its own reference for Status(), unaffected by this.
+func (m *Manager) expireJob(j *Job) {
+	<-j.done
+	time.Sleep(10 * time.Minute)
+	m.mu.Lock()
+	delete(m.jobs, j.ID)
+	m.mu.Unlock()
 }
 
 func (m *Manager) lookPathLocked(bin string) string {
