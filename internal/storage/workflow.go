@@ -81,6 +81,9 @@ type RunRole struct {
 	Workflow  string  `json:"workflow,omitempty"` // a sub-workflow fills it (its key)
 	RunID     string  `json:"run_id,omitempty"`   // that one's latest run
 	CostUSD   float64 `json:"cost_usd"`
+	// Objection: what it pushed back on in its last answer (PHẢN BIỆN), until
+	// it answers again or the coordinator overrules it in workflow_done
+	Objection string `json:"objection,omitempty"`
 }
 
 // RunGate is a gate of a run.

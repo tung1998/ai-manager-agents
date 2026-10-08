@@ -422,7 +422,7 @@ echo "$*" > `+dir+`/call$n.args
 rmdir `+dir+`/.lock
 cat > `+dir+`/call$n.in
 who=lead
-case "$*" in *"Bạn là Dev"*) who=dev;; esac
+case "$*" in *"Bạn là Dev"*) who=dev;; *"Bạn là QA"*) who=qa;; esac
 case "$*" in *"-p /compact"*) echo '{"type":"system","subtype":"compact_boundary","compact_metadata":{"pre_tokens":150000,"post_tokens":4000}}'; echo '{"type":"result","subtype":"success","is_error":false,"result":""}'; exit 0;; esac
 if [ -f `+dir+`/fail-$who ]; then rm `+dir+`/fail-$who; echo '{"type":"system","subtype":"init","session_id":"sess-'$who'"}'; echo 'boom' >&2; exit 1; fi
 [ -f `+dir+`/sleep-$who ] && sleep $(cat `+dir+`/sleep-$who)
@@ -430,7 +430,9 @@ reply=ok
 [ -f `+dir+`/reply-$who ] && reply=$(cat `+dir+`/reply-$who)
 echo '{"type":"system","subtype":"init","session_id":"sess-'$who'"}'
 echo '{"type":"assistant","message":{"model":"m","usage":{"input_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}'
-echo '{"type":"result","subtype":"success","is_error":false,"result":"'$who': '"$reply"'","session_id":"sess-'$who'","usage":{"input_tokens":1,"output_tokens":1}}'
+result="$who: $reply"
+[ -f `+dir+`/raw-$who ] && result=$(cat `+dir+`/raw-$who)
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"'"$result"'","session_id":"sess-'$who'","usage":{"input_tokens":1,"output_tokens":1}}'
 `), 0o755)
 	return bin, dir
 }

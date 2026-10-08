@@ -49,6 +49,9 @@ type Def struct {
 	Brief       []string   `yaml:"brief,omitempty" json:"brief,omitempty"`
 	Gates       []Gate     `yaml:"gates,omitempty" json:"gates,omitempty"`
 	Vote        *Vote      `yaml:"vote,omitempty" json:"vote,omitempty"`
+	// Supervise: a role that checks the run now and then against what was
+	// asked; drift is told to the coordinator when it is called back
+	Supervise *Supervise `yaml:"supervise,omitempty" json:"supervise,omitempty"`
 	// Strict: a differ_from that cannot be met refuses to run (default: a warning).
 	Strict bool `yaml:"strict,omitempty" json:"strict,omitempty"`
 	// Inputs a caller gives it and outputs it gives back (ADR-103): a
@@ -135,6 +138,28 @@ type Vote struct {
 	Roles  []string `yaml:"roles" json:"roles"`
 	Quorum int      `yaml:"quorum" json:"quorum"`
 	Veto   []string `yaml:"veto,omitempty" json:"veto,omitempty"`
+}
+
+// Supervise is a role watching a run: every so often it reads the run's chat
+// and says whether the work still goes where the request asked.
+type Supervise struct {
+	Role  string `yaml:"role" json:"role"`
+	Every string `yaml:"every,omitempty" json:"every,omitempty"` // "" = DefaultSuperviseEvery
+}
+
+// DefaultSuperviseEvery is how often a supervisor checks when not said.
+const DefaultSuperviseEvery = 10 * time.Minute
+
+// SuperviseEvery is how often the supervisor checks (0 = no supervisor).
+func (d Def) SuperviseEvery() time.Duration {
+	if d.Supervise == nil || d.Supervise.Role == "" {
+		return 0
+	}
+	t, err := time.ParseDuration(d.Supervise.Every)
+	if err != nil || t <= 0 {
+		return DefaultSuperviseEvery
+	}
+	return t
 }
 
 // Defaults of the limits.
@@ -425,6 +450,23 @@ func (d Def) Validate() error {
 			if !slices.Contains(v.Roles, k) {
 				add("vote.veto: %q không nằm trong vote.roles", k)
 			}
+		}
+	}
+	if sv := d.Supervise; sv != nil {
+		r, ok := d.Role(sv.Role)
+		switch {
+		case !ok:
+			add("supervise.role: vai %q không có", sv.Role)
+		case r.Access != AccessAnalyze || r.Workflow != "":
+			add("supervise.role: vai %q phải là vai analyze (chỉ đọc), không phải quy trình con", sv.Role)
+		}
+		if sv.Every != "" {
+			if t, err := time.ParseDuration(sv.Every); err != nil || t < 2*time.Minute {
+				add("supervise.every %q: thời lượng như 10m (ít nhất 2m)", sv.Every)
+			}
+		}
+		if d.StepMode() && !slices.ContainsFunc(d.Steps, func(s Step) bool { return s.Type == StepCoordinate }) {
+			add("supervise: chỉ giám sát được bước coordinate (quy trình không có bước nào như vậy)")
 		}
 	}
 	if len(bad) == 0 {

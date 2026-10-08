@@ -69,6 +69,9 @@ type RunRequest struct {
 	// NoTools: people outside office drive this run (a Telegram/Discord
 	// channel, ADR-048): no file, MCP or office tools at all.
 	NoTools bool
+	// NoSubagents: no subagents of its own (a workflow's role: the office
+	// hands out the work); only full access has them otherwise
+	NoSubagents bool
 }
 
 // OfficeAccess lets one run read the project's operations data: Claude Code

@@ -58,6 +58,7 @@ export interface WorkflowDef {
   brief?: string[]
   gates?: WorkflowGate[]
   vote?: WorkflowVote | null
+  supervise?: { role: string, every?: string } | null // a role checking the run now and then (ADR-115)
   strict?: boolean
   inputs?: WorkflowField[]
   outputs?: WorkflowField[]

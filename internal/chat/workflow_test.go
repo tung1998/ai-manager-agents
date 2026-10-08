@@ -862,3 +862,115 @@ steps:
 		t.Fatalf("runs = %+v", runs)
 	}
 }
+
+// a role that finds its brief wrong pushes back (ADR-115): the coordinator
+// is told, and the run ends only once it is answered or overruled
+func TestWorkflowRolePushesBack(t *testing.T) {
+	g := newWFGroup(t)
+	src := `---
+key: pb
+name: Phản biện
+roles:
+  - { key: a, name: A, access: analyze }
+limits: { turns: 4 }
+---
+Giao a rồi kết thúc.
+`
+	if _, err := g.svc.Create(g.context, g.f.project.ID, src, map[string]string{"a": g.dev.ID}); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(g.dir, "raw-dev"), []byte(`PHẢN BIỆN: bản giao sửa nhầm file\nbằng chứng: a.go:1`), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("2"), 0o644)
+	call0, _, err := g.engine.Send(g.context, g.conv.ID, "#pb việc X", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.during(t, "workflow_delegate", map[string]any{"role": "a", "brief": map[string]string{"outcome": "sửa b.go"}}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for g.run(t).Roles[0].Objection == "" {
+		if time.Now().After(deadline) {
+			t.Fatalf("no objection: %+v", g.run(t).Roles)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := g.during(t, "workflow_done", map[string]any{"summary": "xong"}); err == nil || !strings.Contains(err.Error(), "phản biện") {
+		t.Fatalf("done with an objection unanswered: %v", err)
+	}
+	if _, err := g.during(t, "workflow_done", map[string]any{"summary": "xong", "overrule": "người dùng chỉ định b.go"}); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	collect(t, call0)
+	r := g.run(t)
+	if r.Status != storage.RunDone || !strings.Contains(r.Result, "sửa nhầm file") || !strings.Contains(r.Result, "người dùng chỉ định b.go") {
+		t.Fatalf("run = %+v", r)
+	}
+	// the coordinator was told on its call-back
+	deadline = time.Now().Add(5 * time.Second)
+	for !slices.ContainsFunc(argsIn(t, g.dir), func(s string) bool { return strings.Contains(s, "PHẢN BIỆN bản giao") }) {
+		if time.Now().After(deadline) {
+			t.Fatal("coordinator not told of the objection")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// a supervisor checks the run while roles work (ADR-115); drift it sees is
+// told to the coordinator when it is called back
+func TestWorkflowSupervisorTellsDrift(t *testing.T) {
+	defer chat.SetWatchEvery(150 * time.Millisecond)()
+	g := newWFGroup(t)
+	src := `---
+key: sv
+name: Có giám sát
+roles:
+  - { key: a, name: A, access: analyze }
+  - { key: gs, name: Giám sát, access: analyze }
+supervise: { role: gs, every: 5m }
+---
+Giao a rồi kết thúc.
+`
+	if _, err := g.svc.Create(g.context, g.f.project.ID, src, map[string]string{"a": g.dev.ID, "gs": g.qa.ID}); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(g.dir, "raw-qa"), []byte(`GIÁM SÁT: LỆCH: đang làm ngoài phạm vi`), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-dev"), []byte("2"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	call0, _, err := g.engine.Send(g.context, g.conv.ID, "#sv việc X", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.during(t, "workflow_delegate", map[string]any{"role": "gs", "brief": map[string]string{"outcome": "x"}}); err == nil {
+		t.Fatal("work given to the supervisor")
+	}
+	if _, err := g.during(t, "workflow_delegate", map[string]any{"role": "a", "brief": map[string]string{"outcome": "x"}}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for !slices.ContainsFunc(argsIn(t, g.dir), func(s string) bool { return strings.Contains(s, "Giám sát (QA) thấy lệch hướng") }) {
+		if time.Now().After(deadline) {
+			t.Fatal("the coordinator was not told of the drift")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	r := g.run(t)
+	if !slices.ContainsFunc(r.Log, func(l storage.RunLog) bool { return strings.Contains(l.Text, "ngoài phạm vi") }) {
+		t.Fatalf("log = %+v", r.Log)
+	}
+	g.engine.StopAll(g.conv.ID)
+	collect(t, call0)
+}
+
+// argsIn is what every fake CLI call was given (arguments and stdin).
+func argsIn(t *testing.T, dir string) []string {
+	t.Helper()
+	var out []string
+	files, _ := filepath.Glob(filepath.Join(dir, "call*"))
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		out = append(out, string(b))
+	}
+	return out
+}

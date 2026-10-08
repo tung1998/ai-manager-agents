@@ -209,7 +209,7 @@ func (d Def) CoordinateDef(s Step, body string) Def {
 	}
 	c.Roles = nil
 	for _, r := range d.Roles {
-		if keep(r.Key) {
+		if keep(r.Key) || d.Supervise != nil && r.Key == d.Supervise.Role { // the supervisor watches the step
 			c.Roles = append(c.Roles, r)
 		}
 	}

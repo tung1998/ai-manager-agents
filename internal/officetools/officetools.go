@@ -271,7 +271,8 @@ func (t *Toolbox) Tools() []Tool {
 				Schema: obj(map[string]any{"gate": str("Key của cổng"), "note": str("approve: điều người dùng cần duyệt"), "command": str("check: lệnh kiểm tra"), "role": str("check: chạy trong worktree của vai này")}, "gate")},
 			Tool{Name: "workflow_done", Description: "Quy trình: kết thúc khi đã xong (và qua mọi cổng bắt buộc). summary là KẾT QUẢ của quy trình, câu trả lời duy nhất người gọi thấy (Markdown, đầy đủ, tự đọc hiểu được).",
 				Schema: obj(map[string]any{"summary": str("Tóm tắt kết quả"),
-					"outputs": map[string]any{"type": "object", "description": "Đầu ra theo key, khi quy trình khai báo outputs (bắt buộc với key required)", "additionalProperties": map[string]any{"type": "string"}}}, "summary")},
+					"outputs":  map[string]any{"type": "object", "description": "Đầu ra theo key, khi quy trình khai báo outputs (bắt buộc với key required)", "additionalProperties": map[string]any{"type": "string"}},
+					"overrule": str("Khi còn vai PHẢN BIỆN mà bạn giữ nguyên: vì sao (người gọi thấy cả phản biện và lý do)")}, "summary")},
 		)
 	}
 	return list

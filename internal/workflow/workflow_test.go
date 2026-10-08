@@ -408,3 +408,29 @@ steps:
 		}
 	}
 }
+
+func TestSupervise(t *testing.T) {
+	src := func(sv string) string {
+		return "---\nkey: sv\nname: SV\nroles:\n  - { key: a, name: A }\n  - { key: gs, name: GS }\n  - { key: e, name: E, access: edit }\n" + sv + "---\nGiao a.\n"
+	}
+	d, err := Parse(src("supervise: { role: gs }\n"))
+	if err != nil || d.SuperviseEvery() != DefaultSuperviseEvery {
+		t.Fatalf("default: %v %v", d.SuperviseEvery(), err)
+	}
+	if d, err := Parse(src("supervise: { role: gs, every: 3m }\n")); err != nil || d.SuperviseEvery() != 3*time.Minute {
+		t.Fatalf("3m: %v %v", d.SuperviseEvery(), err)
+	}
+	if d, _ := Parse(src("")); d.SuperviseEvery() != 0 {
+		t.Fatal("no supervisor still supervises")
+	}
+	for _, bad := range []string{"supervise: { role: nope }\n", "supervise: { role: e }\n", "supervise: { role: gs, every: 30s }\n"} {
+		if _, err := Parse(src(bad)); err == nil || !strings.Contains(err.Error(), "supervise") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+	// a coordinate step keeps the supervisor even when it hands work to others only
+	d.Steps = []Step{{ID: "x", Type: StepCoordinate, Roles: []string{"a"}}}
+	if c := d.CoordinateDef(d.Steps[0], "b"); len(c.Roles) != 2 || c.Roles[1].Key != "gs" {
+		t.Fatalf("coordinate roles = %+v", c.Roles)
+	}
+}

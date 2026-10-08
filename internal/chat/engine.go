@@ -144,6 +144,7 @@ type Turn struct {
 	// the role it answers as ("" = the coordinator); wfVote: a ballot
 	wfRun, wfRole string
 	wfVote        bool
+	wfWatch       bool   // the run's supervisor checking it (wfRole is its seat)
 	wfStep        string // a step of a graph of steps: its answer goes to the run's runner (ADR-108)
 	err           string // why it failed ("" = it answered)
 
@@ -1004,6 +1005,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if agentFull {
 		req.FullAccess = true
 	}
+	// a workflow's role works itself: the office hands out the work (ADR-115)
+	req.NoSubagents = turn.wfRole != "" || turn.wfStep != ""
 	if conv.Purpose == "automation" {
 		req.System += automationGuide
 	}
@@ -1021,6 +1024,11 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	switch {
 	case wfCoord != nil:
 		req.System += e.wfBrief(ctx, wfCoord, project.ID)
+	case turn.wfWatch:
+		if run := e.runOf(conv.ID); run != nil && run.rec.ID == turn.wfRun {
+			d, _ := run.def.Role(turn.wfRole)
+			req.System += superviseBrief(d.Name, run.def.Name)
+		}
 	case turn.wfRole != "":
 		if run := e.runOf(conv.ID); run != nil && run.rec.ID == turn.wfRun {
 			d, _ := run.def.Role(turn.wfRole)

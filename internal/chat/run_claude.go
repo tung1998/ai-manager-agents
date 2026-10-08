@@ -71,6 +71,9 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 		if resume && req.SessionID != "" {
 			a = append(a, "--resume", req.SessionID)
 		}
+		if req.NoSubagents {
+			a = append(a, "--disallowedTools", "Agent Task")
+		}
 		return a
 	}
 	tools := append(slices.Clone(claudeReadTools), "Skill")
