@@ -14,13 +14,18 @@ const mcpURL = computed(() => typeof location === 'undefined' ? '' : `${location
 const command = computed(() => created.value ? `claude mcp add --transport http agent-office ${mcpURL.value} --header "Authorization: Bearer ${created.value.token}"` : '')
 const when = (d?: string | null) => d ? new Date(d).toLocaleString(dateLocale.value) : t('cli.never')
 
+const creating = ref(false)
 async function create() {
+  if (creating.value) return
+  creating.value = true
   try {
     created.value = await $fetch<{ token: string, name: string }>('/api/me/tokens', { method: 'POST', body: { name: name.value, days: days.value } })
     name.value = ''
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    creating.value = false
   }
 }
 async function revoke(tk: Token) {
@@ -39,7 +44,7 @@ async function revoke(tk: Token) {
     <form class="flex gap-2" @submit.prevent="create">
       <UInput v-model="name" size="sm" class="flex-1" :placeholder="t('cli.namePlaceholder')" />
       <USelect v-model="days" :items="dayItems" size="sm" class="w-32" />
-      <UButton type="submit" size="sm" icon="i-lucide-plus" :label="t('cli.create')" />
+      <UButton type="submit" size="sm" icon="i-lucide-plus" :label="t('cli.create')" :loading="creating" :disabled="creating" />
     </form>
     <div v-if="created" class="space-y-2 rounded-md border border-(--ui-warning)/40 bg-(--ui-warning)/5 p-3 text-xs">
       <p class="font-medium">{{ t('cli.onlyOnce') }}</p>
