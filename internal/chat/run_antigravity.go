@@ -66,9 +66,9 @@ func (r antigravityRunner) Run(ctx context.Context, req RunRequest, emit func(Ev
 	if res.Text == "" && res.SessionID != "" && ctx.Err() == nil && (err == nil || stepErr != "") {
 		more := req
 		more.SessionID, more.Attachments = res.SessionID, nil
-		more.Prompt = "Bạn chưa trả lời. Hãy viết câu trả lời cuối cùng cho yêu cầu trên bằng những gì đã có, không thử lại thao tác vừa lỗi." // i18n-ignore: sent to the agent
+		more.Prompt = "You have not answered yet. Write your final answer to the request above with what you have; do not retry the step that just failed."
 		if stepErr != "" {
-			more.Prompt = "Thao tác vừa rồi lỗi: " + truncate(stepErr, 300) + "\n" + more.Prompt // i18n-ignore: sent to the agent
+			more.Prompt = "The last step failed: " + truncate(stepErr, 300) + "\n" + more.Prompt
 		}
 		again, againErr, err2 := r.run(ctx, more, emit)
 		again.Tools = append(res.Tools, again.Tools...)
@@ -199,7 +199,7 @@ func agyPrompt(req RunRequest) (string, []string) {
 	prompt, images := codexPrompt(req.Prompt, req.Attachments)
 	var dirs []string
 	for _, p := range images {
-		prompt += "\n(Ảnh đính kèm: " + p + ")" // i18n-ignore
+		prompt += "\n(Attached image: " + p + ")"
 		if d := filepath.Dir(p); !slices.Contains(dirs, d) {
 			dirs = append(dirs, d)
 		}

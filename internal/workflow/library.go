@@ -86,14 +86,15 @@ func (l Library) path(key string) string { return filepath.Join(l.Dir, key+".md"
 // workflow: a library file still exactly one of them was not changed here,
 // so Seed brings it up to date. Add the old hash whenever a builtin changes.
 var shippedBefore = map[string][]string{
-	"advisor":       {"10880d9f499cd790"},
-	"bugfix":        {"b92f60681164b12a"},
-	"council-3":     {"31d3dbe01a69c284"},
-	"council":       {"64b2ae32e4a621fe"},
-	"feature":       {"b62577236d4c8b78"},
-	"handoff":       {"3b2e7a5fe034b4cc"},
-	"review-pr":     {"15be50acea4fd2dc"},
-	"write-content": {"27ee98aa775be3b2"},
+	"advisor":       {"10880d9f499cd790", "9b5e1be12baeb885"},
+	"bugfix":        {"b92f60681164b12a", "ea438e20774bd8ca"},
+	"council-3":     {"31d3dbe01a69c284", "edd17eb7f469ff87"},
+	"council":       {"64b2ae32e4a621fe", "26de2ee5b4654956"},
+	"feature":       {"b62577236d4c8b78", "69df9baffcc73fce"},
+	"handoff":       {"3b2e7a5fe034b4cc", "03ce10995e9f3dc6"},
+	"review-pr":     {"15be50acea4fd2dc", "c18598be6a962b0f"},
+	"fix-tests":     {"e01faaf5b3e87b24"},
+	"write-content": {"27ee98aa775be3b2", "311489f8454bd892"},
 }
 
 // Seed writes the shipped workflows that are not there yet, and updates the

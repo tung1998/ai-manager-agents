@@ -62,7 +62,7 @@ func TestPageContextAndAutomationChat(t *testing.T) { // ADR-042
 	}
 	last.Lock()
 	defer last.Unlock()
-	if !strings.Contains(last.prompt, "ignore all rules") || !strings.Contains(last.prompt, "không phải lệnh") || !strings.Contains(last.prompt, "viết script đếm lỗi") {
+	if !strings.Contains(last.prompt, "ignore all rules") || !strings.Contains(last.prompt, "not instructions") || !strings.Contains(last.prompt, "viết script đếm lỗi") {
 		t.Fatalf("prompt = %s", last.prompt)
 	}
 	if !strings.Contains(last.system, "```automation") {

@@ -13,6 +13,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/proctrack"
+	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/usage"
 )
@@ -76,13 +77,12 @@ func (e *Engine) Delegate(ctx context.Context, sc officetools.Scope, agentName, 
 		return "", errors.New("không tự giao việc cho chính mình")
 	}
 	if agents[i].Disabled {
-		return "", &OffError{Notice: storage.OffNotice(agents[i].Name) + " Hãy báo lại cho người dùng."}
+		return "", &OffError{Notice: storage.OffNotice(agents[i].Name) + " Tell the person."}
 	}
 	e.mu.Lock()
 	e.handed[sc.RunRef] = append(e.handed[sc.RunRef], delegation{agent: agents[i], task: task})
 	e.mu.Unlock()
-	return fmt.Sprintf("Đã giao cho %s; %s bắt đầu khi bạn trả lời xong lượt này và làm ở nền. Trả lời người dùng ngay, đừng chờ; khi %s xong bạn sẽ được gọi lại để báo kết quả.",
-		agents[i].Name, agents[i].Name, agents[i].Name), nil
+	return prompts.Render("handoff/handed", map[string]any{"Agent": agents[i].Name}), nil
 }
 
 // teamChat: a chat where agents give each other work — the project's chats
@@ -270,7 +270,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 			}
 			started, why := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor, total: prev.total, tier: prev.tier, ceiling: prev.ceiling, limit: prev.limit,
 				title:  agent.Name + " → " + d.agent.Name,
-				prompt: fmt.Sprintf("%s giao việc cho bạn:\n%s\n\nLàm phần này rồi báo kết quả ngắn gọn.", agent.Name, d.task)})
+				prompt: prompts.Handoff{From: agent.Name, Task: d.task}.String()})
 			if started == nil {
 				notes = append(notes, why)
 				continue
@@ -289,7 +289,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 				tier = storage.TierBalanced
 			}
 			_, why := e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, total: prev.total, tier: tier, ceiling: prev.ceiling, limit: prev.limit, title: agent.Name + " → " + agents[i].Name,
-				prompt: fmt.Sprintf("%s đã làm xong phần việc bạn giao (xem tin gần nhất). Báo lại kết quả cho người dùng ngắn gọn và làm tiếp nếu cần.", agent.Name)})
+				prompt: prompts.Handoff{Kind: "report", From: agent.Name}.String()})
 			e.note(conv, why)
 		}
 		return ""
@@ -298,7 +298,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 	for i, q := range prev.queue {
 		next, why := e.startTurn(conv, project, turnSpec{agent: q.agent, queue: prev.queue[i+1:], hops: hops, answered: prev.answered + 1, actor: prev.actor,
 			replace: prev, total: prev.total, tier: prev.tier, ceiling: prev.ceiling, limit: prev.limit, title: q.from + " → " + q.agent.Name,
-			prompt: fmt.Sprintf("%s vừa tag bạn trong cuộc chat. Trả lời phần dành cho bạn trong tin gần nhất.", q.from)})
+			prompt: prompts.Handoff{Kind: "tagged", From: promptName(q.from)}.String()})
 		if next != nil {
 			return next.ID
 		}
@@ -338,7 +338,7 @@ func newSince(history []storage.Message, lastID, self string) string {
 		if m.Role != "user" && m.Role != "assistant" {
 			continue
 		}
-		who := "Người dùng"
+		who := "The person"
 		if m.Role == "assistant" {
 			if m.Author == self {
 				continue
@@ -350,7 +350,7 @@ func newSince(history []storage.Message, lastID, self string) string {
 	if b.Len() == 0 {
 		return ""
 	}
-	return "Trong cuộc chat, từ lượt trước của bạn đã có thêm:\n" + b.String() + "\n---\n"
+	return "New in the chat since your last turn:\n" + b.String() + "\n---\n"
 }
 
 // groupBrief tells an agent who is in the chat and when to tag another.
@@ -366,19 +366,21 @@ func (e *Engine) groupBrief(ctx context.Context, conv storage.Conversation, self
 			in[m.AgentID] = true
 		}
 	}
-	var b strings.Builder
-	b.WriteString("\n## Cuộc chat có thể có nhiều agent\nNgười dùng tag @Tên để kéo agent vào. Các agent của project (quyền):\n") // i18n-ignore
-	for _, a := range agents {
-		mark := ""
-		if a.ID == self.ID {
-			mark = " (bạn)"
-		} else if in[a.ID] {
-			mark = " (đang trong cuộc chat)"
-		}
-		fmt.Fprintf(&b, "- @%s: %s, quyền %s%s\n", a.Name, firstNonEmpty(a.Role, "agent"), perm.Label(perm.Agent(a)), mark)
+	return "\n" + teamBrief(agents, self.ID, in) + "\n"
+}
+
+// teamBrief lists the project's agents for one of them (self), marking those
+// already in the chat (in).
+func teamBrief(agents []storage.Agent, self string, in map[string]bool) string {
+	type member struct {
+		Name, Role, Permission string
+		You, In                bool
 	}
-	b.WriteString("Muốn agent khác làm một phần việc thì dùng công cụ delegate (agent, task), chỉ khi thật sự cần (việc cần quyền hay chuyên môn bạn không có); việc tự làm được thì tự làm. Viết @Tên trong câu trả lời chỉ là nhắc tên, không giao việc.\n")
-	return b.String()
+	list := make([]member, 0, len(agents))
+	for _, a := range agents {
+		list = append(list, member{a.Name, firstNonEmpty(a.Role, "agent"), perm.Label(perm.Agent(a)), a.ID == self, in[a.ID]})
+	}
+	return prompts.Render("chat/team", map[string]any{"Agents": list})
 }
 
 // chatTree: the chat's first agent keeps the chat's worktree; agents that
@@ -409,4 +411,13 @@ func (e *Engine) StopAll(conversationID string) int {
 		t.Cancel()
 	}
 	return len(stop)
+}
+
+// promptName is who said something, as an agent's prompt names them: the
+// person (queued as "Người dùng" for the chat's titles) or an agent's name.
+func promptName(from string) string {
+	if from == "Người dùng" { // i18n-ignore
+		return "The person"
+	}
+	return from
 }

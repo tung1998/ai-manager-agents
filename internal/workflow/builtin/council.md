@@ -12,12 +12,12 @@ outputs:
 roles:
   - key: a
     name: Thành viên A
-    hint: lập kế hoạch, phân tích nguyên nhân gốc
+    hint: planning, root cause analysis
     access: analyze
     prefer: { tier: strong }
   - key: b
     name: Thành viên B
-    hint: phản biện, tìm rủi ro
+    hint: critique, finding risks
     access: analyze
     differ_from: [a]
     prefer: { tier: strong }
@@ -25,7 +25,7 @@ parallel: [[a, b]]
 limits: { rounds: 3, turns: 8, timeout: 1h }
 brief: [question, context]
 ---
-1. Viết đề bài ở mức vấn đề (`question`): điều gì đang sai, kết quả cần đạt. Không đề xuất cách làm. `context` gồm những gì đã thử và vì sao chưa được (lấy từ bối cảnh cuộc chat đã gọi); `files` là đường dẫn.
-2. Gọi `workflow_delegate` cho cả `a` và `b` trong cùng một lượt, cùng một đề bài. Ghi ngắn rồi dừng lượt.
-3. Có kết quả của cả hai: so sánh. Chỗ bất đồng thì gửi lập luận của bên này cho bên kia bằng `workflow_send` và hỏi họ có đổi ý không.
-4. Dừng khi hai bên thống nhất hoặc hết số vòng. Gọi `workflow_done`: `summary` là kết luận chung, kế hoạch đề xuất, chỗ từng bất đồng và cách giải quyết; `outputs.plan`, `outputs.agreed`.
+1. Write the brief at the problem level (`question`): what is wrong, what outcome is needed. Do not propose a solution. `context` covers what was tried and why it did not work (from the calling chat's context); `files` are paths.
+2. Call `workflow_delegate` for both `a` and `b` in the same turn, with the same brief. Write a short note, then end the turn.
+3. With both results in: compare. Where they disagree, send one side's reasoning to the other with `workflow_send` and ask whether they change their mind.
+4. Stop when both agree or the rounds run out. Call `workflow_done`: `summary` is the shared conclusion, the proposed plan, where they disagreed and how it was resolved; `outputs.plan`, `outputs.agreed`.

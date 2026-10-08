@@ -12,19 +12,19 @@ outputs:
 roles:
   - key: review-a
     name: Reviewer A
-    hint: đúng sai, bảo mật
+    hint: correctness, security
     access: analyze
     prefer: { tier: strong }
   - key: review-b
     name: Reviewer B
-    hint: thiết kế, dễ bảo trì
+    hint: design, maintainability
     access: analyze
     differ_from: [review-a]
 parallel: [[review-a, review-b]]
 limits: { rounds: 2, turns: 6, timeout: 1h }
 brief: [question, context]
 ---
-1. Xác định phạm vi cần review (nhánh, PR, danh sách commit) và đưa vào `context`. `question`: review thay đổi này, liệt kê vấn đề theo mức độ (nghiêm trọng, nên sửa, góp ý), mỗi vấn đề kèm file:dòng và lý do.
-2. Gọi `workflow_delegate` cho cả `review-a` và `review-b` trong cùng một lượt. Ghi ngắn rồi dừng lượt.
-3. Gộp hai bản: bỏ trùng, giữ mức nghiêm trọng cao hơn khi hai bên khác nhau. Điểm chỉ một bên nêu mà bạn không chắc thì hỏi lại bên kia (`workflow_ask`).
-4. Gọi `workflow_done`: `summary` là bản review gộp; `outputs.verdict` (`changes_requested` khi còn vấn đề nghiêm trọng), `outputs.blocking`.
+1. Determine the scope to review (branch, PR, list of commits) and put it in `context`. `question`: review this change, list issues by severity (blocking, should fix, suggestion), each with file:line and the reason.
+2. Call `workflow_delegate` for both `review-a` and `review-b` in the same turn. Write a short note, then end the turn.
+3. Merge the two reviews: drop duplicates, keep the higher severity when they differ. For a point raised by only one side that you are unsure of, ask the other side (`workflow_ask`).
+4. Call `workflow_done`: `summary` is the merged review; `outputs.verdict` (`changes_requested` when blocking issues remain), `outputs.blocking`.

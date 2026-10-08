@@ -34,7 +34,7 @@ func TestReadLink(t *testing.T) {
 	if out, isErr := call(base + "?tab=chat&c=" + c.ID); isErr || !strings.Contains(out, "kiểm tra graylog") || !strings.Contains(out, "[Lead]") {
 		t.Fatalf("chat = %v %s", isErr, out)
 	}
-	if out, isErr := call(base + "?tab=chat&c=" + c.ID + "&m=" + m2.ID); isErr || !strings.Contains(out, "có 3 lỗi 500") || !strings.Contains(out, "tin được dẫn") {
+	if out, isErr := call(base + "?tab=chat&c=" + c.ID + "&m=" + m2.ID); isErr || !strings.Contains(out, "có 3 lỗi 500") || !strings.Contains(out, "linked message") {
 		t.Fatalf("message = %v %s", isErr, out)
 	}
 	if out, isErr := call(base + "?tab=tasks&task=" + task.ID); isErr || !strings.Contains(out, "đã sửa ở api.go") {

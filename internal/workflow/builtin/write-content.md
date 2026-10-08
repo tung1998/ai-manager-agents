@@ -12,11 +12,11 @@ outputs:
 roles:
   - key: viet
     name: Người viết
-    hint: viết nội dung
+    hint: writing content
     access: analyze
   - key: phan-bien
     name: Phản biện
-    hint: biên tập, kiểm tra thông tin
+    hint: editing, fact-checking
     access: analyze
     differ_from: [viet]
 gates:
@@ -27,7 +27,7 @@ gates:
 limits: { rounds: 3, turns: 8, timeout: 2h }
 brief: [outcome, constraints]
 ---
-1. Giao `viet` viết bản nháp: `outcome` là mục đích của bài và người đọc; `constraints` là kênh, độ dài, giọng văn, điều không được nói.
-2. Giao `phan-bien` soát bản nháp: thông tin sai, chỗ khó hiểu, chỗ lệch giọng. Gửi nhận xét lại cho `viet` (`workflow_send`) tới khi ổn.
-3. Mở cổng `duyet` bằng `workflow_gate` kèm bản cuối, rồi dừng lượt chờ người dùng duyệt. Bị từ chối thì sửa theo lý do hoặc dừng.
-4. Được duyệt thì mới đăng hay gửi (qua công cụ của project, vẫn theo quyền của bạn). Gọi `workflow_done`: `summary` là bản cuối và đã đăng/gửi ở đâu; `outputs.final`, `outputs.published`.
+1. Assign `viet` to write a draft: `outcome` is the piece's purpose and audience; `constraints` are the channel, length, tone, and what must not be said.
+2. Assign `phan-bien` to check the draft: wrong facts, unclear parts, off-tone parts. Send the feedback back to `viet` (`workflow_send`) until it is good.
+3. Open the `duyet` gate with `workflow_gate` and the final version, then end the turn and wait for the person to approve. If rejected, revise per the reason or stop.
+4. Only once approved, publish or send (via the project's tools, still within your permissions). Call `workflow_done`: `summary` is the final version and where it was published/sent; `outputs.final`, `outputs.published`.

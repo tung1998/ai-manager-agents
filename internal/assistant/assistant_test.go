@@ -34,6 +34,14 @@ func TestEnsureOnce(t *testing.T) {
 	if len(repos) != 1 || repos[0].Path != dir {
 		t.Fatalf("repos = %+v", repos)
 	}
+	// one made by an older office (Vietnamese instructions): today's on the next start
+	old := agents[0]
+	old.Instructions = "Trả lời bằng tiếng Việt."
+	st.Agents().Update(ctx, old)
+	assistant.Ensure(ctx, st, dir)
+	if a, _ := st.Agents().Get(ctx, old.ID); a.Instructions != assistant.Instructions {
+		t.Fatalf("instructions not refreshed: %q", a.Instructions)
+	}
 }
 
 // The assistant's rights: answer only, help run the office (default), or administrator.

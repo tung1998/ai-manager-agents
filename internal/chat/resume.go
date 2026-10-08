@@ -2,11 +2,11 @@ package chat
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/prompts"
 )
 
 // After a person decides what an agent proposed on the dashboard, the agent
@@ -105,9 +105,14 @@ func (e *Engine) goOn(conversationID string) {
 		return
 	}
 	who, lines := e.takeDecided(conversationID)
-	text := "[office] " + who + " đã quyết các đề xuất của bạn:\n" + strings.Join(lines, "\n") +
-		"\n\nLàm tiếp việc đang dở theo kết quả trên (không đề xuất lại những gì đã duyệt); xong thì báo ngắn gọn."
+	text := DecidedPrompt(who, lines)
 	_, _, _ = e.Send(actor.With(ctx, "human:"+who), conversationID, text, nil)
+}
+
+// DecidedPrompt is the message an agent goes on from once who decided its
+// proposals (lines: what and how it went), in a chat or a bot's (ADR-084).
+func DecidedPrompt(who string, lines []string) string {
+	return prompts.Render("chat/decided", map[string]any{"Who": who, "Lines": lines})
 }
 
 // takeDecided snapshots and removes a chat's pending decisions atomically, so

@@ -113,7 +113,7 @@ func (e *Engine) wfAskFlow(ctx context.Context, sc officetools.Scope, run *wfRun
 	run.logf("Giao vai %s: quy trình con /%s, %s điều phối", d.Name, d.Workflow, a.Name)
 	rec := run.rec
 	go e.saveRun(rec)
-	return fmt.Sprintf("Đã giao vai %s: quy trình con /%s (%s điều phối) chạy khi bạn trả lời xong lượt này, trong chat riêng. Ghi ngắn rồi dừng lượt; khi xong, đầu ra của nó là một tin trong cuộc chat này và bạn được gọi lại.", d.Name, d.Workflow, a.Name), nil
+	return fmt.Sprintf("Delegated role %s: the sub-workflow /%s (coordinated by %s) runs in a chat of its own when you finish this turn. Write a short note and stop your turn; when it is done, its output becomes a message in this chat and you are called back.", d.Name, d.Workflow, a.Name), nil
 }
 
 // startChild starts a sub-workflow run a coordinator asked for.
@@ -125,7 +125,7 @@ func (e *Engine) startChild(run *wfRun, conv storage.Conversation, project stora
 		if r := run.role(a.role); r != nil {
 			r.Status = "failed"
 		}
-		run.notes = append(run.notes, fmt.Sprintf("Vai %s (quy trình con /%s) không chạy được: %s", d.Name, d.Workflow, why))
+		run.notes = append(run.notes, fmt.Sprintf("Role %s (sub-workflow /%s) could not run: %s", d.Name, d.Workflow, why))
 		run.logf("%s: quy trình con không chạy được", d.Name)
 		rec := run.rec
 		e.wf.mu.Unlock()
@@ -224,7 +224,7 @@ func (e *Engine) awaitChild(parentID string, conv storage.Conversation, project 
 		run.logf("%s: quy trình con /%s xong", r.Name, rec.WorkflowKey)
 	} else {
 		r.Status = "failed"
-		run.notes = append(run.notes, fmt.Sprintf("Quy trình con /%s (vai %s) không xong: %s", rec.WorkflowKey, r.Name, cmp.Or(rec.Error, "đã dừng")))
+		run.notes = append(run.notes, fmt.Sprintf("Sub-workflow /%s (role %s) did not finish: %s", rec.WorkflowKey, r.Name, cmp.Or(rec.Error, "stopped")))
 		run.logf("%s: quy trình con /%s không xong", r.Name, rec.WorkflowKey)
 	}
 	delete(run.batch, role)
@@ -272,7 +272,7 @@ func (e *Engine) watchIdle(run *wfRun, conv storage.Conversation, role string) {
 			return
 		}
 		text := fmt.Sprintf("⏳ Vai %s (%s) đã làm quá %s mà chưa xong.", r.Name, cmp.Or(r.AgentName, r.Workflow), after)
-		run.notes = append(run.notes, text)
+		run.notes = append(run.notes, fmt.Sprintf("Role %s (%s) has worked for over %s and is not done yet.", r.Name, cmp.Or(r.AgentName, r.Workflow), after))
 		run.logf("%s", text)
 		rec := run.rec
 		e.wf.mu.Unlock()

@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -137,17 +138,16 @@ func Block(ctx context.Context, store storage.Store, projectID, agentID string, 
 	if err != nil || len(list) == 0 {
 		return ""
 	}
-	var lines []string
+	var notes []string
 	n := 0
 	for i := len(list) - 1; i >= 0; i-- { // the newest first, within the limit
 		n += utf8.RuneCountInString(list[i].Text)
-		if n > limit && len(lines) > 0 {
+		if n > limit && len(notes) > 0 {
 			break
 		}
-		lines = append([]string{"- " + list[i].Text}, lines...)
+		notes = append([]string{list[i].Text}, notes...)
 	}
-	return "\n\n## Ghi nhớ của bạn ở project này (từ các lần trước)\n" + strings.Join(lines, "\n") +
-		"\nDùng những điều này khi làm việc. Học được điều gì đáng nhớ lâu dài (quy ước, quyết định, điều người dùng muốn) thì dùng công cụ remember; đừng ghi việc chỉ của lần này."
+	return "\n\n" + prompts.Render("memory/notes", map[string]any{"Notes": notes})
 }
 
 func autoKey(projectID string) string { return "memory_auto/" + projectID }

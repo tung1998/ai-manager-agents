@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -177,15 +178,15 @@ const (
 
 // BriefFields are the parts a brief may have, in the order they are shown.
 var BriefFields = []struct{ Key, Label string }{
-	{"outcome", "Kết quả cần đạt"},
-	{"question", "Câu hỏi"},
-	{"context", "Bối cảnh"},
-	{"constraints", "Ràng buộc đã kiểm chứng"},
-	{"current_option", "Phương án đang thử (được phép phản biện)"},
-	{"tried", "Đã thử và vì sao bỏ"},
-	{"files", "File liên quan (tự mở để đọc)"},
-	{"done_when", "Tiêu chí xong"},
-	{"must_not", "Điều cấm"},
+	{"outcome", "Outcome"},
+	{"question", "Question"},
+	{"context", "Context"},
+	{"constraints", "Verified constraints"},
+	{"current_option", "Current option (open to challenge)"},
+	{"tried", "Tried and why dropped"},
+	{"files", "Relevant files (open them yourself)"},
+	{"done_when", "Done when"},
+	{"must_not", "Must not"},
 }
 
 func briefLabel(k string) string {
@@ -500,26 +501,22 @@ func (d Def) RenderBrief(role Role, parts map[string]string) (string, error) {
 			return "", fmt.Errorf("bản giao việc có mục %q không có (có: %s)", k, strings.Join(briefKeys(), ", "))
 		}
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "Bạn làm vai **%s** trong quy trình **%s**.\n", role.Name, d.Name)
+	type part struct{ Label, Text string }
+	var ps []part
 	for _, f := range BriefFields {
 		if v := strings.TrimSpace(parts[f.Key]); v != "" {
-			fmt.Fprintf(&b, "\n## %s\n%s\n", f.Label, v)
+			ps = append(ps, part{f.Label, v})
 		}
 	}
-	b.WriteString("\n" + AccessNote(role.Access))
-	return b.String(), nil
+	return prompts.Render("workflow/brief", struct {
+		Role, Workflow, AccessNote string
+		Parts                      []part
+	}{role.Name, d.Name, AccessNote(role.Access), ps}), nil
 }
 
-// AccessNote is the line a role's prompt ends with.
+// AccessNote is the line a role's prompt ends with (workflow/access-note.md).
 func AccessNote(access string) string {
-	switch access {
-	case AccessEdit:
-		return "Bạn được sửa file trong worktree riêng của mình. Làm xong thì trả lời ngắn: đã làm gì, kiểm chứng ra sao, còn gì dở."
-	case AccessPropose:
-		return "Bạn không sửa file trực tiếp: đề xuất diff hoặc thao tác để người dùng duyệt. Làm xong thì trả lời ngắn kết quả."
-	}
-	return "Chỉ phân tích, không sửa file, không viết code. Trả lời kết luận kèm lý do."
+	return prompts.Render("workflow/access-note", struct{ Edit, Propose bool }{access == AccessEdit, access == AccessPropose})
 }
 
 // IdleAfter is how long a role may work before it is noted (0 = never).

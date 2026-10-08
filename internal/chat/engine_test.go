@@ -396,7 +396,7 @@ func TestEachAgentKeepsItsSession(t *testing.T) {
 	f.engine.SetAgent(ctx, conv.ID, lead)
 	say("tiếp")
 	args2, in2 := call(t, dir, 2)
-	if strings.Contains(args2, "--resume") || !strings.Contains(in2, "Cuộc trò chuyện trước đó") {
+	if strings.Contains(args2, "--resume") || !strings.Contains(in2, "The conversation so far") {
 		t.Fatalf("Dev's first turn should be a transcript:\n%s\n%s", args2, in2)
 	}
 	args3, in3 := call(t, dir, 3)
@@ -873,7 +873,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 	}
 	collect(t, turn)
 	b, _ := os.ReadFile(argsLog)
-	if a := string(b); !strings.Contains(a, "- Repo dùng pnpm, không dùng npm") || !strings.Contains(a, "Ghi nhớ của bạn") {
+	if a := string(b); !strings.Contains(a, "- Repo dùng pnpm, không dùng npm") || !strings.Contains(a, "Your notes in this project") {
 		t.Fatalf("args = %s", a)
 	}
 }
@@ -1107,7 +1107,7 @@ func TestDecidedGoesOn(t *testing.T) {
 		t.Fatalf("authors = %v", got)
 	}
 	_, in := call(t, g.dir, 2)
-	if !strings.Contains(in, "pnpm test") || !strings.Contains(in, "origin main") || !strings.Contains(in, "Làm tiếp") {
+	if !strings.Contains(in, "pnpm test") || !strings.Contains(in, "origin main") || !strings.Contains(in, "Go on with") {
 		t.Fatalf("one message with both results:\n%s", in)
 	}
 	time.Sleep(400 * time.Millisecond)

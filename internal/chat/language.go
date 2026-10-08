@@ -2,8 +2,8 @@ package chat
 
 import (
 	"context"
-	"strings"
 
+	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -43,15 +43,5 @@ func (l Language) Clean() Language {
 // Rule is the language part of an agent's instructions.
 func (l Language) Rule() string {
 	l = l.Clean()
-	sys := Languages[l.System]
-	var b strings.Builder
-	if l.Response == "auto" {
-		b.WriteString("- Reply to the person in the language they write in (prompts office itself generates, such as [Burn] or workflow messages, do not count); when there is none or it is unclear, reply in " + sys + ". ")
-		b.WriteString("Text the person reads elsewhere (titles, summaries, item details, proposals) follows the same rule.\n")
-	} else {
-		name := Languages[l.Response]
-		b.WriteString("- Always reply to the person in " + name + ", and write what they read elsewhere (titles, summaries, item details, proposals) in " + name + ".\n")
-	}
-	b.WriteString("- With other agents and with office itself (delegated tasks, workflow messages, reviews of another agent's work) use English.\n")
-	return b.String()
+	return prompts.Render("chat/language", map[string]any{"Auto": l.Response == "auto", "System": Languages[l.System], "Response": Languages[l.Response]}) + "\n"
 }

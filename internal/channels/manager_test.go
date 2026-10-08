@@ -114,7 +114,7 @@ func TestManagerRules(t *testing.T) {
 in=$(cat)
 printf '%s\nSTDIN:%s\n===\n' "$*" "$in" >> `+argsLog+`
 out="đơn 123 đang giao"
-case "$in" in *"YES hoặc NO"*) out=NO; case "$in" in *"đơn hàng"*"đơn 123"*) out=YES;; esac;; esac
+case "$in" in *"YES or NO"*) out=NO; case "$in" in *"đơn hàng"*"đơn 123"*) out=YES;; esac;; esac
 echo '{"type":"system","subtype":"init","session_id":"s1"}'
 echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
 `), 0o755)

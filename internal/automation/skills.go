@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"bitbucket.org/senprints/agent-office/internal/prompts"
 )
 
 // SkillRef is a skill a project's chat can call with "/name".
@@ -94,16 +96,8 @@ func ExpandSkillCall(home, projectPath, text string) (string, *SkillRef, error) 
 		}
 		return nil
 	})
-	var b strings.Builder
-	fmt.Fprintf(&b, "Người dùng gọi skill /%s. Làm theo hướng dẫn của skill dưới đây cho yêu cầu của họ.\n", name)
-	b.WriteString("Bạn chỉ có công cụ đọc: nếu skill bảo chạy lệnh hay sửa file, hãy nêu lệnh cần chạy hoặc đề xuất diff thay vì tự làm.\n\n")
-	fmt.Fprintf(&b, "<skill name=%q dir=%q>\n%s\n</skill>\n", name, skill.Path, strings.TrimSpace(body))
-	if len(others) > 0 {
-		fmt.Fprintf(&b, "File khác trong thư mục skill (đọc khi cần): %s\n", strings.Join(others, ", "))
-	}
 	if rest == "" {
-		rest = "(không có thêm yêu cầu, thực hiện theo skill)"
+		rest = "(no further request; follow the skill)"
 	}
-	fmt.Fprintf(&b, "\nYêu cầu: %s", rest)
-	return b.String(), skill, nil
+	return prompts.Render("chat/skill-call", map[string]any{"Name": name, "Dir": skill.Path, "Body": strings.TrimSpace(body), "Others": others, "Request": rest}), skill, nil
 }

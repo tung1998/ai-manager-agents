@@ -113,7 +113,7 @@ echo '{"event":"result","result":{"conversation_id":"c9","status":"SUCCESS","res
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	raw, _ := os.ReadFile(log)
-	if got := string(raw); strings.Count(got, "ARGS") != 2 || !strings.Contains(got, "Thao tác vừa rồi lỗi: user denied permission") {
+	if got := string(raw); strings.Count(got, "ARGS") != 2 || !strings.Contains(got, "The last step failed: user denied permission") {
 		t.Fatalf("calls:\n%s", got)
 	}
 

@@ -47,7 +47,7 @@ func TestWorkflowToolsOverTheAPIAndMCP(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		body := string(raw)
-		if !strings.Contains(body, "agent ĐIỀU PHỐI") { // a role
+		if !strings.Contains(body, "COORDINATOR agent") { // a role
 			reply(w, text("Ý kiến cố vấn: nên làm A."), false)
 			return
 		}
@@ -69,12 +69,12 @@ func TestWorkflowToolsOverTheAPIAndMCP(t *testing.T) {
 			}
 			reply(w, `{"type":"tool_use","id":"t1","name":"workflow_delegate","input":{"role":"co-van","brief":{"question":"A hay B?","context":"x","tried":"chưa"}}}`, true)
 		case 2:
-			if !strings.Contains(body, "Đã giao vai") {
+			if !strings.Contains(body, "Delegated role") {
 				fail("delegate result not returned")
 			}
 			reply(w, text("Đã giao."), false)
 		case 3:
-			if !strings.Contains(body, "[office · quy trình") {
+			if !strings.Contains(body, "[office · workflow") {
 				fail("not a call-back")
 			}
 			reply(w, `{"type":"tool_use","id":"t2","name":"workflow_done","input":{"summary":"Kết luận: làm A.","outputs":{"recommendation":"làm A"}}}`, true)

@@ -173,7 +173,7 @@ func (m *Manager) SendFileFor(ctx context.Context, sc actions.Scope, path, capti
 	if _, err := fs.SendFile(ctx, chatID, filepath.Base(file), data, caption); err != nil {
 		return "", err
 	}
-	return "Đã gửi " + filepath.Base(file) + " vào cuộc chat. Không cần nhắc lại đường dẫn trong câu trả lời.", nil
+	return "Sent " + filepath.Base(file) + " to the chat. No need to repeat the path in your reply.", nil
 }
 
 // chatOf is the bot chat a run answers: its job's, else the chat's latest

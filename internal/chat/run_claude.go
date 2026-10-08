@@ -31,7 +31,7 @@ var claudeReadTools = []string{"Read", "Glob", "Grep"}
 
 // userMCPSettings: a PreToolUse hook that allows the tools of any MCP server
 // (the person's own Claude Code setup), for agents with perm.CapUserMCP.
-const userMCPSettings = `{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"agent-office: MCP của người dùng\"}}'"}]}]}}`
+const userMCPSettings = `{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"agent-office: the person's MCP\"}}'"}]}]}}`
 
 // withEffort asks Claude Code to think this hard (--effort: low … max).
 func withEffort(a []string, effort string) []string {
@@ -460,18 +460,18 @@ func transcript(history []HistoryItem, prompt string) string {
 		return prompt
 	}
 	var b strings.Builder
-	b.WriteString("Cuộc trò chuyện trước đó:\n")
+	b.WriteString("The conversation so far:\n")
 	for _, h := range history {
-		who := "Người dùng"
+		who := "The person"
 		if h.Role == "assistant" {
-			who = "Bạn"
+			who = "You"
 			if h.Author != "" { // an agent that answered before a switch
 				who = h.Author
 			}
 		}
 		fmt.Fprintf(&b, "\n[%s]\n%s\n", who, truncate(h.Content, 6000))
 	}
-	b.WriteString("\n---\nTin nhắn mới của người dùng:\n")
+	b.WriteString("\n---\nThe person's new message:\n")
 	b.WriteString(prompt)
 	return b.String()
 }

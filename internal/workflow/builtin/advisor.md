@@ -11,14 +11,14 @@ outputs:
 roles:
   - key: co-van
     name: Cố vấn
-    hint: thiết kế, review, phân tích rủi ro
+    hint: design, review, risk analysis
     access: analyze
     differ_from: [dieu-phoi]
     prefer: { tier: strong }
 limits: { rounds: 3, turns: 4, timeout: 1h }
 brief: [question, context, tried]
 ---
-1. Từ yêu cầu và bối cảnh của cuộc chat đã gọi, viết câu hỏi thật sắc: điều cần quyết, bối cảnh đủ để hiểu, những hướng đã xét và đã loại kèm lý do; file chỉ ghi đường dẫn, không dán nội dung. Yêu cầu cố vấn đưa **khuyến nghị kèm lý do** và điều sẽ chứng minh khuyến nghị đó sai.
-2. Hỏi `co-van` bằng `workflow_ask` (chờ trả lời ngay). Quá hạn thì cố vấn làm tiếp ở nền và bạn được gọi lại khi xong.
-3. Còn điểm cần làm rõ thì hỏi tiếp bằng `workflow_ask` (cố vấn giữ mạch; mỗi lần là một vòng).
-4. Gọi `workflow_done`: `summary` gồm ý kiến của cố vấn và khuyến nghị của bạn (đồng ý hay không, vì sao); `outputs.recommendation` là khuyến nghị cuối.
+1. From the request and context of the calling chat, write a sharp question: what needs deciding, enough context to understand it, the options considered and rejected with reasons; give file paths only, do not paste contents. Ask the advisor for a **recommendation with reasons** and what would prove that recommendation wrong.
+2. Ask `co-van` with `workflow_ask` (waits for the reply). If it times out, the advisor keeps working in the background and you are called back when it is done.
+3. If points still need clarifying, ask again with `workflow_ask` (the advisor keeps the thread; each ask is one round).
+4. Call `workflow_done`: `summary` holds the advisor's opinion and your recommendation (agree or not, and why); `outputs.recommendation` is the final recommendation.

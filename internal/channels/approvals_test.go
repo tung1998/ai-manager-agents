@@ -119,7 +119,7 @@ func TestApprovalsFromChat(t *testing.T) {
 		jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: rule.ID})
 		for _, j := range jobs {
 			var p trigger.ChannelPayload
-			if json.Unmarshal([]byte(j.Payload), &p) == nil && p.ConversationID == conv.ID && strings.Contains(p.Message, "pnpm lint") && strings.Contains(p.Message, "Làm tiếp") {
+			if json.Unmarshal([]byte(j.Payload), &p) == nil && p.ConversationID == conv.ID && strings.Contains(p.Message, "pnpm lint") && strings.Contains(p.Message, "Go on with") {
 				resumed = true
 			}
 		}

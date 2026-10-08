@@ -10,7 +10,7 @@ outputs:
 roles:
   - key: sua
     name: Sửa
-    hint: sửa code theo lỗi build/test
+    hint: fixing code from build/test errors
     access: edit
 limits: { turns: 6, timeout: 2h, idle: 30m }
 steps:
@@ -27,10 +27,10 @@ steps:
     name: Sửa theo lỗi
     role: sua
     prompt: |
-      Lệnh `{{input.command}}` chưa đạt:
+      The command `{{input.command}}` does not pass:
       {{steps.kiem-tra.output}}
 
-      Tìm nguyên nhân gốc và sửa code cho tới khi lệnh đạt. Không tắt test, không bỏ qua lỗi.
+      Find the root cause and fix the code until the command passes. Do not disable tests or ignore errors.
     next: kiem-tra
     position: { x: 320, y: 160 }
   - id: dat
@@ -41,4 +41,4 @@ steps:
       passed: "true"
     position: { x: 320, y: -120 }
 ---
-Quy trình chạy theo các bước ở phần đầu (steps).
+The workflow runs by the steps in the header (steps).

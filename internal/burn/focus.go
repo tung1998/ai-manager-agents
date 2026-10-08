@@ -1,9 +1,6 @@
 package burn
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 // The person's focus steers a Burn (ADR-120): a direction, not a limit — it
 // still does all its work; what fits the focus is looked at and picked first,
@@ -57,46 +54,21 @@ func focusLenses(focus string) []lens {
 	return out
 }
 
-// focusPlan is the focus as a scan reads it: above the order of work.
-func focusPlan(focus string) string {
-	if focus == "" {
-		return ""
-	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "\nThe person's focus (a direction, not a limit):\n%s\n", focus)
-	sb.WriteString("- Burn still scans and does all kinds of work as usual; the focus only decides what is looked at and picked first.\n")
-	sb.WriteString("- When scanning, look at the areas related to the focus first (read it broadly), then the others.\n")
-	sb.WriteString("- When picking, pieces serving the focus go first; with none, pick other pieces as usual. Never burn_skip a piece only because it is off the focus.\n")
+// focusLooks is what the focus asks a scan to look at (burn/plan.md).
+func focusLooks(focus string) []string {
+	var out []string
 	for _, l := range focusLenses(focus) {
-		fmt.Fprintf(&sb, "- For this focus, look at: %s.\n", l.look)
+		out = append(out, l.look)
 	}
-	return sb.String()
+	return out
 }
 
-// focusWork is the focus as a piece's work reads it.
-func focusWork(focus string) string {
-	if focus == "" {
-		return ""
-	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "The person's focus (lean towards it when there is a choice of how): %s\n", focus)
+// focusChecks is how the focus asks a piece to be checked (burn/work.md,
+// burn/review.md at the result).
+func focusChecks(focus string) []string {
+	var out []string
 	for _, l := range focusLenses(focus) {
-		fmt.Fprintf(&sb, "Verify for the focus: %s.\n", l.check)
+		out = append(out, l.check)
 	}
-	return sb.String()
-}
-
-// focusReview is the focus as a reviewer reads it at stage.
-func focusReview(focus, stage string) string {
-	if focus == "" {
-		return ""
-	}
-	s := fmt.Sprintf("The person's focus (a direction, not a reason to turn other work down): %s\n", focus)
-	switch stage {
-	case "result":
-		for _, l := range focusLenses(focus) {
-			s += "Check the result for the focus: " + l.check + ".\n"
-		}
-	}
-	return s
+	return out
 }

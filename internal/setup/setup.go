@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -86,7 +87,7 @@ func (a *Assistant) Propose(ctx context.Context, projectID, projectName, project
 		return Result{}, err
 	}
 	out, err := a.providers.Call(ctx, p, llm.Request{
-		Model: model, System: systemPrompt, MaxTokens: 6000,
+		Model: model, System: systemPrompt + languageNote + chat.LoadLanguage(ctx, a.store).Rule(), MaxTokens: 6000,
 		Prompt: userPrompt(projectName, projectText, goal, packs),
 	}, usage.Meta{Kind: "setup_propose", ProjectID: projectID})
 	if err != nil {

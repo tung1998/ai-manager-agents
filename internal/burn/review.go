@@ -10,6 +10,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/perm"
+	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
@@ -194,31 +195,30 @@ func (s *Service) ensureReviewConversation(ctx context.Context, b storage.BurnSe
 	return conv.ID, nil
 }
 
+// reviewPrompt asks a stage's reviewer about a piece (burn/review.md).
 func reviewPrompt(b storage.BurnSession, it storage.BurnItem, stage string) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "[Burn · %s review] Piece %s (%s): %s\n", stage, it.ID, it.Kind, it.Title)
-	if it.Detail != "" {
-		fmt.Fprintf(&sb, "Detail the agent wrote: %s\n", it.Detail)
-	}
-	sb.WriteString(focusReview(b.Focus, stage))
-	if it.ReviewNote != "" && stage == "result" {
-		fmt.Fprintf(&sb, "Earlier review notes: %s\n", oneLine(it.ReviewNote, 600))
-	}
-	sb.WriteString("\nBurn is an agent that finds and does work on its own in this project. You are an independent reviewer, READ-ONLY (no file edits, no proposed actions). Read the real code before concluding.\n")
-	switch stage {
-	case "issue":
-		sb.WriteString("Analyse the PROBLEM: is it real (check the code, cite file:line), is it worth doing (benefit against risk), does it repeat work already done or go against an earlier decision.\n")
-	case "plan":
-		sb.WriteString("Analyse the APPROACH: should it be done now, is the scope right, where should it change and what must be verified. If you agree, write short guidance for the agent doing it (it is passed on).\n")
-	case "result":
-		fmt.Fprintf(&sb, "The agent reports done: %s\n", oneLine(it.Summary, 800))
+	d := struct {
+		Stage, ID, Kind, Title, Detail, Focus, ReviewNote string
+		Summary, Worktree, Branch, Agree, Disagree        string
+		FocusChecks                                       []string
+	}{Stage: stage, ID: it.ID, Kind: it.Kind, Title: it.Title, Detail: it.Detail, Focus: b.Focus,
 		// a workflow runs in chats of its own, not in the piece's worktree: where it is
-		fmt.Fprintf(&sb, "The changes are in worktree %s (branch %s).\n", it.Worktree, it.Branch)
-		sb.WriteString("Review the RESULT in that worktree (git status, git diff, git log against the main branch): does it fix the problem, any bugs, missing tests or changes out of scope. Run build/test to verify if your access allows. If you disagree, say exactly what must change (passed to the agent to redo).\n")
+		Worktree: it.Worktree, Branch: it.Branch, Agree: verdictAgree, Disagree: verdictDisagree}
+	if stage == "result" {
+		d.FocusChecks = focusChecks(b.Focus)
+		if it.ReviewNote != "" {
+			d.ReviewNote = oneLine(it.ReviewNote, 600)
+		}
+		d.Summary = oneLine(it.Summary, 800)
 	}
-	sb.WriteString("\nThe FIRST line of your answer must be exactly one of: `VERDICT: AGREE` or `VERDICT: DISAGREE`; then a short reason based on evidence. Write the reason in the language the person uses (office's language), it is shown to them.")
-	return sb.String()
+	return prompts.Render("burn/review", d)
 }
+
+// The first line of a reviewer's answer (verdict reads it).
+const (
+	verdictAgree    = "VERDICT: AGREE"
+	verdictDisagree = "VERDICT: DISAGREE"
+)
 
 // verdict reads the reviewer's conclusion from the first lines of its answer
 // (unclear counts as no, as a workflow's vote).

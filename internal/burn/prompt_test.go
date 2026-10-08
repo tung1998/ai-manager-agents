@@ -133,6 +133,10 @@ func TestFocusSteers(t *testing.T) {
 	if !strings.Contains(p, "Never burn_skip a piece only because it is off the focus") {
 		t.Error("an out-of-focus piece may be skipped (the real case, 2026-10-08)")
 	}
+	// the real case (2026-10-08): 3 slots, 2 running, the agent took them for full
+	if p1 := planPrompt(storage.BurnSession{MaxParallel: 3}, nil, 0, 1); !strings.Contains(p1, "3 in all, 2 taken by pieces in progress, 1 FREE") || !strings.Contains(p1, "scan new areas") {
+		t.Errorf("the free slot is not said outright:\n%s", p1)
+	}
 	if p3 := planPrompt(b, nil, 0, 3); !strings.Contains(p3, "pick 3 pieces") || !strings.Contains(p3, "scan more new areas") {
 		t.Errorf("free slots are not filled:\n%s", p3)
 	}
@@ -145,7 +149,7 @@ func TestFocusSteers(t *testing.T) {
 	if r := reviewPrompt(b, storage.BurnItem{}, "issue"); !strings.Contains(r, "not a reason to turn other work down") {
 		t.Errorf("issue review turns down what is off the focus:\n%s", r)
 	}
-	if focusLenses("build xong") != nil || focusPlan("") != "" {
+	if focusLenses("build xong") != nil || strings.Contains(planPrompt(storage.BurnSession{}, nil, 0, 1), "focus") {
 		t.Error("no focus, or none known: no lens")
 	}
 }

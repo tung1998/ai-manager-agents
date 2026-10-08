@@ -105,177 +105,159 @@ func obj(props map[string]any, required ...string) map[string]any {
 	return s
 }
 
-var linesProp = map[string]any{"type": "integer", "description": "Số dòng log cuối (mặc định 200, tối đa 1000)"}
+var linesProp = map[string]any{"type": "integer", "description": "Number of last log lines (default 200, max 1000)"}
 
 // Tools lists the tools (names are stable: agents and the UI refer to them).
 func (t *Toolbox) Tools() []Tool {
 	list := []Tool{
-		{Name: "ops_overview", Description: "Tổng quan vận hành của project: các tiến trình (dev, build, test…) và trạng thái/mã thoát/cổng, các service docker compose, các giám sát (Up/Down) và sự cố gần đây. Gọi đầu tiên khi được hỏi về lỗi build, lỗi chạy, deploy hay giám sát.",
+		{Name: "ops_overview", Description: "Operations overview: processes (dev, build, test…) with status/exit code/port, docker compose services, monitors and recent incidents. Call it first for build or runtime errors, deploys or monitoring.",
 			Schema: obj(map[string]any{})},
-		{Name: "process_logs", Description: "Đọc log gần nhất của một tiến trình office chạy cho project (ví dụ dev, build, test), kèm lệnh, trạng thái và mã thoát.",
-			Schema: obj(map[string]any{"name": map[string]any{"type": "string", "description": "Tên tiến trình, xem ops_overview"}, "lines": linesProp}, "name")},
-		{Name: "container_logs", Description: "Đọc log gần nhất của một service docker compose của project, kèm trạng thái container.",
+		{Name: "process_logs", Description: "Read the latest log of a process office runs for the project (e.g. dev, build, test), with its command, status and exit code.",
+			Schema: obj(map[string]any{"name": map[string]any{"type": "string", "description": "Process name, see ops_overview"}, "lines": linesProp}, "name")},
+		{Name: "container_logs", Description: "Read the latest log of a docker compose service of the project, with the container status.",
 			Schema: obj(map[string]any{"service": map[string]any{"type": "string"}, "lines": linesProp}, "service")},
-		{Name: "monitor_detail", Description: "Chi tiết một giám sát: cấu hình, các lần kiểm tra gần đây, sự kiện Up/Down và phân tích AI trước đó.",
-			Schema: obj(map[string]any{"name": map[string]any{"type": "string", "description": "Tên giám sát, xem ops_overview"}}, "name")},
+		{Name: "monitor_detail", Description: "Details of a monitor: config, recent checks, Up/Down events and earlier AI analysis.",
+			Schema: obj(map[string]any{"name": map[string]any{"type": "string", "description": "Monitor name, see ops_overview"}}, "name")},
 	}
 	list = append(list,
-		Tool{Name: "git_status", Description: "Trạng thái git của project: nhánh, số commit chưa push, các file đang thay đổi.", Schema: obj(map[string]any{})},
-		Tool{Name: "git_diff", Description: "Diff của các thay đổi chưa commit (so với HEAD), có thể giới hạn theo files.",
+		Tool{Name: "git_status", Description: "Git status of the project: branch, unpushed commits, changed files.", Schema: obj(map[string]any{})},
+		Tool{Name: "git_diff", Description: "Diff of uncommitted changes (against HEAD), optionally limited to files.",
 			Schema: obj(map[string]any{"files": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}})},
-		Tool{Name: "git_log", Description: "Các commit gần nhất.", Schema: obj(map[string]any{"lines": map[string]any{"type": "integer"}})},
+		Tool{Name: "git_log", Description: "The latest commits.", Schema: obj(map[string]any{"lines": map[string]any{"type": "integer"}})},
 	)
 	if t.actions != nil {
-		list = append(list, Tool{Name: "run_command", Description: "Chạy một lệnh trong thư mục project (không qua shell: không dùng | ; & > $, mỗi lần một lệnh), ví dụ test, typecheck, lint, build, git log. " +
-			"Lệnh nằm trong danh sách được phép của bạn chạy ngay và trả về output; lệnh khác thành đề xuất chờ người dùng duyệt.",
+		list = append(list, Tool{Name: "run_command", Description: "Run one command in the project folder (no shell: no | ; & > $), e.g. test, lint, build. Commands on your allowed list run at once; others become a proposal awaiting the person's approval.",
 			Schema: obj(map[string]any{
-				"command": map[string]any{"type": "string", "description": "Dòng lệnh, ví dụ: go test ./internal/..."},
-				"reason":  map[string]any{"type": "string", "description": "Vì sao cần chạy"},
+				"command": map[string]any{"type": "string", "description": "Command line, e.g. go test ./internal/..."},
+				"reason":  map[string]any{"type": "string", "description": "Why it needs to run"},
 			}, "command", "reason")})
-		list = append(list, Tool{Name: "propose_action", Description: "Đề xuất một thao tác để người dùng duyệt (tự chạy nếu gói quyền cho phép): " +
-			"run_process / restart_process / stop_process (target = tên tiến trình), start_container / restart_container / stop_container (target = service docker compose), " +
-			"git_commit (message = commit message theo quy ước repo, files = danh sách file; bỏ trống files = mọi thay đổi), git_branch (branch = tên nhánh mới), git_push (đẩy nhánh hiện tại, luôn cần người duyệt). " +
-			"Dùng sau khi đề xuất sửa code để chạy lại build/test kiểm chứng, khởi động lại dịch vụ bị treo, hoặc khi người dùng nhờ commit/push. Luôn nêu lý do.",
+		list = append(list, Tool{Name: "propose_action", Description: "Propose an action for the person to approve (runs on its own if your permissions allow; git_push always needs approval). Use it to re-run build/test after a fix, restart a stuck service, or commit/push when asked.",
 			Schema: obj(map[string]any{
 				"action":  map[string]any{"type": "string", "enum": []string{"run_process", "restart_process", "stop_process", "start_container", "restart_container", "stop_container", "git_commit", "git_branch", "git_push"}},
-				"target":  map[string]any{"type": "string"},
-				"reason":  map[string]any{"type": "string", "description": "Vì sao cần thao tác này"},
-				"message": map[string]any{"type": "string", "description": "git_commit: commit message"},
-				"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "git_commit: file cần commit"},
-				"branch":  map[string]any{"type": "string", "description": "git_branch: tên nhánh"},
+				"target":  map[string]any{"type": "string", "description": "*_process: process name; *_container: docker compose service"},
+				"reason":  map[string]any{"type": "string", "description": "Why this action is needed"},
+				"message": map[string]any{"type": "string", "description": "git_commit: commit message following the repo's conventions"},
+				"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "git_commit: files to commit (empty = all changes)"},
+				"branch":  map[string]any{"type": "string", "description": "git_branch: new branch name"},
 			}, "action", "reason")})
-		list = append(list, Tool{Name: "send_to_chat", Description: "Gửi một tin nhắn vào cuộc chat KHÁC của office, dưới tên người dùng đang chat với bạn (như họ tự gõ), " +
-			"để agent của chat đó làm tiếp. Dùng khi người dùng nhờ chuyển việc, nhắn hay hỏi sang chat khác. Tin đi kèm ghi chú gửi từ chat này. " +
-			"Tùy quyền, gửi ngay hoặc thành đề xuất chờ người dùng duyệt. Tìm chat bằng search_history hoặc dùng link người dùng dán.",
+		list = append(list, Tool{Name: "send_to_chat", Description: "Send a message into ANOTHER office chat as the person you chat with, for its agent to carry on, when they ask to pass work there. Find the chat with search_history or a link they pasted.",
 			Schema: obj(map[string]any{
-				"chat":   map[string]any{"type": "string", "description": "Cuộc chat đích: link dashboard (…?tab=chat&c=…) hoặc mã cnv_…"},
-				"text":   map[string]any{"type": "string", "description": "Nội dung tin nhắn, đủ rõ để agent bên đó làm mà không phải hỏi lại"},
-				"reason": map[string]any{"type": "string", "description": "Vì sao cần gửi"},
+				"chat":   map[string]any{"type": "string", "description": "Target chat: dashboard link (…?tab=chat&c=…) or id cnv_…"},
+				"text":   map[string]any{"type": "string", "description": "Message text, clear enough for the agent there to act without asking back"},
+				"reason": map[string]any{"type": "string", "description": "Why it needs sending"},
 			}, "chat", "text", "reason")})
-		list = append(list, Tool{Name: "remember", Description: "Ghi một điều đáng nhớ lâu dài vào sổ ghi nhớ của bạn ở project này (có ở mọi cuộc chat sau): " +
-			"quy ước của repo, quyết định đã chốt, điều người dùng muốn hay không muốn, lỗi đã gặp và cách sửa. Một ý ngắn, rõ, mỗi lần một điều; " +
-			"không ghi việc chỉ của lần này, không ghi bí mật. Tùy cài đặt project, ghi ngay hoặc chờ người dùng duyệt.",
+		list = append(list, Tool{Name: "remember", Description: "Save one short point worth keeping long term to your notes for this project (seen in every later chat): conventions, decisions, the person's preferences, fixes. Nothing one-off, no secrets.",
 			Schema: obj(map[string]any{
-				"note":   map[string]any{"type": "string", "description": "Điều cần nhớ, ví dụ: Repo dùng pnpm; chạy pnpm test trước khi báo xong"},
-				"reason": map[string]any{"type": "string", "description": "Vì sao đáng nhớ"},
+				"note":   map[string]any{"type": "string", "description": "What to remember, e.g. The repo uses pnpm; run pnpm test before reporting done"},
+				"reason": map[string]any{"type": "string", "description": "Why it is worth remembering"},
 			}, "note")})
 		str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
-		list = append(list, Tool{Name: "propose_automation", Description: "Đề xuất một tự động hóa cho project (luôn chờ người dùng duyệt). " +
-			"Ưu tiên action=script (bash/node/python, chạy trong thư mục project, KHÔNG tốn token AI): script nhận payload qua stdin và $OFFICE_PAYLOAD, in kết quả ra stdout; " +
-			"thoát khác 0 khi có lỗi; in dòng '@@agent: <nội dung>' khi cần agent xem. escalate.when: never | failure (mặc định, khi script lỗi) | signal (khi có dòng @@agent). " +
-			"Chỉ dùng action=chat/task khi mỗi lần chạy thật sự cần AI; action=workflow chạy một quy trình của project (workflow = key, prompt = đầu vào). Lịch: every_minutes hoặc cron 5 trường kèm timezone (IANA). Có automation_id thì là sửa tự động hóa đó.",
+		list = append(list, Tool{Name: "propose_automation", Description: "Propose an automation (the person approves it). Prefer action=script (NO AI tokens); chat/task only when every run needs AI; workflow runs a project workflow. With automation_id it edits that one.",
 			Schema: obj(map[string]any{
-				"automation_id": str("Sửa tự động hóa này (bỏ trống = tạo mới)"),
-				"name":          str("Tên ngắn"),
+				"automation_id": str("Edit this automation (empty = create a new one)"),
+				"name":          str("Short name"),
 				"source":        map[string]any{"type": "string", "enum": []string{"schedule", "webhook"}},
 				"every_minutes": map[string]any{"type": "integer"},
-				"cron":          str("Ví dụ 0 8 * * 1-5"),
-				"timezone":      str("Ví dụ Asia/Ho_Chi_Minh"),
+				"cron":          str("5-field cron, e.g. 0 8 * * 1-5"),
+				"timezone":      str("IANA, e.g. Asia/Ho_Chi_Minh"),
 				"action":        map[string]any{"type": "string", "enum": []string{"script", "chat", "task", "workflow"}},
-				"workflow":      str("workflow: key của quy trình chạy (agent_id là agent điều phối)"),
-				"agent_id":      str("chat: agent trả lời (bỏ trống = trưởng nhóm)"),
-				"prompt":        str("chat/task: nội dung gửi agent; workflow: đầu vào của quy trình; có {{payload}}, {{today}}…"),
+				"workflow":      str("workflow: key of the workflow to run (agent_id is the coordinating agent)"),
+				"agent_id":      str("chat: answering agent (empty = team lead)"),
+				"prompt":        str("chat/task: text sent to the agent; workflow: the workflow's input; supports {{payload}}, {{today}}…"),
 				"script": obj(map[string]any{
 					"lang":      map[string]any{"type": "string", "enum": []string{"bash", "node", "python"}},
-					"body":      str("Mã nguồn script"),
-					"timeout_s": map[string]any{"type": "integer", "description": "Mặc định 300, tối đa 3600"},
+					"body":      str("Source; runs in the project folder, payload on stdin and $OFFICE_PAYLOAD, result on stdout, non-zero exit on error, a line '@@agent: <text>' when an agent should look"),
+					"timeout_s": map[string]any{"type": "integer", "description": "Default 300, max 3600"},
 				}),
 				"escalate": obj(map[string]any{
-					"when":     map[string]any{"type": "string", "enum": []string{"never", "failure", "signal"}},
+					"when":     map[string]any{"type": "string", "enum": []string{"never", "failure", "signal"}, "description": "failure (default): the script fails; signal: it prints an @@agent line"},
 					"action":   map[string]any{"type": "string", "enum": []string{"chat", "task"}},
-					"agent_id": str("Agent xử lý (bỏ trống = trưởng nhóm)"),
-					"prompt":   str("Nội dung gửi agent, có {{output}}, {{exit_code}}, {{message}}"),
+					"agent_id": str("Handling agent (empty = team lead)"),
+					"prompt":   str("Text sent to the agent; supports {{output}}, {{exit_code}}, {{message}}"),
 				}),
-				"ends_at": str("schedule: giờ tự dừng (RFC3339, ví dụ 2026-10-12T00:00:00+07:00); bỏ trống = chạy tới khi tắt"),
-				"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "chat: tag gắn vào chat của mỗi lần chạy (tối đa 10; bỏ trống = giữ tag cũ)"},
-				"reason":  str("Vì sao cần tự động hóa này"),
+				"ends_at": str("schedule: time to stop on its own (RFC3339, e.g. 2026-10-12T00:00:00+07:00); empty = runs until turned off"),
+				"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "chat: tags put on each run's chat (max 10; empty = keep the current tags)"},
+				"reason":  str("Why this automation is needed"),
 			}, "name", "source", "action", "reason")})
 	}
 	if t.config != nil && t.actions != nil {
-		kind := map[string]any{"type": "string", "description": "Loại cài đặt, xem describe"}
+		kind := map[string]any{"type": "string", "description": "Setting type, see describe"}
 		list = append(list,
-			Tool{Name: "describe", Description: "Các loại cài đặt đổi được (automation, agent, workflow, monitor, process, policy, project, usage_settings, provider); có resource thì liệt kê trường sửa được.",
+			Tool{Name: "describe", Description: "The setting types that can be changed (automation, agent, workflow, monitor, process, policy, project, usage_settings, provider); with resource, lists its editable fields.",
 				Schema: obj(map[string]any{"resource": kind})},
-			Tool{Name: "list", Description: "Danh sách cài đặt của một loại trong project (id, tên, trạng thái).", Schema: obj(map[string]any{"resource": kind}, "resource")},
-			Tool{Name: "get", Description: "Một cài đặt đầy đủ (bí mật đã che). policy, project, usage_settings không cần id.",
+			Tool{Name: "list", Description: "The settings of one type in the project (id, name, status).", Schema: obj(map[string]any{"resource": kind}, "resource")},
+			Tool{Name: "get", Description: "One setting in full (secrets masked). policy, project and usage_settings need no id.",
 				Schema: obj(map[string]any{"resource": kind, "id": map[string]any{"type": "string"}}, "resource")},
-			Tool{Name: "propose_change", Description: "ĐỀ XUẤT đổi một cài đặt: người dùng duyệt trên thẻ rồi office mới đổi, như khi họ sửa trên dashboard. " +
-				"patch là object JSON chỉ gồm các trường cần đổi (xem describe/get). Không đưa API key: người dùng tự dán trên thẻ.",
+			Tool{Name: "propose_change", Description: "PROPOSE changing a setting; office applies it once the person approves the card. patch holds only the fields to change (see describe/get); never include API keys: the person pastes them on the card.",
 				Schema: obj(map[string]any{
 					"resource": kind,
 					"op":       map[string]any{"type": "string", "enum": []string{"create", "update", "delete"}},
-					"id":       map[string]any{"type": "string", "description": "Cài đặt cần sửa/xóa (trống khi tạo mới, và với policy/project/usage_settings)"},
+					"id":       map[string]any{"type": "string", "description": "Setting to edit/delete (empty when creating, and for policy/project/usage_settings)"},
 					"patch":    map[string]any{"type": "object"},
-					"reason":   map[string]any{"type": "string", "description": "Vì sao cần đổi"},
+					"reason":   map[string]any{"type": "string", "description": "Why it needs changing"},
 				}, "resource", "op", "reason")},
 		)
 	}
-	list = append(list, Tool{Name: "search_history", Description: "Tìm trong lịch sử các cuộc chat (web, Discord, Telegram, tự động hóa) theo từ khóa, không phân biệt dấu. " +
-		"Dùng khi người dùng nhắc tới việc cũ (\"gần đây mình có nhờ bạn…\", \"lần trước bạn sửa…\"): tìm trước, đừng đoán. Kết quả có link; đọc kỹ một cuộc chat bằng read_link.",
+	list = append(list, Tool{Name: "search_history", Description: "Search chat history (web, Discord, Telegram, automations) by keyword, ignoring accents. When the person refers to earlier work, search first, don't guess; read a result in full with read_link.",
 		Schema: obj(map[string]any{
-			"query":  map[string]any{"type": "string", "description": "Từ khóa, vài chữ là đủ"},
-			"days":   map[string]any{"type": "integer", "description": "Trong bao nhiêu ngày gần đây (mặc định 30, tối đa 365)"},
-			"author": map[string]any{"type": "string", "description": "Chỉ tin của người/agent này (không bắt buộc)"},
+			"query":  map[string]any{"type": "string", "description": "Keywords, a few words are enough"},
+			"days":   map[string]any{"type": "integer", "description": "How many recent days to search (default 30, max 365)"},
+			"author": map[string]any{"type": "string", "description": "Only messages from this person/agent (optional)"},
 		}, "query")})
-	list = append(list, Tool{Name: "read_link", Description: "Đọc nội dung một liên kết của office mà người dùng dán vào: một cuộc chat (…?tab=chat&c=…), một tin nhắn (&m=…) hoặc một Việc (…?tab=tasks&task=…) của project này.",
-		Schema: obj(map[string]any{"url": map[string]any{"type": "string", "description": "Liên kết dashboard của office"}}, "url")})
+	list = append(list, Tool{Name: "read_link", Description: "Read an office link the person pasted: a chat (…?tab=chat&c=…), a message (&m=…) or a task (…?tab=tasks&task=…) of this project.",
+		Schema: obj(map[string]any{"url": map[string]any{"type": "string", "description": "Office dashboard link"}}, "url")})
 	if t.burn != nil {
-		item := map[string]any{"type": "string", "description": "Mã việc (bit_…)"}
+		item := map[string]any{"type": "string", "description": "Piece id (bit_…)"}
 		list = append(list,
-			Tool{Name: "burn_add", Description: "Burn: ghi một việc tìm thấy (không ghi trùng).", Schema: obj(map[string]any{
-				"title":  map[string]any{"type": "string", "description": "Tiêu đề ngắn"},
+			Tool{Name: "burn_add", Description: "Burn: record a piece of work found (no duplicates).", Schema: obj(map[string]any{
+				"title":  map[string]any{"type": "string", "description": "Short title"},
 				"kind":   map[string]any{"type": "string", "enum": []string{"unfinished", "upgrade", "bug"}},
-				"detail": map[string]any{"type": "string", "description": "Đủ để làm: ở đâu, vì sao, làm thế nào là xong"},
+				"detail": map[string]any{"type": "string", "description": "Enough to do it: where, why, and what done looks like"},
 			}, "title", "kind")},
-			Tool{Name: "burn_pick", Description: "Burn: chọn việc làm tiếp theo.", Schema: obj(map[string]any{"item": item}, "item")},
-			Tool{Name: "burn_skip", Description: "Burn: bỏ qua một việc không đáng làm.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
-			Tool{Name: "burn_done", Description: "Burn: báo xong việc đang làm.", Schema: obj(map[string]any{"item": item, "summary": map[string]any{"type": "string", "description": "Đã làm gì, kiểm chứng ra sao"}}, "item", "summary")},
+			Tool{Name: "burn_pick", Description: "Burn: pick the next piece to work on.", Schema: obj(map[string]any{"item": item}, "item")},
+			Tool{Name: "burn_skip", Description: "Burn: skip a piece not worth doing.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
+			Tool{Name: "burn_done", Description: "Burn: report the current piece done.", Schema: obj(map[string]any{"item": item, "summary": map[string]any{"type": "string", "description": "What was done and how it was checked"}}, "item", "summary")},
 			Tool{Name: "burn_list", Description: "Burn: list this Burn's data kept out of the coordination prompt: its open pieces in full, all closed ones (done/skipped/failed, to avoid adding one again), or every area earlier scans looked at.", Schema: obj(map[string]any{
 				"what": map[string]any{"type": "string", "enum": []string{"open", "closed", "scanned"}},
 			}, "what")},
-			Tool{Name: "burn_fail", Description: "Burn: báo không làm được việc đang làm.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
+			Tool{Name: "burn_fail", Description: "Burn: report the current piece could not be done.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
 		)
 	}
 	if t.sendFile != nil {
-		list = append(list, Tool{Name: "send_file", Description: "Gửi một file (ảnh png/jpg/gif/webp hiện dạng ảnh; file khác dạng tài liệu) vào cuộc chat Discord/Telegram đang nói chuyện, ngay lúc gọi. " +
-			"Dùng khi người dùng cần xem ảnh chụp màn hình, biểu đồ, file log… File phải nằm trong thư mục làm việc của project (chép vào đó trước nếu cần).",
+		list = append(list, Tool{Name: "send_file", Description: "Send a file (a screenshot, chart, log…) into the current Discord/Telegram chat at once; images show inline. It must be inside the project's working folder (copy it there first if needed).",
 			Schema: obj(map[string]any{
-				"path":    map[string]any{"type": "string", "description": "Đường dẫn file (tương đối theo thư mục làm việc, hoặc tuyệt đối trong đó)"},
-				"caption": map[string]any{"type": "string", "description": "Chú thích ngắn kèm file (không bắt buộc)"},
+				"path":    map[string]any{"type": "string", "description": "File path (relative to the working folder, or absolute inside it)"},
+				"caption": map[string]any{"type": "string", "description": "Short caption for the file (optional)"},
 			}, "path")})
 	}
 	if t.delegate != nil {
-		list = append(list, Tool{Name: "delegate", Description: "Giao một phần việc cho agent khác trong cuộc chat, như subagent: agent đó làm ở nền, bạn trả lời người dùng ngay; " +
-			"khi nó xong, kết quả hiện trong cuộc chat và bạn được gọi lại để báo cho người dùng. Chỉ dùng khi thật sự cần (việc cần quyền hay chuyên môn bạn không có). " +
-			"Viết @Tên trong câu trả lời chỉ là nhắc tên, KHÔNG giao việc.",
+		list = append(list, Tool{Name: "delegate", Description: "Hand part of the work to another agent: it works in the background while you answer the person; you are called again when it is done. Only when needed. @Name in a reply hands over nothing.",
 			Schema: obj(map[string]any{
-				"agent": map[string]any{"type": "string", "description": "Tên agent của project"},
-				"task":  map[string]any{"type": "string", "description": "Việc cần làm, đủ rõ để làm mà không phải hỏi lại"},
+				"agent": map[string]any{"type": "string", "description": "Name of a project agent"},
+				"task":  map[string]any{"type": "string", "description": "The work to do, clear enough to do without asking back"},
 			}, "agent", "task")})
 	}
 	if t.wf != nil {
 		str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
-		brief := map[string]any{"type": "object", "description": "Bản giao việc, theo các mục quy trình yêu cầu: outcome (kết quả cần đạt), question, context, constraints (ràng buộc đã kiểm chứng), " +
-			"current_option (phương án đang thử, được phản biện), tried (đã thử và vì sao bỏ), files (đường dẫn), done_when (tiêu chí xong), must_not (điều cấm). Không viết sẵn cách sửa từng file/hàm.",
+		brief := map[string]any{"type": "object", "description": "The brief, by the sections the workflow asks for: outcome, question, context, constraints (verified), current_option (open to challenge), tried (and why dropped), files, done_when, must_not. Not how to change each file.",
 			"additionalProperties": map[string]any{"type": "string"}}
 		list = append(list,
-			Tool{Name: "workflow_delegate", Description: "Quy trình: giao việc lần đầu cho một vai. Vai làm ở nền khi bạn trả lời xong lượt; khi các vai vừa giao đều xong, bạn được gọi lại. " +
-				"Vai chưa gán agent thì truyền agent. Office kiểm tra quyền của vai, các vai được làm cùng lúc, khác hãng model và giới hạn của quy trình.",
-				Schema: obj(map[string]any{"role": str("Key của vai"), "agent": str("Tên agent nhận vai (bỏ trống = agent đã gán cho vai)"), "brief": brief}, "role", "brief")},
-			Tool{Name: "workflow_send", Description: "Quy trình: gửi tiếp cho một vai đã giao (vai giữ mạch, nhớ những gì đã làm). Mỗi lần là một vòng, có giới hạn.",
-				Schema: obj(map[string]any{"role": str("Key của vai"), "message": str("Nội dung gửi, ví dụ lập luận của vai khác cần phản hồi")}, "role", "message")},
-			Tool{Name: "workflow_ask", Description: "Quy trình: hỏi một vai chỉ phân tích (access analyze) và CHỜ câu trả lời ngay trong lượt này (tối đa wait_seconds). Hợp với câu hỏi ngắn cho cố vấn; quá hạn thì vai làm tiếp ở nền và bạn được gọi lại như workflow_delegate.",
-				Schema: obj(map[string]any{"role": str("Key của vai (access analyze)"), "question": str("Câu hỏi, kèm bối cảnh cần thiết"),
-					"wait_seconds": map[string]any{"type": "integer", "description": "Chờ tối đa bao nhiêu giây (10–120, mặc định 60)"}}, "role", "question")},
-			Tool{Name: "workflow_vote", Description: "Quy trình: đưa một điều ra biểu quyết giữa các vai của quy trình (song song, chỉ phân tích). Office đếm phiếu theo quorum/phủ quyết rồi gọi lại bạn kèm kết quả.",
-				Schema: obj(map[string]any{"question": str("Điều cần biểu quyết, kèm đủ bối cảnh"),
-					"agents": map[string]any{"type": "object", "description": "Gán agent cho vai bỏ phiếu chưa có agent: {\"vai\": \"tên agent\"}", "additionalProperties": map[string]any{"type": "string"}}}, "question")},
-			Tool{Name: "workflow_gate", Description: "Quy trình: mở một cổng. approve: tạo thẻ để người dùng duyệt (ghi note là điều cần duyệt) rồi dừng lượt chờ. check: chạy lệnh kiểm tra (command, khi cổng không ghi sẵn), trong worktree của vai role nếu có.",
-				Schema: obj(map[string]any{"gate": str("Key của cổng"), "note": str("approve: điều người dùng cần duyệt"), "command": str("check: lệnh kiểm tra"), "role": str("check: chạy trong worktree của vai này")}, "gate")},
-			Tool{Name: "workflow_done", Description: "Quy trình: kết thúc khi đã xong (và qua mọi cổng bắt buộc). summary là KẾT QUẢ của quy trình, câu trả lời duy nhất người gọi thấy (Markdown, đầy đủ, tự đọc hiểu được).",
-				Schema: obj(map[string]any{"summary": str("Tóm tắt kết quả"),
-					"outputs":  map[string]any{"type": "object", "description": "Đầu ra theo key, khi quy trình khai báo outputs (bắt buộc với key required)", "additionalProperties": map[string]any{"type": "string"}},
-					"overrule": str("Khi còn vai PHẢN BIỆN mà bạn giữ nguyên: vì sao (người gọi thấy cả phản biện và lý do)")}, "summary")},
+			Tool{Name: "workflow_delegate", Description: "Workflow: give a role its first piece of work; it starts when your turn ends, and you are called again once all roles just given work are done. Pass agent when the role has none assigned.",
+				Schema: obj(map[string]any{"role": str("Role key"), "agent": str("Name of the agent taking the role (empty = the agent assigned to the role)"), "brief": brief}, "role", "brief")},
+			Tool{Name: "workflow_send", Description: "Workflow: send more to a role already given work (the role keeps its thread and remembers what it did). Each send is one round, and rounds are limited.",
+				Schema: obj(map[string]any{"role": str("Role key"), "message": str("What to send, e.g. another role's argument it should answer")}, "role", "message")},
+			Tool{Name: "workflow_ask", Description: "Workflow: ask an analyze-only role and WAIT for its answer this turn (up to wait_seconds), for short questions. On timeout it carries on in the background and you are called again.",
+				Schema: obj(map[string]any{"role": str("Role key (access analyze)"), "question": str("The question, with the context needed"),
+					"wait_seconds": map[string]any{"type": "integer", "description": "Max seconds to wait (10–120, default 60)"}}, "role", "question")},
+			Tool{Name: "workflow_vote", Description: "Workflow: put a question to a vote among the workflow's roles (in parallel, analyze only). Office counts the votes by quorum/veto and calls you again with the result.",
+				Schema: obj(map[string]any{"question": str("What to vote on, with enough context"),
+					"agents": map[string]any{"type": "object", "description": "Assign agents to voting roles that have none: {\"role\": \"agent name\"}", "additionalProperties": map[string]any{"type": "string"}}}, "question")},
+			Tool{Name: "workflow_gate", Description: "Workflow: open a gate. approve: a card for the person (note = what to approve), then the turn ends to wait. check: runs a check command (command, if the gate has none), in role's worktree if given.",
+				Schema: obj(map[string]any{"gate": str("Gate key"), "note": str("approve: what the person needs to approve"), "command": str("check: check command"), "role": str("check: run in this role's worktree")}, "gate")},
+			Tool{Name: "workflow_done", Description: "Workflow: finish when done (and every required gate passed). summary is the workflow's RESULT, the only answer the caller sees (Markdown, complete, readable on its own).",
+				Schema: obj(map[string]any{"summary": str("Summary of the result"),
+					"outputs":  map[string]any{"type": "object", "description": "Outputs by key, when the workflow declares outputs (required for required keys)", "additionalProperties": map[string]any{"type": "string"}},
+					"overrule": str("When a role still OBJECTS and you keep your course: why (the caller sees both the objection and the reason)")}, "summary")},
 		)
 	}
 	return list
@@ -439,7 +421,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 			case "failed":
 				return "$ " + a.Target + "\nLỗi: " + a.Detail, true
 			default:
-				out = fmt.Sprintf("Lệnh %q không nằm trong danh sách bạn được tự chạy, đã tạo đề xuất (mã %s) chờ người dùng duyệt. Chưa chạy gì; hãy báo người dùng.", a.Target, a.ID)
+				out = fmt.Sprintf("Command %q is not on the list you may run yourself; created proposal %s, waiting for the person's approval. Nothing has run yet; tell the person.", a.Target, a.ID)
 			}
 		}
 	case "describe", "list", "get", "propose_change":
@@ -460,7 +442,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 			var a storage.Action
 			a, err = t.actions.Propose(ctx, sc, "config_change", "", in.Reason, storage.ActionArgs{Change: &storage.ConfigChange{Resource: in.Resource, Op: in.Op, ID: in.ID, Patch: in.Patch}})
 			if err == nil {
-				out = "Đã tạo thẻ duyệt: " + a.Target + ". Người dùng duyệt trên thẻ thì office mới đổi; báo họ ngắn gọn bạn đề xuất gì."
+				out = "Created approval card: " + a.Target + ". Office changes it only once the person approves the card; tell them briefly what you proposed."
 			}
 		}
 	case "read_link":
@@ -501,7 +483,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		}
 		var a storage.Action
 		if a, err = t.actions.Propose(ctx, sc, kind, target, in.Reason, storage.ActionArgs{Automation: raw}); err == nil {
-			out = fmt.Sprintf("Đã tạo đề xuất %q (mã %s), đang chờ người dùng duyệt. Chưa có gì chạy; hãy tóm tắt cho người dùng script/lịch và nhắc họ bấm Duyệt.", a.Target, a.ID)
+			out = fmt.Sprintf("Created proposal %q (id %s), waiting for the person's approval. Nothing runs yet; summarize the script/schedule for the person and remind them to approve it.", a.Target, a.ID)
 		}
 	case "send_to_chat":
 		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {
@@ -511,11 +493,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		if a, err = t.actions.Propose(ctx, sc, "send_message", in.Chat, in.Reason, storage.ActionArgs{Message: in.Text}); err == nil {
 			switch a.Status {
 			case "done":
-				out = fmt.Sprintf("Đã gửi tin vào chat %q dưới tên người dùng; agent bên đó sẽ trả lời trong chat đó.", a.Target)
+				out = fmt.Sprintf("Sent the message to chat %q under the person's name; the agent there will answer in that chat.", a.Target)
 			case "failed":
 				return "Gửi vào chat " + a.Target + " lỗi: " + a.Detail, true
 			default:
-				out = fmt.Sprintf("Đã tạo đề xuất gửi tin vào chat %q (mã %s), chờ người dùng duyệt. Chưa gửi gì; hãy báo người dùng.", a.Target, a.ID)
+				out = fmt.Sprintf("Created a proposal to send the message to chat %q (id %s), waiting for the person's approval. Nothing sent yet; tell the person.", a.Target, a.ID)
 			}
 		}
 	case "remember":
@@ -525,9 +507,9 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		var a storage.Action
 		if a, err = t.actions.Propose(ctx, sc, "remember", in.Note, in.Reason); err == nil {
 			if a.Status == "done" {
-				out = "Đã ghi vào sổ ghi nhớ: " + a.Target
+				out = "Written to memory notes: " + a.Target
 			} else {
-				out = "Đã đề xuất ghi nhớ (mã " + a.ID + "), chờ người dùng duyệt."
+				out = "Proposed the memory note (id " + a.ID + "), waiting for the person's approval."
 			}
 		}
 	case "propose_action":
@@ -538,11 +520,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		if a, err = t.actions.Propose(ctx, sc, in.Action, in.Target, in.Reason, storage.ActionArgs{Message: in.Message, Files: in.Files, Branch: in.Branch}); err == nil {
 			switch a.Status {
 			case "done":
-				out = fmt.Sprintf("Đã tự thực hiện %q cho %s theo quyền của bạn: %s. Dùng process_logs/container_logs để xem kết quả.", actions.Kinds[a.Kind], a.Target, a.Detail)
+				out = fmt.Sprintf("Did %q for %s on your own, as your permissions allow: %s. Use process_logs/container_logs to see the result.", actions.Kinds[a.Kind], a.Target, a.Detail)
 			case "failed":
-				out = fmt.Sprintf("Đã tự thực hiện %q cho %s nhưng lỗi: %s", actions.Kinds[a.Kind], a.Target, a.Detail)
+				out = fmt.Sprintf("Did %q for %s on your own, but it failed: %s", actions.Kinds[a.Kind], a.Target, a.Detail)
 			default:
-				out = fmt.Sprintf("Đã tạo đề xuất %q cho %s (mã %s), đang chờ người dùng duyệt. Bạn chưa thực hiện gì; hãy nói với người dùng là cần bấm Duyệt.", actions.Kinds[a.Kind], a.Target, a.ID)
+				out = fmt.Sprintf("Created proposal %q for %s (id %s), waiting for the person's approval. Nothing has been done yet; tell the person it needs their approval.", actions.Kinds[a.Kind], a.Target, a.ID)
 			}
 		}
 	default:
@@ -567,9 +549,9 @@ func (t *Toolbox) overview(ctx context.Context, projectID string) (string, error
 	if err != nil {
 		return "", err
 	}
-	b.WriteString("## Tiến trình\n")
+	b.WriteString("## Processes\n")
 	if len(procs) == 0 {
-		b.WriteString("(chưa có)\n")
+		b.WriteString("(none)\n")
 	}
 	for _, p := range procs {
 		line := fmt.Sprintf("- %s [%s] `%s`", p.Name, p.Kind, p.Command)
@@ -577,13 +559,13 @@ func (t *Toolbox) overview(ctx context.Context, projectID string) (string, error
 			st := t.ops.State(p.ID)
 			line += " — " + st.Status
 			if st.ExitCode != nil {
-				line += fmt.Sprintf(", mã thoát %d", *st.ExitCode)
+				line += fmt.Sprintf(", exit code %d", *st.ExitCode)
 			}
 			if st.Port > 0 {
-				line += fmt.Sprintf(", cổng %d", st.Port)
+				line += fmt.Sprintf(", port %d", st.Port)
 			}
 			if st.FinishedAt != nil && st.Status != "running" {
-				line += ", kết thúc " + when(st.FinishedAt)
+				line += ", ended " + when(st.FinishedAt)
 			}
 		}
 		b.WriteString(line + "\n")
@@ -596,7 +578,7 @@ func (t *Toolbox) overview(ctx context.Context, projectID string) (string, error
 			}
 			for _, s := range v.Services {
 				if s.Container == nil {
-					fmt.Fprintf(&b, "- %s — chưa tạo container\n", s.Name)
+					fmt.Fprintf(&b, "- %s — no container yet\n", s.Name)
 					continue
 				}
 				fmt.Fprintf(&b, "- %s — %s (%s)\n", s.Name, s.Container.State, s.Container.Status)
@@ -607,16 +589,16 @@ func (t *Toolbox) overview(ctx context.Context, projectID string) (string, error
 	if err != nil {
 		return "", err
 	}
-	b.WriteString("\n## Giám sát\n")
+	b.WriteString("\n## Monitors\n")
 	if len(mons) == 0 {
-		b.WriteString("(chưa có)\n")
+		b.WriteString("(none)\n")
 	}
 	for _, m := range mons {
 		status := m.Status
 		if !m.Enabled {
-			status = "tạm dừng"
+			status = "paused"
 		}
-		fmt.Fprintf(&b, "- %s [%s %s] — %s: %s (kiểm tra %s)\n", m.Name, m.Type, m.Target, status, m.LastMessage, when(m.LastCheckedAt))
+		fmt.Fprintf(&b, "- %s [%s %s] — %s: %s (checked %s)\n", m.Name, m.Type, m.Target, status, m.LastMessage, when(m.LastCheckedAt))
 	}
 	evs, err := t.store.Monitors().Events(ctx, projectID, 10)
 	if err == nil && len(evs) > 0 {
@@ -624,7 +606,7 @@ func (t *Toolbox) overview(ctx context.Context, projectID string) (string, error
 		for _, m := range mons {
 			names[m.ID] = m.Name
 		}
-		b.WriteString("\n## Sự kiện gần đây\n")
+		b.WriteString("\n## Recent events\n")
 		for _, e := range evs {
 			fmt.Fprintf(&b, "- %s %s %s: %s\n", e.At.Local().Format("02/01 15:04"), strings.ToUpper(e.Kind), names[e.MonitorID], e.Message)
 		}
@@ -643,13 +625,13 @@ func (t *Toolbox) processLogs(ctx context.Context, projectID, name string, lines
 	for _, p := range procs {
 		if strings.EqualFold(p.Name, name) || p.ID == name {
 			st := t.ops.State(p.ID)
-			head := fmt.Sprintf("Tiến trình %s: `%s` (thư mục %s) — %s", p.Name, p.Command, p.Cwd, st.Status)
+			head := fmt.Sprintf("Process %s: `%s` (folder %s) — %s", p.Name, p.Command, p.Cwd, st.Status)
 			if st.ExitCode != nil {
-				head += fmt.Sprintf(", mã thoát %d", *st.ExitCode)
+				head += fmt.Sprintf(", exit code %d", *st.ExitCode)
 			}
 			tail := t.ops.Tail(p.ID, lines)
 			if strings.TrimSpace(tail) == "" {
-				tail = "(chưa có log trong phiên này của office)"
+				tail = "(no log yet in this office session)"
 			}
 			return head + "\n\n```\n" + tail + "```", nil
 		}
@@ -665,13 +647,13 @@ func (t *Toolbox) containerLogs(ctx context.Context, projectID, service string, 
 	if err != nil {
 		return "", err
 	}
-	head := "Service " + service + ": chưa tạo container"
+	head := "Service " + service + ": no container yet"
 	if c != nil {
 		head = fmt.Sprintf("Service %s: %s (%s), image %s", service, c.State, c.Status, c.Image)
 	}
 	tail, err := t.ops.ComposeTail(ctx, projectID, "", service, lines)
 	if err != nil {
-		return head + "\n(không đọc được log: " + err.Error() + ")", nil
+		return head + "\n(could not read the log: " + err.Error() + ")", nil
 	}
 	return head + "\n\n```\n" + tail + "```", nil
 }
@@ -686,13 +668,13 @@ func (t *Toolbox) monitorDetail(ctx context.Context, projectID, name string) (st
 			continue
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "Giám sát %s [%s] đích %s, mỗi %ds — %s: %s\n", m.Name, m.Type, m.Target, m.IntervalS, m.Status, m.LastMessage)
+		fmt.Fprintf(&b, "Monitor %s [%s] target %s, every %ds — %s: %s\n", m.Name, m.Type, m.Target, m.IntervalS, m.Status, m.LastMessage)
 		if checks, err := t.store.Monitors().Checks(ctx, m.ID, time.Now().Add(-6*time.Hour)); err == nil && len(checks) > 0 {
-			b.WriteString("\nKiểm tra gần đây:\n")
+			b.WriteString("\nRecent checks:\n")
 			for _, c := range checks[max(0, len(checks)-20):] {
 				ok := "OK"
 				if !c.OK {
-					ok = "LỖI"
+					ok = "FAIL"
 				}
 				fmt.Fprintf(&b, "- %s %s %dms %s\n", c.At.Local().Format("15:04:05"), ok, c.LatencyMS, c.Message)
 			}
@@ -704,9 +686,9 @@ func (t *Toolbox) monitorDetail(ctx context.Context, projectID, name string) (st
 					continue
 				}
 				n++
-				fmt.Fprintf(&b, "\nSự kiện %s %s: %s\n", e.At.Local().Format("02/01 15:04"), strings.ToUpper(e.Kind), e.Message)
+				fmt.Fprintf(&b, "\nEvent %s %s: %s\n", e.At.Local().Format("02/01 15:04"), strings.ToUpper(e.Kind), e.Message)
 				if e.AnalysisStatus == "done" && e.Analysis != "" {
-					fmt.Fprintf(&b, "Phân tích trước đó:\n%s\n", e.Analysis)
+					fmt.Fprintf(&b, "Earlier analysis:\n%s\n", e.Analysis)
 				}
 			}
 		}
@@ -734,11 +716,11 @@ func (t *Toolbox) gitRead(ctx context.Context, projectID, dir, name string, file
 			return "", err
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "Nhánh %s", st.Branch)
+		fmt.Fprintf(&b, "Branch %s", st.Branch)
 		if st.Upstream != "" {
-			fmt.Fprintf(&b, " (theo %s, hơn %d, kém %d commit)", st.Upstream, st.Ahead, st.Behind)
+			fmt.Fprintf(&b, " (tracking %s, ahead %d, behind %d commits)", st.Upstream, st.Ahead, st.Behind)
 		}
-		fmt.Fprintf(&b, "\n%d file thay đổi:\n", len(st.Changes))
+		fmt.Fprintf(&b, "\n%d changed files:\n", len(st.Changes))
 		for _, c := range st.Changes {
 			fmt.Fprintf(&b, "- %s %s\n", c.Status, c.Path)
 		}
@@ -796,16 +778,16 @@ func (t *Toolbox) searchHistory(ctx context.Context, sc Scope, query string, day
 		return "", err
 	}
 	if len(hits) == 0 {
-		return fmt.Sprintf("Không thấy \"%s\" trong %d ngày gần đây.", query, days), nil
+		return fmt.Sprintf("No match for \"%s\" in the last %d days.", query, days), nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d kết quả cho \"%s\" (mới nhất trong %d ngày):\n", len(hits), query, days)
+	fmt.Fprintf(&b, "%d results for \"%s\" (newest, last %d days):\n", len(hits), query, days)
 	for _, h := range hits {
 		who := h.Author
 		if who == "" {
 			who = h.Role
 		}
-		fmt.Fprintf(&b, "- %s · %s · %s: %s\n  /projects/%s?tab=chat&c=%s&m=%s\n", h.CreatedAt.Local().Format("02/01 15:04"), cmp.Or(h.Title, "(chưa đặt tên)"), who,
+		fmt.Fprintf(&b, "- %s · %s · %s: %s\n  /projects/%s?tab=chat&c=%s&m=%s\n", h.CreatedAt.Local().Format("02/01 15:04"), cmp.Or(h.Title, "(untitled)"), who,
 			strings.ReplaceAll(h.Snippet, "\n", " "), h.ProjectID, h.ConversationID, h.MessageID)
 	}
 	return b.String(), nil

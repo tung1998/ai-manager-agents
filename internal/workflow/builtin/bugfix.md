@@ -13,16 +13,16 @@ outputs:
 roles:
   - key: dieu-tra
     name: Điều tra
-    hint: debug, đọc log, tìm nguyên nhân gốc
+    hint: debugging, reading logs, finding the root cause
     access: analyze
     prefer: { tier: strong }
   - key: sua
     name: Sửa
-    hint: sửa code
+    hint: fixing code
     access: edit
   - key: kiem-chung
     name: Kiểm chứng
-    hint: review, test
+    hint: review, testing
     access: analyze
     differ_from: [sua]
 gates:
@@ -33,9 +33,9 @@ gates:
 limits: { rounds: 3, turns: 10, timeout: 3h, idle: 45m }
 brief: [outcome, context]
 ---
-1. Giao `dieu-tra` tìm nguyên nhân gốc: tái hiện, đọc log và code, nêu bằng chứng (file:dòng). Chưa sửa gì.
-2. Nguyên nhân chưa chắc thì hỏi tiếp `dieu-tra` (`workflow_send`); đừng để sửa theo phỏng đoán.
-3. Giao `sua` sửa đúng nguyên nhân đã tìm, kèm test bắt được lỗi này nếu được.
-4. Giao `kiem-chung` soát bản sửa: có đúng nguyên nhân không, có làm hỏng chỗ khác không.
-5. Mở cổng `kiem-tra` bằng `workflow_gate` với lệnh build/test của project (`role: sua`); không đạt thì gửi lỗi cho `sua`.
-6. Gọi `workflow_done`: `summary` là nguyên nhân, đã sửa gì, kiểm chứng ra sao; `outputs.root_cause`, `outputs.fix`, `outputs.checks_passed`.
+1. Assign `dieu-tra` to find the root cause: reproduce, read logs and code, give evidence (file:line). Change nothing yet.
+2. If the cause is still uncertain, ask `dieu-tra` more (`workflow_send`); do not let a fix be based on a guess.
+3. Assign `sua` to fix exactly the cause found, with a test that catches this bug if possible.
+4. Assign `kiem-chung` to check the fix: does it address the cause, does it break anything else.
+5. Open the `kiem-tra` gate with `workflow_gate` using the project's build/test command (`role: sua`); if it fails, send the errors to `sua`.
+6. Call `workflow_done`: `summary` is the cause, what was fixed, how it was verified; `outputs.root_cause`, `outputs.fix`, `outputs.checks_passed`.

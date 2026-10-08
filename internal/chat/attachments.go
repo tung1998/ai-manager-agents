@@ -36,7 +36,7 @@ func claudePrompt(prompt string, files []attach.File) (string, []string) {
 	}
 	var b strings.Builder
 	b.WriteString(prompt)
-	b.WriteString("\n\nFile đính kèm (mở bằng công cụ Read trước khi trả lời):")
+	b.WriteString("\n\nAttached files (open them with the Read tool before answering):")
 	dirs := []string{}
 	for _, f := range bin {
 		fmt.Fprintf(&b, "\n- %s: %s", f.Name, f.Path)

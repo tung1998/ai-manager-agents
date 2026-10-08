@@ -12,16 +12,16 @@ outputs:
 roles:
   - key: lap-ke-hoach
     name: Lập kế hoạch
-    hint: lập pháp, mục tiêu, quy tắc, kế hoạch
+    hint: legislative; goals, rules, plans
     access: analyze
     prefer: { tier: strong }
   - key: thuc-thi
     name: Thực thi
-    hint: hành pháp, làm việc, sửa code
+    hint: executive; doing the work, changing code
     access: edit
   - key: giam-sat
     name: Giám sát
-    hint: tư pháp, kiểm tra bằng chứng, phủ quyết
+    hint: judicial; checking evidence, veto
     access: analyze
     differ_from: [thuc-thi]
     prefer: { tier: strong }
@@ -32,9 +32,9 @@ vote:
 limits: { rounds: 4, turns: 16, timeout: 3h, idle: 45m }
 brief: [outcome, constraints, done_when]
 ---
-1. Giao `lap-ke-hoach` viết kế hoạch: mục tiêu, phạm vi, tiêu chí xong, rủi ro. Kế hoạch nêu kết quả và ràng buộc, không viết sẵn cách sửa từng file.
-2. Đưa kế hoạch ra biểu quyết bằng `workflow_vote`. Không thông qua thì gửi lại cho `lap-ke-hoach` (`workflow_send`) kèm các ý kiến phản đối, tối đa 2 lần; vẫn không qua thì gọi `workflow_done` nêu rõ vì sao không thông qua (`accepted: false`).
-3. Thông qua thì giao `thuc-thi` làm đúng kế hoạch đó.
-4. Giao `giam-sat` kiểm tra kết quả so với kế hoạch và tiêu chí xong, dựa trên bằng chứng (diff, kết quả test), không dựa trên lời khẳng định.
-5. Đưa kết quả ra biểu quyết nghiệm thu. Bị phủ quyết hay không đủ phiếu thì gửi lại `thuc-thi` các điểm cần sửa.
-6. Gọi `workflow_done`: `summary` là kế hoạch đã thông qua, đã làm gì, kết quả biểu quyết; `outputs.accepted`.
+1. Assign `lap-ke-hoach` to write the plan: goal, scope, done criteria, risks. The plan states outcomes and constraints, not a ready-made fix for each file.
+2. Put the plan to a vote with `workflow_vote`. If it does not pass, send it back to `lap-ke-hoach` (`workflow_send`) with the objections, at most 2 times; if it still does not pass, call `workflow_done` stating clearly why it did not pass (`accepted: false`).
+3. Once it passes, assign `thuc-thi` to carry out exactly that plan.
+4. Assign `giam-sat` to check the result against the plan and done criteria, based on evidence (diff, test results), not on claims.
+5. Put the result to an acceptance vote. If vetoed or short of votes, send `thuc-thi` the points to fix.
+6. Call `workflow_done`: `summary` is the approved plan, what was done, the vote results; `outputs.accepted`.

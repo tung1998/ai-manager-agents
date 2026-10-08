@@ -84,7 +84,7 @@ func TestTranscriptNamesOtherAgents(t *testing.T) {
 		{Role: "assistant", Content: "đã xem"}, // this agent's own
 	}
 	got := transcript(h, "sửa đi")
-	if !strings.Contains(got, "[Trưởng nhóm]\nmình chỉ đọc") || !strings.Contains(got, "[Bạn]\nđã xem") || strings.Contains(got, "[Bạn]\nmình chỉ đọc") {
+	if !strings.Contains(got, "[Trưởng nhóm]\nmình chỉ đọc") || !strings.Contains(got, "[You]\nđã xem") || strings.Contains(got, "[You]\nmình chỉ đọc") {
 		t.Fatalf("transcript:\n%s", got)
 	}
 }

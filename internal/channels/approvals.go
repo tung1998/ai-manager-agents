@@ -523,8 +523,7 @@ func (m *Manager) resume(ctx context.Context, ch storage.Channel, in Incoming, c
 		return
 	}
 	who := firstNonEmpty(in.UserName, in.UserID)
-	text := "[office] " + who + " đã quyết các đề xuất của bạn:\n" + strings.Join(done, "\n") +
-		"\n\nLàm tiếp việc đang dở theo kết quả trên (không đề xuất lại những gì đã duyệt); xong thì báo ngắn gọn."
+	text := chat.DecidedPrompt(who, done)
 	p := trigger.ChannelPayload{Message: text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID, ConversationID: conv, Admin: admin}
 	raw, _ := json.Marshal(p)
 	actx := actor.With(ctx, ch.Kind+":"+who)

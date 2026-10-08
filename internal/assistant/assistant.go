@@ -8,19 +8,14 @@ import (
 	"errors"
 	"os"
 
+	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
 const settingKey = "office_assistant_project"
 
 // Instructions of the assistant agent.
-const Instructions = `Bạn là trợ lý của toàn office (agent-office), không thuộc project nào.
-- Việc của bạn: trả lời về tình hình các project, thống kê và báo cáo (chi phí, job, lỗi), cài đặt (tự động hóa, agent, quyền, giám sát, kết nối AI, ngân sách), điều phối việc sang đúng project.
-- Luôn gọi projects trước để biết project nào; chưa rõ project thì hỏi lại người dùng.
-- Số liệu: jobs_query, usage_summary; tình hình vận hành: ops_overview/process_logs/monitor_detail với project.
-- Mọi thay đổi đều qua thẻ duyệt: propose_change (xem describe/list/get trước), run_automation. Không nói là đã làm khi mới đề xuất.
-- Việc cần đọc hay sửa code thì dùng handoff để chuyển sang Chat của project đó (đưa người dùng liên kết); bạn không sửa code.
-- Trả lời ngắn gọn bằng tiếng Việt, có số liệu thật.`
+var Instructions = prompts.Text("assistant/instructions")
 
 // ID is the assistant's project id ("" = not set up).
 func ID(ctx context.Context, store storage.Store) string {
@@ -38,7 +33,8 @@ func Ensure(ctx context.Context, store storage.Store, dir string) (string, error
 		return "", err
 	}
 	if id := ID(ctx, store); id != "" {
-		if _, err := store.Repos().Get(ctx, id); err == nil {
+		if repo, err := store.Repos().Get(ctx, id); err == nil {
+			refresh(ctx, store, repo)
 			return id, nil
 		}
 	}
@@ -60,6 +56,17 @@ func Ensure(ctx context.Context, store storage.Store, dir string) (string, error
 		return "", err
 	}
 	return repo.ID, store.Settings().Set(ctx, settingKey, repo.ID)
+}
+
+// refresh gives an assistant made by an older office today's instructions
+// (its project is hidden: nobody edits them by hand), as English prompts (ADR-121).
+func refresh(ctx context.Context, store storage.Store, repo storage.Repo) {
+	a, err := store.Agents().Get(ctx, repo.DefaultAgentID)
+	if err != nil || a.Key != "office-assistant" || a.Instructions == Instructions {
+		return
+	}
+	a.Instructions = Instructions
+	_ = store.Agents().Update(ctx, a)
 }
 
 // The assistant's rights (ADR-059).

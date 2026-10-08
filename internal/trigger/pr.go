@@ -117,10 +117,10 @@ func prDiff(ctx context.Context, root string, pr PR) string {
 	}
 	diff, err := gitops.BranchDiff(ctx, root, pr.Target, heads, maxDiff)
 	if err != nil {
-		return "(Không lấy được diff: " + err.Error() + ". Đọc thay đổi bằng git diff / git show nếu được.)"
+		return "(Could not get the diff: " + err.Error() + ". Read the changes with git diff / git show if you can.)"
 	}
 	if strings.TrimSpace(diff) == "" {
-		return "(Hai nhánh không khác nhau.)"
+		return "(The two branches do not differ.)"
 	}
 	return "```diff\n" + diff + "\n```"
 }

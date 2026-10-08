@@ -15,17 +15,17 @@ import (
 // Tools of the office assistant (ADR-046): it works across projects, so the
 // project tools take a "project" (id or name) and these are added.
 func (t *Toolbox) officeTools() []Tool {
-	project := map[string]any{"type": "string", "description": "Project: id hoặc tên (xem projects)"}
+	project := map[string]any{"type": "string", "description": "Project: id or name (see projects)"}
 	return []Tool{
-		{Name: "projects", Description: "Các project của office: id, tên, mô tả, thư mục. Gọi đầu tiên để biết việc thuộc project nào.", Schema: obj(map[string]any{})},
-		{Name: "jobs_query", Description: "Các lần chạy gần đây (chat, tự động hóa, script): trạng thái, chi phí, thời gian. Lọc theo project và trạng thái.",
+		{Name: "projects", Description: "Office's projects: id, name, description, folder. Call it first to find which project the work belongs to.", Schema: obj(map[string]any{})},
+		{Name: "jobs_query", Description: "Recent runs (chat, automation, script): status, cost, time. Filter by project and status.",
 			Schema: obj(map[string]any{"project": project, "status": map[string]any{"type": "string", "enum": []string{"running", "pending", "done", "failed", "cancelled"}},
 				"days": map[string]any{"type": "integer"}, "limit": map[string]any{"type": "integer"}})},
-		{Name: "usage_summary", Description: "Chi phí và token theo ngày, project hoặc model trong N ngày gần đây.",
-			Schema: obj(map[string]any{"days": map[string]any{"type": "integer", "description": "Mặc định 7"}, "by": map[string]any{"type": "string", "enum": []string{"day", "project", "model"}}})},
-		{Name: "handoff", Description: "Chuyển việc cần làm trong code sang Chat của một project: trả về liên kết mở Chat đó với tin nhắn soạn sẵn để người dùng gửi. Bạn không tự sửa code.",
-			Schema: obj(map[string]any{"project": project, "message": map[string]any{"type": "string", "description": "Tin nhắn cho trưởng nhóm của project"}}, "project", "message")},
-		{Name: "run_automation", Description: "ĐỀ XUẤT chạy ngay một tự động hóa (xem list resource=automation): người dùng duyệt trên thẻ.",
+		{Name: "usage_summary", Description: "Cost and tokens by day, project or model over the last N days.",
+			Schema: obj(map[string]any{"days": map[string]any{"type": "integer", "description": "Default 7"}, "by": map[string]any{"type": "string", "enum": []string{"day", "project", "model"}}})},
+		{Name: "handoff", Description: "Hand code work to a project's Chat: returns a link that opens that Chat with a drafted message for the person to send. You do not change code yourself.",
+			Schema: obj(map[string]any{"project": project, "message": map[string]any{"type": "string", "description": "Message for the project's team lead"}}, "project", "message")},
+		{Name: "run_automation", Description: "PROPOSE running an automation now (see list resource=automation): the person approves on a card.",
 			Schema: obj(map[string]any{"project": project, "id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"}}, "project", "id")},
 	}
 }
@@ -145,7 +145,7 @@ func (t *Toolbox) officeCall(ctx context.Context, sc Scope, name string, raw jso
 		var rows []storage.UsageRow
 		if rows, err = t.store.Runs().Aggregate(ctx, time.Now().Add(-time.Duration(days)*24*time.Hour), by, time.Local); err == nil {
 			b, _ := json.MarshalIndent(rows, "", "  ")
-			out = fmt.Sprintf("Chi phí %d ngày, theo %s:\n%s", days, by, b)
+			out = fmt.Sprintf("Cost over %d days, by %s:\n%s", days, by, b)
 		}
 	case "handoff":
 		var p storage.Repo
@@ -154,7 +154,7 @@ func (t *Toolbox) officeCall(ctx context.Context, sc Scope, name string, raw jso
 				err = errors.New("hãy soạn tin nhắn cho project")
 				break
 			}
-			out = fmt.Sprintf("Liên kết mở Chat của %s với tin nhắn soạn sẵn (người dùng bấm vào rồi gửi): /projects/%s?tab=chat&draft=%s",
+			out = fmt.Sprintf("Link opening the Chat of %s with the drafted message (the person clicks it, then sends): /projects/%s?tab=chat&draft=%s",
 				p.Name, p.ID, url.QueryEscape(in.Message))
 		}
 	case "run_automation":
@@ -170,7 +170,7 @@ func (t *Toolbox) officeCall(ctx context.Context, sc Scope, name string, raw jso
 		var a storage.Action
 		a, err = t.actions.Propose(ctx, psc, "run_automation", in.ID, in.Reason)
 		if err == nil {
-			out = "Đã tạo thẻ duyệt: " + a.Target + " (" + p.Name + "). Người dùng duyệt thì mới chạy."
+			out = "Created approval card: " + a.Target + " (" + p.Name + "). It runs only once the person approves."
 		}
 	default:
 		return "", false, false

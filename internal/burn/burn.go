@@ -20,6 +20,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/chat"
+	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/worktree"
 )
@@ -680,113 +681,59 @@ const (
 	maxScannedInPlan = 5
 )
 
+// planPrompt is the coordination turn (burn/plan.md): what is open, closed
+// and scanned, and how many pieces to pick.
 func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty, free int) string {
-	var sb strings.Builder
-	sb.WriteString("[Burn] Coordination turn. You run Burn for this project: you find work and do it on your own, with full access.\n")
-	sb.WriteString(focusPlan(b.Focus))
-	sb.WriteString("\nOpen pieces:\n")
-	var closed []storage.BurnItem
-	open := 0
+	type piece struct{ ID, Kind, Status, Title, Summary string }
+	// said outright: seeing pieces "doing", an agent took the slots for full (2026-10-08)
+	total := max(b.MaxParallel, 1, free)
+	var open, closed []piece
 	for _, it := range items {
 		switch it.Status {
 		case "done", "skipped", "failed":
-			closed = append(closed, it)
+			closed = append(closed, piece{Status: it.Status, Title: oneLine(it.Title, 100)})
 			continue
 		}
-		open++
-		fmt.Fprintf(&sb, "- %s [%s, %s] %s", it.ID, it.Kind, it.Status, it.Title)
+		p := piece{ID: it.ID, Kind: it.Kind, Status: it.Status, Title: it.Title}
 		if it.Summary != "" {
-			fmt.Fprintf(&sb, " — %s", oneLine(it.Summary, 120))
+			p.Summary = oneLine(it.Summary, 120)
 		}
-		sb.WriteString("\n")
+		open = append(open, p)
 	}
-	if open == 0 {
-		sb.WriteString("(none)\n")
+	closedCount := len(closed)
+	if closedCount > maxClosedInPlan {
+		closed = closed[closedCount-maxClosedInPlan:]
 	}
-	if len(closed) > 0 {
-		fmt.Fprintf(&sb, "Closed (done/skipped/failed: do not add or pick again): %d", len(closed))
-		if len(closed) > maxClosedInPlan {
-			sb.WriteString(", the latest below; burn_list(what=\"closed\") lists them all, check it before burn_add")
-			closed = closed[len(closed)-maxClosedInPlan:]
-		}
-		sb.WriteString("\n")
-		for _, it := range closed {
-			fmt.Fprintf(&sb, "- [%s] %s\n", it.Status, oneLine(it.Title, 100))
-		}
-	}
+	var scanned []string
 	if b.Scanned != "" {
-		lines := strings.Split(strings.TrimSpace(b.Scanned), "\n")
-		sb.WriteString("\nAreas earlier scans looked at (oldest first")
-		if len(lines) > maxScannedInPlan {
-			sb.WriteString("; the latest only, burn_list(what=\"scanned\") has them all")
-			lines = lines[len(lines)-maxScannedInPlan:]
-		}
-		sb.WriteString("):\n" + strings.Join(lines, "\n") + "\n")
+		scanned = strings.Split(strings.TrimSpace(b.Scanned), "\n")
 	}
-	if empty > 0 {
-		fmt.Fprintf(&sb, "\n%d scans in a row found nothing. Do not scan the areas above again; pick other areas and dig deeper.\n", empty)
+	scannedMore := len(scanned) > maxScannedInPlan
+	if scannedMore {
+		scanned = scanned[len(scanned)-maxScannedInPlan:]
 	}
-	roadmap := `   - Roadmap: read the project's planning docs (PLAN, ROADMAP, TODO, specs, ADRs) for features marked not done or half done. Skip what is not approved yet (being designed, ideas, drafts awaiting approval). For a large feature, write a short design from the related spec/ADR and split it into parts that run on their own: one burn_add each, titled "<feature>: part 1", "part 2"…, the detail holding the design, that part's scope and how to verify it; do them in order from part 1.
-   - Other unfinished work: TODO/FIXME, half-done branches, failing tests/builds, proposals still pending in chats (search_history).
-`
-	bugs := `   - Bugs in detail: go area by area (package, page, API) and read the code for real bugs: ignored errors, races/locks, goroutine or memory leaks, edge cases (empty, very large, duplicate, cancelled midway), permission checks, wrong data after an update.
-`
-	upgrades := `   - Upgrades: key paths without tests, slow spots, UI that is hard to use or lacks states (loading, error, empty), untranslated text, docs out of step with the code.
-`
-	sb.WriteString(`
-This turn:
-1. If there are fewer "found" pieces than free slots, SCAN the project thoroughly (areas not in the list above). A clean build/test and no TODOs do not mean there is nothing to do; read the real docs and code.
-`)
-	if b.Focus != "" {
-		sb.WriteString("   Pieces serving the focus above come before the order below; otherwise follow it as usual.\n")
-	}
-	switch b.Order {
-	case "bugs":
-		sb.WriteString("   BUGS FIRST, then the roadmap, then upgrades.\n" + bugs + roadmap + upgrades)
-	case "auto":
-		sb.WriteString("   Weigh the order yourself by what helps the person most.\n" + roadmap + bugs + upgrades)
-	default: // roadmap
-		sb.WriteString("   ROADMAP FIRST: missing features from the plan are picked before small bugs and upgrades (serious bugs such as security or data loss still come first). If no piece comes from the roadmap yet, scan the roadmap now, however many other pieces there are.\n" + roadmap + bugs + upgrades)
-	}
-	sb.WriteString("   You may use subagents (the Agent/Task tool) to scan different areas in parallel; merge and filter what they find yourself.\n")
-	pick := "2. Pick EXACTLY ONE piece, the most worth doing, with burn_pick"
-	if free > 1 {
-		pick = fmt.Sprintf("2. %d parallel slots are free: pick %d pieces with burn_pick (each runs in its own worktree: pick pieces that touch different files from each other and from those in progress). Not enough \"found\" pieces: scan more new areas until there are; do not end the turn just to wait for the running ones", free, free)
-	}
-	sb.WriteString(`   Record each piece with burn_add (short title, kind unfinished|upgrade|bug, detail with file:line and how to fix it). Only real, useful pieces; never one already listed.
-` + pick + `; a piece not worth doing gets burn_skip with the reason (skip drops it for good: a piece whose turn has not come is left as it is).
-3. Do not change code in this turn (its worktree is thrown away). Only say there is nothing left after looking thoroughly.
-Answer briefly: what you found, which pieces you picked and why. The LAST line must be "` + scannedMark + ` <the areas this turn looked at, briefly>" (office keeps it so later scans look elsewhere).`)
-	return sb.String()
+	return prompts.Render("burn/plan", struct {
+		Focus              string
+		FocusLooks         []string
+		Total, Taken, Free int
+		Open, Closed       []piece
+		ClosedCount        int
+		ClosedMore         bool
+		Scanned            []string
+		ScannedMore        bool
+		Empty              int
+		Order, ScannedMark string
+	}{b.Focus, focusLooks(b.Focus), total, total - free, free, open, closed, closedCount, closedCount > maxClosedInPlan,
+		scanned, scannedMore, empty, b.Order, scannedMark})
 }
 
+// workPrompt is a piece's work turn (burn/work.md).
 func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "[Burn] Work on piece %s (%s): %s\n", it.ID, it.Kind, it.Title)
-	if it.Detail != "" {
-		fmt.Fprintf(&sb, "Detail: %s\n", it.Detail)
-	}
-	if again {
-		sb.WriteString("This piece is half done: look at git status / git diff in this worktree to see how far it got, then go on.\n")
-	}
-	sb.WriteString(focusWork(b.Focus))
-	if it.ReviewNote != "" {
-		fmt.Fprintf(&sb, "The reviewer's notes (follow them unless the code shows otherwise):\n%s\n", it.ReviewNote)
-	}
-	sb.WriteString("\nYou work in this piece's own worktree, with full access; other Burn pieces may run in parallel in theirs. Do not push or merge. After changing code, run the related build/test until they pass.\n")
-	if it.Kind == "unfinished" {
-		sb.WriteString("If this is a part of a roadmap feature: do exactly this part's scope, record design decisions in the project's docs (spec/ADR) and mark the progress in the planning docs; later parts are for later turns.\n")
-	}
-	if reviewed {
-		sb.WriteString("Once you report done, the result is reviewed first; if the review fails, the piece comes back with the reviewer's notes.\n")
-	}
-	if b.ResultMode == "patch" {
-		sb.WriteString("The changes in the worktree become a diff the person approves.\n")
-	} else {
-		sb.WriteString("Office commits every change in the worktree to branch " + it.Branch + " once you report done.\n")
-	}
-	fmt.Fprintf(&sb, "Finish with burn_done(item=%q, summary=what you did and how you verified it) or burn_fail(item=%q, reason=…) if you cannot do it.", it.ID, it.ID)
-	return sb.String()
+	return prompts.Render("burn/work", struct {
+		ID, Kind, Title, Detail, Focus, ReviewNote, Branch string
+		FocusChecks                                        []string
+		Again, Reviewed, Patch                             bool
+	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, it.Branch, focusChecks(b.Focus), again, reviewed, b.ResultMode == "patch"})
 }
 
 func oneLine(s string, n int) string {

@@ -20,13 +20,13 @@ var workspaceTools = []struct {
 	Name, Description string
 	Schema            map[string]any
 }{
-	{"list_dir", "Liệt kê file và thư mục con trong một thư mục của project (đường dẫn tương đối, '.' là gốc).",
+	{"list_dir", "List the files and subfolders in a folder of the project (relative path, '.' is the root).",
 		map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}, "required": []string{"path"}}},
-	{"read_file", "Đọc một file văn bản của project, có đánh số dòng. Dùng start/end để đọc một đoạn.",
+	{"read_file", "Read a text file of the project, with line numbers. Use start/end to read a range.",
 		map[string]any{"type": "object", "properties": map[string]any{
 			"path": map[string]any{"type": "string"}, "start": map[string]any{"type": "integer"}, "end": map[string]any{"type": "integer"}},
 			"required": []string{"path"}}},
-	{"search_text", "Tìm các dòng khớp biểu thức chính quy (không phân biệt hoa thường) trong project. glob tùy chọn, ví dụ *.vue.",
+	{"search_text", "Find lines matching a regular expression (case-insensitive) in the project. glob is optional, e.g. *.vue.",
 		map[string]any{"type": "object", "properties": map[string]any{"pattern": map[string]any{"type": "string"}, "glob": map[string]any{"type": "string"}},
 			"required": []string{"pattern"}}},
 }
@@ -36,10 +36,10 @@ var writeTools = []struct {
 	Name, Description string
 	Schema            map[string]any
 }{
-	{"write_file", "Tạo mới hoặc ghi đè toàn bộ một file (đường dẫn tương đối từ gốc).",
+	{"write_file", "Create a file or overwrite it whole (path relative to the root).",
 		map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "content": map[string]any{"type": "string"}},
 			"required": []string{"path", "content"}}},
-	{"edit_file", "Sửa một file: thay đoạn old (phải khớp đúng một chỗ, kể cả khoảng trắng) bằng new. Đọc file trước khi sửa.",
+	{"edit_file", "Edit a file: replace old (must match exactly one place, whitespace included) with new. Read the file before editing.",
 		map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "old": map[string]any{"type": "string"}, "new": map[string]any{"type": "string"}},
 			"required": []string{"path", "old", "new"}}},
 }

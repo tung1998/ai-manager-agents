@@ -10,11 +10,26 @@ func TestObjectionOf(t *testing.T) {
 		"PHẢN BIỆN: bản giao sửa nhầm file\nbằng chứng": "bản giao sửa nhầm file",
 		"**Phản biện** – thiếu ràng buộc":               "thiếu ràng buộc",
 		"PHAN BIEN:": "xem câu trả lời",
-		"Đã làm xong, không có phản biện.": "",
+		"**Objection:** the brief edits the wrong file": "the brief edits the wrong file",
+		"Đã làm xong, không có phản biện.":              "",
 		"": "",
 	} {
 		if got := objectionOf(in); got != want {
 			t.Errorf("objectionOf(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestBallot(t *testing.T) {
+	for in, want := range map[string]string{
+		"VOTE: AGREE\nbecause":       "yes",
+		"**VOTE: DISAGREE**":         "no",
+		"PHIẾU: ĐỒNG Ý":              "yes",
+		"PHIẾU: KHÔNG ĐỒNG Ý":        "no",
+		"I think it is fine overall": "unclear",
+	} {
+		if got := ballot(in); got != want {
+			t.Errorf("ballot(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -24,6 +39,12 @@ func TestDriftOf(t *testing.T) {
 		t.Fatalf("drift = %q %v", what, drift)
 	}
 	if _, drift := driftOf("**GIÁM SÁT: ỔN**\nđúng hướng"); drift {
+		t.Fatal("ok read as drift")
+	}
+	if what, drift := driftOf("SUPERVISOR: DRIFT: editing out of scope\ndetails"); !drift || what != "editing out of scope" {
+		t.Fatalf("drift = %q %v", what, drift)
+	}
+	if _, drift := driftOf("**SUPERVISOR: OK** no drift so far"); drift {
 		t.Fatal("ok read as drift")
 	}
 	if _, drift := driftOf("không rõ"); drift {

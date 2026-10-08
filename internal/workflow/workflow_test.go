@@ -94,7 +94,7 @@ func TestRenderBrief(t *testing.T) {
 		t.Fatal("unknown part accepted")
 	}
 	out, err := d.RenderBrief(r, map[string]string{"outcome": "Đăng nhập được", "done_when": "test xanh"})
-	if err != nil || !strings.Contains(out, "Kết quả cần đạt") || !strings.Contains(out, "Chỉ phân tích") {
+	if err != nil || !strings.Contains(out, "## Outcome") || !strings.Contains(out, "Analyze only") {
 		t.Fatalf("brief = %q, %v", out, err)
 	}
 }

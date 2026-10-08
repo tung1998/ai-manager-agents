@@ -251,7 +251,7 @@ func TestSkillCall(t *testing.T) {
 		}
 	}
 	p, s, err := ExpandSkillCall(home, proj, "/deploy lên staging")
-	if err != nil || s.Source != "project" || !strings.Contains(p, "notes.md") || !strings.HasSuffix(p, "Yêu cầu: lên staging") {
+	if err != nil || s.Source != "project" || !strings.Contains(p, "notes.md") || !strings.HasSuffix(p, "Request: lên staging") {
 		t.Fatal(p, err)
 	}
 	if _, _, err := ExpandSkillCall(home, proj, "/nope x"); !errors.Is(err, ErrUnknownSkill) {

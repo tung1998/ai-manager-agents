@@ -35,7 +35,7 @@ func (h HistoryItem) Said() string {
 	if h.Author == "" {
 		return h.Content
 	}
-	return "(" + h.Author + " trả lời trước đây) " + h.Content // i18n-ignore
+	return "(" + h.Author + " answered earlier) " + h.Content
 }
 
 // RunRequest is one agent turn.

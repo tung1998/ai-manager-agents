@@ -13,21 +13,21 @@ outputs:
 roles:
   - key: ke-hoach
     name: Lập kế hoạch
-    hint: thiết kế, kiến trúc
+    hint: design, architecture
     access: analyze
     prefer: { tier: strong }
   - key: phan-bien
     name: Phản biện
-    hint: review thiết kế, tìm rủi ro
+    hint: design review, finding risks
     access: analyze
     differ_from: [ke-hoach]
   - key: thuc-thi
     name: Thực thi
-    hint: sửa code
+    hint: changing code
     access: edit
   - key: review
     name: Review
-    hint: review code
+    hint: code review
     access: analyze
     differ_from: [thuc-thi]
     prefer: { tier: strong }
@@ -43,10 +43,10 @@ gates:
 limits: { rounds: 3, turns: 12, timeout: 4h, idle: 45m }
 brief: [outcome, constraints, done_when]
 ---
-1. Giao `ke-hoach` lập kế hoạch: kết quả cần đạt, contract (API, dữ liệu, hành vi), rủi ro, thứ tự làm. Đi thẳng tới trạng thái cuối, không chia nhiều phase trung gian khi không có phụ thuộc thật. Không viết sẵn cách sửa từng hàm.
-2. Hỏi `phan-bien` soát kế hoạch. Có điểm đáng sửa thì gửi lại `ke-hoach` (`workflow_send`).
-3. Mở cổng `duyet-ke-hoach` bằng `workflow_gate` kèm tóm tắt kế hoạch (đủ để người dùng quyết mà không phải đọc lại cả cuộc chat), rồi dừng lượt chờ người dùng duyệt. Bị từ chối thì sửa kế hoạch theo lý do hoặc gọi `workflow_done` báo vì sao dừng.
-4. Được duyệt thì giao `thuc-thi`, gửi kế hoạch đã duyệt làm `outcome` và `constraints`.
-5. Giao `review` soát thay đổi so với kế hoạch và contract (không so từng dòng với kế hoạch). Có lỗi thì gửi lại `thuc-thi`.
-6. Mở cổng `kiem-tra` bằng `workflow_gate` với lệnh build/test của project (`role: thuc-thi` để chạy trong worktree của nó). Không đạt thì gửi lỗi cho `thuc-thi` sửa rồi kiểm tra lại.
-7. Gọi `workflow_done`: `summary` là đã làm gì, review nói gì, kết quả kiểm tra; `outputs.changes`, `outputs.checks_passed`.
+1. Assign `ke-hoach` to make the plan: the outcome needed, the contract (API, data, behavior), risks, order of work. Go straight to the end state; do not split into intermediate phases without real dependencies. Do not pre-write how to change each function.
+2. Ask `phan-bien` to check the plan. If there are points worth fixing, send them back to `ke-hoach` (`workflow_send`).
+3. Open the `duyet-ke-hoach` gate with `workflow_gate` and a plan summary (enough for the person to decide without rereading the whole chat), then end the turn and wait for the person to approve. If rejected, revise the plan per the reason or call `workflow_done` saying why it stopped.
+4. Once approved, assign `thuc-thi`, sending the approved plan as `outcome` and `constraints`.
+5. Assign `review` to check the changes against the plan and contract (not line by line against the plan). If there are bugs, send them back to `thuc-thi`.
+6. Open the `kiem-tra` gate with `workflow_gate` using the project's build/test command (`role: thuc-thi` to run it in its worktree). If it fails, send the errors to `thuc-thi` to fix, then check again.
+7. Call `workflow_done`: `summary` is what was done, what the review said, the check results; `outputs.changes`, `outputs.checks_passed`.

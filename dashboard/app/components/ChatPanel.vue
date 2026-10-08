@@ -234,6 +234,7 @@ function toEnd() {
 const held: Message[] = [] // an agent's answer that came while one streams: the stream's own end brings it
 function place(m: Message) {
   if (messages.value.some(x => x.id === m.id)) return
+  if (m.role === 'user') dropShown(m.content) // shown already, before office had it
   messages.value.push(m)
   scrollDown()
 }
@@ -491,7 +492,16 @@ async function newConversation(agentId = '') {
 // written while an answer is on its way (as the CLI): office keeps it (not
 // this page: leaving loses nothing), shown greyed under the answer and sent
 // as the next message once the chat is free (several: as one)
-const queuedHere = computed(() => current.value?.queued ?? [])
+// shown at once, before office answers (it only syncs them): "tmp-" ids
+let shownSeq = 0
+const shownQueued = ref<(Queued & { convId: string })[]>([])
+const queuedHere = computed(() => {
+  const kept = current.value?.queued ?? []
+  return [...kept, ...shownQueued.value.filter(q => q.convId === current.value?.id && !kept.some(k => k.text === q.text))]
+})
+function dropShown(text: string) {
+  messages.value = messages.value.filter(x => !(x.id.startsWith('tmp-') && x.content === text))
+}
 function setQueued(id: string, list: Queued[]) {
   if (current.value?.id === id) current.value = { ...current.value, queued: list }
 }
@@ -534,6 +544,11 @@ async function post(text: string, files: Attachment[]) {
   if (!current.value) await newConversation(pick.value)
   if (!current.value) return restore(text, files)
   const switching = !single.value && pick.value && pick.value !== current.value.agent_id ? pick.value : ''
+  // shown at once: waiting under the answer when it answers, else as sent
+  const shown = { id: `tmp-${++shownSeq}`, text, attachments: files, created_at: new Date().toISOString() }
+  if (streaming.value || sending.value) shownQueued.value.push({ ...shown, convId: current.value.id })
+  else messages.value.push({ id: shown.id, role: 'user', content: text, attachments: files, author: '', created_at: shown.created_at, tools: [], patches: [] })
+  scrollDown(true) // theirs: in view
   sending.value = true
   try {
     // mode operate: the agent's own rights are the limit (members are capped server-side)
@@ -545,7 +560,7 @@ async function post(text: string, files: Attachment[]) {
       return
     }
     if (switching && picked.value && current.value) current.value = { ...current.value, agent_id: picked.value.id, agent_name: picked.value.name }
-    const first = !messages.value.some(m => m.id !== res.message.id)
+    const first = !messages.value.some(m => m.id !== res.message.id && !m.id.startsWith('tmp-'))
     // the server's push of this message may have come first (ADR-078): once only
     if (!messages.value.some(m => m.id === res.message.id)) messages.value.push(res.message)
     if (first) refreshConvs() // the server titles a conversation from its first message
@@ -562,6 +577,8 @@ async function post(text: string, files: Attachment[]) {
       toast.add({ title: apiError(e), color: 'error' })
     }
   } finally {
+    shownQueued.value = shownQueued.value.filter(q => q.id !== shown.id)
+    messages.value = messages.value.filter(m => m.id !== shown.id)
     sending.value = false
   }
 }
@@ -1015,7 +1032,7 @@ onBeforeUnmount(() => {
             <button v-if="streaming" type="button" class="flex items-center gap-0.5 rounded px-1 py-0.5 text-(--ui-text) hover:text-primary" :title="t('chat.sendNowHint')" @click="sendNow">
               <UIcon name="i-lucide-zap" class="size-3.5" />{{ t('chat.sendNow') }}
             </button>
-            <button type="button" class="rounded p-0.5 hover:text-(--ui-error)" :aria-label="t('chat.unqueue')" :title="t('chat.unqueue')" @click="unqueue(q)">
+            <button v-if="!q.id.startsWith('tmp-')" type="button" class="rounded p-0.5 hover:text-(--ui-error)" :aria-label="t('chat.unqueue')" :title="t('chat.unqueue')" @click="unqueue(q)">
               <UIcon name="i-lucide-x" class="size-3.5" />
             </button>
           </div>

@@ -151,7 +151,7 @@ func TestWorkflowCommitteeRunsInParallelAndCallsBack(t *testing.T) {
 		t.Fatalf("authors = %v", got)
 	}
 	args1, in1 := call(t, g.dir, 1)
-	if !strings.Contains(args1, "Quy trình đang chạy: Hội đồng") || !strings.Contains(in1, "vì sao test chập chờn") {
+	if !strings.Contains(args1, "Running workflow: Hội đồng") || !strings.Contains(in1, "vì sao test chập chờn") {
 		t.Fatalf("coordinator's turn:\n%s\n%s", args1, in1)
 	}
 	var devIn, back string
@@ -160,11 +160,11 @@ func TestWorkflowCommitteeRunsInParallelAndCallsBack(t *testing.T) {
 		switch {
 		case strings.Contains(a, "You are Dev"):
 			devIn = in
-		case strings.Contains(in, "[office · quy trình Hội đồng]"):
+		case strings.Contains(in, "[office · workflow Hội đồng]"):
 			back = in
 		}
 	}
-	if !strings.Contains(devIn, "Vì sao test chập chờn?") || !strings.Contains(devIn, "Chỉ phân tích") {
+	if !strings.Contains(devIn, "Vì sao test chập chờn?") || !strings.Contains(devIn, "Analyze only") {
 		t.Fatalf("Dev's brief:\n%s", devIn)
 	}
 	if !strings.Contains(back, "Thành viên A") || !strings.Contains(back, "Thành viên B") {
@@ -287,7 +287,7 @@ func TestWorkflowVoteTallies(t *testing.T) {
 	// the 3-party council: the coordinator is the lead, its three roles Dev, QA and a third agent
 	aud, _ := g.f.st.Agents().Create(g.context, storage.Agent{ProjectID: g.f.project.ID, Key: "aud", Name: "Aud", ModelTier: "fast"})
 	g.install(t, "council-3", map[string]string{"lap-ke-hoach": g.dev.ID, "thuc-thi": g.qa.ID, "giam-sat": aud.ID})
-	os.WriteFile(filepath.Join(g.dir, "reply-dev"), []byte("PHIẾU: ĐỒNG Ý"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "reply-dev"), []byte("VOTE: AGREE"), 0o644)
 	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
 	if _, _, err := g.engine.Send(g.context, g.conv.ID, "/council-3 làm X", nil); err != nil {
 		t.Fatal(err)
@@ -301,11 +301,11 @@ func TestWorkflowVoteTallies(t *testing.T) {
 	// QA and Aud answer "lead: ok" (no ballot): 1 yes of 3, the auditor's unclear vote vetoes
 	var back string
 	for i := 2; i <= 5; i++ {
-		if _, in := call(t, g.dir, i); strings.Contains(in, "Kết quả biểu quyết") {
+		if _, in := call(t, g.dir, i); strings.Contains(in, "Vote result") {
 			back = in
 		}
 	}
-	if !strings.Contains(back, "1/3 đồng ý") || !strings.Contains(back, "KHÔNG THÔNG QUA") || !strings.Contains(back, "phủ quyết") {
+	if !strings.Contains(back, "1/3 agree") || !strings.Contains(back, "NOT PASSED") || !strings.Contains(back, "Vetoed") {
 		t.Fatalf("call-back:\n%s", back)
 	}
 }
@@ -536,7 +536,7 @@ func TestWorkflowSeesTheCallingChat(t *testing.T) {
 	g.own(t)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		if _, in := call(t, g.dir, 2); strings.Contains(in, "cuộc chat đã gọi quy trình") {
+		if _, in := call(t, g.dir, 2); strings.Contains(in, "the chat that called this workflow") {
 			if !strings.Contains(in, "API /orders trả 500") {
 				t.Fatalf("coordinator's input lacks the chat:\n%s", in)
 			}
@@ -909,7 +909,7 @@ Giao a rồi kết thúc.
 	}
 	// the coordinator was told on its call-back
 	deadline = time.Now().Add(5 * time.Second)
-	for !slices.ContainsFunc(argsIn(t, g.dir), func(s string) bool { return strings.Contains(s, "PHẢN BIỆN bản giao") }) {
+	for !slices.ContainsFunc(argsIn(t, g.dir), func(s string) bool { return strings.Contains(s, "OBJECTS to the brief") }) {
 		if time.Now().After(deadline) {
 			t.Fatal("coordinator not told of the objection")
 		}
@@ -949,7 +949,7 @@ Giao a rồi kết thúc.
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(15 * time.Second)
-	for !slices.ContainsFunc(argsIn(t, g.dir), func(s string) bool { return strings.Contains(s, "Giám sát (QA) thấy lệch hướng") }) {
+	for !slices.ContainsFunc(argsIn(t, g.dir), func(s string) bool { return strings.Contains(s, "The supervisor (QA) sees drift") }) {
 		if time.Now().After(deadline) {
 			t.Fatal("the coordinator was not told of the drift")
 		}
