@@ -409,6 +409,11 @@ func (s *Service) step(ctx context.Context, b storage.BurnSession, it storage.Bu
 		}
 		return
 	}
+	// gate saves what it found (stages passed, its error count) straight to
+	// the store, not back into it: reread, so work does not clobber that.
+	if cur, err := s.store.Burn().Item(ctx, it.ID); err == nil {
+		it = cur
+	}
 	if failed := s.work(ctx, b, it); failed {
 		s.waitLimit(ctx, b) // the connection's limit: it waits for the reset
 	}

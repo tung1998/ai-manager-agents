@@ -84,7 +84,12 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lư�
 
 func waitItem(t *testing.T, st storage.Store, id, status string) storage.BurnItem {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+	return waitItemFor(t, st, id, status, 15*time.Second)
+}
+
+func waitItemFor(t *testing.T, st storage.Store, id, status string, timeout time.Duration) storage.BurnItem {
+	t.Helper()
+	for deadline := time.Now().Add(timeout); time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
 		if it, err := st.Burn().Item(context.Background(), id); err == nil && it.Status == status {
 			return it
 		}
@@ -594,6 +599,86 @@ func TestBurnReviewAgreesTheResult(t *testing.T) {
 	show.Dir = f.dir
 	if got, _ := show.CombinedOutput(); !strings.Contains(string(got), "made-by-agent.txt") {
 		t.Fatalf("branch %s: %s", it.Branch, got)
+	}
+	f.svc.Stop(ctx, f.project.ID)
+}
+
+// A reviewer that always crashes on the "issue" stage (a system error, not a
+// turned-down piece) must not leave the piece queued forever: past a few
+// tries in a row it is failed (ADR-120).
+func TestBurnReviewSystemErrorFailsAfterAFewTries(t *testing.T) {
+	f := setup(t)
+	os.WriteFile(f.bin, []byte(`#!/bin/sh
+p=$(cat)
+case "$p" in
+*"issue review"*)
+  echo "fatal: reviewer crashed" >&2
+  exit 1
+  ;;
+*) echo "do agent viết" > made-by-agent.txt; sleep 1; r="xong lượt";;
+esac
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewProfileID: f.profile(t, "issue")})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc nào đó", Kind: "bug"})
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: items[0].ID})
+	it := waitItemFor(t, f.st, items[0].ID, "failed", 3*time.Minute)
+	if !strings.Contains(it.Summary, "lỗi hệ thống liên tục") {
+		t.Fatalf("item = %+v", it)
+	}
+	f.svc.Stop(ctx, f.project.ID)
+}
+
+// A reviewer that crashes once, then answers, is not a stuck loop: the piece
+// goes on, and its error count is back to zero (ADR-120).
+func TestBurnReviewSystemErrorOnceThenGoesOn(t *testing.T) {
+	f := setup(t)
+	tries := filepath.Join(f.dir, "review-tries")
+	os.WriteFile(f.bin, []byte(`#!/bin/sh
+p=$(cat)
+case "$p" in
+*"issue review"*)
+  n=$(cat `+tries+` 2>/dev/null || echo 0)
+  n=$((n+1))
+  echo "$n" > `+tries+`
+  if [ "$n" -le 1 ]; then
+    echo "fatal: reviewer crashed" >&2
+    exit 1
+  fi
+  r="VERDICT: AGREE. Có thật"
+  ;;
+*) echo "do agent viết" > made-by-agent.txt; sleep 1; r="xong lượt";;
+esac
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewProfileID: f.profile(t, "issue")})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc nào đó", Kind: "bug"})
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: items[0].ID})
+	it := waitItemFor(t, f.st, items[0].ID, "doing", 2*time.Minute)
+	if it.ReviewErrAttempts != 0 {
+		t.Fatalf("item = %+v", it)
 	}
 	f.svc.Stop(ctx, f.project.ID)
 }

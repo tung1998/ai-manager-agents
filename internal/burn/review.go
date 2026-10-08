@@ -76,8 +76,10 @@ func (s *Service) gate(ctx context.Context, b storage.BurnSession, it storage.Bu
 		}
 		ok, note, err := s.review(ctx, b, &it, stage)
 		if err != nil {
-			return false, ctx.Err() == nil
+			r, _ := s.reviewer(ctx, b, stage)
+			return false, s.reviewErrAttempt(ctx, it, stage, r.AgentID, err)
 		}
+		it.ReviewErrAttempts = 0
 		from := it.Status
 		it.ReviewNote = note
 		if ok {
@@ -99,8 +101,10 @@ func (s *Service) gate(ctx context.Context, b storage.BurnSession, it storage.Bu
 func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.BurnItem) (failed bool) {
 	ok, note, err := s.review(ctx, b, &it, "result")
 	if err != nil {
-		return ctx.Err() == nil // stays "review": asked again
+		r, _ := s.reviewer(ctx, b, "result")
+		return s.reviewErrAttempt(ctx, it, "result", r.AgentID, err) // stays "review": asked again, unless past the limit
 	}
+	it.ReviewErrAttempts = 0
 	ctx = context.WithoutCancel(ctx)
 	it.ReviewNote = note
 	if ok {
@@ -129,6 +133,43 @@ func (s *Service) deliver(ctx context.Context, b storage.BurnSession, it *storag
 }
 
 var reviewLabel = map[string]string{"issue": "Review vấn đề", "plan": "Review cách làm", "result": "Review kết quả"}
+
+// maxReviewErrAttempts: how many times in a row review() may fail with a
+// system error (an agent gone, a bad review profile, the network) before the
+// piece is failed instead of asked again forever (ADR-120). The AI
+// connection's limit is not a system error and is not counted here: it is
+// checked separately (limitHit), and keeps the piece retrying as before.
+const maxReviewErrAttempts = 3
+
+// reviewErrAttempt counts a system error from review(): past the threshold,
+// the piece is marked failed instead of looping at this stage forever.
+// agentID is the stage's reviewer (not necessarily the Burn's own agent):
+// its connection hitting its limit is not counted, and is not failed, since
+// the loop already waits a minute and asks again (step, waitLimit). retry
+// reports whether it is still worth asking again (false once failed, or
+// once the context was cancelled: no point saving then). it is saved only
+// if its status is still what this call started from, so a change made
+// elsewhere while review() ran (paused, skipped, a person acting on it) is
+// not overwritten.
+func (s *Service) reviewErrAttempt(ctx context.Context, it storage.BurnItem, stage, agentID string, err error) (retry bool) {
+	if ctx.Err() != nil {
+		return false
+	}
+	if _, hit := s.limitHit(ctx, agentID); hit {
+		return true
+	}
+	ctx = context.WithoutCancel(ctx)
+	from := it.Status
+	it.ReviewErrAttempts++
+	if it.ReviewErrAttempts < maxReviewErrAttempts {
+		_ = s.store.Burn().UpdateItemFrom(ctx, it, from)
+		return true
+	}
+	it.Status = "failed"
+	it.Summary = fmt.Sprintf("%s: lỗi hệ thống liên tục (%d lần liền): %s", reviewLabel[stage], it.ReviewErrAttempts, err.Error())
+	_ = s.store.Burn().UpdateItemFrom(ctx, it, from)
+	return false
+}
 
 // review asks the stage's reviewer (an agent, or the workflow it runs) about
 // a piece, in the stage's review chat, read-only: agreed or not, and why.

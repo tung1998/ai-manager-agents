@@ -51,6 +51,7 @@ type BurnItem struct {
 	Priority                           int
 	Branch, Worktree, Summary          string
 	Attempts, Subagents                int
+	ReviewErrAttempts                  int               // system errors (not AI limit) in a row from review(), ADR-120
 	Reviewed                           []string          // review stages passed
 	ReviewNote                         string            // the reviewer's last word: guidance, or why not
 	ReviewConversations                map[string]string // stage → its hidden review chat (ADR-114)

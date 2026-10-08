@@ -1,13 +1,152 @@
 package burn
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 )
+
+// reviewErrFixture is a store with a project, a Burn session and one queued
+// piece, for reviewErrAttempt's unit tests.
+type reviewErrFixture struct {
+	st storage.Store
+	s  *Service
+	it storage.BurnItem
+}
+
+func newReviewErrFixture(t *testing.T) reviewErrFixture {
+	t.Helper()
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	proj, err := st.Repos().Create(ctx, storage.Repo{Name: "demo", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: proj.ID, State: "stopped"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it, err := st.Burn().AddItem(ctx, storage.BurnItem{SessionID: sess.ID, Title: "x", Kind: "bug", Status: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reviewErrFixture{st: st, s: &Service{store: st}, it: it}
+}
+
+// A review's system error (reviewer agent gone, bad config, network — not
+// the AI's limit) must not leave a piece looping forever: a few in a row
+// fail it instead; a transient blip, followed by success, does not (ADR-120).
+func TestReviewErrAttemptFailsAfterAFewTries(t *testing.T) {
+	f := newReviewErrFixture(t)
+	ctx := context.Background()
+	boom := errors.New("fatal: reviewer crashed")
+
+	it := f.it
+	for n := 1; n <= maxReviewErrAttempts-1; n++ {
+		if retry := f.s.reviewErrAttempt(ctx, it, "issue", "", boom); !retry {
+			t.Fatalf("attempt %d: retry = false, want true (under the threshold)", n)
+		}
+		var err error
+		it, err = f.st.Burn().Item(ctx, it.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if it.Status != "queued" || it.ReviewErrAttempts != n {
+			t.Fatalf("attempt %d: item = %+v", n, it)
+		}
+	}
+	if retry := f.s.reviewErrAttempt(ctx, it, "issue", "", boom); retry {
+		t.Fatal("past the threshold: retry = true, want false")
+	}
+	got, err := f.st.Burn().Item(ctx, it.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "failed" || !strings.Contains(got.Summary, "lỗi hệ thống liên tục") {
+		t.Fatalf("item = %+v", got)
+	}
+}
+
+// A context already cancelled (the Burn stopped meanwhile) is not worth
+// saving or retrying: ADR-120 only guards against a stuck loop, not a stop.
+func TestReviewErrAttemptStopsOnCancel(t *testing.T) {
+	s := &Service{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	it := storage.BurnItem{ID: "nonexistent", Status: "queued"}
+	if retry := s.reviewErrAttempt(ctx, it, "issue", "", errors.New("x")); retry {
+		t.Fatal("cancelled context: retry = true, want false")
+	}
+}
+
+// A reviewer whose connection is at its limit is not a system error: it must
+// not be counted (nor ever fail the piece for it), since the loop already
+// waits and asks again on its own (step, waitLimit).
+func TestReviewErrAttemptDoesNotCountTheAIsLimit(t *testing.T) {
+	f := newReviewErrFixture(t)
+	ctx := context.Background()
+	prov, err := f.st.Providers().Create(ctx, storage.Provider{Name: "p", Kind: storage.ProviderClaudeCLI, IsDefault: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lim := chat.Limits{Status: "rejected", Windows: map[string]chat.LimitWindow{
+		"five_hour": {Utilization: 1, ResetsAt: time.Now().Add(time.Hour)},
+	}}
+	if err := f.st.Settings().Set(ctx, chat.LimitsKey(prov.ID), lim); err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("fatal: reviewer crashed")
+	for n := 1; n <= maxReviewErrAttempts+2; n++ { // past the threshold, were it counted
+		if retry := f.s.reviewErrAttempt(ctx, f.it, "issue", "", boom); !retry {
+			t.Fatalf("attempt %d: retry = false, want true (the AI's limit, not a system error)", n)
+		}
+	}
+	got, err := f.st.Burn().Item(ctx, f.it.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "queued" || got.ReviewErrAttempts != 0 {
+		t.Fatalf("item = %+v, want untouched", got)
+	}
+}
+
+// A person acting on a piece while its review was failing (pausing it,
+// skipping it) must not be undone by reviewErrAttempt's own save: it only
+// touches the piece if its status is still what it was when review() ran.
+func TestReviewErrAttemptKeepsAConcurrentChange(t *testing.T) {
+	f := newReviewErrFixture(t)
+	ctx := context.Background()
+	if err := f.st.Burn().UpdateItem(ctx, func() storage.BurnItem { it := f.it; it.Status = "paused"; return it }()); err != nil {
+		t.Fatal(err)
+	}
+	// reviewErrAttempt is handed the snapshot from before the status changed
+	// (as gate/finish do: it was read, then review() ran for a while).
+	if retry := f.s.reviewErrAttempt(ctx, f.it, "issue", "", errors.New("x")); !retry {
+		t.Fatal("retry = false, want true (under the threshold)")
+	}
+	got, err := f.st.Burn().Item(ctx, f.it.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "paused" || got.ReviewErrAttempts != 0 {
+		t.Fatalf("item = %+v, the concurrent change was overwritten", got)
+	}
+}
 
 func TestIdleBacksOff(t *testing.T) {
 	s := &Service{idle: 5 * time.Minute}
