@@ -1562,7 +1562,7 @@ func (e *Engine) DecidePatch(ctx context.Context, patchID string, approve bool) 
 		if err != nil && p.Origin == "worktree" {
 			// the project moved on since the worktree was made: refresh it onto
 			// the project as it is now, then merge what the agent changed
-			p, err = e.refreshAndDiff(ctx, project, p)
+			p, err = e.refreshAndDiff(ctx, project, p, perm.LoadPolicy(ctx, e.store, project.ID))
 		}
 		if err != nil {
 			status, detail = "failed", err.Error()
@@ -1679,7 +1679,7 @@ func (e *Engine) auditAutoPatch(agent string, conv storage.Conversation, jobID s
 // refreshAndDiff puts a worktree's changes on top of the project as it is now
 // (a 3-way merge in the worktree, the project untouched) and makes p that
 // diff, applied to the project. A clash stays in the worktree for the agent.
-func (e *Engine) refreshAndDiff(ctx context.Context, project storage.Repo, p storage.Patch) (storage.Patch, error) {
+func (e *Engine) refreshAndDiff(ctx context.Context, project storage.Repo, p storage.Patch, policy perm.Policy) (storage.Patch, error) {
 	dir := e.treeOf(project.ID, p)
 	if dir == "" {
 		return p, errors.New("không gộp được vào project: code ở project đã đổi và worktree không còn")
@@ -1697,6 +1697,9 @@ func (e *Engine) refreshAndDiff(ctx context.Context, project storage.Repo, p sto
 	}
 	if diff == "" {
 		return p, errors.New("thay đổi của worktree đã có sẵn trong project")
+	}
+	if denied := policy.Denied(files); len(denied) > 0 {
+		return p, errors.New("sửa file cấm của project: " + strings.Join(denied, ", "))
 	}
 	if err := ApplyPatch(ctx, project.Path, diff); err != nil {
 		return p, fmt.Errorf("không gộp được vào project sau khi cập nhật worktree: %w", err)
