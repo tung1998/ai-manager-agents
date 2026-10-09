@@ -94,8 +94,23 @@ func waitItem(t *testing.T, st storage.Store, id, status string) storage.BurnIte
 	return it
 }
 
+// waitDelivered waits for a piece done to be merged into its run (its
+// worktree dropped).
+func waitDelivered(t *testing.T, st storage.Store, id string) storage.BurnItem {
+	t.Helper()
+	it := waitItem(t, st, id, "done")
+	for deadline := time.Now().Add(10 * time.Second); it.Worktree != "" && time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		it, _ = st.Burn().Item(context.Background(), id)
+	}
+	if it.Worktree != "" {
+		t.Fatalf("piece not merged into its run: %+v", it)
+	}
+	return it
+}
+
 // A chosen piece runs in its own worktree; reported done, what it changed is
-// committed to its burn/ branch of the project (nothing pushed, nothing on main).
+// committed to the run's one burn/ branch (ADR-123), the next piece's too
+// (nothing pushed, nothing on main).
 func TestBurnDoesAPieceOnItsBranch(t *testing.T) {
 	f := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -120,21 +135,39 @@ func TestBurnDoesAPieceOnItsBranch(t *testing.T) {
 	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: it.ID})
 	it = waitItem(t, f.st, it.ID, "doing")
 	f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: it.ID, Summary: "đã sửa, test qua"})
-	it = waitItem(t, f.st, it.ID, "done")
-	if it.Status != "done" || !strings.HasPrefix(it.Branch, "burn/") {
-		t.Fatalf("item = %+v", it)
+	it = waitDelivered(t, f.st, it.ID)
+	if b, _ = f.st.Burn().Session(ctx, f.project.ID); it.Branch != b.RunBranch || !strings.HasPrefix(it.Branch, "burn/") {
+		t.Fatalf("item = %+v, run %s", it, b.RunBranch)
 	}
-	var got []byte
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		show := exec.Command("git", "show", "--stat", it.Branch)
-		show.Dir = f.dir
-		got, _ = show.CombinedOutput()
-		if strings.Contains(string(got), "made-by-agent.txt") {
-			break
-		}
-	}
-	if !strings.Contains(string(got), "made-by-agent.txt") || !strings.Contains(string(got), "burn: Sửa lỗi thanh toán") {
+	show := exec.Command("git", "show", "--stat", it.Branch)
+	show.Dir = f.dir
+	if got, _ := show.CombinedOutput(); !strings.Contains(string(got), "made-by-agent.txt") || !strings.Contains(string(got), "burn: Sửa lỗi thanh toán") {
 		t.Fatalf("branch %s: %s", it.Branch, got)
+	}
+	// the next piece starts from the run and lands on the same branch
+	os.WriteFile(f.bin, []byte(`#!/bin/sh
+cat > /dev/null
+test -f made-by-agent.txt && echo "thứ hai" > second.txt
+sleep 1
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lượt","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc thứ hai", Kind: "upgrade"})
+	items, _ = f.st.Burn().Items(ctx, b.ID)
+	next := items[len(items)-1]
+	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: next.ID})
+	waitItem(t, f.st, next.ID, "doing")
+	f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: next.ID, Summary: "thêm second"})
+	if next = waitDelivered(t, f.st, next.ID); next.Branch != it.Branch {
+		t.Fatalf("second piece on %q, want %q", next.Branch, it.Branch)
+	}
+	log := exec.Command("git", "log", "--format=%s", "main.."+it.Branch)
+	log.Dir = f.dir
+	if got, _ := log.CombinedOutput(); string(got) != "burn: Việc thứ hai\nburn: Sửa lỗi thanh toán\n" {
+		t.Fatalf("run branch log:\n%s", got)
+	}
+	if out, _ := exec.Command("git", "-C", f.dir, "branch", "--list", "burn/*").CombinedOutput(); strings.Count(string(out), "burn/") != 1 {
+		t.Fatalf("one branch per run, got:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(f.dir, "made-by-agent.txt")); err == nil {
 		t.Fatal("the project's own folder was changed")
@@ -148,14 +181,7 @@ func TestBurnDoesAPieceOnItsBranch(t *testing.T) {
 		t.Fatalf("its Burn = %+v, %v", s, err)
 	}
 	// there the burn_* tools touch that piece only
-	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc khác", Kind: "upgrade"})
-	var other storage.BurnItem
-	items, _ = f.st.Burn().Items(ctx, b.ID)
-	for _, x := range items {
-		if x.ID != it.ID {
-			other = x
-		}
-	}
+	other := next
 	wsc := actions.Scope{ProjectID: f.project.ID, ConversationID: wc}
 	if _, err := f.svc.Tool(ctx, wsc, "burn_fail", burn.ToolInput{Item: other.ID, Reason: "x"}); err == nil {
 		t.Fatal("a piece's chat reported another piece")
@@ -586,7 +612,7 @@ func TestBurnReviewAgreesTheResult(t *testing.T) {
 	if got, _ := f.st.Burn().Item(ctx, it.ID); got.Status != "review" {
 		t.Fatalf("done before its review: %s", got.Status)
 	}
-	it = waitItem(t, f.st, it.ID, "done")
+	it = waitDelivered(t, f.st, it.ID)
 	if !strings.Contains(strings.Join(it.Reviewed, ","), "result") || !strings.Contains(it.ReviewNote, "Đúng phạm vi") {
 		t.Fatalf("item = %+v", it)
 	}
@@ -617,5 +643,61 @@ func TestBurnListTool(t *testing.T) {
 	}
 	if out, _ := f.svc.Tool(ctx, sc, "burn_list", burn.ToolInput{What: "open"}); strings.Contains(out, "việc xong") {
 		t.Errorf("open lists a closed piece: %s", out)
+	}
+}
+
+// Worktree mode (ADR-123): every piece of a run gathers in the run's one
+// worktree, put up as one diff in the Burn's chat; no branch is made.
+func TestBurnWorktreeModeOneDiff(t *testing.T) {
+	f := setup(t)
+	os.WriteFile(f.bin, []byte(`#!/bin/sh
+cat > /dev/null
+if test -f first.txt; then echo hai > second.txt; else echo mot > first.txt; fi
+sleep 1
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lượt","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, ResultMode: "worktree", State: "stopped"})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.svc.Stop(context.Background(), f.project.ID)
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	for _, title := range []string{"Một", "Hai"} {
+		f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: title, Kind: "upgrade"})
+		items, _ := f.st.Burn().Items(ctx, b.ID)
+		it := items[len(items)-1]
+		f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: it.ID})
+		waitItem(t, f.st, it.ID, "doing")
+		f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: it.ID, Summary: "xong " + title})
+		if it = waitDelivered(t, f.st, it.ID); it.Branch != "" {
+			t.Fatalf("a branch in worktree mode: %+v", it)
+		}
+	}
+	var pending []storage.Patch
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		patches, _ := f.st.Chat().ListPatches(ctx, b.ConversationID)
+		pending = pending[:0]
+		for _, p := range patches {
+			if p.Status == "pending" {
+				pending = append(pending, p)
+			}
+		}
+		if len(pending) == 1 && strings.Contains(pending[0].Diff, "second.txt") {
+			break
+		}
+	}
+	if len(pending) != 1 || !strings.Contains(pending[0].Diff, "first.txt") || !strings.Contains(pending[0].Diff, "second.txt") {
+		t.Fatalf("want one diff with both pieces, got %+v", pending)
+	}
+	if out, _ := exec.Command("git", "-C", f.dir, "branch", "--list", "burn/*").CombinedOutput(); strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("worktree mode made a branch:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "first.txt")); err == nil {
+		t.Fatal("the project's own folder was changed before approval")
 	}
 }

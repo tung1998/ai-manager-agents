@@ -157,7 +157,7 @@ func TestFocusSteers(t *testing.T) {
 // A run's summary: what this run did, what is left (ADR-120).
 func TestSummary(t *testing.T) {
 	start := time.Now().Add(-90 * time.Minute)
-	b := storage.BurnSession{StartedAt: &start, ResultMode: "branch"}
+	b := storage.BurnSession{StartedAt: &start, ResultMode: "branch", RunBranch: "burn/a"}
 	items := []storage.BurnItem{
 		{Title: "Sửa lỗi A", Status: "done", Branch: "burn/a", Summary: "đã sửa", CostUSD: 1.5, UpdatedAt: time.Now()},
 		{Title: "Cũ", Status: "done", UpdatedAt: start.Add(-time.Hour)},
@@ -166,7 +166,7 @@ func TestSummary(t *testing.T) {
 		{Title: "D", Status: "found"},
 	}
 	s := summary(b, items, "demo", "dừng hẳn", time.Now())
-	for _, want := range []string{"Burn demo đã dừng", "1 giờ 30 phút", "Sửa lỗi A", "burn/a", "Làm B", "không build được", "$1.50", "1 việc tìm thấy"} {
+	for _, want := range []string{"Burn demo đã dừng", "1 giờ 30 phút", "Sửa lỗi A", "Kết quả: nhánh `burn/a`", "Làm B", "không build được", "$1.50", "1 việc tìm thấy"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("summary lacks %q:\n%s", want, s)
 		}

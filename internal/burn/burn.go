@@ -3,6 +3,7 @@
 // could be better and what is broken, and does it — a few pieces at a time
 // (ADR-117), each in its own worktree and chat — until it is stopped or its time is up. Stopped,
 // the piece in progress waits (its worktree kept); started again, it goes on.
+// Each run gives one result to review (ADR-123): a branch, or a worktree.
 package burn
 
 import (
@@ -14,9 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
-
-	"golang.org/x/text/unicode/norm"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/chat"
@@ -39,6 +37,7 @@ type Service struct {
 	root  context.Context
 	loops map[string]context.CancelFunc // by project
 	wakes map[string]chan struct{}      // by project: its loop looks again now
+	runMu sync.Mutex                    // a run's worktree: made, and pieces merged into it, one at a time
 
 	notify Notify // a run's summary to a bot's chat (ADR-120); nil: none
 }
@@ -68,6 +67,10 @@ func (s *Service) Start(ctx context.Context) {
 		return
 	}
 	for _, b := range running {
+		if b.RunBranch == "" { // running since before ADR-123
+			b.RunBranch = newRunBranch(time.Now())
+			_, _ = s.store.Burn().SaveSession(ctx, b)
+		}
 		s.pauseDoing(ctx, b.ID)
 		s.spawn(b.ProjectID)
 	}
@@ -93,8 +96,9 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 	if err := s.CheckReviewers(ctx, b.ReviewProfileID); err != nil {
 		return b, err
 	}
-	if !b.Active() {
-		b.ConversationID = "" // each start, a chat of its own: the earlier ones stay as they were
+	if !b.Active() || b.RunBranch == "" {
+		// each start, a chat and a branch (or worktree) of its own: the earlier ones stay as they were
+		b.ConversationID, b.RunBranch = "", newRunBranch(time.Now())
 	}
 	if err := s.ensureConversation(ctx, &b); err != nil {
 		return b, err
@@ -189,6 +193,7 @@ func (s *Service) stop(ctx context.Context, projectID, why string) error {
 	s.pauseDoing(ctx, b.ID)
 	if ran {
 		s.report(context.WithoutCancel(ctx), b, why)
+		s.closeRun(context.WithoutCancel(ctx), b)
 	}
 	return nil
 }
@@ -391,6 +396,7 @@ func (s *Service) drained(ctx context.Context, sessionID string) bool {
 	b.State, b.WaitingUntil = "stopped", nil
 	_, _ = s.store.Burn().SaveSession(ctx, b)
 	s.report(context.WithoutCancel(ctx), b, "đã làm nốt việc dở")
+	s.closeRun(context.WithoutCancel(ctx), b)
 	return true
 }
 
@@ -520,19 +526,16 @@ func (s *Service) run(ctx context.Context, conversationID, text string) (turnRes
 	}
 }
 
-// work runs one piece in its own worktree; reported done, it is committed
-// to its branch (branch mode) — a diff to approve otherwise.
+// work runs one piece in its own worktree; reported done, it is merged into
+// the run (ADR-123).
 func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.BurnItem) (failed bool) {
 	again := it.Status == "paused" || it.Status == "doing" || it.Worktree != "" // a retry goes on from what is there
 	tree := "burn-" + it.ID
 	it.Status, it.Attempts = "doing", it.Attempts+1
-	if it.Branch == "" {
-		it.Branch = branchName(it)
-	}
 	// its worktree first: a run without one would write in the project's own folder
 	p, perr := s.store.Repos().Get(ctx, b.ProjectID)
 	if perr == nil && s.trees != nil {
-		it.Worktree, perr = s.trees.Ensure(ctx, p.Path, b.ProjectID, tree, nil)
+		it.Worktree, perr = s.pieceTree(ctx, b, p.Path, tree)
 	} else if perr == nil {
 		perr = errors.New("office không có worktree")
 	}
@@ -550,7 +553,7 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	_ = s.store.Burn().UpdateItem(ctx, it)
 	// held back for its review (ADR-112): no diff until the reviewer agrees
 	held := s.reviews(ctx, b, "result")
-	res, err := s.run(runCtx(ctx, b, tree, b.ResultMode != "patch" || held), it.WorkConversationID, workPrompt(b, it, again, held))
+	res, err := s.run(chat.WithPinnedTree(runCtx(ctx, b, tree, true), tree), it.WorkConversationID, workPrompt(b, it, again, held))
 	cur, gerr := s.store.Burn().Item(context.WithoutCancel(ctx), it.ID)
 	if gerr != nil {
 		return false
@@ -732,8 +735,8 @@ func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool
 	return prompts.Render("burn/work", struct {
 		ID, Kind, Title, Detail, Focus, ReviewNote, Branch string
 		FocusChecks                                        []string
-		Again, Reviewed, Patch                             bool
-	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, it.Branch, focusChecks(b.Focus), again, reviewed, b.ResultMode == "patch"})
+		Again, Reviewed, Worktree                          bool
+	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, focusChecks(b.Focus), again, reviewed, b.ResultMode == "worktree"})
 }
 
 func oneLine(s string, n int) string {
@@ -744,41 +747,8 @@ func oneLine(s string, n int) string {
 	return s
 }
 
-// branchName: burn/<short id>-<title, plain>.
-func branchName(it storage.BurnItem) string {
-	id := strings.TrimPrefix(it.ID, "bit_")
-	if len(id) > 8 {
-		id = id[len(id)-8:]
-	}
-	if slug := slugOf(it.Title, 40); slug != "" {
-		return "burn/" + id + "-" + slug
-	}
-	return "burn/" + id
-}
-
-func slugOf(s string, n int) string {
-	s = strings.ReplaceAll(strings.ReplaceAll(s, "đ", "d"), "Đ", "d")
-	var b strings.Builder
-	dash := false
-	for _, r := range norm.NFD.String(strings.ToLower(s)) {
-		switch {
-		case unicode.Is(unicode.Mn, r):
-		case r < 128 && (unicode.IsLetter(r) || unicode.IsDigit(r)):
-			b.WriteRune(r)
-			dash = false
-		case !dash && b.Len() > 0:
-			b.WriteByte('-')
-			dash = true
-		}
-		if b.Len() >= n {
-			break
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
-
-// commit puts what the piece changed on its branch, in its worktree (a
-// branch of the project's repository: the person merges it, office never).
+// commit puts a piece's changes on the run's branch, in the run's worktree
+// (a branch of the project's repository: the person merges it, office never).
 func commit(ctx context.Context, dir, branch, title, summary string) error {
 	if dir == "" {
 		return errors.New("không có worktree")

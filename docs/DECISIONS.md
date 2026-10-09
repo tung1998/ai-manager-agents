@@ -2067,3 +2067,12 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Mô tả tool** vẫn trong code (đã ngắn, khoảng 3,7KB cho 32 mô tả); 14 mô tả dài được rút còn khoảng 200 ký tự, quy tắc chi tiết chuyển vào mô tả tham số.
 - **Kiểm chứng:** khi chuyển, prompt cũ và mới được so từng ký tự trên nhiều tổ hợp (system prompt 432 tổ hợp quyền/chế độ, Burn, quy trình, hướng dẫn, trợ lý, setup…): giống hệt, trừ một dấu cách thừa cuối dòng danh sách agent của quy trình.
 - **Không đổi:** chữ người dùng đọc (lỗi, ghi chú, tổng kết Burn, log) vẫn trong code, tiếng Việt; các quy trình có sẵn vẫn ở `internal/workflow/builtin`.
+
+## ADR-123: Burn: mỗi lần chạy một nhánh hoặc một worktree
+- **Bối cảnh:** mỗi việc Burn có nhánh `burn/<mã>-<tên>` riêng, nền là ảnh chụp project lúc bắt đầu (kèm thay đổi chưa commit). Một đêm chạy để lại hàng chục nhánh (82 nhánh chưa merge), người dùng phải tự gộp; chế độ `patch` thì ra một diff cho mỗi việc.
+- **Quyết định:** mỗi lần chạy (Bắt đầu khi đang tắt) có `run_branch = burn/<ngày-giờ>` và một worktree `burn-run-<ngày-giờ>`. Hai chế độ:
+  - `branch`: worktree của lần chạy nằm trên nhánh `run_branch`, tách từ HEAD của project (không kèm thay đổi chưa commit). Mỗi việc xong được commit lên đó (`burn: <tên>`). Khi lần chạy dừng thì worktree bị xóa, nhánh vẫn giữ để người dùng `git switch` hoặc merge.
+  - `worktree` (thay `patch`): worktree tách từ trạng thái hiện tại của project. Các việc xong gộp vào đó, không commit; chat Burn luôn có đúng một diff đang chờ (diff mới thay diff cũ), duyệt là vào thẳng nhánh hiện tại.
+- **Việc vẫn chạy song song:** mỗi việc có worktree tạm, bắt đầu từ lần chạy như lúc đó (`refs/worktree/burn-base` đánh dấu điểm bắt đầu), và không bị kéo theo project trước mỗi lượt (`chat.WithPinnedTree`). Báo xong (và qua review kết quả nếu có) thì diff so với điểm bắt đầu được `git apply` vào worktree của lần chạy, từng việc một (`runMu`), rồi worktree tạm bị xóa. Nếu không apply được (việc khác vừa sửa cùng chỗ), việc được làm lại từ bản mới nhất; sau 2 lần thì tính là thất bại.
+- **Không đổi:** office không push, không merge vào nhánh của người dùng ở chế độ `branch`. Tổng kết khi dừng ghi một dòng "Kết quả" (tên nhánh, hoặc diff trong chat Burn).
+

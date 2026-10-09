@@ -123,6 +123,10 @@ func isRepoRoot(ctx context.Context, repo string) bool {
 	return err1 == nil && err2 == nil && filepath.Clean(a) == filepath.Clean(b)
 }
 
+// Snapshot is snapshot for another package: a commit of dir's files as they
+// are now, its index and branch left as they are.
+func Snapshot(ctx context.Context, dir string) (string, error) { return snapshot(ctx, dir) }
+
 // snapshot commits the working tree of repo (tracked, modified and new files
 // that git does not ignore) through a temporary index, leaving the person's
 // index, files and branches as they are. It returns the commit.
