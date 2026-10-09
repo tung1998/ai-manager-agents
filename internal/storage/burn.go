@@ -26,6 +26,8 @@ type BurnSession struct {
 	CodeMap                                string // what its scans learned of the codebase (ADR-130)
 	Verify                                 string // commands run on a piece reported done, one a line; \"\" = guessed (ADR-131)
 	Lessons                                string // what its scans learned of pieces turned down or failed (ADR-131)
+	ReviewCap                              int    // pieces done and not merged yet past which it waits for the person (ADR-135); 0 = none
+	StopAfter                              int    // pieces done in a run after which it finishes (ADR-135); 0 = none
 	NotifyChannelID, NotifyChatID          string // a bot's chat its summary goes to when it stops (ADR-120); "" = none
 	EndsAt                                 *time.Time
 	State                                  string // running | waiting_limit | draining (finishing what is in progress) | stopped

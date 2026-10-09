@@ -15,6 +15,7 @@ func hookCmd() *cobra.Command {
 	var (
 		userMCP bool
 		gateway []string
+		checks  string
 	)
 	guard := &cobra.Command{
 		Use: "guard", Short: "PreToolUse: sửa file trong thư mục project, MCP theo quyền",
@@ -28,10 +29,11 @@ func hookCmd() *cobra.Command {
 	check := &cobra.Command{
 		Use: "check", Short: "PostToolUse: kiểm tra nhanh file vừa sửa",
 		RunE: func(*cobra.Command, []string) error {
-			chat.QuickCheck(os.Stdin, os.Stdout)
+			chat.QuickCheck(os.Stdin, os.Stdout, chat.DecodeChecks(checks))
 			return nil
 		},
 	}
+	check.Flags().StringVar(&checks, "checks", "", "kiểm tra riêng của project (base64)")
 	cmd.AddCommand(guard, check)
 	return cmd
 }

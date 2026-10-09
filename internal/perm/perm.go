@@ -106,6 +106,9 @@ type Policy struct {
 	// QuickCheck: after an agent edits a file, office checks it at once
 	// (gofmt/vet, JSON, YAML) and tells the agent what to fix (ADR-133).
 	QuickCheck bool `json:"quick_check"`
+	// QuickChecks: the project's own quick checks by file ending, one a line
+	// (".ts .vue: npx eslint {file}"), after the built-in ones (ADR-135).
+	QuickChecks string `json:"quick_checks"`
 
 	// Worked out when loaded, not stored:
 	Catalog []string `json:"-"` // every command of the project's packs

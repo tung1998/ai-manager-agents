@@ -69,6 +69,8 @@ type RunRequest struct {
 	// QuickCheck: each edited file is checked at once, what is wrong goes
 	// back to the agent (perm.Policy.QuickCheck, ADR-133; Claude Code only)
 	QuickCheck bool
+	// QuickChecks: the project's own, by file ending (perm.Policy.QuickChecks, ADR-135)
+	QuickChecks string
 	// NoTools: people outside office drive this run (a Telegram/Discord
 	// channel, ADR-048): no file, MCP or office tools at all.
 	NoTools bool

@@ -1020,3 +1020,52 @@ func TestBurnChecksAPieceReportedDone(t *testing.T) {
 		t.Fatalf("a piece failing its checks: %+v", it)
 	}
 }
+
+// ADR-135: past review_cap pieces not merged, it starts nothing new until
+// the person merges the run's branch; past stop_after done, it finishes.
+func TestBurnWaitsForReviewThenStopsAfter(t *testing.T) {
+	f := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, EndsAt: &ends, State: "stopped", ReviewCap: 1, StopAfter: 2})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.svc.Stop(context.Background(), f.project.ID)
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc một", Kind: "bug", Priority: "high"})
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc hai", Kind: "bug"})
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	byTitle := map[string]storage.BurnItem{}
+	for _, it := range items {
+		byTitle[it.Title] = it
+	}
+	one := waitItem(t, f.st, byTitle["Việc một"].ID, "doing")
+	f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: one.WorkConversationID}, "burn_done", burn.ToolInput{Item: one.ID, Summary: "xong"})
+	waitDelivered(t, f.st, one.ID)
+	time.Sleep(2 * time.Second) // a free slot, one piece not merged: the second waits
+	if two, _ := f.st.Burn().Item(ctx, byTitle["Việc hai"].ID); two.Status != "found" {
+		t.Fatalf("started past the review cap: %+v", two)
+	}
+	b, _ = f.st.Burn().Session(ctx, f.project.ID)
+	merge := exec.Command("git", "-c", "user.email=t@x.io", "-c", "user.name=T", "merge", "-q", "--ff-only", b.RunBranch)
+	merge.Dir = f.dir
+	if out, err := merge.CombinedOutput(); err != nil {
+		t.Fatal(string(out))
+	}
+	f.svc.Wake(f.project.ID)
+	two := waitItem(t, f.st, byTitle["Việc hai"].ID, "doing")
+	f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: two.WorkConversationID}, "burn_done", burn.ToolInput{Item: two.ID, Summary: "xong"})
+	waitDelivered(t, f.st, two.ID)
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if cur, _ := f.st.Burn().Session(ctx, f.project.ID); cur.State == "stopped" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("still running after stop_after pieces")
+		}
+	}
+}

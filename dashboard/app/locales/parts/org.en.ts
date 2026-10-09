@@ -127,6 +127,8 @@ const en: Record<keyof typeof vi, string> = {
   'policy.newPackLabel': 'Command pack {n}',
   'policy.quickCheck': 'Quick check after edits',
   'policy.quickCheckHelp': 'Right after an agent edits a file, office checks it (Go: gofmt, go vet; JSON, YAML: syntax) and reports errors for the agent to fix at once. Claude Code only.',
+  'policy.quickChecks': 'Project checks',
+  'policy.quickChecksHelp': 'One a line: file endings, a colon, a command ({file} is the edited file). Run after the built-in check, 20 seconds in all',
   'policy.denyTitle': 'Forbidden files',
   'policy.denySupports': 'Supports {star}, {starstar} (any folder), and folders ending in {slash}.',
   'policy.save': 'Save permissions',

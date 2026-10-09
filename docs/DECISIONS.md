@@ -2142,7 +2142,7 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - **Sổ bài học** (`burn_sessions.lessons`, tối đa 3000 ký tự, chỉ ghi qua `SetLessons`): lượt quét được xem 15 việc gần nhất bị bỏ có lý do hoặc thất bại, kèm lý do. Nó gộp thành các quy tắc ngắn rồi ghi qua `burn_scan_done(lessons)`. Bài học được đưa vào prompt quét (không ghi lại việc mà bài học đã loại) và prompt làm. Không tốn thêm lượt AI: lượt quét vốn đã chạy.
   - **Tổng kết khi dừng** có thêm phần "Cần đọc kỹ": các việc xong có file thuộc vùng rủi ro (migration/dữ liệu, bảo mật/quyền, thanh toán, phụ thuộc, triển khai/CI, cấu hình), xét theo đường dẫn. Danh sách file của mỗi việc lấy lúc gộp (`burn_items.files`).
   - Cài đặt Burn có ô "Lệnh kiểm chứng" và mục "Burn đã học được" (bài học, bản đồ code), chỉ để đọc.
-- **Chưa làm:** giới hạn số việc song song theo khả năng review của người dùng.
+- Giới hạn theo khả năng review của người dùng: xem ADR-135.
 
 ## ADR-132: Tự động hóa tạo quest cho Burn; chạy tới khi đạt mục tiêu
 - **Bối cảnh:** vòng "phân loại buổi sáng" (loop engineering): một script lọc issue/log mỗi sáng, cần giao việc tìm được cho Burn mà không phải chép tay từng quest. Tự động hóa chat/workflow chỉ chạy một lượt, trong khi nhiều việc ("sửa tới khi test qua") cần lặp tới khi một điều kiện đúng (`/goal`). Schema `propose_automation` còn `escalate`/`when=signal` và dòng `@@agent`, dù ADR-057 đã bỏ.
@@ -2173,3 +2173,10 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - `remember` có thêm `topic` và `summary` tuỳ chọn. Quy tắc bền, áp dụng cho cả project thì ghi vào cốt lõi; chi tiết của một mảng thì ghi kèm chủ đề và một dòng tóm tắt.
   - Rút gọn theo nhóm, vẫn bằng model nhanh và vẫn giữ bản lưu: cốt lõi khi vượt 2500 ký tự, mỗi chủ đề khi vượt 4000 ký tự. Rút gọn giữ lại summary của chủ đề. Bản lưu chứa toàn bộ sổ, nên khôi phục trả lại đủ các chủ đề.
   - API và dashboard: ghi nhớ chia nhóm "Cốt lõi" và từng chủ đề, sửa được chủ đề và tóm tắt ngay trên dòng, mỗi chủ đề có nút rút gọn riêng (`POST …/memories/compact?topic=`).
+
+## ADR-135: Burn chờ người review, dừng sau N việc; kiểm tra nhanh riêng của project
+- **Bối cảnh:** khả năng review của con người mới là trần thật của số agent chạy song song (orchestration tax), không phải số slot. Burn cứ làm tiếp dù hàng chục việc trên nhánh của lần chạy chưa ai đọc. Người dùng cũng muốn giới hạn một lần chạy theo số việc. Kiểm tra nhanh sau khi sửa (ADR-133) chỉ biết Go, JSON và YAML; project TS/Vue không có gì.
+- **Quyết định:**
+  - `burn_sessions.review_cap`: số commit trên nhánh của lần chạy chưa có trên nhánh hiện tại của project (`git rev-list --count HEAD..<run_branch>`, tức các việc đã gộp mà người dùng chưa merge). Đạt `review_cap` thì Burn không nhận việc mới và không quét; việc đang dở, tạm dừng hay chờ review vẫn chạy. Chat Burn báo một lần "Chờ bạn review", và báo "Đã merge: chạy tiếp" khi số này giảm. Vòng lặp xem lại mỗi phút hoặc khi được đánh thức. 0 là không giới hạn, tối đa 100.
+  - `burn_sessions.stop_after`: đủ N việc xong trong lần chạy thì Burn làm nốt việc dở rồi tắt (`Drain`). Mỗi lần chạy chỉ một lần: bấm Tiếp tục thì chạy tiếp quá N. 0 là không giới hạn, tối đa 100.
+  - Kiểm tra nhanh riêng của project: `perm.Policy.quick_checks`, mỗi dòng `.ts .vue: lệnh {file}` (`{file}` là file vừa sửa, đã quote; không có thì thêm vào cuối), tối đa 2000 ký tự, kiểm hợp lệ khi lưu. Chạy bằng `sh -c` trong thư mục làm việc, sau kiểm tra có sẵn (chỉ khi kiểm tra có sẵn không báo gì), trong cùng giới hạn 20 giây. Lệnh thoát khác 0 thì output về cho agent. Quy tắc truyền cho hook qua `--checks <base64>` trên dòng lệnh hook. Chỉ admin sửa được policy.

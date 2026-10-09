@@ -1014,7 +1014,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	req := RunRequest{
 		WorkDir: pl.dir, Prompt: text,
 		System: systemPrompt(project, agent, e.office != nil, acc, pl, LoadLanguage(ctx, e.store)), History: hist, Attachments: files,
-		Write: pl.write, DenyPaths: policy.DenyPaths, ExtraDirs: agentExtraDirs, UserMCP: acc.Can(perm.CapUserMCP), QuickCheck: policy.QuickCheck,
+		Write: pl.write, DenyPaths: policy.DenyPaths, ExtraDirs: agentExtraDirs, UserMCP: acc.Can(perm.CapUserMCP), QuickCheck: policy.QuickCheck, QuickChecks: policy.QuickChecks,
 		Effort: cmp.Or(conv.Effort, agent.Effort), // the chat's own choice, else its agent's
 	}
 	if agentFull {
@@ -1415,7 +1415,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 		return InvokeResult{}, err
 	}
 	req := RunRequest{WorkDir: pl.dir, Prompt: prompt, Effort: agent.Effort,
-		Attachments: files, Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP), QuickCheck: policy.QuickCheck}
+		Attachments: files, Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP), QuickCheck: policy.QuickCheck, QuickChecks: policy.QuickChecks}
 	req.System = systemPrompt(project, agent, e.office != nil, acc, pl, LoadLanguage(ctx, e.store))
 	if noTools(ctx) { // untrusted text (a channel's scope filter): a plain answer
 		req.NoTools, req.UserMCP, req.Write, req.Effort = true, false, false, "" // a YES/NO needs no deep thought

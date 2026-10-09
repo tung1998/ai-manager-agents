@@ -61,11 +61,17 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		Version string `json:"version"` // the policy as it was read (409 when changed since)
 	}
 	// a body without quick_check (an older client) keeps what is set
-	body.QuickCheck = perm.LoadPolicy(r.Context(), s.cfg.Store, r.PathValue("id")).QuickCheck
+	cur := perm.LoadPolicy(r.Context(), s.cfg.Store, r.PathValue("id"))
+	body.QuickCheck, body.QuickChecks = cur.QuickCheck, cur.QuickChecks
 	if !decode(w, r, &body) {
 		return
 	}
 	in := body.Policy
+	in.QuickChecks = strings.TrimSpace(in.QuickChecks)
+	if _, err := perm.ParseQuickChecks(in.QuickChecks); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	projectID := r.PathValue("id")
 	if _, err := s.cfg.Store.Repos().Get(r.Context(), projectID); err != nil {
 		s.writeDomainError(w, r, err)

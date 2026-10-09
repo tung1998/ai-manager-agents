@@ -133,6 +133,8 @@ export default {
   'policy.newPackLabel': 'Gói lệnh {n}',
   'policy.quickCheck': 'Kiểm tra nhanh sau khi sửa',
   'policy.quickCheckHelp': 'Agent sửa file xong, office kiểm tra ngay file đó (Go: gofmt, go vet; JSON, YAML: cú pháp) và báo lỗi để agent sửa luôn. Chỉ với Claude Code.',
+  'policy.quickChecks': 'Kiểm tra riêng của project',
+  'policy.quickChecksHelp': 'Mỗi dòng: đuôi file, dấu hai chấm, lệnh ({file} là file vừa sửa). Chạy sau kiểm tra có sẵn, tổng tối đa 20 giây',
   'policy.denyTitle': 'File cấm sửa',
   'policy.denySupports': 'Hỗ trợ {star}, {starstar} (mọi thư mục), và thư mục kết thúc bằng {slash}.',
   'policy.save': 'Lưu quyền',

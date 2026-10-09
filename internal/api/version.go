@@ -60,7 +60,8 @@ func policyVersion(p perm.Policy) string {
 		DenyPaths     []string
 		WorktreeLinks []string
 		QuickCheck    bool
-	}{p.Packs, p.DenyPaths, p.WorktreeLinks, p.QuickCheck})
+		QuickChecks   string
+	}{p.Packs, p.DenyPaths, p.WorktreeLinks, p.QuickCheck, p.QuickChecks})
 }
 
 func channelVersion(c storage.Channel) string {

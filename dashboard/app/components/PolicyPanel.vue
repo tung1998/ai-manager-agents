@@ -2,7 +2,7 @@
 // What a project offers its agents and what none of them may do: the
 // commands it has (each agent picks from them in its own
 // permissions), files no agent may change.
-interface Policy { packs: CommandPack[], deny_paths: string[], worktree_links: string[], quick_check?: boolean }
+interface Policy { packs: CommandPack[], deny_paths: string[], worktree_links: string[], quick_check?: boolean, quick_checks?: string }
 
 const props = defineProps<{ projectId: string }>()
 const toast = useToast()
@@ -12,7 +12,7 @@ const { t } = useLang()
 const { data, refresh, error: loadError } = await useLiveFetch<{ policy: Policy, packs: CommandPack[], safe: string[] }>(() => `/api/projects/${props.projectId}/policy`)
 const safe = computed(() => new Set(data.value?.safe ?? []))
 
-const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '', quickCheck: true })
+const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '', quickCheck: true, quickChecks: '' })
 const editedFrom = ref('') // the policy as the form was filled
 const saveError = useSaveError()
 const { stale, reset: resync } = useDraft(data, form, (d) => { // never over what is being edited
@@ -21,6 +21,7 @@ const { stale, reset: resync } = useDraft(data, form, (d) => { // never over wha
   form.deny = [...d.policy.deny_paths]
   form.links = (d.policy.worktree_links ?? []).join('\n')
   form.quickCheck = d.policy.quick_check ?? true
+  form.quickChecks = d.policy.quick_checks ?? ''
 })
 
 const newDeny = ref('')
@@ -36,7 +37,7 @@ async function save() {
   try {
     await $fetch(`/api/projects/${props.projectId}/policy`, {
       method: 'PUT',
-      body: { version: editedFrom.value, packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean), quick_check: form.quickCheck }
+      body: { version: editedFrom.value, packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean), quick_check: form.quickCheck, quick_checks: form.quickChecks }
     })
     toast.add({ title: t('policy.saved'), color: 'success' })
     await refresh()
@@ -154,6 +155,9 @@ function removePack(p: CommandPack) {
         </p>
         <USwitch v-model="form.quickCheck" size="sm" :disabled="!isAdmin" :aria-label="t('policy.quickCheck')" />
       </div>
+      <UFormField v-if="form.quickCheck" class="mt-3" :label="t('policy.quickChecks')" :help="t('policy.quickChecksHelp')">
+        <UTextarea v-model="form.quickChecks" :rows="2" :maxlength="2000" autoresize :disabled="!isAdmin" class="w-full font-mono text-xs" placeholder=".ts .vue: npx eslint {file}" />
+      </UFormField>
     </UCard>
 
     <div>

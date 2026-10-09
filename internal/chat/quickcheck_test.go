@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bitbucket.org/senprints/agent-office/internal/perm"
 )
 
 // checkSays runs the hook on file (relative to dir) and returns what it said.
@@ -18,7 +20,7 @@ func checkSays(t *testing.T, dir, file string) string {
 	t.Helper()
 	in, _ := json.Marshal(map[string]any{"cwd": dir, "tool_name": "Edit", "tool_input": map[string]any{"file_path": file}})
 	var out bytes.Buffer
-	QuickCheck(bytes.NewReader(in), &out)
+	QuickCheck(bytes.NewReader(in), &out, nil)
 	return out.String()
 }
 
@@ -138,5 +140,45 @@ func TestClaudeArgsQuickCheck(t *testing.T) {
 	CheckCommand = ""
 	if s := settings(RunRequest{Write: true, QuickCheck: true}); strings.Contains(s, "PostToolUse") {
 		t.Fatalf("no command, still a hook: %s", s)
+	}
+}
+
+// ADR-135: the project's own checks run by file ending, after the built-in
+// ones, carried to the hook on its command line.
+func TestQuickCheckOwn(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a b.ts"), []byte("let x = 1\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "ok.md"), []byte("x\n"), 0o644)
+	rules, err := perm.ParseQuickChecks("# own\n.ts .vue: grep -q 'const' {file} || { echo cần const; exit 1; }\n.md: true")
+	if err != nil || len(rules) != 2 {
+		t.Fatal(rules, err)
+	}
+	says := func(file string, rules []perm.QuickCheckRule) string {
+		in, _ := json.Marshal(map[string]any{"cwd": dir, "tool_name": "Edit", "tool_input": map[string]any{"file_path": file}})
+		var out bytes.Buffer
+		QuickCheck(bytes.NewReader(in), &out, rules)
+		return out.String()
+	}
+	if s := says("a b.ts", rules); !strings.Contains(s, "cần const") || !strings.Contains(s, `"decision":"block"`) {
+		t.Fatalf("own check not reported: %s", s)
+	}
+	if s := says("ok.md", rules); s != "" {
+		t.Fatalf("passing own check reported: %s", s)
+	}
+	if s := says("a b.ts", nil); s != "" {
+		t.Fatalf("no own check, still reported: %s", s)
+	}
+	// on the command line and back
+	set := checkSettings(".ts: eslint {file}")
+	cmd := set["hooks"].([]map[string]any)[0]["command"].(string)
+	enc := cmd[strings.Index(cmd, "--checks ")+len("--checks "):]
+	if got := DecodeChecks(enc); len(got) != 1 || got[0].Command != "eslint {file}" || got[0].Exts[0] != ".ts" {
+		t.Fatalf("decoded %+v from %q", got, cmd)
+	}
+	if _, err := perm.ParseQuickChecks("ts: x"); err == nil {
+		t.Fatal("an ending without a dot")
+	}
+	if _, err := perm.ParseQuickChecks(".ts"); err == nil {
+		t.Fatal("no command")
 	}
 }

@@ -162,14 +162,16 @@ type Service struct {
 	chat  *chat.Engine
 	trees *worktree.Manager
 
-	mu    sync.Mutex
-	root  context.Context
-	loops map[string]context.CancelFunc // by project
-	wakes map[string]chan struct{}      // by project: its loop looks again now
-	nones map[string]int                // scans in a row that found nothing, by run (maxNones)
-	found map[string]int                // pieces a scan recorded, by scan (ADR-130)
-	find  bool                          // a free slot gets a worker finding its own piece (off: only the queued ones)
-	runMu sync.Mutex                    // a run's worktree: made, and pieces merged into it, one at a time
+	mu     sync.Mutex
+	root   context.Context
+	loops  map[string]context.CancelFunc // by project
+	wakes  map[string]chan struct{}      // by project: its loop looks again now
+	nones  map[string]int                // scans in a row that found nothing, by run (maxNones)
+	found  map[string]int                // pieces a scan recorded, by scan (ADR-130)
+	held   map[string]bool               // waiting for the person's review, by run (ADR-135)
+	capped map[string]bool               // StopAfter reached once, by run (ADR-135)
+	find   bool                          // a free slot gets a worker finding its own piece (off: only the queued ones)
+	runMu  sync.Mutex                    // a run's worktree: made, and pieces merged into it, one at a time
 
 	notify Notify // a run's summary to a bot's chat (ADR-120); nil: none
 }
@@ -182,7 +184,7 @@ func (s *Service) SetNotify(n Notify) { s.notify = n }
 
 // New builds a Service; Start runs the Burns that were running.
 func New(st storage.Store, engine *chat.Engine, trees *worktree.Manager) *Service {
-	return &Service{store: st, chat: engine, trees: trees, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, nones: map[string]int{}, found: map[string]int{}, find: true}
+	return &Service{store: st, chat: engine, trees: trees, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, nones: map[string]int{}, found: map[string]int{}, held: map[string]bool{}, capped: map[string]bool{}, find: true}
 }
 
 // SetFindWork off: free slots take only the pieces queued, no worker finds
@@ -477,15 +479,22 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 			b, _ = s.store.Burn().SaveSession(ctx, b)
 		}
 		items, _ := s.store.Burn().Items(ctx, b.ID)
+		if !draining && s.stopAfterReached(b, items) { // its count of pieces is done (ADR-135)
+			s.say(ctx, b, fmt.Sprintf("Đã xong %d việc trong lần chạy này (giới hạn %d).", doneInRun(b, items), b.StopAfter))
+			_ = s.Drain(context.WithoutCancel(ctx), projectID)
+			continue
+		}
+		// waiting for the person's review (ADR-135): only what is in progress
+		held := !draining && s.heldForReview(ctx, b)
 		mu.Lock()
 		free := max(b.MaxParallel, 1) - len(busy)
 		for started := 0; free > 0; free-- {
-			it, ok := next(items, busy, draining)
+			it, ok := next(items, busy, draining || held)
 			// a scan (ADR-130): one at a time, while fewer than MaxFound
 			// pieces wait; it takes a slot when there is nothing to do, or
 			// while another slot is left for the work. Not draining, not
 			// out of quota (it would only fail), not once scans find nothing.
-			if (!ok || free > 1) && !draining && s.find && !scanning(items) && room(items) > 0 && !s.scansOver(b) && !s.waitLimit(ctx, b) {
+			if (!ok || free > 1) && !draining && !held && s.find && !scanning(items) && room(items) > 0 && !s.scansOver(b) && !s.waitLimit(ctx, b) {
 				scan, err := s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: huntTitle, Status: "queued", RunBranch: b.RunBranch})
 				if err != nil {
 					break

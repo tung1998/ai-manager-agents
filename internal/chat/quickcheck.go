@@ -3,6 +3,7 @@ package chat
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,11 +12,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"bitbucket.org/senprints/agent-office/internal/perm"
 )
 
 // CheckCommand runs `office hook check`: set by the office binary at start,
@@ -28,11 +32,26 @@ const (
 )
 
 // checkSettings: after an edit, `office hook check` looks at the edited file
-// at once (Claude Code's own limit is a safety net above checkTimeout).
-func checkSettings() map[string]any {
+// at once (Claude Code's own limit is a safety net above checkTimeout). The
+// project's own checks go along base64-encoded: safe on the command line.
+func checkSettings(checks string) map[string]any {
+	cmd := CheckCommand
+	if checks = strings.TrimSpace(checks); checks != "" {
+		cmd += " --checks " + base64.RawURLEncoding.EncodeToString([]byte(checks))
+	}
 	return map[string]any{"matcher": "Write|Edit|MultiEdit", "hooks": []map[string]any{
-		{"type": "command", "command": CheckCommand, "timeout": 30},
+		{"type": "command", "command": cmd, "timeout": 30},
 	}}
+}
+
+// DecodeChecks reads what checkSettings put on the command line.
+func DecodeChecks(v string) []perm.QuickCheckRule {
+	b, err := base64.RawURLEncoding.DecodeString(v)
+	if err != nil {
+		return nil
+	}
+	rules, _ := perm.ParseQuickChecks(string(b))
+	return rules
 }
 
 // QuickCheck is a PostToolUse hook (ADR-133): the file just written is
@@ -40,7 +59,7 @@ func checkSettings() map[string]any {
 // wrong goes back to the agent to fix now. A file outside the working
 // folder, a kind it does not know, a missing tool, a check that fails or
 // runs too long: nothing is said.
-func QuickCheck(in io.Reader, out io.Writer) {
+func QuickCheck(in io.Reader, out io.Writer, rules []perm.QuickCheckRule) {
 	var ev struct {
 		Cwd       string         `json:"cwd"`
 		ToolInput map[string]any `json:"tool_input"`
@@ -67,6 +86,9 @@ func QuickCheck(in io.Reader, out io.Writer) {
 	defer cancel()
 	msg := checkFile(ctx, target)
 	if msg == "" {
+		msg = checkOwn(ctx, root, target, rules)
+	}
+	if msg == "" {
 		return
 	}
 	reason := "agent-office kiểm tra nhanh " + filepath.ToSlash(rel) + " sau khi sửa, sửa ngay:\n" + msg
@@ -87,6 +109,32 @@ func checkFile(ctx context.Context, path string) string {
 		return checkYAML(path)
 	}
 	return "" // .ts/.vue/.js…: no checker fast enough per edit
+}
+
+// checkOwn runs the project's own checks for the file's ending (ADR-135),
+// in the working folder: what the first failing one says.
+func checkOwn(ctx context.Context, root, path string, rules []perm.QuickCheckRule) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	for _, r := range rules {
+		if !slices.Contains(r.Exts, ext) {
+			continue
+		}
+		q := "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
+		cmd := r.Command
+		if strings.Contains(cmd, "{file}") {
+			cmd = strings.ReplaceAll(cmd, "{file}", q)
+		} else {
+			cmd += " " + q
+		}
+		out, code, ok := runCheck(ctx, root, "sh", "-c", cmd)
+		if ok && code != 0 {
+			if out = strings.TrimSpace(out); out == "" {
+				out = fmt.Sprintf("thoát mã %d", code)
+			}
+			return "`" + r.Command + "`:\n" + out
+		}
+	}
+	return ""
 }
 
 // checkGo: gofmt (syntax and format), then go vet of the file's package,

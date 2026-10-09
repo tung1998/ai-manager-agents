@@ -7,7 +7,7 @@ interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_parallel: number,
   run_branch?: string, run_tree?: string, focus: string, order: 'roadmap' | 'bugs' | 'auto', template: BurnTemplate, hunt_prompt: string, ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
   waiting_until?: string, started_by?: string, started_at?: string,
-  review_profile_id: string, verify: string, code_map: string, lessons: string
+  review_profile_id: string, verify: string, code_map: string, lessons: string, review_cap: number, stop_after: number
 }
 interface Item {
   id: string, title: string, kind: '' | 'unfinished' | 'upgrade' | 'bug' | 'idea' | 'quest', detail: string, status: string, priority: number,
@@ -49,12 +49,12 @@ function left(iso: string) {
 const settingsOpen = ref(false)
 const form = reactive({
   agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_parallel: 1, order: 'roadmap' as Burn['order'], template: 'general' as BurnTemplate, hunt_prompt: '', focus: '',
-  review_profile_id: '', notify_channel_id: '', notify_chat_id: '', verify: ''
+  review_profile_id: '', notify_channel_id: '', notify_chat_id: '', verify: '', review_cap: 0, stop_after: 0
 })
 const { stale, reset: resync } = useDraft(burn, form, (b) => {
   Object.assign(form, {
     agent_id: b.agent_id, model_tier: b.model_tier, max_parallel: b.max_parallel, order: b.order ?? 'roadmap', template: b.template ?? 'general', hunt_prompt: b.hunt_prompt ?? '', focus: b.focus,
-    review_profile_id: b.review_profile_id ?? '', notify_channel_id: b.notify_channel_id ?? '', notify_chat_id: b.notify_chat_id ?? '', verify: b.verify ?? ''
+    review_profile_id: b.review_profile_id ?? '', notify_channel_id: b.notify_channel_id ?? '', notify_chat_id: b.notify_chat_id ?? '', verify: b.verify ?? '', review_cap: b.review_cap ?? 0, stop_after: b.stop_after ?? 0
   })
 })
 const saving = ref(false)
@@ -339,6 +339,14 @@ const totalCost = computed(() => shown.value.reduce((n, i) => n + i.cost_usd, 0)
               <UButton color="neutral" variant="outline" icon="i-lucide-sliders-horizontal" :label="t('burn.review.manage')" :to="profilesPage" />
             </div>
           </UFormField>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <UFormField :label="t('burn.reviewCap')" :help="t('burn.reviewCapHelp')">
+              <UInputNumber v-model="form.review_cap" :min="0" :max="100" class="w-full" />
+            </UFormField>
+            <UFormField :label="t('burn.stopAfter')" :help="t('burn.stopAfterHelp')">
+              <UInputNumber v-model="form.stop_after" :min="0" :max="100" class="w-full" />
+            </UFormField>
+          </div>
           <UFormField :label="t('burn.verify')" :help="t('burn.verifyHelp')">
             <UTextarea v-model="form.verify" :rows="3" :maxlength="2000" autoresize class="w-full font-mono text-xs" placeholder="go build ./...&#10;go test ./..." />
           </UFormField>

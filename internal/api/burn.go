@@ -43,6 +43,9 @@ type burnDTO struct {
 	Verify  string `json:"verify"`
 	CodeMap string `json:"code_map"`
 	Lessons string `json:"lessons"`
+	// ADR-135: waits past review_cap pieces not merged; finishes after stop_after done (0 = none)
+	ReviewCap int `json:"review_cap"`
+	StopAfter int `json:"stop_after"`
 }
 
 type burnItemDTO struct {
@@ -67,7 +70,7 @@ type burnItemDTO struct {
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
 	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.Focus, cmp.Or(b.Order, "roadmap"), cmp.Or(b.Template, "general"), b.HuntPrompt,
-		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, "", b.Verify, b.CodeMap, b.Lessons}
+		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, "", b.Verify, b.CodeMap, b.Lessons, b.ReviewCap, b.StopAfter}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
@@ -149,6 +152,8 @@ type burnInput struct {
 	Template        *string    `json:"template"`
 	HuntPrompt      *string    `json:"hunt_prompt"`
 	Verify          *string    `json:"verify"`
+	ReviewCap       *int       `json:"review_cap"`
+	StopAfter       *int       `json:"stop_after"`
 	ReviewProfileID *string    `json:"review_profile_id"` // "" = no review
 	NotifyChannelID *string    `json:"notify_channel_id"` // "" = only its own chat
 	NotifyChatID    *string    `json:"notify_chat_id"`
@@ -206,6 +211,12 @@ func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession
 		if err := burn.ValidVerify(b.Verify); err != nil {
 			return err
 		}
+	}
+	if in.ReviewCap != nil {
+		b.ReviewCap = min(max(*in.ReviewCap, 0), burn.MaxCap)
+	}
+	if in.StopAfter != nil {
+		b.StopAfter = min(max(*in.StopAfter, 0), burn.MaxCap)
 	}
 	if in.NoEnd {
 		b.EndsAt = nil
