@@ -51,18 +51,19 @@ func parseTimes(dst []*time.Time, src ...string) error {
 type providerRepo struct{ db dbtx }
 
 const providerCols = `id, name, kind, base_url, api_key_enc, api_key_env, api_key_hint, tier_models, models,
-	is_default, enabled, status, status_detail, checked_at, created_at, updated_at, preset`
+	is_default, enabled, status, status_detail, checked_at, created_at, updated_at, preset, limit_caps`
 
 func scanProvider(row scanner) (storage.Provider, error) {
 	var (
 		p                   storage.Provider
 		kind, tiers, models string
+		caps                string
 		isDefault, enabled  int
 		checked             sql.NullString
 		created, updated    string
 	)
 	if err := row.Scan(&p.ID, &p.Name, &kind, &p.BaseURL, &p.APIKeyEnc, &p.APIKeyEnv, &p.APIKeyHint, &tiers, &models,
-		&isDefault, &enabled, &p.Status, &p.StatusDetail, &checked, &created, &updated, &p.Preset); err != nil {
+		&isDefault, &enabled, &p.Status, &p.StatusDetail, &checked, &created, &updated, &p.Preset, &caps); err != nil {
 		return p, notFound(err)
 	}
 	p.Kind = storage.ProviderKind(kind)
@@ -71,6 +72,9 @@ func scanProvider(row scanner) (storage.Provider, error) {
 		return p, err
 	}
 	if err := json.Unmarshal([]byte(models), &p.Models); err != nil {
+		return p, err
+	}
+	if err := json.Unmarshal([]byte(caps), &p.LimitCaps); err != nil {
 		return p, err
 	}
 	if checked.Valid {
@@ -98,9 +102,9 @@ func (r providerRepo) Create(ctx context.Context, p storage.Provider) (storage.P
 		p.Status = "unknown"
 	}
 	p.CreatedAt, p.UpdatedAt = now, now
-	_, err := r.db.ExecContext(ctx, `INSERT INTO providers (`+providerCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO providers (`+providerCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, p.Name, string(p.Kind), p.BaseURL, p.APIKeyEnc, p.APIKeyEnv, p.APIKeyHint, toJSON(p.TierModels), toJSON(p.Models),
-		boolInt(p.IsDefault), boolInt(p.Enabled), p.Status, p.StatusDetail, nil, fmtTime(now), fmtTime(now), p.Preset)
+		boolInt(p.IsDefault), boolInt(p.Enabled), p.Status, p.StatusDetail, nil, fmtTime(now), fmtTime(now), p.Preset, capsJSON(p.LimitCaps))
 	if isUnique(err) {
 		return storage.Provider{}, storage.ErrConflict
 	}
@@ -112,13 +116,21 @@ func (r providerRepo) Update(ctx context.Context, p storage.Provider) error {
 		p.TierModels = map[string]string{}
 	}
 	err := execOne(ctx, r.db, `UPDATE providers SET name=?, kind=?, base_url=?, api_key_enc=?, api_key_env=?, api_key_hint=?,
-		tier_models=?, enabled=?, preset=?, updated_at=? WHERE id=?`,
+		tier_models=?, enabled=?, preset=?, limit_caps=?, updated_at=? WHERE id=?`,
 		p.Name, string(p.Kind), p.BaseURL, p.APIKeyEnc, p.APIKeyEnv, p.APIKeyHint, toJSON(p.TierModels), boolInt(p.Enabled),
-		p.Preset, fmtTime(time.Now()), p.ID)
+		p.Preset, capsJSON(p.LimitCaps), fmtTime(time.Now()), p.ID)
 	if isUnique(err) {
 		return storage.ErrConflict
 	}
 	return err
+}
+
+// capsJSON: a provider's stop thresholds as stored ({} when none).
+func capsJSON(c map[string]int) string {
+	if c == nil {
+		c = map[string]int{}
+	}
+	return toJSON(c)
 }
 
 func (r providerRepo) Get(ctx context.Context, id string) (storage.Provider, error) {

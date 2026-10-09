@@ -57,6 +57,7 @@ type Provider struct {
 	APIKeyEnv    string
 	APIKeyHint   string
 	TierModels   map[string]string
+	LimitCaps    map[string]int // usage window (five_hour, seven_day) → stop at this percent; 0/missing = off (ADR-136)
 	Models       []string
 	IsDefault    bool
 	Enabled      bool

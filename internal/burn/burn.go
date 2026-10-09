@@ -979,8 +979,16 @@ func (s *Service) WeeklyReset(ctx context.Context, agentID string) (time.Time, b
 	return w.ResetsAt, true
 }
 
-// limitHit: the AI connection said no more for now — until when.
+// limitHit: the AI connection said no more for now, or every connection
+// the agent may run on passed its stop threshold (ADR-136) — until when.
 func (s *Service) limitHit(ctx context.Context, agentID string) (time.Time, bool) {
+	if s.chat != nil {
+		if ag, err := s.store.Agents().Get(ctx, agentID); err == nil {
+			if until, hit := s.chat.CapStop(ctx, ag); hit {
+				return until, true
+			}
+		}
+	}
 	l, ok := s.limits(ctx, agentID)
 	if !ok || l.Status != "rejected" {
 		return time.Time{}, false

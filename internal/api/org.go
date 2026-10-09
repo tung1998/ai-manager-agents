@@ -208,7 +208,7 @@ func (s *server) writeDomainError(w http.ResponseWriter, r *http.Request, err er
 		writeError(w, http.StatusNotFound, "Không tìm thấy")
 	case errors.Is(err, storage.ErrConflict), errors.Is(err, provider.ErrNameTaken), errors.Is(err, team.ErrHasAgents):
 		writeError(w, http.StatusConflict, conflictMsg(err))
-	case errors.Is(err, provider.ErrInvalidKind), errors.Is(err, provider.ErrNeedsKey), errors.Is(err, provider.ErrBadTier),
+	case errors.Is(err, provider.ErrInvalidKind), errors.Is(err, provider.ErrNeedsKey), errors.Is(err, provider.ErrBadTier), errors.Is(err, provider.ErrBadCap),
 		errors.Is(err, provider.ErrKeyRequiredForNewURL),
 		errors.Is(err, team.ErrNoPack), errors.Is(err, errBadInput):
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -248,6 +248,7 @@ type providerDTO struct {
 	APIKeyHint   string            `json:"api_key_hint"`
 	APIKeyEnv    string            `json:"api_key_env"`
 	TierModels   map[string]string `json:"tier_models"`
+	LimitCaps    map[string]int    `json:"limit_caps"`
 	Models       []string          `json:"models"`
 	IsDefault    bool              `json:"is_default"`
 	Enabled      bool              `json:"enabled"`
@@ -258,8 +259,15 @@ type providerDTO struct {
 
 func toProviderDTO(p storage.Provider) providerDTO {
 	return providerDTO{ID: p.ID, Name: p.Name, Kind: string(p.Kind), Preset: p.Preset, BaseURL: p.BaseURL, HasAPIKey: p.APIKeyEnc != "",
-		APIKeyHint: p.APIKeyHint, APIKeyEnv: p.APIKeyEnv, TierModels: p.TierModels, Models: p.Models, IsDefault: p.IsDefault,
+		APIKeyHint: p.APIKeyHint, APIKeyEnv: p.APIKeyEnv, TierModels: p.TierModels, LimitCaps: nonNilCaps(p.LimitCaps), Models: p.Models, IsDefault: p.IsDefault,
 		Enabled: p.Enabled, Status: p.Status, StatusDetail: p.StatusDetail, CheckedAt: p.CheckedAt}
+}
+
+func nonNilCaps(c map[string]int) map[string]int {
+	if c == nil {
+		return map[string]int{}
+	}
+	return c
 }
 
 type kindInfo struct {
@@ -356,12 +364,13 @@ type providerInput struct {
 	APIKey     *string           `json:"api_key"`
 	APIKeyEnv  string            `json:"api_key_env"`
 	TierModels map[string]string `json:"tier_models"`
+	LimitCaps  map[string]int    `json:"limit_caps"`
 	Enabled    *bool             `json:"enabled"`
 }
 
 func (in providerInput) toInput() provider.Input {
 	return provider.Input{Name: in.Name, Kind: storage.ProviderKind(in.Kind), Preset: in.Preset, BaseURL: in.BaseURL, APIKey: in.APIKey,
-		APIKeyEnv: in.APIKeyEnv, TierModels: in.TierModels, Enabled: in.Enabled}
+		APIKeyEnv: in.APIKeyEnv, TierModels: in.TierModels, LimitCaps: in.LimitCaps, Enabled: in.Enabled}
 }
 
 func (s *server) listProviders(w http.ResponseWriter, r *http.Request) {

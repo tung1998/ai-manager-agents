@@ -10,6 +10,7 @@ export interface Provider {
   api_key_hint: string
   api_key_env: string
   tier_models: Partial<Record<ModelTier, string>>
+  limit_caps?: Partial<Record<'five_hour' | 'seven_day', number>>
   models: string[]
   is_default: boolean
   enabled: boolean

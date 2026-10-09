@@ -29,7 +29,8 @@ const formOpen = ref(false)
 const editing = ref<Provider | null>(null)
 const form = reactive({
   name: '', kind: 'anthropic', preset: '', base_url: '', api_key: '', api_key_env: '', keyMode: 'paste' as 'paste' | 'env',
-  tier_models: { strong: '', balanced: '', fast: '' } as Record<ModelTier, string>
+  tier_models: { strong: '', balanced: '', fast: '' } as Record<ModelTier, string>,
+  limit_caps: { five_hour: 0, seven_day: 0 } as Record<'five_hour' | 'seven_day', number>
 })
 const formError = ref('')
 const saving = ref(false)
@@ -59,6 +60,7 @@ function applyKindDefaults(k: string) {
   form.api_key_env = info?.detected?.env_key ?? ''
   form.keyMode = info?.detected?.env_key ? 'env' : 'paste'
   form.tier_models = { strong: '', balanced: '', fast: '', ...info?.tier_models }
+  form.limit_caps = { five_hour: 0, seven_day: 0 }
 }
 
 // choose a connection type: a kind, or a third-party preset (an OpenAI-compatible API)
@@ -92,6 +94,7 @@ function openEdit(p: Provider) {
     keyMode: p.api_key_env ? 'env' : 'paste'
   })
   form.tier_models = { strong: '', balanced: '', fast: '', ...p.tier_models }
+  form.limit_caps = { five_hour: 0, seven_day: 0, ...p.limit_caps }
   formError.value = ''
   advancedOpen.value = false
   formOpen.value = true
@@ -124,7 +127,9 @@ async function save() {
     preset: form.kind === 'openai_compatible' ? form.preset : '',
     base_url: form.base_url,
     api_key_env: form.keyMode === 'env' ? form.api_key_env : '',
-    tier_models: Object.fromEntries(Object.entries(form.tier_models).filter(([, v]) => v))
+    tier_models: Object.fromEntries(Object.entries(form.tier_models).filter(([, v]) => v)),
+    // stop thresholds: only Claude Code reports its usage windows
+    ...(form.kind === 'claude_cli' ? { limit_caps: Object.fromEntries(Object.entries(form.limit_caps).map(([k, v]) => [k, Math.min(100, Math.max(0, Math.round(Number(v) || 0)))])) } : {})
   }
   // Only send the key when typed: omitting it keeps the stored one.
   if (form.keyMode === 'paste' && form.api_key) body.api_key = form.api_key
@@ -377,6 +382,9 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
           </div>
           <!-- subscription usage windows (Claude Code), as of its latest run -->
           <UsageLimits :provider-id="p.id" class="mt-3 border-t border-(--ui-border) pt-3" />
+          <p v-if="p.limit_caps?.five_hour || p.limit_caps?.seven_day" class="mt-1 text-xs text-(--ui-text-muted)">
+            {{ t('prov.capSummary', { caps: (['five_hour', 'seven_day'] as const).filter(w => p.limit_caps?.[w]).map(w => `${t(`limits.window.${w}`)} ${p.limit_caps?.[w]}%`).join(' · ') }) }}
+          </p>
 
           <p class="mt-2 flex flex-wrap gap-x-3 text-xs text-(--ui-text-muted)">
             <span>{{ ago(statOf(p.id)?.last_used_at ?? null) }}</span>
@@ -478,6 +486,17 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
               </template>
             </UFormField>
           </template>
+
+          <!-- stop thresholds on the usage windows (ADR-136): only Claude Code reports them -->
+          <UFormField v-if="form.kind === 'claude_cli'" :label="t('prov.capLabel')" :help="t('prov.capHelp')">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <UFormField v-for="w in (['five_hour', 'seven_day'] as const)" :key="w" :label="t(`limits.window.${w}`)" size="sm">
+                <UInput v-model.number="form.limit_caps[w]" type="number" :min="0" :max="100" placeholder="0" class="w-full" size="sm">
+                  <template #trailing><span class="text-xs text-(--ui-text-muted)">%</span></template>
+                </UInput>
+              </UFormField>
+            </div>
+          </UFormField>
 
           <!-- advanced -->
           <UCollapsible v-model:open="advancedOpen">

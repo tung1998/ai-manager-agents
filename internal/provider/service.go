@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ var (
 	ErrNameTaken   = errors.New("tên kết nối đã tồn tại")
 	ErrNeedsKey    = errors.New("kết nối API cần API key hoặc tên biến môi trường chứa key")
 	ErrBadTier     = errors.New("hạng model chỉ gồm strong, balanced, fast")
+	ErrBadCap      = errors.New("ngưỡng dừng chỉ cho giới hạn 5 giờ, tuần; từ 1 tới 100%")
 	// ErrKeyRequiredForNewURL: a stored key never follows a changed endpoint.
 	ErrKeyRequiredForNewURL = errors.New("đổi địa chỉ API thì phải nhập lại API key (key đã lưu không được gửi tới địa chỉ mới)")
 )
@@ -79,8 +81,12 @@ type Input struct {
 	APIKey     *string
 	APIKeyEnv  string
 	TierModels map[string]string
+	LimitCaps  map[string]int // nil keeps the current ones (ADR-136)
 	Enabled    *bool
 }
+
+// CapWindows are the usage windows a stop threshold can be set on.
+var CapWindows = []string{"five_hour", "seven_day"}
 
 func (s *Service) apply(p *storage.Provider, in Input) error {
 	// A stored key must not follow a new endpoint: whoever can edit the URL could
@@ -126,6 +132,18 @@ func (s *Service) apply(p *storage.Provider, in Input) error {
 	}
 	if len(p.TierModels) == 0 {
 		p.TierModels = llm.DefaultTierModels(p.Kind)
+	}
+	if in.LimitCaps != nil {
+		caps := map[string]int{}
+		for k, v := range in.LimitCaps {
+			if !slices.Contains(CapWindows, k) || v < 0 || v > 100 {
+				return ErrBadCap
+			}
+			if v > 0 {
+				caps[k] = v
+			}
+		}
+		p.LimitCaps = caps
 	}
 	if in.Enabled != nil {
 		p.Enabled = *in.Enabled

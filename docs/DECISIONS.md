@@ -2180,3 +2180,11 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - `burn_sessions.review_cap`: số commit trên nhánh của lần chạy chưa có trên nhánh hiện tại của project (`git rev-list --count HEAD..<run_branch>`, tức các việc đã gộp mà người dùng chưa merge). Đạt `review_cap` thì Burn không nhận việc mới và không quét; việc đang dở, tạm dừng hay chờ review vẫn chạy. Chat Burn báo một lần "Chờ bạn review", và báo "Đã merge: chạy tiếp" khi số này giảm. Vòng lặp xem lại mỗi phút hoặc khi được đánh thức. 0 là không giới hạn, tối đa 100.
   - `burn_sessions.stop_after`: đủ N việc xong trong lần chạy thì Burn làm nốt việc dở rồi tắt (`Drain`). Mỗi lần chạy chỉ một lần: bấm Tiếp tục thì chạy tiếp quá N. 0 là không giới hạn, tối đa 100.
   - Kiểm tra nhanh riêng của project: `perm.Policy.quick_checks`, mỗi dòng `.ts .vue: lệnh {file}` (`{file}` là file vừa sửa, đã quote; không có thì thêm vào cuối), tối đa 2000 ký tự, kiểm hợp lệ khi lưu. Chạy bằng `sh -c` trong thư mục làm việc, sau kiểm tra có sẵn (chỉ khi kiểm tra có sẵn không báo gì), trong cùng giới hạn 20 giây. Lệnh thoát khác 0 thì output về cho agent. Quy tắc truyền cho hook qua `--checks <base64>` trên dòng lệnh hook. Chỉ admin sửa được policy.
+
+## ADR-136: Ngưỡng dừng theo giới hạn usage của kết nối AI
+- **Bối cảnh:** chạy Burn hay automation qua đêm có thể dùng sạch giới hạn 5 giờ hoặc giới hạn tuần của gói Claude, không còn gì cho việc tay trong tuần. Trước đây office chỉ né một kết nối khi nó đã báo hết (`rejected` hoặc dùng 100%).
+- **Quyết định:**
+  - `providers.limit_caps` (json `{"five_hour": 95, "seven_day": 90}`, 1–100; thiếu hoặc 0 là tắt). Chỉ hai cửa sổ này; đặt trong form Kết nối AI, chỉ hiện cho Claude Code (kết nối duy nhất báo cửa sổ usage).
+  - Khi báo cáo usage mới nhất cho thấy một cửa sổ đạt ngưỡng và chưa reset, kết nối bị bỏ khỏi chuỗi chạy của agent (không thử cuối như kết nối đã hết quota). Còn kết nối dự phòng thì chạy trên đó; không còn kết nối nào thì lượt không bắt đầu, lỗi `CapError` có chữ "quota" nên job là `out_of_tokens` (chat được tiếp tục sau).
+  - Burn coi như hết quota: `limitHit` chờ tới lúc cửa sổ đầu tiên của các kết nối bị chặn reset (`Engine.CapStop`), quá giờ tắt thì dừng.
+  - Lượt đang chạy không bị cắt giữa chừng; ngưỡng chỉ chặn lượt mới, nên đặt dưới 100% một khoảng đủ cho một lượt.
