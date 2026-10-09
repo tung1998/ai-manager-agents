@@ -24,7 +24,8 @@ type Spec struct {
 	AgentID      string                     `json:"agent_id,omitempty"`
 	Prompt       string                     `json:"prompt,omitempty"`
 	Script       storage.AutomationScript   `json:"script"`
-	Escalate     storage.AutomationEscalate `json:"escalate"`
+	Escalate     storage.AutomationEscalate `json:"escalate"`          // gone (ADR-057): read, never kept
+	Goal         *storage.AutomationGoal    `json:"goal,omitempty"`    // chat/workflow: run until it is reached (ADR-132)
 	Tags         []string                   `json:"tags,omitempty"`    // on each run's chat (none = the ones it has)
 	EndsAt       *time.Time                 `json:"ends_at,omitempty"` // schedule: it stops then (none = the one it has)
 }
@@ -56,6 +57,11 @@ func (s *Spec) Check() error {
 		return errors.New("tối đa 10 tag")
 	}
 	s.Tags = tags
+	goal, err := CleanGoal(s.Goal, s.Action)
+	if err != nil {
+		return err
+	}
+	s.Goal = goal
 	if s.EndsAt != nil && !s.EndsAt.After(time.Now()) {
 		return errors.New("giờ dừng đã qua")
 	}
@@ -95,6 +101,10 @@ func (s Spec) Apply(a *storage.Automation, now time.Time) {
 	cfg.Workflow = ""
 	if s.Action == "workflow" {
 		cfg.Workflow = strings.TrimSpace(s.Workflow)
+	}
+	cfg.Goal = nil
+	if s.Action == "chat" || s.Action == "workflow" {
+		cfg.Goal = s.Goal
 	}
 	if len(s.Tags) > 0 {
 		cfg.Tags = s.Tags

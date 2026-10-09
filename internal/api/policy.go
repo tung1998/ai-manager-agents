@@ -60,6 +60,8 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		perm.Policy
 		Version string `json:"version"` // the policy as it was read (409 when changed since)
 	}
+	// a body without quick_check (an older client) keeps what is set
+	body.QuickCheck = perm.LoadPolicy(r.Context(), s.cfg.Store, r.PathValue("id")).QuickCheck
 	if !decode(w, r, &body) {
 		return
 	}

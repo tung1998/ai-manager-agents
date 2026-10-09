@@ -16,6 +16,18 @@ The person's focus (a direction, not a limit):
 The code map earlier scans wrote (trust it to find your way; fix what is wrong):
 [[.Map]]
 [[- end]]
+[[- if .Lessons]]
+
+Lessons this Burn learned from pieces turned down or failed (do not record pieces these rule out):
+[[.Lessons]]
+[[- end]]
+[[- if .Setbacks]]
+
+Pieces lately turned down or failed, and why:
+[[- range .Setbacks]]
+- [[.]]
+[[- end]]
+[[- end]]
 [[- if .Taken]]
 
 Already recorded (waiting, being done, done or dropped): do NOT record any of these again.
@@ -55,7 +67,7 @@ Steps, in this order:
    - Evidence: what goes wrong or what is missing, and how you know
    - Fix: the way you would do it
    - Verify: how to show it is done (a test to add, a command to run)
-5. End the scan: burn_scan_done(item=[[printf "%q" .ID]], scanned=the areas you looked at, code_map=the whole map, updated). The map is for the next scans and the workers: the parts of the codebase, where each lives, the key files and conventions, how to build/test each; short, at most about 6000 characters. Nothing worth doing after looking thoroughly: say why in reason. Never invent work to have something.
+5. End the scan: burn_scan_done(item=[[printf "%q" .ID]], scanned=the areas you looked at, code_map=the whole map, updated[[if .Setbacks]], lessons=the whole lessons list, updated[[end]]).[[if .Setbacks]] Lessons: what the pieces turned down or failed teach, as short rules a scanner or worker can follow ("X is intended: do not report it", "changing Y needs Z run first"), merged with the lessons above, at most about 3000 characters; the same mistake never twice.[[end]] The map is for the next scans and the workers: the parts of the codebase, where each lives, the key files and conventions, how to build/test each; short, at most about 6000 characters. Nothing worth doing after looking thoroughly: say why in reason. Never invent work to have something.
 
 [[- define "roadmap"]]
    - Roadmap: the project's planning docs (PLAN, ROADMAP, TODO, specs, ADRs) for features marked not done or half done; skip what is not approved yet (being designed, ideas, drafts). A large feature: its next part only (one that runs on its own).

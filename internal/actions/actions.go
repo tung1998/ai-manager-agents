@@ -95,7 +95,7 @@ func isAutomation(kind string) bool {
 
 // Memory keeps agents' notes (ADR-068).
 type Memory interface {
-	Add(ctx context.Context, projectID, agentID, text, source, by string) (storage.Memory, error)
+	Keep(ctx context.Context, m storage.Memory) (storage.Memory, error)
 	Auto(ctx context.Context, projectID string) bool
 }
 
@@ -592,7 +592,8 @@ func (s *Service) run(ctx context.Context, a storage.Action) error {
 		return nil // approved: the workflow goes on (its coordinator is called back, ADR-084)
 	}
 	if a.Kind == "remember" {
-		_, err := s.memory.Add(ctx, a.ProjectID, a.TargetID, a.Target, "agent", a.ProposedBy)
+		_, err := s.memory.Keep(ctx, storage.Memory{ProjectID: a.ProjectID, AgentID: a.TargetID, Text: a.Target, Source: "agent",
+			CreatedBy: a.ProposedBy, Topic: a.Args.Topic, Summary: a.Args.Summary})
 		return err
 	}
 	if a.Kind == "send_message" {

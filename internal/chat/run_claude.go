@@ -121,7 +121,7 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 		if req.Office != nil {
 			gw = req.Office.Gateway
 		}
-		a = append(a, "--settings", guardSettings(req.UserMCP, gw))
+		a = append(a, "--settings", guardSettings(req.UserMCP, gw, req.QuickCheck))
 	} else if req.UserMCP {
 		// dontAsk denies tools it was not told about, and the user's MCP
 		// servers are not known up front: a hook allows every mcp__ tool

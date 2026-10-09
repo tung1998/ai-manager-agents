@@ -54,6 +54,108 @@ func (s *Service) AddQuest(ctx context.Context, b storage.BurnSession, title, de
 	return it, err
 }
 
+// SessionOr is the project's Burn, or the defaults for a first one (not
+// saved); agent gives the project's default agent (nil: none picked).
+func SessionOr(ctx context.Context, st storage.Store, projectID string, agent func(context.Context, string) (storage.Agent, error)) (storage.BurnSession, error) {
+	b, err := st.Burn().Session(ctx, projectID)
+	if errors.Is(err, storage.ErrNotFound) {
+		b = storage.BurnSession{ProjectID: projectID, ModelTier: storage.TierBalanced, MaxParallel: 1, Order: "roadmap", State: "stopped"}
+		if agent != nil {
+			if a, err := agent(ctx, projectID); err == nil && !a.Disabled {
+				b.AgentID = a.ID
+			}
+		}
+		return b, nil
+	}
+	return b, err
+}
+
+// Session is the project's Burn, or the defaults for a first one (not saved).
+func (s *Service) Session(ctx context.Context, projectID string) (storage.BurnSession, error) {
+	var agent func(context.Context, string) (storage.Agent, error)
+	if s.chat != nil {
+		agent = s.chat.DefaultAgent
+	}
+	return SessionOr(ctx, s.store, projectID, agent)
+}
+
+// DefaultEnd is when a Burn started with no stop time stops: the agent's
+// weekly limit reset, else 8 hours from now.
+func (s *Service) DefaultEnd(ctx context.Context, agentID string) time.Time {
+	t, ok := s.WeeklyReset(ctx, agentID)
+	if !ok {
+		t = time.Now().Add(8 * time.Hour)
+	}
+	return t.UTC()
+}
+
+// Quest is a piece given in a batch (an automation's @@quest lines, ADR-132).
+type Quest struct{ Title, Detail string }
+
+// openStatus: a piece not finished yet (a quest with its title is not given twice).
+var openStatus = map[string]bool{"found": true, "queued": true, "doing": true, "paused": true, "review": true}
+
+// questKey is a title as dedupe compares it: case and spaces aside.
+func questKey(title string) string { return strings.ToLower(strings.Join(strings.Fields(title), " ")) }
+
+// AddQuests gives the project's Burn the quests an automation found (ADR-132),
+// leaving out those an open piece already has (same title, case and spaces
+// aside). With start, a stopped Burn starts on its saved settings (no stop
+// time: DefaultEnd) once any was added; who names the starter. A quest that
+// cannot be added is skipped; err says why the last one failed, or why the
+// Burn did not start.
+func (s *Service) AddQuests(ctx context.Context, projectID string, qs []Quest, start bool, who string) (added int, started bool, err error) {
+	if len(qs) == 0 {
+		return 0, false, nil
+	}
+	b, err := s.Session(ctx, projectID)
+	if err != nil {
+		return 0, false, err
+	}
+	if b.ID == "" { // no Burn saved yet: the defaults, to hold them
+		if b, err = s.store.Burn().SaveSession(ctx, b); err != nil {
+			return 0, false, err
+		}
+	}
+	open := map[string]bool{}
+	items, err := s.store.Burn().Items(ctx, b.ID)
+	if err != nil {
+		return 0, false, err
+	}
+	for _, it := range items {
+		if openStatus[it.Status] {
+			open[questKey(it.Title)] = true
+		}
+	}
+	var addErr error
+	for _, q := range qs {
+		k := questKey(q.Title)
+		if k == "" || open[k] {
+			continue
+		}
+		if _, e := s.AddQuest(ctx, b, q.Title, q.Detail); e != nil {
+			addErr = e
+			continue
+		}
+		open[k] = true
+		added++
+	}
+	if added == 0 || !start || b.Active() {
+		return added, false, addErr
+	}
+	if b.EndsAt == nil || !b.EndsAt.After(time.Now()) { // as a start on the dashboard: the suggested stop
+		end := s.DefaultEnd(ctx, b.AgentID)
+		b.EndsAt = &end
+		if b, err = s.store.Burn().SaveSession(ctx, b); err != nil {
+			return added, false, err
+		}
+	}
+	if _, err := s.Begin(ctx, projectID, who); err != nil {
+		return added, false, err
+	}
+	return added, true, addErr
+}
+
 // Service runs the projects' Burns.
 type Service struct {
 	store storage.Store
@@ -680,6 +782,7 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 		_ = s.trees.Remove(context.WithoutCancel(ctx), p.Path, b.ProjectID, tree)
 		s.endScan(ctx, b, cur.ID)
 		return false
+	case (cur.Status == "done" || cur.Status == "review") && !s.checked(ctx, b, &cur): // its checks failed: back to its worker (ADR-131)
 	case cur.Status == "review": // the reviewer next, in the loop
 	case cur.Status == "done" && held: // review turned on meanwhile
 		cur.Status = "review"
@@ -758,10 +861,10 @@ func addScanned(kept, area string, at time.Time) string {
 // workPrompt is a piece's work turn (burn/work.md).
 func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool) string {
 	return prompts.Render("burn/work", struct {
-		ID, Kind, Title, Detail, Focus, ReviewNote, Branch, Map string
-		FocusChecks                                             []string
-		Again, Reviewed                                         bool
-	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, b.CodeMap, checks(b), again, reviewed})
+		ID, Kind, Title, Detail, Focus, ReviewNote, Branch, Map, Lessons string
+		FocusChecks, Verify                                              []string
+		Again, Reviewed                                                  bool
+	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, b.CodeMap, b.Lessons, checks(b), verifyCommands(b, it.Worktree), again, reviewed})
 }
 
 func oneLine(s string, n int) string {

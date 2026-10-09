@@ -2,7 +2,7 @@
 // What a project offers its agents and what none of them may do: the
 // commands it has (each agent picks from them in its own
 // permissions), files no agent may change.
-interface Policy { packs: CommandPack[], deny_paths: string[], worktree_links: string[] }
+interface Policy { packs: CommandPack[], deny_paths: string[], worktree_links: string[], quick_check?: boolean }
 
 const props = defineProps<{ projectId: string }>()
 const toast = useToast()
@@ -12,7 +12,7 @@ const { t } = useLang()
 const { data, refresh, error: loadError } = await useLiveFetch<{ policy: Policy, packs: CommandPack[], safe: string[] }>(() => `/api/projects/${props.projectId}/policy`)
 const safe = computed(() => new Set(data.value?.safe ?? []))
 
-const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '' })
+const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '', quickCheck: true })
 const editedFrom = ref('') // the policy as the form was filled
 const saveError = useSaveError()
 const { stale, reset: resync } = useDraft(data, form, (d) => { // never over what is being edited
@@ -20,6 +20,7 @@ const { stale, reset: resync } = useDraft(data, form, (d) => { // never over wha
   form.packs = JSON.parse(JSON.stringify(d.policy.packs))
   form.deny = [...d.policy.deny_paths]
   form.links = (d.policy.worktree_links ?? []).join('\n')
+  form.quickCheck = d.policy.quick_check ?? true
 })
 
 const newDeny = ref('')
@@ -35,7 +36,7 @@ async function save() {
   try {
     await $fetch(`/api/projects/${props.projectId}/policy`, {
       method: 'PUT',
-      body: { version: editedFrom.value, packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean) }
+      body: { version: editedFrom.value, packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean), quick_check: form.quickCheck }
     })
     toast.add({ title: t('policy.saved'), color: 'success' })
     await refresh()
@@ -141,6 +142,17 @@ function removePack(p: CommandPack) {
           <UInput v-model="newDeny" size="xs" placeholder="migrations/" class="w-36 font-mono" />
           <UButton type="submit" size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" />
         </form>
+      </div>
+    </UCard>
+
+    <!-- each edited file checked at once (ADR-133) -->
+    <UCard :ui="{ body: 'sm:p-4' }">
+      <div class="flex items-center justify-between gap-3">
+        <p class="flex items-center gap-1.5 text-sm font-medium">
+          {{ t('policy.quickCheck') }}
+          <UTooltip :text="t('policy.quickCheckHelp')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-dimmed)" /></UTooltip>
+        </p>
+        <USwitch v-model="form.quickCheck" size="sm" :disabled="!isAdmin" :aria-label="t('policy.quickCheck')" />
       </div>
     </UCard>
 

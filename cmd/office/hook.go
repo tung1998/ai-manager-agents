@@ -25,15 +25,24 @@ func hookCmd() *cobra.Command {
 	}
 	guard.Flags().BoolVar(&userMCP, "user-mcp", false, "agent được dùng MCP của người dùng")
 	guard.Flags().StringArrayVar(&gateway, "mcp", nil, "MCP của office mà lượt chạy được dùng (qua cổng)")
-	cmd.AddCommand(guard)
+	check := &cobra.Command{
+		Use: "check", Short: "PostToolUse: kiểm tra nhanh file vừa sửa",
+		RunE: func(*cobra.Command, []string) error {
+			chat.QuickCheck(os.Stdin, os.Stdout)
+			return nil
+		},
+	}
+	cmd.AddCommand(guard, check)
 	return cmd
 }
 
-// setGuardCommand points the chats' hook at this binary.
+// setGuardCommand points the chats' hooks at this binary.
 func setGuardCommand() {
 	exe, err := os.Executable()
 	if err != nil {
 		return
 	}
-	chat.GuardCommand = "'" + strings.ReplaceAll(exe, "'", `'\''`) + "' hook guard"
+	q := "'" + strings.ReplaceAll(exe, "'", `'\''`) + "'"
+	chat.GuardCommand = q + " hook guard"
+	chat.CheckCommand = q + " hook check"
 }

@@ -112,6 +112,16 @@ func summary(b storage.BurnSession, items []storage.BurnItem, project, why strin
 		}
 		return oneLine(it.Title, 120) + ": " + oneLine(it.Summary, 160)
 	}
+	// to read with care (ADR-131): what it did where a mistake costs most
+	var careful []storage.BurnItem
+	for _, it := range done {
+		if len(risks(it.Files)) > 0 {
+			careful = append(careful, it)
+		}
+	}
+	part("Cần đọc kỹ", careful, func(it storage.BurnItem) string {
+		return oneLine(it.Title, 120) + " — " + strings.Join(risks(it.Files), ", ")
+	})
 	part("Thất bại", failed, reason)
 	part("Bỏ qua", skipped, reason)
 	part("Còn dở (bật lại thì làm tiếp)", left, func(it storage.BurnItem) string {
@@ -121,6 +131,41 @@ func summary(b storage.BurnSession, items []storage.BurnItem, project, why strin
 		fmt.Fprintf(&sb, "\nCòn %d việc đã chọn chờ làm, %d việc tìm thấy chưa chọn.\n", queued, found)
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+// riskAreas: where in a project a change wants a careful read, by what its
+// path holds (lower case), first match wins.
+var riskAreas = []struct{ label, words string }{
+	{"migration/dữ liệu", "migration,migrate,.sql,schema"},
+	{"bảo mật/quyền", "auth,perm,secret,token,password,crypto,oauth,session,guard,security,acl"},
+	{"thanh toán", "payment,billing,checkout,stripe,paypal,invoice"},
+	{"phụ thuộc", "go.mod,go.sum,package.json,pnpm-lock,package-lock,yarn.lock,cargo.toml,requirements.txt"},
+	{"triển khai/CI", "dockerfile,docker-compose,compose.y,.github/,.gitlab-ci,deploy,makefile"},
+	{"cấu hình", ".env,config.y,settings.json"},
+}
+
+// risks are the risk areas files touch, each once.
+func risks(files []string) []string {
+	var out []string
+	for _, a := range riskAreas {
+		hit := false
+		for _, f := range files {
+			f = strings.ToLower(f)
+			for _, w := range strings.Split(a.words, ",") {
+				if strings.Contains(f, w) {
+					hit = true
+					break
+				}
+			}
+			if hit {
+				break
+			}
+		}
+		if hit {
+			out = append(out, a.label)
+		}
+	}
+	return out
 }
 
 // span is a duration as people read it: "2 giờ 15 phút".

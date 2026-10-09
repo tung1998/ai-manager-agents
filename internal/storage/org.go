@@ -759,6 +759,9 @@ type ActionArgs struct {
 	Change *ConfigChange `json:"change,omitempty"`
 	// mcp_call: a call of an office MCP tool that writes (ADR-093)
 	MCP *MCPCallArgs `json:"mcp,omitempty"`
+	// remember: the topic the note goes under and its index line ("" = core, ADR-134)
+	Topic   string `json:"topic,omitempty"`
+	Summary string `json:"summary,omitempty"`
 }
 
 // MCPCallArgs is a tool call waiting for a person.

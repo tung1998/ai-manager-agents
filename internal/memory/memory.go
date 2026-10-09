@@ -2,14 +2,26 @@
 // what it learned (conventions, decisions, what the person prefers), put at
 // the top of every new conversation. Too long, the notes are compacted by a
 // fast model; what they were is kept and can be put back.
+//
+// Two tiers (ADR-134): core notes (no topic) are always in the prompt; a
+// topic's notes are not, only a line of the index (topic: summary), and the
+// agent reads them with the recall tool when it works in that area.
 package memory
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/runes"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 
 	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -22,72 +34,157 @@ type Compactor func(ctx context.Context, projectID, agentID string, items []stor
 type Service struct {
 	store   storage.Store
 	compact Compactor
-	// Limit: characters of notes before they are compacted (and the most a
-	// conversation is given).
+	// Limit: characters of core notes before they are compacted (and the
+	// most of them a conversation is given).
 	Limit int
+	// TopicLimit: characters of one topic's notes before they are compacted.
+	TopicLimit int
 }
 
-// MaxNote is the longest one note may be.
-const MaxNote = 500
+const (
+	// MaxNote is the longest one note may be.
+	MaxNote = 500
+	// MaxSummary is the longest a topic's index line may be.
+	MaxSummary = 150
+	// CoreLimit, IndexLimit: what of the core notes and of the topic index a
+	// conversation is given; TopicLimit: one topic before it is compacted.
+	CoreLimit  = 2500
+	IndexLimit = 1500
+	TopicLimit = 4000
+)
 
 func New(store storage.Store, c Compactor) *Service {
-	return &Service{store: store, compact: c, Limit: 4000}
+	return &Service{store: store, compact: c, Limit: CoreLimit, TopicLimit: TopicLimit}
 }
 
 var ErrEmpty = errors.New("ghi nhớ trống")
 
-// Add keeps a note (source: person | agent), then compacts if they grew too long.
+// Add keeps a core note (source: person | agent), then compacts if they grew too long.
 func (s *Service) Add(ctx context.Context, projectID, agentID, text, source, by string) (storage.Memory, error) {
-	text = strings.TrimSpace(text)
-	if text == "" {
+	return s.Keep(ctx, storage.Memory{ProjectID: projectID, AgentID: agentID, Text: text, Source: source, CreatedBy: by})
+}
+
+// Keep keeps a note, core or of m.Topic, then compacts its group if it grew too long.
+func (s *Service) Keep(ctx context.Context, m storage.Memory) (storage.Memory, error) {
+	m.Text = strings.TrimSpace(m.Text)
+	if m.Text == "" {
 		return storage.Memory{}, ErrEmpty
 	}
-	if utf8.RuneCountInString(text) > MaxNote {
-		text = string([]rune(text)[:MaxNote-1]) + "…"
+	if utf8.RuneCountInString(m.Text) > MaxNote {
+		m.Text = string([]rune(m.Text)[:MaxNote-1]) + "…"
 	}
-	m, err := s.store.Memories().Create(ctx, storage.Memory{ProjectID: projectID, AgentID: agentID, Text: text, Source: source, CreatedBy: by})
+	m.Topic, m.Summary = Clean(m.Topic, m.Summary)
+	m, err := s.store.Memories().Create(ctx, m)
 	if err != nil {
 		return m, err
 	}
-	if s.size(ctx, projectID, agentID) > s.Limit && s.compact != nil {
-		_ = s.Compact(ctx, projectID, agentID, "tự rút gọn khi sổ quá dài")
+	limit := s.Limit
+	if m.Topic != "" {
+		limit = s.TopicLimit
+	}
+	if s.size(ctx, m.ProjectID, m.AgentID, m.Topic) > limit && s.compact != nil {
+		_ = s.CompactTopic(ctx, m.ProjectID, m.AgentID, m.Topic, "tự rút gọn khi sổ quá dài")
 	}
 	return m, nil
 }
 
-func (s *Service) size(ctx context.Context, projectID, agentID string) int {
+// Clean makes topic a slug and summary one short line ("" for a core note).
+func Clean(topic, summary string) (string, string) {
+	topic = Slug(topic)
+	if topic == "" {
+		return "", ""
+	}
+	summary = strings.Join(strings.Fields(summary), " ")
+	if utf8.RuneCountInString(summary) > MaxSummary {
+		summary = string([]rune(summary)[:MaxSummary-1]) + "…"
+	}
+	return topic, summary
+}
+
+// Slug: "Thanh toán PayPal" → "thanh-toan-paypal" (40 characters at most).
+func Slug(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range fold(s) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			b.WriteRune(r)
+			dash = false
+		} else {
+			dash = true
+		}
+		if b.Len() >= 40 {
+			break
+		}
+	}
+	return b.String()
+}
+
+// fold lowercases and drops diacritics so "Đơn hàng" matches "don hang".
+func fold(s string) string {
+	s = strings.NewReplacer("đ", "d", "Đ", "d").Replace(strings.ToLower(s))
+	out, _, err := transform.String(transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC), s)
+	if err != nil {
+		return s
+	}
+	return out
+}
+
+func (s *Service) size(ctx context.Context, projectID, agentID, topic string) int {
 	list, _ := s.store.Memories().List(ctx, projectID, agentID)
 	n := 0
 	for _, m := range list {
-		n += utf8.RuneCountInString(m.Text)
+		if m.Topic == topic {
+			n += utf8.RuneCountInString(m.Text)
+		}
 	}
 	return n
 }
 
-// Compact rewrites the notes shorter, keeping what they were.
+// Compact rewrites the core notes shorter, keeping what they were.
 func (s *Service) Compact(ctx context.Context, projectID, agentID, reason string) error {
+	return s.CompactTopic(ctx, projectID, agentID, "", reason)
+}
+
+// CompactTopic rewrites one topic's notes ("" = core) shorter; the revision
+// keeps all the notes as they were, so a restore puts every topic back.
+func (s *Service) CompactTopic(ctx context.Context, projectID, agentID, topic, reason string) error {
 	if s.compact == nil {
 		return errors.New("chưa rút gọn được: không có model")
 	}
 	list, err := s.store.Memories().List(ctx, projectID, agentID)
-	if err != nil || len(list) == 0 {
+	if err != nil {
 		return err
 	}
-	texts, err := s.compact(ctx, projectID, agentID, list)
+	var group []storage.Memory
+	summary := ""
+	for _, m := range list {
+		if m.Topic == topic {
+			group = append(group, m)
+			summary = cmp.Or(m.Summary, summary) // the newest
+		}
+	}
+	if len(group) == 0 {
+		return nil
+	}
+	texts, err := s.compact(ctx, projectID, agentID, group)
 	if err != nil {
 		return err
 	}
 	var items []storage.Memory
 	for i, t := range texts {
 		if t = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(t), "- ")); t != "" { // in the place of the old ones
-			items = append(items, storage.Memory{Text: t, Source: "compact", CreatedAt: list[0].CreatedAt.Add(time.Duration(i) * time.Microsecond)})
+			items = append(items, storage.Memory{Text: t, Source: "compact", Topic: topic, CreatedAt: group[0].CreatedAt.Add(time.Duration(i) * time.Microsecond)})
 		}
 	}
 	if len(items) == 0 {
 		return errors.New("rút gọn ra rỗng: giữ nguyên")
 	}
+	items[len(items)-1].Summary = summary // the topic keeps its index line
 	compacted := map[string]bool{}
-	for _, m := range list {
+	for _, m := range group {
 		compacted[m.ID] = true
 	}
 	return s.store.InTx(ctx, func(tx storage.Store) error {
@@ -98,7 +195,7 @@ func (s *Service) Compact(ctx context.Context, projectID, agentID, reason string
 		if err != nil {
 			return err
 		}
-		for _, m := range now { // written while the model compacted: kept
+		for _, m := range now { // other topics, and what was written while the model compacted: kept
 			if !compacted[m.ID] {
 				items = append(items, m)
 			}
@@ -123,7 +220,7 @@ func (s *Service) Restore(ctx context.Context, revisionID, by string) error {
 		}
 		items := make([]storage.Memory, len(rev.Items))
 		for i, m := range rev.Items {
-			items[i] = storage.Memory{Text: m.Text, Source: m.Source, CreatedBy: m.CreatedBy, CreatedAt: m.CreatedAt}
+			items[i] = storage.Memory{Text: m.Text, Source: m.Source, Topic: m.Topic, Summary: m.Summary, CreatedBy: m.CreatedBy, CreatedAt: m.CreatedAt}
 		}
 		return tx.Memories().Replace(ctx, rev.ProjectID, rev.AgentID, items)
 	})
@@ -131,25 +228,159 @@ func (s *Service) Restore(ctx context.Context, revisionID, by string) error {
 
 // Block is the notes as a conversation's system prompt gets them ("" = none).
 func (s *Service) Block(ctx context.Context, projectID, agentID string) string {
-	return Block(ctx, s.store, projectID, agentID, s.Limit)
+	return Block(ctx, s.store, projectID, agentID)
 }
 
-// Block formats an agent's notes for its system prompt, newest kept when too long.
-func Block(ctx context.Context, store storage.Store, projectID, agentID string, limit int) string {
+// Block formats an agent's notes for its system prompt: the core notes and
+// the index of topics (their notes are read with recall).
+func Block(ctx context.Context, store storage.Store, projectID, agentID string) string {
 	list, err := store.Memories().List(ctx, projectID, agentID)
-	if err != nil || len(list) == 0 {
+	if err != nil {
 		return ""
+	}
+	return Render(list, CoreLimit, IndexLimit)
+}
+
+// Render formats notes (oldest first): the core ones, the newest kept within
+// coreCap characters, then one index line per topic, the most recently
+// written first, within indexCap.
+func Render(list []storage.Memory, coreCap, indexCap int) string {
+	var core []string
+	for _, m := range list {
+		if m.Topic == "" {
+			core = append(core, m.Text)
+		}
 	}
 	var notes []string
 	n := 0
-	for i := len(list) - 1; i >= 0; i-- { // the newest first, within the limit
-		n += utf8.RuneCountInString(list[i].Text)
-		if n > limit && len(notes) > 0 {
+	for i := len(core) - 1; i >= 0; i-- { // the newest first, within the cap
+		n += utf8.RuneCountInString(core[i])
+		if n > coreCap && len(notes) > 0 {
 			break
 		}
-		notes = append([]string{list[i].Text}, notes...)
+		notes = append([]string{core[i]}, notes...)
 	}
-	return "\n\n" + prompts.Render("memory/notes", map[string]any{"Notes": notes})
+	lines := Index(list)
+	var index []string
+	n = 0
+	for _, l := range lines {
+		n += utf8.RuneCountInString(l) + 1
+		if n > indexCap && len(index) > 0 {
+			break
+		}
+		index = append(index, l)
+	}
+	if len(notes) == 0 && len(index) == 0 {
+		return ""
+	}
+	return "\n\n" + prompts.Render("memory/notes", map[string]any{"Notes": notes, "Dropped": len(core) - len(notes),
+		"Index": index, "More": len(lines) - len(index)})
+}
+
+// Topic is one topic of an agent's notes.
+type Topic struct {
+	Name, Summary string
+	Notes, Size   int
+	last          int // where its newest note is in the list
+}
+
+// Topics groups the notes by topic, the most recently written first; a
+// topic's summary is its newest one, else the start of its newest note.
+func Topics(list []storage.Memory) []Topic {
+	at := map[string]int{}
+	var out []Topic
+	newest := map[string]string{}
+	for i, m := range list {
+		if m.Topic == "" {
+			continue
+		}
+		k, ok := at[m.Topic]
+		if !ok {
+			k = len(out)
+			at[m.Topic] = k
+			out = append(out, Topic{Name: m.Topic})
+		}
+		t := &out[k]
+		t.Notes++
+		t.Size += utf8.RuneCountInString(m.Text)
+		t.last = i
+		t.Summary = cmp.Or(m.Summary, t.Summary)
+		newest[m.Topic] = m.Text
+	}
+	for i := range out {
+		if out[i].Summary == "" {
+			out[i].Summary = short(newest[out[i].Name])
+		}
+	}
+	slices.SortStableFunc(out, func(a, b Topic) int { return b.last - a.last })
+	return out
+}
+
+func short(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if utf8.RuneCountInString(s) > 100 {
+		s = string([]rune(s)[:99]) + "…"
+	}
+	return s
+}
+
+// Index is one line per topic: "- topic: summary".
+func Index(list []storage.Memory) []string {
+	var out []string
+	for _, t := range Topics(list) {
+		out = append(out, "- "+t.Name+": "+t.Summary)
+	}
+	return out
+}
+
+// Recall is what the recall tool reads: the notes of topic, or those with
+// every word of query (accents ignored), or both; neither lists the topics.
+func Recall(ctx context.Context, store storage.Store, projectID, agentID, topic, query string) (string, error) {
+	list, err := store.Memories().List(ctx, projectID, agentID)
+	if err != nil {
+		return "", err
+	}
+	topic, words := Slug(topic), strings.Fields(fold(query))
+	if topic == "" && len(words) == 0 {
+		lines := Index(list)
+		if len(lines) == 0 {
+			return "No topics in your notes yet.", nil
+		}
+		return fmt.Sprintf("%d topics (recall one by its name):\n%s", len(lines), strings.Join(lines, "\n")), nil
+	}
+	var hits []storage.Memory
+	for _, m := range list {
+		if topic != "" && m.Topic != topic {
+			continue
+		}
+		hay := fold(m.Topic + " " + m.Summary + " " + m.Text)
+		if !slices.ContainsFunc(words, func(w string) bool { return !strings.Contains(hay, w) }) {
+			hits = append(hits, m)
+		}
+	}
+	if len(hits) == 0 {
+		var names []string
+		for _, t := range Topics(list) {
+			names = append(names, t.Name)
+		}
+		return fmt.Sprintf("No notes match. Topics: %s.", cmp.Or(strings.Join(names, ", "), "(none)")), nil
+	}
+	if len(hits) > 30 { // the newest
+		hits = hits[len(hits)-30:]
+	}
+	var b strings.Builder
+	if topic != "" && len(words) == 0 {
+		fmt.Fprintf(&b, "Notes on %s:\n", topic)
+		for _, m := range hits {
+			fmt.Fprintf(&b, "- %s\n", m.Text)
+		}
+		return b.String(), nil
+	}
+	fmt.Fprintf(&b, "%d notes match:\n", len(hits))
+	for _, m := range hits {
+		fmt.Fprintf(&b, "- [%s] %s\n", cmp.Or(m.Topic, "core"), m.Text)
+	}
+	return b.String(), nil
 }
 
 func autoKey(projectID string) string { return "memory_auto/" + projectID }

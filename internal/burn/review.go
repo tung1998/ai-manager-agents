@@ -12,6 +12,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/verdict"
 	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
@@ -210,7 +211,7 @@ func (s *Service) review(ctx context.Context, b storage.BurnSession, it *storage
 	if err != nil {
 		return false, "", err
 	}
-	return verdict(res.text) == "yes", strings.TrimSpace(res.text), nil
+	return verdictOf(res.text) == "yes", strings.TrimSpace(res.text), nil
 }
 
 // ensureReviewConversation gives a piece's review at stage a hidden chat of
@@ -267,42 +268,12 @@ func reviewPrompt(b storage.BurnSession, it storage.BurnItem, stage string) stri
 	return prompts.Render("burn/review", d)
 }
 
-// The first line of a reviewer's answer (verdict reads it).
+// The first line of a reviewer's answer (verdictOf reads it).
 const (
-	verdictAgree    = "VERDICT: AGREE"
-	verdictDisagree = "VERDICT: DISAGREE"
+	verdictAgree    = verdict.Agree
+	verdictDisagree = verdict.Disagree
 )
 
-// verdict reads the reviewer's conclusion from its answer. The prompt asks for
-// a first line starting with "VERDICT:" (older answers: "KẾT LUẬN:"), but
-// reasoning models often write analysis first and put it last, so only lines
-// starting with that prefix count — a bare AGREE/ĐỒNG Ý substring would also
-// fire on quoted prompt text or on the reviewer discussing the format. The
-// first line wins if it matches; otherwise the last matching line (unclear
-// counts as no, as a workflow's vote).
-func verdict(text string) string {
-	lines := strings.Split(strings.TrimSpace(text), "\n")
-	verdictOf := func(line string) string {
-		l := strings.ToUpper(strings.Trim(strings.TrimSpace(line), "*`_# "))
-		if !strings.HasPrefix(l, "VERDICT:") && !strings.HasPrefix(l, "KẾT LUẬN:") && !strings.HasPrefix(l, "KET LUAN:") {
-			return ""
-		}
-		switch {
-		case strings.Contains(l, "DISAGREE"), strings.Contains(l, "KHÔNG ĐỒNG Ý"), strings.Contains(l, "KHONG DONG Y"), strings.Contains(l, "PHẢN ĐỐI"):
-			return "no"
-		case strings.Contains(l, "AGREE"), strings.Contains(l, "ĐỒNG Ý"), strings.Contains(l, "DONG Y"), strings.Contains(l, "TÁN THÀNH"):
-			return "yes"
-		}
-		return ""
-	}
-	if v := verdictOf(lines[0]); v != "" {
-		return v
-	}
-	result := "unclear"
-	for _, line := range lines[1:] {
-		if v := verdictOf(line); v != "" {
-			result = v
-		}
-	}
-	return result
-}
+// verdictOf reads the reviewer's conclusion (unclear counts as no, as a
+// workflow's vote); the goal judge of automations reads the same (ADR-132).
+func verdictOf(text string) string { return verdict.Of(text) }

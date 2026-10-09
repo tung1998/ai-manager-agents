@@ -81,11 +81,11 @@ func scanPrompt(b storage.BurnSession, it storage.BurnItem, items []storage.Burn
 		scanned = scanned[len(scanned)-maxScannedInScan:]
 	}
 	return prompts.Render("burn/scan", struct {
-		ID, Focus, Order, Hunt, Map string
-		FocusLooks, Taken, Scanned  []string
-		Room                        int
-		Again                       bool
-	}{it.ID, b.Focus, b.Order, hunt(b), b.CodeMap, looks(b), taken, scanned, max(room(items), 1), again})
+		ID, Focus, Order, Hunt, Map, Lessons string
+		FocusLooks, Taken, Scanned, Setbacks []string
+		Room                                 int
+		Again                                bool
+	}{it.ID, b.Focus, b.Order, hunt(b), b.CodeMap, b.Lessons, looks(b), taken, scanned, setbacks(items), max(room(items), 1), again})
 }
 
 // priorities: what a scan may say of a piece, as the order it is done in.
@@ -139,6 +139,7 @@ func (s *Service) scanDone(ctx context.Context, b storage.BurnSession, it storag
 		}
 		_ = s.store.Burn().SetCodeMap(context.WithoutCancel(ctx), b.ID, m)
 	}
+	s.keepLessons(ctx, b, in.Lessons)
 	if err := s.store.Burn().DeleteItem(ctx, it.ID); err != nil {
 		return "", err
 	}

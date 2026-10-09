@@ -83,7 +83,7 @@ type automationDTO struct {
 func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automationDTO {
 	c := a.Config
 	cfg := map[string]any{"every_minutes": c.EveryMinutes, "cron": c.Cron, "timezone": c.Timezone, "auth": c.Auth, "auth_name": c.AuthName,
-		"pull_request": c.PullRequest, "notify_channel_id": c.NotifyChannelID, "notify_chat_id": c.NotifyChatID, "ends_at": c.EndsAt}
+		"pull_request": c.PullRequest, "notify_channel_id": c.NotifyChannelID, "notify_chat_id": c.NotifyChatID, "ends_at": c.EndsAt, "goal": c.Goal}
 	if trigger.IsChannel(a.Source) {
 		keywords := c.Keywords
 		if keywords == nil {
@@ -304,6 +304,13 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 		}
 	}
 	cfg.Workflow = workflowKey
+	if !trigger.IsChannel(in.Source) { // run until its goal is reached (ADR-132); a bot's reply is one turn
+		goal, err := trigger.CleanGoal(in.Config.Goal, in.Action)
+		if err != nil {
+			return err
+		}
+		cfg.Goal = goal
+	}
 	tags, err := cleanTags(in.Config.Tags) // put on the chat of each run
 	if err != nil {
 		return err

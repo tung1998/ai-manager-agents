@@ -39,6 +39,10 @@ type burnDTO struct {
 	StartedAt       *time.Time `json:"started_at,omitempty"`
 	RunBranch       string     `json:"run_branch,omitempty"` // the run's branch (ADR-123)
 	RunTree         string     `json:"run_tree,omitempty"`   // its worktree, to review there
+	// ADR-131: its checks ("" = guessed), what its scans keep (read-only here)
+	Verify  string `json:"verify"`
+	CodeMap string `json:"code_map"`
+	Lessons string `json:"lessons"`
 }
 
 type burnItemDTO struct {
@@ -63,20 +67,12 @@ type burnItemDTO struct {
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
 	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.Focus, cmp.Or(b.Order, "roadmap"), cmp.Or(b.Template, "general"), b.HuntPrompt,
-		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, ""}
+		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, "", b.Verify, b.CodeMap, b.Lessons}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
 func (s *server) burnSession(r *http.Request, projectID string) (storage.BurnSession, error) {
-	b, err := s.cfg.Store.Burn().Session(r.Context(), projectID)
-	if errors.Is(err, storage.ErrNotFound) {
-		b = storage.BurnSession{ProjectID: projectID, ModelTier: storage.TierBalanced, MaxParallel: 1, Order: "roadmap", State: "stopped"}
-		if a, err := s.cfg.Chat.DefaultAgent(r.Context(), projectID); err == nil && !a.Disabled {
-			b.AgentID = a.ID
-		}
-		return b, nil
-	}
-	return b, err
+	return burn.SessionOr(r.Context(), s.cfg.Store, projectID, s.cfg.Chat.DefaultAgent)
 }
 
 func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +148,7 @@ type burnInput struct {
 	Order           *string    `json:"order"`
 	Template        *string    `json:"template"`
 	HuntPrompt      *string    `json:"hunt_prompt"`
+	Verify          *string    `json:"verify"`
 	ReviewProfileID *string    `json:"review_profile_id"` // "" = no review
 	NotifyChannelID *string    `json:"notify_channel_id"` // "" = only its own chat
 	NotifyChatID    *string    `json:"notify_chat_id"`
@@ -202,6 +199,12 @@ func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession
 		b.HuntPrompt = strings.TrimSpace(*in.HuntPrompt)
 		if r := []rune(b.HuntPrompt); len(r) > maxHuntPrompt {
 			return fmt.Errorf("prompt tùy chỉnh dài quá %d ký tự", maxHuntPrompt)
+		}
+	}
+	if in.Verify != nil {
+		b.Verify = strings.TrimSpace(*in.Verify)
+		if err := burn.ValidVerify(b.Verify); err != nil {
+			return err
 		}
 	}
 	if in.NoEnd {
@@ -267,11 +270,7 @@ func (s *server) startBurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b.EndsAt == nil && !in.NoEnd { // the suggested stop: the next weekly reset, else 8 hours
-		t, ok := s.cfg.Burn.WeeklyReset(r.Context(), b.AgentID)
-		if !ok {
-			t = time.Now().Add(8 * time.Hour)
-		}
-		t = t.UTC()
+		t := s.cfg.Burn.DefaultEnd(r.Context(), b.AgentID)
 		b.EndsAt = &t
 	}
 	if _, err := s.cfg.Store.Burn().SaveSession(r.Context(), b); err != nil {

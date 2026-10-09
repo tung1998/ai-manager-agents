@@ -71,6 +71,37 @@ func TestLoadPolicyUpgradesOldEnvPattern(t *testing.T) {
 	}
 }
 
+// The quick check (ADR-133) is on by default, also for a policy saved before
+// it existed; turned off, it stays off.
+func TestQuickCheckDefault(t *testing.T) {
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !LoadPolicy(ctx, st, "none").QuickCheck {
+		t.Fatal("default off")
+	}
+	if err := st.Settings().Set(ctx, policyKey("old"), map[string]any{"deny_paths": []string{".env"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !LoadPolicy(ctx, st, "old").QuickCheck {
+		t.Fatal("a policy saved before the setting lost it")
+	}
+	p := DefaultPolicy()
+	p.QuickCheck = false
+	if err := SavePolicy(ctx, st, "off", p); err != nil {
+		t.Fatal(err)
+	}
+	if LoadPolicy(ctx, st, "off").QuickCheck {
+		t.Fatal("turned off, still on")
+	}
+}
+
 func TestResolveCustomCaps(t *testing.T) {
 	caps := []string{CapPropose, CapCommands, CapCommit}
 	cmds := []string{"go test ./..."}

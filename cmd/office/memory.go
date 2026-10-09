@@ -25,7 +25,7 @@ func compactNotes(st storage.Store, engine *chat.Engine) memory.Compactor {
 		for _, m := range items {
 			notes = append(notes, strings.ReplaceAll(m.Text, "\n", " "))
 		}
-		prompt := prompts.Render("memory/compact", map[string]any{"Notes": notes}) + "\n"
+		prompt := prompts.Render("memory/compact", map[string]any{"Notes": notes, "Topic": items[0].Topic}) + "\n"
 		res, err := engine.Invoke(chat.WithNoTools(chat.WithModelTier(ctx, storage.TierFast)), project, agent, prompt, nil, "memory_compact", nil)
 		if err != nil {
 			return nil, err

@@ -10,6 +10,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/memory"
+	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
 // An agent's long-term notes (ADR-068): seen by the project's people, kept by admins.
@@ -17,10 +18,32 @@ import (
 type memoryDTO struct {
 	ID        string    `json:"id"`
 	Text      string    `json:"text"`
+	Topic     string    `json:"topic"`   // "" = core, always loaded (ADR-134)
+	Summary   string    `json:"summary"` // the topic's index line
 	Source    string    `json:"source"`
 	CreatedBy string    `json:"created_by"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Version   string    `json:"version"` // what an edit is made from (ADR-072)
+}
+
+func toMemoryDTO(m storage.Memory) memoryDTO {
+	return memoryDTO{m.ID, m.Text, m.Topic, m.Summary, m.Source, m.CreatedBy, m.UpdatedAt, memoryVersion(m)}
+}
+
+// memoryVersion: the note as read; a core note's is its text's, as before topics.
+func memoryVersion(m storage.Memory) string {
+	if m.Topic == "" && m.Summary == "" {
+		return versionOf(m.Text)
+	}
+	return versionOf([]string{m.Text, m.Topic, m.Summary})
+}
+
+// noteLine: a note as a revision and the audit show it.
+func noteLine(m storage.Memory) string {
+	if m.Topic == "" {
+		return m.Text
+	}
+	return "[" + m.Topic + "] " + m.Text
 }
 
 type memoryRevisionDTO struct {
@@ -59,22 +82,24 @@ func (s *server) listMemories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := make([]memoryDTO, 0, len(list))
-	size := 0
+	size := 0 // of the core notes: the topics' are not in the prompt
 	for _, m := range list {
-		items = append(items, memoryDTO{m.ID, m.Text, m.Source, m.CreatedBy, m.UpdatedAt, versionOf(m.Text)})
-		size += len([]rune(m.Text))
+		items = append(items, toMemoryDTO(m))
+		if m.Topic == "" {
+			size += len([]rune(m.Text))
+		}
 	}
 	revs, _ := s.cfg.Store.Memories().Revisions(r.Context(), pid, aid)
 	out := make([]memoryRevisionDTO, 0, len(revs))
 	for _, rv := range revs {
 		texts := make([]string, 0, len(rv.Items))
 		for _, m := range rv.Items {
-			texts = append(texts, m.Text)
+			texts = append(texts, noteLine(m))
 		}
 		out = append(out, memoryRevisionDTO{rv.ID, rv.Reason, len(rv.Items), texts, rv.CreatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "revisions": out, "auto": s.cfg.Memory.Auto(r.Context(), pid),
-		"size": size, "limit": s.cfg.Memory.Limit})
+		"size": size, "limit": s.cfg.Memory.Limit, "topic_limit": s.cfg.Memory.TopicLimit})
 }
 
 func (s *server) addMemory(w http.ResponseWriter, r *http.Request) {
@@ -83,12 +108,15 @@ func (s *server) addMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Text string `json:"text"`
+		Text    string `json:"text"`
+		Topic   string `json:"topic"`
+		Summary string `json:"summary"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	m, err := s.cfg.Memory.Add(r.Context(), pid, aid, in.Text, "person", "human:"+userFrom(r).Email)
+	m, err := s.cfg.Memory.Keep(r.Context(), storage.Memory{ProjectID: pid, AgentID: aid, Text: in.Text, Topic: in.Topic, Summary: in.Summary,
+		Source: "person", CreatedBy: "human:" + userFrom(r).Email})
 	if errors.Is(err, memory.ErrEmpty) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -97,14 +125,16 @@ func (s *server) addMemory(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	s.audit(r, audit.Change{Action: "memory.add", Resource: "memory", ResourceID: m.ID, ProjectID: pid, After: m.Text})
-	writeJSON(w, http.StatusCreated, map[string]any{"memory": memoryDTO{m.ID, m.Text, m.Source, m.CreatedBy, m.UpdatedAt, versionOf(m.Text)}})
+	s.audit(r, audit.Change{Action: "memory.add", Resource: "memory", ResourceID: m.ID, ProjectID: pid, After: noteLine(m)})
+	writeJSON(w, http.StatusCreated, map[string]any{"memory": toMemoryDTO(m)})
 }
 
 func (s *server) editMemory(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Text    string `json:"text"`
-		Version string `json:"version"` // the note as it was read (409 when changed since)
+		Text    string  `json:"text"`
+		Topic   *string `json:"topic"`   // nil = as it is, "" = core
+		Summary *string `json:"summary"` // nil = as it is
+		Version string  `json:"version"` // the note as it was read (409 when changed since)
 	}
 	if !decode(w, r, &in) {
 		return
@@ -114,7 +144,7 @@ func (s *server) editMemory(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	if conflicted(w, in.Version, versionOf(old.Text)) {
+	if conflicted(w, in.Version, memoryVersion(old)) {
 		return
 	}
 	text := strings.TrimSpace(in.Text)
@@ -126,11 +156,19 @@ func (s *server) editMemory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Một ghi nhớ tối đa %d ký tự.", memory.MaxNote))
 		return
 	}
-	if err := s.cfg.Store.Memories().Update(r.Context(), old.ID, text); err != nil {
+	next := storage.Memory{ID: old.ID, Text: text, Topic: old.Topic, Summary: old.Summary}
+	if in.Topic != nil {
+		next.Topic = *in.Topic
+	}
+	if in.Summary != nil {
+		next.Summary = *in.Summary
+	}
+	next.Topic, next.Summary = memory.Clean(next.Topic, next.Summary)
+	if err := s.cfg.Store.Memories().Update(r.Context(), next); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.audit(r, audit.Change{Action: "memory.edit", Resource: "memory", ResourceID: old.ID, ProjectID: old.ProjectID, Before: old.Text, After: text})
+	s.audit(r, audit.Change{Action: "memory.edit", Resource: "memory", ResourceID: old.ID, ProjectID: old.ProjectID, Before: noteLine(old), After: noteLine(next)})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -144,7 +182,7 @@ func (s *server) deleteMemory(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	s.audit(r, audit.Change{Action: "memory.delete", Resource: "memory", ResourceID: old.ID, ProjectID: old.ProjectID, Before: old.Text})
+	s.audit(r, audit.Change{Action: "memory.delete", Resource: "memory", ResourceID: old.ID, ProjectID: old.ProjectID, Before: noteLine(old)})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -153,11 +191,12 @@ func (s *server) compactMemories(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.cfg.Memory.Compact(r.Context(), pid, aid, "rút gọn bởi "+userFrom(r).Email); err != nil {
+	topic := memory.Slug(r.URL.Query().Get("topic")) // "" = the core notes
+	if err := s.cfg.Memory.CompactTopic(r.Context(), pid, aid, topic, "rút gọn bởi "+userFrom(r).Email); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(r, audit.Change{Action: "memory.compact", Resource: "memory", ResourceID: aid, ProjectID: pid})
+	s.audit(r, audit.Change{Action: "memory.compact", Resource: "memory", ResourceID: aid, ProjectID: pid, Detail: map[string]any{"topic": topic}})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

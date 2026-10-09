@@ -85,3 +85,73 @@ func TestCompactKeepsNewNotes(t *testing.T) {
 		t.Fatalf("after compaction = %+v", list)
 	}
 }
+
+// ADR-134: core notes are in the prompt within their cap; a topic is one
+// index line (its newest summary), within the index's cap.
+func TestRender(t *testing.T) {
+	list := []storage.Memory{
+		{Text: "cũ nhất, bị cắt"},
+		{Text: "Repo dùng pnpm"},
+		{Text: "Hoàn tiền qua job refund_sync", Topic: "thanh-toan", Summary: "hoàn tiền"},
+		{Text: "Webhook Stripe ở /hooks/stripe", Topic: "thanh-toan", Summary: "hoàn tiền, webhook"},
+		{Text: "Deploy bằng make release", Topic: "deploy"},
+		{Text: "Không sửa file generated"},
+	}
+	b := memory.Render(list, 40, 1000)
+	for _, want := range []string{"- Repo dùng pnpm\n- Không sửa file generated", "1 older notes not shown", "- deploy: Deploy bằng make release\n- thanh-toan: hoàn tiền, webhook"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("block lacks %q:\n%s", want, b)
+		}
+	}
+	if strings.Contains(b, "cũ nhất") || strings.Contains(b, "refund_sync") || strings.Contains(b, "/hooks/stripe") {
+		t.Errorf("block has what it should not:\n%s", b)
+	}
+	if b = memory.Render(list, 1000, 30); !strings.Contains(b, "- deploy:") || strings.Contains(b, "- thanh-toan:") || !strings.Contains(b, "1 more topics") {
+		t.Errorf("index cap:\n%s", b)
+	}
+	if b = memory.Render(list[2:5], 1000, 1000); !strings.Contains(b, "Topics you keep notes on") || strings.Contains(b, "older notes") {
+		t.Errorf("topics only:\n%s", b)
+	}
+	if memory.Render(nil, 10, 10) != "" {
+		t.Error("no notes, a block")
+	}
+	if got := memory.Slug("  Thanh toán / PayPal!! "); got != "thanh-toan-paypal" {
+		t.Errorf("slug = %q", got)
+	}
+}
+
+// A topic grown past its limit is compacted on its own; the core notes and
+// other topics stay, the summary too, and the revision keeps everything.
+func TestCompactTopic(t *testing.T) {
+	ctx := context.Background()
+	st, pid := open(t)
+	var got []storage.Memory
+	svc := memory.New(st, func(_ context.Context, _, _ string, items []storage.Memory) ([]string, error) {
+		got = items
+		return []string{"gộp thanh toán"}, nil
+	})
+	svc.Limit, svc.TopicLimit = 1000, 30
+	svc.Add(ctx, pid, "agt_1", "Repo dùng pnpm", "person", "a")
+	svc.Keep(ctx, storage.Memory{ProjectID: pid, AgentID: "agt_1", Text: "Deploy bằng make", Topic: "deploy"})
+	svc.Keep(ctx, storage.Memory{ProjectID: pid, AgentID: "agt_1", Text: "Hoàn tiền qua refund_sync", Topic: "Thanh toán", Summary: "hoàn tiền"})
+	if got != nil {
+		t.Fatal("compacted under the limit")
+	}
+	svc.Keep(ctx, storage.Memory{ProjectID: pid, AgentID: "agt_1", Text: "Webhook Stripe ở /hooks", Topic: "thanh-toan"})
+	if len(got) != 2 || got[0].Topic != "thanh-toan" {
+		t.Fatalf("compacted = %+v", got)
+	}
+	list, _ := st.Memories().List(ctx, pid, "agt_1")
+	if len(list) != 3 || list[0].Text != "Repo dùng pnpm" || list[1].Topic != "deploy" ||
+		list[2].Text != "gộp thanh toán" || list[2].Topic != "thanh-toan" || list[2].Summary != "hoàn tiền" {
+		t.Fatalf("after = %+v", list)
+	}
+	revs, _ := st.Memories().Revisions(ctx, pid, "agt_1")
+	if len(revs) != 1 || len(revs[0].Items) != 4 {
+		t.Fatalf("revisions = %+v", revs)
+	}
+	svc.Restore(ctx, revs[0].ID, "a")
+	if list, _ = st.Memories().List(ctx, pid, "agt_1"); len(list) != 4 || list[2].Topic != "thanh-toan" || list[2].Summary != "hoàn tiền" {
+		t.Fatalf("restored = %+v", list)
+	}
+}

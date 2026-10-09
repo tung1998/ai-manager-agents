@@ -47,7 +47,10 @@ export interface AutomationConfig {
   notify_channel_id?: string, notify_chat_id?: string // what a run answers goes to this bot's chat too
   tags?: string[] // put on the chat of each run
   ends_at?: string | null // a schedule turns itself off then (as a Burn); none = runs until turned off
+  goal?: AutomationGoal | null // chat/workflow: runs until it is reached (ADR-132)
 }
+// AutomationGoal: after each turn the check (exit 0) and/or the judge; not reached, the chat goes on
+export interface AutomationGoal { text?: string, check?: string, judge?: boolean, max_rounds?: number }
 export interface AutomationLimits {
   max_parallel?: number // runs at once (ADR-082)
   max_minutes?: number // how long one run may take (0 = no limit)
@@ -58,7 +61,7 @@ export interface AutomationLimits {
   debounce_key?: string
   debounce_max_seconds?: number
 }
-export interface AutomationScript { lang: 'bash' | 'node' | 'python', body: string, timeout_s?: number }
+export interface AutomationScript { lang: 'bash' | 'node' | 'python', body: string, timeout_s?: number, burn_start?: boolean } // burn_start: its @@quest lines start a stopped Burn (ADR-132)
 export interface AutomationEscalate { when: 'never' | 'failure' | 'signal', action: 'chat' | 'task', agent_id: string, prompt: string } // kept for old ones: never runs (ADR-057)
 export interface Automation {
   id: string

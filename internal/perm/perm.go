@@ -103,6 +103,9 @@ type Policy struct {
 	// WorktreeLinks are more ignored folders to link into worktrees, besides
 	// node_modules/.venv (relative to the project).
 	WorktreeLinks []string `json:"worktree_links"`
+	// QuickCheck: after an agent edits a file, office checks it at once
+	// (gofmt/vet, JSON, YAML) and tells the agent what to fix (ADR-133).
+	QuickCheck bool `json:"quick_check"`
 
 	// Worked out when loaded, not stored:
 	Catalog []string `json:"-"` // every command of the project's packs
@@ -120,7 +123,7 @@ const (
 // DefaultPolicy keeps agents at "propose" and protects secrets.
 func DefaultPolicy() Policy {
 	return Policy{MaxLevel: Operate, Packs: []Pack{},
-		DenyPaths: []string{".env", "**/.env.*", "**/.env", "**/*.pem", "**/*.key"}, WorktreeLinks: []string{}}
+		DenyPaths: []string{".env", "**/.env.*", "**/.env", "**/*.pem", "**/*.key"}, WorktreeLinks: []string{}, QuickCheck: true}
 }
 
 func policyKey(projectID string) string { return "policy:" + projectID }

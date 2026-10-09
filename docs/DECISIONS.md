@@ -2134,3 +2134,42 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - **Điều tiết:** `MaxFound = 10` việc chờ (found/queued, tính cả quest). Đủ 10 thì không mở lượt quét, `burn_add` bị từ chối. Mỗi lúc chỉ một lượt quét. Lượt quét chiếm slot khi không có việc để làm, hoặc khi còn slot khác cho việc. Lượt quét được báo còn chỗ cho bao nhiêu việc.
   - 3 lượt quét liền nhau không ghi được việc nào thì không quét nữa trong lần chạy. Làm hết việc còn lại thì Burn tự tắt (`Drain`). Bấm Tiếp tục thì đếm lại từ đầu.
   - Bảng Burn hiện số việc chờ / 10 ở cột Tìm thấy.
+
+## ADR-131: Burn: kiểm chứng tất định, sổ bài học, tổng kết cần đọc kỹ
+- **Bối cảnh:** theo harness engineering, hai lỗi hay gặp nhất của agent chạy dài là làm quá nhiều một lúc và báo xong quá sớm, và mỗi lỗi agent mắc thì phải có cơ chế để nó không mắc lại (Hashimoto). Burn đang tin lời worker (`burn_done`). Review kết quả chạy ở quyền Đọc nên thường chỉ đọc diff. Việc bị bác hay thất bại không để lại gì cho các lượt sau (đêm 08/10: 52% việc bị bác). Người dùng thì ít đọc kỹ kết quả, càng chạy nhanh càng hiểu ít (comprehension debt).
+- **Quyết định:**
+  - **Kiểm chứng:** Burn có `verify` (`burn_sessions.verify`, mỗi dòng một lệnh, dòng `#` bỏ qua, tối đa 2000 ký tự). Trống thì tự đoán từ project: có `go.mod` thì `go build ./...` và `go vet ./...`, có `Cargo.toml` thì `cargo check`; không đoán test vì có thể chạy lâu. Worker báo xong thì office chạy từng lệnh bằng `sh -c` trong worktree của việc, mỗi lệnh tối đa 10 phút, trước review kết quả và trước khi gộp. Lệnh nào lỗi thì việc quay lại worker (`failedOrAgain`), kèm lệnh và 3000 ký tự cuối output trong `review_note`. Bị dừng giữa chừng thì việc tạm dừng, chạy lại kiểm chứng khi làm tiếp. Prompt làm việc liệt kê các lệnh này để worker tự chạy trước. Không tốn token AI.
+  - **Sổ bài học** (`burn_sessions.lessons`, tối đa 3000 ký tự, chỉ ghi qua `SetLessons`): lượt quét được xem 15 việc gần nhất bị bỏ có lý do hoặc thất bại, kèm lý do. Nó gộp thành các quy tắc ngắn rồi ghi qua `burn_scan_done(lessons)`. Bài học được đưa vào prompt quét (không ghi lại việc mà bài học đã loại) và prompt làm. Không tốn thêm lượt AI: lượt quét vốn đã chạy.
+  - **Tổng kết khi dừng** có thêm phần "Cần đọc kỹ": các việc xong có file thuộc vùng rủi ro (migration/dữ liệu, bảo mật/quyền, thanh toán, phụ thuộc, triển khai/CI, cấu hình), xét theo đường dẫn. Danh sách file của mỗi việc lấy lúc gộp (`burn_items.files`).
+  - Cài đặt Burn có ô "Lệnh kiểm chứng" và mục "Burn đã học được" (bài học, bản đồ code), chỉ để đọc.
+- **Chưa làm:** giới hạn số việc song song theo khả năng review của người dùng.
+
+## ADR-132: Tự động hóa tạo quest cho Burn; chạy tới khi đạt mục tiêu
+- **Bối cảnh:** vòng "phân loại buổi sáng" (loop engineering): một script lọc issue/log mỗi sáng, cần giao việc tìm được cho Burn mà không phải chép tay từng quest. Tự động hóa chat/workflow chỉ chạy một lượt, trong khi nhiều việc ("sửa tới khi test qua") cần lặp tới khi một điều kiện đúng (`/goal`). Schema `propose_automation` còn `escalate`/`when=signal` và dòng `@@agent`, dù ADR-057 đã bỏ.
+- **Quyết định:**
+  - Script in dòng `@@quest <tên>` (tuỳ chọn ` :: <mô tả>`): mỗi dòng thành một quest của Burn project. Tên trùng (không phân biệt hoa thường, khoảng trắng) với một việc đang mở (found/queued/doing/paused/review) thì bỏ qua. Output của job ghi "Đã thêm N quest cho Burn".
+  - Tuỳ chọn `burn_start` của script: có quest mới và Burn đang tắt thì bật Burn với cài đặt đã lưu, giờ tắt mặc định như khi bật trên dashboard (weekly reset, không có thì 8 giờ). Chỉ lượt chạy theo lịch hoặc chạy tay mới bật được Burn. Webhook và tin nhắn kênh chỉ thêm quest, vì Burn chạy toàn quyền (ADR-074).
+  - Trigger không import burn: office truyền hàm `GiveQuests` vào Runner. Burn có `AddQuests`, `SessionOr`, `DefaultEnd`, dùng chung với API.
+  - Chế độ mục tiêu cho chat/workflow (`goal`: `check`, `judge`, `text`, `max_rounds` mặc định 5, tối đa 20). Sau mỗi lượt, chạy lệnh kiểm tra (thoát 0 = đạt) và/hoặc hỏi agent đánh giá. Chưa đạt thì gửi khoảng 4000 byte cuối của output kiểm tra, hoặc lời đánh giá, vào cùng chat rồi làm tiếp.
+  - Lệnh kiểm tra chạy như script: bash, ẩn khóa AI, timeout 5 phút, trong worktree của chat hoặc thư mục project. Chỉ admin lưu hoặc người duyệt đề xuất mới đặt được, như script.
+  - Agent đánh giá chạy trong chat ẩn `goal_judge`, chỉ đọc, dưới job con của lượt chạy, nên chi phí tính vào trần ngày. Kết luận đọc theo dòng VERDICT như review của Burn (gói `internal/verdict` dùng chung).
+  - Tôn trọng giới hạn: dừng khi job bị huỷ, khi hết `max_minutes` (tính cả các vòng), khi chạm `daily_cost_usd`. Job ghi số vòng và kết quả. Chưa đạt thì `failed/goal_not_met`, nhưng không tính vào bộ đếm tự tắt (như script thoát khác 0). Không áp dụng cho nguồn kênh chat.
+  - Schema `propose_automation`: bỏ `escalate` và action `task`, thêm `script.burn_start`, `goal` và mô tả `@@quest`. Spec cũ có `escalate` vẫn đọc được nhưng bị bỏ qua.
+
+## ADR-133: Kiểm tra nhanh file ngay sau khi agent sửa
+- **Bối cảnh:** agent sửa xong nhiều file rồi mới chạy build/test, nên lỗi format, lỗi cú pháp hay JSON hỏng bị phát hiện muộn và tốn thêm lượt sửa lại. SWE-agent cho thấy một editor có linter, từ chối lỗi ngay lúc sửa, giúp agent sửa đúng chỗ, đúng lúc. Office đã có hook PreToolUse "Guard" (`office hook guard`) cho Claude Code, và cơ chế đó dùng được cho PostToolUse.
+- **Quyết định:**
+  - Lượt chạy Claude Code có quyền sửa (có Guard) được thêm hook PostToolUse `office hook check` cho Write|Edit|MultiEdit. Hook trả `{"decision":"block","reason":…}` để Claude Code đưa lỗi về cho agent sửa ngay.
+  - Kiểm tra theo đuôi file. Go: `gofmt -l -e`, rồi `go vet` cho package, chỉ giữ dòng nói về file vừa sửa, không gọi mạng, không tải toolchain. JSON, YAML: parse. TS/Vue/JS: không kiểm, vì typecheck quá chậm cho từng lần sửa.
+  - Tối đa 20 giây, quá hạn thì kill cả nhóm tiến trình. File ngoài thư mục làm việc (worktree/project), thiếu công cụ, quá giờ hay chính bước kiểm tra bị lỗi: im lặng, không bao giờ chặn agent. Báo tối đa 2000 ký tự, chỉ về file vừa sửa.
+  - Bật/tắt theo project bằng `quick_check` trong policy của project. Mặc định bật, policy đã lưu từ trước cũng bật. Công tắc nằm ở trang Quyền của project. Chỉ áp dụng cho Claude Code, như Guard.
+
+## ADR-134: Bộ nhớ hai tầng: ghi nhớ cốt lõi luôn nạp, ghi nhớ theo chủ đề nạp khi cần
+- **Bối cảnh:** sổ ghi nhớ của agent (ADR-068) được nạp nguyên vào mọi system prompt, tối đa 4000 ký tự. Càng ghi chi tiết theo từng mảng thì prompt càng nặng, rồi bị rút gọn mất chi tiết, dù phần lớn chi tiết chỉ cần khi làm đúng mảng đó. Claude Code dùng một chỉ mục ngắn luôn nạp, còn ghi chú theo chủ đề thì chỉ đọc khi cần: prompt gọn mà vẫn nhớ được nhiều.
+- **Quyết định:**
+  - Mỗi ghi nhớ có thêm `topic` (slug ngắn, bỏ dấu, tối đa 40 ký tự) và `summary` (một dòng, tối đa 150 ký tự). Ghi nhớ không có topic là ghi nhớ cốt lõi. Migration 00082 thêm hai cột mặc định rỗng, nên ghi nhớ cũ đều thành cốt lõi và hành vi không đổi.
+  - System prompt nhận phần cốt lõi (mới nhất trước, tối đa 2500 ký tự, có ghi chú khi bị cắt) và một mục lục: mỗi chủ đề một dòng `- <topic>: <summary>`, tối đa 1500 ký tự. Summary lấy bản mới nhất; chưa có thì lấy đầu ghi nhớ mới nhất. Nội dung đầy đủ của chủ đề không nằm trong prompt.
+  - Tool `recall` (chỉ đọc), có ở mọi nơi có `remember`. Theo `topic`: đọc toàn bộ ghi nhớ của chủ đề đó. Theo `query`: tìm trên mọi ghi nhớ, bỏ qua dấu, khớp đủ mọi từ. Không có tham số: liệt kê các chủ đề.
+  - `remember` có thêm `topic` và `summary` tuỳ chọn. Quy tắc bền, áp dụng cho cả project thì ghi vào cốt lõi; chi tiết của một mảng thì ghi kèm chủ đề và một dòng tóm tắt.
+  - Rút gọn theo nhóm, vẫn bằng model nhanh và vẫn giữ bản lưu: cốt lõi khi vượt 2500 ký tự, mỗi chủ đề khi vượt 4000 ký tự. Rút gọn giữ lại summary của chủ đề. Bản lưu chứa toàn bộ sổ, nên khôi phục trả lại đủ các chủ đề.
+  - API và dashboard: ghi nhớ chia nhóm "Cốt lõi" và từng chủ đề, sửa được chủ đề và tóm tắt ngay trên dòng, mỗi chủ đề có nút rút gọn riêng (`POST …/memories/compact?topic=`).

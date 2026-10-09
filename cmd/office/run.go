@@ -175,9 +175,17 @@ func serveCmd() *cobra.Command {
 			// a project's agent running on its own, finding work (spec 2026-10-01-burn-design)
 			burner := burn.New(a.store, chatEngine, trees)
 			office.SetBurn(func(ctx context.Context, sc officetools.Scope, name string, in officetools.BurnInput) (string, error) {
-				return burner.Tool(ctx, sc, name, burn.ToolInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason, What: in.What, Scanned: in.Scanned, Map: in.Map, Priority: in.Priority})
+				return burner.Tool(ctx, sc, name, burn.ToolInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason, What: in.What, Scanned: in.Scanned, Map: in.Map, Priority: in.Priority, Lessons: in.Lessons})
 			})
 			burner.SetNotify(bots.Notify) // a run's summary to the bot's chat its Burn names (ADR-120)
+			// a script's @@quest lines feed the Burn, and may start it (ADR-132)
+			runner.SetQuests(func(ctx context.Context, projectID string, qs []trigger.Quest, start bool, who string) (int, bool, error) {
+				list := make([]burn.Quest, len(qs))
+				for i, q := range qs {
+					list[i] = burn.Quest{Title: q.Title, Detail: q.Detail}
+				}
+				return burner.AddQuests(ctx, projectID, list, start, who)
+			})
 			burner.Start(ctx)
 			chatEngine.SendAllQueued(ctx) // messages that waited in chats when office stopped
 			bots.Start(ctx)

@@ -987,3 +987,36 @@ func TestBurnDoesAQuest(t *testing.T) {
 		t.Fatalf("quest done = %+v, run %s", q, b.RunBranch)
 	}
 }
+
+// ADR-131: a piece reported done meets the Burn's checks first; one failing,
+// it is not merged and goes back to its worker with the output.
+func TestBurnChecksAPieceReportedDone(t *testing.T) {
+	f := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, EndsAt: &ends, State: "stopped", Verify: "true\n# a note\necho boom; exit 3"})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.svc.Stop(context.Background(), f.project.ID)
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc phải qua kiểm chứng", Kind: "bug", Detail: "a.go"})
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	it := waitItem(t, f.st, items[0].ID, "doing")
+	f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: it.WorkConversationID}, "burn_done", burn.ToolInput{Item: it.ID, Summary: "xong"})
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		it, _ = f.st.Burn().Item(ctx, it.ID)
+		if strings.Contains(it.ReviewNote, "boom") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("checks not run: %+v", it)
+		}
+	}
+	if it.Branch != "" || it.Status == "done" || !strings.Contains(it.ReviewNote, "exit 3") {
+		t.Fatalf("a piece failing its checks: %+v", it)
+	}
+}

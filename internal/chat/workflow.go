@@ -85,6 +85,10 @@ const BurnReviewPurpose = "burn_review"
 // (ADR-116): the burn_* tools work there, for that piece only.
 const BurnWorkPurpose = "burn_work"
 
+// GoalJudgePurpose is the purpose of the hidden, read-only chat that judges
+// whether an automation's goal is reached (ADR-132).
+const GoalJudgePurpose = "goal_judge"
+
 // prepared is a run the chat that called it starts in the run's own chat.
 type prepared struct {
 	conv   string // the run's chat

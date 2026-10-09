@@ -118,6 +118,29 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 	}
 }
 
+// Judge answers, in a hidden chat of its own read only, whether an
+// automation's goal is reached (ADR-132); ctx carries its job.
+func (x officeExecutor) Judge(ctx context.Context, projectID, agentID, prompt string) (string, error) {
+	conv, err := x.chat.StartConversationPurpose(ctx, projectID, agentID, chat.GoalJudgePurpose)
+	if err != nil {
+		return "", err
+	}
+	if err := x.chat.SetMode(ctx, conv.ID, perm.Read); err != nil {
+		return "", err
+	}
+	_, reply, err := x.RunChat(ctx, projectID, agentID, conv.ID, prompt, "")
+	return reply, err
+}
+
+// WorkDir is the worktree a chat's agent edits in ("" = none: the project folder).
+func (x officeExecutor) WorkDir(_ context.Context, projectID, conversationID string) string {
+	t := x.chat.Worktrees()
+	if t == nil || conversationID == "" || !t.Exists(projectID, chat.ChatTree(conversationID)) {
+		return ""
+	}
+	return t.Path(projectID, chat.ChatTree(conversationID))
+}
+
 // assistantRunner starts what the office assistant proposed and a person
 // approved (ADR-046).
 type assistantRunner struct {

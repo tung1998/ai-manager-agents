@@ -85,6 +85,10 @@ const { data: wfData } = useLiveFetch<{ workflows: ProjectWorkflow[] }>(() => `/
 const workflowItems = computed(() => (wfData.value?.workflows ?? []).filter(w => w.enabled && !w.error && w.callable !== 'sub')
   .map(w => ({ label: `#${w.key} · ${w.name}`, value: w.key })))
 const workflowKey = computed({ get: () => form.config.workflow ?? '', set: (v: string) => { form.config.workflow = v } })
+// run until a goal is reached (ADR-132): a check command and/or a judge, at most N turns
+const goalOn = ref(!!form.config.goal)
+const goal = reactive({ text: '', check: '', judge: false, max_rounds: 5, ...form.config.goal })
+watch([goalOn, goal], () => { form.config.goal = goalOn.value ? { ...goal } : null }, { deep: true })
 
 // when a schedule stops on its own, as a Burn: the weekly limit's reset, after
 // some hours, at a time, or never (turned off by hand)
@@ -304,6 +308,11 @@ async function testRun() {
         <UFormField :label="t('auto.scriptBody')" :help="t('auto.scriptHelp')" :class="hl('script')">
           <UTextarea v-model="form.script.body" :rows="12" autoresize class="w-full font-mono text-xs" placeholder="grep -c ERROR logs/app.log || true" />
         </UFormField>
+        <label class="flex items-center gap-2.5">
+          <USwitch size="sm" :model-value="form.script.burn_start ?? false" @update:model-value="(v: boolean) => { form.script.burn_start = v }" />
+          <span class="text-sm">{{ t('auto.burnStart') }}</span>
+          <UTooltip :text="t('auto.burnStartHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+        </label>
         <div class="space-y-2 rounded-lg bg-(--ui-bg-elevated)/50 p-3">
           <div class="flex flex-wrap items-center gap-2">
             <UInput v-model="testPayload" size="sm" class="min-w-0 flex-1 font-mono" :placeholder="t('auto.testPayload')" />
@@ -344,6 +353,30 @@ async function testRun() {
         {{ t('auto.insert') }}
         <button v-for="p in placeholders" :key="p" type="button" class="rounded bg-(--ui-bg-elevated) px-1.5 py-0.5 font-mono hover:text-(--ui-text)" @click="insert(p)">{{ p }}</button>
       </div>
+      <!-- run until a goal is reached (ADR-132) -->
+      <template v-if="!fromChannel">
+        <label class="flex items-center gap-2.5">
+          <USwitch v-model="goalOn" size="sm" />
+          <span class="text-sm">{{ t('auto.goal') }}</span>
+          <UTooltip :text="t('auto.goalHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+        </label>
+        <div v-if="goalOn" class="grid gap-3 @lg:grid-cols-[1fr_auto]">
+          <UFormField :label="t('auto.goalCheck')" :hint="t('auto.goalCheckHint')">
+            <UInput v-model="goal.check" class="w-full font-mono text-xs" placeholder="pnpm test" />
+          </UFormField>
+          <UFormField :label="t('auto.goalRounds')">
+            <UInputNumber v-model="goal.max_rounds" :min="1" :max="20" class="w-28" />
+          </UFormField>
+          <label class="flex items-center gap-2.5 @lg:col-span-2">
+            <USwitch v-model="goal.judge" size="sm" />
+            <span class="text-sm">{{ t('auto.goalJudge') }}</span>
+            <UTooltip :text="t('auto.goalJudgeHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+          </label>
+          <UFormField v-if="goal.judge" :label="t('auto.goalText')" required class="@lg:col-span-2">
+            <UInput v-model="goal.text" class="w-full" :placeholder="t('auto.goalTextPlaceholder')" />
+          </UFormField>
+        </div>
+      </template>
     </section>
 
     <!-- where a run's answer goes besides office (a bot's chat) -->

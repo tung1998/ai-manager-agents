@@ -19,7 +19,8 @@ var GuardCommand string
 // .claude/skills) every file edit and MCP call goes through `office hook guard`.
 // gateway: the office's MCP servers the run gets (ADR-091), allowed like
 // office's own (their names are [a-z0-9-], safe on the command line).
-func guardSettings(userMCP bool, gateway []string) string {
+// check adds the quick check after each edit (ADR-133).
+func guardSettings(userMCP bool, gateway []string, check bool) string {
 	cmd := GuardCommand
 	if userMCP {
 		cmd += " --user-mcp"
@@ -28,10 +29,14 @@ func guardSettings(userMCP bool, gateway []string) string {
 		cmd += " --mcp " + n
 	}
 	h := []map[string]any{{"type": "command", "command": cmd}}
-	b, _ := json.Marshal(map[string]any{"hooks": map[string]any{"PreToolUse": []map[string]any{
+	hooks := map[string]any{"PreToolUse": []map[string]any{
 		{"matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": h},
 		{"matcher": "mcp__.*", "hooks": h},
-	}}})
+	}}
+	if check && CheckCommand != "" {
+		hooks["PostToolUse"] = []map[string]any{checkSettings()}
+	}
+	b, _ := json.Marshal(map[string]any{"hooks": hooks})
 	return string(b)
 }
 

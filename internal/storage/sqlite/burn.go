@@ -17,14 +17,14 @@ type burnRepo struct{ db dbtx }
 
 func (s *Store) Burn() storage.BurnRepo { return burnRepo{s.q} }
 
-const burnSessionCols = `id, project_id, conversation_id, agent_id, model_tier, max_parallel, result_mode, focus, work_order, ends_at, state, waiting_until, started_by, started_at, created_at, updated_at, review_profile_id, scanned, notify_channel_id, notify_chat_id, run_branch, hunt_template, hunt_prompt, code_map`
+const burnSessionCols = `id, project_id, conversation_id, agent_id, model_tier, max_parallel, result_mode, focus, work_order, ends_at, state, waiting_until, started_by, started_at, created_at, updated_at, review_profile_id, scanned, notify_channel_id, notify_chat_id, run_branch, hunt_template, hunt_prompt, code_map, verify, lessons`
 
 func scanBurnSession(row interface{ Scan(...any) error }) (storage.BurnSession, error) {
 	var s storage.BurnSession
 	var ends, waiting, started sql.NullString
 	var created, updated string
 	err := row.Scan(&s.ID, &s.ProjectID, &s.ConversationID, &s.AgentID, &s.ModelTier, &s.MaxParallel, &s.ResultMode, &s.Focus, &s.Order, &ends, &s.State, &waiting, &s.StartedBy, &started, &created, &updated,
-		&s.ReviewProfileID, &s.Scanned, &s.NotifyChannelID, &s.NotifyChatID, &s.RunBranch, &s.Template, &s.HuntPrompt, &s.CodeMap)
+		&s.ReviewProfileID, &s.Scanned, &s.NotifyChannelID, &s.NotifyChatID, &s.RunBranch, &s.Template, &s.HuntPrompt, &s.CodeMap, &s.Verify, &s.Lessons)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, storage.ErrNotFound
 	}
@@ -71,15 +71,15 @@ func (r burnRepo) SaveSession(ctx context.Context, s storage.BurnSession) (stora
 		s.CreatedAt = now
 	}
 	s.UpdatedAt = now
-	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_sessions (`+burnSessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_sessions (`+burnSessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (id) DO UPDATE SET conversation_id=excluded.conversation_id, agent_id=excluded.agent_id, model_tier=excluded.model_tier,
 		max_parallel=excluded.max_parallel, result_mode=excluded.result_mode, focus=excluded.focus, work_order=excluded.work_order, ends_at=excluded.ends_at, state=excluded.state,
 		waiting_until=excluded.waiting_until, started_by=excluded.started_by, started_at=excluded.started_at, updated_at=excluded.updated_at,
 		review_profile_id=excluded.review_profile_id, scanned=excluded.scanned, notify_channel_id=excluded.notify_channel_id, notify_chat_id=excluded.notify_chat_id, run_branch=excluded.run_branch,
-		hunt_template=excluded.hunt_template, hunt_prompt=excluded.hunt_prompt`,
+		hunt_template=excluded.hunt_template, hunt_prompt=excluded.hunt_prompt, verify=excluded.verify`,
 		s.ID, s.ProjectID, s.ConversationID, s.AgentID, s.ModelTier, s.MaxParallel, s.ResultMode, s.Focus, cmp.Or(s.Order, "roadmap"), optTime(s.EndsAt), s.State, optTime(s.WaitingUntil),
 		s.StartedBy, optTime(s.StartedAt), fmtTime(s.CreatedAt), fmtTime(s.UpdatedAt),
-		s.ReviewProfileID, s.Scanned, s.NotifyChannelID, s.NotifyChatID, s.RunBranch, cmp.Or(s.Template, "general"), s.HuntPrompt, s.CodeMap)
+		s.ReviewProfileID, s.Scanned, s.NotifyChannelID, s.NotifyChatID, s.RunBranch, cmp.Or(s.Template, "general"), s.HuntPrompt, s.CodeMap, s.Verify, s.Lessons)
 	if isUnique(err) {
 		return s, storage.ErrConflict
 	}
@@ -94,6 +94,11 @@ func (r burnRepo) SetScanned(ctx context.Context, id, scanned string) error {
 // saving the session it read earlier would undo a scan's map).
 func (r burnRepo) SetCodeMap(ctx context.Context, id, codeMap string) error {
 	return execOne(ctx, r.db, `UPDATE burn_sessions SET code_map=? WHERE id=?`, codeMap, id)
+}
+
+// SetLessons: like code_map, lessons are only written here.
+func (r burnRepo) SetLessons(ctx context.Context, id, lessons string) error {
+	return execOne(ctx, r.db, `UPDATE burn_sessions SET lessons=? WHERE id=?`, lessons, id)
 }
 
 func (r burnRepo) Running(ctx context.Context) ([]storage.BurnSession, error) {
@@ -113,13 +118,13 @@ func (r burnRepo) Running(ctx context.Context) ([]storage.BurnSession, error) {
 	return out, rows.Err()
 }
 
-const burnItemCols = `id, session_id, title, kind, detail, status, priority, branch, worktree, summary, attempts, subagents, cost_usd, created_at, updated_at, reviewed, review_note, review_conversations, work_conversation_id, review_err_attempts, run_branch`
+const burnItemCols = `id, session_id, title, kind, detail, status, priority, branch, worktree, summary, attempts, subagents, cost_usd, created_at, updated_at, reviewed, review_note, review_conversations, work_conversation_id, review_err_attempts, run_branch, files`
 
 func scanBurnItem(row interface{ Scan(...any) error }) (storage.BurnItem, error) {
 	var it storage.BurnItem
-	var created, updated, reviewed, convs string
+	var created, updated, reviewed, convs, files string
 	err := row.Scan(&it.ID, &it.SessionID, &it.Title, &it.Kind, &it.Detail, &it.Status, &it.Priority, &it.Branch, &it.Worktree, &it.Summary, &it.Attempts, &it.Subagents, &it.CostUSD, &created, &updated,
-		&reviewed, &it.ReviewNote, &convs, &it.WorkConversationID, &it.ReviewErrAttempts, &it.RunBranch)
+		&reviewed, &it.ReviewNote, &convs, &it.WorkConversationID, &it.ReviewErrAttempts, &it.RunBranch, &files)
 	if errors.Is(err, sql.ErrNoRows) {
 		return it, storage.ErrNotFound
 	}
@@ -127,6 +132,9 @@ func scanBurnItem(row interface{ Scan(...any) error }) (storage.BurnItem, error)
 		return it, err
 	}
 	it.Reviewed = splitList(reviewed)
+	if files != "" {
+		it.Files = strings.Split(files, "\n")
+	}
 	_ = json.Unmarshal([]byte(convs), &it.ReviewConversations)
 	return it, parseTimes([]*time.Time{&it.CreatedAt, &it.UpdatedAt}, created, updated)
 }
@@ -137,9 +145,9 @@ func (r burnRepo) AddItem(ctx context.Context, it storage.BurnItem) (storage.Bur
 	if it.Status == "" {
 		it.Status = "found"
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_items (`+burnItemCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_items (`+burnItemCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		it.ID, it.SessionID, it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, fmtTime(now), fmtTime(now),
-		strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), it.WorkConversationID, it.ReviewErrAttempts, it.RunBranch)
+		strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), it.WorkConversationID, it.ReviewErrAttempts, it.RunBranch, strings.Join(it.Files, "\n"))
 	return it, err
 }
 
@@ -148,13 +156,13 @@ func (r burnRepo) DeleteItem(ctx context.Context, id string) error {
 }
 
 func (r burnRepo) UpdateItem(ctx context.Context, it storage.BurnItem) error {
-	return execOne(ctx, r.db, `UPDATE burn_items SET title=?, kind=?, detail=?, status=?, priority=?, branch=?, worktree=?, summary=?, attempts=?, subagents=?, cost_usd=?, reviewed=?, review_note=?, review_conversations=?, work_conversation_id=?, review_err_attempts=?, run_branch=?, updated_at=? WHERE id=?`,
-		it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), it.WorkConversationID, it.ReviewErrAttempts, it.RunBranch, fmtTime(time.Now()), it.ID)
+	return execOne(ctx, r.db, `UPDATE burn_items SET title=?, kind=?, detail=?, status=?, priority=?, branch=?, worktree=?, summary=?, attempts=?, subagents=?, cost_usd=?, reviewed=?, review_note=?, review_conversations=?, work_conversation_id=?, review_err_attempts=?, run_branch=?, files=?, updated_at=? WHERE id=?`,
+		it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), it.WorkConversationID, it.ReviewErrAttempts, it.RunBranch, strings.Join(it.Files, "\n"), fmtTime(time.Now()), it.ID)
 }
 
 func (r burnRepo) UpdateItemFrom(ctx context.Context, it storage.BurnItem, fromStatus string) error {
-	if err := execOne(ctx, r.db, `UPDATE burn_items SET title=?, kind=?, detail=?, status=?, priority=?, branch=?, worktree=?, summary=?, attempts=?, subagents=?, cost_usd=?, reviewed=?, review_note=?, review_conversations=?, work_conversation_id=?, review_err_attempts=?, run_branch=?, updated_at=? WHERE id=? AND status=?`,
-		it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), it.WorkConversationID, it.ReviewErrAttempts, it.RunBranch, fmtTime(time.Now()), it.ID, fromStatus); err != nil {
+	if err := execOne(ctx, r.db, `UPDATE burn_items SET title=?, kind=?, detail=?, status=?, priority=?, branch=?, worktree=?, summary=?, attempts=?, subagents=?, cost_usd=?, reviewed=?, review_note=?, review_conversations=?, work_conversation_id=?, review_err_attempts=?, run_branch=?, files=?, updated_at=? WHERE id=? AND status=?`,
+		it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), it.WorkConversationID, it.ReviewErrAttempts, it.RunBranch, strings.Join(it.Files, "\n"), fmtTime(time.Now()), it.ID, fromStatus); err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return storage.ErrConflict
 		}

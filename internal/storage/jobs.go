@@ -192,7 +192,22 @@ type AutomationConfig struct {
 	// EndsAt: a schedule stops (turns itself off) at this time, as a Burn
 	// does (nil = runs until turned off).
 	EndsAt *time.Time `json:"ends_at,omitempty"`
+	// Goal: action chat/workflow runs until it is reached (ADR-132; nil = one turn).
+	Goal *AutomationGoal `json:"goal,omitempty"`
 }
+
+// AutomationGoal is "run until a condition is true" (ADR-132): after each
+// turn, the check and/or the judge; not reached, the chat goes on with what
+// they said, at most MaxRounds turns in all.
+type AutomationGoal struct {
+	Text      string `json:"text,omitempty"`       // what reached looks like (the judge reads it)
+	Check     string `json:"check,omitempty"`      // a shell command in the project folder: exit 0 = reached
+	Judge     bool   `json:"judge,omitempty"`      // a separate chat with the agent, read only, says whether Text is met
+	MaxRounds int    `json:"max_rounds,omitempty"` // 0 = 5, at most 20
+}
+
+// On: the goal has something to check it with.
+func (g *AutomationGoal) On() bool { return g != nil && (g.Check != "" || g.Judge) }
 
 // AutomationLimits guard unattended runs.
 type AutomationLimits struct {
@@ -223,6 +238,9 @@ type AutomationScript struct {
 	Lang     string `json:"lang,omitempty"` // bash | node | python
 	Body     string `json:"body,omitempty"`
 	TimeoutS int    `json:"timeout_s,omitempty"`
+	// BurnStart: the run gave the Burn quests (@@quest lines) and the Burn is
+	// stopped: it starts (ADR-132).
+	BurnStart bool `json:"burn_start,omitempty"`
 }
 
 // AutomationEscalate hands a script's result to an agent when needed.

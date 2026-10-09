@@ -12,14 +12,14 @@ import (
 
 type memoryRepo struct{ db dbtx }
 
-const memoryCols = `id, project_id, agent_id, text, source, created_by, created_at, updated_at`
+const memoryCols = `id, project_id, agent_id, text, source, topic, summary, created_by, created_at, updated_at`
 
 func scanMemory(row scanner) (storage.Memory, error) {
 	var (
 		m                storage.Memory
 		created, updated string
 	)
-	if err := row.Scan(&m.ID, &m.ProjectID, &m.AgentID, &m.Text, &m.Source, &m.CreatedBy, &created, &updated); err != nil {
+	if err := row.Scan(&m.ID, &m.ProjectID, &m.AgentID, &m.Text, &m.Source, &m.Topic, &m.Summary, &m.CreatedBy, &created, &updated); err != nil {
 		return m, notFound(err)
 	}
 	return m, parseTimes([]*time.Time{&m.CreatedAt, &m.UpdatedAt}, created, updated)
@@ -52,13 +52,13 @@ func (r memoryRepo) Create(ctx context.Context, m storage.Memory) (storage.Memor
 	if m.Source == "" {
 		m.Source = "person"
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO agent_memories (`+memoryCols+`) VALUES (?,?,?,?,?,?,?,?)`,
-		m.ID, m.ProjectID, m.AgentID, m.Text, m.Source, m.CreatedBy, fmtTime(now), fmtTime(now))
+	_, err := r.db.ExecContext(ctx, `INSERT INTO agent_memories (`+memoryCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		m.ID, m.ProjectID, m.AgentID, m.Text, m.Source, m.Topic, m.Summary, m.CreatedBy, fmtTime(now), fmtTime(now))
 	return m, err
 }
 
-func (r memoryRepo) Update(ctx context.Context, id, text string) error {
-	return execOne(ctx, r.db, `UPDATE agent_memories SET text=?, updated_at=? WHERE id=?`, text, fmtTime(time.Now()), id)
+func (r memoryRepo) Update(ctx context.Context, m storage.Memory) error {
+	return execOne(ctx, r.db, `UPDATE agent_memories SET text=?, topic=?, summary=?, updated_at=? WHERE id=?`, m.Text, m.Topic, m.Summary, fmtTime(time.Now()), m.ID)
 }
 
 func (r memoryRepo) Delete(ctx context.Context, id string) error {
@@ -81,8 +81,8 @@ func (r memoryRepo) Replace(ctx context.Context, projectID, agentID string, item
 			if m.Source == "" {
 				m.Source = "person"
 			}
-			if _, err := db.ExecContext(ctx, `INSERT INTO agent_memories (`+memoryCols+`) VALUES (?,?,?,?,?,?,?,?)`,
-				m.ID, projectID, agentID, m.Text, m.Source, m.CreatedBy, fmtTime(m.CreatedAt), fmtTime(time.Now())); err != nil {
+			if _, err := db.ExecContext(ctx, `INSERT INTO agent_memories (`+memoryCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+				m.ID, projectID, agentID, m.Text, m.Source, m.Topic, m.Summary, m.CreatedBy, fmtTime(m.CreatedAt), fmtTime(time.Now())); err != nil {
 				return err
 			}
 		}

@@ -112,6 +112,9 @@ func (s *Service) integrate(ctx context.Context, b storage.BurnSession, it *stor
 		return err
 	}
 	if diff != "" {
+		if names, err := gitIn(ctx, it.Worktree, "", "diff", "--cached", "--name-only", "--no-renames", base); err == nil {
+			it.Files = strings.Fields(names) // what it touched, for the run's summary (ADR-131)
+		}
 		s.runMu.Lock()
 		err = s.mergeInto(ctx, b, p.Path, *it, diff+"\n")
 		s.runMu.Unlock()

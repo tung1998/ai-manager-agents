@@ -24,6 +24,8 @@ type BurnSession struct {
 	ReviewProfileID                        string // its review profile (ADR-113); "" = none
 	Scanned                                string // what its scans looked at, latest last (ADR-116)
 	CodeMap                                string // what its scans learned of the codebase (ADR-130)
+	Verify                                 string // commands run on a piece reported done, one a line; \"\" = guessed (ADR-131)
+	Lessons                                string // what its scans learned of pieces turned down or failed (ADR-131)
 	NotifyChannelID, NotifyChatID          string // a bot's chat its summary goes to when it stops (ADR-120); "" = none
 	EndsAt                                 *time.Time
 	State                                  string // running | waiting_limit | draining (finishing what is in progress) | stopped
@@ -53,8 +55,9 @@ type BurnItem struct {
 	ID, SessionID, Title, Kind, Detail string
 	// Kind is unfinished | upgrade | bug | idea (a worker's), quest (the
 	// person's, done as given), or "" (a worker still looking).
-	Status                    string // found | queued | doing | paused | done | failed | skipped
-	RunBranch                 string // the run it belongs to (its run's branch); "" = a quest not started yet
+	Status                    string   // found | queued | doing | paused | done | failed | skipped
+	RunBranch                 string   // the run it belongs to (its run's branch); "" = a quest not started yet
+	Files                     []string // the files it changed, once merged into the run (ADR-131)
 	Priority                  int
 	Branch, Worktree, Summary string
 	Attempts, Subagents       int
@@ -80,6 +83,8 @@ type BurnRepo interface {
 	SetScanned(ctx context.Context, id, scanned string) error
 	// SetCodeMap saves its code map, nothing else (ADR-130).
 	SetCodeMap(ctx context.Context, id, codeMap string) error
+	// SetLessons saves its lessons, nothing else (ADR-131).
+	SetLessons(ctx context.Context, id, lessons string) error
 	Running(ctx context.Context) ([]BurnSession, error)
 	AddItem(ctx context.Context, it BurnItem) (BurnItem, error)
 	UpdateItem(ctx context.Context, it BurnItem) error

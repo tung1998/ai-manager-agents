@@ -5,6 +5,10 @@ Detail: [[.Detail]]
 [[- if ne .Kind "quest"]]
 A Burn scan found this piece and checked it; the detail is your brief (where, evidence, fix, verify). Start from it: confirm it in the code, do not scan the codebase again.
 [[- end]]
+[[- if .Lessons]]
+Lessons this Burn learned from earlier pieces (follow them):
+[[.Lessons]]
+[[- end]]
 [[- if .Map]]
 The code map the scans keep (to find your way):
 [[.Map]]
@@ -35,6 +39,12 @@ If this is a part of a roadmap feature: do exactly this part's scope, record des
 [[- end]]
 [[- if .Reviewed]]
 Once you report done, the result is reviewed first; if the review fails, the piece comes back with the reviewer's notes.
+[[- end]]
+[[- if .Verify]]
+Once you report done, office runs these checks in this worktree first; one failing, the piece comes back to you with its output, so run them yourself before:
+[[- range .Verify]]
+- `[[.]]`
+[[- end]]
 [[- end]]
 Once you report done, office merges your changes into this Burn run's branch [[.Branch]] as one commit (every piece of the run goes there).
 Finish with burn_done(item=[[printf "%q" .ID]], summary=what you did and how you verified it) or burn_fail(item=[[printf "%q" .ID]], reason=…) if you cannot do it.

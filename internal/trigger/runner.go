@@ -62,6 +62,7 @@ type Runner struct {
 	onReply    OnReply
 	onProgress OnProgress
 	onNotify   OnNotify
+	quests     GiveQuests // a script's @@quest lines to the Burn (ADR-132); nil = none
 }
 
 // OnReply gets what a run from a chat channel answers (ADR-049): origin is
@@ -495,6 +496,12 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	}
 	var got string
 	got, text, err = r.exec.RunChat(actx, a.ProjectID, agentID, conv, prompt, a.EditMode)
+	if err == nil && a.Config.Goal.On() && j.ParentJobID == "" { // until its goal is reached (ADR-132)
+		var g goalRun
+		got, text, g, err = r.pursue(ctx, actx, a, j, got, text, now, loc)
+		r.recordGoal(ctx, j, g, err)
+		text = strings.TrimSpace(text + "\n\n" + g.summary())
+	}
 	notifyConv = got
 	if a.KeepContext && !fromChannel && got != "" && got != a.Config.ConversationID {
 		keptConv = got

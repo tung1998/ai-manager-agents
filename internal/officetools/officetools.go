@@ -7,6 +7,7 @@ package officetools
 import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/gitops"
+	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"cmp"
 	"context"
@@ -78,7 +79,7 @@ func (t *Toolbox) SetDelegate(fn func(ctx context.Context, sc Scope, agent, task
 }
 
 // BurnInput is what the burn_* tools take.
-type BurnInput struct{ Title, Kind, Detail, Item, Summary, Reason, What, Scanned, Map, Priority string }
+type BurnInput struct{ Title, Kind, Detail, Item, Summary, Reason, What, Scanned, Map, Priority, Lessons string }
 
 // SetBurn turns on the burn_* tools (a Burn's conversation only).
 func (t *Toolbox) SetBurn(fn func(ctx context.Context, sc Scope, name string, in BurnInput) (string, error)) {
@@ -149,13 +150,20 @@ func (t *Toolbox) Tools() []Tool {
 				"text":   map[string]any{"type": "string", "description": "Message text, clear enough for the agent there to act without asking back"},
 				"reason": map[string]any{"type": "string", "description": "Why it needs sending"},
 			}, "chat", "text", "reason")})
-		list = append(list, Tool{Name: "remember", Description: "Save one short point worth keeping long term to your notes for this project (seen in every later chat): conventions, decisions, the person's preferences, fixes. Nothing one-off, no secrets.",
+		list = append(list, Tool{Name: "remember", Description: "Save one short point worth keeping long term to your notes for this project: conventions, decisions, the person's preferences, fixes. Nothing one-off, no secrets. A durable rule for the whole project: no topic (core, in every later chat). Details about one area (a module, a flow, a service): give a topic and a one-line summary; only the summary is in every chat, the details are read with recall.",
 			Schema: obj(map[string]any{
-				"note":   map[string]any{"type": "string", "description": "What to remember, e.g. The repo uses pnpm; run pnpm test before reporting done"},
-				"reason": map[string]any{"type": "string", "description": "Why it is worth remembering"},
+				"note":    map[string]any{"type": "string", "description": "What to remember, e.g. The repo uses pnpm; run pnpm test before reporting done"},
+				"topic":   map[string]any{"type": "string", "description": "Optional short slug of the area, e.g. payments or deploy (reuse a topic from your index when it fits); empty = core"},
+				"summary": map[string]any{"type": "string", "description": "With a topic: one line saying what its notes cover, e.g. PayPal/Stripe refunds, webhooks, test keys"},
+				"reason":  map[string]any{"type": "string", "description": "Why it is worth remembering"},
 			}, "note")})
+		list = append(list, Tool{Name: "recall", Description: "Read your notes on a topic from the index in your notes (they are not in the prompt), or search all your notes by keywords, ignoring accents. With no arguments, lists your topics.",
+			Schema: obj(map[string]any{
+				"topic": map[string]any{"type": "string", "description": "Topic name from the index, e.g. payments"},
+				"query": map[string]any{"type": "string", "description": "Keywords to search the notes by (optional)"},
+			}), ReadOnly: true})
 		str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
-		list = append(list, Tool{Name: "propose_automation", Description: "Propose an automation (the person approves it). Prefer action=script (NO AI tokens); chat/task only when every run needs AI; workflow runs a project workflow. With automation_id it edits that one.",
+		list = append(list, Tool{Name: "propose_automation", Description: "Propose an automation (the person approves it). Prefer action=script (NO AI tokens); chat only when every run needs AI; workflow runs a project workflow. A script feeds the project's Burn: each output line '@@quest <title> :: <detail>' becomes a Burn quest (open ones with the same title are skipped). chat/workflow with goal runs until a check passes. With automation_id it edits that one.",
 			Schema: obj(map[string]any{
 				"automation_id": str("Edit this automation (empty = create a new one)"),
 				"name":          str("Short name"),
@@ -163,20 +171,21 @@ func (t *Toolbox) Tools() []Tool {
 				"every_minutes": map[string]any{"type": "integer"},
 				"cron":          str("5-field cron, e.g. 0 8 * * 1-5"),
 				"timezone":      str("IANA, e.g. Asia/Ho_Chi_Minh"),
-				"action":        map[string]any{"type": "string", "enum": []string{"script", "chat", "task", "workflow"}},
+				"action":        map[string]any{"type": "string", "enum": []string{"script", "chat", "workflow"}},
 				"workflow":      str("workflow: key of the workflow to run (agent_id is the coordinating agent)"),
 				"agent_id":      str("chat: answering agent (empty = team lead)"),
-				"prompt":        str("chat/task: text sent to the agent; workflow: the workflow's input; supports {{payload}}, {{today}}…"),
+				"prompt":        str("chat: text sent to the agent; workflow: the workflow's input; supports {{payload}}, {{today}}…"),
 				"script": obj(map[string]any{
-					"lang":      map[string]any{"type": "string", "enum": []string{"bash", "node", "python"}},
-					"body":      str("Source; runs in the project folder, payload on stdin and $OFFICE_PAYLOAD, result on stdout, non-zero exit on error, a line '@@agent: <text>' when an agent should look"),
-					"timeout_s": map[string]any{"type": "integer", "description": "Default 300, max 3600"},
+					"lang":       map[string]any{"type": "string", "enum": []string{"bash", "node", "python"}},
+					"body":       str("Source; runs in the project folder, payload on stdin and $OFFICE_PAYLOAD, result on stdout, non-zero exit on error; a line '@@quest <title> :: <detail>' gives the project's Burn a quest (detail optional)"),
+					"timeout_s":  map[string]any{"type": "integer", "description": "Default 300, max 3600"},
+					"burn_start": map[string]any{"type": "boolean", "description": "Quests were added and the Burn is stopped: start it with its saved settings (schedule or manual runs only)"},
 				}),
-				"escalate": obj(map[string]any{
-					"when":     map[string]any{"type": "string", "enum": []string{"never", "failure", "signal"}, "description": "failure (default): the script fails; signal: it prints an @@agent line"},
-					"action":   map[string]any{"type": "string", "enum": []string{"chat", "task"}},
-					"agent_id": str("Handling agent (empty = team lead)"),
-					"prompt":   str("Text sent to the agent; supports {{output}}, {{exit_code}}, {{message}}"),
+				"goal": obj(map[string]any{
+					"text":       str("What reached looks like (needed with judge)"),
+					"check":      str("Shell command run after each turn in the project folder (the chat's worktree if any); exit 0 = reached"),
+					"judge":      map[string]any{"type": "boolean", "description": "A separate read-only chat with the agent judges whether text is met"},
+					"max_rounds": map[string]any{"type": "integer", "description": "Turns at most, default 5, max 20; each failed round sends the check's output back to the chat"},
 				}),
 				"ends_at": str("schedule: time to stop on its own (RFC3339, e.g. 2026-10-12T00:00:00+07:00); empty = runs until turned off"),
 				"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "chat: tags put on each run's chat (max 10; empty = keep the current tags)"},
@@ -226,6 +235,7 @@ func (t *Toolbox) Tools() []Tool {
 				"scanned":  map[string]any{"type": "string", "description": "The areas you looked at, briefly"},
 				"code_map": map[string]any{"type": "string", "description": "The whole code map, updated: parts, where they live, key files, conventions, how to build/test (at most about 6000 characters)"},
 				"reason":   map[string]any{"type": "string", "description": "Nothing recorded: why"},
+				"lessons":  map[string]any{"type": "string", "description": "The whole lessons list, updated from the pieces turned down or failed (at most about 3000 characters)"},
 			}, "item", "scanned")},
 			Tool{Name: "burn_list", Description: "Burn: list this Burn's pieces: the open ones in full, all closed ones (done/skipped/failed, to avoid doing one again), or every area looked at.", Schema: obj(map[string]any{
 				"what": map[string]any{"type": "string", "enum": []string{"open", "closed", "scanned"}},
@@ -361,6 +371,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		Scanned  string          `json:"scanned"`
 		CodeMap  string          `json:"code_map"`
 		Priority string          `json:"priority"`
+		Lessons  string          `json:"lessons"`
 		Summary  string          `json:"summary"`
 		Author   string          `json:"author"`
 		Caption  string          `json:"caption"`
@@ -374,6 +385,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		ID       string          `json:"id"`
 		Patch    json.RawMessage `json:"patch"`
 		Note     string          `json:"note"`
+		Topic    string          `json:"topic"`
 		Chat     string          `json:"chat"`
 		Text     string          `json:"text"`
 	}
@@ -466,7 +478,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		if t.burn == nil || !t.burnChat(sc) {
 			return "Các công cụ burn_* chỉ dùng trong hội thoại Burn", true
 		}
-		out, err = t.burn(ctx, sc, name, BurnInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason, What: in.What, Scanned: in.Scanned, Map: in.CodeMap, Priority: in.Priority})
+		out, err = t.burn(ctx, sc, name, BurnInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason, What: in.What, Scanned: in.Scanned, Map: in.CodeMap, Priority: in.Priority, Lessons: in.Lessons})
 	case "send_file":
 		if t.sendFile == nil || !t.botChat(sc) {
 			return "send_file chỉ dùng trong cuộc chat của bot Discord/Telegram", true
@@ -518,12 +530,21 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 			return "Không ghi nhớ được ở đây", true
 		}
 		var a storage.Action
-		if a, err = t.actions.Propose(ctx, sc, "remember", in.Note, in.Reason); err == nil {
+		topic, summary := memory.Clean(in.Topic, in.Summary)
+		if a, err = t.actions.Propose(ctx, sc, "remember", in.Note, in.Reason, storage.ActionArgs{Topic: topic, Summary: summary}); err == nil {
 			if a.Status == "done" {
 				out = "Written to memory notes: " + a.Target
 			} else {
 				out = "Proposed the memory note (id " + a.ID + "), waiting for the person's approval."
 			}
+			if topic != "" {
+				out += " (topic " + topic + ")"
+			}
+		}
+	case "recall":
+		var id string
+		if id, err = t.agentID(ctx, projectID, sc.Agent); err == nil {
+			out, err = memory.Recall(ctx, t.store, projectID, id, in.Topic, in.Query)
 		}
 	case "propose_action":
 		if t.actions == nil || !perm.AtLeast(sc.Level, perm.Propose) {
@@ -804,6 +825,20 @@ func (t *Toolbox) searchHistory(ctx context.Context, sc Scope, query string, day
 			strings.ReplaceAll(h.Snippet, "\n", " "), h.ProjectID, h.ConversationID, h.MessageID)
 	}
 	return b.String(), nil
+}
+
+// agentID is the id of the project's agent called name (whose notes recall reads).
+func (t *Toolbox) agentID(ctx context.Context, projectID, name string) (string, error) {
+	agents, err := t.store.Agents().List(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	for _, a := range agents {
+		if a.Name == name {
+			return a.ID, nil
+		}
+	}
+	return "", errors.New("không có sổ ghi nhớ ở đây")
 }
 
 // burnChat: the run is a Burn's conversation or one of its pieces' work

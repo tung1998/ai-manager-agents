@@ -332,8 +332,11 @@ type Memory struct {
 	ID, ProjectID, AgentID string
 	Text                   string
 	Source                 string // person | agent | compact
-	CreatedBy              string
-	CreatedAt, UpdatedAt   time.Time
+	// Topic: a short slug; "" = core, always in the prompt, else loaded on
+	// demand with its Summary a line of the index (ADR-134).
+	Topic, Summary       string
+	CreatedBy            string
+	CreatedAt, UpdatedAt time.Time
 }
 
 // MemoryRevision is the notes as they were before a compaction or a restore.
@@ -349,7 +352,8 @@ type MemoryRepo interface {
 	List(ctx context.Context, projectID, agentID string) ([]Memory, error)
 	Get(ctx context.Context, id string) (Memory, error)
 	Create(ctx context.Context, m Memory) (Memory, error)
-	Update(ctx context.Context, id, text string) error
+	// Update sets m.ID's text, topic and summary.
+	Update(ctx context.Context, m Memory) error
 	Delete(ctx context.Context, id string) error
 	// Replace puts items in place of all of the agent's notes (one transaction).
 	Replace(ctx context.Context, projectID, agentID string, items []Memory) error

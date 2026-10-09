@@ -137,11 +137,11 @@ func TestToolsReadOnly(t *testing.T) {
 		"ops_overview": true, "process_logs": true, "container_logs": true, "monitor_detail": true,
 		"git_status": true, "git_diff": true, "git_log": true,
 		"describe": true, "list": true, "get": true,
-		"search_history": true, "read_link": true, "burn_list": true,
+		"search_history": true, "read_link": true, "burn_list": true, "recall": true,
 	}
 	writes := []string{"run_command", "propose_action", "propose_automation", "propose_change", "remember",
 		"send_to_chat", "send_file", "delegate", "run_automation", "burn_add", "burn_pick", "burn_skip",
-		"burn_done", "burn_claim", "burn_none", "burn_fail", "workflow_delegate", "workflow_send",
+		"burn_done", "burn_scan_done", "burn_fail", "workflow_delegate", "workflow_send",
 		"workflow_ask", "workflow_vote", "workflow_gate", "workflow_done"}
 
 	// No single scope offers every tool at once (the office assistant gets

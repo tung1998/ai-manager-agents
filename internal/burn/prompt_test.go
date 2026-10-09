@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -237,7 +238,7 @@ func TestVerdict(t *testing.T) {
 		"Analysis:\nline 1\nline 2\nline 3\nline 4\nVERDICT: DISAGREE": "no",
 		"I agree with the approach overall":                            "unclear",
 	} {
-		if got := verdict(text); got != want {
+		if got := verdictOf(text); got != want {
 			t.Errorf("verdict(%q) = %s, want %s", text, got, want)
 		}
 	}
@@ -387,5 +388,61 @@ func TestRoom(t *testing.T) {
 	}
 	if room(append(items, storage.BurnItem{Kind: KindQuest, Status: "found"})) != 0 {
 		t.Fatal("a quest waiting takes room too")
+	}
+}
+
+// ADR-131: the checks (the Burn's, else guessed), the lessons and the
+// setbacks a scan learns from, the risk areas of a run's summary.
+func TestChecksLessonsRisks(t *testing.T) {
+	dir := t.TempDir()
+	if got := verifyCommands(storage.BurnSession{}, dir); len(got) != 0 {
+		t.Fatalf("nothing to guess from: %v", got)
+	}
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644)
+	if got := verifyCommands(storage.BurnSession{}, dir); strings.Join(got, ";") != "go build ./...;go vet ./..." {
+		t.Fatalf("guessed %v", got)
+	}
+	if got := verifyCommands(storage.BurnSession{Verify: " make test \n\n# x\n"}, dir); strings.Join(got, ";") != "make test" {
+		t.Fatalf("the Burn's own %v", got)
+	}
+	if got := verifyCommands(storage.BurnSession{}, ""); len(got) != 0 {
+		t.Fatalf("no worktree, no guess: %v", got)
+	}
+	if verify(context.Background(), storage.BurnSession{Verify: "true"}, dir) != "" || !strings.Contains(verify(context.Background(), storage.BurnSession{Verify: "echo hỏng; false"}, dir), "hỏng") {
+		t.Fatal("verify")
+	}
+	now := time.Now()
+	items := []storage.BurnItem{
+		{Kind: "bug", Status: "skipped", Title: "Cũ", Summary: "Review vấn đề: không làm. cố ý", UpdatedAt: now.Add(-time.Hour)},
+		{Kind: "bug", Status: "failed", Title: "Mới", Summary: "test lỗi", UpdatedAt: now},
+		{Kind: "bug", Status: "skipped", Title: "Người bỏ"}, // skipped by hand: no reason, nothing to learn
+		{Kind: "bug", Status: "done", Title: "Xong", Summary: "ok"},
+	}
+	if got := setbacks(items); len(got) != 2 || !strings.Contains(got[0], "Mới") {
+		t.Fatalf("setbacks %v", got)
+	}
+	p := scanPrompt(storage.BurnSession{Lessons: "- X là cố ý"}, storage.BurnItem{ID: "w"}, items, false)
+	for _, want := range []string{"- X là cố ý", "[failed] Mới: test lỗi", "lessons=the whole lessons list"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("scan prompt lacks %q:\n%s", want, p)
+		}
+	}
+	w := workPrompt(storage.BurnSession{Lessons: "- X là cố ý", Verify: "make check"}, storage.BurnItem{ID: "x", Kind: "bug"}, false, false)
+	if !strings.Contains(w, "- X là cố ý") || !strings.Contains(w, "`make check`") {
+		t.Errorf("work prompt:\n%s", w)
+	}
+	if got := risks([]string{"migrations/sqlite/00085_x.sql", "internal/auth/login.go", "a.go"}); strings.Join(got, ",") != "migration/dữ liệu,bảo mật/quyền" {
+		t.Fatalf("risks %v", got)
+	}
+	if risks([]string{"README.md"}) != nil {
+		t.Fatal("no risk")
+	}
+	start := now.Add(-time.Hour)
+	sum := summary(storage.BurnSession{StartedAt: &start}, []storage.BurnItem{
+		{Kind: "bug", Status: "done", Title: "Đổi bảng", Files: []string{"migrations/sqlite/1.sql"}, UpdatedAt: now},
+		{Kind: "bug", Status: "done", Title: "Sửa chữ", Files: []string{"README.md"}, UpdatedAt: now},
+	}, "demo", "x", now)
+	if !strings.Contains(sum, "Cần đọc kỹ (1):\n- Đổi bảng — migration/dữ liệu") {
+		t.Errorf("summary:\n%s", sum)
 	}
 }

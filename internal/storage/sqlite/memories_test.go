@@ -18,11 +18,11 @@ func TestMemories(t *testing.T) {
 	}
 	b, _ := mem.Create(ctx, storage.Memory{ProjectID: p.ID, AgentID: "agt_1", Text: "không sửa file generated", Source: "agent"})
 	mem.Create(ctx, storage.Memory{ProjectID: p.ID, AgentID: "agt_2", Text: "của agent khác", Source: "person"})
-	if err := mem.Update(ctx, a.ID, "project dùng pnpm 9"); err != nil {
+	if err := mem.Update(ctx, storage.Memory{ID: a.ID, Text: "project dùng pnpm 9", Topic: "build", Summary: "pnpm, test"}); err != nil {
 		t.Fatal(err)
 	}
 	list, _ := mem.List(ctx, p.ID, "agt_1")
-	if len(list) != 2 || list[0].Text != "project dùng pnpm 9" || list[1].ID != b.ID {
+	if len(list) != 2 || list[0].Text != "project dùng pnpm 9" || list[0].Topic != "build" || list[0].Summary != "pnpm, test" || list[1].ID != b.ID || list[1].Topic != "" {
 		t.Fatalf("list = %+v", list)
 	}
 	rev, err := mem.SaveRevision(ctx, storage.MemoryRevision{ProjectID: p.ID, AgentID: "agt_1", Items: list, Reason: "rút gọn"})
