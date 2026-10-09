@@ -9,9 +9,10 @@ await Promise.all([_f1, _f3]) // started together: one round trip, not 2 (a phon
 const projects = computed(() => data.value?.projects ?? [])
 
 const addOpen = ref(false)
-type Scope = 'folder' | 'clone' | 'machine'
+type Scope = 'folder' | 'clone' | 'idea' | 'machine'
 // clone: a pasted git link, cloned into parent/dir (dir from the link when empty)
-const form = reactive({ scope: 'folder' as Scope, path: '', name: '', pack: '', url: '', dir: '', parent: '' })
+// idea: a new, empty repo in parent/dir whose Burn builds it (ADR-139)
+const form = reactive({ scope: 'folder' as Scope, path: '', name: '', pack: '', url: '', dir: '', parent: '', idea: '', stack: '' })
 const error = ref('')
 const adding = ref(false)
 const urlDir = computed(() => form.url.trim().replace(/\/+$/, '').split(/[/:]/).pop()?.replace(/\.git$/, '') ?? '')
@@ -19,10 +20,16 @@ const cloneDest = computed(() => {
   const dir = form.dir.trim() || urlDir.value
   return form.parent && dir ? `${form.parent.replace(/\/+$/, '')}/${dir}` : ''
 })
-const canAdd = computed(() => form.scope === 'folder' ? !!form.path : form.scope === 'clone' ? !!form.url.trim() && !!form.parent : !!form.name)
+const ideaDest = computed(() => form.parent && form.dir.trim() ? `${form.parent.replace(/\/+$/, '')}/${form.dir.trim()}` : '')
+const canAdd = computed(() => ({
+  folder: !!form.path,
+  clone: !!form.url.trim() && !!form.parent,
+  idea: !!form.idea.trim() && !!form.dir.trim() && !!form.parent,
+  machine: !!form.name
+})[form.scope])
 
 function openAdd(path = '', name = '') {
-  Object.assign(form, { scope: 'folder', path, name, pack: '__ai', url: '', dir: '', parent: sys.value?.clone_root ?? '' })
+  Object.assign(form, { scope: 'folder', path, name, pack: '__ai', url: '', dir: '', parent: sys.value?.clone_root ?? '', idea: '', stack: '' })
   error.value = ''
   addOpen.value = true
 }
@@ -70,12 +77,18 @@ async function add() {
           method: 'POST',
           body: { url: form.url.trim(), parent: form.parent, dir: form.dir.trim(), name: form.name, pack }
         })
-      : await $fetch<{ project: Project }>('/api/projects', {
+      : form.scope === 'idea'
+        ? await $fetch<{ project: Project }>('/api/projects/new', {
+            method: 'POST',
+            body: { idea: form.idea.trim(), stack: form.stack.trim(), parent: form.parent, dir: form.dir.trim(), name: form.name, pack }
+          })
+        : await $fetch<{ project: Project }>('/api/projects', {
           method: 'POST',
-          body: { path: form.scope === 'folder' ? form.path : '', name: form.name, pack }
-        })
+            body: { path: form.scope === 'folder' ? form.path : '', name: form.name, pack }
+          })
     addOpen.value = false
-    await navigateTo(form.pack === '__ai' ? `/projects/${res.project.id}/setup` : `/projects/${res.project.id}`)
+    // from an idea: its Burn (builder template) is where it is built
+    await navigateTo(form.scope === 'idea' && form.pack !== '__ai' ? `/projects/${res.project.id}?tab=burn` : form.pack === '__ai' ? `/projects/${res.project.id}/setup` : `/projects/${res.project.id}`)
   } catch (e) {
     error.value = apiError(e)
   } finally {
@@ -164,11 +177,12 @@ async function add() {
       <template #body>
         <form id="project-form" class="space-y-4" @submit.prevent="add">
           <UFormField :label="t('projects.scope')">
-            <div class="grid gap-2 sm:grid-cols-3">
+            <div class="grid gap-2 sm:grid-cols-2">
               <button
                 v-for="opt in [
                   { value: 'folder', icon: 'i-lucide-folder-git-2', title: t('projects.scopeFolderTitle'), text: t('projects.scopeFolderText') },
                   { value: 'clone', icon: 'i-lucide-git-branch-plus', title: t('projects.scopeCloneTitle'), text: t('projects.scopeCloneText') },
+                  { value: 'idea', icon: 'i-lucide-sparkles', title: t('projects.scopeIdeaTitle'), text: t('projects.scopeIdeaText') },
                   { value: 'machine', icon: 'i-lucide-monitor', title: t('projects.scopeMachineTitle'), text: t('projects.scopeMachineText') }
                 ]" :key="opt.value" type="button"
                 class="flex items-start gap-3 rounded-lg border p-3 text-left transition"
@@ -198,6 +212,23 @@ async function add() {
               </UFormField>
             </div>
             <UFormField :label="t('projects.cloneParent')" :help="cloneDest ? t('projects.cloneInto', { path: cloneDest }) : undefined" required>
+              <FolderTree v-model="form.parent" />
+            </UFormField>
+          </template>
+
+          <template v-if="form.scope === 'idea'">
+            <UFormField :label="t('projects.idea')" required>
+              <UTextarea v-model="form.idea" :rows="3" autoresize class="w-full" :placeholder="t('projects.ideaPlaceholder')" autofocus />
+            </UFormField>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <UFormField :label="t('projects.stack')">
+                <UInput v-model="form.stack" class="w-full" :placeholder="t('projects.stackPlaceholder')" />
+              </UFormField>
+              <UFormField :label="t('projects.cloneDir')" required>
+                <UInput v-model="form.dir" class="w-full font-mono" placeholder="my-app" />
+              </UFormField>
+            </div>
+            <UFormField :label="t('projects.cloneParent')" :help="ideaDest ? t('projects.ideaInto', { path: ideaDest }) : undefined" required>
               <FolderTree v-model="form.parent" />
             </UFormField>
           </template>

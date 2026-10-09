@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -529,14 +530,14 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 			if !busy[sc.ID] {
 				run(sc)
 			}
-		} else if !draining && !held && s.find && room(items) > 0 && !s.scansOver(b) && !s.waitLimit(ctx, b) {
+		} else if !draining && !held && s.find && room(items) > 0 && !builderBusy(b, items) && !s.scansOver(b) && !s.waitLimit(ctx, b) {
 			if sc, err := s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: huntTitle, Status: "queued", RunBranch: b.RunBranch}); err == nil {
 				items = append(items, sc)
 				run(sc)
 			}
 		}
 		// the work: MaxParallel pieces at a time
-		free := max(b.MaxParallel, 1) - pieces(items, busy)
+		free := parallel(b) - pieces(items, busy)
 		for ; free > 0; free-- {
 			it, ok := next(items, busy, draining || held)
 			if !ok {
@@ -613,18 +614,29 @@ func (s *Service) step(ctx context.Context, b storage.BurnSession, it storage.Bu
 // next: a piece done waiting for its review, a paused one (it goes on),
 // else the one chosen first, else a quest the person gave, else a piece a
 // scan found (highest priority first) — none a worker has already;
-// draining, only the pieces in progress.
+// draining, only the pieces in progress. Quests go one at a time, oldest
+// first: the person often gives a plan whose steps build on each other, and
+// one started before the last is merged finds nothing to build on.
 func next(items []storage.BurnItem, busy map[string]bool, draining bool) (storage.BurnItem, bool) {
 	order := []string{"review", "paused", "doing", "queued", KindQuest, "found"}
 	if draining {
 		order = order[:3]
 	}
+	questOn := slices.ContainsFunc(items, func(it storage.BurnItem) bool {
+		return it.Kind == KindQuest && it.Status != "found" && openStatus[it.Status]
+	})
 	for _, st := range order {
 		for _, it := range items {
 			if busy[it.ID] || hunting(it) { // a scan runs beside the work
 				continue
 			}
-			if st == KindQuest && it.Status == "found" && it.Kind == KindQuest || st != KindQuest && it.Status == st {
+			if it.Status == "found" && it.Kind == KindQuest {
+				if st == KindQuest && !questOn {
+					return it, true
+				}
+				continue
+			}
+			if st != KindQuest && it.Status == st {
 				return it, true
 			}
 		}

@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -284,8 +285,11 @@ func TestNewProjectAPI(t *testing.T) {
 		t.Fatalf("new = %d %v", resp.StatusCode, body)
 	}
 	p := body["project"].(map[string]any)
-	if p["description"] != "a POD shop" {
+	if p["description"] != "a POD shop\nStack: go" {
 		t.Fatalf("project = %v", p)
+	}
+	if b, err := e.st.Burn().Session(context.Background(), p["id"].(string)); err != nil || b.Template != "builder" || b.State != "stopped" {
+		t.Fatalf("a project from an idea gets a builder Burn, not started: %+v %v", b, err)
 	}
 	if _, err := os.Stat(filepath.Join(parent, "shop", ".git")); err != nil {
 		t.Fatalf("no git repo: %v", err)

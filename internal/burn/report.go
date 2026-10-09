@@ -200,7 +200,7 @@ func (s *Service) sayItem(ctx context.Context, b storage.BurnSession, it storage
 	}
 	switch it.Status {
 	case "done":
-		s.say(ctx, b, "**Xong** "+title+why)
+		s.say(ctx, b, "**Xong** "+title+why+s.progress(ctx, b))
 	case "failed":
 		s.say(ctx, b, "**Thất bại** "+title+why)
 	case "skipped":
@@ -214,6 +214,26 @@ func (s *Service) sayItem(ctx context.Context, b storage.BurnSession, it storage
 	}
 }
 
+// progress is where the run is, after a piece done: " · Tiến độ: xong N, còn M"
+// (M the pieces open: waiting, being done or reviewed); "" when unknown.
+func (s *Service) progress(ctx context.Context, b storage.BurnSession) string {
+	items, err := s.store.Burn().Items(context.WithoutCancel(ctx), b.ID)
+	if err != nil {
+		return ""
+	}
+	done, open := 0, 0
+	for _, it := range items {
+		switch {
+		case hunting(it):
+		case it.Status == "done" && it.RunBranch == b.RunBranch:
+			done++
+		case openStatus[it.Status]:
+			open++
+		}
+	}
+	return fmt.Sprintf("\n_Tiến độ: xong %d, còn %d_", done, open)
+}
+
 // sayStart is the first line of a run: how it runs, until when.
 func (s *Service) sayStart(ctx context.Context, b storage.BurnSession) {
 	agent := "agent mặc định"
@@ -221,7 +241,7 @@ func (s *Service) sayStart(ctx context.Context, b storage.BurnSession) {
 		agent = a.Name
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "**Burn bắt đầu** · mẫu %s · %s · tối đa %d việc song song", templateLabel[templateOf(b)], agent, max(b.MaxParallel, 1))
+	fmt.Fprintf(&sb, "**Burn bắt đầu** · mẫu %s · %s · tối đa %d việc song song", templateLabel[templateOf(b)], agent, parallel(b))
 	if b.EndsAt != nil {
 		fmt.Fprintf(&sb, " · tắt lúc %s", b.EndsAt.Local().Format("02/01 15:04"))
 	}

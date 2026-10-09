@@ -13,11 +13,11 @@ import (
 // the same whatever the template: worktrees, claim, do, verify, report, review.
 
 // Templates are the templates a Burn can take.
-var Templates = []string{"general", "ux", "ideas", "security", "performance", "test", "docs", "custom"}
+var Templates = []string{"general", "ux", "ideas", "security", "performance", "test", "docs", "builder", "custom"}
 
 // templateLabel names a template in the Burn's log.
 var templateLabel = map[string]string{"general": "Tổng quát", "ux": "Trải nghiệm & mobile", "ideas": "Ý tưởng & tích hợp",
-	"security": "Bảo mật", "performance": "Hiệu năng", "test": "Test", "docs": "Tài liệu", "custom": "Tùy chỉnh"}
+	"security": "Bảo mật", "performance": "Hiệu năng", "test": "Test", "docs": "Tài liệu", "builder": "Dựng dự án", "custom": "Tùy chỉnh"}
 
 // ValidTemplate: t is a template a Burn can take.
 func ValidTemplate(t string) bool { return slices.Contains(Templates, t) }
@@ -47,7 +47,7 @@ func hunt(b storage.BurnSession) string {
 		return ""
 	case "custom":
 		return strings.TrimSpace(b.HuntPrompt)
-	case "ux", "ideas":
+	case "ux", "ideas", "builder":
 		return prompts.Text("burn/hunt-" + t)
 	}
 	if l, ok := lensOf(b); ok {
@@ -72,6 +72,9 @@ func checks(b storage.BurnSession) []string {
 	var out []string
 	if l, ok := lensOf(b); ok {
 		out = append(out, l.check)
+	}
+	if templateOf(b) == "builder" {
+		out = append(out, builderCheck)
 	}
 	for _, l := range focusLenses(b.Focus) {
 		if l.key != templateOf(b) {

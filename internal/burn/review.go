@@ -73,7 +73,7 @@ func (s *Service) gate(ctx context.Context, b storage.BurnSession, it storage.Bu
 	}
 	for _, stage := range []string{"issue", "plan"} {
 		r, on := s.reviewer(ctx, b, stage)
-		if !on || slices.Contains(it.Reviewed, stage) {
+		if !on || slices.Contains(it.Reviewed, stage) || stage == "issue" && it.Kind == KindQuest { // a quest's problem is the person's call
 			continue
 		}
 		agents := s.stageAgents(ctx, b, r)

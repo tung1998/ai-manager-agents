@@ -3,6 +3,7 @@ package api
 import (
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/audit"
+	"bitbucket.org/senprints/agent-office/internal/burn"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"context"
 	"errors"
@@ -1005,7 +1006,9 @@ func (s *server) createRepo(w http.ResponseWriter, r *http.Request) {
 // registerRepo adds a detected folder as a project (with a starter pack's
 // agents and workflows, if one is picked). It reports false when it wrote an
 // error (nothing was registered).
-func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos.Info, name, desc, packKey string, extra map[string]any) bool {
+// then runs on the project made, before the reply (its errors are not the
+// request's).
+func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos.Info, name, desc, packKey string, extra map[string]any, then ...func(storage.Repo)) bool {
 	if name = strings.TrimSpace(name); name != "" {
 		info.Name = name
 	}
@@ -1033,6 +1036,9 @@ func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos
 		detail[k] = v
 	}
 	s.auditAction(r, "project.create", x.ID, detail)
+	for _, f := range then {
+		f(x)
+	}
 	d, _ := s.repoDTO(r, x, true)
 	writeJSON(w, http.StatusCreated, map[string]any{"project": d})
 	return true
@@ -1139,14 +1145,29 @@ func (s *server) newRepo(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
+	desc := strings.TrimSpace(in.Idea)
+	if st := strings.TrimSpace(in.Stack); st != "" {
+		desc = strings.TrimSpace(desc + "\nStack: " + st) // the builder's scan reads the description
+	}
 	info, err := repos.Detect(dest)
-	if err == nil && s.registerRepo(w, r, info, in.Name, strings.TrimSpace(in.Idea), in.Pack, map[string]any{"stack": strings.TrimSpace(in.Stack), "created_from": "idea"}) {
+	if err == nil && s.registerRepo(w, r, info, in.Name, desc, in.Pack, map[string]any{"stack": strings.TrimSpace(in.Stack), "created_from": "idea"}, func(x storage.Repo) { s.builderBurn(r, x) }) {
 		return
 	}
 	_ = os.RemoveAll(dest) // not registered: the new repo does not stay behind
 	if err != nil {
 		s.internal(w, r, err)
 	}
+}
+
+// builderBurn saves a project's Burn on the builder template (ADR-139), not
+// started: the person starts it from the project's Burn.
+func (s *server) builderBurn(r *http.Request, x storage.Repo) {
+	b, err := burn.SessionOr(r.Context(), s.cfg.Store, x.ID, s.cfg.Chat.DefaultAgent)
+	if err != nil {
+		return
+	}
+	b.Template = "builder"
+	_, _ = s.cfg.Store.Burn().SaveSession(r.Context(), b)
 }
 
 // cloneRoot is where a cloned repo goes by default: next to the folder that

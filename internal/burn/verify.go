@@ -28,6 +28,9 @@ const maxVerifyOut = 3000
 // maxVerify caps the checks the person writes.
 const maxVerify = 2000
 
+// unverified marks a piece no check ran on (the Burn has none, none guessed).
+const unverified = "(chưa kiểm chứng tự động: Burn chưa có lệnh kiểm chứng)"
+
 // verifyCommands are the checks of b in dir: the Burn's own lines, else
 // what the project's files suggest (none known: no check).
 func verifyCommands(b storage.BurnSession, dir string) []string {
@@ -37,10 +40,16 @@ func verifyCommands(b storage.BurnSession, dir string) []string {
 			out = append(out, l)
 		}
 	}
-	if len(out) > 0 || dir == "" {
+	if dir == "" {
 		return out
 	}
-	return guessVerify(dir)
+	if len(out) == 0 {
+		out = guessVerify(dir)
+	}
+	if templateOf(b) == "builder" { // what the features done say they pass (ADR-139)
+		out = append(out, acceptance(dir)...)
+	}
+	return out
 }
 
 // guessVerify: the build checks a project's files suggest, fast ones only
@@ -107,6 +116,9 @@ func (s *Service) checked(ctx context.Context, b storage.BurnSession, it *storag
 		return false
 	}
 	if failed == "" {
+		if it.Worktree != "" && !strings.Contains(it.Summary, unverified) && len(verifyCommands(b, it.Worktree)) == 0 { // nothing ran: the person reads it with care
+			it.Summary = strings.TrimSpace(it.Summary + " " + unverified)
+		}
 		return true
 	}
 	it.ReviewNote = "Kiểm chứng tự động chưa qua, sửa cho qua rồi báo burn_done lại:\n" + failed
@@ -125,7 +137,8 @@ const maxSetbacks = 15
 func setbacks(items []storage.BurnItem) []string {
 	var list []storage.BurnItem
 	for _, it := range items {
-		if !hunting(it) && it.Summary != "" && (it.Status == "failed" || it.Status == "skipped") {
+		// a quest turned down teaches nothing about what to look for: the person chose it
+		if !hunting(it) && it.Kind != KindQuest && it.Summary != "" && (it.Status == "failed" || it.Status == "skipped") {
 			list = append(list, it)
 		}
 	}

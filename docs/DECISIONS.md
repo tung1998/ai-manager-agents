@@ -2205,3 +2205,23 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Xung đột: office đặt thay đổi của việc lên code mới nhất của lần chạy ngay trong worktree của nó (3 chiều). Sạch thì gộp luôn; còn chỗ đụng thì việc về lại worker với danh sách file có dấu xung đột, không tính là một lần thất bại. Chỉ khi cả 3 chiều cũng không được mới xóa worktree như trước.
   - Worktree của việc đã thử mà bị tạo lại thì prompt nói rõ thay đổi cũ đã mất, phải làm lại đủ, kiểm tra bằng git diff.
   - Prompt làm việc: chạy build/test ở tiền cảnh, không kết thúc lượt khi chờ lệnh nền. Worker kết thúc lượt mà việc vẫn `doing` thì được nhắc một lần (`burn/report.md`) trong cùng chat trước khi tính là thất bại.
+
+## ADR-139: Dựng dự án từ ý tưởng bằng Burn (mẫu builder)
+- **Bối cảnh:** người dùng muốn "đưa ý tưởng vào, ra dự án chạy được", chạy nền như Burn và áp dụng loop/harness engineering. Nghiên cứu (`docs/research/project-builder.md`) cho thấy cách các bên lớn làm khớp với Burn: initializer chạy một lần viết spec + danh sách tính năng có cờ `passes` + file tiến độ; mỗi lượt làm đúng một tính năng, tự test rồi mới đánh dấu xong; file trong repo là trí nhớ giữa các lượt. Burn trước đây giả định repo đã có code, và lần chạy thử 09/10 cho thấy giao cả chuỗi việc thành quest song song thì việc sau chạy khi việc trước chưa gộp, nên bị bỏ qua.
+- **Quyết định:**
+  - Không thêm API "builder" riêng. Tạo project: `POST /api/projects/new` (ý tưởng, stack, nơi lưu, thư mục) tạo repo git rỗng (`repos.Init`), mô tả project là ý tưởng (+ `Stack: …`), và lưu Burn của project ở mẫu `builder`, **chưa bật**: người dùng bật như mọi Burn (Start/Drain), có `review_cap`/`stop_after`.
+  - Mẫu `builder` của Burn: lượt quét không tìm lỗi mà đọc `features.json` ở gốc repo. Chưa có thì ghi đúng một việc "Khởi tạo dự án" (SPEC.md, `features.json`, AGENTS.md ngắn, PROGRESS.md, khung code có build/test chạy được). Có rồi thì ghi các tính năng `passes: false` tiếp theo, theo thứ tự, mỗi tính năng một việc. Tất cả đã qua thì không ghi gì (hết việc, Burn dừng như thường).
+  - `features.json`: danh sách (hoặc `{"features": [...]}`) các `{id, title, detail, acceptance, passes}`; `acceptance` là một lệnh shell chạy ở gốc repo, thoát 0 khi tính năng chạy đúng.
+  - Một việc mỗi lúc (bỏ qua `max_parallel`) và không quét khi còn việc chưa xong (kể cả chờ review): tính năng sau dựa trên tính năng trước, và mọi việc cùng ghi `features.json`/PROGRESS.md.
+  - Worker làm đúng một tính năng, tự chạy acceptance, rồi mới đặt `passes: true` và ghi PROGRESS.md; bài học ghi vào summary của `burn_done` (sổ bài học do lượt quét gom, ADR-131).
+  - Kiểm chứng (ADR-131) của mẫu builder = lệnh của Burn (hoặc đoán) + `acceptance` của mọi tính năng đang `passes: true` (mỗi lệnh một lần, tối đa 50). Tính năng cũ bị làm hỏng thì việc bị trả lại.
+  - Mọi Burn: việc xong mà không có lệnh kiểm chứng nào chạy thì summary ghi "(chưa kiểm chứng tự động…)", không coi là lỗi (fail-closed sẽ làm hỏng mọi project chưa có lệnh). Mỗi việc xong, chat Burn ghi thêm "Tiến độ: xong N, còn M".
+- **Chưa làm:** preview sống sau mỗi việc (process dev chạy ở thư mục project, không ở worktree của lần chạy: cần đổi `ops`), tự đề xuất lệnh kiểm chứng/quick_checks từ AGENTS.md.
+
+## ADR-140: Burn: quest làm lần lượt, không review "vấn đề" của quest, quét phải có đường gây lỗi
+- **Bối cảnh (08–09/10, agent-office):** 53 việc xong, 49 bỏ qua, 8 thất bại ($15.8 trên $67). Ba nguyên nhân: (1) chuỗi quest người dùng giao (Builder 1–11) chạy song song, quest sau chạy khi quest trước chưa gộp nên bị reviewer bác "chưa có ADR/chưa có file"; (2) quest đi qua review "vấn đề" như việc Burn tự tìm, nên reviewer bác việc người dùng đã quyết, và lượt quét học thành bài học sai ("ngừng đề xuất Builder"); (3) 28 lỗi do quét tìm bị bác ở review vấn đề, phần lớn là "có thể xảy ra nếu…" (nút đã tự khóa khi loading, khóa đã giữ, server đã chặn).
+- **Quyết định:**
+  - Quest làm một cái mỗi lúc, cũ trước: quest kế chờ tới khi quest trước xong/thất bại/bỏ qua (kể cả lúc chờ review). Việc Burn tự tìm vẫn chạy song song ở các slot còn lại.
+  - Quest bỏ qua review "vấn đề" (làm hay không là quyền người dùng). Review "cách làm" của quest được dặn không bác vì chưa có trong plan/ADR; chỉ bác khi không làm được ngay (nói rõ thiếu gì) hoặc làm sẽ hỏng thứ khác. Review kết quả giữ nguyên.
+  - Quest bị bác hay thất bại không vào danh sách lượt quét học bài học.
+  - Prompt quét: lỗi phải ghi đường gây lỗi cụ thể trong dùng thật và vì sao không có gì trên đường đó chặn; chỉ "có thể xảy ra nếu" thì bỏ.

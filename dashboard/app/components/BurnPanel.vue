@@ -16,7 +16,7 @@ interface Item {
   work_conversation_id: string, run_branch: string
 }
 // what its workers look for (ADR-128): a template, or the person's own prompt
-const templates = ['general', 'ux', 'ideas', 'security', 'performance', 'test', 'docs', 'custom'] as const
+const templates = ['general', 'ux', 'ideas', 'security', 'performance', 'test', 'docs', 'builder', 'custom'] as const
 type BurnTemplate = typeof templates[number]
 interface AgentLite { id: string, name: string, tier: string, enabled?: boolean }
 const props = defineProps<{ projectId: string }>()

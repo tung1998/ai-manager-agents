@@ -440,6 +440,7 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
     <li>It finds three kinds of work: <b>unfinished work</b> (TODO/FIXME, failing tests, stale proposals), <b>improvements</b>, and <b>small bugs</b>.</li>
     <li>Each item runs in its own worktree. Results go to a <b>local branch</b> or a <b>diff waiting for approval</b>.</li>
     <li>Settings: lead agent, model tier, max sub-agents (0–5), focus ("checkout first, skip docs"), stop time (default: when the AI connection's weekly limit resets, otherwise 8 hours).</li>
+    <li><b>Build a project from an idea</b>: Projects → Add → <b>From an idea</b> (idea, optional stack, folder). Office creates an empty repo and a Burn on the <b>Build a project</b> template (not started). Start it: the first piece sets things up (SPEC.md, features.json with an acceptance command per feature, AGENTS.md, PROGRESS.md, a scaffold whose build/test pass). Then the Burn does one feature at a time, in order; every check re-runs the acceptance of all finished features. Set the Burn's checks from AGENTS.md and a review cap.</li>
     <li>Stop pauses the current item. Start again and it resumes. Its chat appears in Chat with a 🔥, where you can steer it.</li>
   </ul>
   <div class="callout warn"><strong>Admin only</strong>Burn runs with full machine access and no per-step approval, and it uses a lot of your AI quota. The confirm dialog spells this out.</div>
