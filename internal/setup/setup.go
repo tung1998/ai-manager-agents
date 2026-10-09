@@ -14,6 +14,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
+	"bitbucket.org/senprints/agent-office/internal/scan"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/usage"
@@ -48,12 +49,13 @@ type Proposal struct {
 
 // Result is a proposal plus the pack it produces and how it was made.
 type Result struct {
-	Proposal Proposal   `json:"proposal"`
-	Pack     team.Pack  `json:"pack"`
-	Problems []string   `json:"problems"`
-	Provider string     `json:"provider"`
-	Model    string     `json:"model"`
-	Usage    llm.Result `json:"usage"`
+	Proposal           Proposal   `json:"proposal"`
+	Pack               team.Pack  `json:"pack"`
+	Problems           []string   `json:"problems"`
+	Provider           string     `json:"provider"`
+	Model              string     `json:"model"`
+	Usage              llm.Result `json:"usage"`
+	SuggestedWorkflows []string   `json:"suggested_workflows"`
 }
 
 // Assistant runs the setup flow.
@@ -69,9 +71,10 @@ func New(store storage.Store, providers *provider.Service, tm *team.Service) *As
 }
 
 // Propose asks the default AI connection (strong tier) for a setup.
-// projectText is the scan summary (empty for a machine-wide helper); goal is
-// optional free text from the user.
-func (a *Assistant) Propose(ctx context.Context, projectID, projectName, projectText, goal string) (Result, error) {
+// projectText is the scan summary (empty for a machine-wide helper); sum is
+// the same scan, used to suggest workflows by signal (nil for a
+// machine-wide helper); goal is optional free text from the user.
+func (a *Assistant) Propose(ctx context.Context, projectID, projectName, projectText string, sum *scan.Summary, goal string) (Result, error) {
 	p, model, err := a.providers.ResolveModel(ctx, storage.Agent{ModelTier: storage.TierStrong})
 	if errors.Is(err, storage.ErrNotFound) || (err == nil && (!p.Enabled || p.Status == "error")) {
 		return Result{}, ErrNoProvider
@@ -116,16 +119,70 @@ func (a *Assistant) Propose(ctx context.Context, projectID, projectName, project
 		res.Proposal.Notes = []string{}
 	}
 	res.Pack, res.Problems = p2, problems
+	res.SuggestedWorkflows = SuggestWorkflows(sum, p2.Workflows)
+	if res.SuggestedWorkflows == nil {
+		res.SuggestedWorkflows = []string{}
+	}
 	return res, nil
+}
+
+// SuggestWorkflows looks at the scan for signals (tests, CI) and suggests
+// shipped workflows not already in the pack. The user may untick any of
+// them; nothing here is installed on its own.
+func SuggestWorkflows(sum *scan.Summary, packWorkflows []string) []string {
+	if sum == nil {
+		return nil
+	}
+	has := func(list []string, v string) bool {
+		for _, x := range list {
+			if x == v {
+				return true
+			}
+		}
+		return false
+	}
+	var out []string
+	add := func(key string) {
+		if !has(packWorkflows, key) && !has(out, key) {
+			out = append(out, key)
+		}
+	}
+	if len(sum.Tests) > 0 {
+		add("fix-tests")
+	}
+	for _, i := range sum.Infra {
+		if i == "GitHub Actions" || i == "bitbucket-pipelines.yml" || i == ".gitlab-ci.yml" || i == "Jenkinsfile" {
+			add("review-pr")
+			break
+		}
+	}
+	return out
 }
 
 // Build applies changes to a starter pack and validates the result.
 // Problems are returned (not as an error) so the user can untick the
-// offending change.
-func Build(packKey string, changes []AgentChange) (team.Pack, []string, error) {
+// offending change. extraWorkflows are keys the user kept from
+// SuggestWorkflows; unknown keys are kept as-is and skipped at install time.
+func Build(packKey string, changes []AgentChange, extraWorkflows ...string) (team.Pack, []string, error) {
 	t, err := team.PackByKey(packKey)
 	if err != nil {
 		return t, nil, err
+	}
+	for _, k := range extraWorkflows {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		found := false
+		for _, w := range t.Workflows {
+			if w == k {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Workflows = append(t.Workflows, k)
+		}
 	}
 	t = Apply(t, changes)
 	var problems []string
@@ -212,14 +269,27 @@ func Apply(t team.Pack, changes []AgentChange) team.Pack {
 }
 
 // Accept applies the accepted changes and gives the project the pack's
-// agents (in place of its own) and workflows.
-func (a *Assistant) Accept(ctx context.Context, repoID, packKey string, changes []AgentChange) (team.Pack, error) {
-	p, problems, err := Build(packKey, changes)
+// agents and workflows. A project with no agents yet gets the pack in
+// place (as before); a project that already has agents only gets the
+// pack's keys it's missing, so a rescan's setup never overwrites or
+// removes an agent an admin has hand-edited.
+func (a *Assistant) Accept(ctx context.Context, repoID, packKey string, changes []AgentChange, extraWorkflows ...string) (team.Pack, error) {
+	p, problems, err := Build(packKey, changes, extraWorkflows...)
 	if err != nil {
 		return p, err
 	}
 	if len(problems) > 0 {
 		return p, &team.ValidationError{Problems: problems}
+	}
+	snap, err := a.team.Load(ctx, repoID)
+	if err != nil {
+		return p, err
+	}
+	if len(snap.Agents) > 0 {
+		if err := a.team.Merge(ctx, repoID, team.Snapshot{Default: p.Default, Agents: p.Agents}, "pack:"+p.Key); err != nil {
+			return p, err
+		}
+		return p, a.team.InstallWorkflows(ctx, repoID, p.Workflows)
 	}
 	return p, a.team.ApplyPack(ctx, repoID, p, true)
 }

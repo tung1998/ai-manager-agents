@@ -45,6 +45,7 @@ interface ProposeResult {
   provider: string
   model: string
   usage: { input_tokens: number, output_tokens: number, cost_usd?: number, duration_ms: number }
+  suggested_workflows: string[]
 }
 
 const route = useRoute()
@@ -99,7 +100,9 @@ const result = ref<ProposeResult | null>(null)
 const description = ref('')
 const packKey = ref('')
 const accepted = ref<boolean[]>([])
+const workflowsAccepted = ref<boolean[]>([])
 const preview = ref<{ pack: PackSpec, problems: string[] } | null>(null)
+const workflowLabel = computed<Record<string, string>>(() => ({ 'fix-tests': t('setup.wfFixTests'), 'review-pr': t('setup.wfReviewPr') }))
 
 async function propose() {
   proposing.value = true
@@ -109,6 +112,7 @@ async function propose() {
     description.value = res.result.proposal.description
     packKey.value = res.result.proposal.pack_key
     accepted.value = res.result.proposal.agent_changes.map(() => true)
+    workflowsAccepted.value = res.result.suggested_workflows.map(() => true)
     preview.value = { pack: res.result.pack, problems: res.result.problems }
   } catch (e) {
     const d = (e as { data?: { code?: string, error?: string } }).data
@@ -124,13 +128,14 @@ async function propose() {
 }
 
 const chosenChanges = computed(() => (result.value?.proposal.agent_changes ?? []).filter((_, i) => accepted.value[i]))
+const chosenWorkflows = computed(() => (result.value?.suggested_workflows ?? []).filter((_, i) => workflowsAccepted.value[i]))
 
 // Rebuild the preview whenever the pack or ticked changes move.
-watch([packKey, accepted], async () => {
+watch([packKey, accepted, workflowsAccepted], async () => {
   if (!result.value || !packKey.value) return
   try {
     preview.value = await $fetch(`/api/projects/${id.value}/setup/build`, {
-      method: 'POST', body: { pack_key: packKey.value, changes: chosenChanges.value }
+      method: 'POST', body: { pack_key: packKey.value, changes: chosenChanges.value, workflows: chosenWorkflows.value }
     })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -142,7 +147,7 @@ async function apply() {
   applying.value = true
   try {
     await $fetch(`/api/projects/${id.value}/setup/apply`, {
-      method: 'POST', body: { pack_key: packKey.value, changes: chosenChanges.value, description: description.value }
+      method: 'POST', body: { pack_key: packKey.value, changes: chosenChanges.value, workflows: chosenWorkflows.value, description: description.value }
     })
     toast.add({ title: t('setup.applyDone'), color: 'success' })
     await navigateTo(`/projects/${id.value}`)
@@ -326,6 +331,14 @@ const actionMeta = computed<Record<string, { label: string, color: 'info' | 'suc
                   <p class="mt-1 whitespace-pre-wrap rounded bg-(--ui-bg-muted) p-2 text-xs">{{ c.instructions }}</p>
                 </details>
               </div>
+            </div>
+          </div>
+
+          <div v-if="result.suggested_workflows.length" class="space-y-2">
+            <p class="text-sm font-medium">{{ t('setup.suggestedWorkflows', { n: chosenWorkflows.length, total: result.suggested_workflows.length }) }}</p>
+            <div v-for="(w, i) in result.suggested_workflows" :key="w" class="flex items-center gap-2 rounded-lg border p-3" :class="workflowsAccepted[i] ? 'border-(--ui-border)' : 'border-dashed border-(--ui-border) opacity-60'">
+              <UCheckbox v-model="workflowsAccepted[i]" />
+              <span class="font-medium">{{ workflowLabel[w] ?? w }}</span>
             </div>
           </div>
 

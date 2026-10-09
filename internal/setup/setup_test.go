@@ -12,6 +12,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
+	"bitbucket.org/senprints/agent-office/internal/scan"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -61,12 +62,15 @@ func env(t *testing.T, answer string) (*setup.Assistant, storage.Store, *provide
 func TestProposeAndAccept(t *testing.T) {
 	a, st, _, _ := env(t, aiAnswer)
 	ctx := context.Background()
-	res, err := a.Propose(ctx, "", "shop", "Project: shop\nFramework: Nuxt", "")
+	res, err := a.Propose(ctx, "", "shop", "Project: shop\nFramework: Nuxt", &scan.Summary{Tests: []string{"Go"}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Proposal.PackKey != "team" || len(res.Proposal.Changes) != 3 || len(res.Problems) != 0 {
 		t.Fatalf("result = %+v", res)
+	}
+	if len(res.SuggestedWorkflows) != 0 { // team pack already has fix-tests
+		t.Fatalf("suggested workflows = %v", res.SuggestedWorkflows)
 	}
 	var eng, reader *team.AgentSpec
 	for i, ag := range res.Pack.Agents {
@@ -168,14 +172,103 @@ func TestNoProvider(t *testing.T) {
 	st.Migrate(context.Background())
 	box, _ := secrets.Load(filepath.Join(dir, "k"))
 	a := setup.New(st, provider.NewService(st, box, llm.Options{}), team.NewService(st, nil))
-	if _, err := a.Propose(context.Background(), "", "x", "", "goal"); !errors.Is(err, setup.ErrNoProvider) {
+	if _, err := a.Propose(context.Background(), "", "x", "", nil, "goal"); !errors.Is(err, setup.ErrNoProvider) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestBadJSON(t *testing.T) {
 	a, _, _, _ := env(t, "Xin lỗi, tôi không chắc.")
-	if _, err := a.Propose(context.Background(), "", "x", "p", ""); err == nil || !strings.Contains(err.Error(), "JSON") {
+	if _, err := a.Propose(context.Background(), "", "x", "p", nil, ""); err == nil || !strings.Contains(err.Error(), "JSON") {
 		t.Fatalf("err = %v", err)
 	}
+}
+
+func TestSuggestWorkflows(t *testing.T) {
+	has := func(list []string, v string) bool {
+		for _, x := range list {
+			if x == v {
+				return true
+			}
+		}
+		return false
+	}
+	t.Run("go tests suggest fix-tests", func(t *testing.T) {
+		got := setup.SuggestWorkflows(&scan.Summary{Tests: []string{"Go"}}, nil)
+		if !has(got, "fix-tests") {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("js tests suggest fix-tests", func(t *testing.T) {
+		got := setup.SuggestWorkflows(&scan.Summary{Tests: []string{"JS/TS"}}, nil)
+		if !has(got, "fix-tests") {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("php tests suggest fix-tests", func(t *testing.T) {
+		got := setup.SuggestWorkflows(&scan.Summary{Tests: []string{"PHP"}}, nil)
+		if !has(got, "fix-tests") {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("github actions suggests review-pr", func(t *testing.T) {
+		got := setup.SuggestWorkflows(&scan.Summary{Infra: []string{"GitHub Actions"}}, nil)
+		if !has(got, "review-pr") {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("no signals, no suggestion", func(t *testing.T) {
+		got := setup.SuggestWorkflows(&scan.Summary{}, nil)
+		if len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("already in pack, not suggested again", func(t *testing.T) {
+		got := setup.SuggestWorkflows(&scan.Summary{Tests: []string{"Go"}}, []string{"fix-tests"})
+		if has(got, "fix-tests") {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("nil summary, no suggestion", func(t *testing.T) {
+		got := setup.SuggestWorkflows(nil, nil)
+		if len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+	})
+}
+
+func TestBuildMergesExtraWorkflows(t *testing.T) {
+	t.Run("adds a new workflow key", func(t *testing.T) {
+		p, _, err := setup.Build("solo", nil, "fix-tests")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.Workflows) != 1 || p.Workflows[0] != "fix-tests" {
+			t.Fatalf("workflows = %v", p.Workflows)
+		}
+	})
+	t.Run("untick: not passed, not added", func(t *testing.T) {
+		p, _, err := setup.Build("solo", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.Workflows) != 0 {
+			t.Fatalf("workflows = %v", p.Workflows)
+		}
+	})
+	t.Run("no duplicate when pack already has it", func(t *testing.T) {
+		p, _, err := setup.Build("team", nil, "fix-tests")
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, w := range p.Workflows {
+			if w == "fix-tests" {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Fatalf("fix-tests count = %d in %v", n, p.Workflows)
+		}
+	})
 }

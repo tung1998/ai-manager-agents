@@ -59,7 +59,7 @@ func (s *server) setupPropose(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Project toàn máy không có thư mục để quét: hãy mô tả bạn muốn helper làm gì")
 		return
 	}
-	res, err := s.cfg.Setup.Propose(r.Context(), x.ID, x.Name, text, in.Goal)
+	res, err := s.cfg.Setup.Propose(r.Context(), x.ID, x.Name, text, sum, in.Goal)
 	var be *usage.BudgetError
 	if errors.As(err, &be) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": be.Error(), "code": "budget"})
@@ -82,6 +82,7 @@ type setupChoice struct {
 	PackKey     string              `json:"pack_key"`
 	Changes     []setup.AgentChange `json:"changes"`
 	Description *string             `json:"description"`
+	Workflows   []string            `json:"workflows,omitempty"` // suggested keys the user kept
 }
 
 func (s *server) setupBuild(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +90,7 @@ func (s *server) setupBuild(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	t, problems, err := setup.Build(in.PackKey, in.Changes)
+	t, problems, err := setup.Build(in.PackKey, in.Changes, in.Workflows...)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -110,7 +111,7 @@ func (s *server) setupApply(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	if _, err := s.cfg.Setup.Accept(r.Context(), x.ID, in.PackKey, in.Changes); err != nil {
+	if _, err := s.cfg.Setup.Accept(r.Context(), x.ID, in.PackKey, in.Changes, in.Workflows...); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}

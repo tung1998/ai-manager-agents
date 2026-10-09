@@ -37,6 +37,7 @@ type Summary struct {
 	Services     []string       `json:"services"` // external services / SDKs
 	Infra        []string       `json:"infra"`
 	Languages    map[string]int `json:"languages"` // file counts
+	Tests        []string       `json:"tests"`     // test frameworks/signals found (Go, JS/TS, Python, PHP…)
 	TopDirs      []string       `json:"top_dirs"`
 	EnvVars      []string       `json:"env_vars"` // names only, from .env.example
 	AgentDocs    []AgentDoc     `json:"agent_docs"`
@@ -91,6 +92,7 @@ func Scan(root string) (*Summary, error) {
 	}
 
 	infra := map[string]bool{}
+	tests := map[string]bool{}
 	_ = filepath.WalkDir(abs, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -110,6 +112,9 @@ func Scan(root string) (*Summary, error) {
 				infra["Terraform"] = true
 			case "migrations", "database/migrations", "db/migrate", "prisma":
 				infra["DB migrations ("+rel+")"] = true
+			}
+			if name == "__tests__" {
+				tests["JS/TS"] = true
 			}
 			return nil
 		}
@@ -133,6 +138,18 @@ func Scan(root string) (*Summary, error) {
 		case name == "vercel.json" || name == "netlify.toml" || name == "fly.toml" || name == "serverless.yml":
 			infra[name] = true
 		}
+		switch {
+		case strings.HasSuffix(name, "_test.go"):
+			tests["Go"] = true
+		case strings.HasSuffix(name, ".test.ts") || strings.HasSuffix(name, ".test.tsx") || strings.HasSuffix(name, ".test.js") ||
+			strings.HasSuffix(name, ".test.jsx") || strings.HasSuffix(name, ".spec.ts") || strings.HasSuffix(name, ".spec.tsx") ||
+			strings.HasSuffix(name, ".spec.js") || strings.HasSuffix(name, ".spec.jsx"):
+			tests["JS/TS"] = true
+		case name == "phpunit.xml" || name == "phpunit.xml.dist":
+			tests["PHP"] = true
+		case name == "pytest.ini" || name == "conftest.py":
+			tests["Python"] = true
+		}
 		return nil
 	})
 	s.Infra = keys(infra)
@@ -142,8 +159,14 @@ func Scan(root string) (*Summary, error) {
 		s.Dependencies = s.Dependencies[:maxDeps]
 	}
 	s.Frameworks, s.Services = detect(deps, s.EnvVars)
+	for _, fw := range s.Frameworks {
+		if fw == "Vitest" || fw == "Jest" || fw == "Playwright" {
+			tests["JS/TS"] = true
+		}
+	}
+	s.Tests = keys(tests)
 	// JSON clients get [] rather than null for empty lists.
-	for _, l := range []*[]string{&s.Manifests, &s.Dependencies, &s.Frameworks, &s.Services, &s.Infra, &s.TopDirs, &s.EnvVars} {
+	for _, l := range []*[]string{&s.Manifests, &s.Dependencies, &s.Frameworks, &s.Services, &s.Infra, &s.TopDirs, &s.EnvVars, &s.Tests} {
 		if *l == nil {
 			*l = []string{}
 		}
@@ -434,6 +457,7 @@ func (s *Summary) Text() string {
 	list("Framework", s.Frameworks)
 	list("Dịch vụ / SDK", s.Services)
 	list("Hạ tầng", s.Infra)
+	list("Test", s.Tests)
 	list("Thư mục gốc", s.TopDirs)
 	list("Biến môi trường (chỉ tên)", s.EnvVars)
 	list("Dependency đáng chú ý", s.Dependencies)
