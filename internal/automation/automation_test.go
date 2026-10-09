@@ -308,3 +308,111 @@ func TestScanSiblingRepos(t *testing.T) {
 		t.Fatalf("projects = %v", got)
 	}
 }
+
+// fakeClaude writes a stand-in `claude` binary: it logs every call (one line
+// per call) to logPath, and makes the first "add-json" call fail (once) when
+// failAddOnce is true, so the InstallMCP rollback path can be exercised
+// without a real Claude Code CLI.
+func fakeClaude(t *testing.T, logPath string, failAddOnce bool) string {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\necho \"$@\" >> " + logPath + "\n"
+	if failAddOnce {
+		marker := filepath.Join(dir, "add-failed-once")
+		script += "if [ \"$1\" = mcp ] && [ \"$2\" = add-json ] && [ ! -f " + marker + " ]; then touch " + marker + "; exit 1; fi\n"
+	}
+	script += "exit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin
+}
+
+// A failing `add-json` after overwrite's `remove` must not lose the server:
+// InstallMCP backs the config up and rolls the removal back.
+func TestInstallMCPOverwriteRollback(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	trash := t.TempDir()
+	cfg := map[string]any{"mcpServers": map[string]any{"x": map[string]any{"command": "old"}}}
+	raw, _ := json.Marshal(cfg)
+	write(t, filepath.Join(home, ".claude.json"), string(raw))
+
+	log := filepath.Join(t.TempDir(), "calls.log")
+	bin := fakeClaude(t, log, true)
+	in := Installer{Home: home, Trash: trash, Claude: func() string { return bin }}
+
+	err := in.InstallMCP(ctx, Target{Scope: "user"}, "x", map[string]any{"command": "new"}, true)
+	if err == nil {
+		t.Fatal("want error: add-json failed and had to be rolled back")
+	}
+	calls, _ := os.ReadFile(log)
+	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("want remove, failed add-json, rollback add-json; got %v", lines)
+	}
+	if !strings.Contains(lines[0], "remove") || !strings.Contains(lines[0], "x") {
+		t.Fatalf("call 1 = %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "add-json") || !strings.Contains(lines[1], "new") {
+		t.Fatalf("call 2 = %q", lines[1])
+	}
+	if !strings.Contains(lines[2], "add-json") || !strings.Contains(lines[2], "old") {
+		t.Fatalf("rollback call = %q, want it to re-add the old config", lines[2])
+	}
+	entries, _ := os.ReadDir(trash)
+	found := false
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), "-claude.json") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no backup of ~/.claude.json in trash: %v", entries)
+	}
+}
+
+// Overwriting a server that add-json accepts normally: one remove, one add.
+func TestInstallMCPOverwriteSucceeds(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	cfg := map[string]any{"mcpServers": map[string]any{"x": map[string]any{"command": "old"}}}
+	raw, _ := json.Marshal(cfg)
+	write(t, filepath.Join(home, ".claude.json"), string(raw))
+
+	log := filepath.Join(t.TempDir(), "calls.log")
+	bin := fakeClaude(t, log, false)
+	in := Installer{Home: home, Trash: t.TempDir(), Claude: func() string { return bin }}
+
+	if err := in.InstallMCP(ctx, Target{Scope: "user"}, "x", map[string]any{"command": "new"}, true); err != nil {
+		t.Fatal(err)
+	}
+	calls, _ := os.ReadFile(log)
+	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "remove") || !strings.Contains(lines[1], "add-json") {
+		t.Fatalf("calls = %v", lines)
+	}
+}
+
+// overwrite=true with no server of that name yet (e.g. PutBackMCP, which
+// always overwrites after TakeOutMCP already removed it): no remove call,
+// straight to add-json.
+func TestInstallMCPOverwriteWithoutExisting(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	write(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{}}`)
+
+	log := filepath.Join(t.TempDir(), "calls.log")
+	bin := fakeClaude(t, log, false)
+	in := Installer{Home: home, Trash: t.TempDir(), Claude: func() string { return bin }}
+
+	if err := in.InstallMCP(ctx, Target{Scope: "user"}, "y", map[string]any{"command": "new"}, true); err != nil {
+		t.Fatal(err)
+	}
+	calls, _ := os.ReadFile(log)
+	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+	if len(lines) != 1 || !strings.Contains(lines[0], "add-json") {
+		t.Fatalf("calls = %v, want a single add-json (no remove)", lines)
+	}
+}

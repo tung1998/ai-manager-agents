@@ -240,18 +240,12 @@ func (in Installer) InstallMCP(ctx context.Context, t Target, name string, confi
 	}
 	switch t.Scope {
 	case "user":
-		if overwrite {
-			_ = in.claudeMCP(ctx, "", "remove", "-s", "user", name)
-		}
-		return in.claudeMCP(ctx, "", "add-json", "-s", "user", name, string(raw))
+		return in.claudeMCPReplace(ctx, "", "user", name, string(raw), overwrite, in.existingUserMCP(name))
 	case "local":
 		if !filepath.IsAbs(t.ProjectPath) {
 			return ErrBadTarget
 		}
-		if overwrite {
-			_ = in.claudeMCP(ctx, t.ProjectPath, "remove", "-s", "local", name)
-		}
-		return in.claudeMCP(ctx, t.ProjectPath, "add-json", "-s", "local", name, string(raw))
+		return in.claudeMCPReplace(ctx, t.ProjectPath, "local", name, string(raw), overwrite, in.existingLocalMCP(t.ProjectPath, name))
 	case "project":
 		if !filepath.IsAbs(t.ProjectPath) {
 			return ErrBadTarget
@@ -266,6 +260,75 @@ func (in Installer) InstallMCP(ctx context.Context, t Target, name string, confi
 		return err
 	}
 	return ErrBadTarget
+}
+
+// claudeJSONPath is where Claude Code keeps user/local MCP servers (and
+// projects), e.g. ~/.claude.json.
+func (in Installer) claudeJSONPath() string { return filepath.Join(in.Home, ".claude.json") }
+
+// existingUserMCP returns name's raw config under top-level mcpServers in
+// ~/.claude.json, "" if it is not there.
+func (in Installer) existingUserMCP(name string) func() string {
+	return func() string {
+		cfg := readJSON(in.claudeJSONPath())
+		servers, _ := cfg["mcpServers"].(map[string]any)
+		return rawMCPEntry(servers, name)
+	}
+}
+
+// existingLocalMCP returns name's raw config under
+// projects[projectPath].mcpServers in ~/.claude.json, "" if it is not there.
+func (in Installer) existingLocalMCP(projectPath, name string) func() string {
+	return func() string {
+		cfg := readJSON(in.claudeJSONPath())
+		projects, _ := cfg["projects"].(map[string]any)
+		pc, _ := projects[projectPath].(map[string]any)
+		servers, _ := pc["mcpServers"].(map[string]any)
+		return rawMCPEntry(servers, name)
+	}
+}
+
+func rawMCPEntry(servers map[string]any, name string) string {
+	c, ok := servers[name]
+	if !ok {
+		return ""
+	}
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+// claudeMCPReplace installs name via `claude mcp add-json`, overwriting an
+// existing server only by removing it first (the CLI has no in-place
+// update); existing, when non-empty, is name's current raw config, read and
+// backed up (~/.claude.json goes to trash) before it is removed, so a
+// failing add-json can be rolled back instead of losing the server.
+func (in Installer) claudeMCPReplace(ctx context.Context, dir, scope, name, raw string, overwrite bool, existing func() string) error {
+	if !overwrite {
+		return in.claudeMCP(ctx, dir, "add-json", "-s", scope, name, raw)
+	}
+	prev := existing()
+	if prev == "" {
+		// nothing to remove: add-json would fail on "already exists" only if
+		// the CLI's own view disagrees with ~/.claude.json, which it should not
+		return in.claudeMCP(ctx, dir, "add-json", "-s", scope, name, raw)
+	}
+	if _, err := in.backup(in.claudeJSONPath(), "claude.json"); err != nil {
+		return err
+	}
+	if err := in.claudeMCP(ctx, dir, "remove", "-s", scope, name); err != nil {
+		return fmt.Errorf("gỡ cấu hình cũ để cài lại: %w", err)
+	}
+	if err := in.claudeMCP(ctx, dir, "add-json", "-s", scope, name, raw); err != nil {
+		rctx := context.WithoutCancel(ctx)
+		if rerr := in.claudeMCP(rctx, dir, "add-json", "-s", scope, name, prev); rerr != nil {
+			return fmt.Errorf("cài lỗi (%w) và khôi phục cấu hình cũ cũng lỗi (%v); bản sao lưu ở %s", err, rerr, in.Trash)
+		}
+		return fmt.Errorf("cài lỗi, đã khôi phục cấu hình cũ: %w", err)
+	}
+	return nil
 }
 
 func (in Installer) claudeMCP(ctx context.Context, dir string, args ...string) error {
