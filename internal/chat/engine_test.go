@@ -347,7 +347,7 @@ func fakeTeamClaude(t *testing.T, reply string) (bin, dir string) {
 	dir = t.TempDir()
 	bin = filepath.Join(dir, "claude")
 	os.WriteFile(bin, []byte(`#!/bin/sh
-while ! mkdir `+dir+`/.lock 2>/dev/null; do sleep 0.01; done
+while ! mkdir `+dir+`/.lock 2>/dev/null; do [ -d `+dir+` ] || exit 1; sleep 0.01; done
 n=$(ls `+dir+` | grep -c 'args$')
 n=$((n+1))
 echo "$*" > `+dir+`/call$n.args
@@ -667,6 +667,7 @@ func TestBusyWhileTheNextAnswers(t *testing.T) {
 	if _, _, err := g.engine.Send(g.context, g.conv.ID, "chen ngang", nil); !errors.Is(err, chat.ErrBusy) {
 		t.Fatalf("err = %v, want busy", err)
 	}
+	g.waitAuthors(t, 2) // Dev is done: its process does not outlive the test
 }
 
 // Review I2: later turns of a chain use the chat as it is now, and never write

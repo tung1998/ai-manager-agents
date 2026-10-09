@@ -131,10 +131,12 @@ const acting = ref('')
 async function start() {
   acting.value = 'start'
   try {
-    await $fetch(`${base.value}/start`, { method: 'POST', body: { ...form, ends_at: endsAt.value ?? undefined, no_end: endMode.value === 'none' } })
+    const res = await $fetch<{ burn: Burn }>(`${base.value}/start`, { method: 'POST', body: { ...form, ends_at: endsAt.value ?? undefined, no_end: endMode.value === 'none' } })
+    // shown at once from the answer; the board catches up without holding the button
+    if (data.value) data.value = { ...data.value, burn: res.burn }
     confirmOpen.value = false
-    await refresh()
     toast.add({ title: t('burn.started'), color: 'success' })
+    void refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {

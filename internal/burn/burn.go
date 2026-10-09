@@ -338,7 +338,7 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 		items, _ := s.store.Burn().Items(ctx, b.ID)
 		mu.Lock()
 		free := max(b.MaxParallel, 1) - len(busy)
-		for ; free > 0; free-- {
+		for started := 0; free > 0; free-- {
 			it, ok := next(items, busy, draining)
 			if !ok {
 				// a new worker, unless draining or out of quota (it would only fail)
@@ -352,8 +352,11 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 			}
 			busy[it.ID] = true
 			wg.Add(1)
+			gap := time.Duration(started) * startGap
+			started++
 			go func() {
 				defer wg.Done()
+				sleep(ctx, gap) // workers start one after another, not all at once
 				func() {
 					defer func() {
 						if r := recover(); r != nil {
@@ -366,7 +369,9 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 							_ = s.store.Burn().UpdateItem(context.WithoutCancel(ctx), cur)
 						}
 					}()
-					s.step(ctx, b, it)
+					if ctx.Err() == nil { // stopped while it waited its turn
+						s.step(ctx, b, it)
+					}
 				}()
 				mu.Lock()
 				delete(busy, it.ID)
@@ -457,6 +462,10 @@ func wait(ctx context.Context, wake <-chan struct{}, d time.Duration) {
 	case <-time.After(d):
 	}
 }
+
+// startGap spaces out the workers a Burn starts together: each is an AI CLI
+// with its own MCP servers, and starting several at once stalls the machine.
+const startGap = 2 * time.Second
 
 func sleep(ctx context.Context, d time.Duration) {
 	select {
