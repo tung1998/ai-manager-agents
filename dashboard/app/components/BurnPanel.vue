@@ -10,7 +10,7 @@ interface Burn {
   review_profile_id: string
 }
 interface Item {
-  id: string, title: string, kind: 'unfinished' | 'upgrade' | 'bug', detail: string, status: string, priority: number,
+  id: string, title: string, kind: '' | 'unfinished' | 'upgrade' | 'bug', detail: string, status: string, priority: number,
   branch: string, worktree: string, summary: string, subagents: number, cost_usd: number, updated_at: string,
   reviewed: ReviewStage[], review_note: string, review_conversations: Partial<Record<ReviewStage, string>>,
   work_conversation_id: string
@@ -170,7 +170,7 @@ const columns = computed(() => [
   const all = items.value.filter(i => c.statuses.includes(i.status))
   return { ...c, all, items: expanded.value.has(c.key) ? all : all.slice(0, colMax) }
 }))
-const kindColor = (k: Item['kind']) => ({ bug: 'error', unfinished: 'warning', upgrade: 'info' } as const)[k]
+const kindColor = (k: Item['kind']) => ({ '': 'neutral', bug: 'error', unfinished: 'warning', upgrade: 'info' } as const)[k]
 const itemActing = ref('')
 async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') {
   if (itemActing.value) return
@@ -233,7 +233,8 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
             <UIcon v-if="it.status === 'doing'" name="i-lucide-loader-circle" class="mt-0.5 size-4 shrink-0 animate-spin text-(--ui-warning)" />
             <UIcon v-else-if="it.status === 'review'" name="i-lucide-scan-eye" class="mt-0.5 size-4 shrink-0 text-(--ui-info)" :title="t('burn.review.waiting')" />
             <span class="min-w-0 flex-1 font-medium">{{ it.title }}</span>
-            <UBadge :label="t(`burn.kind.${it.kind}`)" :color="kindColor(it.kind)" variant="subtle" size="sm" />
+            <UBadge v-if="it.kind" :label="t(`burn.kind.${it.kind}`)" :color="kindColor(it.kind)" variant="subtle" size="sm" />
+            <UBadge v-else :label="t('burn.kind.hunting')" color="neutral" variant="subtle" size="sm" />
           </div>
           <p v-if="it.summary" class="line-clamp-4 whitespace-pre-line text-xs text-(--ui-text-muted)">{{ it.summary }}</p>
           <p v-else-if="it.detail" class="line-clamp-3 text-xs text-(--ui-text-muted)">{{ it.detail }}</p>

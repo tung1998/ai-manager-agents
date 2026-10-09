@@ -361,7 +361,7 @@ Append-only. Không có API update/delete.
 
 Mỗi project có một phiên Burn (`project_id` UNIQUE): `conversation_id` (chat `purpose = burn`), `agent_id`, `model_tier`, `max_parallel` (số việc làm cùng lúc, ADR-117), `run_branch` (nhánh `burn/<ngày-giờ>` của lần chạy, worktree `burn-run-<ngày-giờ>` nằm trên nó, ADR-123; cột `result_mode` cũ không còn đọc), `focus`, `ends_at` (null = không hẹn), `state` (`running` | `stopped` | `waiting_limit` | `draining`: làm nốt việc dở rồi tắt, ADR-118), `waiting_until`, `started_by`, `scanned` (vùng các lượt quét đã xem, ADR-116), `notify_channel_id` + `notify_chat_id` (bot và chat nhận tổng kết khi dừng, ADR-120).
 
-Việc của phiên: `title`, `kind` (`unfinished` | `upgrade` | `bug`), `detail`, `status` (`found` | `queued` | `doing` | `paused` | `done` | `failed` | `skipped`), `priority`, `branch`, `worktree`, `summary`, `subagents`, `cost_usd`, `work_conversation_id` (chat làm việc ẩn, `purpose = burn_work`, ADR-116).
+Việc của phiên: `title`, `kind` (`unfinished` | `upgrade` | `bug`; rỗng: worker chưa nhận việc, ADR-126), `detail`, `status` (`found` | `queued` | `doing` | `paused` | `done` | `failed` | `skipped`), `priority`, `branch`, `worktree`, `summary`, `subagents`, `cost_usd`, `work_conversation_id` (chat làm việc ẩn, `purpose = burn_work`, ADR-116).
 
 ### `chat_queued` (ADR-119)
 

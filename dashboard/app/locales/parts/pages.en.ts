@@ -390,6 +390,7 @@ const en: Record<keyof typeof vi, string> = {
   'burn.kind.unfinished': 'unfinished',
   'burn.kind.upgrade': 'upgrade',
   'burn.kind.bug': 'bug',
+  'burn.kind.hunting': 'looking',
   'burn.first': 'Do next',
   'burn.skip': 'Skip',
   'burn.dropWorktree': 'Remove worktree',

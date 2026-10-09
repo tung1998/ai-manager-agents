@@ -84,7 +84,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lư�
 	trees := worktree.New(filepath.Join(tmp, "trees"))
 	engine.SetWorktrees(trees)
 	svc := burn.New(st, engine, trees)
-	svc.SetIdle(50 * time.Millisecond)
+	svc.SetFindWork(false) // these tests queue their pieces themselves
 	return fx{st: st, svc: svc, engine: engine, trees: trees, project: project, dir: dir, bin: bin}
 }
 
@@ -665,7 +665,7 @@ func TestBurnListTool(t *testing.T) {
 	}
 }
 
-// A reviewer that always crashes on the "issue" stage (a system error, not a
+// A reviewer that always crashes on the result (a system error, not a
 // turned-down piece) must not leave the piece queued forever: past a few
 // tries in a row it is failed (ADR-120).
 func TestBurnReviewSystemErrorFailsAfterAFewTries(t *testing.T) {
@@ -673,7 +673,7 @@ func TestBurnReviewSystemErrorFailsAfterAFewTries(t *testing.T) {
 	os.WriteFile(f.bin, []byte(`#!/bin/sh
 p=$(cat)
 case "$p" in
-*"issue review"*)
+*"result review"*)
   echo "fatal: reviewer crashed" >&2
   exit 1
   ;;
@@ -686,7 +686,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","s
 	defer cancel()
 	f.svc.Start(ctx)
 	ends := time.Now().Add(time.Hour)
-	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewProfileID: f.profile(t, "issue")})
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewProfileID: f.profile(t, "result")})
 	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
 	if err != nil {
 		t.Fatal(err)
@@ -695,6 +695,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","s
 	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc nào đó", Kind: "bug"})
 	items, _ := f.st.Burn().Items(ctx, b.ID)
 	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: items[0].ID})
+	waitItem(t, f.st, items[0].ID, "doing")
+	f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: items[0].ID, Summary: "xong"})
 	it := waitItemFor(t, f.st, items[0].ID, "failed", 3*time.Minute)
 	if !strings.Contains(it.Summary, "lỗi hệ thống liên tục") {
 		t.Fatalf("item = %+v", it)
@@ -710,7 +712,7 @@ func TestBurnReviewSystemErrorOnceThenGoesOn(t *testing.T) {
 	os.WriteFile(f.bin, []byte(`#!/bin/sh
 p=$(cat)
 case "$p" in
-*"issue review"*)
+*"result review"*)
   n=$(cat `+tries+` 2>/dev/null || echo 0)
   n=$((n+1))
   echo "$n" > `+tries+`
@@ -729,7 +731,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","s
 	defer cancel()
 	f.svc.Start(ctx)
 	ends := time.Now().Add(time.Hour)
-	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewProfileID: f.profile(t, "issue")})
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewProfileID: f.profile(t, "result")})
 	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
 	if err != nil {
 		t.Fatal(err)
@@ -738,7 +740,9 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","s
 	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc nào đó", Kind: "bug"})
 	items, _ := f.st.Burn().Items(ctx, b.ID)
 	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: items[0].ID})
-	it := waitItemFor(t, f.st, items[0].ID, "doing", 2*time.Minute)
+	waitItem(t, f.st, items[0].ID, "doing")
+	f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: items[0].ID, Summary: "xong"})
+	it := waitItemFor(t, f.st, items[0].ID, "done", 2*time.Minute)
 	if it.ReviewErrAttempts != 0 {
 		t.Fatalf("item = %+v", it)
 	}
@@ -804,5 +808,119 @@ func TestBurnStepPanicFailsThePieceNotTheOffice(t *testing.T) {
 	out, err = f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Việc sau panic", Kind: "bug"})
 	if err != nil || !strings.Contains(out, "bit_") {
 		t.Fatal(out, err)
+	}
+}
+
+// waitWorker waits for a worker of the Burn (ADR-126) at work, not one of seen.
+func waitWorker(t *testing.T, st storage.Store, sessionID string, seen map[string]bool) storage.BurnItem {
+	t.Helper()
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		items, _ := st.Burn().Items(context.Background(), sessionID)
+		for _, it := range items {
+			if it.Kind == "" && it.Status == "doing" && it.WorkConversationID != "" && !seen[it.ID] {
+				return it
+			}
+		}
+	}
+	t.Fatal("no worker started")
+	return storage.BurnItem{}
+}
+
+// ADR-126: a free slot gets a worker of its own, at once: it claims what it
+// found (not what another took), does it, and its commit lands on the run's
+// branch. Workers finding nothing three times in a row finish the Burn.
+func TestBurnWorkerFindsAndDoesItsOwnPiece(t *testing.T) {
+	f := setup(t)
+	f.svc.SetFindWork(true)
+	os.WriteFile(f.bin, []byte(`#!/bin/sh
+cat > /dev/null
+echo "do agent viết" > made-by-agent.txt
+sleep 3
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lượt","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, State: "stopped"})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.svc.Stop(context.Background(), f.project.ID)
+	seen := map[string]bool{}
+	w := waitWorker(t, f.st, b.ID, seen)
+	seen[w.ID] = true
+	if !strings.Contains(w.Title, "tìm việc") {
+		t.Fatalf("worker = %+v", w)
+	}
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	wsc := actions.Scope{ProjectID: f.project.ID, ConversationID: w.WorkConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Đã có rồi", Kind: "bug"})
+	if _, err := f.svc.Tool(ctx, wsc, "burn_done", burn.ToolInput{Item: w.ID, Summary: "x"}); err == nil {
+		t.Fatal("done before claiming anything")
+	}
+	if _, err := f.svc.Tool(ctx, wsc, "burn_claim", burn.ToolInput{Item: w.ID, Title: "đã có  rồi", Kind: "bug"}); err == nil {
+		t.Fatal("claimed a piece another one already is")
+	}
+	if _, err := f.svc.Tool(ctx, wsc, "burn_claim", burn.ToolInput{Item: w.ID, Title: "Thêm file", Kind: "upgrade", Detail: "a.go", Scanned: "internal/a"}); err != nil {
+		t.Fatal(err)
+	}
+	f.svc.Tool(ctx, wsc, "burn_done", burn.ToolInput{Item: w.ID, Summary: "đã thêm"})
+	w = waitDelivered(t, f.st, w.ID)
+	b, _ = f.st.Burn().Session(ctx, f.project.ID)
+	log := exec.Command("git", "log", "--format=%s", "main.."+b.RunBranch)
+	log.Dir = f.dir
+	if got, _ := log.CombinedOutput(); w.Branch != b.RunBranch || !strings.Contains(string(got), "burn: Thêm file") {
+		t.Fatalf("piece %+v, run branch log:\n%s", w, got)
+	}
+	if !strings.Contains(b.Scanned, "internal/a") {
+		t.Fatalf("areas looked at not kept: %q", b.Scanned)
+	}
+	// the next workers come at once and find nothing: three in a row, it finishes
+	for i := 0; i < 3; i++ {
+		n := waitWorker(t, f.st, b.ID, seen)
+		seen[n.ID] = true
+		if _, err := f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: n.WorkConversationID}, "burn_none", burn.ToolInput{Item: n.ID, Reason: "hết việc"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if cur, _ := f.st.Burn().Session(ctx, f.project.ID); cur.State == "stopped" {
+			break
+		}
+		if time.Now().After(deadline) {
+			cur, _ := f.st.Burn().Session(ctx, f.project.ID)
+			t.Fatalf("still %s after three workers found nothing", cur.State)
+		}
+	}
+}
+
+// A worker under a profile that reviews the problem (ADR-126): it claims its
+// piece and stops; the reviewer turning it down skips it, nothing is done.
+func TestBurnWorkerWaitsForTheIssueReview(t *testing.T) {
+	f := setup(t)
+	f.svc.SetFindWork(true)
+	os.WriteFile(f.bin, []byte(strings.Replace(reviewer, "sleep 1", "sleep 3", 1)), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, State: "stopped", ReviewProfileID: f.profile(t, "issue")})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.svc.Stop(context.Background(), f.project.ID)
+	w := waitWorker(t, f.st, b.ID, map[string]bool{})
+	wsc := actions.Scope{ProjectID: f.project.ID, ConversationID: w.WorkConversationID}
+	if _, err := f.svc.Tool(ctx, wsc, "burn_claim", burn.ToolInput{Item: w.ID, Title: "Lỗi tưởng tượng", Kind: "bug"}); err != nil {
+		t.Fatal(err)
+	}
+	it := waitItem(t, f.st, w.ID, "skipped")
+	if !strings.Contains(it.Summary, "Review vấn đề") || it.Attempts > 1 {
+		t.Fatalf("item = %+v", it)
+	}
+	if it.ReviewConversations["issue"] == "" {
+		t.Fatalf("not reviewed: %+v", it)
 	}
 }

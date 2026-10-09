@@ -304,6 +304,11 @@ func (s *server) burnItemAction(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
+	if r.PathValue("action") == "first" && s.cfg.Burn != nil { // a free slot takes it at once
+		if b, err := s.cfg.Store.Burn().SessionByID(ctx, it.SessionID); err == nil {
+			s.cfg.Burn.Wake(b.ProjectID)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

@@ -2088,3 +2088,12 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Chi phí của một lượt Claude Code là phần nó cộng thêm vào tổng của phiên. Tổng gần nhất của mỗi phiên được giữ trong settings (`session_cost:<session>`). Lượt dùng lại một phiên chưa có tổng (phiên tạo trước khi sửa) ghi 0 để tính theo token (`estimate`). Resume thất bại và chạy phiên mới (tổng nhỏ hơn lúc trước) thì ghi cả tổng. Kết nối khác không đổi. Số liệu đã ghi trước đây không sửa lại.
   - `chat.WithSessionCap(ctx, n)`: phiên của agent đã chứa từ n token trở lên thì lượt này mở phiên mới. n = 1 nghĩa là luôn mở phiên mới. Dùng cho bên gọi có mỗi lượt tự đủ thông tin.
   - Lượt điều phối Burn đã tự đủ thông tin (việc đang mở, việc vừa đóng, vùng đã quét, ADR-121), nên mở phiên mới mỗi 15 lượt hoặc khi phiên vượt 150K token.
+
+## ADR-126: Burn: mỗi việc một worker làm từ đầu đến cuối, không điều phối
+- **Bối cảnh:** lần chạy đêm 08/10 tốn khoảng 71% chi phí cho review (quy trình 2 góc nhìn ở cả 3 bước) và lượt điều phối, 52% số việc tìm được bị reviewer bác. Bước chọn việc và review trước khi làm thành ra thừa.
+- **Quyết định:**
+  - Bỏ chat điều phối (lượt quét/chọn, `burn/plan.md`). Mỗi slot trống là một worker: một việc chưa nhận (`kind` rỗng, tiêu đề "Đang tìm việc…"), có chat và worktree riêng (tách từ nhánh của lần chạy), nhận prompt `burn/solo.md`. Worker tìm một việc đáng làm, gọi `burn_claim` để nhận (bị từ chối nếu trùng tiêu đề với việc đã làm, đã bỏ hay đang làm), sửa code, kiểm tra, rồi báo `burn_done`/`burn_fail`. Office commit vào nhánh của lần chạy như trước (ADR-123).
+  - Không tìm được việc đáng làm thì gọi `burn_none`: việc chưa nhận bị xóa (`DeleteItem`) cùng worktree. 3 worker liền nhau báo không có việc thì Burn làm nốt việc dở rồi tắt (không chờ rồi quét lại).
+  - Không còn chờ khi rảnh (bỏ `idle`): worker xong là slot được lấp ngay. Chỉ còn chờ khi hết quota (ADR-124). Việc người dùng xếp hàng (Làm trước, `burn_pick`) được làm trước worker mới và đánh thức vòng lặp ngay.
+  - Review là cơ chế, người dùng chọn trong hồ sơ review (ADR-113), không bị bỏ. Không có bước review trước khi làm thì worker làm một mạch. Hồ sơ có review vấn đề hoặc cách làm thì worker gọi `burn_claim` rồi dừng lượt; việc về hàng đợi, qua review (`gate`) rồi worker làm tiếp trong chính chat đó. Review kết quả như trước (ADR-112).
+  - `burn_claim`/`burn_none` nhận `scanned` (vùng đã xem), giữ ở `scanned` của phiên, để prompt của worker sau tránh xem lại. Prompt cũng liệt kê các việc đã nhận (tối đa 60).

@@ -58,7 +58,7 @@ func TestReviewErrAttemptFailsAfterAFewTries(t *testing.T) {
 
 	it := f.it
 	for n := 1; n <= maxReviewErrAttempts-1; n++ {
-		if retry := f.s.reviewErrAttempt(ctx, it, "issue", nil, boom); !retry {
+		if retry := f.s.reviewErrAttempt(ctx, it, "result", nil, boom); !retry {
 			t.Fatalf("attempt %d: retry = false, want true (under the threshold)", n)
 		}
 		var err error
@@ -70,7 +70,7 @@ func TestReviewErrAttemptFailsAfterAFewTries(t *testing.T) {
 			t.Fatalf("attempt %d: item = %+v", n, it)
 		}
 	}
-	if retry := f.s.reviewErrAttempt(ctx, it, "issue", nil, boom); retry {
+	if retry := f.s.reviewErrAttempt(ctx, it, "result", nil, boom); retry {
 		t.Fatal("past the threshold: retry = true, want false")
 	}
 	got, err := f.st.Burn().Item(ctx, it.ID)
@@ -89,7 +89,7 @@ func TestReviewErrAttemptStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	it := storage.BurnItem{ID: "nonexistent", Status: "queued"}
-	if retry := s.reviewErrAttempt(ctx, it, "issue", nil, errors.New("x")); retry {
+	if retry := s.reviewErrAttempt(ctx, it, "result", nil, errors.New("x")); retry {
 		t.Fatal("cancelled context: retry = true, want false")
 	}
 }
@@ -112,7 +112,7 @@ func TestReviewErrAttemptDoesNotCountTheAIsLimit(t *testing.T) {
 	}
 	boom := errors.New("fatal: reviewer crashed")
 	for n := 1; n <= maxReviewErrAttempts+2; n++ { // past the threshold, were it counted
-		if retry := f.s.reviewErrAttempt(ctx, f.it, "issue", []string{""}, boom); !retry {
+		if retry := f.s.reviewErrAttempt(ctx, f.it, "result", []string{""}, boom); !retry {
 			t.Fatalf("attempt %d: retry = false, want true (the AI's limit, not a system error)", n)
 		}
 	}
@@ -136,7 +136,7 @@ func TestReviewErrAttemptKeepsAConcurrentChange(t *testing.T) {
 	}
 	// reviewErrAttempt is handed the snapshot from before the status changed
 	// (as gate/finish do: it was read, then review() ran for a while).
-	if retry := f.s.reviewErrAttempt(ctx, f.it, "issue", nil, errors.New("x")); !retry {
+	if retry := f.s.reviewErrAttempt(ctx, f.it, "result", nil, errors.New("x")); !retry {
 		t.Fatal("retry = false, want true (under the threshold)")
 	}
 	got, err := f.st.Burn().Item(ctx, f.it.ID)
@@ -148,43 +148,8 @@ func TestReviewErrAttemptKeepsAConcurrentChange(t *testing.T) {
 	}
 }
 
-func TestIdleBacksOff(t *testing.T) {
-	s := &Service{idle: 5 * time.Minute}
-	for n, want := range map[int]time.Duration{1: 5 * time.Minute, 2: 10 * time.Minute, 3: 20 * time.Minute, 4: 40 * time.Minute, 5: time.Hour, 9: time.Hour} {
-		if got := s.idleAfter(n); got != want {
-			t.Errorf("idleAfter(%d) = %v, want %v", n, got, want)
-		}
-	}
-}
-
-func TestPlanPromptDigsDeeper(t *testing.T) {
-	b := storage.BurnSession{MaxParallel: 2}
-	p := planPrompt(b, nil, 0, 1)
-	for _, want := range []string{"subagent", scannedMark} {
-		if !strings.Contains(p, want) {
-			t.Errorf("first scan prompt lacks %q", want)
-		}
-	}
-	if strings.Contains(p, "liên tiếp") {
-		t.Error("first scan should not mention empty scans")
-	}
-	if !strings.Contains(p, "EXACTLY ONE") || !strings.Contains(planPrompt(b, nil, 0, 3), "pick 3 pieces") {
-		t.Error("a scan picks as many pieces as there are free slots")
-	}
-	if p2 := planPrompt(b, nil, 2, 1); !strings.Contains(p2, "2 scans in a row") {
-		t.Errorf("repeat scan should say how many came back empty:\n%s", p2)
-	}
-}
-
-// What the scans looked at is kept off the chat (ADR-116): read from the
-// answer, the latest kept, given to the next scan.
+// What the workers looked at is kept (latest last) and given to the next.
 func TestScannedIsKept(t *testing.T) {
-	if got := scannedOf("Chọn việc X.\n**VÙNG ĐÃ XEM:** internal/burn, dashboard/burn"); got != "internal/burn, dashboard/burn" {
-		t.Fatalf("scannedOf = %q", got)
-	}
-	if got := scannedOf("không có dòng đó"); got != "" {
-		t.Fatalf("scannedOf = %q", got)
-	}
 	at := time.Date(2026, 10, 8, 9, 0, 0, 0, time.Local)
 	kept := ""
 	for i := range 40 {
@@ -193,31 +158,43 @@ func TestScannedIsKept(t *testing.T) {
 	if n := len([]rune(kept)); n > maxScanned || !strings.Contains(kept, "vùng 39") || strings.Contains(kept, "vùng 0 ") {
 		t.Fatalf("kept %d runes:\n%s", n, kept)
 	}
-	if p := planPrompt(storage.BurnSession{Scanned: "08/10 09:00 internal/chat"}, nil, 0, 1); !strings.Contains(p, "internal/chat") {
-		t.Fatal("the next scan is not told what was scanned")
+	if p := soloPrompt(storage.BurnSession{Scanned: "08/10 09:00 internal/chat"}, storage.BurnItem{ID: "bit_w"}, nil, false, false, false); !strings.Contains(p, "internal/chat") {
+		t.Fatal("the next worker is not told what was looked at")
 	}
 }
 
-func TestPlanPromptOrder(t *testing.T) {
-	road := planPrompt(storage.BurnSession{Order: "roadmap"}, nil, 0, 1)
-	for _, want := range []string{"ROADMAP FIRST", "not approved yet", "short design", "part 1"} {
-		if !strings.Contains(road, want) {
-			t.Errorf("roadmap prompt lacks %q", want)
+// A worker's prompt (ADR-126): find one piece, claim it, do it, report it;
+// what the others took is not done again; the order and the focus steer.
+func TestSoloPrompt(t *testing.T) {
+	items := []storage.BurnItem{
+		{ID: "bit_a", Kind: "bug", Status: "done", Title: "Sửa lỗi A"},
+		{ID: "bit_b", Kind: "upgrade", Status: "doing", Title: "Nâng cấp B"},
+		{ID: "bit_c", Status: "doing", Title: huntTitle}, // another worker still looking
+	}
+	p := soloPrompt(storage.BurnSession{RunBranch: "burn/x"}, storage.BurnItem{ID: "bit_w"}, items, false, false, false)
+	for _, want := range []string{`burn_claim(item="bit_w"`, `burn_done(item="bit_w"`, `burn_none(item="bit_w"`, "[done] Sửa lỗi A", "[doing] Nâng cấp B", "burn/x", "ROADMAP FIRST"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("worker prompt lacks %q:\n%s", want, p)
 		}
 	}
-	if i, j := strings.Index(road, "- Roadmap:"), strings.Index(road, "- Bugs in detail"); i < 0 || j < 0 || i > j {
-		t.Errorf("roadmap should come before bugs")
+	if strings.Contains(p, huntTitle) {
+		t.Error("a worker still looking is not a piece taken")
 	}
-	bugs := planPrompt(storage.BurnSession{Order: "bugs"}, nil, 0, 1)
-	if i, j := strings.Index(bugs, "- Roadmap:"), strings.Index(bugs, "- Bugs in detail"); i < 0 || j < 0 || j > i {
-		t.Errorf("bugs order should list bugs first")
+	road := soloPrompt(storage.BurnSession{Order: "roadmap"}, storage.BurnItem{ID: "w"}, nil, false, false, false)
+	if i, j := strings.Index(road, "- Roadmap:"), strings.Index(road, "- Bugs:"); i < 0 || j < 0 || i > j {
+		t.Errorf("roadmap should come before bugs:\n%s", road)
 	}
-	if strings.Contains(bugs, "ROADMAP FIRST") {
-		t.Error("bugs order should not push the roadmap first")
+	bugs := soloPrompt(storage.BurnSession{Order: "bugs"}, storage.BurnItem{ID: "w"}, nil, false, false, false)
+	if i, j := strings.Index(bugs, "- Roadmap:"), strings.Index(bugs, "- Bugs:"); i < 0 || j < 0 || j > i || strings.Contains(bugs, "ROADMAP FIRST") {
+		t.Errorf("bugs order should list bugs first:\n%s", bugs)
 	}
-	// an old row with no order behaves as roadmap
-	if !strings.Contains(planPrompt(storage.BurnSession{}, nil, 0, 1), "ROADMAP FIRST") {
-		t.Error("empty order should default to roadmap")
+	if r := soloPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, nil, true, true, false); !strings.Contains(r, "started on this before") || !strings.Contains(r, "reviewed first") {
+		t.Errorf("a retry or a reviewed result is not said:\n%s", r)
+	}
+	// reviewed before it is done (a mechanism the person sets up): claim, then stop there
+	pre := soloPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, nil, false, false, true)
+	if !strings.Contains(pre, "END YOUR TURN") || strings.Contains(pre, "burn_done(") {
+		t.Errorf("a pre-reviewed worker should claim and stop:\n%s", pre)
 	}
 }
 
@@ -253,41 +230,13 @@ func TestVerdict(t *testing.T) {
 	}
 }
 
-func TestPlanPromptTrimsClosed(t *testing.T) {
-	var items []storage.BurnItem
-	for i := 0; i < maxClosedInPlan+5; i++ {
-		items = append(items, storage.BurnItem{ID: fmt.Sprintf("bit_done%d", i), Status: "done", Title: fmt.Sprintf("xong %d", i), Summary: "tóm tắt dài"})
-	}
-	items = append(items, storage.BurnItem{ID: "bit_open", Status: "found", Title: "mở", Summary: "chi tiết mở"})
-	p := planPrompt(storage.BurnSession{}, items, 0, 1)
-	if !strings.Contains(p, "bit_open") || !strings.Contains(p, "chi tiết mở") {
-		t.Error("open item should be listed in full")
-	}
-	if strings.Contains(p, "bit_done") || strings.Contains(p, "tóm tắt dài") {
-		t.Error("closed items should be title only")
-	}
-	if strings.Contains(p, "xong 4\n") || !strings.Contains(p, "xong 9") || !strings.Contains(p, "burn_list(what=\"closed\")") {
-		t.Errorf("only the latest closed items should be listed:\n%s", p)
-	}
-}
-
-// The focus steers, not limits (ADR-120): first in a scan and its picks, with
-// what to look at for a known focus; the work's checks; no reviewer's no.
+// The focus steers, not limits (ADR-120): first in what a worker looks at,
+// with what to look at for a known focus; the work's checks.
 func TestFocusSteers(t *testing.T) {
 	b := storage.BurnSession{Focus: "tập trung vào bảo mật API"}
-	p := planPrompt(b, nil, 0, 1)
-	if !strings.Contains(p, "not a limit") || !strings.Contains(p, "injection") || !strings.Contains(p, "come before the order") {
-		t.Errorf("scan prompt does not lead with the focus:\n%s", p)
-	}
-	if !strings.Contains(p, "Never burn_skip a piece only because it is off the focus") {
-		t.Error("an out-of-focus piece may be skipped (the real case, 2026-10-08)")
-	}
-	// the real case (2026-10-08): 3 slots, 2 running, the agent took them for full
-	if p1 := planPrompt(storage.BurnSession{MaxParallel: 3}, nil, 0, 1); !strings.Contains(p1, "3 in all, 2 taken by pieces in progress, 1 FREE") || !strings.Contains(p1, "scan new areas") {
-		t.Errorf("the free slot is not said outright:\n%s", p1)
-	}
-	if p3 := planPrompt(b, nil, 0, 3); !strings.Contains(p3, "pick 3 pieces") || !strings.Contains(p3, "scan more new areas") {
-		t.Errorf("free slots are not filled:\n%s", p3)
+	p := soloPrompt(b, storage.BurnItem{ID: "w"}, nil, false, false, false)
+	if !strings.Contains(p, "not a limit") || !strings.Contains(p, "injection") || !strings.Contains(p, "any other piece worth doing") {
+		t.Errorf("worker prompt does not lead with the focus:\n%s", p)
 	}
 	if strings.Contains(p, "trạng thái đang tải") {
 		t.Error("a security focus got the UI lens")
@@ -298,7 +247,7 @@ func TestFocusSteers(t *testing.T) {
 	if r := reviewPrompt(b, storage.BurnItem{}, "issue"); !strings.Contains(r, "not a reason to turn other work down") {
 		t.Errorf("issue review turns down what is off the focus:\n%s", r)
 	}
-	if focusLenses("build xong") != nil || strings.Contains(planPrompt(storage.BurnSession{}, nil, 0, 1), "focus") {
+	if focusLenses("build xong") != nil || strings.Contains(soloPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, nil, false, false, false), "focus") {
 		t.Error("no focus, or none known: no lens")
 	}
 }
@@ -332,7 +281,7 @@ func TestReviewErrAttemptDoesNotCountAQuotaError(t *testing.T) {
 	ctx := context.Background()
 	quota := errors.New("agy: Individual quota reached. Resets in 9m51s.")
 	for n := 1; n <= maxReviewErrAttempts+2; n++ {
-		if retry := f.s.reviewErrAttempt(ctx, f.it, "issue", nil, quota); !retry {
+		if retry := f.s.reviewErrAttempt(ctx, f.it, "result", nil, quota); !retry {
 			t.Fatalf("attempt %d: retry = false", n)
 		}
 	}
@@ -356,7 +305,7 @@ func TestWaitLimitCountsTheReviewersAgents(t *testing.T) {
 	if _, err := f.st.Workflows().Create(ctx, storage.Workflow{ProjectID: b.ProjectID, Key: "two-views", Name: "Hai góc nhìn", Bindings: map[string]string{"b": role.ID}, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	prof, err := f.st.Burn().SaveReviewProfile(ctx, storage.BurnReviewProfile{ProjectID: b.ProjectID, Name: "r", Stages: map[string]storage.BurnReviewStage{"issue": {Workflow: "two-views"}}})
+	prof, err := f.st.Burn().SaveReviewProfile(ctx, storage.BurnReviewProfile{ProjectID: b.ProjectID, Name: "r", Stages: map[string]storage.BurnReviewStage{"result": {Workflow: "two-views"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

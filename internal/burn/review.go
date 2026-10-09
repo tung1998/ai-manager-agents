@@ -17,9 +17,15 @@ import (
 
 // Review stages (ADR-112), in the order a piece meets them: the problem
 // (is it real, worth doing), the plan (do it, and how), the result (keep it).
-// Which are reviewed, and by whom, is the Burn's review profile (ADR-113);
-// none: a Burn runs as before.
+// A mechanism: which are reviewed, and by whom, is the person's review
+// profile (ADR-113); none, a worker finds and does its piece in one go.
 var ReviewStages = []string{"issue", "plan", "result"}
+
+// preReviews: the profile reviews a piece before it is done (problem or
+// plan): a worker claims it, then waits for them before doing it (ADR-126).
+func (s *Service) preReviews(ctx context.Context, b storage.BurnSession) bool {
+	return s.reviews(ctx, b, "issue") || s.reviews(ctx, b, "plan")
+}
 
 // reviewer is who reviews stage under the Burn's profile, as it is now (it
 // may be edited while the Burn runs); ok is false when stage is not reviewed.

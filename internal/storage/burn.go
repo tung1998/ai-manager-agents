@@ -82,6 +82,9 @@ type BurnRepo interface {
 	UpdateItemFrom(ctx context.Context, it BurnItem, fromStatus string) error
 	Item(ctx context.Context, id string) (BurnItem, error)
 	Items(ctx context.Context, sessionID string) ([]BurnItem, error)
+	// DeleteItem drops a piece that never became one (a worker that found
+	// nothing worth doing, ADR-126).
+	DeleteItem(ctx context.Context, id string) error
 
 	ReviewProfiles(ctx context.Context, projectID string) ([]BurnReviewProfile, error)
 	ReviewProfile(ctx context.Context, id string) (BurnReviewProfile, error)

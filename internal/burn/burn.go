@@ -32,13 +32,13 @@ type Service struct {
 	store storage.Store
 	chat  *chat.Engine
 	trees *worktree.Manager
-	idle  time.Duration // nothing to do: how long before looking again
 
 	mu    sync.Mutex
 	root  context.Context
 	loops map[string]context.CancelFunc // by project
 	wakes map[string]chan struct{}      // by project: its loop looks again now
-	plans map[string]int                // coordination turns, by its chat (planFresh)
+	nones map[string]int                // workers in a row that found nothing, by run (maxNones)
+	find  bool                          // a free slot gets a worker finding its own piece (off: only the queued ones)
 	runMu sync.Mutex                    // a run's worktree: made, and pieces merged into it, one at a time
 
 	notify Notify // a run's summary to a bot's chat (ADR-120); nil: none
@@ -52,11 +52,12 @@ func (s *Service) SetNotify(n Notify) { s.notify = n }
 
 // New builds a Service; Start runs the Burns that were running.
 func New(st storage.Store, engine *chat.Engine, trees *worktree.Manager) *Service {
-	return &Service{store: st, chat: engine, trees: trees, idle: 5 * time.Minute, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, plans: map[string]int{}}
+	return &Service{store: st, chat: engine, trees: trees, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, nones: map[string]int{}, find: true}
 }
 
-// SetIdle is how long a Burn with nothing to do waits before looking again.
-func (s *Service) SetIdle(d time.Duration) { s.idle = d }
+// SetFindWork off: free slots take only the pieces queued, no worker finds
+// its own (tests that drive the pieces themselves).
+func (s *Service) SetFindWork(on bool) { s.find = on }
 
 // Start goes on with the Burns that ran when office stopped: their piece in
 // progress waits, then goes on first.
@@ -247,6 +248,9 @@ func (s *Service) Resume(ctx context.Context, projectID string) error {
 }
 
 // wake has a project's loop look again now (it may be waiting a long while).
+// Wake has a project's loop look again now: a piece queued (Làm trước).
+func (s *Service) Wake(projectID string) { s.wake(projectID) }
+
 func (s *Service) wake(projectID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -293,10 +297,11 @@ func (s *Service) spawn(projectID string) {
 	}()
 }
 
-// loop: the paused and chosen pieces first, up to its cap at once (ADR-117),
-// each in its own worktree and chat; a slot free and nothing to go on with,
-// the main agent looks for work and chooses; with nothing to do, it waits a
-// while. Draining, it only finishes what is in progress, then stops.
+// loop keeps its slots full (ADR-117, ADR-126): the pieces in progress and
+// the ones the person queued first, else a new worker that finds one piece
+// and does it from A to Z, each in its own worktree and chat. No coordinator,
+// no waiting while idle: a slot freed is filled at once. Out of quota, it
+// waits for the reset; draining, it only finishes what is in progress.
 // wake: a worker is done, or the Burn was drained or resumed.
 func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}) {
 	var (
@@ -305,7 +310,6 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 		wg   sync.WaitGroup
 	)
 	defer wg.Wait()
-	empty := 0 // scans in a row that found nothing
 	for ctx.Err() == nil {
 		b, err := s.store.Burn().Session(ctx, projectID)
 		if err != nil || !b.Active() {
@@ -337,7 +341,14 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 		for ; free > 0; free-- {
 			it, ok := next(items, busy, draining)
 			if !ok {
-				break
+				// a new worker, unless draining or out of quota (it would only fail)
+				if draining || !s.find || s.waitLimit(ctx, b) {
+					break
+				}
+				var err error
+				if it, err = s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: huntTitle, Status: "queued"}); err != nil {
+					break
+				}
 			}
 			busy[it.ID] = true
 			wg.Add(1)
@@ -375,32 +386,7 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 			wait(ctx, wake, time.Minute)
 			continue
 		}
-		if free <= 0 { // every slot taken: wait for one
-			wait(ctx, wake, time.Minute)
-			continue
-		}
-		before := len(items)
-		if err := s.plan(ctx, b, items, empty, free); err != nil && ctx.Err() == nil {
-			if cur, err := s.store.Burn().SessionByID(ctx, b.ID); err == nil && cur.State != "running" {
-				continue // drained or stopped meanwhile: the scan was cancelled
-			}
-			slog.Warn("burn: plan", "project", projectID, "err", err)
-			if !s.waitLimit(ctx, b) {
-				wait(ctx, wake, time.Minute)
-			}
-			continue
-		}
-		after, _ := s.store.Burn().Items(ctx, b.ID)
-		mu.Lock()
-		_, chosen := next(after, busy, false)
-		mu.Unlock()
-		switch {
-		case chosen || len(after) != before:
-			empty = 0
-		default: // nothing new, nothing chosen: wait longer each time (a piece done wakes it)
-			empty++
-			wait(ctx, wake, s.idleAfter(empty))
-		}
+		wait(ctx, wake, time.Minute) // a worker done wakes it
 	}
 }
 
@@ -417,8 +403,9 @@ func (s *Service) drained(ctx context.Context, sessionID string) bool {
 	return true
 }
 
-// step takes a piece one step on: its review once done, the reviews before it
-// is done, then its work.
+// step takes a piece one step on: its result's review once done, the
+// reviews before it is done, then its work — whichever the review profile
+// has (ADR-112); a worker not claimed yet goes straight to finding one.
 func (s *Service) step(ctx context.Context, b storage.BurnSession, it storage.BurnItem) {
 	if it.Status == "review" { // done: its result waits for the reviewer (ADR-112)
 		if s.finish(ctx, b, it) && !s.waitLimit(ctx, b) {
@@ -426,29 +413,22 @@ func (s *Service) step(ctx context.Context, b storage.BurnSession, it storage.Bu
 		}
 		return
 	}
-	if proceed, failed := s.gate(ctx, b, it); !proceed { // reviewed before it is done
-		if failed && !s.waitLimit(ctx, b) {
-			sleep(ctx, time.Minute)
+	if !hunting(it) {
+		if proceed, failed := s.gate(ctx, b, it); !proceed { // reviewed before it is done
+			if failed && !s.waitLimit(ctx, b) {
+				sleep(ctx, time.Minute)
+			}
+			return
 		}
-		return
-	}
-	// gate saves what it found (stages passed, its error count) straight to
-	// the store, not back into it: reread, so work does not clobber that.
-	if cur, err := s.store.Burn().Item(ctx, it.ID); err == nil {
-		it = cur
+		// gate saves what it found (stages passed, its error count) straight to
+		// the store, not back into it: reread, so work does not clobber that.
+		if cur, err := s.store.Burn().Item(ctx, it.ID); err == nil {
+			it = cur
+		}
 	}
 	if failed := s.work(ctx, b, it); failed {
 		s.waitLimit(ctx, b) // the connection's limit: it waits for the reset
 	}
-}
-
-// idleAfter is the wait after n empty scans in a row: idle, then doubling, at most an hour.
-func (s *Service) idleAfter(n int) time.Duration {
-	d := s.idle
-	for i := 1; i < n && d < time.Hour; i++ {
-		d *= 2
-	}
-	return min(d, time.Hour)
 }
 
 // next: a piece done waiting for its review, a paused one (it goes on),
@@ -575,8 +555,19 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	_ = s.store.Burn().UpdateItem(ctx, it)
 	// held back for its review (ADR-112): no diff until the reviewer agrees
 	held := s.reviews(ctx, b, "result")
-	res, err := s.run(chat.WithPinnedTree(runCtx(ctx, b, tree, true), tree), it.WorkConversationID, workPrompt(b, it, again, held))
+	prompt := workPrompt(b, it, again, held)
+	worker, pre := hunting(it), s.preReviews(ctx, b)
+	if worker { // a worker: it finds its piece first (ADR-126)
+		items, _ := s.store.Burn().Items(ctx, b.ID)
+		prompt = soloPrompt(b, it, items, again, held, pre)
+	}
+	res, err := s.run(chat.WithPinnedTree(runCtx(ctx, b, tree, true), tree), it.WorkConversationID, prompt)
 	cur, gerr := s.store.Burn().Item(context.WithoutCancel(ctx), it.ID)
+	if errors.Is(gerr, storage.ErrNotFound) { // burn_none: nothing worth doing
+		_ = s.trees.Remove(context.WithoutCancel(ctx), p.Path, b.ProjectID, tree)
+		s.noneFound(ctx, b)
+		return false
+	}
 	if gerr != nil {
 		return false
 	}
@@ -594,13 +585,15 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 			break
 		}
 		cur.Status, cur.Summary = s.failedOrAgain(cur, firstNonEmpty(res.failed, errText(err)))
+	case worker && pre && !hunting(cur) && cur.Status == "doing": // claimed: reviewed before it is done, then it goes on
+		cur.Status, cur.Attempts = "queued", max(cur.Attempts-1, 0)
 	case cur.Status == "review": // the reviewer next, in the loop
 	case cur.Status == "done" && held: // review turned on meanwhile
 		cur.Status = "review"
 	case cur.Status == "done":
 		s.deliver(context.WithoutCancel(ctx), b, &cur)
 	case cur.Status == "doing": // it said nothing of how it went
-		cur.Status, cur.Summary = s.failedOrAgain(cur, "agent không báo kết quả (burn_done/burn_fail)")
+		cur.Status, cur.Summary = s.failedOrAgain(cur, "agent không báo kết quả (burn_done/burn_fail/burn_none)")
 	}
 	_ = s.store.Burn().UpdateItem(context.WithoutCancel(ctx), cur)
 	return failed
@@ -653,56 +646,8 @@ func firstNonEmpty(v ...string) string {
 	return ""
 }
 
-// A coordination turn says all it needs (the pieces, the areas scanned): its
-// session starts afresh every planFresh turns, or once it holds planCap
-// tokens, not to read an ever longer one each time (ADR-125).
-const (
-	planFresh = 15
-	planCap   = 150_000
-)
-
-// plan: the main agent looks for work and chooses what is next, up to free
-// pieces (in a scratch worktree: what it tries there is thrown away).
-func (s *Service) plan(ctx context.Context, b storage.BurnSession, items []storage.BurnItem, empty, free int) error {
-	limit := planCap
-	s.mu.Lock()
-	if s.plans[b.ConversationID]++; s.plans[b.ConversationID]%planFresh == 0 {
-		limit = 1
-	}
-	s.mu.Unlock()
-	pctx := chat.WithSessionCap(runCtx(ctx, b, "burn-scan-"+b.ID, true), limit)
-	res, err := s.run(pctx, b.ConversationID, planPrompt(b, items, empty, free))
-	if err == nil && res.failed != "" {
-		err = errors.New(res.failed)
-	}
-	if area := scannedOf(res.text); area != "" { // kept off the chat: it is compacted, or the agent changed
-		_ = s.store.Burn().SetScanned(context.WithoutCancel(ctx), b.ID, addScanned(b.Scanned, area, time.Now()))
-	}
-	return err
-}
-
-// scannedMark starts the line of a scan's answer that says what it looked at
-// (scannedMarks: also the one older answers used).
-const scannedMark = "AREAS SCANNED:"
-
-var scannedMarks = []string{scannedMark, "VÙNG ĐÃ XEM:"}
-
 // maxScanned caps what is kept of the areas scanned (the latest stay).
 const maxScanned = 2000
-
-// scannedOf is what a scan said it looked at.
-func scannedOf(text string) string {
-	for _, line := range strings.Split(text, "\n") {
-		l := []rune(strings.TrimLeft(strings.TrimSpace(line), "*-_# "))
-		for _, mark := range scannedMarks {
-			m := len([]rune(mark))
-			if len(l) > m && strings.EqualFold(string(l[:m]), mark) {
-				return oneLine(strings.Trim(string(l[m:]), "*_ "), 400)
-			}
-		}
-	}
-	return ""
-}
 
 // addScanned adds a scan's areas to what was kept, dropping the oldest lines
 // past maxScanned.
@@ -712,59 +657,6 @@ func addScanned(kept, area string, at time.Time) string {
 		lines = lines[1:]
 	}
 	return strings.Join(lines, "\n")
-}
-
-// What the plan prompt carries inline (ADR-121): the open pieces in full, the
-// latest closed ones and scanned areas only; the rest is a burn_list call away.
-const (
-	maxClosedInPlan  = 5
-	maxScannedInPlan = 5
-)
-
-// planPrompt is the coordination turn (burn/plan.md): what is open, closed
-// and scanned, and how many pieces to pick.
-func planPrompt(b storage.BurnSession, items []storage.BurnItem, empty, free int) string {
-	type piece struct{ ID, Kind, Status, Title, Summary string }
-	// said outright: seeing pieces "doing", an agent took the slots for full (2026-10-08)
-	total := max(b.MaxParallel, 1, free)
-	var open, closed []piece
-	for _, it := range items {
-		switch it.Status {
-		case "done", "skipped", "failed":
-			closed = append(closed, piece{Status: it.Status, Title: oneLine(it.Title, 100)})
-			continue
-		}
-		p := piece{ID: it.ID, Kind: it.Kind, Status: it.Status, Title: it.Title}
-		if it.Summary != "" {
-			p.Summary = oneLine(it.Summary, 120)
-		}
-		open = append(open, p)
-	}
-	closedCount := len(closed)
-	if closedCount > maxClosedInPlan {
-		closed = closed[closedCount-maxClosedInPlan:]
-	}
-	var scanned []string
-	if b.Scanned != "" {
-		scanned = strings.Split(strings.TrimSpace(b.Scanned), "\n")
-	}
-	scannedMore := len(scanned) > maxScannedInPlan
-	if scannedMore {
-		scanned = scanned[len(scanned)-maxScannedInPlan:]
-	}
-	return prompts.Render("burn/plan", struct {
-		Focus              string
-		FocusLooks         []string
-		Total, Taken, Free int
-		Open, Closed       []piece
-		ClosedCount        int
-		ClosedMore         bool
-		Scanned            []string
-		ScannedMore        bool
-		Empty              int
-		Order, ScannedMark string
-	}{b.Focus, focusLooks(b.Focus), total, total - free, free, open, closed, closedCount, closedCount > maxClosedInPlan,
-		scanned, scannedMore, empty, b.Order, scannedMark})
 }
 
 // workPrompt is a piece's work turn (burn/work.md).

@@ -389,6 +389,7 @@ export default {
   'burn.kind.unfinished': 'dang dở',
   'burn.kind.upgrade': 'nâng cấp',
   'burn.kind.bug': 'lỗi',
+  'burn.kind.hunting': 'đang tìm',
   'burn.first': 'Ưu tiên',
   'burn.skip': 'Bỏ qua',
   'burn.dropWorktree': 'Xóa worktree',

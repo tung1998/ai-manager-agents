@@ -136,6 +136,10 @@ func (r burnRepo) AddItem(ctx context.Context, it storage.BurnItem) (storage.Bur
 	return it, err
 }
 
+func (r burnRepo) DeleteItem(ctx context.Context, id string) error {
+	return execOne(ctx, r.db, `DELETE FROM burn_items WHERE id=?`, id)
+}
+
 func (r burnRepo) UpdateItem(ctx context.Context, it storage.BurnItem) error {
 	return execOne(ctx, r.db, `UPDATE burn_items SET title=?, kind=?, detail=?, status=?, priority=?, branch=?, worktree=?, summary=?, attempts=?, subagents=?, cost_usd=?, reviewed=?, review_note=?, review_conversations=?, work_conversation_id=?, review_err_attempts=?, updated_at=? WHERE id=?`,
 		it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Attempts, it.Subagents, it.CostUSD, strings.Join(it.Reviewed, ","), it.ReviewNote, jsonMap(it.ReviewConversations), it.WorkConversationID, it.ReviewErrAttempts, fmtTime(time.Now()), it.ID)
