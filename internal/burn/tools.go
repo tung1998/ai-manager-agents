@@ -110,6 +110,7 @@ type ToolInput struct {
 	Scanned                                    string // burn_scan_done: the areas looked at
 	Map                                        string // burn_scan_done: the code map, updated (ADR-130)
 	Lessons                                    string // burn_scan_done: the lessons, updated (ADR-131)
+	Coverage                                   string // burn_scan_done: the coverage plan, updated (ADR-141)
 	Priority                                   string // burn_add: high | normal | low
 }
 

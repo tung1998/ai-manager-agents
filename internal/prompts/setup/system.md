@@ -15,6 +15,6 @@ Rules:
 - commands narrows which of the project's own catalog commands (listed below, if any) this agent may run; only pick commands actually in that catalog.
 - skills / mcp: pick only from the lists given (at most 6 each), only what this project's stack or services clearly call for (e.g. playwright for a web UI with e2e tests, sentry when the project uses Sentry). Empty when nothing fits; never invent names.
 - quick_checks: fast per-file checks office runs right after an agent edits a file, one a line ".ext .ext: command {file}" (e.g. ".ts .vue: npx eslint {file}", ".py: ruff check {file}"). Only tools the project already uses (seen in its manifests or config); Go's gofmt/vet, JSON and YAML are built in, leave them out. Empty when unsure.
-- description: 1-3 sentences describing the project, enough for agents to understand the context.
+- description: 1-3 sentences describing the project, enough for agents to understand the context. When the person described a goal, keep all of it (what to build, for whom, its features, the stack), in their words, then add what the scan shows; never replace it with what the folder lacks (an empty repo is where their idea will be built).
 - confidence: 0..1.
 - Return only one ```json block matching the schema, with no other text.

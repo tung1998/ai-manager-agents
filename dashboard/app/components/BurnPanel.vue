@@ -7,7 +7,7 @@ interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_parallel: number,
   run_branch?: string, run_tree?: string, focus: string, order: 'roadmap' | 'bugs' | 'auto', template: BurnTemplate, hunt_prompt: string, ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
   waiting_until?: string, started_by?: string, started_at?: string,
-  review_profile_id: string, verify: string, code_map: string, lessons: string, review_cap: number, stop_after: number
+  review_profile_id: string, verify: string, code_map: string, lessons: string, coverage: string, review_cap: number, stop_after: number
 }
 interface Item {
   id: string, title: string, kind: '' | 'unfinished' | 'upgrade' | 'bug' | 'idea' | 'quest', detail: string, status: string, priority: number,
@@ -227,9 +227,11 @@ async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') 
     itemActing.value = ''
   }
 }
-// pieces waiting to be taken: at maxFound the Burn stops scanning (ADR-130)
-const maxFound = 10
-const waitingCount = computed(() => items.value.filter(i => i.kind && i.status === 'found').length)
+// the scans' coverage plan (ADR-141): items checked of all; scans go on until every one is
+const coverage = computed(() => {
+  const lines = (burn.value?.coverage ?? '').split('\n').map(l => l.trim().replace(/^[-*+ ]+/, ''))
+  return { done: lines.filter(l => /^\[[xX]\]/.test(l)).length, total: lines.filter(l => /^\[[ xX]\]/.test(l)).length }
+})
 const totalCost = computed(() => shown.value.reduce((n, i) => n + i.cost_usd, 0))
 </script>
 
@@ -277,7 +279,7 @@ const totalCost = computed(() => shown.value.reduce((n, i) => n + i.cost_usd, 0)
       <div v-for="col in columns" :key="col.key" class="w-[80%] min-w-0 shrink-0 snap-start space-y-2 rounded-xl border border-(--ui-border) p-2 sm:w-[45%] xl:w-auto">
         <p class="flex items-center gap-2 px-1 text-xs font-medium text-(--ui-text-muted)">
           {{ col.label }}<UBadge :label="String(col.all.length)" color="neutral" variant="subtle" size="sm" />
-          <span v-if="col.key === 'found'" class="ms-auto tabular-nums text-(--ui-text-dimmed)" :title="t('burn.col.foundCap', { n: waitingCount, max: maxFound })">{{ waitingCount }}/{{ maxFound }}</span>
+          <span v-if="col.key === 'found' && coverage.total" class="ms-auto tabular-nums text-(--ui-text-dimmed)" :title="t('burn.col.coverage', { n: coverage.done, max: coverage.total })">{{ coverage.done }}/{{ coverage.total }}</span>
         </p>
         <p v-if="!col.items.length" class="px-1 py-2 text-xs text-(--ui-text-dimmed)">—</p>
         <div v-for="it in col.items" :key="it.id" class="space-y-1.5 rounded-lg bg-(--ui-bg-elevated)/60 p-2.5 text-sm">
@@ -357,11 +359,15 @@ const totalCost = computed(() => shown.value.reduce((n, i) => n + i.cost_usd, 0)
           <UFormField :label="t('burn.focus')" :help="t('burn.focusHelp')">
             <UTextarea v-model="form.focus" :rows="4" :maxlength="2000" autoresize class="w-full" :placeholder="t('burn.focusPlaceholder')" />
           </UFormField>
-          <details v-if="burn?.code_map || burn?.lessons" class="rounded-lg border border-(--ui-border) p-2 text-xs">
+          <details v-if="burn?.code_map || burn?.lessons || burn?.coverage" class="rounded-lg border border-(--ui-border) p-2 text-xs">
             <summary class="cursor-pointer font-medium">{{ t('burn.learned') }}</summary>
             <template v-if="burn?.lessons">
               <p class="mt-2 font-medium text-(--ui-text-muted)">{{ t('burn.lessons') }}</p>
               <p class="whitespace-pre-line">{{ burn.lessons }}</p>
+            </template>
+            <template v-if="burn?.coverage">
+              <p class="mt-2 font-medium text-(--ui-text-muted)">{{ t('burn.coverage', { n: coverage.done, max: coverage.total }) }}</p>
+              <p class="max-h-64 overflow-y-auto whitespace-pre-line font-mono">{{ burn.coverage }}</p>
             </template>
             <template v-if="burn?.code_map">
               <p class="mt-2 font-medium text-(--ui-text-muted)">{{ t('burn.codeMap') }}</p>

@@ -79,7 +79,7 @@ func (t *Toolbox) SetDelegate(fn func(ctx context.Context, sc Scope, agent, task
 }
 
 // BurnInput is what the burn_* tools take.
-type BurnInput struct{ Title, Kind, Detail, Item, Summary, Reason, What, Scanned, Map, Priority, Lessons string }
+type BurnInput struct{ Title, Kind, Detail, Item, Summary, Reason, What, Scanned, Map, Priority, Lessons, Coverage string }
 
 // SetBurn turns on the burn_* tools (a Burn's conversation only).
 func (t *Toolbox) SetBurn(fn func(ctx context.Context, sc Scope, name string, in BurnInput) (string, error)) {
@@ -221,7 +221,7 @@ func (t *Toolbox) Tools() []Tool {
 	if t.burn != nil {
 		item := map[string]any{"type": "string", "description": "Piece id (bit_…)"}
 		list = append(list,
-			Tool{Name: "burn_add", Description: "Burn: record a piece of work found, for a worker to do (no duplicates; refused once 10 wait).", Schema: obj(map[string]any{
+			Tool{Name: "burn_add", Description: "Burn: record a piece of work found, for a worker to do (no duplicates; a scan records 10 at most, the next scan goes on).", Schema: obj(map[string]any{
 				"title":    map[string]any{"type": "string", "description": "Short title"},
 				"kind":     map[string]any{"type": "string", "enum": []string{"unfinished", "upgrade", "bug", "idea"}, "description": "idea: a new feature, integration or flow"},
 				"priority": map[string]any{"type": "string", "enum": []string{"high", "normal", "low"}},
@@ -233,10 +233,11 @@ func (t *Toolbox) Tools() []Tool {
 			Tool{Name: "burn_scan_done", Description: "Burn scan: end your scan, after recording what you found with burn_add (or nothing worth doing: say why).", Schema: obj(map[string]any{
 				"item":     item,
 				"scanned":  map[string]any{"type": "string", "description": "The areas you looked at, briefly"},
+				"coverage": map[string]any{"type": "string", "description": "The whole coverage plan, updated: every area to cover, one \"- [ ] area\" line each, \"- [x] area — what came of it\" once looked at (at most about 15000 characters)"},
 				"code_map": map[string]any{"type": "string", "description": "The whole code map, updated: parts, where they live, key files, conventions, how to build/test (at most about 6000 characters)"},
 				"reason":   map[string]any{"type": "string", "description": "Nothing recorded: why"},
 				"lessons":  map[string]any{"type": "string", "description": "The whole lessons list, updated from the pieces turned down or failed (at most about 3000 characters)"},
-			}, "item", "scanned")},
+			}, "item", "scanned", "coverage")},
 			Tool{Name: "burn_list", Description: "Burn: list this Burn's pieces: the open ones in full, all closed ones (done/skipped/failed, to avoid doing one again), or every area looked at.", Schema: obj(map[string]any{
 				"what": map[string]any{"type": "string", "enum": []string{"open", "closed", "scanned"}},
 			}, "what"), ReadOnly: true},
@@ -372,6 +373,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		CodeMap  string          `json:"code_map"`
 		Priority string          `json:"priority"`
 		Lessons  string          `json:"lessons"`
+		Coverage string          `json:"coverage"`
 		Summary  string          `json:"summary"`
 		Author   string          `json:"author"`
 		Caption  string          `json:"caption"`
@@ -478,7 +480,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		if t.burn == nil || !t.burnChat(sc) {
 			return "Các công cụ burn_* chỉ dùng trong hội thoại Burn", true
 		}
-		out, err = t.burn(ctx, sc, name, BurnInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason, What: in.What, Scanned: in.Scanned, Map: in.CodeMap, Priority: in.Priority, Lessons: in.Lessons})
+		out, err = t.burn(ctx, sc, name, BurnInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason, What: in.What, Scanned: in.Scanned, Map: in.CodeMap, Priority: in.Priority, Lessons: in.Lessons, Coverage: in.Coverage})
 	case "send_file":
 		if t.sendFile == nil || !t.botChat(sc) {
 			return "send_file chỉ dùng trong cuộc chat của bot Discord/Telegram", true

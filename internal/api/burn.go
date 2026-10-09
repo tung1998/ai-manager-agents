@@ -43,6 +43,8 @@ type burnDTO struct {
 	Verify  string `json:"verify"`
 	CodeMap string `json:"code_map"`
 	Lessons string `json:"lessons"`
+	// ADR-141: its scans' coverage plan (read-only here)
+	Coverage string `json:"coverage"`
 	// ADR-135: waits past review_cap pieces not merged; finishes after stop_after done (0 = none)
 	ReviewCap int `json:"review_cap"`
 	StopAfter int `json:"stop_after"`
@@ -70,7 +72,7 @@ type burnItemDTO struct {
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
 	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.Focus, cmp.Or(b.Order, "roadmap"), cmp.Or(b.Template, "general"), b.HuntPrompt,
-		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, "", b.Verify, b.CodeMap, b.Lessons, b.ReviewCap, b.StopAfter}
+		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, "", b.Verify, b.CodeMap, b.Lessons, b.Coverage, b.ReviewCap, b.StopAfter}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).

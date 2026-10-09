@@ -37,13 +37,23 @@ Already recorded (waiting, being done, done or dropped): do NOT record any of th
 [[- end]]
 [[- if .Scanned]]
 
-Areas earlier scans looked at (look elsewhere first):
+What the latest scans said they looked at:
 [[join .Scanned "\n"]]
+[[- end]]
+[[- if .Coverage]]
+
+The coverage plan (every area this Burn must cover; [[.Left]] not looked at yet):
+[[.Coverage]]
 [[- end]]
 
 Steps, in this order:
-1. Orient.[[if .Map]] Start from the code map.[[else]] No code map yet: map the codebase first (its parts, where each lives, how to build and test them).[[end]] Pick the areas not looked at lately.
-2. Find up to [[.Room]] pieces.
+1. Orient.[[if .Map]] Start from the code map.[[else]] No code map yet: map the codebase first (its parts, where each lives, how to build and test them).[[end]]
+[[- if .Coverage]]
+   Then take the unchecked items of the coverage plan, in order. An area you find that the plan lacks (a screen, a package, a feature): add it.
+[[- else]]
+   No coverage plan yet: write it first. It is the list of EVERY area of this project the Burn's work below covers, one checklist line each ("- [ ] <area>"), under short headings: every screen and dialog for how the product is used, every package, API group and background job for bugs, security or speed, every planned feature not done for the roadmap, every part of the spec for a build. Enumerate it from the code and docs (route files, packages, plans), the whole project, not a sample. Then take its items in order.
+[[- end]]
+2. Find up to [[.Batch]] pieces this scan, item by item, as deep as each needs. Look at an item for real in THIS scan (what an earlier scan saw does not count), then check it off with what came of it: "- [x] <area> — 2 pieces" or "- [x] <area> — nothing: why". [[.Batch]] pieces recorded: stop taking items, the next scan goes on.
 [[- if .Hunt]]
    This Burn is set up to look for this (its template):
 [[.Hunt]]
@@ -69,7 +79,7 @@ Steps, in this order:
    - Evidence: what goes wrong or what is missing, and how you know
    - Fix: the way you would do it
    - Verify: how to show it is done (a test to add, a command to run)
-5. End the scan: burn_scan_done(item=[[printf "%q" .ID]], scanned=the areas you looked at, code_map=the whole map, updated[[if .Setbacks]], lessons=the whole lessons list, updated[[end]]).[[if .Setbacks]] Lessons: what the pieces turned down or failed teach, as short rules a scanner or worker can follow ("X is intended: do not report it", "changing Y needs Z run first"), merged with the lessons above, at most about 3000 characters; the same mistake never twice.[[end]] The map is for the next scans and the workers: the parts of the codebase, where each lives, the key files and conventions, how to build/test each; short, at most about 6000 characters. Nothing worth doing after looking thoroughly: say why in reason. Never invent work to have something.
+5. End the scan: burn_scan_done(item=[[printf "%q" .ID]], scanned=the areas you looked at, coverage=the whole coverage plan, updated, code_map=the whole map, updated[[if .Setbacks]], lessons=the whole lessons list, updated[[end]]).[[if .Setbacks]] Lessons: what the pieces turned down or failed teach, as short rules a scanner or worker can follow ("X is intended: do not report it", "changing Y needs Z run first"), merged with the lessons above, at most about 3000 characters; the same mistake never twice.[[end]] The map is for the next scans and the workers: the parts of the codebase, where each lives, the key files and conventions, how to build/test each; short, at most about 6000 characters. The coverage plan is how the next scans know where to go on, so keep it whole and true. Never end saying "nothing to do" while items are left unchecked: take the next item instead. Every item checked and nothing worth doing found: say so in reason. Never invent work to have something.
 
 [[- define "roadmap"]]
    - Roadmap: the project's planning docs (PLAN, ROADMAP, TODO, specs, ADRs) for features marked not done or half done; skip what is not approved yet (being designed, ideas, drafts). A large feature: its next part only (one that runs on its own).

@@ -26,6 +26,7 @@ type BurnSession struct {
 	CodeMap                                string // what its scans learned of the codebase (ADR-130)
 	Verify                                 string // commands run on a piece reported done, one a line; \"\" = guessed (ADR-131)
 	Lessons                                string // what its scans learned of pieces turned down or failed (ADR-131)
+	Coverage                               string // its scans' checklist of the areas to cover, "- [ ]"/"- [x]" lines (ADR-141)
 	ReviewCap                              int    // pieces done and not merged yet past which it waits for the person (ADR-135); 0 = none
 	StopAfter                              int    // pieces done in a run after which it finishes (ADR-135); 0 = none
 	NotifyChannelID, NotifyChatID          string // a bot's chat its summary goes to when it stops (ADR-120); "" = none
@@ -85,6 +86,8 @@ type BurnRepo interface {
 	SetScanned(ctx context.Context, id, scanned string) error
 	// SetCodeMap saves its code map, nothing else (ADR-130).
 	SetCodeMap(ctx context.Context, id, codeMap string) error
+	// SetCoverage saves its coverage plan, nothing else (ADR-141).
+	SetCoverage(ctx context.Context, id, coverage string) error
 	// SetLessons saves its lessons, nothing else (ADR-131).
 	SetLessons(ctx context.Context, id, lessons string) error
 	Running(ctx context.Context) ([]BurnSession, error)

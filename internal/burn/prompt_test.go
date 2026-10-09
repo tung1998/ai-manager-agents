@@ -166,7 +166,8 @@ func TestScannedIsKept(t *testing.T) {
 
 // A scan's prompt (ADR-130): a set process (orient, find, challenge,
 // record, end), no code changed; what is recorded is not recorded again;
-// the order and the focus steer; it records no more than there is room for.
+// the order and the focus steer; it records a batch at most and goes on
+// from the coverage plan (ADR-141), writing one when there is none.
 func TestScanPrompt(t *testing.T) {
 	items := []storage.BurnItem{
 		{ID: "bit_a", Kind: "bug", Status: "done", Title: "Sửa lỗi A"},
@@ -175,7 +176,7 @@ func TestScanPrompt(t *testing.T) {
 	}
 	p := scanPrompt(storage.BurnSession{CodeMap: "internal/chat: chat engine"}, storage.BurnItem{ID: "bit_w"}, items, false)
 	for _, want := range []string{`burn_scan_done(item="bit_w"`, "burn_add(", "do not change code", "as a sceptic", "Where: file:line", "Verify:",
-		"[done] Sửa lỗi A", "[found] Nâng cấp B", "ROADMAP FIRST", "internal/chat: chat engine", "Start from the code map", "up to 9 pieces"} {
+		"[done] Sửa lỗi A", "[found] Nâng cấp B", "ROADMAP FIRST", "internal/chat: chat engine", "Start from the code map", "up to 10 pieces", "No coverage plan yet"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("scan prompt lacks %q:\n%s", want, p)
 		}
@@ -184,6 +185,10 @@ func TestScanPrompt(t *testing.T) {
 		if strings.Contains(p, not) {
 			t.Errorf("scan prompt has %q", not)
 		}
+	}
+	cov := scanPrompt(storage.BurnSession{Coverage: "- [x] /a — nothing\n- [ ] /b"}, storage.BurnItem{ID: "w"}, nil, false)
+	if !strings.Contains(cov, "1 not looked at yet") || !strings.Contains(cov, "- [ ] /b") || strings.Contains(cov, "No coverage plan yet") {
+		t.Errorf("the next scan goes on from the coverage plan:\n%s", cov)
 	}
 	if m := scanPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, nil, false); !strings.Contains(m, "No code map yet") {
 		t.Errorf("a first scan should map the codebase:\n%s", m)
@@ -376,18 +381,15 @@ func TestTemplates(t *testing.T) {
 	}
 }
 
-// No more than MaxFound pieces wait: a scan has room for the rest.
-func TestRoom(t *testing.T) {
-	var items []storage.BurnItem
-	for range MaxFound - 1 {
-		items = append(items, storage.BurnItem{Kind: "bug", Status: "found"})
+// A coverage plan's items are its checklist lines, checked or not
+// (ADR-141); the rest of it (headings, notes) does not count.
+func TestCoverageCount(t *testing.T) {
+	plan := "## Screens\n- [x] /projects — 2 pieces\n- [ ] /costs\n  * [X] /jobs\nnotes: - [ not an item\n- [ ] /mcp"
+	if checked, total := coverageCount(plan); checked != 2 || total != 4 {
+		t.Fatalf("coverageCount = %d/%d", checked, total)
 	}
-	items = append(items, storage.BurnItem{Kind: "bug", Status: "done"}, storage.BurnItem{Status: "doing"}) // done, a scan: not waiting
-	if room(items) != 1 {
-		t.Fatalf("room = %d", room(items))
-	}
-	if room(append(items, storage.BurnItem{Kind: KindQuest, Status: "found"})) != 0 {
-		t.Fatal("a quest waiting takes room too")
+	if left(plan) != 2 || left("") != 0 {
+		t.Fatal("left")
 	}
 }
 

@@ -60,7 +60,11 @@ func (s *server) setupPropose(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Project toàn máy không có thư mục để quét: hãy mô tả bạn muốn helper làm gì")
 		return
 	}
-	res, err := s.cfg.Setup.Propose(r.Context(), x.ID, x.Name, text, sum, in.Goal)
+	goal := strings.TrimSpace(in.Goal)
+	if goal == "" { // a project made from an idea (ADR-139) has it there: the setup keeps it, never writes it over
+		goal = x.Description
+	}
+	res, err := s.cfg.Setup.Propose(r.Context(), x.ID, x.Name, text, sum, goal)
 	var be *usage.BudgetError
 	if errors.As(err, &be) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": be.Error(), "code": "budget"})

@@ -167,8 +167,10 @@ type Service struct {
 	root   context.Context
 	loops  map[string]context.CancelFunc // by project
 	wakes  map[string]chan struct{}      // by project: its loop looks again now
-	nones  map[string]int                // scans in a row that found nothing, by run (maxNones)
+	nones  map[string]int                // scans in a row that moved nothing on, by run (maxNones)
 	found  map[string]int                // pieces a scan recorded, by scan (ADR-130)
+	marked map[string]int                // coverage items checked when a scan started, by scan (ADR-141)
+	full   map[string]bool               // coverage all checked and a scan found nothing more, by run (ADR-141)
 	held   map[string]bool               // waiting for the person's review, by run (ADR-135)
 	capped map[string]bool               // StopAfter reached once, by run (ADR-135)
 	find   bool                          // a free slot gets a worker finding its own piece (off: only the queued ones)
@@ -185,7 +187,7 @@ func (s *Service) SetNotify(n Notify) { s.notify = n }
 
 // New builds a Service; Start runs the Burns that were running.
 func New(st storage.Store, engine *chat.Engine, trees *worktree.Manager) *Service {
-	return &Service{store: st, chat: engine, trees: trees, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, nones: map[string]int{}, found: map[string]int{}, held: map[string]bool{}, capped: map[string]bool{}, find: true}
+	return &Service{store: st, chat: engine, trees: trees, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, nones: map[string]int{}, found: map[string]int{}, marked: map[string]int{}, full: map[string]bool{}, held: map[string]bool{}, capped: map[string]bool{}, find: true}
 }
 
 // SetFindWork off: free slots take only the pieces queued, no worker finds
@@ -383,6 +385,7 @@ func (s *Service) Resume(ctx context.Context, projectID string) error {
 	}
 	s.mu.Lock()
 	delete(s.nones, b.RunBranch) // resumed by hand: it scans again
+	delete(s.full, b.RunBranch)
 	s.mu.Unlock()
 	s.say(ctx, b, "Chạy tiếp như cũ.")
 	s.spawn(projectID)
@@ -523,16 +526,18 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 			}()
 		}
 		// a scan (ADR-130): one at a time, beside the work (not in its
-		// slots), while fewer than MaxFound pieces wait to be done. One under
-		// way goes on (draining too); a new one not draining, not out of
-		// quota (it would only fail), not once scans find nothing.
+		// slots), each recording up to scanBatch pieces; no cap on the pieces
+		// waiting (ADR-141): it scans until its coverage plan is done. One
+		// under way goes on (draining too); a new one not draining, not out
+		// of quota (it would only fail), not once scans are over.
 		if sc, ok := scanOf(items); ok {
 			if !busy[sc.ID] {
 				run(sc)
 			}
-		} else if !draining && !held && s.find && room(items) > 0 && !builderBusy(b, items) && !s.scansOver(b) && !s.waitLimit(ctx, b) {
+		} else if !draining && !held && s.find && !builderBusy(b, items) && !s.scansOver(b) && !s.waitLimit(ctx, b) {
 			if sc, err := s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: huntTitle, Status: "queued", RunBranch: b.RunBranch}); err == nil {
 				items = append(items, sc)
+				s.startScan(b, sc.ID)
 				run(sc)
 			}
 		}
@@ -553,7 +558,7 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 		}
 		working := len(busy)
 		mu.Unlock()
-		if !draining && working == 0 && s.scansOver(b) { // scans find nothing more, all done: it finishes
+		if !draining && working == 0 && s.scansOver(b) { // all covered, or scans move nothing on: it finishes
 			if _, more := next(items, busy, false); !more {
 				_ = s.Drain(context.WithoutCancel(ctx), projectID)
 				continue

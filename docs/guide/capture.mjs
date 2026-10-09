@@ -6,6 +6,8 @@
 //   make build && make ui-build      # bin/office and dashboard/.output
 //   node docs/guide/capture.mjs
 //   node docs/guide/capture.mjs --mobile [--lang=vi] [--out=dir]   # phone shots for a UX review
+//   node docs/guide/capture.mjs --mobile --reuse --only=13-burn,26-jobs     # some of the screens
+//   node docs/guide/capture.mjs --mobile --reuse --path=/costs --path='{project}/burn/reviews'   # any route, one by one
 //
 // Env: OFFICE_BIN, OFFICE_UI_DIR, CHROME (paths), KEEP=1 (leave it running).
 import { spawn, execFileSync } from 'node:child_process'
@@ -50,6 +52,11 @@ const CONTENT = T('Content & Planning', 'Kế hoạch & Nội dung')
 // --retake=08-permissions,19-bot shoots those again too
 const onlyMissing = process.argv.includes('--only-missing') || !!process.env.ONLY_MISSING
 const retake = (process.argv.find(a => a.startsWith('--retake=')) ?? '').slice(9).split(',').filter(Boolean)
+// --only=13-burn,26-jobs shoots just those screens; --path=<route> (again for
+// more) shoots just those routes, {project} standing for the demo project's
+// /projects/<id>: a review going screen by screen (with --reuse, seconds each)
+const only = (process.argv.find(a => a.startsWith('--only=')) ?? '').slice(7).split(',').filter(Boolean)
+const paths = process.argv.filter(a => a.startsWith('--path=')).map(a => a.slice(7)).filter(Boolean)
 const EMAIL = 'demo@agent-office.dev'
 const PASSWORD = 'demo-office-2026!'
 const children = []
@@ -403,7 +410,7 @@ async function capture({ ao, shop, lead }) {
   await page.go('/login', 1500)
   await page.eval(`document.cookie = 'office-lang=${LANG}; path=/; max-age=31536000'; localStorage.setItem('nuxt-color-mode', 'light'); true`)
   await page.go('/login', 2000)
-  if (!onlyMissing || !existsSync(join(OUT, '01-login.png'))) await page.shot('01-login')
+  if ((!onlyMissing || !existsSync(join(OUT, '01-login.png'))) && (!only.length || only.includes('01-login')) && !paths.length) await page.shot('01-login')
   const ok = await page.eval(`fetch('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: ${JSON.stringify(EMAIL)}, password: ${JSON.stringify(PASSWORD)} }) }).then(r => r.ok)`)
   if (!ok) throw new Error('browser login failed')
 
@@ -442,7 +449,7 @@ async function capture({ ao, shop, lead }) {
     ['31-transfer', '/admin/transfer'],
     ['33-account', '/account']
   ]
-  const want = name => !onlyMissing || retake.includes(name) || !existsSync(join(OUT, name + '.png'))
+  const want = name => (!only.length || only.includes(name)) && (!onlyMissing || retake.includes(name) || !existsSync(join(OUT, name + '.png')))
   const take = async (name, path) => {
     if (!want(name)) return
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -451,6 +458,13 @@ async function capture({ ao, shop, lead }) {
         await page.reset().catch(err => log('(reset failed)', err.message))
       }
     }
+  }
+  if (paths.length) {
+    for (const path of paths) {
+      const route = path.replaceAll('{project}', P)
+      await take('path' + (route.replace(/[^a-zA-Z0-9]+/g, '-').replace(/-+$/, '') || '-'), route)
+    }
+    return
   }
   for (const [name, path] of screens) await take(name, path)
   if (MOBILE) return // the guide's extras (dark, the update page) are not for a phone review
