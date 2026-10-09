@@ -2,6 +2,13 @@
 [[- if .Detail]]
 Detail: [[.Detail]]
 [[- end]]
+[[- if ne .Kind "quest"]]
+A Burn scan found this piece and checked it; the detail is your brief (where, evidence, fix, verify). Start from it: confirm it in the code, do not scan the codebase again.
+[[- end]]
+[[- if .Map]]
+The code map the scans keep (to find your way):
+[[.Map]]
+[[- end]]
 [[- if .Again]]
 This piece is half done: look at git status / git diff in this worktree to see how far it got, then go on.
 [[- end]]

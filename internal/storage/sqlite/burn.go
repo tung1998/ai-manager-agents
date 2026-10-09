@@ -17,14 +17,14 @@ type burnRepo struct{ db dbtx }
 
 func (s *Store) Burn() storage.BurnRepo { return burnRepo{s.q} }
 
-const burnSessionCols = `id, project_id, conversation_id, agent_id, model_tier, max_parallel, result_mode, focus, work_order, ends_at, state, waiting_until, started_by, started_at, created_at, updated_at, review_profile_id, scanned, notify_channel_id, notify_chat_id, run_branch, hunt_template, hunt_prompt`
+const burnSessionCols = `id, project_id, conversation_id, agent_id, model_tier, max_parallel, result_mode, focus, work_order, ends_at, state, waiting_until, started_by, started_at, created_at, updated_at, review_profile_id, scanned, notify_channel_id, notify_chat_id, run_branch, hunt_template, hunt_prompt, code_map`
 
 func scanBurnSession(row interface{ Scan(...any) error }) (storage.BurnSession, error) {
 	var s storage.BurnSession
 	var ends, waiting, started sql.NullString
 	var created, updated string
 	err := row.Scan(&s.ID, &s.ProjectID, &s.ConversationID, &s.AgentID, &s.ModelTier, &s.MaxParallel, &s.ResultMode, &s.Focus, &s.Order, &ends, &s.State, &waiting, &s.StartedBy, &started, &created, &updated,
-		&s.ReviewProfileID, &s.Scanned, &s.NotifyChannelID, &s.NotifyChatID, &s.RunBranch, &s.Template, &s.HuntPrompt)
+		&s.ReviewProfileID, &s.Scanned, &s.NotifyChannelID, &s.NotifyChatID, &s.RunBranch, &s.Template, &s.HuntPrompt, &s.CodeMap)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, storage.ErrNotFound
 	}
@@ -71,7 +71,7 @@ func (r burnRepo) SaveSession(ctx context.Context, s storage.BurnSession) (stora
 		s.CreatedAt = now
 	}
 	s.UpdatedAt = now
-	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_sessions (`+burnSessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO burn_sessions (`+burnSessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (id) DO UPDATE SET conversation_id=excluded.conversation_id, agent_id=excluded.agent_id, model_tier=excluded.model_tier,
 		max_parallel=excluded.max_parallel, result_mode=excluded.result_mode, focus=excluded.focus, work_order=excluded.work_order, ends_at=excluded.ends_at, state=excluded.state,
 		waiting_until=excluded.waiting_until, started_by=excluded.started_by, started_at=excluded.started_at, updated_at=excluded.updated_at,
@@ -79,7 +79,7 @@ func (r burnRepo) SaveSession(ctx context.Context, s storage.BurnSession) (stora
 		hunt_template=excluded.hunt_template, hunt_prompt=excluded.hunt_prompt`,
 		s.ID, s.ProjectID, s.ConversationID, s.AgentID, s.ModelTier, s.MaxParallel, s.ResultMode, s.Focus, cmp.Or(s.Order, "roadmap"), optTime(s.EndsAt), s.State, optTime(s.WaitingUntil),
 		s.StartedBy, optTime(s.StartedAt), fmtTime(s.CreatedAt), fmtTime(s.UpdatedAt),
-		s.ReviewProfileID, s.Scanned, s.NotifyChannelID, s.NotifyChatID, s.RunBranch, cmp.Or(s.Template, "general"), s.HuntPrompt)
+		s.ReviewProfileID, s.Scanned, s.NotifyChannelID, s.NotifyChatID, s.RunBranch, cmp.Or(s.Template, "general"), s.HuntPrompt, s.CodeMap)
 	if isUnique(err) {
 		return s, storage.ErrConflict
 	}
@@ -88,6 +88,12 @@ func (r burnRepo) SaveSession(ctx context.Context, s storage.BurnSession) (stora
 
 func (r burnRepo) SetScanned(ctx context.Context, id, scanned string) error {
 	return execOne(ctx, r.db, `UPDATE burn_sessions SET scanned=? WHERE id=?`, scanned, id)
+}
+
+// SetCodeMap: code_map is only written here, never by SaveSession (a loop
+// saving the session it read earlier would undo a scan's map).
+func (r burnRepo) SetCodeMap(ctx context.Context, id, codeMap string) error {
+	return execOne(ctx, r.db, `UPDATE burn_sessions SET code_map=? WHERE id=?`, codeMap, id)
 }
 
 func (r burnRepo) Running(ctx context.Context) ([]storage.BurnSession, error) {

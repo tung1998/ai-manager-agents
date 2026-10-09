@@ -254,6 +254,7 @@ Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-star
 | GET/PUT | `/api/projects/:id/burn` | phiên + việc / lưu cài đặt (kể cả `review_profile_id` — ADR-113) |
 | POST | `/api/projects/:id/burn/start` | cài đặt kèm `ends_at?`, `no_end?`; mặc định tắt lúc reset hạn mức tuần, không có thì sau 8 giờ |
 | POST | `/api/projects/:id/burn/stop` | tắt, việc đang làm thành tạm dừng |
+| POST | `/api/projects/:id/burn/quests` | thêm quest {title, detail}: vào Tìm thấy, làm trước việc quét được (ADR-129) |
 | POST | `/api/burn-items/:item/skip\|first\|drop-worktree` | thao tác trên một việc |
 | GET/POST | `/api/projects/:id/burn/review-profiles` | hồ sơ review (ADR-113) / tạo |
 | PUT/DELETE | `/api/burn-review-profiles/:profile` | sửa / xóa hồ sơ (Burn đang chạy theo thì 409) |

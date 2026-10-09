@@ -23,6 +23,7 @@ type BurnSession struct {
 	HuntPrompt                             string // the custom template's prompt
 	ReviewProfileID                        string // its review profile (ADR-113); "" = none
 	Scanned                                string // what its scans looked at, latest last (ADR-116)
+	CodeMap                                string // what its scans learned of the codebase (ADR-130)
 	NotifyChannelID, NotifyChatID          string // a bot's chat its summary goes to when it stops (ADR-120); "" = none
 	EndsAt                                 *time.Time
 	State                                  string // running | waiting_limit | draining (finishing what is in progress) | stopped
@@ -77,6 +78,8 @@ type BurnRepo interface {
 	// SetScanned saves what its scans looked at, nothing else (it runs while
 	// the person may stop it).
 	SetScanned(ctx context.Context, id, scanned string) error
+	// SetCodeMap saves its code map, nothing else (ADR-130).
+	SetCodeMap(ctx context.Context, id, codeMap string) error
 	Running(ctx context.Context) ([]BurnSession, error)
 	AddItem(ctx context.Context, it BurnItem) (BurnItem, error)
 	UpdateItem(ctx context.Context, it BurnItem) error

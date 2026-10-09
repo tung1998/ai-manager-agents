@@ -78,7 +78,7 @@ func (t *Toolbox) SetDelegate(fn func(ctx context.Context, sc Scope, agent, task
 }
 
 // BurnInput is what the burn_* tools take.
-type BurnInput struct{ Title, Kind, Detail, Item, Summary, Reason, What, Scanned string }
+type BurnInput struct{ Title, Kind, Detail, Item, Summary, Reason, What, Scanned, Map, Priority string }
 
 // SetBurn turns on the burn_* tools (a Burn's conversation only).
 func (t *Toolbox) SetBurn(fn func(ctx context.Context, sc Scope, name string, in BurnInput) (string, error)) {
@@ -212,26 +212,21 @@ func (t *Toolbox) Tools() []Tool {
 	if t.burn != nil {
 		item := map[string]any{"type": "string", "description": "Piece id (bit_…)"}
 		list = append(list,
-			Tool{Name: "burn_add", Description: "Burn: record a piece of work found (no duplicates).", Schema: obj(map[string]any{
-				"title":  map[string]any{"type": "string", "description": "Short title"},
-				"kind":   map[string]any{"type": "string", "enum": []string{"unfinished", "upgrade", "bug", "idea"}},
-				"detail": map[string]any{"type": "string", "description": "Enough to do it: where, why, and what done looks like"},
-			}, "title", "kind")},
+			Tool{Name: "burn_add", Description: "Burn: record a piece of work found, for a worker to do (no duplicates; refused once 10 wait).", Schema: obj(map[string]any{
+				"title":    map[string]any{"type": "string", "description": "Short title"},
+				"kind":     map[string]any{"type": "string", "enum": []string{"unfinished", "upgrade", "bug", "idea"}, "description": "idea: a new feature, integration or flow"},
+				"priority": map[string]any{"type": "string", "enum": []string{"high", "normal", "low"}},
+				"detail":   map[string]any{"type": "string", "description": "The worker's brief: Where (file:line), Evidence, Fix, Verify"},
+			}, "title", "kind", "detail")},
 			Tool{Name: "burn_pick", Description: "Burn: pick the next piece to work on.", Schema: obj(map[string]any{"item": item}, "item")},
 			Tool{Name: "burn_skip", Description: "Burn: drop a piece not worth doing for good (permanent, never picked again). A piece that is only outside the current focus or not its turn yet: do NOT skip it, leave it in the queue.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
 			Tool{Name: "burn_done", Description: "Burn: report the current piece done.", Schema: obj(map[string]any{"item": item, "summary": map[string]any{"type": "string", "description": "What was done and how it was checked"}}, "item", "summary")},
-			Tool{Name: "burn_claim", Description: "Burn worker: claim the one piece you found, before changing code (refused if another piece is the same: find another).", Schema: obj(map[string]any{
-				"item":    item,
-				"title":   map[string]any{"type": "string", "description": "Short title"},
-				"kind":    map[string]any{"type": "string", "enum": []string{"unfinished", "upgrade", "bug", "idea"}, "description": "idea: a new feature, integration or flow"},
-				"detail":  map[string]any{"type": "string", "description": "Where (file:line), why, what done looks like"},
-				"scanned": map[string]any{"type": "string", "description": "The areas you looked at, briefly"},
-			}, "item", "title", "kind")},
-			Tool{Name: "burn_none", Description: "Burn worker: nothing worth doing found after looking thoroughly; ends your piece.", Schema: obj(map[string]any{
-				"item":    item,
-				"reason":  map[string]any{"type": "string"},
-				"scanned": map[string]any{"type": "string", "description": "The areas you looked at, briefly"},
-			}, "item", "reason")},
+			Tool{Name: "burn_scan_done", Description: "Burn scan: end your scan, after recording what you found with burn_add (or nothing worth doing: say why).", Schema: obj(map[string]any{
+				"item":     item,
+				"scanned":  map[string]any{"type": "string", "description": "The areas you looked at, briefly"},
+				"code_map": map[string]any{"type": "string", "description": "The whole code map, updated: parts, where they live, key files, conventions, how to build/test (at most about 6000 characters)"},
+				"reason":   map[string]any{"type": "string", "description": "Nothing recorded: why"},
+			}, "item", "scanned")},
 			Tool{Name: "burn_list", Description: "Burn: list this Burn's pieces: the open ones in full, all closed ones (done/skipped/failed, to avoid doing one again), or every area looked at.", Schema: obj(map[string]any{
 				"what": map[string]any{"type": "string", "enum": []string{"open", "closed", "scanned"}},
 			}, "what"), ReadOnly: true},
@@ -364,6 +359,8 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		Item     string          `json:"item"`
 		What     string          `json:"what"`
 		Scanned  string          `json:"scanned"`
+		CodeMap  string          `json:"code_map"`
+		Priority string          `json:"priority"`
 		Summary  string          `json:"summary"`
 		Author   string          `json:"author"`
 		Caption  string          `json:"caption"`
@@ -465,11 +462,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		out, err = t.readLink(ctx, sc, in.URL)
 	case "search_history":
 		out, err = t.searchHistory(ctx, sc, in.Query, in.Days, in.Author)
-	case "burn_add", "burn_pick", "burn_skip", "burn_done", "burn_fail", "burn_list", "burn_claim", "burn_none":
+	case "burn_add", "burn_pick", "burn_skip", "burn_done", "burn_fail", "burn_list", "burn_scan_done":
 		if t.burn == nil || !t.burnChat(sc) {
 			return "Các công cụ burn_* chỉ dùng trong hội thoại Burn", true
 		}
-		out, err = t.burn(ctx, sc, name, BurnInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason, What: in.What, Scanned: in.Scanned})
+		out, err = t.burn(ctx, sc, name, BurnInput{Title: in.Title, Kind: in.Kind, Detail: in.Detail, Item: in.Item, Summary: in.Summary, Reason: in.Reason, What: in.What, Scanned: in.Scanned, Map: in.CodeMap, Priority: in.Priority})
 	case "send_file":
 		if t.sendFile == nil || !t.botChat(sc) {
 			return "send_file chỉ dùng trong cuộc chat của bot Discord/Telegram", true

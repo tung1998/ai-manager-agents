@@ -148,7 +148,7 @@ func TestReviewErrAttemptKeepsAConcurrentChange(t *testing.T) {
 	}
 }
 
-// What the workers looked at is kept (latest last) and given to the next.
+// What the scans looked at is kept (latest last) and given to the next.
 func TestScannedIsKept(t *testing.T) {
 	at := time.Date(2026, 10, 8, 9, 0, 0, 0, time.Local)
 	kept := ""
@@ -158,44 +158,53 @@ func TestScannedIsKept(t *testing.T) {
 	if n := len([]rune(kept)); n > maxScanned || !strings.Contains(kept, "vùng 39") || strings.Contains(kept, "vùng 0 ") {
 		t.Fatalf("kept %d runes:\n%s", n, kept)
 	}
-	if p := soloPrompt(storage.BurnSession{Scanned: "08/10 09:00 internal/chat"}, storage.BurnItem{ID: "bit_w"}, nil, false, false, false); !strings.Contains(p, "internal/chat") {
-		t.Fatal("the next worker is not told what was looked at")
+	if p := scanPrompt(storage.BurnSession{Scanned: "08/10 09:00 internal/chat"}, storage.BurnItem{ID: "bit_w"}, nil, false); !strings.Contains(p, "internal/chat") {
+		t.Fatal("the next scan is not told what was looked at")
 	}
 }
 
-// A worker's prompt (ADR-126): find one piece, claim it, do it, report it;
-// what the others took is not done again; the order and the focus steer.
-func TestSoloPrompt(t *testing.T) {
+// A scan's prompt (ADR-130): a set process (orient, find, challenge,
+// record, end), no code changed; what is recorded is not recorded again;
+// the order and the focus steer; it records no more than there is room for.
+func TestScanPrompt(t *testing.T) {
 	items := []storage.BurnItem{
 		{ID: "bit_a", Kind: "bug", Status: "done", Title: "Sửa lỗi A"},
-		{ID: "bit_b", Kind: "upgrade", Status: "doing", Title: "Nâng cấp B"},
-		{ID: "bit_c", Status: "doing", Title: huntTitle}, // another worker still looking
+		{ID: "bit_b", Kind: "upgrade", Status: "found", Title: "Nâng cấp B"},
+		{ID: "bit_c", Status: "doing", Title: huntTitle}, // another scan
 	}
-	p := soloPrompt(storage.BurnSession{RunBranch: "burn/x"}, storage.BurnItem{ID: "bit_w"}, items, false, false, false)
-	for _, want := range []string{`burn_claim(item="bit_w"`, `burn_done(item="bit_w"`, `burn_none(item="bit_w"`, "[done] Sửa lỗi A", "[doing] Nâng cấp B", "burn/x", "ROADMAP FIRST",
-		"ONE piece: fix them all together", `claim it with kind "idea" and build it`} {
+	p := scanPrompt(storage.BurnSession{CodeMap: "internal/chat: chat engine"}, storage.BurnItem{ID: "bit_w"}, items, false)
+	for _, want := range []string{`burn_scan_done(item="bit_w"`, "burn_add(", "do not change code", "as a sceptic", "Where: file:line", "Verify:",
+		"[done] Sửa lỗi A", "[found] Nâng cấp B", "ROADMAP FIRST", "internal/chat: chat engine", "Start from the code map", "up to 9 pieces"} {
 		if !strings.Contains(p, want) {
-			t.Errorf("worker prompt lacks %q:\n%s", want, p)
+			t.Errorf("scan prompt lacks %q:\n%s", want, p)
 		}
 	}
-	if strings.Contains(p, huntTitle) {
-		t.Error("a worker still looking is not a piece taken")
+	for _, not := range []string{huntTitle, "burn_done(", "burn_claim"} {
+		if strings.Contains(p, not) {
+			t.Errorf("scan prompt has %q", not)
+		}
 	}
-	road := soloPrompt(storage.BurnSession{Order: "roadmap"}, storage.BurnItem{ID: "w"}, nil, false, false, false)
+	if m := scanPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, nil, false); !strings.Contains(m, "No code map yet") {
+		t.Errorf("a first scan should map the codebase:\n%s", m)
+	}
+	road := scanPrompt(storage.BurnSession{Order: "roadmap"}, storage.BurnItem{ID: "w"}, nil, false)
 	if i, j := strings.Index(road, "- Roadmap:"), strings.Index(road, "- Bugs:"); i < 0 || j < 0 || i > j {
 		t.Errorf("roadmap should come before bugs:\n%s", road)
 	}
-	bugs := soloPrompt(storage.BurnSession{Order: "bugs"}, storage.BurnItem{ID: "w"}, nil, false, false, false)
+	bugs := scanPrompt(storage.BurnSession{Order: "bugs"}, storage.BurnItem{ID: "w"}, nil, false)
 	if i, j := strings.Index(bugs, "- Roadmap:"), strings.Index(bugs, "- Bugs:"); i < 0 || j < 0 || j > i || strings.Contains(bugs, "ROADMAP FIRST") {
 		t.Errorf("bugs order should list bugs first:\n%s", bugs)
 	}
-	if r := soloPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, nil, true, true, false); !strings.Contains(r, "started on this before") || !strings.Contains(r, "reviewed first") {
-		t.Errorf("a retry or a reviewed result is not said:\n%s", r)
+	if r := scanPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, nil, true); !strings.Contains(r, "started this scan before") {
+		t.Errorf("a retry is not said:\n%s", r)
 	}
-	// reviewed before it is done (a mechanism the person sets up): claim, then stop there
-	pre := soloPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, nil, false, false, true)
-	if !strings.Contains(pre, "END YOUR TURN") || strings.Contains(pre, "burn_done(") {
-		t.Errorf("a pre-reviewed worker should claim and stop:\n%s", pre)
+	// a worker starts from the scan's brief and the map, not a new scan
+	w := workPrompt(storage.BurnSession{CodeMap: "MAP"}, storage.BurnItem{ID: "x", Kind: "bug"}, false, false)
+	if !strings.Contains(w, "do not scan the codebase again") || !strings.Contains(w, "MAP") {
+		t.Errorf("work prompt:\n%s", w)
+	}
+	if q := workPrompt(storage.BurnSession{}, storage.BurnItem{ID: "x", Kind: KindQuest}, false, false); strings.Contains(q, "scan found") {
+		t.Errorf("a quest is not a scan's find:\n%s", q)
 	}
 }
 
@@ -238,7 +247,7 @@ func TestVerdict(t *testing.T) {
 // with what to look at for a known focus; the work's checks.
 func TestFocusSteers(t *testing.T) {
 	b := storage.BurnSession{Focus: "tập trung vào bảo mật API"}
-	p := soloPrompt(b, storage.BurnItem{ID: "w"}, nil, false, false, false)
+	p := scanPrompt(b, storage.BurnItem{ID: "w"}, nil, false)
 	if !strings.Contains(p, "not a limit") || !strings.Contains(p, "injection") || !strings.Contains(p, "any other piece worth doing") {
 		t.Errorf("worker prompt does not lead with the focus:\n%s", p)
 	}
@@ -251,7 +260,7 @@ func TestFocusSteers(t *testing.T) {
 	if r := reviewPrompt(b, storage.BurnItem{}, "issue"); !strings.Contains(r, "not a reason to turn other work down") {
 		t.Errorf("issue review turns down what is off the focus:\n%s", r)
 	}
-	if focusLenses("build xong") != nil || strings.Contains(soloPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, nil, false, false, false), "focus") {
+	if focusLenses("build xong") != nil || strings.Contains(scanPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, nil, false), "focus") {
 		t.Error("no focus, or none known: no lens")
 	}
 }
@@ -337,18 +346,18 @@ func TestWaitLimitCountsTheReviewersAgents(t *testing.T) {
 // person's own prompt.
 func TestTemplates(t *testing.T) {
 	w := storage.BurnItem{ID: "w"}
-	if g := soloPrompt(storage.BurnSession{}, w, nil, false, false, false); !strings.Contains(g, "ROADMAP FIRST") || strings.Contains(g, "its template") {
+	if g := scanPrompt(storage.BurnSession{}, w, nil, false); !strings.Contains(g, "ROADMAP FIRST") || strings.Contains(g, "its template") {
 		t.Errorf("the general template keeps the order:\n%s", g)
 	}
-	ux := soloPrompt(storage.BurnSession{Template: "ux"}, w, nil, false, false, false)
-	if !strings.Contains(ux, "390px") || strings.Contains(ux, "ROADMAP FIRST") || !strings.Contains(ux, `burn_claim(item="w"`) {
+	ux := scanPrompt(storage.BurnSession{Template: "ux"}, w, nil, false)
+	if !strings.Contains(ux, "390px") || strings.Contains(ux, "ROADMAP FIRST") || !strings.Contains(ux, `burn_scan_done(item="w"`) {
 		t.Errorf("ux template:\n%s", ux)
 	}
-	if i := soloPrompt(storage.BurnSession{Template: "ideas"}, w, nil, false, false, false); !strings.Contains(i, "product's owner") {
+	if i := scanPrompt(storage.BurnSession{Template: "ideas"}, w, nil, false); !strings.Contains(i, "product's owner") {
 		t.Errorf("ideas template:\n%s", i)
 	}
 	sec := storage.BurnSession{Template: "security", Focus: "bảo mật API"}
-	if p := soloPrompt(sec, w, nil, false, false, false); !strings.Contains(p, "injection") || strings.Count(p, "injection") != 1 {
+	if p := scanPrompt(sec, w, nil, false); !strings.Contains(p, "injection") || strings.Count(p, "injection") != 1 {
 		t.Errorf("security template (its lens once, not again from the focus):\n%s", p)
 	}
 	if p := workPrompt(sec, storage.BurnItem{}, false, false); !strings.Contains(p, "attack") {
@@ -358,10 +367,25 @@ func TestTemplates(t *testing.T) {
 		t.Errorf("the result review lacks the template's checks:\n%s", p)
 	}
 	custom := storage.BurnSession{Template: "custom", HuntPrompt: "Tìm chỗ còn gõ cứng chuỗi tiếng Anh"}
-	if p := soloPrompt(custom, w, nil, false, false, false); !strings.Contains(p, "Tìm chỗ còn gõ cứng chuỗi tiếng Anh") || strings.Contains(p, "ROADMAP FIRST") {
+	if p := scanPrompt(custom, w, nil, false); !strings.Contains(p, "Tìm chỗ còn gõ cứng chuỗi tiếng Anh") || strings.Contains(p, "ROADMAP FIRST") {
 		t.Errorf("custom template:\n%s", p)
 	}
 	if !ValidTemplate("ux") || ValidTemplate("other") || ValidTemplate("") {
 		t.Error("ValidTemplate")
+	}
+}
+
+// No more than MaxFound pieces wait: a scan has room for the rest.
+func TestRoom(t *testing.T) {
+	var items []storage.BurnItem
+	for range MaxFound - 1 {
+		items = append(items, storage.BurnItem{Kind: "bug", Status: "found"})
+	}
+	items = append(items, storage.BurnItem{Kind: "bug", Status: "done"}, storage.BurnItem{Status: "doing"}) // done, a scan: not waiting
+	if room(items) != 1 {
+		t.Fatalf("room = %d", room(items))
+	}
+	if room(append(items, storage.BurnItem{Kind: KindQuest, Status: "found"})) != 0 {
+		t.Fatal("a quest waiting takes room too")
 	}
 }

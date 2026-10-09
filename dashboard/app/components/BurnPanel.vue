@@ -223,6 +223,9 @@ async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') 
     itemActing.value = ''
   }
 }
+// pieces waiting to be done: at maxFound the Burn stops scanning (ADR-130)
+const maxFound = 10
+const waitingCount = computed(() => items.value.filter(i => i.kind && ['found', 'queued'].includes(i.status)).length)
 const totalCost = computed(() => shown.value.reduce((n, i) => n + i.cost_usd, 0))
 </script>
 
@@ -268,7 +271,10 @@ const totalCost = computed(() => shown.value.reduce((n, i) => n + i.cost_usd, 0)
     <!-- side by side on every screen: scrolled across below xl -->
     <div class="flex snap-x snap-mandatory items-start gap-3 overflow-x-auto pb-2 xl:grid xl:grid-cols-5 xl:overflow-visible xl:pb-0">
       <div v-for="col in columns" :key="col.key" class="w-[80%] min-w-0 shrink-0 snap-start space-y-2 rounded-xl border border-(--ui-border) p-2 sm:w-[45%] xl:w-auto">
-        <p class="flex items-center gap-2 px-1 text-xs font-medium text-(--ui-text-muted)">{{ col.label }}<UBadge :label="String(col.all.length)" color="neutral" variant="subtle" size="sm" /></p>
+        <p class="flex items-center gap-2 px-1 text-xs font-medium text-(--ui-text-muted)">
+          {{ col.label }}<UBadge :label="String(col.all.length)" color="neutral" variant="subtle" size="sm" />
+          <span v-if="col.key === 'found'" class="ms-auto tabular-nums text-(--ui-text-dimmed)" :title="t('burn.col.foundCap', { n: waitingCount, max: maxFound })">{{ waitingCount }}/{{ maxFound }}</span>
+        </p>
         <p v-if="!col.items.length" class="px-1 py-2 text-xs text-(--ui-text-dimmed)">—</p>
         <div v-for="it in col.items" :key="it.id" class="space-y-1.5 rounded-lg bg-(--ui-bg-elevated)/60 p-2.5 text-sm">
           <div class="flex items-start gap-2">

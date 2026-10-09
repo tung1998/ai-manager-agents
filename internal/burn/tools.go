@@ -12,15 +12,15 @@ import (
 
 // Tool is one of the agent's Burn tools, called from the Burn's conversation
 // (burn_add, burn_pick, burn_skip, burn_list…), or from a piece's work chat
-// (ADR-116) for that piece only: burn_claim and burn_none for a worker that
-// finds its own (ADR-126), burn_done and burn_fail.
+// (ADR-116) for that piece only: a scan records pieces and ends with
+// burn_scan_done (ADR-130), a worker reports burn_done or burn_fail.
 func (s *Service) Tool(ctx context.Context, sc actions.Scope, name string, in ToolInput) (string, error) {
 	b, err := s.store.Burn().SessionByConversation(ctx, sc.ConversationID)
 	if err != nil || sc.ConversationID == "" {
 		return "", errors.New("các công cụ burn_* chỉ dùng trong hội thoại Burn")
 	}
 	if name == "burn_add" && b.ConversationID == sc.ConversationID {
-		return s.add(ctx, b, in)
+		return s.record(ctx, b, "", in)
 	}
 	if name == "burn_list" { // its own chat or a piece's (a reviewer's only reads)
 		if b.ConversationID != sc.ConversationID {
@@ -36,18 +36,18 @@ func (s *Service) Tool(ctx context.Context, sc actions.Scope, name string, in To
 		switch {
 		case oerr != nil:
 			return "", errors.New("các công cụ burn_* chỉ dùng trong hội thoại Burn")
+		case name == "burn_add" && hunting(own):
+			return s.record(ctx, b, own.ID, in)
 		case name == "burn_add":
-			return s.add(ctx, b, in)
-		case name != "burn_done" && name != "burn_fail" && name != "burn_claim" && name != "burn_none":
-			return "", fmt.Errorf("chat của việc %s chỉ dùng burn_claim/burn_none/burn_done/burn_fail cho chính nó", own.ID)
+			return s.record(ctx, b, "", in)
+		case hunting(own) && name != "burn_scan_done":
+			return "", fmt.Errorf("lượt quét %s chỉ ghi việc (burn_add) và kết thúc bằng burn_scan_done, không làm việc", own.ID)
+		case name != "burn_done" && name != "burn_fail" && name != "burn_scan_done":
+			return "", fmt.Errorf("chat của việc %s chỉ dùng burn_done/burn_fail cho chính nó", own.ID)
 		case err != nil || it.ID != own.ID:
 			return "", fmt.Errorf("chat này chỉ báo cho việc %s", own.ID)
-		case name == "burn_claim":
-			return s.claim(ctx, b, own, in)
-		case name == "burn_none":
-			return s.none(ctx, b, own, in)
-		case hunting(own) && name == "burn_done":
-			return "", errors.New("chưa nhận việc nào: gọi burn_claim trước khi làm")
+		case name == "burn_scan_done":
+			return s.scanDone(ctx, b, own, in)
 		}
 	}
 	if err != nil || it.SessionID != b.ID {
@@ -107,29 +107,9 @@ func (s *Service) workItem(ctx context.Context, sessionID, conversationID string
 type ToolInput struct {
 	Title, Kind, Detail, Item, Summary, Reason string
 	What                                       string // burn_list: open | closed | scanned
-	Scanned                                    string // burn_claim, burn_none: the areas looked at
-}
-
-func (s *Service) add(ctx context.Context, b storage.BurnSession, in ToolInput) (string, error) {
-	title := strings.TrimSpace(in.Title)
-	if title == "" {
-		return "", errors.New("hãy ghi tiêu đề việc")
-	}
-	kind := strings.TrimSpace(in.Kind)
-	if !Kinds[kind] {
-		kind = "upgrade"
-	}
-	items, _ := s.store.Burn().Items(ctx, b.ID)
-	for _, it := range items { // the same piece twice: once
-		if sameTitle(it.Title, title) {
-			return fmt.Sprintf("Đã có việc này: %s (%s).", it.ID, it.Status), nil
-		}
-	}
-	it, err := s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: oneLine(title, 160), Kind: kind, Detail: strings.TrimSpace(in.Detail), RunBranch: b.RunBranch})
-	if err != nil {
-		return "", err
-	}
-	return "Đã ghi việc " + it.ID + ".", nil
+	Scanned                                    string // burn_scan_done: the areas looked at
+	Map                                        string // burn_scan_done: the code map, updated (ADR-130)
+	Priority                                   string // burn_add: high | normal | low
 }
 
 // list is what burn_list gives (ADR-121): the Burn's data kept out of the

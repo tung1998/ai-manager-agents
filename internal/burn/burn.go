@@ -64,7 +64,8 @@ type Service struct {
 	root  context.Context
 	loops map[string]context.CancelFunc // by project
 	wakes map[string]chan struct{}      // by project: its loop looks again now
-	nones map[string]int                // workers in a row that found nothing, by run (maxNones)
+	nones map[string]int                // scans in a row that found nothing, by run (maxNones)
+	found map[string]int                // pieces a scan recorded, by scan (ADR-130)
 	find  bool                          // a free slot gets a worker finding its own piece (off: only the queued ones)
 	runMu sync.Mutex                    // a run's worktree: made, and pieces merged into it, one at a time
 
@@ -79,7 +80,7 @@ func (s *Service) SetNotify(n Notify) { s.notify = n }
 
 // New builds a Service; Start runs the Burns that were running.
 func New(st storage.Store, engine *chat.Engine, trees *worktree.Manager) *Service {
-	return &Service{store: st, chat: engine, trees: trees, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, nones: map[string]int{}, find: true}
+	return &Service{store: st, chat: engine, trees: trees, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, nones: map[string]int{}, found: map[string]int{}, find: true}
 }
 
 // SetFindWork off: free slots take only the pieces queued, no worker finds
@@ -275,6 +276,9 @@ func (s *Service) Resume(ctx context.Context, projectID string) error {
 	if _, err := s.store.Burn().SaveSession(ctx, b); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	delete(s.nones, b.RunBranch) // resumed by hand: it scans again
+	s.mu.Unlock()
 	s.say(ctx, b, "Chạy tiếp như cũ.")
 	s.spawn(projectID)
 	s.wake(projectID)
@@ -375,16 +379,22 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 		free := max(b.MaxParallel, 1) - len(busy)
 		for started := 0; free > 0; free-- {
 			it, ok := next(items, busy, draining)
+			// a scan (ADR-130): one at a time, while fewer than MaxFound
+			// pieces wait; it takes a slot when there is nothing to do, or
+			// while another slot is left for the work. Not draining, not
+			// out of quota (it would only fail), not once scans find nothing.
+			if (!ok || free > 1) && !draining && s.find && !scanning(items) && room(items) > 0 && !s.scansOver(b) && !s.waitLimit(ctx, b) {
+				scan, err := s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: huntTitle, Status: "queued", RunBranch: b.RunBranch})
+				if err != nil {
+					break
+				}
+				it, ok = scan, true
+				items = append(items, scan)
+			}
 			if !ok {
-				// a new worker, unless draining or out of quota (it would only fail)
-				if draining || !s.find || s.waitLimit(ctx, b) {
-					break
-				}
-				var err error
-				if it, err = s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: huntTitle, Status: "queued", RunBranch: b.RunBranch}); err != nil {
-					break
-				}
-			} else if it.Status == "found" { // a quest: taken as given, the person may have moved it meanwhile
+				break
+			}
+			if it.Status == "found" { // a quest or a piece a scan found: taken; the person may have moved it meanwhile
 				it.Status = "queued"
 				if err := s.store.Burn().UpdateItemFrom(ctx, it, "found"); err != nil {
 					break // looked at again on the next round
@@ -424,6 +434,12 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 		}
 		working := len(busy)
 		mu.Unlock()
+		if !draining && working == 0 && s.scansOver(b) { // scans find nothing more, all done: it finishes
+			if _, more := next(items, busy, false); !more {
+				_ = s.Drain(context.WithoutCancel(ctx), projectID)
+				continue
+			}
+		}
 		if draining {
 			if working == 0 && s.drained(ctx, b.ID) {
 				return // all it had is finished
@@ -477,22 +493,35 @@ func (s *Service) step(ctx context.Context, b storage.BurnSession, it storage.Bu
 }
 
 // next: a piece done waiting for its review, a paused one (it goes on),
-// else the one chosen first, else a quest the person gave — none a worker
-// has already; draining, only the pieces in progress. Quests come before a
-// new worker that looks for work: they are their own flow, not a scan.
+// else the one chosen first, else a quest the person gave, else a piece a
+// scan found (highest priority first) — none a worker has already;
+// draining, only the pieces in progress.
 func next(items []storage.BurnItem, busy map[string]bool, draining bool) (storage.BurnItem, bool) {
-	order := []string{"review", "paused", "doing", "queued", "found"}
+	order := []string{"review", "paused", "doing", "queued", KindQuest, "found"}
 	if draining {
 		order = order[:3]
 	}
 	for _, st := range order {
 		for _, it := range items {
-			if it.Status == st && !busy[it.ID] && (st != "found" || it.Kind == KindQuest) {
+			if busy[it.ID] {
+				continue
+			}
+			if st == KindQuest && it.Status == "found" && it.Kind == KindQuest || st != KindQuest && it.Status == st && (st != "found" || !hunting(it)) {
 				return it, true
 			}
 		}
 	}
 	return storage.BurnItem{}, false
+}
+
+// scanning: a scan is under way (or waits to go on).
+func scanning(items []storage.BurnItem) bool {
+	for _, it := range items {
+		if hunting(it) && (it.Status == "queued" || it.Status == "doing" || it.Status == "paused") {
+			return true
+		}
+	}
+	return false
 }
 
 // wait is sleep that ends early when woken.
@@ -609,25 +638,23 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	// held back for its review (ADR-112): no diff until the reviewer agrees
 	held := s.reviews(ctx, b, "result")
 	prompt := workPrompt(b, it, again, held)
-	worker, pre := hunting(it), s.preReviews(ctx, b)
+	worker := hunting(it)
 	switch {
 	case worker:
-		s.say(ctx, b, "**Worker mới** đang tìm việc để làm")
+		s.say(ctx, b, "**Quét** tìm việc mới")
 	case again:
 		s.say(ctx, b, "**Làm tiếp** "+oneLine(it.Title, 120))
 	default:
 		s.say(ctx, b, "**Bắt đầu** "+oneLine(it.Title, 120))
 	}
-	if worker { // a worker: it finds its piece first (ADR-126)
+	if worker { // a scan: it only records pieces (ADR-130)
 		items, _ := s.store.Burn().Items(ctx, b.ID)
-		prompt = soloPrompt(b, it, items, again, held, pre)
+		prompt = scanPrompt(b, it, items, again)
 	}
 	res, err := s.run(chat.WithPinnedTree(runCtx(ctx, b, tree, true), tree), it.WorkConversationID, prompt)
 	cur, gerr := s.store.Burn().Item(context.WithoutCancel(ctx), it.ID)
-	if errors.Is(gerr, storage.ErrNotFound) { // burn_none: nothing worth doing
+	if errors.Is(gerr, storage.ErrNotFound) { // burn_scan_done: the scan is over
 		_ = s.trees.Remove(context.WithoutCancel(ctx), p.Path, b.ProjectID, tree)
-		s.say(ctx, b, "Worker không tìm thấy việc đáng làm.")
-		s.noneFound(ctx, b)
 		return false
 	}
 	if gerr != nil {
@@ -648,15 +675,18 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 			break
 		}
 		cur.Status, cur.Summary = s.failedOrAgain(cur, firstNonEmpty(res.failed, errText(err)))
-	case worker && pre && !hunting(cur) && cur.Status == "doing": // claimed: reviewed before it is done, then it goes on
-		cur.Status, cur.Attempts = "queued", max(cur.Attempts-1, 0)
+	case worker: // a scan that did not say it was over: it is, with what it recorded
+		_ = s.store.Burn().DeleteItem(context.WithoutCancel(ctx), cur.ID)
+		_ = s.trees.Remove(context.WithoutCancel(ctx), p.Path, b.ProjectID, tree)
+		s.endScan(ctx, b, cur.ID)
+		return false
 	case cur.Status == "review": // the reviewer next, in the loop
 	case cur.Status == "done" && held: // review turned on meanwhile
 		cur.Status = "review"
 	case cur.Status == "done":
 		s.deliver(context.WithoutCancel(ctx), b, &cur)
 	case cur.Status == "doing": // it said nothing of how it went
-		cur.Status, cur.Summary = s.failedOrAgain(cur, "agent không báo kết quả (burn_done/burn_fail/burn_none)")
+		cur.Status, cur.Summary = s.failedOrAgain(cur, "agent không báo kết quả (burn_done/burn_fail)")
 	}
 	_ = s.store.Burn().UpdateItem(context.WithoutCancel(ctx), cur)
 	if ctx.Err() == nil {
@@ -728,10 +758,10 @@ func addScanned(kept, area string, at time.Time) string {
 // workPrompt is a piece's work turn (burn/work.md).
 func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool) string {
 	return prompts.Render("burn/work", struct {
-		ID, Kind, Title, Detail, Focus, ReviewNote, Branch string
-		FocusChecks                                        []string
-		Again, Reviewed                                    bool
-	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, checks(b), again, reviewed})
+		ID, Kind, Title, Detail, Focus, ReviewNote, Branch, Map string
+		FocusChecks                                             []string
+		Again, Reviewed                                         bool
+	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, b.CodeMap, checks(b), again, reviewed})
 }
 
 func oneLine(s string, n int) string {
