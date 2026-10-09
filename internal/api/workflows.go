@@ -138,14 +138,9 @@ func (s *server) toWorkflowDTO(ctx context.Context, w storage.Workflow, withRun 
 		d.HasUpdate = s.cfg.Workflows.HasUpdate(w)
 	}
 	if withRun {
-		if runs, err := s.cfg.Store.WorkflowRuns().List(ctx, w.ProjectID, "", 200); err == nil {
-			for _, r := range runs {
-				if r.WorkflowID == w.ID {
-					x := s.toWorkflowRunDTO(ctx, r)
-					d.LastRun = &x
-					break
-				}
-			}
+		if runs, err := s.cfg.Store.WorkflowRuns().ListByWorkflow(ctx, w.ProjectID, "", w.ID, 1); err == nil && len(runs) > 0 {
+			x := s.toWorkflowRunDTO(ctx, runs[0])
+			d.LastRun = &x
 		}
 	}
 	return d
@@ -444,19 +439,21 @@ func (s *server) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	// ?conversation=: a chat's (called from it, or run in it); ?workflow=: one workflow's
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	wf := r.URL.Query().Get("workflow")
+	pid, conv := r.PathValue("id"), r.URL.Query().Get("conversation")
+	var runs []storage.WorkflowRun
+	var err error
 	if wf != "" {
-		limit = 500 // filtered below
+		runs, err = s.cfg.Store.WorkflowRuns().ListByWorkflow(r.Context(), pid, conv, wf, limit)
+	} else {
+		runs, err = s.cfg.Store.WorkflowRuns().List(r.Context(), pid, conv, limit)
 	}
-	runs, err := s.cfg.Store.WorkflowRuns().List(r.Context(), r.PathValue("id"), r.URL.Query().Get("conversation"), limit)
 	if err != nil {
 		s.internal(w, r, err)
 		return
 	}
 	out := make([]workflowRunDTO, 0, len(runs))
 	for _, x := range runs {
-		if wf == "" || x.WorkflowID == wf {
-			out = append(out, s.toWorkflowRunDTO(r.Context(), x))
-		}
+		out = append(out, s.toWorkflowRunDTO(r.Context(), x))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"runs": out})
 }

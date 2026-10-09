@@ -200,6 +200,28 @@ func (r workflowRunRepo) List(ctx context.Context, projectID, conversationID str
 	return out, rows.Err()
 }
 
+func (r workflowRunRepo) ListByWorkflow(ctx context.Context, projectID, conversationID, workflowID string, limit int) ([]storage.WorkflowRun, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT `+workflowRunCols+` FROM workflow_runs
+		WHERE (?='' OR project_id=?) AND (?='' OR conversation_id=? OR caller_conversation_id=?) AND workflow_id=? ORDER BY started_at DESC, id DESC LIMIT ?`,
+		projectID, projectID, conversationID, conversationID, conversationID, workflowID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []storage.WorkflowRun{}
+	for rows.Next() {
+		x, err := scanWorkflowRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
 func (r workflowRunRepo) FailRunning(ctx context.Context, detail string, at time.Time) (int64, error) {
 	res, err := r.db.ExecContext(ctx, `UPDATE workflow_runs SET status=?, error=?, finished_at=? WHERE status=?`,
 		storage.RunFailed, detail, fmtTime(at), storage.RunRunning)

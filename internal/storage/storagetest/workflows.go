@@ -59,4 +59,34 @@ func testWorkflows(t *testing.T, s storage.Store) {
 	if err := s.Workflows().Delete(ctx, w.ID); err != nil {
 		t.Fatal(err)
 	}
+
+	testListByWorkflow(t, s, p.ID)
+}
+
+// testListByWorkflow checks that ListByWorkflow finds a workflow's runs even
+// when they are pushed past the default limit by another workflow's runs.
+func testListByWorkflow(t *testing.T, s storage.Store, projectID string) {
+	ctx := context.Background()
+	older := time.Now().UTC().Add(-24 * time.Hour)
+	for i := 0; i < 3; i++ {
+		if _, err := s.WorkflowRuns().Create(ctx, storage.WorkflowRun{ProjectID: projectID, ConversationID: "cnv_b", WorkflowID: "wf_b", WorkflowKey: "b",
+			Status: storage.RunDone, StartedAt: older.Add(time.Duration(i) * time.Minute)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 510; i++ {
+		if _, err := s.WorkflowRuns().Create(ctx, storage.WorkflowRun{ProjectID: projectID, ConversationID: "cnv_a", WorkflowID: "wf_a", WorkflowKey: "a",
+			Status: storage.RunDone}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runs, err := s.WorkflowRuns().ListByWorkflow(ctx, projectID, "", "wf_b", 100)
+	if err != nil || len(runs) != 3 {
+		t.Fatalf("ListByWorkflow(wf_b) = %d runs, %v", len(runs), err)
+	}
+	for _, r := range runs {
+		if r.WorkflowID != "wf_b" {
+			t.Fatalf("ListByWorkflow(wf_b) returned run of workflow %q", r.WorkflowID)
+		}
+	}
 }

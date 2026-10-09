@@ -111,6 +111,10 @@ type WorkflowRunRepo interface {
 	// List is newest first; empty ids match everything. conversationID
 	// matches the run's own chat or the chat that called it.
 	List(ctx context.Context, projectID, conversationID string, limit int) ([]WorkflowRun, error)
+	// ListByWorkflow is List further filtered to one workflow, newest first; the
+	// filter is applied in SQL before the limit, so a rarely-run workflow's
+	// history is not pushed out by other workflows' runs.
+	ListByWorkflow(ctx context.Context, projectID, conversationID, workflowID string, limit int) ([]WorkflowRun, error)
 	// FailRunning ends the runs left running (the office restarted under them).
 	FailRunning(ctx context.Context, detail string, at time.Time) (int64, error)
 }
