@@ -132,3 +132,52 @@ func cloneInto(ctx context.Context, u, parent, name string) (string, error) {
 	}
 	return dest, nil
 }
+
+// Init creates a new, empty git repo at parent/name: the folder must not
+// already exist. It runs git init plus an empty first commit (with a
+// fallback identity, so it works even without a global git user.name/email)
+// and returns the new folder. Any failed step removes the folder again.
+func Init(ctx context.Context, parent, name string) (string, error) {
+	if !nameRe.MatchString(name) || name == "." || name == ".." {
+		return "", ErrCloneDir
+	}
+	parent, err := filepath.Abs(parent)
+	if err != nil {
+		return "", err
+	}
+	if st, err := os.Stat(parent); err != nil {
+		return "", err
+	} else if !st.IsDir() {
+		return "", ErrNotDir
+	}
+	dest := filepath.Join(parent, name)
+	defer cloneLock(dest)()
+	if _, err := os.Lstat(dest); err == nil {
+		return "", ErrCloneExists
+	}
+	if err := os.Mkdir(dest, 0o755); err != nil {
+		return "", err
+	}
+	run := func(args ...string) error {
+		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd.Dir = dest
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			msg := strings.TrimSpace(string(out))
+			if msg == "" {
+				msg = err.Error()
+			}
+			return &CloneError{Output: msg}
+		}
+		return nil
+	}
+	if err := run("init", "-q", "-b", "main"); err != nil {
+		_ = os.RemoveAll(dest)
+		return "", err
+	}
+	if err := run("-c", "user.name=office", "-c", "user.email=office@localhost", "commit", "-q", "--allow-empty", "-m", "init"); err != nil {
+		_ = os.RemoveAll(dest)
+		return "", err
+	}
+	return dest, nil
+}

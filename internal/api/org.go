@@ -103,6 +103,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/projects", auth(s.listRepos))
 	mux.Handle("POST /api/projects", admin(s.createRepo))
 	mux.Handle("POST /api/projects/clone", admin(s.cloneRepo))
+	mux.Handle("POST /api/projects/new", admin(s.newRepo))
 	mux.Handle("GET /api/projects/{id}", auth(s.getRepo))
 	mux.Handle("PATCH /api/projects/{id}", admin(s.updateRepo))
 	mux.Handle("DELETE /api/projects/{id}", admin(s.deleteRepo))
@@ -1084,6 +1085,65 @@ func (s *server) cloneRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = os.RemoveAll(dest) // not registered: the clone does not stay behind
+	if err != nil {
+		s.internal(w, r, err)
+	}
+}
+
+// newRepo creates a fresh, empty git repo on this machine from an idea and
+// adds it as a project. The idea and stack are kept only as project
+// metadata: this does not scaffold code yet.
+func (s *server) newRepo(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Idea   string `json:"idea"`
+		Stack  string `json:"stack"`
+		Parent string `json:"parent"`
+		Dir    string `json:"dir"`
+		Name   string `json:"name"`
+		Pack   string `json:"pack"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	parent := strings.TrimSpace(in.Parent)
+	if parent == "" {
+		parent = s.cloneRoot()
+	}
+	dir := strings.TrimSpace(in.Dir)
+	if dir == "" {
+		dir = strings.TrimSpace(in.Name)
+	}
+	if dir == "" {
+		writeError(w, http.StatusBadRequest, "Project cần tên thư mục")
+		return
+	}
+	dest, err := repos.Init(r.Context(), parent, dir)
+	var ce *repos.CloneError
+	switch {
+	case errors.Is(err, repos.ErrCloneDir):
+		writeError(w, http.StatusBadRequest, "Tên thư mục chỉ gồm chữ, số, dấu chấm, gạch ngang, gạch dưới")
+		return
+	case errors.Is(err, repos.ErrCloneExists):
+		writeError(w, http.StatusConflict, "Thư mục đích đã tồn tại: đổi tên thư mục hoặc nơi lưu")
+		return
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, repos.ErrNotDir):
+		writeError(w, http.StatusBadRequest, "Nơi lưu không tồn tại hoặc không phải thư mục")
+		return
+	case errors.Is(err, os.ErrPermission):
+		writeError(w, http.StatusForbidden, "Không có quyền ghi vào nơi lưu")
+		return
+	case errors.As(err, &ce):
+		writeError(w, http.StatusBadGateway, ce.Error())
+		return
+	case err != nil:
+		s.internal(w, r, err)
+		return
+	}
+	info, err := repos.Detect(dest)
+	if err == nil && s.registerRepo(w, r, info, in.Name, strings.TrimSpace(in.Idea), in.Pack, map[string]any{"stack": strings.TrimSpace(in.Stack), "created_from": "idea"}) {
+		return
+	}
+	_ = os.RemoveAll(dest) // not registered: the new repo does not stay behind
 	if err != nil {
 		s.internal(w, r, err)
 	}

@@ -266,6 +266,38 @@ func TestCloneProjectAPI(t *testing.T) {
 	}
 }
 
+func TestNewProjectAPI(t *testing.T) {
+	e := setup(t)
+	member := e.client(t)
+	login(t, e, member, "member@x.io", "member-password")
+	if resp, _ := do(t, member, "POST", e.srv.URL+"/api/projects/new", map[string]any{"idea": "shop", "name": "shop"}, nil); resp.StatusCode != 403 {
+		t.Fatalf("member new = %d", resp.StatusCode)
+	}
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	parent := t.TempDir()
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/new", map[string]any{"idea": "shop", "parent": parent}, nil); resp.StatusCode != 400 {
+		t.Fatalf("no dir/name = %d", resp.StatusCode)
+	}
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/new", map[string]any{"idea": "a POD shop", "stack": "go", "name": "shop", "parent": parent}, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("new = %d %v", resp.StatusCode, body)
+	}
+	p := body["project"].(map[string]any)
+	if p["description"] != "a POD shop" {
+		t.Fatalf("project = %v", p)
+	}
+	if _, err := os.Stat(filepath.Join(parent, "shop", ".git")); err != nil {
+		t.Fatalf("no git repo: %v", err)
+	}
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/new", map[string]any{"idea": "dup", "name": "shop", "parent": parent}, nil); resp.StatusCode != 409 {
+		t.Fatalf("existing dir = %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/new", map[string]any{"idea": "x", "name": "shop", "parent": filepath.Join(parent, "missing")}, nil); resp.StatusCode != 400 {
+		t.Fatalf("missing parent = %d", resp.StatusCode)
+	}
+}
+
 func TestMachineWideProject(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
