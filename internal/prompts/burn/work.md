@@ -17,6 +17,9 @@ The reviewer's notes (follow them unless the code shows otherwise):
 [[- end]]
 
 You work in this piece's own worktree, with full access; other Burn pieces may run in parallel in theirs. Do not push or merge. After changing code, run the related build/test until they pass.
+[[- if eq .Kind "quest"]]
+The person gave this piece themselves: do what it asks, as asked. Do not look for other work; anything else you notice goes in your summary.
+[[- end]]
 [[- if eq .Kind "idea"]]
 A new idea: build it. A large one: do its first part that runs on its own, record the design in the project's docs (spec/ADR) and what is left, for later turns.
 [[- end]]

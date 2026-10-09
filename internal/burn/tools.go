@@ -125,7 +125,7 @@ func (s *Service) add(ctx context.Context, b storage.BurnSession, in ToolInput) 
 			return fmt.Sprintf("Đã có việc này: %s (%s).", it.ID, it.Status), nil
 		}
 	}
-	it, err := s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: oneLine(title, 160), Kind: kind, Detail: strings.TrimSpace(in.Detail)})
+	it, err := s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: oneLine(title, 160), Kind: kind, Detail: strings.TrimSpace(in.Detail), RunBranch: b.RunBranch})
 	if err != nil {
 		return "", err
 	}

@@ -10,10 +10,10 @@ interface Burn {
   review_profile_id: string
 }
 interface Item {
-  id: string, title: string, kind: '' | 'unfinished' | 'upgrade' | 'bug' | 'idea', detail: string, status: string, priority: number,
+  id: string, title: string, kind: '' | 'unfinished' | 'upgrade' | 'bug' | 'idea' | 'quest', detail: string, status: string, priority: number,
   branch: string, worktree: string, summary: string, subagents: number, cost_usd: number, updated_at: string,
   reviewed: ReviewStage[], review_note: string, review_conversations: Partial<Record<ReviewStage, string>>,
-  work_conversation_id: string
+  work_conversation_id: string, run_branch: string
 }
 // what its workers look for (ADR-128): a template, or the person's own prompt
 const templates = ['general', 'ux', 'ideas', 'security', 'performance', 'test', 'docs', 'custom'] as const
@@ -155,7 +155,45 @@ async function stop(how: 'drain' | 'resume' | 'stop') {
   }
 }
 
-// the board
+// the board, one run at a time: the current run by default; a quest not
+// started yet (no run) shows in every run
+const runs = computed(() => [...new Set(items.value.map(i => i.run_branch).filter(Boolean))].sort().reverse())
+const runPick = ref<string | null>(null)
+const run = computed({
+  get: () => runPick.value ?? (burn.value?.run_branch || runs.value[0] || 'all'),
+  set: (v: string) => { runPick.value = v }
+})
+function runLabel(branch: string) {
+  const m = branch.match(/(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})$/)
+  return m ? t('burn.run.label', { at: when(new Date(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!).toISOString()) }) : branch
+}
+const runItems = computed(() => [
+  ...runs.value.map(r => ({ value: r, label: runLabel(r) })),
+  ...(items.value.some(i => !i.run_branch && i.kind !== 'quest') ? [{ value: '__none', label: t('burn.run.none') }] : []),
+  { value: 'all', label: t('burn.run.all') }
+])
+const shown = computed(() => run.value === 'all'
+  ? items.value
+  : items.value.filter(i => run.value === '__none' ? !i.run_branch && i.kind !== 'quest' : i.run_branch === run.value || (!i.run_branch && i.kind === 'quest')))
+
+// a quest: work the person gives, done as given (not a scan)
+const questOpen = ref(false)
+const quest = reactive({ title: '', detail: '' })
+async function addQuest() {
+  acting.value = 'quest'
+  try {
+    await $fetch(`${base.value}/quests`, { method: 'POST', body: { ...quest } })
+    Object.assign(quest, { title: '', detail: '' })
+    questOpen.value = false
+    toast.add({ title: t('burn.quest.added'), color: 'success' })
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    acting.value = ''
+  }
+}
+
 // a column shows its first colMax, the rest on asking
 const colMax = 10
 const expanded = ref(new Set<string>())
@@ -167,10 +205,10 @@ const columns = computed(() => [
   { key: 'done', label: t('burn.col.done'), statuses: ['done'] },
   { key: 'other', label: t('burn.col.other'), statuses: ['failed', 'skipped'] }
 ].map((c) => {
-  const all = items.value.filter(i => c.statuses.includes(i.status))
+  const all = shown.value.filter(i => c.statuses.includes(i.status))
   return { ...c, all, items: expanded.value.has(c.key) ? all : all.slice(0, colMax) }
 }))
-const kindColor = (k: Item['kind']) => ({ '': 'neutral', bug: 'error', unfinished: 'warning', upgrade: 'info', idea: 'primary' } as const)[k]
+const kindColor = (k: Item['kind']) => ({ '': 'neutral', bug: 'error', unfinished: 'warning', upgrade: 'info', idea: 'primary', quest: 'success' } as const)[k]
 const itemActing = ref('')
 async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') {
   if (itemActing.value) return
@@ -185,7 +223,7 @@ async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') 
     itemActing.value = ''
   }
 }
-const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0))
+const totalCost = computed(() => shown.value.reduce((n, i) => n + i.cost_usd, 0))
 </script>
 
 <template>
@@ -215,7 +253,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_parallel }) }} · {{ t(`burn.template.${form.template}`) }}<template v-if="form.template === 'general'"> · {{ t(`burn.order.${form.order}`) }}</template>
         <template v-if="reviewSummary"> · {{ t('burn.review.summary', { profile: reviewSummary }) }}</template>
         <template v-if="burn?.run_branch"> · <button type="button" class="font-mono hover:text-(--ui-text)" :title="burn.run_tree ? t('burn.copyRunTree') : undefined" @click="burn.run_tree && copy(`cd ${burn.run_tree}`)">{{ burn.run_branch }}</button></template>
-        <template v-if="items.length"> · {{ t('burn.cost', { usd: totalCost.toFixed(2), n: items.filter(i => i.status === 'done').length }) }}</template>
+        <template v-if="shown.length"> · {{ t('burn.cost', { usd: totalCost.toFixed(2), n: shown.filter(i => i.status === 'done').length }) }}</template>
       </p>
       <UAlert v-if="offAgent" color="warning" variant="subtle" icon="i-lucide-power-off" :title="t('burn.agentOff', { name: offAgent.name })"
         :actions="[{ label: t('burn.agentOffChange'), color: 'warning', variant: 'outline', onClick: () => { settingsOpen = true } }, { label: t('burn.agentOffOpen'), color: 'neutral', variant: 'ghost', to: `/projects/${projectId}/agents/${offAgent.id}` }]" />
@@ -223,6 +261,10 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
     </UCard>
 
     <!-- the pieces of work, by where they are -->
+    <div class="flex flex-wrap items-center gap-2">
+      <USelect v-model="run" :items="runItems" size="sm" class="w-56 max-w-full" />
+      <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-plus" :label="t('burn.quest.add')" class="ms-auto" @click="questOpen = true" />
+    </div>
     <!-- side by side on every screen: scrolled across below xl -->
     <div class="flex snap-x snap-mandatory items-start gap-3 overflow-x-auto pb-2 xl:grid xl:grid-cols-5 xl:overflow-visible xl:pb-0">
       <div v-for="col in columns" :key="col.key" class="w-[80%] min-w-0 shrink-0 snap-start space-y-2 rounded-xl border border-(--ui-border) p-2 sm:w-[45%] xl:w-auto">
@@ -316,6 +358,26 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         </div>
       </template>
     </USlideover>
+
+    <!-- a quest to give -->
+    <UModal v-model:open="questOpen" :title="t('burn.quest.add')" :description="t('burn.quest.help')">
+      <template #body>
+        <div class="space-y-3">
+          <UFormField :label="t('burn.quest.title')" required>
+            <UInput v-model="quest.title" :maxlength="160" class="w-full" :placeholder="t('burn.quest.titlePlaceholder')" autofocus />
+          </UFormField>
+          <UFormField :label="t('burn.quest.detail')">
+            <UTextarea v-model="quest.detail" :rows="4" :maxlength="4000" autoresize class="w-full" />
+          </UFormField>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="questOpen = false" />
+          <UButton icon="i-lucide-plus" :label="t('burn.quest.add')" :loading="acting === 'quest'" :disabled="!quest.title.trim()" @click="addQuest" />
+        </div>
+      </template>
+    </UModal>
 
     <!-- starting: what it means, when it stops -->
     <UModal v-model:open="confirmOpen" :title="t('burn.confirmTitle')">

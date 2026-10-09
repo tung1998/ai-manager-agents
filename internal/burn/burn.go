@@ -27,6 +27,33 @@ import (
 // Kinds of work a Burn looks for.
 var Kinds = map[string]bool{"unfinished": true, "upgrade": true, "bug": true, "idea": true}
 
+// KindQuest is a piece the person gives (not a worker's find): it waits in
+// found, a free slot takes it before a new worker looks for work, and it is
+// done as given, with no scan.
+const KindQuest = "quest"
+
+// maxQuestTitle, maxQuestDetail cap what the person writes for a quest.
+const maxQuestTitle, maxQuestDetail = 160, 4000
+
+// AddQuest gives the project's Burn a piece of work to do as given; a
+// running Burn takes it at the next free slot, the oldest first.
+func (s *Service) AddQuest(ctx context.Context, b storage.BurnSession, title, detail string) (storage.BurnItem, error) {
+	title, detail = strings.Join(strings.Fields(title), " "), strings.TrimSpace(detail)
+	switch {
+	case title == "":
+		return storage.BurnItem{}, errors.New("quest cần tên")
+	case len([]rune(title)) > maxQuestTitle:
+		return storage.BurnItem{}, fmt.Errorf("tên quest dài quá %d ký tự", maxQuestTitle)
+	case len([]rune(detail)) > maxQuestDetail:
+		return storage.BurnItem{}, fmt.Errorf("mô tả quest dài quá %d ký tự", maxQuestDetail)
+	}
+	it, err := s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: title, Kind: KindQuest, Detail: detail, Status: "found"})
+	if err == nil {
+		s.wake(b.ProjectID)
+	}
+	return it, err
+}
+
 // Service runs the projects' Burns.
 type Service struct {
 	store storage.Store
@@ -354,8 +381,13 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 					break
 				}
 				var err error
-				if it, err = s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: huntTitle, Status: "queued"}); err != nil {
+				if it, err = s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: huntTitle, Status: "queued", RunBranch: b.RunBranch}); err != nil {
 					break
+				}
+			} else if it.Status == "found" { // a quest: taken as given, the person may have moved it meanwhile
+				it.Status = "queued"
+				if err := s.store.Burn().UpdateItemFrom(ctx, it, "found"); err != nil {
+					break // looked at again on the next round
 				}
 			}
 			busy[it.ID] = true
@@ -445,16 +477,17 @@ func (s *Service) step(ctx context.Context, b storage.BurnSession, it storage.Bu
 }
 
 // next: a piece done waiting for its review, a paused one (it goes on),
-// else the one chosen first — none a worker has already; draining, only the
-// pieces in progress.
+// else the one chosen first, else a quest the person gave — none a worker
+// has already; draining, only the pieces in progress. Quests come before a
+// new worker that looks for work: they are their own flow, not a scan.
 func next(items []storage.BurnItem, busy map[string]bool, draining bool) (storage.BurnItem, bool) {
-	order := []string{"review", "paused", "doing", "queued"}
+	order := []string{"review", "paused", "doing", "queued", "found"}
 	if draining {
 		order = order[:3]
 	}
 	for _, st := range order {
 		for _, it := range items {
-			if it.Status == st && !busy[it.ID] {
+			if it.Status == st && !busy[it.ID] && (st != "found" || it.Kind == KindQuest) {
 				return it, true
 			}
 		}
@@ -551,6 +584,7 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	again := it.Status == "paused" || it.Status == "doing" || it.Worktree != "" // a retry goes on from what is there
 	tree := "burn-" + it.ID
 	it.Status, it.Attempts = "doing", it.Attempts+1
+	it.RunBranch = b.RunBranch // the run it is done in
 	// its worktree first: a run without one would write in the project's own folder
 	p, perr := s.store.Repos().Get(ctx, b.ProjectID)
 	if perr == nil && s.trees != nil {

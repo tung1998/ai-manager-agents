@@ -934,3 +934,31 @@ func TestBurnWorkerWaitsForTheIssueReview(t *testing.T) {
 		t.Fatalf("not reviewed: %+v", it)
 	}
 }
+
+// A quest the person gives waits in found, with no run until it starts; a
+// running Burn takes it at once, even with no worker looking for work, and
+// it lands in the run it was done in.
+func TestBurnDoesAQuest(t *testing.T) {
+	f := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ends := time.Now().Add(time.Hour)
+	b, _ := f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, EndsAt: &ends, State: "stopped"})
+	if _, err := f.svc.AddQuest(ctx, b, "  ", ""); err == nil {
+		t.Fatal("a quest with no title")
+	}
+	q, err := f.svc.AddQuest(ctx, b, "Thêm nút  xuất CSV", "trang đơn hàng")
+	if err != nil || q.Kind != burn.KindQuest || q.Status != "found" || q.RunBranch != "" || q.Title != "Thêm nút xuất CSV" {
+		t.Fatalf("quest = %+v, %v", q, err)
+	}
+	f.svc.Start(ctx)
+	if b, err = f.svc.Begin(ctx, f.project.ID, "admin@x.io"); err != nil {
+		t.Fatal(err)
+	}
+	waitItem(t, f.st, q.ID, "doing")
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: q.ID, Summary: "đã thêm"})
+	if q = waitDelivered(t, f.st, q.ID); q.RunBranch != b.RunBranch || q.Kind != burn.KindQuest {
+		t.Fatalf("quest done = %+v, run %s", q, b.RunBranch)
+	}
+}

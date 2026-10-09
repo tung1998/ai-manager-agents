@@ -57,6 +57,7 @@ type burnItemDTO struct {
 	ReviewNote          string            `json:"review_note"`
 	ReviewConversations map[string]string `json:"review_conversations"` // stage → its hidden review chat (ADR-114)
 	WorkConversationID  string            `json:"work_conversation_id"` // its hidden work chat (ADR-116)
+	RunBranch           string            `json:"run_branch"`           // the run it belongs to; "" = a quest not started yet
 	UpdatedAt           time.Time         `json:"updated_at"`
 }
 
@@ -94,7 +95,7 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 		list, _ := s.cfg.Store.Burn().Items(r.Context(), b.ID)
 		for _, it := range list {
 			items = append(items, burnItemDTO{it.ID, it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Subagents, it.CostUSD,
-				listOrEmpty(it.Reviewed), it.ReviewNote, mapOrEmpty(it.ReviewConversations), it.WorkConversationID, it.UpdatedAt})
+				listOrEmpty(it.Reviewed), it.ReviewNote, mapOrEmpty(it.ReviewConversations), it.WorkConversationID, it.RunBranch, it.UpdatedAt})
 		}
 	}
 	dto := toBurnDTO(b)
@@ -104,6 +105,37 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 		out["weekly_reset"] = reset
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// addBurnQuest: a piece of work the person gives the Burn (kind quest). It
+// waits in found; a running Burn does it as given before looking for more.
+func (s *server) addBurnQuest(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Title  string `json:"title"`
+		Detail string `json:"detail"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	pid := r.PathValue("id")
+	b, err := s.burnSession(r, pid)
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	if b.ID == "" { // no Burn saved yet: the defaults, to hold it
+		if b, err = s.cfg.Store.Burn().SaveSession(r.Context(), b); err != nil {
+			s.internal(w, r, err)
+			return
+		}
+	}
+	it, err := s.cfg.Burn.AddQuest(r.Context(), b, in.Title, in.Detail)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(r, audit.Change{Action: "burn.quest", Resource: "burn_item", ResourceID: it.ID, ProjectID: pid, After: map[string]string{"title": it.Title}})
+	writeJSON(w, http.StatusOK, map[string]any{"id": it.ID})
 }
 
 // maxFocus caps what the person writes as the Burn's focus.

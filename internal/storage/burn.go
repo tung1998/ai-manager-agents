@@ -50,17 +50,20 @@ type BurnReviewStage struct {
 // BurnItem is a piece of work a Burn found, and how it went.
 type BurnItem struct {
 	ID, SessionID, Title, Kind, Detail string
-	Status                             string // found | queued | doing | paused | done | failed | skipped
-	Priority                           int
-	Branch, Worktree, Summary          string
-	Attempts, Subagents                int
-	ReviewErrAttempts                  int               // system errors (not AI limit) in a row from review(), ADR-120
-	Reviewed                           []string          // review stages passed
-	ReviewNote                         string            // the reviewer's last word: guidance, or why not
-	ReviewConversations                map[string]string // stage → its hidden review chat (ADR-114)
-	WorkConversationID                 string            // its hidden chat with the agent that does it (ADR-116)
-	CostUSD                            float64
-	CreatedAt, UpdatedAt               time.Time
+	// Kind is unfinished | upgrade | bug | idea (a worker's), quest (the
+	// person's, done as given), or "" (a worker still looking).
+	Status                    string // found | queued | doing | paused | done | failed | skipped
+	RunBranch                 string // the run it belongs to (its run's branch); "" = a quest not started yet
+	Priority                  int
+	Branch, Worktree, Summary string
+	Attempts, Subagents       int
+	ReviewErrAttempts         int               // system errors (not AI limit) in a row from review(), ADR-120
+	Reviewed                  []string          // review stages passed
+	ReviewNote                string            // the reviewer's last word: guidance, or why not
+	ReviewConversations       map[string]string // stage → its hidden review chat (ADR-114)
+	WorkConversationID        string            // its hidden chat with the agent that does it (ADR-116)
+	CostUSD                   float64
+	CreatedAt, UpdatedAt      time.Time
 }
 
 // BurnRepo stores Burn sessions (one a project) and their items.

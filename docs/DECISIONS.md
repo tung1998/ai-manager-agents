@@ -2115,3 +2115,12 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Mọi mẫu: cùng một lỗi ở nhiều chỗ là một việc.
   - Bỏ các nút chèn sẵn trọng tâm (Bảo mật, UI/UX, Hiệu năng, Test): mẫu thay cho chúng.
 - **Chưa làm:** worker chưa tự chụp màn hình để xem giao diện thật (mẫu `ux` mới đọc template như người dùng điện thoại). Bước sau: biến `docs/guide/capture.mjs` thành công cụ đi một luồng (ảnh 390px/1440px, lỗi console và mạng).
+
+## ADR-129: Burn: bảng theo lần chạy; quest là luồng riêng, không gộp với quét
+- **Bối cảnh:** Burn của một project giữ mọi việc qua nhiều lần chạy, bảng dồn hết vào một chỗ. Người dùng muốn tự giao việc cho Burn mà việc đó không bị trộn vào luồng worker tự quét/tìm việc.
+- **Quyết định:**
+  - Mỗi việc có `burn_items.run_branch`: lần chạy (nhánh `burn/<ngày-giờ>`, ADR-123) nó thuộc về. Gán khi worker mở việc, khi `burn_add`, và khi việc bắt đầu làm (lần chạy làm nó). Migration 00080 gán việc cũ tạo sau lúc bắt đầu lần chạy hiện tại vào lần đó; còn lại để trống ("Trước khi chia lần chạy").
+  - Bảng Burn có chọn lần chạy: mặc định lần hiện tại, có "Mọi lần chạy". Chi phí và số việc xong tính theo lần đang xem.
+  - **Quest** (`kind = "quest"`): người dùng thêm qua `POST /api/projects/{id}/burn/quests` {title ≤160, detail ≤4000}, kể cả khi Burn đang tắt (chưa có Burn thì lưu mặc định). Quest vào cột Tìm thấy, chưa thuộc lần chạy nào (hiện ở mọi lần) cho tới khi bắt đầu làm.
+  - Slot trống lấy theo thứ tự: review, tạm dừng, đang làm, đã chọn (Ưu tiên), quest (cũ trước), rồi mới mở worker tìm việc. Quest chạy được cả khi tắt tìm việc (`SetFindWork(false)`), không lấy khi đang hoàn thành nốt.
+  - Quest làm bằng prompt làm việc (`burn/work.md`), không qua prompt quét (`burn/solo.md`), không ghi `scanned`: làm đúng việc được giao, thấy gì khác thì ghi vào tổng kết. Review (ADR-113) và commit vào nhánh lần chạy như mọi việc. Worker không nhận được kind `quest`.
