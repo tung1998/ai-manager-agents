@@ -2188,3 +2188,20 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Khi báo cáo usage mới nhất cho thấy một cửa sổ đạt ngưỡng và chưa reset, kết nối bị bỏ khỏi chuỗi chạy của agent (không thử cuối như kết nối đã hết quota). Còn kết nối dự phòng thì chạy trên đó; không còn kết nối nào thì lượt không bắt đầu, lỗi `CapError` có chữ "quota" nên job là `out_of_tokens` (chat được tiếp tục sau).
   - Burn coi như hết quota: `limitHit` chờ tới lúc cửa sổ đầu tiên của các kết nối bị chặn reset (`Engine.CapStop`), quá giờ tắt thì dừng.
   - Lượt đang chạy không bị cắt giữa chừng; ngưỡng chỉ chặn lượt mới, nên đặt dưới 100% một khoảng đủ cho một lượt.
+
+## ADR-137: Thiết lập bằng AI đề xuất đủ quyền, skill/MCP, kiểm tra nhanh và báo sẵn sàng
+- **Bối cảnh:** sau khi quét project, setup chỉ chọn gói agent, đặt được mỗi `read_only` (agent ghi bị ép chờ duyệt), không gợi ý skill, MCP hay kiểm tra nhanh, áp dụng xong không cho biết còn thiếu gì.
+- **Quyền:** đề xuất mang `level` + `caps` + `commands` theo `internal/perm`; catalog lệnh của project nằm trong prompt. Level/cap lạ bị bỏ kèm cảnh báo; agent mới không có gì hợp lệ thì ở mức chỉ đọc. Lệnh ngoài catalog chỉ cảnh báo. Không còn ép `RequiresApproval`. Màn xem trước hiện mức quyền thật đã tính từ pack, không lấy số AI ghi.
+- **Skill/MCP:** AI chỉ chọn trong kho (skill của thư viện office; MCP của catalog và thư viện), tối đa 6 mỗi loại; tên lạ bị bỏ kèm cảnh báo. Mỗi MCP ghi rõ còn cần khóa hay đăng nhập. Áp dụng: skill cài vào `.claude/skills` của project (qua kiểm tra an toàn như cài tay; có cảnh báo thì để người cài tay). MCP thêm vào cổng MCP của office (phạm vi máy, chỉ gán cho agent của project); MCP cần khóa thì không thêm, báo "cần khóa"; MCP đã có thì giữ nguyên, chỉ thêm agent của project nếu nó đang giới hạn theo agent.
+- **Kiểm tra nhanh:** đề xuất dòng `.ext: lệnh {file}` (ADR-135), không hợp lệ thì bỏ. Áp dụng bật kiểm tra nhanh; chỉ ghi lệnh khi project chưa có, không đè lệnh người đã viết.
+- **Sẵn sàng:** áp dụng trả về danh sách ok / cần làm / lỗi: từng skill, MCP, kiểm tra nhanh, số agent, quy trình, và các lệnh trong catalog có chạy được trên máy không (tìm trên PATH). Không chặn agent chạy; chỉ hiện ở trang setup.
+- **Đã loại:** tầng "profile" cố định theo stack (lại thành bảng cứng thứ hai); cổng kiểm tra trước mỗi lượt agent.
+
+## ADR-138: Burn: gộp 3 chiều, giữ việc khi xung đột, nhắc báo kết quả; sửa hook MCP
+- **Bối cảnh (lần chạy 09/10):** ba lỗi làm Burn hỏng việc. (1) Hook `PreToolUse` cho MCP của người dùng (`run_claude.go`) có chữ `person's` trong chuỗi shell `'…'`; sh lỗi cú pháp, thoát mã 2, nên Claude Code chặn mọi tool `mcp__*`: worker và reviewer không gọi được `run_command`. (2) Việc đã qua review kết quả nhưng gộp vào lần chạy bị xung đột (việc khác vừa sửa cùng file) thì worktree bị xóa, việc làm lại từ đầu; chat của nó vẫn nhớ "đã làm", nên agent chỉ chạy build rồi báo xong trên code trống. (3) Worker kết thúc lượt khi đang chờ lệnh chạy nền (không gì đánh thức nó), việc thành "không báo kết quả".
+- **Quyết định:**
+  - Hook bỏ dấu nháy; test chạy thật lệnh hook qua `sh` và kiểm tra JSON trả về.
+  - Gộp vào lần chạy dùng `git apply --3way`: chỉ cùng dòng bị sửa mới là xung đột; xung đột thì worktree của lần chạy trả về như cũ.
+  - Xung đột: office đặt thay đổi của việc lên code mới nhất của lần chạy ngay trong worktree của nó (3 chiều). Sạch thì gộp luôn; còn chỗ đụng thì việc về lại worker với danh sách file có dấu xung đột, không tính là một lần thất bại. Chỉ khi cả 3 chiều cũng không được mới xóa worktree như trước.
+  - Worktree của việc đã thử mà bị tạo lại thì prompt nói rõ thay đổi cũ đã mất, phải làm lại đủ, kiểm tra bằng git diff.
+  - Prompt làm việc: chạy build/test ở tiền cảnh, không kết thúc lượt khi chờ lệnh nền. Worker kết thúc lượt mà việc vẫn `doing` thì được nhắc một lần (`burn/report.md`) trong cùng chat trước khi tính là thất bại.

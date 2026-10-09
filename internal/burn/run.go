@@ -142,7 +142,10 @@ func (s *Service) mergeInto(ctx context.Context, b storage.BurnSession, repo str
 	if err != nil {
 		return err
 	}
-	if out, err := gitIn(ctx, run, diff, "apply", "--binary", "--whitespace=nowarn", "-"); err != nil {
+	// 3-way: lines another piece moved do not stop it, only the same lines changed
+	if out, err := gitIn(ctx, run, diff, "apply", "--binary", "--3way", "--whitespace=nowarn", "-"); err != nil {
+		_, _ = gitIn(ctx, run, "", "reset", "-q", "--hard", "HEAD") // a clash leaves markers: the run stays as it was
+		_, _ = gitIn(ctx, run, "", "clean", "-fdq")
 		return fmt.Errorf("%w: %s", errConflict, oneLine(out, 300))
 	}
 	return commit(ctx, run, b.RunBranch, it.Title, it.Summary)
@@ -155,6 +158,69 @@ func (s *Service) RunTree(b storage.BurnSession) string {
 		return ""
 	}
 	return s.trees.Path(b.ProjectID, runTree(b))
+}
+
+// replayItem is replay for a piece of the project's Burn.
+func (s *Service) replayItem(ctx context.Context, b storage.BurnSession, it storage.BurnItem) ([]string, error) {
+	p, err := s.store.Repos().Get(ctx, b.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	return s.replay(ctx, b, p.Path, it)
+}
+
+// replay puts a piece's changes on top of the run as it is now: a 3-way
+// merge in the piece's own worktree, so a clash with a piece merged meanwhile
+// costs a fix, not the whole piece. It returns the files left with conflict
+// markers (none: it merges cleanly now). Failing, the worktree is as it was.
+func (s *Service) replay(ctx context.Context, b storage.BurnSession, repo string, it storage.BurnItem) ([]string, error) {
+	dir := it.Worktree
+	if dir == "" {
+		return nil, errors.New("không có worktree")
+	}
+	if _, err := gitIn(ctx, dir, "", "add", "-A"); err != nil {
+		return nil, err
+	}
+	base, err := gitIn(ctx, dir, "", "rev-parse", "--verify", "-q", baseRef)
+	if err != nil {
+		return nil, errors.New("worktree không có mốc bắt đầu")
+	}
+	diff, err := gitIn(ctx, dir, "", "diff", "--cached", "--binary", "--no-renames", base)
+	if err != nil {
+		return nil, err
+	}
+	s.runMu.Lock()
+	run, err := s.ensureRun(ctx, b, repo)
+	var head string
+	if err == nil {
+		head, err = gitIn(ctx, run, "", "rev-parse", "HEAD")
+	}
+	s.runMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	for _, args := range [][]string{{"reset", "-q", "--hard", head}, {"clean", "-fdq"}, {"update-ref", baseRef, head}} {
+		if _, err := gitIn(ctx, dir, "", args...); err != nil {
+			return nil, err
+		}
+	}
+	if diff == "" {
+		return nil, nil
+	}
+	_, aerr := gitIn(ctx, dir, diff+"\n", "apply", "--binary", "--3way", "--whitespace=nowarn", "-")
+	if aerr == nil {
+		return nil, nil
+	}
+	names, _ := gitIn(ctx, dir, "", "diff", "--name-only", "--diff-filter=U")
+	if files := strings.Fields(names); len(files) > 0 {
+		return files, nil
+	}
+	// not even a 3-way merge: back to where it was
+	for _, args := range [][]string{{"reset", "-q", "--hard", base}, {"clean", "-fdq"}, {"update-ref", baseRef, base}} {
+		_, _ = gitIn(ctx, dir, "", args...)
+	}
+	_, _ = gitIn(ctx, dir, diff+"\n", "apply", "--binary", "--index", "--whitespace=nowarn", "-")
+	return nil, aerr
 }
 
 func gitIn(ctx context.Context, dir, input string, args ...string) (string, error) {

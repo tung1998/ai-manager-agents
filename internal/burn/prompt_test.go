@@ -200,21 +200,21 @@ func TestScanPrompt(t *testing.T) {
 		t.Errorf("a retry is not said:\n%s", r)
 	}
 	// a worker starts from the scan's brief and the map, not a new scan
-	w := workPrompt(storage.BurnSession{CodeMap: "MAP"}, storage.BurnItem{ID: "x", Kind: "bug"}, false, false)
+	w := workPrompt(storage.BurnSession{CodeMap: "MAP"}, storage.BurnItem{ID: "x", Kind: "bug"}, false, false, false)
 	if !strings.Contains(w, "do not scan the codebase again") || !strings.Contains(w, "MAP") {
 		t.Errorf("work prompt:\n%s", w)
 	}
-	if q := workPrompt(storage.BurnSession{}, storage.BurnItem{ID: "x", Kind: KindQuest}, false, false); strings.Contains(q, "scan found") {
+	if q := workPrompt(storage.BurnSession{}, storage.BurnItem{ID: "x", Kind: KindQuest}, false, false, false); strings.Contains(q, "scan found") {
 		t.Errorf("a quest is not a scan's find:\n%s", q)
 	}
 }
 
 func TestWorkPromptFeature(t *testing.T) {
-	p := workPrompt(storage.BurnSession{}, storage.BurnItem{Kind: "unfinished", Title: "Thông báo sự cố: phần 1"}, false, false)
+	p := workPrompt(storage.BurnSession{}, storage.BurnItem{Kind: "unfinished", Title: "Thông báo sự cố: phần 1"}, false, false, false)
 	if !strings.Contains(p, "mark the progress") {
 		t.Errorf("a roadmap piece should update the roadmap docs:\n%s", p)
 	}
-	if i := workPrompt(storage.BurnSession{}, storage.BurnItem{Kind: "idea", Title: "MCP sampling"}, false, false); !strings.Contains(i, "A new idea: build it") {
+	if i := workPrompt(storage.BurnSession{}, storage.BurnItem{Kind: "idea", Title: "MCP sampling"}, false, false, false); !strings.Contains(i, "A new idea: build it") {
 		t.Errorf("an idea is not said to be built:\n%s", i)
 	}
 }
@@ -255,7 +255,7 @@ func TestFocusSteers(t *testing.T) {
 	if strings.Contains(p, "trạng thái đang tải") {
 		t.Error("a security focus got the UI lens")
 	}
-	if w := workPrompt(storage.BurnSession{Focus: "UI/UX trang checkout"}, storage.BurnItem{}, false, false); !strings.Contains(w, "narrow screens") {
+	if w := workPrompt(storage.BurnSession{Focus: "UI/UX trang checkout"}, storage.BurnItem{}, false, false, false); !strings.Contains(w, "narrow screens") {
 		t.Errorf("work prompt lacks the UI checks:\n%s", w)
 	}
 	if r := reviewPrompt(b, storage.BurnItem{}, "issue"); !strings.Contains(r, "not a reason to turn other work down") {
@@ -361,7 +361,7 @@ func TestTemplates(t *testing.T) {
 	if p := scanPrompt(sec, w, nil, false); !strings.Contains(p, "injection") || strings.Count(p, "injection") != 1 {
 		t.Errorf("security template (its lens once, not again from the focus):\n%s", p)
 	}
-	if p := workPrompt(sec, storage.BurnItem{}, false, false); !strings.Contains(p, "attack") {
+	if p := workPrompt(sec, storage.BurnItem{}, false, false, false); !strings.Contains(p, "attack") {
 		t.Errorf("security template's checks are not in the work:\n%s", p)
 	}
 	if p := reviewPrompt(storage.BurnSession{Template: "performance"}, storage.BurnItem{}, "result"); !strings.Contains(p, "before and after") {
@@ -427,7 +427,7 @@ func TestChecksLessonsRisks(t *testing.T) {
 			t.Errorf("scan prompt lacks %q:\n%s", want, p)
 		}
 	}
-	w := workPrompt(storage.BurnSession{Lessons: "- X là cố ý", Verify: "make check"}, storage.BurnItem{ID: "x", Kind: "bug"}, false, false)
+	w := workPrompt(storage.BurnSession{Lessons: "- X là cố ý", Verify: "make check"}, storage.BurnItem{ID: "x", Kind: "bug"}, false, false, false)
 	if !strings.Contains(w, "- X là cố ý") || !strings.Contains(w, "`make check`") {
 		t.Errorf("work prompt:\n%s", w)
 	}
@@ -444,5 +444,15 @@ func TestChecksLessonsRisks(t *testing.T) {
 	}, "demo", "x", now)
 	if !strings.Contains(sum, "Cần đọc kỹ (1):\n- Đổi bảng — migration/dữ liệu") {
 		t.Errorf("summary:\n%s", sum)
+	}
+}
+
+func TestWorkPromptFreshAndForeground(t *testing.T) {
+	w := workPrompt(storage.BurnSession{}, storage.BurnItem{ID: "x", Kind: KindQuest}, false, false, true)
+	if !strings.Contains(w, "changes of your earlier attempt are gone") || !strings.Contains(w, "never end your turn waiting on a background command") {
+		t.Fatalf("work prompt = %s", w)
+	}
+	if w := workPrompt(storage.BurnSession{}, storage.BurnItem{ID: "x"}, true, false, false); strings.Contains(w, "starts over") {
+		t.Fatalf("a retry in its own worktree is not fresh: %s", w)
 	}
 }

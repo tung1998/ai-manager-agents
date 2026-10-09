@@ -745,6 +745,8 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	it.RunBranch = b.RunBranch // the run it is done in
 	// its worktree first: a run without one would write in the project's own folder
 	p, perr := s.store.Repos().Get(ctx, b.ProjectID)
+	// tried before, yet its worktree is gone: its chat remembers work that is not there
+	fresh := it.Attempts > 1 && s.trees != nil && !s.trees.Exists(b.ProjectID, tree)
 	if perr == nil && s.trees != nil {
 		it.Worktree, perr = s.pieceTree(ctx, b, p.Path, tree)
 	} else if perr == nil {
@@ -766,7 +768,7 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	_ = s.store.Burn().UpdateItem(ctx, it)
 	// held back for its review (ADR-112): no diff until the reviewer agrees
 	held := s.reviews(ctx, b, "result")
-	prompt := workPrompt(b, it, again, held)
+	prompt := workPrompt(b, it, again && !fresh, held, fresh)
 	worker := hunting(it)
 	switch {
 	case worker:
@@ -780,7 +782,16 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 		items, _ := s.store.Burn().Items(ctx, b.ID)
 		prompt = scanPrompt(b, it, items, again)
 	}
-	res, err := s.run(chat.WithPinnedTree(runCtx(ctx, b, tree, true), tree), it.WorkConversationID, prompt)
+	turnCtx := chat.WithPinnedTree(runCtx(ctx, b, tree, true), tree)
+	res, err := s.run(turnCtx, it.WorkConversationID, prompt)
+	if !worker && err == nil && res.failed == "" && ctx.Err() == nil {
+		// it ended its turn without burn_done/burn_fail (often: waiting on a
+		// background command, which never wakes it): asked once to report
+		if c, e := s.store.Burn().Item(ctx, it.ID); e == nil && c.Status == "doing" {
+			r2, err2 := s.run(turnCtx, it.WorkConversationID, prompts.Render("burn/report", struct{ ID string }{it.ID}))
+			res.subagents, res.cost, res.failed, err = res.subagents+r2.subagents, res.cost+r2.cost, r2.failed, err2
+		}
+	}
 	cur, gerr := s.store.Burn().Item(context.WithoutCancel(ctx), it.ID)
 	if errors.Is(gerr, storage.ErrNotFound) { // burn_scan_done: the scan is over
 		_ = s.trees.Remove(context.WithoutCancel(ctx), p.Path, b.ProjectID, tree)
@@ -886,12 +897,13 @@ func addScanned(kept, area string, at time.Time) string {
 }
 
 // workPrompt is a piece's work turn (burn/work.md).
-func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool) string {
+// fresh: tried before, but its worktree starts over (its changes are gone).
+func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed, fresh bool) string {
 	return prompts.Render("burn/work", struct {
 		ID, Kind, Title, Detail, Focus, ReviewNote, Branch, Map, Lessons string
 		FocusChecks, Verify                                              []string
-		Again, Reviewed                                                  bool
-	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, b.CodeMap, b.Lessons, checks(b), verifyCommands(b, it.Worktree), again, reviewed})
+		Again, Reviewed, Fresh                                           bool
+	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, b.CodeMap, b.Lessons, checks(b), verifyCommands(b, it.Worktree), again, reviewed, fresh})
 }
 
 func oneLine(s string, n int) string {

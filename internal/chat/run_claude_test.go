@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -203,5 +204,31 @@ func TestClaudeShowsItsSubagents(t *testing.T) {
 	if len(res.Tools) != 3 || res.Tools[0].Summary != "Giao subagent Explore: tìm chỗ gọi API" ||
 		res.Tools[1].Summary != `↳ Explore · tìm chỗ gọi API: Tìm "fetch("` || res.Tools[2].Summary != "Đọc a.go" {
 		t.Fatalf("tools = %+v", res.Tools)
+	}
+}
+
+// The hook runs through sh: a quote in its text breaks the command, sh exits
+// 2, and Claude Code then blocks every MCP tool call.
+func TestUserMCPSettingsHookRuns(t *testing.T) {
+	var s struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Hooks []struct{ Command string } `json:"hooks"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(userMCPSettings), &s); err != nil {
+		t.Fatal(err)
+	}
+	cmd := s.Hooks.PreToolUse[0].Hooks[0].Command
+	out, err := exec.Command("sh", "-c", cmd).Output()
+	if err != nil {
+		t.Fatalf("hook %q: %v", cmd, err)
+	}
+	var v struct {
+		HookSpecificOutput struct{ PermissionDecision string } `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil || v.HookSpecificOutput.PermissionDecision != "allow" {
+		t.Fatalf("hook output %q: %v", out, err)
 	}
 }

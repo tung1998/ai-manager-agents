@@ -1088,3 +1088,43 @@ func TestBurnWaitsForReviewThenStopsAfter(t *testing.T) {
 		}
 	}
 }
+
+// A worker that ends its turn without burn_done/burn_fail (say, waiting on a
+// background command) is asked once to report, before the piece counts as a
+// failed try.
+func TestBurnAsksAWorkerToReport(t *testing.T) {
+	f := setup(t)
+	log := filepath.Join(t.TempDir(), "prompts")
+	os.WriteFile(f.bin, []byte(`#!/bin/sh
+cat >> `+log+`
+echo "---" >> `+log+`
+sleep 2
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"chờ test chạy nền","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	b, _ := f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, EndsAt: &ends, State: "stopped"})
+	q, _ := f.svc.AddQuest(ctx, b, "Việc cần báo", "")
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.svc.Stop(context.Background(), f.project.ID)
+	it := waitItem(t, f.st, q.ID, "doing")
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		raw, _ := os.ReadFile(log)
+		if strings.Contains(string(raw), "ended without a report") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("never asked to report: %s", raw)
+		}
+	}
+	f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: it.WorkConversationID}, "burn_done", burn.ToolInput{Item: it.ID, Summary: "xong"})
+	if it = waitDelivered(t, f.st, q.ID); it.Attempts != 1 {
+		t.Fatalf("asked to report is not another try: %+v", it)
+	}
+}

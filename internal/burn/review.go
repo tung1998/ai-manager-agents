@@ -135,6 +135,21 @@ func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.
 // again, from the run as it is now.
 func (s *Service) deliver(ctx context.Context, b storage.BurnSession, it *storage.BurnItem) {
 	err := s.integrate(ctx, b, it)
+	if errors.Is(err, errConflict) {
+		// replayed on the run as it is now: merged at once when that is clean,
+		// else back to its worker with the clashing files (not a failed try)
+		files, rerr := s.replayItem(ctx, b, *it)
+		switch {
+		case rerr == nil && len(files) == 0:
+			err = s.integrate(ctx, b, it)
+		case rerr == nil:
+			it.Status, it.Attempts = "queued", max(it.Attempts-1, 0)
+			it.Summary = "Xung đột khi gộp với việc khác đã gộp: " + strings.Join(files, ", ")
+			it.ReviewNote = strings.TrimSpace(it.ReviewNote + "\n\nOffice put your changes on top of the run's latest code; these files now have conflict markers (<<<<<<< / >>>>>>>): " +
+				strings.Join(files, ", ") + ". Resolve them keeping both sides' intent, run the build/test again, then report done.")
+			return
+		}
+	}
 	switch {
 	case errors.Is(err, errConflict):
 		_ = s.DropWorktree(ctx, *it)

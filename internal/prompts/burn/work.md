@@ -16,6 +16,9 @@ The code map the scans keep (to find your way):
 [[- if .Again]]
 This piece is half done: look at git status / git diff in this worktree to see how far it got, then go on.
 [[- end]]
+[[- if .Fresh]]
+This worktree starts over from the run's latest code: the changes of your earlier attempt are gone. Do the work again in full; do not rely on what this chat says was already done, check git diff.
+[[- end]]
 [[- if .Focus]]
 The person's focus (lean towards it when there is a choice of how): [[.Focus]]
 [[- end]]
@@ -27,7 +30,7 @@ The reviewer's notes (follow them unless the code shows otherwise):
 [[.ReviewNote]]
 [[- end]]
 
-You work in this piece's own worktree, with full access; other Burn pieces may run in parallel in theirs. Do not push or merge. After changing code, run the related build/test until they pass.
+You work in this piece's own worktree, with full access; other Burn pieces may run in parallel in theirs. Do not push or merge. After changing code, run the related build/test until they pass, in the foreground: never end your turn waiting on a background command (nothing wakes you when it ends).
 [[- if eq .Kind "quest"]]
 The person gave this piece themselves: do what it asks, as asked. Do not look for other work; anything else you notice goes in your summary.
 [[- end]]

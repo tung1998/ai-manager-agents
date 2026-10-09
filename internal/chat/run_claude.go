@@ -32,7 +32,7 @@ var claudeReadTools = []string{"Read", "Glob", "Grep"}
 
 // userMCPSettings: a PreToolUse hook that allows the tools of any MCP server
 // (the person's own Claude Code setup), for agents with perm.CapUserMCP.
-const userMCPSettings = `{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"agent-office: the person's MCP\"}}'"}]}]}}`
+const userMCPSettings = `{"hooks":{"PreToolUse":[{"matcher":"mcp__.*","hooks":[{"type":"command","command":"printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"agent-office: an MCP of the person\"}}'"}]}]}}`
 
 // withEffort asks Claude Code to think this hard (--effort: low … max).
 func withEffort(a []string, effort string) []string {
