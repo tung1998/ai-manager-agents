@@ -227,7 +227,15 @@ async function setEnabled(p: Provider, enabled: boolean) {
 }
 
 async function remove(p: Provider) {
-  if (!confirm(t('prov.confirmDelete', { name: p.name }))) return
+  if (p.is_default) {
+    toast.add({ title: t('prov.cannotDeleteDefault'), color: 'error' })
+    return
+  }
+  const { agents } = await $fetch<{ agents: { id: string, name: string }[] }>(`/api/providers/${p.id}/agents`)
+  const message = agents.length
+    ? t('prov.confirmDeleteWithAgents', { name: p.name, n: agents.length, names: agents.map(a => a.name).join(', ') })
+    : t('prov.confirmDelete', { name: p.name })
+  if (!confirm(message)) return
   try {
     await $fetch(`/api/providers/${p.id}`, { method: 'DELETE' })
     await refresh()
@@ -243,7 +251,7 @@ function menu(p: Provider) {
       { label: t('prov.edit'), icon: 'i-lucide-pencil', onSelect: () => openEdit(p) },
       { label: t('prov.setDefault'), icon: 'i-lucide-star', disabled: p.is_default || !!settingDefault.value, onSelect: () => setDefault(p) }
     ],
-    [{ label: t('prov.delete'), icon: 'i-lucide-trash', color: 'error' as const, onSelect: () => remove(p) }]
+    [{ label: t('prov.delete'), icon: 'i-lucide-trash', color: 'error' as const, disabled: p.is_default, onSelect: () => remove(p) }]
   ]
 }
 

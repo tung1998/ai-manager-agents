@@ -163,6 +163,8 @@ const en: Record<keyof typeof vi, string> = {
   'prov.addedConnection': 'Connection added',
   'prov.checkingConnection': 'Testing connection…',
   'prov.confirmDelete': 'Delete connection "{name}"? Agents using it will switch to the default connection.',
+  'prov.confirmDeleteWithAgents': 'Delete connection "{name}"? {n} agent(s) pointed at it will be unlinked and fall back to the default connection: {names}.',
+  'prov.cannotDeleteDefault': 'This is the default connection — set another one as default before deleting it.',
   'prov.editTitle': 'Edit {name}',
   'prov.addTitle': 'Add AI connection',
   'prov.otherProviders': 'Other API providers',

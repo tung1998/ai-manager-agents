@@ -63,6 +63,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/providers", admin(s.createProvider))
 	mux.Handle("PATCH /api/providers/{id}", admin(s.updateProvider))
 	mux.Handle("DELETE /api/providers/{id}", admin(s.deleteProvider))
+	mux.Handle("GET /api/providers/{id}/agents", admin(s.providerAgents))
 	mux.Handle("POST /api/providers/{id}/default", admin(s.defaultProvider))
 	mux.Handle("PATCH /api/providers/{id}/enabled", admin(s.setProviderEnabled))
 	mux.Handle("POST /api/providers/{id}/test", admin(s.testProvider))
@@ -206,7 +207,7 @@ func (s *server) writeDomainError(w http.ResponseWriter, r *http.Request, err er
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Agent không hợp lệ", "problems": ve.Problems})
 	case errors.Is(err, storage.ErrNotFound):
 		writeError(w, http.StatusNotFound, "Không tìm thấy")
-	case errors.Is(err, storage.ErrConflict), errors.Is(err, provider.ErrNameTaken), errors.Is(err, team.ErrHasAgents):
+	case errors.Is(err, storage.ErrConflict), errors.Is(err, provider.ErrNameTaken), errors.Is(err, team.ErrHasAgents), errors.Is(err, provider.ErrIsDefault):
 		writeError(w, http.StatusConflict, conflictMsg(err))
 	case errors.Is(err, provider.ErrInvalidKind), errors.Is(err, provider.ErrNeedsKey), errors.Is(err, provider.ErrBadTier),
 		errors.Is(err, provider.ErrKeyRequiredForNewURL),
@@ -224,6 +225,8 @@ func conflictMsg(err error) string {
 	case errors.Is(err, team.ErrHasAgents):
 		return "Project đã có agent, chọn thay thế để dùng gói khởi tạo"
 	case errors.Is(err, provider.ErrNameTaken):
+		return err.Error()
+	case errors.Is(err, provider.ErrIsDefault):
 		return err.Error()
 	}
 	return "Dữ liệu bị trùng (key đã tồn tại, hoặc thư mục đã được thêm làm project)"
@@ -418,12 +421,35 @@ func (s *server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	if err := s.cfg.Store.Providers().Delete(r.Context(), id); err != nil {
+	if err := s.cfg.Providers.Delete(r.Context(), id); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
 	s.audit(r, audit.Change{Action: "provider.delete", ResourceID: id, Before: toProviderDTO(old)})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// providerAgents lists the agents a connection's delete confirm dialog should
+// warn about: agents that will be unlinked (ON DELETE SET NULL) and fall back
+// silently to the default connection.
+func (s *server) providerAgents(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	agents, err := s.cfg.Providers.AgentsUsing(r.Context(), id)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	type agentRef struct {
+		ID        string `json:"id"`
+		ProjectID string `json:"project_id"`
+		Name      string `json:"name"`
+		Own       bool   `json:"own"` // false = only in fallback list
+	}
+	out := make([]agentRef, 0, len(agents))
+	for _, a := range agents {
+		out = append(out, agentRef{ID: a.ID, ProjectID: a.ProjectID, Name: a.Name, Own: a.ProviderID == id})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"agents": out})
 }
 
 func (s *server) defaultProvider(w http.ResponseWriter, r *http.Request) {

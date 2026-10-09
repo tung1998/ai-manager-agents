@@ -166,6 +166,8 @@ export default {
   'prov.addedConnection': 'Đã thêm kết nối',
   'prov.checkingConnection': 'Đang kiểm tra kết nối…',
   'prov.confirmDelete': 'Xóa kết nối "{name}"? Agent đang dùng sẽ chuyển sang kết nối mặc định.',
+  'prov.confirmDeleteWithAgents': 'Xóa kết nối "{name}"? {n} agent đang trỏ tới đây sẽ gỡ liên kết và chuyển sang kết nối mặc định: {names}.',
+  'prov.cannotDeleteDefault': 'Đây là kết nối mặc định, hãy đặt kết nối khác làm mặc định trước khi xóa.',
   'prov.editTitle': 'Sửa {name}',
   'prov.addTitle': 'Thêm kết nối AI',
   'prov.otherProviders': 'Nhà cung cấp API khác',
