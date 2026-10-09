@@ -38,6 +38,12 @@ func TestEstimate(t *testing.T) {
 	if _, ok := usage.Estimate("anthropic.claude-haiku-4-5-20260101", 1, 1, nil); !ok {
 		t.Fatal("prefix/date suffix not normalised")
 	}
+	if c, ok := usage.Estimate("claude-sonnet-5-5", 1_000_000, 100_000, nil); !ok || c != 3.0 {
+		t.Fatalf("sonnet-5-5 = %v %v", c, ok)
+	}
+	if _, ok := usage.Estimate("anthropic.claude-sonnet-5-5-20260101", 1, 1, nil); !ok {
+		t.Fatal("sonnet-5-5 prefix/date suffix not normalised")
+	}
 	if _, ok := usage.Estimate("gpt-5", 1, 1, nil); ok {
 		t.Fatal("unknown model must not be priced")
 	}

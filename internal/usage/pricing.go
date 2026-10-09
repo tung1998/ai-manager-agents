@@ -14,7 +14,7 @@ type Price struct {
 }
 
 // defaultPrices are Anthropic first-party list prices (claude-api reference,
-// cached 2026-06-24). Admins can override or add models (e.g. GPT) in settings.
+// cached 2026-09-25). Admins can override or add models (e.g. GPT) in settings.
 var defaultPrices = map[string]Price{
 	"claude-fable-5-1":  {Input: 10, Output: 50, CacheRead: 0.25},
 	"claude-mythos-5-1": {Input: 10, Output: 50},
@@ -24,6 +24,7 @@ var defaultPrices = map[string]Price{
 	"claude-opus-4-8":   {Input: 5, Output: 25},
 	"claude-opus-4-7":   {Input: 5, Output: 25},
 	"claude-opus-4-6":   {Input: 5, Output: 25},
+	"claude-sonnet-5-5": {Input: 2, Output: 10, CacheRead: 0.20},
 	"claude-sonnet-5":   {Input: 2, Output: 10},
 	"claude-sonnet-4-6": {Input: 3, Output: 15},
 	"claude-haiku-4-5":  {Input: 1, Output: 5},
