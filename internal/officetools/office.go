@@ -17,14 +17,14 @@ import (
 func (t *Toolbox) officeTools() []Tool {
 	project := map[string]any{"type": "string", "description": "Project: id or name (see projects)"}
 	return []Tool{
-		{Name: "projects", Description: "Office's projects: id, name, description, folder. Call it first to find which project the work belongs to.", Schema: obj(map[string]any{})},
+		{Name: "projects", Description: "Office's projects: id, name, description, folder. Call it first to find which project the work belongs to.", Schema: obj(map[string]any{}), ReadOnly: true},
 		{Name: "jobs_query", Description: "Recent runs (chat, automation, script): status, cost, time. Filter by project and status.",
 			Schema: obj(map[string]any{"project": project, "status": map[string]any{"type": "string", "enum": []string{"running", "pending", "done", "failed", "cancelled"}},
-				"days": map[string]any{"type": "integer"}, "limit": map[string]any{"type": "integer"}})},
+				"days": map[string]any{"type": "integer"}, "limit": map[string]any{"type": "integer"}}), ReadOnly: true},
 		{Name: "usage_summary", Description: "Cost and tokens by day, project or model over the last N days.",
-			Schema: obj(map[string]any{"days": map[string]any{"type": "integer", "description": "Default 7"}, "by": map[string]any{"type": "string", "enum": []string{"day", "project", "model"}}})},
+			Schema: obj(map[string]any{"days": map[string]any{"type": "integer", "description": "Default 7"}, "by": map[string]any{"type": "string", "enum": []string{"day", "project", "model"}}}), ReadOnly: true},
 		{Name: "handoff", Description: "Hand code work to a project's Chat: returns a link that opens that Chat with a drafted message for the person to send. You do not change code yourself.",
-			Schema: obj(map[string]any{"project": project, "message": map[string]any{"type": "string", "description": "Message for the project's team lead"}}, "project", "message")},
+			Schema: obj(map[string]any{"project": project, "message": map[string]any{"type": "string", "description": "Message for the project's team lead"}}, "project", "message"), ReadOnly: true},
 		{Name: "run_automation", Description: "PROPOSE running an automation now (see list resource=automation): the person approves on a card.",
 			Schema: obj(map[string]any{"project": project, "id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"}}, "project", "id")},
 	}

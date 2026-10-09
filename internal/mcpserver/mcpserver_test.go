@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/officetools"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 )
@@ -71,5 +72,60 @@ func TestMCP(t *testing.T) {
 	revoke()
 	if code, _ := call(tok, `{"jsonrpc":"2.0","id":5,"method":"tools/list"}`); code != 401 {
 		t.Fatalf("revoked: %d", code)
+	}
+}
+
+// TestReadOnlyHint checks that readOnlyHint in the wire format mirrors each
+// Tool's ReadOnly field. This toolbox has no actions/config/burn wired in, so
+// tools/list here only returns the read-only subset (ops_overview and
+// friends, plus the office tools since the scope is Office); the full set of
+// tools, including the write ones, is covered by
+// officetools.TestToolsReadOnly.
+
+func TestReadOnlyHint(t *testing.T) {
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	ctx := context.Background()
+	st.Migrate(ctx)
+	p, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
+
+	readOnly := map[string]bool{
+		"projects": true, "jobs_query": true, "usage_summary": true, "handoff": true,
+		"ops_overview": true, "process_logs": true, "container_logs": true, "monitor_detail": true,
+		"git_status": true, "git_diff": true, "git_log": true,
+		"describe": true, "list": true, "get": true,
+		"search_history": true, "read_link": true, "burn_list": true,
+	}
+
+	tb := officetools.New(st, nil, nil)
+	s := New(tb, "test")
+	srv := httptest.NewServer(s)
+	defer srv.Close()
+	tok, revoke := s.Grant(officetools.Scope{ProjectID: p.ID, Level: perm.Propose, Office: true}, time.Minute)
+	defer revoke()
+
+	req, _ := http.NewRequest("POST", srv.URL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	tools := out["result"].(map[string]any)["tools"].([]any)
+	if len(tools) == 0 {
+		t.Fatal("no tools returned")
+	}
+	for _, raw := range tools {
+		tl := raw.(map[string]any)
+		name := tl["name"].(string)
+		want := readOnly[name]
+		got := tl["annotations"].(map[string]any)["readOnlyHint"].(bool)
+		if got != want {
+			t.Errorf("tool %q: readOnlyHint=%v, want %v", name, got, want)
+		}
 	}
 }

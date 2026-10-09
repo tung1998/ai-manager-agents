@@ -25,6 +25,9 @@ type Tool struct {
 	Name        string
 	Description string
 	Schema      map[string]any
+	// ReadOnly: the tool never changes state (MCP readOnlyHint). Defaults to
+	// false so a new tool must be marked read-only on purpose.
+	ReadOnly bool
 }
 
 // Toolbox runs the tools for one project at a time.
@@ -111,19 +114,19 @@ var linesProp = map[string]any{"type": "integer", "description": "Number of last
 func (t *Toolbox) Tools() []Tool {
 	list := []Tool{
 		{Name: "ops_overview", Description: "Operations overview: processes (dev, build, test…) with status/exit code/port, docker compose services, monitors and recent incidents. Call it first for build or runtime errors, deploys or monitoring.",
-			Schema: obj(map[string]any{})},
+			Schema: obj(map[string]any{}), ReadOnly: true},
 		{Name: "process_logs", Description: "Read the latest log of a process office runs for the project (e.g. dev, build, test), with its command, status and exit code.",
-			Schema: obj(map[string]any{"name": map[string]any{"type": "string", "description": "Process name, see ops_overview"}, "lines": linesProp}, "name")},
+			Schema: obj(map[string]any{"name": map[string]any{"type": "string", "description": "Process name, see ops_overview"}, "lines": linesProp}, "name"), ReadOnly: true},
 		{Name: "container_logs", Description: "Read the latest log of a docker compose service of the project, with the container status.",
-			Schema: obj(map[string]any{"service": map[string]any{"type": "string"}, "lines": linesProp}, "service")},
+			Schema: obj(map[string]any{"service": map[string]any{"type": "string"}, "lines": linesProp}, "service"), ReadOnly: true},
 		{Name: "monitor_detail", Description: "Details of a monitor: config, recent checks, Up/Down events and earlier AI analysis.",
-			Schema: obj(map[string]any{"name": map[string]any{"type": "string", "description": "Monitor name, see ops_overview"}}, "name")},
+			Schema: obj(map[string]any{"name": map[string]any{"type": "string", "description": "Monitor name, see ops_overview"}}, "name"), ReadOnly: true},
 	}
 	list = append(list,
-		Tool{Name: "git_status", Description: "Git status of the project: branch, unpushed commits, changed files.", Schema: obj(map[string]any{})},
+		Tool{Name: "git_status", Description: "Git status of the project: branch, unpushed commits, changed files.", Schema: obj(map[string]any{}), ReadOnly: true},
 		Tool{Name: "git_diff", Description: "Diff of uncommitted changes (against HEAD), optionally limited to files.",
-			Schema: obj(map[string]any{"files": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}})},
-		Tool{Name: "git_log", Description: "The latest commits.", Schema: obj(map[string]any{"lines": map[string]any{"type": "integer"}})},
+			Schema: obj(map[string]any{"files": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}), ReadOnly: true},
+		Tool{Name: "git_log", Description: "The latest commits.", Schema: obj(map[string]any{"lines": map[string]any{"type": "integer"}}), ReadOnly: true},
 	)
 	if t.actions != nil {
 		list = append(list, Tool{Name: "run_command", Description: "Run one command in the project folder (no shell: no | ; & > $), e.g. test, lint, build. Commands on your allowed list run at once; others become a proposal awaiting the person's approval.",
@@ -184,10 +187,10 @@ func (t *Toolbox) Tools() []Tool {
 		kind := map[string]any{"type": "string", "description": "Setting type, see describe"}
 		list = append(list,
 			Tool{Name: "describe", Description: "The setting types that can be changed (automation, agent, workflow, monitor, process, policy, project, usage_settings, provider); with resource, lists its editable fields.",
-				Schema: obj(map[string]any{"resource": kind})},
-			Tool{Name: "list", Description: "The settings of one type in the project (id, name, status).", Schema: obj(map[string]any{"resource": kind}, "resource")},
+				Schema: obj(map[string]any{"resource": kind}), ReadOnly: true},
+			Tool{Name: "list", Description: "The settings of one type in the project (id, name, status).", Schema: obj(map[string]any{"resource": kind}, "resource"), ReadOnly: true},
 			Tool{Name: "get", Description: "One setting in full (secrets masked). policy, project and usage_settings need no id.",
-				Schema: obj(map[string]any{"resource": kind, "id": map[string]any{"type": "string"}}, "resource")},
+				Schema: obj(map[string]any{"resource": kind, "id": map[string]any{"type": "string"}}, "resource"), ReadOnly: true},
 			Tool{Name: "propose_change", Description: "PROPOSE changing a setting; office applies it once the person approves the card. patch holds only the fields to change (see describe/get); never include API keys: the person pastes them on the card.",
 				Schema: obj(map[string]any{
 					"resource": kind,
@@ -203,9 +206,9 @@ func (t *Toolbox) Tools() []Tool {
 			"query":  map[string]any{"type": "string", "description": "Keywords, a few words are enough"},
 			"days":   map[string]any{"type": "integer", "description": "How many recent days to search (default 30, max 365)"},
 			"author": map[string]any{"type": "string", "description": "Only messages from this person/agent (optional)"},
-		}, "query")})
+		}, "query"), ReadOnly: true})
 	list = append(list, Tool{Name: "read_link", Description: "Read an office link the person pasted: a chat (…?tab=chat&c=…), a message (&m=…) or a task (…?tab=tasks&task=…) of this project.",
-		Schema: obj(map[string]any{"url": map[string]any{"type": "string", "description": "Office dashboard link"}}, "url")})
+		Schema: obj(map[string]any{"url": map[string]any{"type": "string", "description": "Office dashboard link"}}, "url"), ReadOnly: true})
 	if t.burn != nil {
 		item := map[string]any{"type": "string", "description": "Piece id (bit_…)"}
 		list = append(list,
@@ -231,7 +234,7 @@ func (t *Toolbox) Tools() []Tool {
 			}, "item", "reason")},
 			Tool{Name: "burn_list", Description: "Burn: list this Burn's pieces: the open ones in full, all closed ones (done/skipped/failed, to avoid doing one again), or every area looked at.", Schema: obj(map[string]any{
 				"what": map[string]any{"type": "string", "enum": []string{"open", "closed", "scanned"}},
-			}, "what")},
+			}, "what"), ReadOnly: true},
 			Tool{Name: "burn_fail", Description: "Burn: report the current piece could not be done.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
 		)
 	}

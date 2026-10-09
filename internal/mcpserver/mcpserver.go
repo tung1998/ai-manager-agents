@@ -198,7 +198,7 @@ func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) respon
 		list := []map[string]any{}
 		for _, t := range s.tools.ToolsFor(sc) {
 			list = append(list, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.Schema,
-				"annotations": map[string]any{"readOnlyHint": t.Name != "propose_action"}})
+				"annotations": map[string]any{"readOnlyHint": t.ReadOnly}})
 		}
 		res.Result = map[string]any{"tools": list}
 	case "tools/call":
