@@ -209,7 +209,10 @@ func Apply(t team.Pack, changes []AgentChange) team.Pack {
 }
 
 // Accept applies the accepted changes and gives the project the pack's
-// agents (in place of its own) and workflows.
+// agents and workflows. A project with no agents yet gets the pack in
+// place (as before); a project that already has agents only gets the
+// pack's keys it's missing, so a rescan's setup never overwrites or
+// removes an agent an admin has hand-edited.
 func (a *Assistant) Accept(ctx context.Context, repoID, packKey string, changes []AgentChange) (team.Pack, error) {
 	p, problems, err := Build(packKey, changes)
 	if err != nil {
@@ -217,6 +220,16 @@ func (a *Assistant) Accept(ctx context.Context, repoID, packKey string, changes 
 	}
 	if len(problems) > 0 {
 		return p, &team.ValidationError{Problems: problems}
+	}
+	snap, err := a.team.Load(ctx, repoID)
+	if err != nil {
+		return p, err
+	}
+	if len(snap.Agents) > 0 {
+		if err := a.team.Merge(ctx, repoID, team.Snapshot{Default: p.Default, Agents: p.Agents}, "pack:"+p.Key); err != nil {
+			return p, err
+		}
+		return p, a.team.InstallWorkflows(ctx, repoID, p.Workflows)
 	}
 	return p, a.team.ApplyPack(ctx, repoID, p, true)
 }

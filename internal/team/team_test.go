@@ -119,3 +119,73 @@ func TestApplyPackSaveDeleteRestore(t *testing.T) {
 		t.Fatalf("first agent not default: %q", r2.DefaultAgentID)
 	}
 }
+
+func TestMergeKeepsExistingAddsNew(t *testing.T) {
+	ctx := context.Background()
+	st, svc, _, r := setup(t)
+	solo, err := team.PackByKey("solo")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// (a) an empty project gets the pack as-is
+	if err := svc.Merge(ctx, r.ID, team.Snapshot{Default: solo.Default, Agents: solo.Agents}, "pack:solo"); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := st.Agents().List(ctx, r.ID)
+	if len(agents) != len(solo.Agents) {
+		t.Fatalf("empty project merge = %d agents, want %d", len(agents), len(solo.Agents))
+	}
+
+	// hand-edit the existing agent, and add one the pack doesn't know about
+	existing := agents[0]
+	existing.Instructions = "custom instructions"
+	existing.Permissions.ReadOnly = !existing.Permissions.ReadOnly
+	if _, err := svc.SaveAgent(ctx, existing); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveAgent(ctx, storage.Agent{ProjectID: r.ID, Key: "custom", Name: "Custom", ModelTier: "fast"}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := st.Agents().List(ctx, r.ID)
+
+	// (b)(c)(d): apply a bigger pack; existing keys untouched, custom kept, new keys added
+	council, err := team.PackByKey("council")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Merge(ctx, r.ID, team.Snapshot{Default: council.Default, Agents: council.Agents}, "pack:council"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := st.Agents().List(ctx, r.ID)
+	byKey := map[string]storage.Agent{}
+	for _, a := range after {
+		byKey[a.Key] = a
+	}
+	for _, a := range before {
+		got, ok := byKey[a.Key]
+		if !ok {
+			t.Fatalf("existing agent %q removed by merge", a.Key)
+		}
+		if got.Instructions != a.Instructions || got.Permissions.ReadOnly != a.Permissions.ReadOnly || got.Name != a.Name {
+			t.Fatalf("merge changed existing agent %q: %+v -> %+v", a.Key, a, got)
+		}
+	}
+	beforeKeys := map[string]bool{}
+	for _, a := range before {
+		beforeKeys[a.Key] = true
+	}
+	added := 0
+	for _, spec := range council.Agents {
+		if beforeKeys[spec.Key] {
+			continue
+		}
+		added++
+		if _, ok := byKey[spec.Key]; !ok {
+			t.Fatalf("new pack agent %q not added by merge", spec.Key)
+		}
+	}
+	if len(after) != len(before)+added {
+		t.Fatalf("after merge = %d agents, want %d", len(after), len(before)+added)
+	}
+}

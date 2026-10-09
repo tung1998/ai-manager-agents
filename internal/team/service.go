@@ -232,6 +232,73 @@ func (s *Service) Replace(ctx context.Context, projectID string, snap Snapshot, 
 	})
 }
 
+// InstallWorkflows installs a pack's workflows into a project (keys already
+// installed are skipped by the workflow service).
+func (s *Service) InstallWorkflows(ctx context.Context, projectID string, keys []string) error {
+	if s.workflows == nil || len(keys) == 0 {
+		return nil
+	}
+	return s.workflows.InstallDefaults(ctx, projectID, keys)
+}
+
+// Merge adds a pack's agents to a project without touching or removing the
+// ones it already has: an existing key is left exactly as the project has
+// it, a new key is created, and the default is set only if the project has
+// none yet. Used when a project already has agents an admin may have
+// hand-edited, so a rescan's setup assistant doesn't clobber them.
+func (s *Service) Merge(ctx context.Context, projectID string, snap Snapshot, action string) error {
+	if err := Validate(snap.Agents); err != nil {
+		return err
+	}
+	return s.store.InTx(ctx, func(tx storage.Store) error {
+		r, err := tx.Repos().Get(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		current, err := tx.Agents().List(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		haveKey := map[string]bool{}
+		for _, a := range current {
+			haveKey[a.Key] = true
+		}
+		var toAdd []AgentSpec
+		for _, spec := range snap.Agents {
+			if !haveKey[spec.Key] {
+				toAdd = append(toAdd, spec)
+			}
+		}
+		if len(toAdd) == 0 {
+			return nil
+		}
+		if err := snapshot(ctx, tx, projectID, action); err != nil {
+			return err
+		}
+		for i, spec := range toAdd {
+			if spec.ProviderID != "" {
+				if _, err := tx.Providers().Get(ctx, spec.ProviderID); errors.Is(err, storage.ErrNotFound) {
+					spec.ProviderID = "" // gone since: the default connection
+				} else if err != nil {
+					return err
+				}
+			}
+			next := spec.Agent(projectID, len(current)+i)
+			created, err := tx.Agents().Create(ctx, next)
+			if err != nil {
+				return fmt.Errorf("agent %s: %w", spec.Key, err)
+			}
+			if r.DefaultAgentID == "" && spec.Key == snap.Default {
+				r.DefaultAgentID = created.ID
+			}
+		}
+		if err := tx.Repos().Update(ctx, r); err != nil {
+			return err
+		}
+		return fixDefault(ctx, tx, projectID)
+	})
+}
+
 // fixDefault points the project's default at an agent that exists.
 func fixDefault(ctx context.Context, tx storage.Store, projectID string) error {
 	r, err := tx.Repos().Get(ctx, projectID)
