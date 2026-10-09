@@ -70,7 +70,11 @@ func TestIncidentActions(t *testing.T) {
 	if got["automation"]["id"] != a.ID || got["jobs"]["id"] == "" || got["jobs"]["key"] == "" {
 		t.Fatalf("incidents = %v", got)
 	}
-	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/incidents/dismiss", map[string]any{"key": got["jobs"]["key"]}, nil); resp.StatusCode != 204 {
+	// several at once (Bỏ qua tất cả); a card to decide is never let go this way
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/incidents/dismiss", map[string]any{"keys": []string{got["jobs"]["key"].(string), "approval:x"}}, nil); resp.StatusCode != 400 {
+		t.Fatalf("dismiss with a card = %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/incidents/dismiss", map[string]any{"keys": []string{got["jobs"]["key"].(string)}}, nil); resp.StatusCode != 204 {
 		t.Fatalf("dismiss = %d", resp.StatusCode)
 	}
 	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/incidents/retry", map[string]any{"kind": "automation", "id": a.ID}, nil); resp.StatusCode != 200 {

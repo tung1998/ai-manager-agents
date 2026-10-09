@@ -3,7 +3,7 @@
 // could be better and what is broken, and does it — a few pieces at a time
 // (ADR-117), each in its own worktree and chat — until it is stopped or its time is up. Stopped,
 // the piece in progress waits (its worktree kept); started again, it goes on.
-// Each run gives one result to review (ADR-123): a branch, or a worktree.
+// Each run gives one result to review (ADR-123): a worktree on a branch of its own.
 package burn
 
 import (
@@ -194,7 +194,6 @@ func (s *Service) stop(ctx context.Context, projectID, why string) error {
 	s.pauseDoing(ctx, b.ID)
 	if ran {
 		s.report(context.WithoutCancel(ctx), b, why)
-		s.closeRun(context.WithoutCancel(ctx), b)
 	}
 	return nil
 }
@@ -414,7 +413,6 @@ func (s *Service) drained(ctx context.Context, sessionID string) bool {
 	b.State, b.WaitingUntil = "stopped", nil
 	_, _ = s.store.Burn().SaveSession(ctx, b)
 	s.report(context.WithoutCancel(ctx), b, "đã làm nốt việc dở")
-	s.closeRun(context.WithoutCancel(ctx), b)
 	return true
 }
 
@@ -758,8 +756,8 @@ func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool
 	return prompts.Render("burn/work", struct {
 		ID, Kind, Title, Detail, Focus, ReviewNote, Branch string
 		FocusChecks                                        []string
-		Again, Reviewed, Worktree                          bool
-	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, focusChecks(b.Focus), again, reviewed, b.ResultMode == "worktree"})
+		Again, Reviewed                                    bool
+	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, focusChecks(b.Focus), again, reviewed})
 }
 
 func oneLine(s string, n int) string {
@@ -859,6 +857,9 @@ func (s *Service) limitHit(ctx context.Context, agentID string) (time.Time, bool
 			until = w.ResetsAt
 		}
 	}
+	if !until.IsZero() && !until.After(time.Now()) {
+		return time.Time{}, false // its reset has passed: a stale report
+	}
 	if until.IsZero() {
 		// No window carried a reset time (e.g. a hard "rejected" with no window
 		// detail at all) — fall back to a short cooldown timed from the report
@@ -872,10 +873,55 @@ func (s *Service) limitHit(ctx context.Context, agentID string) (time.Time, bool
 	return until, true
 }
 
-// waitLimit puts the Burn to wait for its connection's reset (past its stop
-// time: it stops).
+// limitsHit: some of agentIDs' AI connections said no more for now — until
+// the last of their resets.
+func (s *Service) limitsHit(ctx context.Context, agentIDs ...string) (time.Time, bool) {
+	var until time.Time
+	hit := false
+	for _, id := range agentIDs {
+		if t, ok := s.limitHit(ctx, id); ok {
+			hit = true
+			if t.After(until) {
+				until = t
+			}
+		}
+	}
+	return until, hit
+}
+
+// agents are who a Burn runs on: its own agent, and every reviewer of its
+// review profile with the agents their workflows' roles are bound to. One
+// of them out of quota stalls every piece.
+func (s *Service) agents(ctx context.Context, b storage.BurnSession) []string {
+	ids := []string{b.AgentID}
+	for _, stage := range ReviewStages {
+		if r, ok := s.reviewer(ctx, b, stage); ok {
+			ids = append(ids, s.stageAgents(ctx, b, r)...)
+		}
+	}
+	return ids
+}
+
+// stageAgents: a review stage's reviewer and its workflow's bound agents.
+func (s *Service) stageAgents(ctx context.Context, b storage.BurnSession, r storage.BurnReviewStage) []string {
+	ids := []string{r.AgentID}
+	if r.Workflow == "" {
+		return ids
+	}
+	if w, err := s.store.Workflows().GetByKey(ctx, b.ProjectID, r.Workflow); err == nil {
+		for _, id := range w.Bindings {
+			if id != "" {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
+}
+
+// waitLimit puts the Burn to wait for its connections' reset (past its stop
+// time: it stops): its own agent's, or a reviewer's (ADR-124).
 func (s *Service) waitLimit(ctx context.Context, b storage.BurnSession) bool {
-	until, hit := s.limitHit(ctx, b.AgentID)
+	until, hit := s.limitsHit(ctx, s.agents(ctx, b)...)
 	if !hit {
 		return false
 	}

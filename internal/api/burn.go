@@ -21,7 +21,6 @@ type burnDTO struct {
 	AgentID        string `json:"agent_id"`
 	ModelTier      string `json:"model_tier"`
 	MaxParallel    int    `json:"max_parallel"`
-	ResultMode     string `json:"result_mode"`
 	Focus          string `json:"focus"`
 	Order          string `json:"order"`
 	// review (ADR-113): the profile followed ("" = none)
@@ -35,6 +34,7 @@ type burnDTO struct {
 	StartedBy       string     `json:"started_by,omitempty"`
 	StartedAt       *time.Time `json:"started_at,omitempty"`
 	RunBranch       string     `json:"run_branch,omitempty"` // the run's branch (ADR-123)
+	RunTree         string     `json:"run_tree,omitempty"`   // its worktree, to review there
 }
 
 type burnItemDTO struct {
@@ -57,15 +57,15 @@ type burnItemDTO struct {
 }
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
-	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.ResultMode, b.Focus, cmp.Or(b.Order, "roadmap"),
-		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch}
+	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.Focus, cmp.Or(b.Order, "roadmap"),
+		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, ""}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
 func (s *server) burnSession(r *http.Request, projectID string) (storage.BurnSession, error) {
 	b, err := s.cfg.Store.Burn().Session(r.Context(), projectID)
 	if errors.Is(err, storage.ErrNotFound) {
-		b = storage.BurnSession{ProjectID: projectID, ModelTier: storage.TierBalanced, MaxParallel: 1, ResultMode: "branch", Order: "roadmap", State: "stopped"}
+		b = storage.BurnSession{ProjectID: projectID, ModelTier: storage.TierBalanced, MaxParallel: 1, Order: "roadmap", State: "stopped"}
 		if a, err := s.cfg.Chat.DefaultAgent(r.Context(), projectID); err == nil && !a.Disabled {
 			b.AgentID = a.ID
 		}
@@ -93,7 +93,9 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 				listOrEmpty(it.Reviewed), it.ReviewNote, mapOrEmpty(it.ReviewConversations), it.WorkConversationID, it.UpdatedAt})
 		}
 	}
-	out := map[string]any{"burn": toBurnDTO(b), "items": items}
+	dto := toBurnDTO(b)
+	dto.RunTree = s.cfg.Burn.RunTree(b)
+	out := map[string]any{"burn": dto, "items": items}
 	if reset, ok := s.cfg.Burn.WeeklyReset(r.Context(), b.AgentID); ok { // the suggested stop time
 		out["weekly_reset"] = reset
 	}
@@ -107,7 +109,6 @@ type burnInput struct {
 	AgentID         *string    `json:"agent_id"`
 	ModelTier       *string    `json:"model_tier"`
 	MaxParallel     *int       `json:"max_parallel"`
-	ResultMode      *string    `json:"result_mode"`
 	Focus           *string    `json:"focus"`
 	Order           *string    `json:"order"`
 	ReviewProfileID *string    `json:"review_profile_id"` // "" = no review
@@ -129,9 +130,6 @@ func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession
 	}
 	if in.MaxParallel != nil {
 		b.MaxParallel = min(max(*in.MaxParallel, 1), 5)
-	}
-	if in.ResultMode != nil && (*in.ResultMode == "branch" || *in.ResultMode == "worktree") {
-		b.ResultMode = *in.ResultMode
 	}
 	if in.Focus != nil {
 		b.Focus = strings.TrimSpace(*in.Focus)

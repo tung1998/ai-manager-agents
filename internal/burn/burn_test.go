@@ -203,6 +203,14 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lư�
 	if err := f.svc.Stop(ctx, f.project.ID); err != nil {
 		t.Fatal(err)
 	}
+	// stopped, the run's worktree stays on its branch, to review there
+	b, _ = f.st.Burn().Session(ctx, f.project.ID)
+	tree := f.svc.RunTree(b)
+	head := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	head.Dir = tree
+	if got, err := head.CombinedOutput(); tree == "" || err != nil || strings.TrimSpace(string(got)) != b.RunBranch {
+		t.Fatalf("run worktree %q on %s (%v), want %s", tree, got, err, b.RunBranch)
+	}
 }
 
 // Stopped mid-piece, the piece waits (its worktree kept); started again it
@@ -654,62 +662,6 @@ func TestBurnListTool(t *testing.T) {
 	}
 	if out, _ := f.svc.Tool(ctx, sc, "burn_list", burn.ToolInput{What: "open"}); strings.Contains(out, "việc xong") {
 		t.Errorf("open lists a closed piece: %s", out)
-	}
-}
-
-// Worktree mode (ADR-123): every piece of a run gathers in the run's one
-// worktree, put up as one diff in the Burn's chat; no branch is made.
-func TestBurnWorktreeModeOneDiff(t *testing.T) {
-	f := setup(t)
-	os.WriteFile(f.bin, []byte(`#!/bin/sh
-cat > /dev/null
-if test -f first.txt; then echo hai > second.txt; else echo mot > first.txt; fi
-sleep 1
-echo '{"type":"system","subtype":"init","session_id":"s1"}'
-echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lượt","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
-`), 0o755)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	f.svc.Start(ctx)
-	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, ResultMode: "worktree", State: "stopped"})
-	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.svc.Stop(context.Background(), f.project.ID)
-	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
-	for _, title := range []string{"Một", "Hai"} {
-		f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: title, Kind: "upgrade"})
-		items, _ := f.st.Burn().Items(ctx, b.ID)
-		it := items[len(items)-1]
-		f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: it.ID})
-		waitItem(t, f.st, it.ID, "doing")
-		f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: it.ID, Summary: "xong " + title})
-		if it = waitDelivered(t, f.st, it.ID); it.Branch != "" {
-			t.Fatalf("a branch in worktree mode: %+v", it)
-		}
-	}
-	var pending []storage.Patch
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		patches, _ := f.st.Chat().ListPatches(ctx, b.ConversationID)
-		pending = pending[:0]
-		for _, p := range patches {
-			if p.Status == "pending" {
-				pending = append(pending, p)
-			}
-		}
-		if len(pending) == 1 && strings.Contains(pending[0].Diff, "second.txt") {
-			break
-		}
-	}
-	if len(pending) != 1 || !strings.Contains(pending[0].Diff, "first.txt") || !strings.Contains(pending[0].Diff, "second.txt") {
-		t.Fatalf("want one diff with both pieces, got %+v", pending)
-	}
-	if out, _ := exec.Command("git", "-C", f.dir, "branch", "--list", "burn/*").CombinedOutput(); strings.TrimSpace(string(out)) != "" {
-		t.Fatalf("worktree mode made a branch:\n%s", out)
-	}
-	if _, err := os.Stat(filepath.Join(f.dir, "first.txt")); err == nil {
-		t.Fatal("the project's own folder was changed before approval")
 	}
 }
 

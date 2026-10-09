@@ -80,12 +80,8 @@ func summary(b storage.BurnSession, items []storage.BurnItem, project, why strin
 		fmt.Fprintf(&sb, " · chi phí các việc $%.2f", cost)
 	}
 	sb.WriteString("\n")
-	switch { // the run's one result (ADR-123)
-	case len(done) == 0:
-	case b.ResultMode == "worktree":
-		sb.WriteString("Kết quả: một diff trong chat Burn, duyệt để đưa vào nhánh hiện tại\n")
-	case b.RunBranch != "":
-		fmt.Fprintf(&sb, "Kết quả: nhánh `%s`\n", b.RunBranch)
+	if len(done) > 0 && b.RunBranch != "" { // the run's one result (ADR-123)
+		fmt.Fprintf(&sb, "Kết quả: nhánh `%s` (worktree của lần chạy, review ở đó rồi merge)\n", b.RunBranch)
 	}
 	if len(done)+len(failed)+len(skipped)+len(left) == 0 {
 		sb.WriteString("\nLần chạy này chưa xong việc nào.\n")

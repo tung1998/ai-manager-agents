@@ -9,14 +9,12 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
-	"bitbucket.org/senprints/agent-office/internal/worktree"
 )
 
-// One run, one result (ADR-123): branch mode commits every finished piece to
-// the run's own branch; worktree mode gathers them in the run's own worktree,
-// one diff the person approves onto the branch they are on. Pieces still run
-// side by side, each in a worktree started from the run as it is then, and
-// are merged into it one at a time.
+// One run, one result (ADR-123): the run's own worktree, on the run's own
+// branch, a commit per finished piece; the person reviews it there and
+// merges the branch. Pieces still run side by side, each in a worktree
+// started from the run as it is then, and are merged into it one at a time.
 
 // baseRef is where a piece's worktree started, per worktree: its diff is
 // taken from there, whatever the agent committed.
@@ -36,9 +34,8 @@ func runTree(b storage.BurnSession) string {
 	return "burn-run-" + strings.TrimPrefix(b.RunBranch, "burn/")
 }
 
-// ensureRun gives the run its worktree, made once: on the run's branch (from
-// the project's HEAD, without its uncommitted changes) in branch mode, the
-// project as it is now in worktree mode. Called with runMu held.
+// ensureRun gives the run its worktree, made once, on the run's branch (from
+// the project's HEAD, without its uncommitted changes). Called with runMu held.
 func (s *Service) ensureRun(ctx context.Context, b storage.BurnSession, repo string) (string, error) {
 	if b.RunBranch == "" {
 		return "", errors.New("Burn chưa có nhánh của lần chạy")
@@ -46,7 +43,7 @@ func (s *Service) ensureRun(ctx context.Context, b storage.BurnSession, repo str
 	name := runTree(b)
 	fresh := !s.trees.Exists(b.ProjectID, name)
 	dir, err := s.trees.Ensure(ctx, repo, b.ProjectID, name, nil)
-	if err != nil || !fresh || b.ResultMode == "worktree" {
+	if err != nil || !fresh {
 		return dir, err
 	}
 	if _, err := gitIn(ctx, dir, "", "rev-parse", "--verify", "-q", "refs/heads/"+b.RunBranch); err == nil {
@@ -76,12 +73,7 @@ func (s *Service) pieceTree(ctx context.Context, b storage.BurnSession, repo, na
 	if err != nil {
 		return "", err
 	}
-	base := ""
-	if b.ResultMode == "worktree" { // what it gathered is not committed
-		base, err = worktree.Snapshot(ctx, run)
-	} else {
-		base, err = gitIn(ctx, run, "", "rev-parse", "HEAD")
-	}
+	base, err := gitIn(ctx, run, "", "rev-parse", "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -98,8 +90,8 @@ func (s *Service) pieceTree(ctx context.Context, b storage.BurnSession, repo, na
 	return dir, nil
 }
 
-// integrate merges a finished piece into the run (committed to its branch, or
-// put up as the run's one diff) and drops the piece's worktree.
+// integrate merges a finished piece into the run (a commit on its branch) and
+// drops the piece's worktree.
 func (s *Service) integrate(ctx context.Context, b storage.BurnSession, it *storage.BurnItem) error {
 	if it.Worktree == "" {
 		return errors.New("không có worktree")
@@ -126,9 +118,7 @@ func (s *Service) integrate(ctx context.Context, b storage.BurnSession, it *stor
 		if err != nil {
 			return err
 		}
-		if b.ResultMode != "worktree" {
-			it.Branch = b.RunBranch
-		}
+		it.Branch = b.RunBranch
 	}
 	if err := s.trees.Remove(ctx, p.Path, b.ProjectID, "burn-"+it.ID); err == nil {
 		it.Worktree = ""
@@ -145,26 +135,16 @@ func (s *Service) mergeInto(ctx context.Context, b storage.BurnSession, repo str
 	if out, err := gitIn(ctx, run, diff, "apply", "--binary", "--whitespace=nowarn", "-"); err != nil {
 		return fmt.Errorf("%w: %s", errConflict, oneLine(out, 300))
 	}
-	if b.ResultMode == "worktree" {
-		return s.chat.ProposeTree(ctx, b.ConversationID, run, runTree(b))
-	}
 	return commit(ctx, run, b.RunBranch, it.Title, it.Summary)
 }
 
-// closeRun lets go of a branch-mode run's worktree once the run stops (its
-// branch stays, free to check out). A worktree-mode run keeps it: its diff
-// is applied from there.
-func (s *Service) closeRun(ctx context.Context, b storage.BurnSession) {
-	if b.ResultMode == "worktree" || b.RunBranch == "" || s.trees == nil {
-		return
+// RunTree is where a project's latest Burn run is, to review: its worktree
+// ("" when there is none).
+func (s *Service) RunTree(b storage.BurnSession) string {
+	if b.RunBranch == "" || s.trees == nil || !s.trees.Exists(b.ProjectID, runTree(b)) {
+		return ""
 	}
-	p, err := s.store.Repos().Get(ctx, b.ProjectID)
-	if err != nil {
-		return
-	}
-	s.runMu.Lock()
-	defer s.runMu.Unlock()
-	_ = s.trees.Remove(ctx, p.Path, b.ProjectID, runTree(b))
+	return s.trees.Path(b.ProjectID, runTree(b))
 }
 
 func gitIn(ctx context.Context, dir, input string, args ...string) (string, error) {

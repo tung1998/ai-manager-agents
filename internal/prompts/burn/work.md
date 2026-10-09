@@ -23,9 +23,5 @@ If this is a part of a roadmap feature: do exactly this part's scope, record des
 [[- if .Reviewed]]
 Once you report done, the result is reviewed first; if the review fails, the piece comes back with the reviewer's notes.
 [[- end]]
-[[- if .Worktree]]
-Once you report done, office merges your changes into this Burn run's review worktree: one diff, for every piece of the run, that the person approves.
-[[- else]]
 Once you report done, office merges your changes into this Burn run's branch [[.Branch]] as one commit (every piece of the run goes there).
-[[- end]]
 Finish with burn_done(item=[[printf "%q" .ID]], summary=what you did and how you verified it) or burn_fail(item=[[printf "%q" .ID]], reason=…) if you cannot do it.

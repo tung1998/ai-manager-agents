@@ -71,13 +71,17 @@ func (s *Service) gate(ctx context.Context, b storage.BurnSession, it storage.Bu
 		return true, false
 	}
 	for _, stage := range []string{"issue", "plan"} {
-		if !s.reviews(ctx, b, stage) || slices.Contains(it.Reviewed, stage) {
+		r, on := s.reviewer(ctx, b, stage)
+		if !on || slices.Contains(it.Reviewed, stage) {
 			continue
+		}
+		agents := s.stageAgents(ctx, b, r)
+		if _, hit := s.limitsHit(ctx, agents...); hit { // out of quota: not asked, the Burn waits
+			return false, true
 		}
 		ok, note, err := s.review(ctx, b, &it, stage)
 		if err != nil {
-			r, _ := s.reviewer(ctx, b, stage)
-			return false, s.reviewErrAttempt(ctx, it, stage, r.AgentID, err)
+			return false, s.reviewErrAttempt(ctx, it, stage, agents, err)
 		}
 		it.ReviewErrAttempts = 0
 		from := it.Status
@@ -99,10 +103,14 @@ func (s *Service) gate(ctx context.Context, b storage.BurnSession, it storage.Bu
 // (committed to its branch, or its diff put up); not, it goes again with what
 // the reviewer said, then fails. failed: the review could not run.
 func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.BurnItem) (failed bool) {
+	r, _ := s.reviewer(ctx, b, "result")
+	agents := s.stageAgents(ctx, b, r)
+	if _, hit := s.limitsHit(ctx, agents...); hit { // out of quota: not asked, the Burn waits
+		return true
+	}
 	ok, note, err := s.review(ctx, b, &it, "result")
 	if err != nil {
-		r, _ := s.reviewer(ctx, b, "result")
-		return s.reviewErrAttempt(ctx, it, "result", r.AgentID, err) // stays "review": asked again, unless past the limit
+		return s.reviewErrAttempt(ctx, it, "result", agents, err) // stays "review": asked again, unless past the limit
 	}
 	it.ReviewErrAttempts = 0
 	ctx = context.WithoutCancel(ctx)
@@ -143,19 +151,19 @@ const maxReviewErrAttempts = 3
 
 // reviewErrAttempt counts a system error from review(): past the threshold,
 // the piece is marked failed instead of looping at this stage forever.
-// agentID is the stage's reviewer (not necessarily the Burn's own agent):
-// its connection hitting its limit is not counted, and is not failed, since
+// agents are the stage's reviewer and its workflow's agents (ADR-124):
+// their connections hitting their limit is not counted, and is not failed, since
 // the loop already waits a minute and asks again (step, waitLimit). retry
 // reports whether it is still worth asking again (false once failed, or
 // once the context was cancelled: no point saving then). it is saved only
 // if its status is still what this call started from, so a change made
 // elsewhere while review() ran (paused, skipped, a person acting on it) is
 // not overwritten.
-func (s *Service) reviewErrAttempt(ctx context.Context, it storage.BurnItem, stage, agentID string, err error) (retry bool) {
+func (s *Service) reviewErrAttempt(ctx context.Context, it storage.BurnItem, stage string, agents []string, err error) (retry bool) {
 	if ctx.Err() != nil {
 		return false
 	}
-	if _, hit := s.limitHit(ctx, agentID); hit {
+	if _, hit := s.limitsHit(ctx, agents...); hit || chat.OutOfTokens(err) {
 		return true
 	}
 	ctx = context.WithoutCancel(ctx)

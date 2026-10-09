@@ -93,6 +93,24 @@ async function skipAll() {
     skippingAll.value = false
   }
 }
+// Bỏ qua N mục: every item that can be let go (not a card to decide, not a
+// chat to read), let go at once
+const dismissable = computed(() => incidents.value.filter(x => !['approval', 'patch', 'unread'].includes(x.kind)))
+const dismissingAll = ref(false)
+async function dismissAll() {
+  const keys = dismissable.value.map(x => x.key)
+  if (!keys.length || !confirm(t('home.dismissAllConfirm', { n: keys.length }))) return
+  dismissingAll.value = true
+  try {
+    await $fetch('/api/incidents/dismiss', { method: 'POST', body: { keys } })
+    toast.add({ title: t('home.dismissAllDone', { n: keys.length }), color: 'success' })
+    await refreshInc()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    dismissingAll.value = false
+  }
+}
 // Điều tra: the project's lead looks into it in a new chat
 const prefill = useState<{ text: string, files: [], send?: boolean } | null>('chat-prefill', () => null)
 function investigate(x: Incident) {
@@ -176,9 +194,12 @@ const steps = computed(() => [
               {{ t('home.attention') }}
               <UBadge v-if="incData?.count" :label="String(incData.count)" color="error" variant="subtle" size="sm" />
             </p>
-            <UTooltip v-if="isAdmin && proposalsN >= 2" :text="t('action.skipInfo')">
-              <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-skip-forward" :label="t('home.skipAll')" @click="skipAllOpen = true" />
-            </UTooltip>
+            <div v-if="isAdmin" class="flex items-center gap-1">
+              <UButton v-if="dismissable.length >= 2" size="xs" color="neutral" variant="ghost" icon="i-lucide-eye-off" :label="t('home.dismissAll', { n: dismissable.length })" :loading="dismissingAll" @click="dismissAll" />
+              <UTooltip v-if="proposalsN >= 2" :text="t('action.skipInfo')">
+                <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-skip-forward" :label="t('home.skipAll')" @click="skipAllOpen = true" />
+              </UTooltip>
+            </div>
           </div>
         </template>
         <LoadingRows v-if="!incData" :n="2" />

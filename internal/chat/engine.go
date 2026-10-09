@@ -1118,6 +1118,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 				}
 			}
 			e.keepLimits(p, res.Limits)
+			e.keepLimits(p, limitsFromError(res.Limits, runErr, time.Now()))
 		} else {
 			res, runErr = RunResult{}, kerr
 		}
@@ -1429,6 +1430,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 			req.Provider, req.APIKey, req.Bin, req.Model = p, key, e.providers.CLIBin(p), model
 			res, runErr = runnerFor(p.Kind).Run(ctx, req, emit)
 			e.keepLimits(p, res.Limits)
+			e.keepLimits(p, limitsFromError(res.Limits, runErr, time.Now()))
 			out.Text, out.Tools, out.Model = res.Text, res.Tools, firstNonEmpty(res.Usage.Model, model)
 			if e.usage != nil {
 				if r, err := e.usage.Record(ctx, usage.Meta{Kind: kind, ProjectID: project.ID, AgentID: agent.ID}, p, model, res.Usage, runErr); err == nil {

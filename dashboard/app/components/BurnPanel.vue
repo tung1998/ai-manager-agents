@@ -5,7 +5,7 @@
 // page shows its conversation.
 interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_parallel: number,
-  result_mode: 'branch' | 'worktree', run_branch?: string, focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
+  run_branch?: string, run_tree?: string, focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
   waiting_until?: string, started_by?: string, started_at?: string,
   review_profile_id: string
 }
@@ -45,12 +45,12 @@ function left(iso: string) {
 // settings (a drawer): saved as they are
 const settingsOpen = ref(false)
 const form = reactive({
-  agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_parallel: 1, result_mode: 'branch' as Burn['result_mode'], order: 'roadmap' as Burn['order'], focus: '',
+  agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_parallel: 1, order: 'roadmap' as Burn['order'], focus: '',
   review_profile_id: '', notify_channel_id: '', notify_chat_id: ''
 })
 const { stale, reset: resync } = useDraft(burn, form, (b) => {
   Object.assign(form, {
-    agent_id: b.agent_id, model_tier: b.model_tier, max_parallel: b.max_parallel, result_mode: b.result_mode, order: b.order ?? 'roadmap', focus: b.focus,
+    agent_id: b.agent_id, model_tier: b.model_tier, max_parallel: b.max_parallel, order: b.order ?? 'roadmap', focus: b.focus,
     review_profile_id: b.review_profile_id ?? '', notify_channel_id: b.notify_channel_id ?? '', notify_chat_id: b.notify_chat_id ?? ''
   })
 })
@@ -212,9 +212,9 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         </div>
       </div>
       <p class="text-xs text-(--ui-text-muted)">
-        {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_parallel, mode: t(`burn.mode.${form.result_mode}`) }) }} · {{ t(`burn.order.${form.order}`) }}
+        {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_parallel }) }} · {{ t(`burn.order.${form.order}`) }}
         <template v-if="reviewSummary"> · {{ t('burn.review.summary', { profile: reviewSummary }) }}</template>
-        <template v-if="burn?.run_branch && burn.result_mode === 'branch'"> · <button type="button" class="font-mono hover:text-(--ui-text)" :title="t('burn.copyBranch')" @click="copy(`git switch ${burn.run_branch}`)">{{ burn.run_branch }}</button></template>
+        <template v-if="burn?.run_branch"> · <button type="button" class="font-mono hover:text-(--ui-text)" :title="burn.run_tree ? t('burn.copyRunTree') : undefined" @click="burn.run_tree && copy(`cd ${burn.run_tree}`)">{{ burn.run_branch }}</button></template>
         <template v-if="items.length"> · {{ t('burn.cost', { usd: totalCost.toFixed(2), n: items.filter(i => i.status === 'done').length }) }}</template>
       </p>
       <UAlert v-if="offAgent" color="warning" variant="subtle" icon="i-lucide-power-off" :title="t('burn.agentOff', { name: offAgent.name })"
@@ -240,9 +240,6 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
           <p v-if="it.review_note" class="flex gap-1 text-xs text-(--ui-text-muted)" :title="it.review_note">
             <UIcon name="i-lucide-scan-eye" class="mt-0.5 size-3.5 shrink-0" /><span class="line-clamp-2">{{ it.review_note }}</span>
           </p>
-          <button v-if="it.branch && it.status !== 'found'" type="button" class="flex max-w-full items-center gap-1 truncate font-mono text-xs text-(--ui-text-toned) hover:text-(--ui-text)" :title="t('burn.copyBranch')" @click="copy(`git switch ${it.branch}`)">
-            <UIcon name="i-lucide-git-branch" class="size-3.5 shrink-0" /><span class="truncate">{{ it.branch }}</span>
-          </button>
           <div class="flex flex-wrap items-center gap-x-2 text-xs text-(--ui-text-dimmed)">
             <span v-if="it.cost_usd">${{ it.cost_usd.toFixed(2) }}</span>
             <span v-if="it.subagents">{{ t('burn.subagents', { n: it.subagents }) }}</span>
@@ -280,9 +277,6 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
           </UFormField>
           <UFormField :label="t('burn.orderLabel')">
             <URadioGroup v-model="form.order" :items="(['roadmap', 'bugs', 'auto'] as const).map(o => ({ value: o, label: t(`burn.order.${o}`), description: t(`burn.order.${o}Help`) }))" />
-          </UFormField>
-          <UFormField :label="t('burn.modeLabel')">
-            <URadioGroup v-model="form.result_mode" :items="[{ value: 'branch', label: t('burn.mode.branch'), description: t('burn.mode.branchHelp') }, { value: 'worktree', label: t('burn.mode.worktree'), description: t('burn.mode.worktreeHelp') }]" />
           </UFormField>
           <UFormField :label="t('burn.review.label')" :help="t('burn.review.help')">
             <div class="flex gap-2">
@@ -326,7 +320,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
       <template #body>
         <div class="space-y-3 text-sm">
           <UAlert v-if="offAgent" color="error" variant="subtle" icon="i-lucide-power-off" :title="t('burn.agentOff', { name: offAgent.name })" />
-          <UAlert color="warning" variant="subtle" icon="i-lucide-shield-alert" :title="t('burn.confirmWarn')" :description="t('burn.confirmDesc', { mode: t(`burn.mode.${form.result_mode}`) })" />
+          <UAlert color="warning" variant="subtle" icon="i-lucide-shield-alert" :title="t('burn.confirmWarn')" :description="t('burn.confirmDesc')" />
           <UFormField :label="t('burn.endLabel')">
             <URadioGroup
               v-model="endMode"

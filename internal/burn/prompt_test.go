@@ -58,7 +58,7 @@ func TestReviewErrAttemptFailsAfterAFewTries(t *testing.T) {
 
 	it := f.it
 	for n := 1; n <= maxReviewErrAttempts-1; n++ {
-		if retry := f.s.reviewErrAttempt(ctx, it, "issue", "", boom); !retry {
+		if retry := f.s.reviewErrAttempt(ctx, it, "issue", nil, boom); !retry {
 			t.Fatalf("attempt %d: retry = false, want true (under the threshold)", n)
 		}
 		var err error
@@ -70,7 +70,7 @@ func TestReviewErrAttemptFailsAfterAFewTries(t *testing.T) {
 			t.Fatalf("attempt %d: item = %+v", n, it)
 		}
 	}
-	if retry := f.s.reviewErrAttempt(ctx, it, "issue", "", boom); retry {
+	if retry := f.s.reviewErrAttempt(ctx, it, "issue", nil, boom); retry {
 		t.Fatal("past the threshold: retry = true, want false")
 	}
 	got, err := f.st.Burn().Item(ctx, it.ID)
@@ -89,7 +89,7 @@ func TestReviewErrAttemptStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	it := storage.BurnItem{ID: "nonexistent", Status: "queued"}
-	if retry := s.reviewErrAttempt(ctx, it, "issue", "", errors.New("x")); retry {
+	if retry := s.reviewErrAttempt(ctx, it, "issue", nil, errors.New("x")); retry {
 		t.Fatal("cancelled context: retry = true, want false")
 	}
 }
@@ -112,7 +112,7 @@ func TestReviewErrAttemptDoesNotCountTheAIsLimit(t *testing.T) {
 	}
 	boom := errors.New("fatal: reviewer crashed")
 	for n := 1; n <= maxReviewErrAttempts+2; n++ { // past the threshold, were it counted
-		if retry := f.s.reviewErrAttempt(ctx, f.it, "issue", "", boom); !retry {
+		if retry := f.s.reviewErrAttempt(ctx, f.it, "issue", []string{""}, boom); !retry {
 			t.Fatalf("attempt %d: retry = false, want true (the AI's limit, not a system error)", n)
 		}
 	}
@@ -136,7 +136,7 @@ func TestReviewErrAttemptKeepsAConcurrentChange(t *testing.T) {
 	}
 	// reviewErrAttempt is handed the snapshot from before the status changed
 	// (as gate/finish do: it was read, then review() ran for a while).
-	if retry := f.s.reviewErrAttempt(ctx, f.it, "issue", "", errors.New("x")); !retry {
+	if retry := f.s.reviewErrAttempt(ctx, f.it, "issue", nil, errors.New("x")); !retry {
 		t.Fatal("retry = false, want true (under the threshold)")
 	}
 	got, err := f.st.Burn().Item(ctx, f.it.ID)
@@ -322,5 +322,59 @@ func TestSummary(t *testing.T) {
 	}
 	if strings.Contains(s, "Cũ") {
 		t.Errorf("an earlier run's piece is in it:\n%s", s)
+	}
+}
+
+// A review that failed for want of quota (the error says so, the connection
+// reported nothing) is not a system error either.
+func TestReviewErrAttemptDoesNotCountAQuotaError(t *testing.T) {
+	f := newReviewErrFixture(t)
+	ctx := context.Background()
+	quota := errors.New("agy: Individual quota reached. Resets in 9m51s.")
+	for n := 1; n <= maxReviewErrAttempts+2; n++ {
+		if retry := f.s.reviewErrAttempt(ctx, f.it, "issue", nil, quota); !retry {
+			t.Fatalf("attempt %d: retry = false", n)
+		}
+	}
+	if got, _ := f.st.Burn().Item(ctx, f.it.ID); got.Status != "queued" || got.ReviewErrAttempts != 0 {
+		t.Fatalf("item = %+v, want untouched", got)
+	}
+}
+
+// A workflow reviewer's role agent out of quota stalls every piece: the Burn
+// waits for its reset instead of asking again and again (ADR-124).
+func TestWaitLimitCountsTheReviewersAgents(t *testing.T) {
+	f := newReviewErrFixture(t)
+	ctx := context.Background()
+	b, _ := f.st.Burn().SessionByID(ctx, f.it.SessionID)
+	f.st.Providers().Create(ctx, storage.Provider{Name: "main", Kind: storage.ProviderClaudeCLI, IsDefault: true})
+	other, _ := f.st.Providers().Create(ctx, storage.Provider{Name: "gemini", Kind: storage.ProviderClaudeCLI})
+	role, err := f.st.Agents().Create(ctx, storage.Agent{ProjectID: b.ProjectID, Name: "B", ProviderID: other.ID, ModelTier: "fast", Instructions: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Workflows().Create(ctx, storage.Workflow{ProjectID: b.ProjectID, Key: "two-views", Name: "Hai góc nhìn", Bindings: map[string]string{"b": role.ID}, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	prof, err := f.st.Burn().SaveReviewProfile(ctx, storage.BurnReviewProfile{ProjectID: b.ProjectID, Name: "r", Stages: map[string]storage.BurnReviewStage{"issue": {Workflow: "two-views"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.ReviewProfileID, b.State = prof.ID, "running"
+	b, _ = f.st.Burn().SaveSession(ctx, b)
+	if f.s.waitLimit(ctx, b) {
+		t.Fatal("nobody is out of quota yet")
+	}
+	reset := time.Now().Add(10 * time.Minute)
+	f.st.Settings().Set(ctx, chat.LimitsKey(other.ID), chat.Limits{Status: "rejected", Windows: map[string]chat.LimitWindow{"quota": {Utilization: 1, ResetsAt: reset}}, UpdatedAt: time.Now()})
+	if !f.s.waitLimit(ctx, b) {
+		t.Fatal("the workflow's role agent is out of quota: the Burn must wait")
+	}
+	if cur, _ := f.st.Burn().SessionByID(ctx, b.ID); cur.State != "waiting_limit" || cur.WaitingUntil == nil || !cur.WaitingUntil.Equal(reset) {
+		t.Fatalf("session = %s until %v, want waiting_limit until %v", cur.State, cur.WaitingUntil, reset)
+	}
+	f.st.Settings().Set(ctx, chat.LimitsKey(other.ID), chat.Limits{Status: "rejected", Windows: map[string]chat.LimitWindow{"quota": {Utilization: 1, ResetsAt: time.Now().Add(-time.Minute)}}, UpdatedAt: time.Now()})
+	if _, hit := f.s.limitsHit(ctx, role.ID); hit {
+		t.Fatal("a reset that has passed still counts")
 	}
 }
