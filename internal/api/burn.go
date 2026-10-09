@@ -327,6 +327,7 @@ func (s *server) burnItemAction(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	oldStatus := it.Status
 	switch r.PathValue("action") {
 	case "skip":
 		if it.Status == "doing" {
@@ -353,7 +354,11 @@ func (s *server) burnItemAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "không có thao tác này")
 		return
 	}
-	if err := s.cfg.Store.Burn().UpdateItem(ctx, it); err != nil {
+	if err := s.cfg.Store.Burn().UpdateItemFrom(ctx, it, oldStatus); err != nil {
+		if errors.Is(err, storage.ErrConflict) {
+			writeError(w, http.StatusConflict, "việc vừa đổi trạng thái: tải lại")
+			return
+		}
 		s.internal(w, r, err)
 		return
 	}
