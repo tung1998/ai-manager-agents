@@ -2081,3 +2081,10 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Burn xét giới hạn của mọi agent nó dùng: agent của Burn, reviewer của từng bước review, và các agent được gán vai trong quy trình review. Một trong số đó hết quota thì Burn chuyển `waiting_limit` tới mốc reset muộn nhất. Không review nữa khi biết reviewer đang hết quota. Lỗi hết quota không tính vào số lần lỗi hệ thống. Ghi nhận có mốc reset đã qua thì không còn tính.
   - Cần xử lý không liệt kê "hết token" cho chat do Burn quản lý (chat Burn, chat làm việc, chat review, và các lần chạy quy trình mà chúng gọi): Burn tự chạy lại sau reset.
   - Cần xử lý có nút "Bỏ qua N mục": bỏ qua mọi mục bỏ qua được (trừ đề xuất/diff cần quyết định và chat chưa đọc). `POST /api/incidents/dismiss` nhận thêm `keys`.
+
+## ADR-125: Chi phí mỗi lượt Claude Code; phiên điều phối Burn làm mới định kỳ
+- **Bối cảnh:** Claude Code trả về `total_cost_usd` là tổng của cả phiên tính đến lúc đó, cộng dồn qua mỗi lần `--resume`. Office ghi nguyên số này cho từng lượt, nên chat càng dài càng bị đếm lặp: chat điều phối Burn đêm 08/10 bị ghi $388 trong khi thực tế khoảng $21, và cả lần chạy bị ghi $528 thay vì khoảng $121. Ngân sách và cảnh báo chi phí đều bị phóng đại theo. Ngoài ra phiên điều phối Burn không bao giờ làm mới: ngữ cảnh lên tới khoảng 300K token (cửa sổ 1M nên không bao giờ tới ngưỡng tóm gọn), mỗi lượt đọc lại tới 3 triệu token.
+- **Quyết định:**
+  - Chi phí của một lượt Claude Code là phần nó cộng thêm vào tổng của phiên. Tổng gần nhất của mỗi phiên được giữ trong settings (`session_cost:<session>`). Lượt dùng lại một phiên chưa có tổng (phiên tạo trước khi sửa) ghi 0 để tính theo token (`estimate`). Resume thất bại và chạy phiên mới (tổng nhỏ hơn lúc trước) thì ghi cả tổng. Kết nối khác không đổi. Số liệu đã ghi trước đây không sửa lại.
+  - `chat.WithSessionCap(ctx, n)`: phiên của agent đã chứa từ n token trở lên thì lượt này mở phiên mới. n = 1 nghĩa là luôn mở phiên mới. Dùng cho bên gọi có mỗi lượt tự đủ thông tin.
+  - Lượt điều phối Burn đã tự đủ thông tin (việc đang mở, việc vừa đóng, vùng đã quét, ADR-121), nên mở phiên mới mỗi 15 lượt hoặc khi phiên vượt 150K token.

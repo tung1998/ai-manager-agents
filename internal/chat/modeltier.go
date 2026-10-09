@@ -130,6 +130,18 @@ func pinnedTree(ctx context.Context) bool {
 }
 func noPatch(ctx context.Context) bool { o, _ := ctx.Value(treeKey{}).(treeOpt); return o.noPatch }
 
+type sessionCapKey struct{}
+
+// WithSessionCap starts the agent's session afresh once it holds tokens or
+// more (ADR-125): for a caller whose every turn says all it needs (a Burn's
+// coordination turn), not to read an ever longer session each time. 1: a new
+// session this turn.
+func WithSessionCap(ctx context.Context, tokens int) context.Context {
+	return context.WithValue(ctx, sessionCapKey{}, tokens)
+}
+
+func sessionCap(ctx context.Context) int { v, _ := ctx.Value(sessionCapKey{}).(int); return v }
+
 type ceilingKey struct{}
 
 // WithCeiling caps a turn's rights at level, whatever the agent's and the

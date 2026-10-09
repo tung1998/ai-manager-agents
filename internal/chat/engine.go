@@ -735,6 +735,9 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	if o, ok := ctx.Value(treeKey{}).(treeOpt); ok && o.name != "" { // a Burn item: its own worktree, its changes its own (no diff)
 		base = context.WithValue(base, treeKey{}, o)
 	}
+	if c := sessionCap(ctx); c > 0 {
+		base = WithSessionCap(base, c)
+	}
 	turnID := fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano())
 	base = proctrack.With(base, proctrack.Info{Kind: "agent", TurnID: turnID, ConversationID: conv.ID, ProjectID: conv.ProjectID, Label: agent.Name})
 	limit := turnTimeout(ctx) // none, or an automation's own (ADR-082)
@@ -1082,6 +1085,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	// the agent's own session in this chat (ADR-044); coming back, it gets
 	// what the others said since its last answer
 	mem := e.member(ctx, conv, agent)
+	if c := sessionCap(ctx); c > 0 && mem.SessionID != "" && mem.ContextTokens >= c { // ADR-125
+		mem.SessionID, mem.ContextTokens = "", 0
+	}
 	prompt := req.Prompt
 	var (
 		res    RunResult
@@ -1110,6 +1116,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			}
 			turn.emit(Event{Type: "status", Text: fmt.Sprintf("%s đang trả lời (%s · %s)", agent.Name, p.Name, model)})
 			res, runErr = runnerFor(p.Kind).Run(ctx, req, turn.emit)
+			res.Usage.CostUSD = e.turnCost(ctx, p.Kind, req.SessionID, res.SessionID, res.Usage.CostUSD)
 			runID, cost = "", nil
 			if e.usage != nil {
 				if r, err := e.usage.Record(ctx, usage.Meta{Kind: "chat", ProjectID: project.ID, AgentID: agent.ID}, p, model, res.Usage, runErr); err == nil {
@@ -1429,6 +1436,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 		if kerr == nil {
 			req.Provider, req.APIKey, req.Bin, req.Model = p, key, e.providers.CLIBin(p), model
 			res, runErr = runnerFor(p.Kind).Run(ctx, req, emit)
+			res.Usage.CostUSD = e.turnCost(ctx, p.Kind, req.SessionID, res.SessionID, res.Usage.CostUSD)
 			e.keepLimits(p, res.Limits)
 			e.keepLimits(p, limitsFromError(res.Limits, runErr, time.Now()))
 			out.Text, out.Tools, out.Model = res.Text, res.Tools, firstNonEmpty(res.Usage.Model, model)

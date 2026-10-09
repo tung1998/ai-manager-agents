@@ -38,6 +38,7 @@ type Service struct {
 	root  context.Context
 	loops map[string]context.CancelFunc // by project
 	wakes map[string]chan struct{}      // by project: its loop looks again now
+	plans map[string]int                // coordination turns, by its chat (planFresh)
 	runMu sync.Mutex                    // a run's worktree: made, and pieces merged into it, one at a time
 
 	notify Notify // a run's summary to a bot's chat (ADR-120); nil: none
@@ -51,7 +52,7 @@ func (s *Service) SetNotify(n Notify) { s.notify = n }
 
 // New builds a Service; Start runs the Burns that were running.
 func New(st storage.Store, engine *chat.Engine, trees *worktree.Manager) *Service {
-	return &Service{store: st, chat: engine, trees: trees, idle: 5 * time.Minute, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}}
+	return &Service{store: st, chat: engine, trees: trees, idle: 5 * time.Minute, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, plans: map[string]int{}}
 }
 
 // SetIdle is how long a Burn with nothing to do waits before looking again.
@@ -652,10 +653,25 @@ func firstNonEmpty(v ...string) string {
 	return ""
 }
 
+// A coordination turn says all it needs (the pieces, the areas scanned): its
+// session starts afresh every planFresh turns, or once it holds planCap
+// tokens, not to read an ever longer one each time (ADR-125).
+const (
+	planFresh = 15
+	planCap   = 150_000
+)
+
 // plan: the main agent looks for work and chooses what is next, up to free
 // pieces (in a scratch worktree: what it tries there is thrown away).
 func (s *Service) plan(ctx context.Context, b storage.BurnSession, items []storage.BurnItem, empty, free int) error {
-	res, err := s.run(runCtx(ctx, b, "burn-scan-"+b.ID, true), b.ConversationID, planPrompt(b, items, empty, free))
+	limit := planCap
+	s.mu.Lock()
+	if s.plans[b.ConversationID]++; s.plans[b.ConversationID]%planFresh == 0 {
+		limit = 1
+	}
+	s.mu.Unlock()
+	pctx := chat.WithSessionCap(runCtx(ctx, b, "burn-scan-"+b.ID, true), limit)
+	res, err := s.run(pctx, b.ConversationID, planPrompt(b, items, empty, free))
 	if err == nil && res.failed != "" {
 		err = errors.New(res.failed)
 	}

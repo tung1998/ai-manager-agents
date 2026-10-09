@@ -1166,3 +1166,26 @@ func TestDecidedInBotChatGoesToTheBot(t *testing.T) {
 		t.Fatal("a turn ran on the dashboard for a bot's chat")
 	}
 }
+
+// ADR-125: a caller whose turns say all they need (a Burn's coordination)
+// gets a new session once the old one holds its cap, not ever longer reads.
+func TestSessionCapStartsAfresh(t *testing.T) {
+	g := newGroup(t)
+	g.sendAll(t, "chào")
+	ctx := context.Background()
+	mems, _ := g.f.st.Chat().Members(ctx, g.conv.ID)
+	if len(mems) != 1 || mems[0].SessionID == "" {
+		t.Fatalf("members = %+v", mems)
+	}
+	m := mems[0]
+	m.ContextTokens, m.ContextWindow = 200_000, 1_000_000 // far from compacting
+	g.f.st.Chat().UpsertMember(ctx, m)
+	turn, _, err := g.engine.Send(chat.WithSessionCap(g.context, 150_000), g.conv.ID, "tiếp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, turn)
+	if args, _ := call(t, g.dir, 2); strings.Contains(args, "--resume") {
+		t.Fatalf("past its cap, the session was resumed: %s", args)
+	}
+}
