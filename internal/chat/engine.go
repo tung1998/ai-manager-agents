@@ -732,8 +732,8 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	if c := ceilingOf(ctx); c != "" { // a bot's Người dùng: proposals at most
 		base = WithCeiling(base, c)
 	}
-	if t := treeOf(ctx); t != "" { // a Burn item: its own worktree, its changes its own (no diff)
-		base = WithTree(base, t, noPatch(ctx))
+	if o, ok := ctx.Value(treeKey{}).(treeOpt); ok && o.name != "" { // a Burn item: its own worktree, its changes its own (no diff)
+		base = context.WithValue(base, treeKey{}, o)
 	}
 	turnID := fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano())
 	base = proctrack.With(base, proctrack.Info{Kind: "agent", TurnID: turnID, ConversationID: conv.ID, ProjectID: conv.ProjectID, Label: agent.Name})
@@ -991,7 +991,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	// the chat's worktree follows the project: what the agent changed is put on
 	// top of the project as it is now; a clash is left for it to settle
 	clash := ""
-	if pl.tree != "" && pl.write && project.Path != "" {
+	if pl.tree != "" && pl.write && project.Path != "" && !pinnedTree(ctx) {
 		if _, err := worktree.Refresh(ctx, project.Path, pl.dir); err != nil {
 			slog.Warn("chat: refresh worktree", "conversation", conv.ID, "err", err)
 		}

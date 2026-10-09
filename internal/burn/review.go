@@ -117,17 +117,17 @@ func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.
 	return false
 }
 
-// deliver hands a finished piece over: committed to its branch, or (patch
-// mode, held back for its review) its diff put up to approve.
+// deliver hands a finished piece over: merged into the run (ADR-123). Its
+// changes no longer apply (another piece changed the same lines): it goes
+// again, from the run as it is now.
 func (s *Service) deliver(ctx context.Context, b storage.BurnSession, it *storage.BurnItem) {
-	var err error
+	err := s.integrate(ctx, b, it)
 	switch {
-	case b.ResultMode != "patch":
-		err = commit(ctx, it.Worktree, it.Branch, it.Title, it.Summary)
-	case s.reviews(ctx, b, "result"):
-		err = s.chat.ProposeTree(ctx, b.ConversationID, it.Worktree, "burn-"+it.ID)
-	}
-	if err != nil {
+	case errors.Is(err, errConflict):
+		_ = s.DropWorktree(ctx, *it)
+		it.Worktree = ""
+		it.Status, it.Summary = s.failedOrAgain(*it, "Chưa gộp được vào lần chạy ("+err.Error()+"): làm lại trên bản mới nhất.")
+	case err != nil:
 		it.Summary = strings.TrimSpace(it.Summary + "\n(không giao được kết quả: " + err.Error() + ")")
 	}
 }
@@ -240,11 +240,11 @@ func (s *Service) ensureReviewConversation(ctx context.Context, b storage.BurnSe
 func reviewPrompt(b storage.BurnSession, it storage.BurnItem, stage string) string {
 	d := struct {
 		Stage, ID, Kind, Title, Detail, Focus, ReviewNote string
-		Summary, Worktree, Branch, Agree, Disagree        string
+		Summary, Worktree, Agree, Disagree                string
 		FocusChecks                                       []string
 	}{Stage: stage, ID: it.ID, Kind: it.Kind, Title: it.Title, Detail: it.Detail, Focus: b.Focus,
 		// a workflow runs in chats of its own, not in the piece's worktree: where it is
-		Worktree: it.Worktree, Branch: it.Branch, Agree: verdictAgree, Disagree: verdictDisagree}
+		Worktree: it.Worktree, Agree: verdictAgree, Disagree: verdictDisagree}
 	if stage == "result" {
 		d.FocusChecks = focusChecks(b.Focus)
 		if it.ReviewNote != "" {

@@ -34,6 +34,7 @@ type burnDTO struct {
 	WaitingUntil    *time.Time `json:"waiting_until,omitempty"`
 	StartedBy       string     `json:"started_by,omitempty"`
 	StartedAt       *time.Time `json:"started_at,omitempty"`
+	RunBranch       string     `json:"run_branch,omitempty"` // the run's branch (ADR-123)
 }
 
 type burnItemDTO struct {
@@ -57,7 +58,7 @@ type burnItemDTO struct {
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
 	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.ResultMode, b.Focus, cmp.Or(b.Order, "roadmap"),
-		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt}
+		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
@@ -129,7 +130,7 @@ func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession
 	if in.MaxParallel != nil {
 		b.MaxParallel = min(max(*in.MaxParallel, 1), 5)
 	}
-	if in.ResultMode != nil && (*in.ResultMode == "branch" || *in.ResultMode == "patch") {
+	if in.ResultMode != nil && (*in.ResultMode == "branch" || *in.ResultMode == "worktree") {
 		b.ResultMode = *in.ResultMode
 	}
 	if in.Focus != nil {

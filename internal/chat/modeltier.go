@@ -106,17 +106,29 @@ type treeKey struct{}
 type treeOpt struct {
 	name    string
 	noPatch bool
+	pinned  bool
 }
 
 // WithTree runs the turn in the worktree name (a Burn item's own) instead of
 // the chat's; noPatch: its changes stay there (committed by the caller), no
 // diff to approve.
 func WithTree(ctx context.Context, name string, noPatch bool) context.Context {
-	return context.WithValue(ctx, treeKey{}, treeOpt{name, noPatch})
+	return context.WithValue(ctx, treeKey{}, treeOpt{name: name, noPatch: noPatch})
+}
+
+// WithPinnedTree is WithTree, no diff, for a worktree its caller keeps on a
+// base of its own (a Burn piece, on its run's, ADR-123): it does not follow
+// the project before each turn.
+func WithPinnedTree(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, treeKey{}, treeOpt{name, true, true})
 }
 
 func treeOf(ctx context.Context) string { o, _ := ctx.Value(treeKey{}).(treeOpt); return o.name }
-func noPatch(ctx context.Context) bool  { o, _ := ctx.Value(treeKey{}).(treeOpt); return o.noPatch }
+func pinnedTree(ctx context.Context) bool {
+	o, _ := ctx.Value(treeKey{}).(treeOpt)
+	return o.pinned
+}
+func noPatch(ctx context.Context) bool { o, _ := ctx.Value(treeKey{}).(treeOpt); return o.noPatch }
 
 type ceilingKey struct{}
 

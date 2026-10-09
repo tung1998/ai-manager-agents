@@ -15,7 +15,8 @@ type BurnSession struct {
 	ID, ProjectID, ConversationID, AgentID string
 	ModelTier                              string // strong | balanced | fast
 	MaxParallel                            int    // pieces worked on at once (ADR-117)
-	ResultMode                             string // branch | patch
+	ResultMode                             string // branch | worktree: one of them per run (ADR-123)
+	RunBranch                              string // this run's branch, burn/<when>; its worktree is named after it
 	Focus                                  string
 	Order                                  string // roadmap | bugs | auto: what it looks for first
 	ReviewProfileID                        string // its review profile (ADR-113); "" = none

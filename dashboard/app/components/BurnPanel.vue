@@ -5,7 +5,7 @@
 // page shows its conversation.
 interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_parallel: number,
-  result_mode: 'branch' | 'patch', focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
+  result_mode: 'branch' | 'worktree', run_branch?: string, focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
   waiting_until?: string, started_by?: string, started_at?: string,
   review_profile_id: string
 }
@@ -174,7 +174,7 @@ const kindColor = (k: Item['kind']) => ({ bug: 'error', unfinished: 'warning', u
 const itemActing = ref('')
 async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') {
   if (itemActing.value) return
-  if (action === 'drop-worktree' && !confirm(t('burn.dropConfirm', { branch: it.branch }))) return
+  if (action === 'drop-worktree' && !confirm(t('burn.dropConfirm'))) return
   itemActing.value = it.id + action
   try {
     await $fetch(`/api/burn-items/${it.id}/${action}`, { method: 'POST' })
@@ -214,6 +214,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
       <p class="text-xs text-(--ui-text-muted)">
         {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_parallel, mode: t(`burn.mode.${form.result_mode}`) }) }} · {{ t(`burn.order.${form.order}`) }}
         <template v-if="reviewSummary"> · {{ t('burn.review.summary', { profile: reviewSummary }) }}</template>
+        <template v-if="burn?.run_branch && burn.result_mode === 'branch'"> · <button type="button" class="font-mono hover:text-(--ui-text)" :title="t('burn.copyBranch')" @click="copy(`git switch ${burn.run_branch}`)">{{ burn.run_branch }}</button></template>
         <template v-if="items.length"> · {{ t('burn.cost', { usd: totalCost.toFixed(2), n: items.filter(i => i.status === 'done').length }) }}</template>
       </p>
       <UAlert v-if="offAgent" color="warning" variant="subtle" icon="i-lucide-power-off" :title="t('burn.agentOff', { name: offAgent.name })"
@@ -281,7 +282,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
             <URadioGroup v-model="form.order" :items="(['roadmap', 'bugs', 'auto'] as const).map(o => ({ value: o, label: t(`burn.order.${o}`), description: t(`burn.order.${o}Help`) }))" />
           </UFormField>
           <UFormField :label="t('burn.modeLabel')">
-            <URadioGroup v-model="form.result_mode" :items="[{ value: 'branch', label: t('burn.mode.branch'), description: t('burn.mode.branchHelp') }, { value: 'patch', label: t('burn.mode.patch'), description: t('burn.mode.patchHelp') }]" />
+            <URadioGroup v-model="form.result_mode" :items="[{ value: 'branch', label: t('burn.mode.branch'), description: t('burn.mode.branchHelp') }, { value: 'worktree', label: t('burn.mode.worktree'), description: t('burn.mode.worktreeHelp') }]" />
           </UFormField>
           <UFormField :label="t('burn.review.label')" :help="t('burn.review.help')">
             <div class="flex gap-2">
