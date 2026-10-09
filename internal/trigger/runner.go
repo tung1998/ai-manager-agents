@@ -134,7 +134,7 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) {
 		_ = r.store.Automations().Update(ctx, a)
 		if n, _ := r.store.Jobs().Active(ctx, "automation", a.ID); n >= a.Parallel() {
 			r.recordSkippedBusy(ctx, a) // leave a trace: this tick was dropped, not silently lost
-			continue // as many runs as it may have are still going: none more, none stopped (ADR-082)
+			continue                    // as many runs as it may have are still going: none more, none stopped (ADR-082)
 		}
 		_, _, _ = r.enqueueAt(ctx, now, a, "schedule", "", "", "", false)
 	}
