@@ -487,30 +487,8 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 		// waiting for the person's review (ADR-135): only what is in progress
 		held := !draining && s.heldForReview(ctx, b)
 		mu.Lock()
-		free := max(b.MaxParallel, 1) - len(busy)
-		for started := 0; free > 0; free-- {
-			it, ok := next(items, busy, draining || held)
-			// a scan (ADR-130): one at a time, while fewer than MaxFound
-			// pieces wait; it takes a slot when there is nothing to do, or
-			// while another slot is left for the work. Not draining, not
-			// out of quota (it would only fail), not once scans find nothing.
-			if (!ok || free > 1) && !draining && !held && s.find && !scanning(items) && room(items) > 0 && !s.scansOver(b) && !s.waitLimit(ctx, b) {
-				scan, err := s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: huntTitle, Status: "queued", RunBranch: b.RunBranch})
-				if err != nil {
-					break
-				}
-				it, ok = scan, true
-				items = append(items, scan)
-			}
-			if !ok {
-				break
-			}
-			if it.Status == "found" { // a quest or a piece a scan found: taken; the person may have moved it meanwhile
-				it.Status = "queued"
-				if err := s.store.Burn().UpdateItemFrom(ctx, it, "found"); err != nil {
-					break // looked at again on the next round
-				}
-			}
+		started := 0
+		run := func(it storage.BurnItem) {
 			busy[it.ID] = true
 			wg.Add(1)
 			gap := time.Duration(started) * startGap
@@ -542,6 +520,35 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 				default:
 				}
 			}()
+		}
+		// a scan (ADR-130): one at a time, beside the work (not in its
+		// slots), while fewer than MaxFound pieces wait to be done. One under
+		// way goes on (draining too); a new one not draining, not out of
+		// quota (it would only fail), not once scans find nothing.
+		if sc, ok := scanOf(items); ok {
+			if !busy[sc.ID] {
+				run(sc)
+			}
+		} else if !draining && !held && s.find && room(items) > 0 && !s.scansOver(b) && !s.waitLimit(ctx, b) {
+			if sc, err := s.store.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: huntTitle, Status: "queued", RunBranch: b.RunBranch}); err == nil {
+				items = append(items, sc)
+				run(sc)
+			}
+		}
+		// the work: MaxParallel pieces at a time
+		free := max(b.MaxParallel, 1) - pieces(items, busy)
+		for ; free > 0; free-- {
+			it, ok := next(items, busy, draining || held)
+			if !ok {
+				break
+			}
+			if it.Status == "found" { // a quest or a piece a scan found: taken; the person may have moved it meanwhile
+				it.Status = "queued"
+				if err := s.store.Burn().UpdateItemFrom(ctx, it, "found"); err != nil {
+					break // looked at again on the next round
+				}
+			}
+			run(it)
 		}
 		working := len(busy)
 		mu.Unlock()
@@ -614,10 +621,10 @@ func next(items []storage.BurnItem, busy map[string]bool, draining bool) (storag
 	}
 	for _, st := range order {
 		for _, it := range items {
-			if busy[it.ID] {
+			if busy[it.ID] || hunting(it) { // a scan runs beside the work
 				continue
 			}
-			if st == KindQuest && it.Status == "found" && it.Kind == KindQuest || st != KindQuest && it.Status == st && (st != "found" || !hunting(it)) {
+			if st == KindQuest && it.Status == "found" && it.Kind == KindQuest || st != KindQuest && it.Status == st {
 				return it, true
 			}
 		}
@@ -625,14 +632,25 @@ func next(items []storage.BurnItem, busy map[string]bool, draining bool) (storag
 	return storage.BurnItem{}, false
 }
 
-// scanning: a scan is under way (or waits to go on).
-func scanning(items []storage.BurnItem) bool {
+// scanOf: the scan under way (or waiting to go on), if any.
+func scanOf(items []storage.BurnItem) (storage.BurnItem, bool) {
 	for _, it := range items {
 		if hunting(it) && (it.Status == "queued" || it.Status == "doing" || it.Status == "paused") {
-			return true
+			return it, true
 		}
 	}
-	return false
+	return storage.BurnItem{}, false
+}
+
+// pieces: how many of the busy ones are pieces of work (a scan is not).
+func pieces(items []storage.BurnItem, busy map[string]bool) int {
+	n := 0
+	for _, it := range items {
+		if busy[it.ID] && !hunting(it) {
+			n++
+		}
+	}
+	return n
 }
 
 // wait is sleep that ends early when woken.

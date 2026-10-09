@@ -882,39 +882,53 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"xong lư�
 	if b, _ = f.st.Burn().Session(ctx, f.project.ID); b.CodeMap != "a.go: gói a" || !strings.Contains(b.Scanned, "internal/a") {
 		t.Fatalf("map %q, scanned %q", b.CodeMap, b.Scanned)
 	}
-	// the high one first, each by a worker of its own, no scan meanwhile (one slot)
-	for _, title := range []string{"Thêm file", "Sửa chú thích"} {
+	// each by a worker of its own, one at a time (one slot); the scan runs
+	// beside them, so the first may be taken before the scan ends
+	done := map[string]bool{}
+	for range 2 {
 		var it storage.BurnItem
 		for deadline := time.Now().Add(15 * time.Second); it.ID == "" && time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
 			items, _ := f.st.Burn().Items(ctx, b.ID)
+			doing := 0
 			for _, x := range items {
-				if x.Status == "doing" && x.Kind != "" && x.WorkConversationID != "" {
-					it = x
+				if x.Status == "doing" && x.Kind != "" {
+					doing++
+					if x.WorkConversationID != "" && !done[x.Title] {
+						it = x
+					}
 				}
 			}
+			if doing > 1 {
+				t.Fatalf("%d pieces at once with one slot", doing)
+			}
 		}
-		if it.Title != title {
-			t.Fatalf("doing %+v, want %s", it, title)
+		if it.ID == "" {
+			t.Fatalf("no piece taken after %v", done)
 		}
+		done[it.Title] = true
 		f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: it.WorkConversationID}, "burn_done", burn.ToolInput{Item: it.ID, Summary: "xong"})
 		waitDelivered(t, f.st, it.ID)
 	}
+	if !done["Thêm file"] || !done["Sửa chú thích"] {
+		t.Fatalf("done %v", done)
+	}
 	log := exec.Command("git", "log", "--format=%s", "main.."+b.RunBranch)
 	log.Dir = f.dir
-	if got, _ := log.CombinedOutput(); !strings.Contains(string(got), "burn: Thêm file") {
+	if got, _ := log.CombinedOutput(); !strings.Contains(string(got), "burn: Thêm file") && !strings.Contains(string(got), "burn: Sửa chú thích") { // the first done brings the file
 		t.Fatalf("run branch log:\n%s", got)
 	}
-	// scans that find nothing: three in a row, all done, it finishes
-	for i := 0; i < 3; i++ {
-		n := waitWorker(t, f.st, b.ID, seen)
-		seen[n.ID] = true
-		if _, err := f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: n.WorkConversationID}, "burn_scan_done", burn.ToolInput{Item: n.ID, Scanned: "x", Reason: "hết việc"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+	// scans that find nothing (they run beside the work, so some may be over
+	// already): three in a row, all done, it finishes
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
 		if cur, _ := f.st.Burn().Session(ctx, f.project.ID); cur.State == "stopped" {
 			break
+		}
+		items, _ := f.st.Burn().Items(ctx, b.ID)
+		for _, n := range items {
+			if n.Kind == "" && n.Status == "doing" && n.WorkConversationID != "" && !seen[n.ID] {
+				seen[n.ID] = true
+				f.svc.Tool(ctx, actions.Scope{ProjectID: f.project.ID, ConversationID: n.WorkConversationID}, "burn_scan_done", burn.ToolInput{Item: n.ID, Scanned: "x", Reason: "hết việc"})
+			}
 		}
 		if time.Now().After(deadline) {
 			cur, _ := f.st.Burn().Session(ctx, f.project.ID)
@@ -955,8 +969,13 @@ func TestBurnScannedPieceMeetsTheIssueReview(t *testing.T) {
 	if !strings.Contains(it.Summary, "Review vấn đề") || it.ReviewConversations["issue"] == "" {
 		t.Fatalf("item = %+v", it)
 	}
-	if _, err := f.st.Burn().Item(ctx, scan.ID); err == nil {
-		t.Fatal("the scan is still there after its turn")
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(50 * time.Millisecond) { // it runs beside the review
+		if _, err := f.st.Burn().Item(ctx, scan.ID); err != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the scan is still there after its turn")
+		}
 	}
 }
 

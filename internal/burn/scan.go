@@ -24,7 +24,7 @@ import (
 // huntTitle is a scan's title.
 const huntTitle = "Đang quét…"
 
-// MaxFound: pieces waiting to be done (found or queued, quests included)
+// MaxFound: pieces waiting to be done (found, quests included)
 // past which the Burn does not scan.
 const MaxFound = 10
 
@@ -45,9 +45,10 @@ const (
 // hunting: a scan (a piece with no kind).
 func hunting(it storage.BurnItem) bool { return it.Kind == "" }
 
-// waiting: a piece recorded and not started yet.
+// waiting: a piece recorded and not taken yet (queued is a worker's: its
+// reviews before the work run then).
 func waiting(it storage.BurnItem) bool {
-	return !hunting(it) && (it.Status == "found" || it.Status == "queued")
+	return !hunting(it) && it.Status == "found"
 }
 
 // room is how many pieces a scan may still record.

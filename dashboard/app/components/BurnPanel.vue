@@ -25,7 +25,7 @@ const toast = useToast()
 const copy = useCopy()
 
 const base = computed(() => `/api/projects/${props.projectId}/burn`)
-const { data, refresh, error: loadError } = useLiveFetch<{ burn: Burn, items: Item[], weekly_reset?: string }>(base)
+const { data, refresh, error: loadError } = useLiveFetch<{ burn: Burn, items: Item[], runs?: Record<string, string>, weekly_reset?: string }>(base)
 const { data: agentsData } = useLiveFetch<{ agents: AgentLite[] }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const burn = computed(() => data.value?.burn)
 const items = computed(() => data.value?.items ?? [])
@@ -155,18 +155,21 @@ async function stop(how: 'drain' | 'resume' | 'stop') {
   }
 }
 
-// the board, one run at a time: the current run by default; a quest not
-// started yet (no run) shows in every run
-const runs = computed(() => [...new Set(items.value.map(i => i.run_branch).filter(Boolean))].sort().reverse())
+// the board, one run at a time: the current run by default. What is not
+// finished (found, waiting, doing, paused) goes on in whichever run is on, so
+// it shows in every run; finished pieces stay with the run they were done in.
+const runs = computed(() => [...new Set([burn.value?.run_branch, ...items.value.map(i => i.run_branch)].filter((r): r is string => !!r))].sort().reverse())
 const runPick = ref<string | null>(null)
 const run = computed({
   get: () => runPick.value ?? (burn.value?.run_branch || runs.value[0] || 'all'),
   set: (v: string) => { runPick.value = v }
 })
+// the branch is named in the office machine's time: the start comes from it
 function runLabel(branch: string) {
-  const m = branch.match(/(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})$/)
-  return m ? t('burn.run.label', { at: when(new Date(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!).toISOString()) }) : branch
+  const at = data.value?.runs?.[branch]
+  return at ? t('burn.run.label', { at: when(at) }) : branch
 }
+const finished = ['done', 'failed', 'skipped']
 const runItems = computed(() => [
   ...runs.value.map(r => ({ value: r, label: runLabel(r) })),
   ...(items.value.some(i => !i.run_branch && i.kind !== 'quest') ? [{ value: '__none', label: t('burn.run.none') }] : []),
@@ -174,7 +177,7 @@ const runItems = computed(() => [
 ])
 const shown = computed(() => run.value === 'all'
   ? items.value
-  : items.value.filter(i => run.value === '__none' ? !i.run_branch && i.kind !== 'quest' : i.run_branch === run.value || (!i.run_branch && i.kind === 'quest')))
+  : items.value.filter(i => run.value === '__none' ? !i.run_branch && i.kind !== 'quest' : i.run_branch === run.value || !finished.includes(i.status)))
 
 // a quest: work the person gives, done as given (not a scan)
 const questOpen = ref(false)
@@ -205,7 +208,8 @@ const columns = computed(() => [
   { key: 'done', label: t('burn.col.done'), statuses: ['done'] },
   { key: 'other', label: t('burn.col.other'), statuses: ['failed', 'skipped'] }
 ].map((c) => {
-  const all = shown.value.filter(i => c.statuses.includes(i.status))
+  // a scan (no kind) is the finding itself: it shows under found while it runs
+  const all = shown.value.filter(i => !i.kind && !finished.includes(i.status) ? c.key === 'found' : c.statuses.includes(i.status))
   return { ...c, all, items: expanded.value.has(c.key) ? all : all.slice(0, colMax) }
 }))
 const kindColor = (k: Item['kind']) => ({ '': 'neutral', bug: 'error', unfinished: 'warning', upgrade: 'info', idea: 'primary', quest: 'success' } as const)[k]
@@ -223,9 +227,9 @@ async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') 
     itemActing.value = ''
   }
 }
-// pieces waiting to be done: at maxFound the Burn stops scanning (ADR-130)
+// pieces waiting to be taken: at maxFound the Burn stops scanning (ADR-130)
 const maxFound = 10
-const waitingCount = computed(() => items.value.filter(i => i.kind && ['found', 'queued'].includes(i.status)).length)
+const waitingCount = computed(() => items.value.filter(i => i.kind && i.status === 'found').length)
 const totalCost = computed(() => shown.value.reduce((n, i) => n + i.cost_usd, 0))
 </script>
 

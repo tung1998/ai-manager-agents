@@ -90,16 +90,23 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := []burnItemDTO{}
+	runs := map[string]time.Time{} // run branch → when it started
 	if b.ID != "" {
 		list, _ := s.cfg.Store.Burn().Items(r.Context(), b.ID)
 		for _, it := range list {
 			items = append(items, burnItemDTO{it.ID, it.Title, it.Kind, it.Detail, it.Status, it.Priority, it.Branch, it.Worktree, it.Summary, it.Subagents, it.CostUSD,
 				listOrEmpty(it.Reviewed), it.ReviewNote, mapOrEmpty(it.ReviewConversations), it.WorkConversationID, it.RunBranch, it.UpdatedAt})
+			if at, ok := burn.RunStarted(it.RunBranch); ok {
+				runs[it.RunBranch] = at
+			}
 		}
+	}
+	if at, ok := burn.RunStarted(b.RunBranch); ok {
+		runs[b.RunBranch] = at
 	}
 	dto := toBurnDTO(b)
 	dto.RunTree = s.cfg.Burn.RunTree(b)
-	out := map[string]any{"burn": dto, "items": items}
+	out := map[string]any{"burn": dto, "items": items, "runs": runs}
 	if reset, ok := s.cfg.Burn.WeeklyReset(r.Context(), b.AgentID); ok { // the suggested stop time
 		out["weekly_reset"] = reset
 	}

@@ -29,6 +29,13 @@ func newRunBranch(now time.Time) string {
 	return "burn/" + now.Local().Format("2006-01-02-150405")
 }
 
+// RunStarted reads when a run started from its branch name, written in this
+// machine's time zone: the dashboard may be in another.
+func RunStarted(branch string) (time.Time, bool) {
+	t, err := time.ParseInLocation("2006-01-02-150405", strings.TrimPrefix(branch, "burn/"), time.Local)
+	return t, err == nil
+}
+
 // runTree is the name of the run's worktree.
 func runTree(b storage.BurnSession) string {
 	return "burn-run-" + strings.TrimPrefix(b.RunBranch, "burn/")
