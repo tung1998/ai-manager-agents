@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -46,6 +47,7 @@ func main() {
 				Arguments struct {
 					Text string `json:"text"`
 					MS   int    `json:"ms"`
+					Size int    `json:"size"`
 				} `json:"arguments"`
 			} `json:"params"`
 			Error *struct {
@@ -98,6 +100,8 @@ func main() {
 					text(m.ID, <-ch)
 				case "pid":
 					text(m.ID, strconv.Itoa(os.Getpid()))
+				case "bigline":
+					text(m.ID, strings.Repeat("x", m.Params.Arguments.Size))
 				case "inits":
 					text(m.ID, strconv.FormatInt(inits.Load(), 10))
 				case "env":

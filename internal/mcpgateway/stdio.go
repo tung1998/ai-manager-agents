@@ -28,6 +28,18 @@ const (
 	maxBackoff        = 60 * time.Second
 )
 
+// stdioMaxLine caps one line of a stdio server's stdout; a var so tests can
+// shrink it instead of writing tens of MB.
+var stdioMaxLine = 64 << 20
+
+// SetStdioMaxLineForTest shrinks stdioMaxLine for a test and returns a func
+// that restores it.
+func SetStdioMaxLineForTest(n int) func() {
+	prev := stdioMaxLine
+	stdioMaxLine = n
+	return func() { stdioMaxLine = prev }
+}
+
 // pool holds the stdio servers office runs, one process per server shared
 // by every run (ADR-092).
 type pool struct {
@@ -81,6 +93,7 @@ type proc struct {
 	inflight int
 	lastUsed time.Time
 	exitErr  error
+	readErr  error
 	stopping bool
 	init     json.RawMessage // the server's answer to office's initialize
 }
@@ -437,7 +450,7 @@ func (p *proc) call(ctx context.Context, method string, params any) (json.RawMes
 // requests get "not supported" (office has no sampling or elicitation).
 func (p *proc) read(r io.Reader) {
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64<<10), 64<<20)
+	sc.Buffer(make([]byte, 64<<10), stdioMaxLine)
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
 		if len(line) == 0 {
@@ -454,6 +467,18 @@ func (p *proc) read(r io.Reader) {
 				}
 			}
 		} // anything else is a server logging to stdout: ignored
+	}
+	if err := sc.Err(); err != nil {
+		// A real scanner error (e.g. a line over stdioMaxLine) leaves the
+		// process running but nobody reading its stdout any more; kill it
+		// without marking it as a deliberate stop so watch() still counts
+		// this as an abnormal death (backoff + log), not a silent hang.
+		p.mu.Lock()
+		p.readErr = err
+		p.mu.Unlock()
+		if proc := p.cmd.Process; proc != nil {
+			_ = syscall.Kill(-proc.Pid, syscall.SIGTERM)
+		}
 	}
 }
 
@@ -495,10 +520,13 @@ func (p *proc) handle(raw json.RawMessage) {
 // deadErr says the process is gone, with the end of its stderr.
 func (p *proc) deadErr() error {
 	p.mu.Lock()
-	why := p.exitErr
+	readErr, why := p.readErr, p.exitErr
 	p.mu.Unlock()
 	msg := "tiến trình MCP " + p.name + " đã dừng"
-	if why != nil {
+	switch {
+	case readErr != nil:
+		msg += " (dòng trả lời quá dài hoặc lỗi đọc: " + readErr.Error() + ")"
+	case why != nil:
 		msg += " (" + why.Error() + ")"
 	}
 	return p.withStderr(errors.New(msg))
