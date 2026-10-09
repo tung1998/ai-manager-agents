@@ -14,6 +14,10 @@ const parsed = ref<SkillMd | null>(null) // the saved SKILL.md: its other frontm
 const otherFiles = ref<Record<string, string>>({}) // the skill's other files, kept
 const loaded = ref(!editing.value)
 const skillMd = () => writeSkillMd({ name: form.name, description: form.description, body: form.body, entries: parsed.value?.entries })
+// what Save last wrote (or what was opened): leaving with more asks first
+const savedSnap = ref(JSON.stringify(form))
+const markSaved = () => { savedSnap.value = JSON.stringify(form) }
+useLeaveGuard(() => loaded.value && JSON.stringify(form) !== savedSnap.value)
 
 let edited: ReturnType<typeof refOf> | undefined
 let editedFrom: string | undefined
@@ -38,6 +42,7 @@ onMounted(async () => {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
     loaded.value = true
+    markSaved()
   }
 })
 
@@ -96,6 +101,7 @@ async function save(accept = false) {
     })
     if (conversationId.value && !editing.value) await $fetch(`/api/conversations/${conversationId.value}/subject`, { method: 'PUT', body: { subject: subjectOf(form.name.trim()) } }).catch(() => {})
     toast.add({ title: t('skill.saved'), color: 'success' })
+    markSaved()
     await navigateTo({ path: `/projects/${props.projectId}`, query: { tab: 'skill' } })
   } catch (e) {
     const data = (e as { data?: { code?: string, findings?: Finding[] } }).data

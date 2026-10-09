@@ -2,7 +2,8 @@
 // filled once, and again from newer data only while the person has not
 // touched it. Newer data while they edit makes it stale: the page says so
 // ("changed elsewhere · Reload") and never overwrites what they typed.
-// After a save, reset() takes the server's data again.
+// After a save, reset() takes the server's data again. Leaving while dirty
+// asks first (useLeaveGuard).
 export function useDraft<T>(source: Ref<T | null | undefined> | (() => T | null | undefined), form: object | Ref<unknown>, fill: (d: T) => void) {
   const snap = () => JSON.stringify(isRef(form) ? form.value : toRaw(form))
   const filled = ref<string | null>(null) // the form as last filled
@@ -33,5 +34,6 @@ export function useDraft<T>(source: Ref<T | null | undefined> | (() => T | null 
     if (d != null) latest.value = d
     if (latest.value != null) apply(latest.value)
   }
+  useLeaveGuard(() => dirty.value)
   return { dirty, stale, reset }
 }

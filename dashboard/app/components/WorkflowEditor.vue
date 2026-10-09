@@ -32,8 +32,14 @@ onMounted(async () => {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
     loaded.value = true
+    markSaved()
   }
 })
+// what Save last wrote (or what was opened): leaving with more asks first
+const snap = () => JSON.stringify([source.value, bindings.value])
+const savedSnap = ref(snap())
+function markSaved() { savedSnap.value = snap() }
+useLeaveGuard(() => loaded.value && (fmtDirty || snap() !== savedSnap.value))
 
 // checked as it is written: the preview, or what is wrong
 const def = ref<WorkflowDef | null>(null)
@@ -159,6 +165,7 @@ async function save() {
       await tieChat(`wf:${res.workflow.id}`)
     }
     toast.add({ title: t('wf.saved'), color: 'success' })
+    markSaved()
     await navigateTo(back.value)
   } catch (e) {
     saveError(e, () => reloadNuxtApp())

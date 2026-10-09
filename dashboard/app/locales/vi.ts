@@ -87,6 +87,7 @@ const vi = {
   'common.delete': 'Xóa',
   'common.edit': 'Sửa',
   'common.close': 'Đóng',
+  'common.leaveUnsaved': 'Có thay đổi chưa lưu. Rời đi và bỏ các thay đổi này?',
   'common.add': 'Thêm',
   'common.create': 'Tạo',
   'common.search': 'Tìm kiếm',

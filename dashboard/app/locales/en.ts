@@ -88,6 +88,7 @@ const en: Record<MessageKey, string> = {
   'common.delete': 'Delete',
   'common.edit': 'Edit',
   'common.close': 'Close',
+  'common.leaveUnsaved': 'You have unsaved changes. Leave and discard them?',
   'common.add': 'Add',
   'common.create': 'Create',
   'common.search': 'Search',
