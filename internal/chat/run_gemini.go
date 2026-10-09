@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -281,9 +282,17 @@ func (geminiRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (
 			}
 		}
 	}
+	var scanErr error
+	if serr := sc.Err(); serr != nil {
+		scanErr = fmt.Errorf("gemini: đọc output lỗi: %w", serr)
+	}
+	io.Copy(io.Discard, out)
 	werr := cmd.Wait()
 	res.Usage.DurationMS = time.Since(start).Milliseconds()
 	res.Text = strings.TrimSpace(answer.String())
+	if scanErr != nil {
+		return res, scanErr
+	}
 	if res.Text == "" && (werr != nil || failure != "") {
 		msg := failure
 		if msg == "" {

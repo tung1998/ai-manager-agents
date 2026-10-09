@@ -90,6 +90,26 @@ echo '{"type":"result","status":"success","stats":{"input_tokens":12,"output_tok
 	}
 }
 
+// A JSON line over the scanner's 16MB cap must fail the run instead of
+// silently returning an empty "success" (the "result" event never gets read).
+func TestGeminiFailsOnOversizedLine(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "gemini")
+	script := `#!/bin/sh
+cat >/dev/null
+echo '{"type":"init","session_id":"s1"}'
+python3 -c 'print("{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"" + "x"*(17*1024*1024) + "\"}")'
+`
+	os.WriteFile(bin, []byte(script), 0o755)
+	res, err := geminiRunner{}.Run(context.Background(), RunRequest{Bin: bin, WorkDir: dir, Prompt: "hi"}, func(Event) {})
+	if err == nil {
+		t.Fatalf("expected an error for an oversized line, got res = %+v", res)
+	}
+	if res.Text != "" {
+		t.Fatalf("result must not be read past the oversized line: res = %+v", res)
+	}
+}
+
 func TestGeminiRunnerError(t *testing.T) {
 	tmp := t.TempDir()
 	bin := filepath.Join(tmp, "gemini")

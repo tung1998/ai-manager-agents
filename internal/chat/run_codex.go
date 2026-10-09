@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -157,9 +158,17 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 			res.Usage.InputTokens, res.Usage.OutputTokens = ev.Usage.InputTokens, ev.Usage.OutputTokens
 		}
 	}
+	var scanErr error
+	if serr := sc.Err(); serr != nil {
+		scanErr = fmt.Errorf("codex: đọc output lỗi: %w", serr)
+	}
+	io.Copy(io.Discard, out)
 	werr := cmd.Wait()
 	res.Usage.DurationMS = time.Since(start).Milliseconds()
 	res.Text = strings.TrimSpace(strings.Join(answer, "\n\n"))
+	if scanErr != nil {
+		return res, scanErr
+	}
 	if werr != nil && res.Text == "" {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {

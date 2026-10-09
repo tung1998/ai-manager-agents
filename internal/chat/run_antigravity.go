@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -172,12 +173,20 @@ func (antigravityRunner) run(ctx context.Context, req RunRequest, emit func(Even
 			}
 		}
 	}
+	var scanErr error
+	if serr := sc.Err(); serr != nil {
+		scanErr = fmt.Errorf("antigravity: đọc output lỗi: %w", serr)
+	}
+	io.Copy(io.Discard, out)
 	werr := cmd.Wait()
 	res.Usage.DurationMS = time.Since(start).Milliseconds()
 	res.Text = strings.TrimSpace(answer.String())
 	if res.Text == "" && final != "" { // no deltas streamed: the result has it all
 		res.Text = strings.TrimSpace(final)
 		emit(Event{Type: "text", Text: res.Text})
+	}
+	if scanErr != nil {
+		return res, stepErr, scanErr
 	}
 	if res.Text == "" && (werr != nil || failure != "") {
 		msg := cmp.Or(failure, strings.TrimSpace(stderr.String()))

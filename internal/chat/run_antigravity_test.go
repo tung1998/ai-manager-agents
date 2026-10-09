@@ -125,3 +125,23 @@ echo '{"event":"result","result":{"conversation_id":"c9","status":"SUCCESS","res
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// A JSON line over the scanner's 16MB cap must fail the run instead of
+// silently returning an empty "success" (the "result" event never gets read).
+func TestAntigravityFailsOnOversizedLine(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "agy")
+	script := `#!/bin/sh
+cat >/dev/null
+echo '{"event":"init","init":{"model":"m"}}'
+python3 -c 'print("{\"event\":\"step_update\",\"step_update\":{\"conversation_id\":\"c1\",\"step_index\":0,\"state\":\"ACTIVE\",\"step_type\":\"agent_response\",\"text_delta\":\"" + "x"*(17*1024*1024) + "\"}}")'
+`
+	os.WriteFile(bin, []byte(script), 0o755)
+	res, err := antigravityRunner{}.Run(context.Background(), RunRequest{Bin: bin, WorkDir: dir, Prompt: "hi"}, func(Event) {})
+	if err == nil {
+		t.Fatalf("expected an error for an oversized line, got res = %+v", res)
+	}
+	if res.Text != "" {
+		t.Fatalf("result must not be read past the oversized line: res = %+v", res)
+	}
+}
