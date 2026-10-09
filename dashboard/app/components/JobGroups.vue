@@ -37,16 +37,20 @@ function query(before = '') {
   set('limit', '20')
   return q.toString()
 }
+let loadToken = 0
 async function load(more = false) {
+  const token = ++loadToken
   loading.value = true
   try {
     const res = await $fetch<{ groups: Group[], next_before: string }>(`/api/jobs/groups?${query(more ? nextBefore.value : '')}`)
+    if (token !== loadToken) return
     groups.value = more ? [...groups.value, ...res.groups] : res.groups
     nextBefore.value = res.next_before
   } catch (e) {
+    if (token !== loadToken) return
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
-    loading.value = false
+    if (token === loadToken) loading.value = false
   }
 }
 watch([origin, searchQ, status, project, since], () => load(), { immediate: true })
