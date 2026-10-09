@@ -262,6 +262,12 @@ func (u *Updater) exec(dir string, env, argv []string) error {
 		for sc.Scan() {
 			u.add("out", sc.Text())
 		}
+		if err := sc.Err(); err != nil {
+			u.add("sys", "⚠ đọc log lỗi: "+err.Error())
+		}
+		// drain to EOF even after a scan error so the child can't block
+		// writing to a full pipe and leave cmd.Wait() hanging forever.
+		_, _ = io.Copy(io.Discard, pr)
 		close(done)
 	}()
 	err := cmd.Wait()
