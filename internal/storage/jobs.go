@@ -86,6 +86,10 @@ type JobRepo interface {
 	Update(ctx context.Context, j Job) error
 	// Finish ends a job; cost, tokens and duration come from its model calls.
 	Finish(ctx context.Context, id, status, errCode, errMsg string, at time.Time) (Job, error)
+	// FinishIfRunning is Finish, but only applies when the job is still
+	// running; ErrConflict when it already ended (e.g. a cancel racing the
+	// job's own completion).
+	FinishIfRunning(ctx context.Context, id, status, errCode, errMsg string, at time.Time) (Job, error)
 	// Claim marks up to limit due pending jobs running. remaining is, for an
 	// origin with jobs already running, how many more of it may run now
 	// (0 = none); an origin missing from it has nothing running yet.

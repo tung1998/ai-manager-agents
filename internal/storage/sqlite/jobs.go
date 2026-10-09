@@ -131,6 +131,26 @@ func (r jobRepo) Finish(ctx context.Context, id, status, errCode, errMsg string,
 	return r.Get(ctx, id)
 }
 
+func (r jobRepo) FinishIfRunning(ctx context.Context, id, status, errCode, errMsg string, at time.Time) (storage.Job, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE jobs SET status=?, error_code=?, error=?, finished_at=?,
+		cost_usd=(SELECT COALESCE(SUM(cost_usd),0) FROM runs WHERE job_id=jobs.id),
+		input_tokens=(SELECT COALESCE(SUM(input_tokens),0) FROM runs WHERE job_id=jobs.id),
+		output_tokens=(SELECT COALESCE(SUM(output_tokens),0) FROM runs WHERE job_id=jobs.id),
+		duration_ms=MAX(0, CAST(ROUND((julianday(?) - julianday(COALESCE(started_at, created_at))) * 86400000) AS INTEGER))
+		WHERE id=? AND status='running'`, status, errCode, errMsg, fmtTime(at), fmtTime(at), id)
+	if err != nil {
+		return storage.Job{}, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return storage.Job{}, err
+	}
+	if n == 0 {
+		return storage.Job{}, storage.ErrConflict
+	}
+	return r.Get(ctx, id)
+}
+
 // Claim marks up to limit due pending jobs running. remaining is, for every
 // origin the caller already has jobs running for, how many more it may run
 // at once right now (its Parallel() minus how many are running); an origin

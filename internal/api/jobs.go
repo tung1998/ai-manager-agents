@@ -4,6 +4,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -204,6 +205,17 @@ func (s *server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	case j.Status == "running" && j.Kind == "chat_turn" && j.ConversationID != "":
 		if t, ok := s.cfg.Chat.TurnByJob(j.ID); ok { // a hand-off in the background has its own job
 			t.Cancel()
+		} else if nj, ferr := s.cfg.Store.Jobs().FinishIfRunning(r.Context(), j.ID, "cancelled", "cancelled", "", time.Now().UTC()); ferr == nil {
+			j = nj // no turn in memory (already finished, or lost on restart): cancel the job record itself
+		} else if errors.Is(ferr, storage.ErrConflict) {
+			if cur, gerr := s.cfg.Store.Jobs().Get(r.Context(), j.ID); gerr == nil {
+				j = cur
+			}
+			writeError(w, http.StatusConflict, "job này không còn chạy")
+			return
+		} else {
+			s.internal(w, r, ferr)
+			return
 		}
 	default:
 		writeError(w, http.StatusConflict, "job này không còn chạy")
