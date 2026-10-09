@@ -68,7 +68,7 @@ const schedKind = computed({
 const presetActive = (p: { every: number, cron: string }) => (form.config.every_minutes ?? 0) === p.every && (form.config.cron ?? '') === p.cron
 // every IANA zone the browser/Node knows, searchable
 const timezones = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone') ?? ['UTC', 'Asia/Ho_Chi_Minh']
-const tz = computed({ get: () => form.config.timezone || 'Asia/Ho_Chi_Minh', set: (v: string) => { form.config.timezone = v } })
+const tz = computed({ get: () => form.config.timezone || 'UTC', set: (v: string) => { form.config.timezone = v } })
 // the saved zone stays pickable even if this runtime spells it differently
 const tzItems = computed(() => timezones.includes(tz.value) ? timezones : [tz.value, ...timezones])
 // an agent answers (a bot's chat) or is sent the message (a schedule, a webhook), or a script runs
