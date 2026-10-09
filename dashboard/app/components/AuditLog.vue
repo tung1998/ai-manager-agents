@@ -31,16 +31,20 @@ function query(before = '') {
   q.set('limit', '50')
   return q.toString()
 }
+let loadToken = 0
 async function load(more = false) {
+  const token = ++loadToken
   loading.value = true
   try {
     const res = await $fetch<{ entries: AuditEntry[], next_before: string }>(`/api/audit?${query(more ? nextBefore.value : '')}`)
+    if (token !== loadToken) return // a newer load() started since: drop this stale response
     entries.value = more ? [...entries.value, ...res.entries] : res.entries
     nextBefore.value = res.next_before
   } catch (e) {
+    if (token !== loadToken) return
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
-    loading.value = false
+    if (token === loadToken) loading.value = false
   }
 }
 watch([kind, via, resource, project, since, () => props.filter?.resource_id], () => load(), { immediate: true })
