@@ -254,6 +254,10 @@ func (r jobRepo) where(f storage.JobFilter) (string, []any) {
 		}
 	}
 	add("project_id", f.ProjectID)
+	if f.ExcludeProjectID != "" {
+		conds = append(conds, "project_id<>?")
+		args = append(args, f.ExcludeProjectID)
+	}
 	add("kind", f.Kind)
 	add("origin", f.Origin)
 	add("origin_id", f.OriginID)

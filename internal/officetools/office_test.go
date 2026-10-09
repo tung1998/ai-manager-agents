@@ -71,6 +71,48 @@ func TestOfficeScopeTools(t *testing.T) {
 	}
 }
 
+// jobs_query excludes the assistant's own jobs at the database query, so a
+// limited page is not left short by them crowding out other projects' jobs.
+func TestJobsQueryExcludesOwnBeforeLimit(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	office, _ := st.Repos().Create(ctx, storage.Repo{Name: "Office"})
+	shop, _ := st.Repos().Create(ctx, storage.Repo{Name: "Storefront"})
+	// Storefront's jobs first (older), the assistant's own jobs after (newer,
+	// so they sort first by created_at/id desc and would crowd out the page
+	// under the old post-query filter).
+	for i := 0; i < 10; i++ {
+		st.Jobs().Create(ctx, storage.Job{ProjectID: shop.ID, Kind: "chat_turn", Origin: "user", Trigger: "ui", Title: "việc của shop", Status: "done"})
+	}
+	for i := 0; i < 25; i++ {
+		st.Jobs().Create(ctx, storage.Job{ProjectID: office.ID, Kind: "chat_turn", Origin: "user", Trigger: "ui", Title: "riêng của trợ lý", Status: "done"})
+	}
+	acts := actions.New(st, nil)
+	acts.SetRunner(fakeRunner{})
+	box := New(st, nil, acts)
+	box.SetOffice(func(ctx context.Context) string { return office.ID })
+	sc := Scope{ProjectID: office.ID, Office: true, Agent: "Trợ lý office"}
+	raw, _ := json.Marshal(map[string]any{"limit": 10})
+	out, isErr := box.Call(ctx, sc, "jobs_query", raw)
+	if isErr {
+		t.Fatalf("jobs_query failed: %s", out)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	if len(rows) != 10 {
+		t.Fatalf("jobs_query returned %d rows, want 10 (own-project jobs should not crowd out the page): %s", len(rows), out)
+	}
+	for _, r := range rows {
+		if r["project_id"] == office.ID {
+			t.Fatalf("jobs_query returned an assistant's own job: %v", r)
+		}
+	}
+}
+
 type fakeRunner struct{}
 
 func (fakeRunner) RunAutomation(context.Context, string) (string, error) { return "job_x", nil }

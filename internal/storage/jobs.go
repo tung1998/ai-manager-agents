@@ -49,12 +49,13 @@ type Job struct {
 
 // JobFilter narrows a job listing; empty fields match everything.
 type JobFilter struct {
-	ProjectID string
-	Kind      string
-	Origin    string
-	OriginID  string
-	OriginIDs []string // any of these (a bot: its commands, and itself)
-	TaskID    string
+	ProjectID        string
+	ExcludeProjectID string // omit this project's jobs (the office assistant's own)
+	Kind             string
+	Origin           string
+	OriginID         string
+	OriginIDs        []string // any of these (a bot: its commands, and itself)
+	TaskID           string
 	// ConversationID: a chat's jobs (its turns)
 	ConversationID string
 	Source         string // web | discord | telegram | auto (where it came from)
