@@ -7,9 +7,9 @@ This piece is half done: look at git status / git diff in this worktree to see h
 [[- end]]
 [[- if .Focus]]
 The person's focus (lean towards it when there is a choice of how): [[.Focus]]
-[[- range .FocusChecks]]
-Verify for the focus: [[.]].
 [[- end]]
+[[- range .FocusChecks]]
+Verify: [[.]].
 [[- end]]
 [[- if .ReviewNote]]
 The reviewer's notes (follow them unless the code shows otherwise):
@@ -17,6 +17,9 @@ The reviewer's notes (follow them unless the code shows otherwise):
 [[- end]]
 
 You work in this piece's own worktree, with full access; other Burn pieces may run in parallel in theirs. Do not push or merge. After changing code, run the related build/test until they pass.
+[[- if eq .Kind "idea"]]
+A new idea: build it. A large one: do its first part that runs on its own, record the design in the project's docs (spec/ADR) and what is left, for later turns.
+[[- end]]
 [[- if eq .Kind "unfinished"]]
 If this is a part of a roadmap feature: do exactly this part's scope, record design decisions in the project's docs (spec/ADR) and mark the progress in the planning docs; later parts are for later turns.
 [[- end]]

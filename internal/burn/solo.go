@@ -55,11 +55,11 @@ func soloPrompt(b storage.BurnSession, it storage.BurnItem, items []storage.Burn
 		scanned = scanned[len(scanned)-maxScannedInSolo:]
 	}
 	return prompts.Render("burn/solo", struct {
-		ID, Focus, Order, Branch string
-		FocusLooks, Taken        []string
-		Scanned                  []string
-		Again, Reviewed, Pre     bool
-	}{it.ID, b.Focus, b.Order, b.RunBranch, focusLooks(b.Focus), taken, scanned, again, reviewed, preReviewed})
+		ID, Focus, Order, Branch, Hunt string
+		FocusLooks, Taken              []string
+		Scanned                        []string
+		Again, Reviewed, Pre           bool
+	}{it.ID, b.Focus, b.Order, b.RunBranch, hunt(b), looks(b), taken, scanned, again, reviewed, preReviewed})
 }
 
 // claim names a worker's piece: what it found, unless another piece is the

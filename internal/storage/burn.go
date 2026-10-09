@@ -18,7 +18,9 @@ type BurnSession struct {
 	ResultMode                             string // unused: every run is a worktree on its branch (ADR-123)
 	RunBranch                              string // this run's branch, burn/<when>; its worktree is named after it
 	Focus                                  string
-	Order                                  string // roadmap | bugs | auto: what it looks for first
+	Order                                  string // roadmap | bugs | auto: what it looks for first (the general template)
+	Template                               string // what its workers look for (ADR-128): general | ux | ideas | security | performance | test | docs | custom
+	HuntPrompt                             string // the custom template's prompt
 	ReviewProfileID                        string // its review profile (ADR-113); "" = none
 	Scanned                                string // what its scans looked at, latest last (ADR-116)
 	NotifyChannelID, NotifyChatID          string // a bot's chat its summary goes to when it stops (ADR-120); "" = none

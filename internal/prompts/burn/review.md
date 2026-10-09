@@ -4,9 +4,9 @@ Detail the agent wrote: [[.Detail]]
 [[- end]]
 [[- if .Focus]]
 The person's focus (a direction, not a reason to turn other work down): [[.Focus]]
-[[- range .FocusChecks]]
-Check the result for the focus: [[.]].
 [[- end]]
+[[- range .FocusChecks]]
+Check the result for: [[.]].
 [[- end]]
 [[- if .ReviewNote]]
 Earlier review notes: [[.ReviewNote]]

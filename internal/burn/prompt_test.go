@@ -172,7 +172,8 @@ func TestSoloPrompt(t *testing.T) {
 		{ID: "bit_c", Status: "doing", Title: huntTitle}, // another worker still looking
 	}
 	p := soloPrompt(storage.BurnSession{RunBranch: "burn/x"}, storage.BurnItem{ID: "bit_w"}, items, false, false, false)
-	for _, want := range []string{`burn_claim(item="bit_w"`, `burn_done(item="bit_w"`, `burn_none(item="bit_w"`, "[done] Sửa lỗi A", "[doing] Nâng cấp B", "burn/x", "ROADMAP FIRST"} {
+	for _, want := range []string{`burn_claim(item="bit_w"`, `burn_done(item="bit_w"`, `burn_none(item="bit_w"`, "[done] Sửa lỗi A", "[doing] Nâng cấp B", "burn/x", "ROADMAP FIRST",
+		"ONE piece: fix them all together", `claim it with kind "idea" and build it`} {
 		if !strings.Contains(p, want) {
 			t.Errorf("worker prompt lacks %q:\n%s", want, p)
 		}
@@ -202,6 +203,9 @@ func TestWorkPromptFeature(t *testing.T) {
 	p := workPrompt(storage.BurnSession{}, storage.BurnItem{Kind: "unfinished", Title: "Thông báo sự cố: phần 1"}, false, false)
 	if !strings.Contains(p, "mark the progress") {
 		t.Errorf("a roadmap piece should update the roadmap docs:\n%s", p)
+	}
+	if i := workPrompt(storage.BurnSession{}, storage.BurnItem{Kind: "idea", Title: "MCP sampling"}, false, false); !strings.Contains(i, "A new idea: build it") {
+		t.Errorf("an idea is not said to be built:\n%s", i)
 	}
 }
 
@@ -325,5 +329,39 @@ func TestWaitLimitCountsTheReviewersAgents(t *testing.T) {
 	f.st.Settings().Set(ctx, chat.LimitsKey(other.ID), chat.Limits{Status: "rejected", Windows: map[string]chat.LimitWindow{"quota": {Utilization: 1, ResetsAt: time.Now().Add(-time.Minute)}}, UpdatedAt: time.Now()})
 	if _, hit := f.s.limitsHit(ctx, role.ID); hit {
 		t.Fatal("a reset that has passed still counts")
+	}
+}
+
+// A Burn's template (ADR-128) says what its workers look for and how a piece
+// is checked; the frame is the same. General keeps the order; custom is the
+// person's own prompt.
+func TestTemplates(t *testing.T) {
+	w := storage.BurnItem{ID: "w"}
+	if g := soloPrompt(storage.BurnSession{}, w, nil, false, false, false); !strings.Contains(g, "ROADMAP FIRST") || strings.Contains(g, "its template") {
+		t.Errorf("the general template keeps the order:\n%s", g)
+	}
+	ux := soloPrompt(storage.BurnSession{Template: "ux"}, w, nil, false, false, false)
+	if !strings.Contains(ux, "390px") || strings.Contains(ux, "ROADMAP FIRST") || !strings.Contains(ux, `burn_claim(item="w"`) {
+		t.Errorf("ux template:\n%s", ux)
+	}
+	if i := soloPrompt(storage.BurnSession{Template: "ideas"}, w, nil, false, false, false); !strings.Contains(i, "product's owner") {
+		t.Errorf("ideas template:\n%s", i)
+	}
+	sec := storage.BurnSession{Template: "security", Focus: "bảo mật API"}
+	if p := soloPrompt(sec, w, nil, false, false, false); !strings.Contains(p, "injection") || strings.Count(p, "injection") != 1 {
+		t.Errorf("security template (its lens once, not again from the focus):\n%s", p)
+	}
+	if p := workPrompt(sec, storage.BurnItem{}, false, false); !strings.Contains(p, "attack") {
+		t.Errorf("security template's checks are not in the work:\n%s", p)
+	}
+	if p := reviewPrompt(storage.BurnSession{Template: "performance"}, storage.BurnItem{}, "result"); !strings.Contains(p, "before and after") {
+		t.Errorf("the result review lacks the template's checks:\n%s", p)
+	}
+	custom := storage.BurnSession{Template: "custom", HuntPrompt: "Tìm chỗ còn gõ cứng chuỗi tiếng Anh"}
+	if p := soloPrompt(custom, w, nil, false, false, false); !strings.Contains(p, "Tìm chỗ còn gõ cứng chuỗi tiếng Anh") || strings.Contains(p, "ROADMAP FIRST") {
+		t.Errorf("custom template:\n%s", p)
+	}
+	if !ValidTemplate("ux") || ValidTemplate("other") || ValidTemplate("") {
+		t.Error("ValidTemplate")
 	}
 }

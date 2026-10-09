@@ -25,7 +25,12 @@ Areas other workers looked at lately (look elsewhere first):
 [[- end]]
 
 Steps:
-1. Find one piece. Read the real code and docs; a clean build/test and no TODOs do not mean there is nothing to do.
+1. Find one piece.
+[[- if .Hunt]]
+   This Burn is set up to look for this (its template):
+[[.Hunt]]
+[[- else]]
+   Read the real code and docs; a clean build/test and no TODOs do not mean there is nothing to do.
 [[- if eq .Order "bugs"]]
    BUGS FIRST, then the roadmap, then upgrades.
 [[- template "bugs"]][[template "roadmap"]][[template "upgrades"]]
@@ -36,7 +41,9 @@ Steps:
    ROADMAP FIRST: a missing feature from the plan comes before small bugs and upgrades (a serious bug, security or data loss, still comes first).
 [[- template "roadmap"]][[template "bugs"]][[template "upgrades"]]
 [[- end]]
-   Only a real, useful piece, with evidence (file:line, how it goes wrong or what is missing). Prefer one that does not touch the files of the pieces being worked on now.
+[[- end]]
+   Only a real, useful piece, with evidence (file:line, how it goes wrong or what is missing). The same mistake in many places is ONE piece: fix them all together. Prefer one that does not touch the files of the pieces being worked on now.
+   A new idea worth doing (a feature, an integration, a different flow) is a piece like any other: claim it with kind "idea" and build it; a large one, its first part that runs on its own.
 2. Claim it AT ONCE, before changing code: burn_claim(item=[[printf "%q" .ID]], title, kind, detail, scanned=the areas you looked at). If it says the piece is taken, find another.
 [[- if .Pre]]
    Then END YOUR TURN without changing code: a reviewer checks the piece first. The detail must hold enough for that review (evidence, and how you would do it). Agreed, you are told to go on with it here.

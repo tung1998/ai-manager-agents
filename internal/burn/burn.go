@@ -25,7 +25,7 @@ import (
 )
 
 // Kinds of work a Burn looks for.
-var Kinds = map[string]bool{"unfinished": true, "upgrade": true, "bug": true}
+var Kinds = map[string]bool{"unfinished": true, "upgrade": true, "bug": true, "idea": true}
 
 // Service runs the projects' Burns.
 type Service struct {
@@ -96,6 +96,9 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 	}
 	if err := s.CheckAgent(ctx, b.AgentID); err != nil {
 		return b, err
+	}
+	if templateOf(b) == "custom" && hunt(b) == "" {
+		return b, errors.New("mẫu Tùy chỉnh cần prompt tìm việc: hãy viết trong Cài đặt Burn")
 	}
 	if err := s.CheckReviewers(ctx, b.ReviewProfileID); err != nil {
 		return b, err
@@ -694,7 +697,7 @@ func workPrompt(b storage.BurnSession, it storage.BurnItem, again, reviewed bool
 		ID, Kind, Title, Detail, Focus, ReviewNote, Branch string
 		FocusChecks                                        []string
 		Again, Reviewed                                    bool
-	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, focusChecks(b.Focus), again, reviewed})
+	}{it.ID, it.Kind, it.Title, it.Detail, b.Focus, it.ReviewNote, b.RunBranch, checks(b), again, reviewed})
 }
 
 func oneLine(s string, n int) string {

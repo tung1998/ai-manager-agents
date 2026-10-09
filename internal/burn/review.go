@@ -264,7 +264,7 @@ func reviewPrompt(b storage.BurnSession, it storage.BurnItem, stage string) stri
 		// a workflow runs in chats of its own, not in the piece's worktree: where it is
 		Worktree: it.Worktree, Agree: verdictAgree, Disagree: verdictDisagree}
 	if stage == "result" {
-		d.FocusChecks = focusChecks(b.Focus)
+		d.FocusChecks = checks(b)
 		if it.ReviewNote != "" {
 			d.ReviewNote = oneLine(it.ReviewNote, 600)
 		}

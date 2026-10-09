@@ -211,7 +211,7 @@ func (t *Toolbox) Tools() []Tool {
 		list = append(list,
 			Tool{Name: "burn_add", Description: "Burn: record a piece of work found (no duplicates).", Schema: obj(map[string]any{
 				"title":  map[string]any{"type": "string", "description": "Short title"},
-				"kind":   map[string]any{"type": "string", "enum": []string{"unfinished", "upgrade", "bug"}},
+				"kind":   map[string]any{"type": "string", "enum": []string{"unfinished", "upgrade", "bug", "idea"}},
 				"detail": map[string]any{"type": "string", "description": "Enough to do it: where, why, and what done looks like"},
 			}, "title", "kind")},
 			Tool{Name: "burn_pick", Description: "Burn: pick the next piece to work on.", Schema: obj(map[string]any{"item": item}, "item")},
@@ -220,7 +220,7 @@ func (t *Toolbox) Tools() []Tool {
 			Tool{Name: "burn_claim", Description: "Burn worker: claim the one piece you found, before changing code (refused if another piece is the same: find another).", Schema: obj(map[string]any{
 				"item":    item,
 				"title":   map[string]any{"type": "string", "description": "Short title"},
-				"kind":    map[string]any{"type": "string", "enum": []string{"unfinished", "upgrade", "bug"}},
+				"kind":    map[string]any{"type": "string", "enum": []string{"unfinished", "upgrade", "bug", "idea"}, "description": "idea: a new feature, integration or flow"},
 				"detail":  map[string]any{"type": "string", "description": "Where (file:line), why, what done looks like"},
 				"scanned": map[string]any{"type": "string", "description": "The areas you looked at, briefly"},
 			}, "item", "title", "kind")},

@@ -5,16 +5,19 @@
 // page shows its conversation.
 interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_parallel: number,
-  run_branch?: string, run_tree?: string, focus: string, order: 'roadmap' | 'bugs' | 'auto', ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
+  run_branch?: string, run_tree?: string, focus: string, order: 'roadmap' | 'bugs' | 'auto', template: BurnTemplate, hunt_prompt: string, ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
   waiting_until?: string, started_by?: string, started_at?: string,
   review_profile_id: string
 }
 interface Item {
-  id: string, title: string, kind: '' | 'unfinished' | 'upgrade' | 'bug', detail: string, status: string, priority: number,
+  id: string, title: string, kind: '' | 'unfinished' | 'upgrade' | 'bug' | 'idea', detail: string, status: string, priority: number,
   branch: string, worktree: string, summary: string, subagents: number, cost_usd: number, updated_at: string,
   reviewed: ReviewStage[], review_note: string, review_conversations: Partial<Record<ReviewStage, string>>,
   work_conversation_id: string
 }
+// what its workers look for (ADR-128): a template, or the person's own prompt
+const templates = ['general', 'ux', 'ideas', 'security', 'performance', 'test', 'docs', 'custom'] as const
+type BurnTemplate = typeof templates[number]
 interface AgentLite { id: string, name: string, tier: string, enabled?: boolean }
 const props = defineProps<{ projectId: string }>()
 const { t, dateLocale } = useLang()
@@ -45,12 +48,12 @@ function left(iso: string) {
 // settings (a drawer): saved as they are
 const settingsOpen = ref(false)
 const form = reactive({
-  agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_parallel: 1, order: 'roadmap' as Burn['order'], focus: '',
+  agent_id: '', model_tier: 'balanced' as Burn['model_tier'], max_parallel: 1, order: 'roadmap' as Burn['order'], template: 'general' as BurnTemplate, hunt_prompt: '', focus: '',
   review_profile_id: '', notify_channel_id: '', notify_chat_id: ''
 })
 const { stale, reset: resync } = useDraft(burn, form, (b) => {
   Object.assign(form, {
-    agent_id: b.agent_id, model_tier: b.model_tier, max_parallel: b.max_parallel, order: b.order ?? 'roadmap', focus: b.focus,
+    agent_id: b.agent_id, model_tier: b.model_tier, max_parallel: b.max_parallel, order: b.order ?? 'roadmap', template: b.template ?? 'general', hunt_prompt: b.hunt_prompt ?? '', focus: b.focus,
     review_profile_id: b.review_profile_id ?? '', notify_channel_id: b.notify_channel_id ?? '', notify_chat_id: b.notify_chat_id ?? ''
   })
 })
@@ -76,12 +79,7 @@ const agentItems = computed(() => agents.value.map(a => ({ value: a.id, label: a
 const reviewStages = reviewStageKeys
 const { data: profData } = useLiveFetch<{ profiles: BurnReviewProfile[] }>(() => `/api/projects/${props.projectId}/burn/review-profiles`, { lazy: true })
 const profiles = computed(() => profData.value?.profiles ?? [])
-// the focus: a few common ones to start from (written into the box, editable)
-const focusPresets = computed(() => (['security', 'uiux', 'performance', 'tests'] as const).map(k => ({ key: k, label: t(`burn.focusPreset.${k}`), text: t(`burn.focusPreset.${k}Text`) })))
-function addFocus(text: string) {
-  if (form.focus.includes(text)) return
-  form.focus = [form.focus.trim(), text].filter(Boolean).join('\n')
-}
+const templateItems = computed(() => templates.map(v => ({ value: v, label: t(`burn.template.${v}`) })))
 // where its summary goes when it stops (ADR-120): a bot of the project, its chat
 interface Bot { id: string, name: string, kind: 'discord' | 'telegram' }
 const { data: botsData } = useLiveFetch<{ channels: Bot[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true })
@@ -172,7 +170,7 @@ const columns = computed(() => [
   const all = items.value.filter(i => c.statuses.includes(i.status))
   return { ...c, all, items: expanded.value.has(c.key) ? all : all.slice(0, colMax) }
 }))
-const kindColor = (k: Item['kind']) => ({ '': 'neutral', bug: 'error', unfinished: 'warning', upgrade: 'info' } as const)[k]
+const kindColor = (k: Item['kind']) => ({ '': 'neutral', bug: 'error', unfinished: 'warning', upgrade: 'info', idea: 'primary' } as const)[k]
 const itemActing = ref('')
 async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') {
   if (itemActing.value) return
@@ -214,7 +212,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
         </div>
       </div>
       <p class="text-xs text-(--ui-text-muted)">
-        {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_parallel }) }} · {{ t(`burn.order.${form.order}`) }}
+        {{ t('burn.summary', { tier: t(`burn.tier.${form.model_tier}`), n: form.max_parallel }) }} · {{ t(`burn.template.${form.template}`) }}<template v-if="form.template === 'general'"> · {{ t(`burn.order.${form.order}`) }}</template>
         <template v-if="reviewSummary"> · {{ t('burn.review.summary', { profile: reviewSummary }) }}</template>
         <template v-if="burn?.run_branch"> · <button type="button" class="font-mono hover:text-(--ui-text)" :title="burn.run_tree ? t('burn.copyRunTree') : undefined" @click="burn.run_tree && copy(`cd ${burn.run_tree}`)">{{ burn.run_branch }}</button></template>
         <template v-if="items.length"> · {{ t('burn.cost', { usd: totalCost.toFixed(2), n: items.filter(i => i.status === 'done').length }) }}</template>
@@ -278,7 +276,13 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
           <UFormField :label="t('burn.parallelLabel')" :help="t('burn.parallelHelp')">
             <UInputNumber v-model="form.max_parallel" :min="1" :max="5" class="w-full" />
           </UFormField>
-          <UFormField :label="t('burn.orderLabel')">
+          <UFormField :label="t('burn.templateLabel')" :help="t(`burn.template.${form.template}Help`)">
+            <USelect v-model="form.template" :items="templateItems" class="w-full" />
+          </UFormField>
+          <UFormField v-if="form.template === 'custom'" :label="t('burn.huntPrompt')" :help="t('burn.huntPromptHelp')" required>
+            <UTextarea v-model="form.hunt_prompt" :rows="5" :maxlength="4000" autoresize class="w-full" :placeholder="t('burn.huntPromptPlaceholder')" />
+          </UFormField>
+          <UFormField v-if="form.template === 'general'" :label="t('burn.orderLabel')">
             <URadioGroup v-model="form.order" :items="(['roadmap', 'bugs', 'auto'] as const).map(o => ({ value: o, label: t(`burn.order.${o}`), description: t(`burn.order.${o}Help`) }))" />
           </UFormField>
           <UFormField :label="t('burn.review.label')" :help="t('burn.review.help')">
@@ -288,12 +292,7 @@ const totalCost = computed(() => items.value.reduce((n, i) => n + i.cost_usd, 0)
             </div>
           </UFormField>
           <UFormField :label="t('burn.focus')" :help="t('burn.focusHelp')">
-            <div class="space-y-2">
-              <div class="flex flex-wrap gap-1">
-                <UButton v-for="f in focusPresets" :key="f.key" size="xs" color="neutral" variant="outline" icon="i-lucide-plus" :label="f.label" @click="addFocus(f.text)" />
-              </div>
-              <UTextarea v-model="form.focus" :rows="4" :maxlength="2000" autoresize class="w-full" :placeholder="t('burn.focusPlaceholder')" />
-            </div>
+            <UTextarea v-model="form.focus" :rows="4" :maxlength="2000" autoresize class="w-full" :placeholder="t('burn.focusPlaceholder')" />
           </UFormField>
           <UFormField :label="t('burn.notify.label')" :help="t('burn.notify.help')">
             <div class="grid gap-2 sm:grid-cols-2">

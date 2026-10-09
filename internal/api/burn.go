@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/audit"
+	"bitbucket.org/senprints/agent-office/internal/burn"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -23,6 +24,9 @@ type burnDTO struct {
 	MaxParallel    int    `json:"max_parallel"`
 	Focus          string `json:"focus"`
 	Order          string `json:"order"`
+	// what its workers look for (ADR-128); hunt_prompt: the custom template's
+	Template   string `json:"template"`
+	HuntPrompt string `json:"hunt_prompt"`
 	// review (ADR-113): the profile followed ("" = none)
 	ReviewProfileID string `json:"review_profile_id"`
 	// where its summary goes when it stops (ADR-120): a bot and its chat
@@ -57,7 +61,7 @@ type burnItemDTO struct {
 }
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
-	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.Focus, cmp.Or(b.Order, "roadmap"),
+	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.Focus, cmp.Or(b.Order, "roadmap"), cmp.Or(b.Template, "general"), b.HuntPrompt,
 		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, ""}
 }
 
@@ -105,12 +109,17 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 // maxFocus caps what the person writes as the Burn's focus.
 const maxFocus = 2000
 
+// maxHuntPrompt caps the custom template's prompt (ADR-128).
+const maxHuntPrompt = 4000
+
 type burnInput struct {
 	AgentID         *string    `json:"agent_id"`
 	ModelTier       *string    `json:"model_tier"`
 	MaxParallel     *int       `json:"max_parallel"`
 	Focus           *string    `json:"focus"`
 	Order           *string    `json:"order"`
+	Template        *string    `json:"template"`
+	HuntPrompt      *string    `json:"hunt_prompt"`
 	ReviewProfileID *string    `json:"review_profile_id"` // "" = no review
 	NotifyChannelID *string    `json:"notify_channel_id"` // "" = only its own chat
 	NotifyChatID    *string    `json:"notify_chat_id"`
@@ -150,6 +159,18 @@ func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession
 	}
 	if in.Order != nil && (*in.Order == "roadmap" || *in.Order == "bugs" || *in.Order == "auto") {
 		b.Order = *in.Order
+	}
+	if in.Template != nil {
+		if !burn.ValidTemplate(*in.Template) {
+			return errors.New("không có mẫu Burn này")
+		}
+		b.Template = *in.Template
+	}
+	if in.HuntPrompt != nil {
+		b.HuntPrompt = strings.TrimSpace(*in.HuntPrompt)
+		if r := []rune(b.HuntPrompt); len(r) > maxHuntPrompt {
+			return fmt.Errorf("prompt tùy chỉnh dài quá %d ký tự", maxHuntPrompt)
+		}
 	}
 	if in.NoEnd {
 		b.EndsAt = nil

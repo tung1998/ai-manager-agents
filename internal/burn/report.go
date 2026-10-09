@@ -176,7 +176,7 @@ func (s *Service) sayStart(ctx context.Context, b storage.BurnSession) {
 		agent = a.Name
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "**Burn bắt đầu** · %s · tối đa %d việc song song", agent, max(b.MaxParallel, 1))
+	fmt.Fprintf(&sb, "**Burn bắt đầu** · mẫu %s · %s · tối đa %d việc song song", templateLabel[templateOf(b)], agent, max(b.MaxParallel, 1))
 	if b.EndsAt != nil {
 		fmt.Fprintf(&sb, " · tắt lúc %s", b.EndsAt.Local().Format("02/01 15:04"))
 	}
