@@ -99,6 +99,9 @@ func (s *Service) gate(ctx context.Context, b storage.BurnSession, it storage.Bu
 		}
 		// the person may have moved it meanwhile: theirs wins
 		if err := s.store.Burn().UpdateItemFrom(context.WithoutCancel(ctx), it, from); err != nil || !ok {
+			if err == nil {
+				s.sayItem(ctx, b, it)
+			}
 			return false, false
 		}
 	}
@@ -128,6 +131,7 @@ func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.
 		it.Status, it.Summary = s.failedOrAgain(it, reviewLabel["result"]+": chưa đạt. "+oneLine(note, 400))
 	}
 	_ = s.store.Burn().UpdateItem(ctx, it)
+	s.sayItem(ctx, b, it)
 	return false
 }
 

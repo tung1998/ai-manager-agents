@@ -91,6 +91,7 @@ func (s *Service) claim(ctx context.Context, b storage.BurnSession, it storage.B
 		c.Title = oneLine("Burn: "+title, 80)
 		_ = s.store.Chat().UpdateConversation(ctx, c)
 	}
+	s.say(ctx, b, "**Nhận việc** "+title)
 	s.mu.Lock()
 	delete(s.nones, b.RunBranch) // it found something
 	s.mu.Unlock()

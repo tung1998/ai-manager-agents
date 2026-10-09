@@ -75,6 +75,7 @@ func (s *Service) Start(ctx context.Context) {
 			_, _ = s.store.Burn().SaveSession(ctx, b)
 		}
 		s.pauseDoing(ctx, b.ID)
+		s.say(ctx, b, "Office khởi động lại: Burn chạy tiếp.")
 		s.spawn(b.ProjectID)
 	}
 }
@@ -111,6 +112,7 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 	if b, err = s.store.Burn().SaveSession(ctx, b); err != nil {
 		return b, err
 	}
+	s.sayStart(ctx, b)
 	s.spawn(projectID)
 	return b, nil
 }
@@ -218,6 +220,7 @@ func (s *Service) Drain(ctx context.Context, projectID string) error {
 	if _, err := s.store.Burn().SaveSession(ctx, b); err != nil {
 		return err
 	}
+	s.say(ctx, b, "Làm nốt việc đang dở rồi dừng (không nhận việc mới).")
 	if b.ConversationID != "" {
 		s.chat.StopAll(b.ConversationID)
 	}
@@ -242,6 +245,7 @@ func (s *Service) Resume(ctx context.Context, projectID string) error {
 	if _, err := s.store.Burn().SaveSession(ctx, b); err != nil {
 		return err
 	}
+	s.say(ctx, b, "Chạy tiếp như cũ.")
 	s.spawn(projectID)
 	s.wake(projectID)
 	return nil
@@ -330,6 +334,7 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 			}
 			b.WaitingUntil = nil
 			b, _ = s.store.Burn().SaveSession(ctx, b)
+			s.say(ctx, b, "Quota AI đã reset: chạy tiếp.")
 		}
 		draining := b.State == "draining"
 		if conv := b.ConversationID; s.ensureConversation(ctx, &b) == nil && b.ConversationID != conv { // its agent was changed while it ran
@@ -553,12 +558,14 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	if perr != nil {
 		it.Status, it.Summary = "failed", "không tạo được worktree: "+perr.Error()
 		_ = s.store.Burn().UpdateItem(ctx, it)
+		s.sayItem(ctx, b, it)
 		return false
 	}
 	// its own chat (ADR-116): what other pieces did does not crowd its context
 	if perr = s.ensureWorkConversation(ctx, b, &it); perr != nil {
 		it.Status, it.Summary = s.failedOrAgain(it, "không tạo được chat làm việc: "+perr.Error())
 		_ = s.store.Burn().UpdateItem(ctx, it)
+		s.sayItem(ctx, b, it)
 		return false
 	}
 	_ = s.store.Burn().UpdateItem(ctx, it)
@@ -566,6 +573,14 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	held := s.reviews(ctx, b, "result")
 	prompt := workPrompt(b, it, again, held)
 	worker, pre := hunting(it), s.preReviews(ctx, b)
+	switch {
+	case worker:
+		s.say(ctx, b, "**Worker mới** đang tìm việc để làm")
+	case again:
+		s.say(ctx, b, "**Làm tiếp** "+oneLine(it.Title, 120))
+	default:
+		s.say(ctx, b, "**Bắt đầu** "+oneLine(it.Title, 120))
+	}
 	if worker { // a worker: it finds its piece first (ADR-126)
 		items, _ := s.store.Burn().Items(ctx, b.ID)
 		prompt = soloPrompt(b, it, items, again, held, pre)
@@ -574,6 +589,7 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	cur, gerr := s.store.Burn().Item(context.WithoutCancel(ctx), it.ID)
 	if errors.Is(gerr, storage.ErrNotFound) { // burn_none: nothing worth doing
 		_ = s.trees.Remove(context.WithoutCancel(ctx), p.Path, b.ProjectID, tree)
+		s.say(ctx, b, "Worker không tìm thấy việc đáng làm.")
 		s.noneFound(ctx, b)
 		return false
 	}
@@ -591,6 +607,7 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 		failed = true
 		if _, hit := s.limitHit(ctx, b.AgentID); hit { // not its fault: it goes on after the reset
 			cur.Status, cur.Attempts = "paused", max(cur.Attempts-1, 0)
+			s.say(ctx, b, "**Tạm dừng** "+oneLine(cur.Title, 120)+": hết quota AI, làm tiếp sau khi reset")
 			break
 		}
 		cur.Status, cur.Summary = s.failedOrAgain(cur, firstNonEmpty(res.failed, errText(err)))
@@ -605,6 +622,9 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 		cur.Status, cur.Summary = s.failedOrAgain(cur, "agent không báo kết quả (burn_done/burn_fail/burn_none)")
 	}
 	_ = s.store.Burn().UpdateItem(context.WithoutCancel(ctx), cur)
+	if ctx.Err() == nil {
+		s.sayItem(ctx, b, cur)
+	}
 	return failed
 }
 
@@ -856,8 +876,12 @@ func (s *Service) waitLimit(ctx context.Context, b storage.BurnSession) bool {
 	if b.State != "draining" { // draining: it still finishes, after the reset
 		b.State = "waiting_limit"
 	}
+	first := b.WaitingUntil == nil // said once, not on every check
 	b.WaitingUntil = &until
 	_, _ = s.store.Burn().SaveSession(ctx, b)
+	if first {
+		s.say(ctx, b, "Hết quota AI: chờ tới "+until.Local().Format("02/01 15:04")+" rồi chạy tiếp.")
+	}
 	return true
 }
 

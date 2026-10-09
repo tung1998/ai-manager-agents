@@ -340,6 +340,16 @@ func TestBurnDrainFinishesThenStops(t *testing.T) {
 	if last := msgs[len(msgs)-1]; last.Author != "Burn" || !strings.Contains(last.Content, "đã làm nốt việc dở") || !strings.Contains(last.Content, "đang làm") {
 		t.Fatalf("last message: %+v", last)
 	}
+	// and its log on the way: started, the piece begun and done
+	var log strings.Builder
+	for _, m := range msgs {
+		log.WriteString(m.Content + "\n")
+	}
+	for _, want := range []string{"Burn bắt đầu", "**Bắt đầu** đang làm", "Làm nốt việc", "Chạy tiếp", "**Xong** đang làm"} {
+		if !strings.Contains(log.String(), want) {
+			t.Fatalf("log has no %q:\n%s", want, log.String())
+		}
+	}
 	select {
 	case got := <-sent:
 		if !strings.HasPrefix(got, ch.ID+"/123: ") || !strings.Contains(got, "Xong (1)") {

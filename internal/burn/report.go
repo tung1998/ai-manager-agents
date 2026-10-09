@@ -136,3 +136,55 @@ func span(d time.Duration) string {
 	}
 	return fmt.Sprintf("%d giờ %d phút", m/60, m%60)
 }
+
+// say writes a line of the Burn's log in its chat: what it starts, finishes,
+// waits for (no AI, it costs nothing), so the chat shows what goes on.
+func (s *Service) say(ctx context.Context, b storage.BurnSession, text string) {
+	if b.ConversationID == "" {
+		return
+	}
+	_, _ = s.store.Chat().AddMessage(context.WithoutCancel(ctx), storage.Message{ConversationID: b.ConversationID, Role: "assistant", Author: "Burn", Content: text})
+}
+
+// sayItem logs where a piece got to; nothing for a piece still in progress.
+func (s *Service) sayItem(ctx context.Context, b storage.BurnSession, it storage.BurnItem) {
+	title := oneLine(it.Title, 120)
+	why := ""
+	if it.Summary != "" {
+		why = ": " + oneLine(it.Summary, 300)
+	}
+	switch it.Status {
+	case "done":
+		s.say(ctx, b, "**Xong** "+title+why)
+	case "failed":
+		s.say(ctx, b, "**Thất bại** "+title+why)
+	case "skipped":
+		s.say(ctx, b, "**Bỏ qua** "+title+why)
+	case "review":
+		s.say(ctx, b, "**Chờ review kết quả** "+title)
+	case "queued":
+		if it.Attempts > 0 {
+			s.say(ctx, b, "**Làm lại sau** "+title+why)
+		}
+	}
+}
+
+// sayStart is the first line of a run: how it runs, until when.
+func (s *Service) sayStart(ctx context.Context, b storage.BurnSession) {
+	agent := "agent mặc định"
+	if a, err := s.store.Agents().Get(ctx, b.AgentID); err == nil {
+		agent = a.Name
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "**Burn bắt đầu** · %s · tối đa %d việc song song", agent, max(b.MaxParallel, 1))
+	if b.EndsAt != nil {
+		fmt.Fprintf(&sb, " · tắt lúc %s", b.EndsAt.Local().Format("02/01 15:04"))
+	}
+	if b.RunBranch != "" {
+		fmt.Fprintf(&sb, " · nhánh `%s`", b.RunBranch)
+	}
+	if b.Focus != "" {
+		sb.WriteString("\nTrọng tâm: " + oneLine(b.Focus, 300))
+	}
+	s.say(ctx, b, sb.String())
+}
