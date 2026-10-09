@@ -62,6 +62,7 @@ type workflowDTO struct {
 	HasUpdate   bool              `json:"has_update"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 	LastRun     *workflowRunDTO   `json:"last_run"`
+	Version     string            `json:"version"`
 }
 
 type workflowRunDTO struct {
@@ -116,7 +117,8 @@ func (s *server) toWorkflowRunDTO(ctx context.Context, r storage.WorkflowRun) wo
 
 func (s *server) toWorkflowDTO(ctx context.Context, w storage.Workflow, withRun bool) workflowDTO {
 	d := workflowDTO{ID: w.ID, ProjectID: w.ProjectID, Key: w.Key, Name: w.Name, Description: w.Description, Enabled: w.Enabled, Source: w.Source,
-		Bindings: w.Bindings, SourceKey: w.SourceKey, UpdatedAt: w.UpdatedAt, Roles: []workflow.Role{}, Inputs: []workflow.Field{}, Outputs: []workflow.Field{}, Gates: []workflow.Gate{}, Parallel: [][]string{}, Brief: []string{}}
+		Bindings: w.Bindings, SourceKey: w.SourceKey, UpdatedAt: w.UpdatedAt, Roles: []workflow.Role{}, Inputs: []workflow.Field{}, Outputs: []workflow.Field{}, Gates: []workflow.Gate{}, Parallel: [][]string{}, Brief: []string{},
+		Version: workflowVersion(w)}
 	if def, err := workflow.Parse(w.Source); err != nil {
 		d.Error = err.Error()
 	} else {
@@ -184,6 +186,7 @@ type workflowInput struct {
 	Source   *string           `json:"source"` // the whole file
 	Bindings map[string]string `json:"bindings"`
 	Enabled  *bool             `json:"enabled"`
+	Version  string            `json:"version"` // ADR-072: the version read when the edit started; "" skips the check
 	// ConversationID: the chat that wrote it (read back by the config registry; unused)
 	ConversationID string `json:"conversation_id"`
 }
@@ -262,6 +265,9 @@ func (s *server) updateWorkflow(w http.ResponseWriter, r *http.Request) {
 	before, err := s.cfg.Store.Workflows().Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.workflowError(w, r, err)
+		return
+	}
+	if conflicted(w, in.Version, workflowVersion(before)) {
 		return
 	}
 	x, err := s.cfg.Workflows.Update(r.Context(), before.ID, workflow.Change{Source: in.Source, Bindings: in.Bindings, Enabled: in.Enabled})

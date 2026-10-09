@@ -133,11 +133,27 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) {
 		a.NextRunAt = &next
 		_ = r.store.Automations().Update(ctx, a)
 		if n, _ := r.store.Jobs().Active(ctx, "automation", a.ID); n >= a.Parallel() {
+			r.recordSkippedBusy(ctx, a) // leave a trace: this tick was dropped, not silently lost
 			continue // as many runs as it may have are still going: none more, none stopped (ADR-082)
 		}
 		_, _, _ = r.enqueueAt(ctx, now, a, "schedule", "", "", "", false)
 	}
 	r.StartReady(ctx, now)
+}
+
+// recordSkippedBusy leaves a trace that a tick was dropped because the
+// automation's own runs already fill its Parallel() cap (ADR-082): without
+// this, a tick silently vanishes — no job row, no log, nothing to show on
+// the dashboard. Consecutive busy ticks fold into the one record already
+// there, so a run that takes far longer than the schedule's interval leaves
+// one mark per busy spell instead of one per tick.
+func (r *Runner) recordSkippedBusy(ctx context.Context, a storage.Automation) {
+	jobs, err := r.store.Jobs().List(ctx, storage.JobFilter{Origin: "automation", OriginID: a.ID, Limit: 1})
+	if err == nil && len(jobs) > 0 && jobs[0].Status == "skipped" && jobs[0].ErrorCode == "busy" {
+		return // already marked this busy spell: don't spam one row per tick
+	}
+	_, _ = r.store.Jobs().Create(ctx, storage.Job{ProjectID: a.ProjectID, Kind: kindOf(a.Action), Origin: "automation", OriginID: a.ID,
+		Trigger: "schedule", Status: "skipped", ErrorCode: "busy", Error: "lượt trước chưa xong, bỏ lượt này", Title: a.Name, AgentID: a.AgentID})
 }
 
 // StartReady starts due pending jobs while slots are free. It never blocks:

@@ -25,6 +25,9 @@ var (
 	ErrBadCap      = errors.New("ngưỡng dừng chỉ cho giới hạn 5 giờ, tuần; từ 1 tới 100%")
 	// ErrKeyRequiredForNewURL: a stored key never follows a changed endpoint.
 	ErrKeyRequiredForNewURL = errors.New("đổi địa chỉ API thì phải nhập lại API key (key đã lưu không được gửi tới địa chỉ mới)")
+	// ErrIsDefault: deleting the default connection would leave every agent
+	// without ProviderID (and Default()) unable to resolve a model.
+	ErrIsDefault = errors.New("đây là kết nối mặc định, hãy chọn kết nối khác làm mặc định trước khi xóa")
 )
 
 // Service is the provider use-case layer.
@@ -188,6 +191,51 @@ func (s *Service) Update(ctx context.Context, id string, in Input) (storage.Prov
 		return p, err
 	}
 	return s.store.Providers().Get(ctx, id)
+}
+
+// Delete removes a provider. The default connection cannot be deleted
+// (ErrIsDefault): without it, every agent with no ProviderID of its own
+// breaks on every run (ResolveModel → Default()).
+func (s *Service) Delete(ctx context.Context, id string) error {
+	p, err := s.store.Providers().Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if p.IsDefault {
+		return ErrIsDefault
+	}
+	return s.store.Providers().Delete(ctx, id)
+}
+
+// AgentsUsing returns, across every project, the agents whose own ProviderID
+// or fallback list names providerID. Used to warn before a delete unlinks
+// them (ON DELETE SET NULL silently falls them back to the default).
+func (s *Service) AgentsUsing(ctx context.Context, providerID string) ([]storage.Agent, error) {
+	repos, err := s.store.Repos().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []storage.Agent
+	for _, repo := range repos {
+		agents, err := s.store.Agents().List(ctx, repo.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range agents {
+			if a.ProviderID == providerID {
+				out = append(out, a)
+				continue
+			}
+			for _, entry := range a.FallbackProviderIDs {
+				id, _ := storage.SplitFallback(entry)
+				if id == providerID {
+					out = append(out, a)
+					break
+				}
+			}
+		}
+	}
+	return out, nil
 }
 
 // APIKey returns the usable key: from the env var when configured, else decrypted.

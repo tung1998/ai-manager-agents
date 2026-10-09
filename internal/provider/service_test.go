@@ -279,3 +279,59 @@ func TestChainSkipsOffAndKeepsModels(t *testing.T) {
 		t.Fatalf("all off = %v", err)
 	}
 }
+
+// Deleting the default connection must fail: every agent with no ProviderID
+// of its own resolves through Default() and would break on every run.
+func TestDeleteRefusesDefault(t *testing.T) {
+	svc, st, srv := setup(t)
+	ctx := context.Background()
+	def, _ := svc.Create(ctx, provider.Input{Name: "Claude", Kind: storage.ProviderAnthropic, BaseURL: srv.URL, APIKey: ptr("sk-ant-good-key-1234")})
+	if err := svc.Delete(ctx, def.ID); !errors.Is(err, provider.ErrIsDefault) {
+		t.Fatalf("delete default err = %v, want ErrIsDefault", err)
+	}
+	if _, err := st.Providers().Get(ctx, def.ID); err != nil {
+		t.Fatalf("default connection was deleted: %v", err)
+	}
+}
+
+// Deleting a non-default connection an agent points to must succeed: the
+// agent is unlinked (ON DELETE SET NULL) and keeps running on the default.
+func TestDeleteNonDefaultUnlinksAgent(t *testing.T) {
+	svc, st, srv := setup(t)
+	ctx := context.Background()
+	def, _ := svc.Create(ctx, provider.Input{Name: "Claude", Kind: storage.ProviderAnthropic, BaseURL: srv.URL, APIKey: ptr("sk-ant-good-key-1234")})
+	other, _ := svc.Create(ctx, provider.Input{Name: "Local", Kind: storage.ProviderOpenAICompatible, BaseURL: "http://x/v1"})
+	repo, err := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/code/shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := st.Agents().Create(ctx, storage.Agent{ProjectID: repo.ID, Key: "own", Name: "Own", ModelTier: "fast", ProviderID: other.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb, err := st.Agents().Create(ctx, storage.Agent{ProjectID: repo.ID, Key: "fb", Name: "Fb", ModelTier: "fast", FallbackProviderIDs: []string{other.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := svc.AgentsUsing(ctx, other.ID)
+	if err != nil || len(agents) != 2 {
+		t.Fatalf("AgentsUsing = %v, %v", agents, err)
+	}
+
+	if err := svc.Delete(ctx, other.ID); err != nil {
+		t.Fatalf("delete non-default: %v", err)
+	}
+	if _, err := st.Providers().Get(ctx, other.ID); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("provider still exists: %v", err)
+	}
+	gotOwn, err := st.Agents().Get(ctx, own.ID)
+	if err != nil || gotOwn.ProviderID != "" {
+		t.Fatalf("own agent not unlinked: %+v, %v", gotOwn, err)
+	}
+	_ = fb
+	// def is still the default, so the unlinked agent still resolves.
+	if p, _, err := svc.ResolveModel(ctx, gotOwn); err != nil || p.ID != def.ID {
+		t.Fatalf("ResolveModel after unlink = %+v, %v", p, err)
+	}
+}

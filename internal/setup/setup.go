@@ -173,6 +173,9 @@ func Apply(t team.Pack, changes []AgentChange) team.Pack {
 			}
 			if c.ReadOnly != nil {
 				a.Permissions.ReadOnly = *c.ReadOnly
+				if !a.Permissions.ReadOnly {
+					a.Permissions.RequiresApproval = true // writes always need a human
+				}
 			}
 		case "add":
 			if key == "" || idx(key) >= 0 {

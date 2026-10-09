@@ -342,6 +342,7 @@ export interface ProjectWorkflow {
   has_update: boolean // that one changed since
   updated_at: string
   last_run: WorkflowRun | null
+  version: string // ADR-072: send back on PATCH so a stale save 409s instead of overwriting
 }
 
 export const accessIcon: Record<WorkflowAccess, string> = {
