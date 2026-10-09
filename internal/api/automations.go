@@ -108,8 +108,18 @@ func (s *server) toAutomationDTO(r *http.Request, a storage.Automation) automati
 	if trigger.IsChannel(a.Source) {
 		d.Bot, d.BotStatus = s.botOf(r, a)
 	}
-	if jobs, err := s.cfg.Store.Jobs().List(r.Context(), storage.JobFilter{Origin: "automation", OriginID: a.ID, Limit: 1}); err == nil && len(jobs) > 0 {
-		j := s.toJobDTO(r, jobs[0], nil)
+	// a "skipped/busy" trace (ADR-082: a tick dropped for hitting Parallel())
+	// must not hide a run still going: look a little further back for the
+	// latest job that isn't one of those before falling back to it.
+	if jobs, err := s.cfg.Store.Jobs().List(r.Context(), storage.JobFilter{Origin: "automation", OriginID: a.ID, Limit: 5}); err == nil && len(jobs) > 0 {
+		last := jobs[0]
+		for _, j := range jobs {
+			if !(j.Status == "skipped" && j.ErrorCode == "busy") {
+				last = j
+				break
+			}
+		}
+		j := s.toJobDTO(r, last, nil)
 		d.LastJob = &j
 	}
 	return d

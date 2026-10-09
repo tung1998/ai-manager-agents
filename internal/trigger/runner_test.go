@@ -450,8 +450,20 @@ func TestScheduleRunsInParallelUpToItsLimit(t *testing.T) {
 	running() // now as many as it may have
 	before := count()
 	r.Tick(ctx, time.Now().UTC())
+	if count() != before+1 {
+		t.Fatalf("at its limit a new run started (or no skipped trace left): %d → %d", before, count())
+	}
+	jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID, Status: "skipped"})
+	if len(jobs) != 1 || jobs[0].ErrorCode != "busy" {
+		t.Fatalf("want one skipped/busy trace for the dropped tick, got %+v", jobs)
+	}
+	a, _ = st.Automations().Get(ctx, a.ID)
+	a.NextRunAt = &past
+	st.Automations().Update(ctx, a)
+	before = count()
+	r.Tick(ctx, time.Now().UTC()) // still busy: a second dropped tick must not add a second trace
 	if count() != before {
-		t.Fatalf("at its limit a new run started: %d → %d", before, count())
+		t.Fatalf("a second busy tick added another row: %d → %d", before, count())
 	}
 	if (storage.Automation{KeepContext: true, Limits: storage.AutomationLimits{MaxParallel: 3}}).Parallel() != 1 {
 		t.Fatal("a kept conversation ran in parallel")
