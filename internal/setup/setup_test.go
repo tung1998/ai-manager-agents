@@ -115,6 +115,52 @@ func TestBuildReportsProblems(t *testing.T) {
 	}
 }
 
+func TestApplyUpdateReadOnlyFalseForcesApproval(t *testing.T) {
+	p, problems, err := setup.Build("team", []setup.AgentChange{
+		{Action: "update", Key: "product-manager", ReadOnly: boolPtr(false), Reason: "cần ghi file"},
+	})
+	if err != nil || len(problems) != 0 {
+		t.Fatalf("problems = %v, %v", problems, err)
+	}
+	var found bool
+	for _, a := range p.Agents {
+		if a.Key != "product-manager" {
+			continue
+		}
+		found = true
+		if a.Permissions.ReadOnly {
+			t.Fatal("ReadOnly phải là false sau update")
+		}
+		if !a.Permissions.RequiresApproval {
+			t.Fatal("agent ghi được sau update phải RequiresApproval=true")
+		}
+	}
+	if !found {
+		t.Fatal("agent product-manager không còn trong pack")
+	}
+}
+
+func TestApplyUpdateWithoutReadOnlyKeepsApproval(t *testing.T) {
+	p, problems, err := setup.Build("team", []setup.AgentChange{
+		{Action: "update", Key: "team-lead", Name: "Trưởng nhóm mới", Reason: "đổi tên"},
+	})
+	if err != nil || len(problems) != 0 {
+		t.Fatalf("problems = %v, %v", problems, err)
+	}
+	for _, a := range p.Agents {
+		if a.Key != "team-lead" {
+			continue
+		}
+		if a.Permissions.RequiresApproval {
+			t.Fatal("update không đụng ReadOnly thì không được tự bật RequiresApproval")
+		}
+		return
+	}
+	t.Fatal("agent team-lead không còn trong pack")
+}
+
+func boolPtr(b bool) *bool { return &b }
+
 func TestNoProvider(t *testing.T) {
 	dir := t.TempDir()
 	st, _ := sqlite.Open(filepath.Join(dir, "o.db"))
