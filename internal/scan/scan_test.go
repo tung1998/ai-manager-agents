@@ -81,3 +81,50 @@ func TestScan(t *testing.T) {
 		t.Fatalf("text too long or missing docs: %d", len(s.Text()))
 	}
 }
+
+func TestScanTests(t *testing.T) {
+	cases := []struct {
+		name string
+		file string
+		want string
+	}{
+		{"go test file", "pkg/foo_test.go", "Go"},
+		{"js spec file", "src/foo.spec.ts", "JS/TS"},
+		{"js test file", "src/foo.test.ts", "JS/TS"},
+		{"jest tests dir", "__tests__/foo.js", "JS/TS"},
+		{"pytest conftest", "tests/conftest.py", "Python"},
+		{"pytest ini", "pytest.ini", "Python"},
+		{"phpunit", "phpunit.xml", "PHP"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, root, c.file, "x")
+			s, err := scan.Scan(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, x := range s.Tests {
+				if x == c.want {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("Tests = %v, want to contain %q", s.Tests, c.want)
+			}
+		})
+	}
+}
+
+func TestScanNoTests(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "main.go", "package main")
+	s, err := scan.Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Tests) != 0 {
+		t.Fatalf("Tests = %v, want empty", s.Tests)
+	}
+}
