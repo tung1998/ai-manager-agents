@@ -245,6 +245,9 @@ func (c *codexCLI) Complete(ctx context.Context, req Request) (Result, error) {
 			res.InputTokens, res.OutputTokens = ev.Usage.InputTokens, ev.Usage.OutputTokens
 		}
 	}
+	if err := sc.Err(); err != nil {
+		return Result{}, fmt.Errorf("codex: đọc output lỗi: %w", err)
+	}
 	if res.Text == "" {
 		return Result{}, errors.New("codex: không có câu trả lời trong output")
 	}

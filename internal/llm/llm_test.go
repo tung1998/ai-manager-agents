@@ -1,6 +1,7 @@
 package llm_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -150,5 +151,27 @@ echo '{"type":"turn.completed","usage":{"input_tokens":9,"output_tokens":4}}'
 	res, err := c.Complete(context.Background(), llm.Request{Model: "gpt-x", Prompt: "hi"})
 	if err != nil || res.Text != "done" || res.InputTokens != 9 {
 		t.Fatalf("Complete = %+v, %v", res, err)
+	}
+}
+
+// TestCodexCLILineTooLong: an event line over the scanner's 8MB buffer must
+// fail loudly, not silently keep an earlier agent_message with a nil error.
+func TestCodexCLILineTooLong(t *testing.T) {
+	bin := fakeBin(t, "codex", `
+if [ "$1" = "--version" ]; then echo "codex-cli 1.2.3"; exit 0; fi
+cat >/dev/null
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"early"}}'
+head -c 9000000 /dev/zero | tr '\0' a
+`)
+	c, _ := llm.New(storage.Provider{Kind: storage.ProviderCodexCLI, BaseURL: bin}, "", llm.Options{})
+	res, err := c.Complete(context.Background(), llm.Request{Model: "gpt-x", Prompt: "hi"})
+	if err == nil {
+		t.Fatalf("Complete = %+v, want error (line too long)", res)
+	}
+	if !errors.Is(err, bufio.ErrTooLong) {
+		t.Fatalf("Complete err = %v, want wrapping bufio.ErrTooLong", err)
+	}
+	if res.Text == "early" {
+		t.Fatalf("Complete returned stale text %q with error %v", res.Text, err)
 	}
 }
