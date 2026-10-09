@@ -67,3 +67,70 @@ func (s *server) eventTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// eventTurn follows an answer being written on the caller's open page's
+// stream ({sid, turn, from, on}), as "turn" events {turn, events}, instead
+// of a stream of its own: a tab keeps one connection to office however many
+// answers it follows (ADR-127). from: the first event wanted (after a
+// reconnect: the one after the last seen). 404: the answer has ended (the
+// page reloads the thread) or the stream is gone.
+func (s *server) eventTurn(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		SID  int    `json:"sid"`
+		Turn string `json:"turn"`
+		From int    `json:"from"`
+		On   bool   `json:"on"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	key := fmt.Sprintf("%d:%s", in.SID, in.Turn)
+	if old, ok := s.turnFollows.LoadAndDelete(key); ok {
+		close(old.(chan struct{}))
+	}
+	if !in.On {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	turn, ok := s.cfg.Chat.Turn(in.Turn)
+	if !ok || !s.mayOpen(r, turn.ConversationID) {
+		writeError(w, http.StatusNotFound, "Lượt trả lời đã kết thúc hoặc không tồn tại")
+		return
+	}
+	var sub *events.Sub
+	if s.cfg.Events != nil {
+		sub, ok = s.cfg.Events.Get(in.SID, userFrom(r).ID)
+	}
+	if sub == nil || !ok {
+		writeError(w, http.StatusNotFound, "Không có luồng sự kiện này.")
+		return
+	}
+	stop := make(chan struct{})
+	if prev, loaded := s.turnFollows.Swap(key, stop); loaded { // a second ask at once: the last wins
+		close(prev.(chan struct{}))
+	}
+	go func() {
+		defer s.turnFollows.CompareAndDelete(key, stop)
+		seq := in.From
+		for {
+			evs, done, wake := turn.Since(seq)
+			if len(evs) > 0 {
+				if !s.cfg.Events.SendWait(sub, events.Event{Name: "turn", Data: map[string]any{"turn": in.Turn, "events": evs}}, stop) {
+					return
+				}
+				seq = evs[len(evs)-1].Seq + 1
+			}
+			if done {
+				return
+			}
+			select {
+			case <-wake:
+			case <-stop:
+				return
+			case <-sub.Gone():
+				return
+			}
+		}
+	}()
+	w.WriteHeader(http.StatusNoContent)
+}

@@ -43,11 +43,36 @@ export function useLive(tables: string[] | (() => string[]), fn: () => unknown) 
   if (getCurrentInstance()) onBeforeUnmount(() => listeners.delete(l))
 }
 
+// Kept data (ADR-127): what a page loaded stays when it is left; coming
+// back shows it at once. It is loaded again only when one of its tables
+// changed meanwhile (the stream says so) or the stream was down; then the
+// kept data shows while the new loads.
+const kept = new Map<string, { tables: string[], stale: boolean }>()
+function markStale(changed: string[]) {
+  const all = changed.includes('*')
+  kept.forEach((k) => { if (all || k.tables.includes('*') || k.tables.some(t => changed.includes(t))) k.stale = true })
+}
+function keptData(tables: () => string[]) {
+  return (key: string, app: ReturnType<typeof useNuxtApp>, ctx: { cause: string }) => {
+    const k = kept.get(key)
+    kept.set(key, { tables: tables(), stale: false }) // what is fetched now is current
+    if (ctx.cause !== 'initial' || !k) return undefined
+    const data = app.payload.data[key]
+    if (data === undefined) return undefined
+    if (k.stale) setTimeout(() => { void app.callHook('app:data:refresh', [key]) }) // show what was kept, load the new behind it
+    return data
+  }
+}
+function keepOpts(opts: object | undefined, tables: () => string[]) {
+  return { getCachedData: keptData(tables), ...opts }
+}
+
 // usePushedFetch is useFetch for data the server pushes as it changes
 // (ADR-078): the page puts each change in place; loaded again only back
-// online (what came meanwhile may be missed).
+// online (what came meanwhile may be missed), or on coming back to it after
+// its tables changed.
 export const usePushedFetch = ((url: MaybeRefOrGetter<string>, opts?: object) => {
-  const res = useFetch(url as never, opts as never)
+  const res = useFetch(url as never, keepOpts(opts, () => tablesFor(toValue(url) ?? '')) as never)
   useLive(['*'], () => res.refresh())
   return res
 }) as typeof useFetch
@@ -60,7 +85,7 @@ export function onLiveEvent<T = any>(name: string, fn: (data: T) => void) { // e
   eventListeners.get(name)!.add(fn)
   if (getCurrentInstance()) onBeforeUnmount(() => eventListeners.get(name)?.delete(fn))
 }
-const pushed = ['message', 'conversation', 'conversation.deleted', 'incidents', 'mcp.status']
+const pushed = ['message', 'conversation', 'conversation.deleted', 'incidents', 'mcp.status', 'git']
 let nuxtApp: ReturnType<typeof tryUseNuxtApp> = null
 
 // onLiveChange hears every notice as it comes (the chat's own merging).
@@ -71,7 +96,7 @@ export function onLiveChange(fn: (tables: string[]) => void) {
 
 // useLiveFetch is useFetch that refreshes when what it shows changes.
 export const useLiveFetch = ((url: MaybeRefOrGetter<string>, opts?: object) => {
-  const res = useFetch(url as never, opts as never)
+  const res = useFetch(url as never, keepOpts(opts, () => tablesFor(toValue(url) ?? '')) as never)
   const lazyStart = (opts as { immediate?: boolean } | undefined)?.immediate === false
   useLive(() => tablesFor(toValue(url) ?? ''), () => {
     if (lazyStart && res.status.value === 'idle') return // not started on purpose: a change does not start it
@@ -89,6 +114,7 @@ export function liveChanged(tables: string[]) {
   timer = setTimeout(() => {
     const changed = [...pending]
     pending.clear()
+    markStale(changed) // kept data of pages not open; an open page refreshes now
     rawListeners.forEach((fn) => { try { fn(changed) } catch { /* one page's error is its own */ } })
     const all = changed.includes('*')
     listeners.forEach((l) => {
@@ -110,6 +136,46 @@ export async function liveTopic(topic: string, on: boolean) {
     await $fetch('/api/events/topics', { method: 'POST', body: { sid, topic, on } })
   } catch { /* the stream may be reconnecting: it asks again */ }
 }
+// followTurn follows an answer being written on this tab's one stream
+// (ADR-127), not a stream of its own: a browser opens only a few
+// connections to office, and every request waits behind them. fn gets its
+// events in order (through reconnects); gone: it had ended before it could be
+// followed (reload what it wrote). The returned func stops following.
+export interface TurnEvent { seq: number, type: string }
+interface Followed { next: number, fn: (ev: any) => void, gone: () => void } // eslint-disable-line @typescript-eslint/no-explicit-any
+const turns = new Map<string, Followed>()
+export function followTurn<T extends TurnEvent>(id: string, fn: (ev: T) => void, gone: () => void) {
+  const f: Followed = { next: 0, fn, gone }
+  turns.set(id, f)
+  void askTurn(id, f)
+  return () => {
+    if (turns.get(id) !== f) return
+    turns.delete(id)
+    if (sid !== null) $fetch('/api/events/turns', { method: 'POST', body: { sid, turn: id, on: false } }).catch(() => {})
+  }
+}
+async function askTurn(id: string, f: Followed) {
+  const at = sid
+  if (at === null) return // the stream's hello asks
+  try {
+    await $fetch('/api/events/turns', { method: 'POST', body: { sid: at, turn: id, from: f.next, on: true } })
+  } catch {
+    if (turns.get(id) !== f || sid !== at) return // stopped, or a new stream asks again
+    turns.delete(id)
+    f.gone()
+  }
+}
+function onTurn(d: { turn: string, events: TurnEvent[] }) {
+  const f = turns.get(d.turn)
+  for (const ev of d.events ?? []) {
+    if (!f || turns.get(d.turn) !== f) return // stopped meanwhile
+    if (ev.seq < f.next) continue // seen before a reconnect
+    f.next = ev.seq + 1
+    if (ev.type === 'done' || ev.type === 'error') turns.delete(d.turn)
+    try { f.fn(ev) } catch { /* its own */ }
+  }
+}
+
 let retry: ReturnType<typeof setTimeout> | undefined
 let backoff = 1000
 export function startLive() {
@@ -125,6 +191,7 @@ export function startLive() {
   // a refused stream (signed out, office restarting: 401/502) is not retried
   // by the browser: try again, slower each time
   es.addEventListener('error', () => {
+    if (source === es) sid = null // its id ends with it: the next stream's hello says the new one
     if (es.readyState !== EventSource.CLOSED || source !== es) return
     source = null
     clearTimeout(retry)
@@ -133,6 +200,7 @@ export function startLive() {
   })
   es.addEventListener('hello', (e) => {
     try { sid = JSON.parse((e as MessageEvent).data).sid } catch { sid = null }
+    turns.forEach((f, id) => { void askTurn(id, f) }) // a new stream: follow them again from where they were
     onSysStream()
   })
   // "Cần xử lý", worked out by the server for this person: put in place
@@ -149,6 +217,9 @@ export function startLive() {
       eventListeners.get(name)?.forEach((fn) => { try { fn(data) } catch { /* its own */ } })
     })
   }
+  es.addEventListener('turn', (e) => {
+    try { onTurn(JSON.parse((e as MessageEvent).data)) } catch { /* a bad one */ }
+  })
   for (const name of ['stats', 'machine']) {
     es.addEventListener(name, (e) => {
       try { onSysEvent(name, JSON.parse((e as MessageEvent).data)) } catch { /* a bad one: the next comes */ }

@@ -187,7 +187,7 @@ const sending = ref(false) // closes the window before streaming.value is set, i
 const liveText = ref('')
 const liveTools = ref<ToolCall[]>([])
 const liveStatus = ref('')
-let source: EventSource | null = null
+let unfollow: (() => void) | null = null // the answer followed on the tab's stream (ADR-127)
 let turnId = ''
 
 // older messages, a page at a time, the reading place kept
@@ -353,37 +353,30 @@ async function afterTurn() {
 const members = ref<Member[]>([])
 const running = ref<RunningTurn[]>([])
 const background = computed(() => running.value.filter(r => r.background))
-const bgSources = new Map<string, EventSource>()
+const bgFollows = new Map<string, () => void>()
 function applyGroup(m?: Member[], r?: RunningTurn[]) {
   members.value = m ?? []
   running.value = r ?? []
   for (const b of background.value) {
-    if (bgSources.has(b.turn_id)) continue
-    const es = new EventSource(`/api/chat/turns/${b.turn_id}/stream`)
-    bgSources.set(b.turn_id, es)
-    es.onmessage = (msg) => {
-      const ev = JSON.parse(msg.data) as ChatEvent
+    if (bgFollows.has(b.turn_id)) continue
+    bgFollows.set(b.turn_id, followTurn<ChatEvent>(b.turn_id, (ev) => {
       if (ev.type !== 'done' && ev.type !== 'error') return
       if (ev.message && !messages.value.some(x => x.id === ev.message!.id)) messages.value.push(ev.message)
-      es.close()
-      bgSources.delete(b.turn_id)
+      bgFollows.delete(b.turn_id)
       scrollDown()
       afterTurn()
-    }
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
-        bgSources.delete(b.turn_id)
-        afterTurn()
-      }
-    }
+    }, () => {
+      bgFollows.delete(b.turn_id)
+      afterTurn()
+    }))
   }
   // the one who asked reports back: follow it when nothing else is streaming
   const fg = running.value.find(x => !x.background)
   if (fg && !streaming.value) follow(fg.turn_id)
 }
 function stopBackground() {
-  bgSources.forEach(es => es.close())
-  bgSources.clear()
+  bgFollows.forEach(stop => stop())
+  bgFollows.clear()
 }
 async function cancelTurn(id: string) {
   await $fetch(`/api/chat/turns/${id}/cancel`, { method: 'POST', body: {} }).catch(() => {})
@@ -596,9 +589,7 @@ function follow(id: string) {
   liveText.value = ''
   liveTools.value = []
   liveStatus.value = ''
-  source = new EventSource(`/api/chat/turns/${id}/stream`)
-  source.onmessage = (m) => {
-    const ev = JSON.parse(m.data) as ChatEvent
+  unfollow = followTurn<ChatEvent>(id, (ev) => {
     switch (ev.type) {
       case 'status': liveStatus.value = ev.text ?? ''; break
       case 'text': liveText.value += ev.text ?? ''; scrollDown(); break
@@ -624,26 +615,23 @@ function follow(id: string) {
         scrollDown()
         break
     }
-  }
-  source.onerror = () => {
-    // the turn is gone (finished before we connected): reload the thread
-    if (source?.readyState === EventSource.CLOSED) {
-      finishStream()
-      if (current.value) open(current.value)
-    }
-  }
+  }, () => {
+    // the turn is gone (finished before we followed it): reload the thread
+    finishStream()
+    if (current.value) open(current.value)
+  })
 }
 
 function finishStream() {
-  source?.close()
-  source = null
+  unfollow?.()
+  unfollow = null
   streaming.value = false
   liveText.value = ''
   liveTools.value = []
 }
 function stopStream() {
-  source?.close()
-  source = null
+  unfollow?.()
+  unfollow = null
   streaming.value = false
 }
 // "Gửi ngay" on a queued message (as the CLI): the answer being written stops,

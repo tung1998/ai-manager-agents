@@ -9,6 +9,7 @@ const en: Record<keyof typeof vi, string> = {
   'git.push': 'Push ({n} commits)',
   'git.pushNew': 'Push and create the branch on the remote',
   'git.pushed': 'Pushed',
+  'git.pushRunning': 'Pushing in the background, you will be told when it ends',
   'git.fetch': 'Fetch from remote',
   'git.noUpstream': 'not on the remote yet',
   'git.synced': 'in sync',

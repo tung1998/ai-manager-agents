@@ -41,6 +41,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/burn-review-profiles/{profile}", admin(s.deleteBurnProfile))
 	mux.Handle("GET /api/system/summary", admin(s.systemSummary))
 	mux.Handle("POST /api/events/topics", auth(s.eventTopic))
+	mux.Handle("POST /api/events/turns", auth(s.eventTurn))
 	mux.Handle("POST /api/system/processes/{pid}/stop", admin(s.stopProcess(false)))
 	mux.Handle("POST /api/system/processes/{pid}/kill", admin(s.stopProcess(true)))
 

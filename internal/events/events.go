@@ -41,6 +41,7 @@ type Sub struct {
 	viewer Viewer
 	ch     chan Event
 	topics map[string]bool // what it asked for besides the rest (machine…)
+	gone   chan struct{}   // closed when the page stops following
 }
 
 // Bus fans notices out to the dashboard's open pages: the tables written
@@ -188,7 +189,7 @@ func (b *Bus) Subscribe(v Viewer) (*Sub, func()) {
 	id := b.next
 	b.next++
 	ch := make(chan Event, 32)
-	s := &Sub{ID: id, C: ch, viewer: v, ch: ch, topics: map[string]bool{}}
+	s := &Sub{ID: id, C: ch, viewer: v, ch: ch, topics: map[string]bool{}, gone: make(chan struct{})}
 	b.subs[id] = s
 	on := b.onSub
 	b.mu.Unlock()
@@ -198,9 +199,39 @@ func (b *Bus) Subscribe(v Viewer) (*Sub, func()) {
 	return s, func() {
 		b.mu.Lock()
 		defer b.mu.Unlock()
-		delete(b.subs, id)
+		if _, ok := b.subs[id]; ok {
+			delete(b.subs, id)
+			close(s.gone)
+		}
 	}
 }
+
+// Get is page id, if it is userID's and still following.
+func (b *Bus) Get(id int, userID string) (*Sub, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s, ok := b.subs[id]
+	if !ok || s.viewer.UserID != userID {
+		return nil, false
+	}
+	return s, true
+}
+
+// SendWait gives ev to page s, waiting while it is behind (what must not be
+// lost, like an answer's text as it is written); false: the page stopped
+// following, or stop closed.
+func (b *Bus) SendWait(s *Sub, ev Event, stop <-chan struct{}) bool {
+	select {
+	case s.ch <- ev:
+		return true
+	case <-s.gone:
+	case <-stop:
+	}
+	return false
+}
+
+// Gone is closed when the page stops following.
+func (s *Sub) Gone() <-chan struct{} { return s.gone }
 
 // SetTopic turns a topic on or off for page id, if it is userID's.
 func (b *Bus) SetTopic(id int, userID, topic string, on bool) bool {

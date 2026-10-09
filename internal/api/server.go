@@ -110,6 +110,8 @@ type server struct {
 	log     *slog.Logger
 	build   buildInfo // what is running, read once at startup
 
+	turnFollows sync.Map // "sid:turn" → stop: answers a tab follows on its one stream (ADR-127)
+
 	automationMu    sync.Mutex             // guards automationLocks
 	automationLocks map[string]*sync.Mutex // one project's automation create/update at a time (ADR-049 command dedupe)
 }

@@ -2,11 +2,15 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/chat"
+	"bitbucket.org/senprints/agent-office/internal/events"
 	"bitbucket.org/senprints/agent-office/internal/gitops"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -122,11 +126,85 @@ func (s *server) gitFetch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"repo": false})
 		return
 	}
-	if err := gitops.Fetch(r.Context(), p.Path); err != nil {
+	done, err := s.gitBackground(r, p, "fetch", func(ctx context.Context) (any, error) {
+		return nil, gitops.Fetch(ctx, p.Path)
+	})
+	if done && err != nil { // errGitBusy (not done): the one running tells its end
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.writeGitStatus(w, r, p.Path)
+	st, serr := gitops.ReadStatus(r.Context(), p.Path)
+	if serr != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"repo": false, "error": serr.Error()})
+		return
+	}
+	out := map[string]any{"repo": true, "status": st}
+	if !done {
+		out["running"] = "fetch"
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// gitWait is how long a fetch or push request waits for git; a slower one
+// (a big push, a slow remote) goes on in the background and its end comes
+// as a "git" event, so the request does not hold one of the browser's few
+// connections to office for up to a minute (ADR-127).
+var gitWait = 3 * time.Second
+
+// gitRunning: a project's fetch or push in the background, one of each.
+var gitRunning sync.Map
+
+var errGitBusy = errors.New("git của project đang chạy việc này, chờ nó xong")
+
+// gitBackground runs fn (the project's fetch or push) apart from the request
+// and waits up to gitWait. done: it ended (with err); otherwise it goes on
+// (or one already was: errGitBusy) and a "git" event tells the caller's pages its end
+// (project, kind, repo, status, action, error).
+func (s *server) gitBackground(r *http.Request, p storage.Repo, kind string, fn func(context.Context) (any, error)) (done bool, err error) {
+	key := p.ID + ":" + kind
+	if _, busy := gitRunning.LoadOrStore(key, true); busy {
+		return false, errGitBusy
+	}
+	who := userFrom(r).ID
+	ctx := context.WithoutCancel(r.Context())
+	end := make(chan error, 1)
+	waiting := make(chan bool, 1)
+	waiting <- true
+	go func() {
+		defer gitRunning.Delete(key)
+		extra, err := fn(ctx)
+		select {
+		case <-waiting: // the request still waits: it answers
+			end <- err
+			return
+		default:
+		}
+		if s.cfg.Events == nil {
+			return
+		}
+		data := map[string]any{"project": p.ID, "kind": kind, "repo": true}
+		if st, serr := gitops.ReadStatus(ctx, p.Path); serr == nil {
+			data["status"] = st
+		}
+		if err != nil {
+			data["error"] = err.Error()
+		}
+		if extra != nil {
+			data["action"] = extra
+		}
+		s.cfg.Events.Send(events.Event{Name: "git", Data: data}, func(v events.Viewer, _ map[string]bool) bool { return v.UserID == who || v.Admin })
+	}()
+	select {
+	case err := <-end:
+		return true, err
+	case <-time.After(gitWait):
+	}
+	select {
+	case <-waiting: // it did not end: from now on the event tells
+		return false, nil
+	default: // it ended just now
+		return true, <-end
+	}
 }
 
 func (s *server) writeGitStatus(w http.ResponseWriter, r *http.Request, root string) {
@@ -159,7 +237,55 @@ func (s *server) gitPush(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	s.runGitAction(w, r, "git_push", in.TaskID, storage.ActionArgs{})
+	p, ok, err := s.projectRoot(r, r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusBadRequest, "project không gắn thư mục")
+		return
+	}
+	if _, busy := gitRunning.Load(p.ID + ":push"); busy {
+		writeError(w, http.StatusConflict, errGitBusy.Error())
+		return
+	}
+	who := userFrom(r).Email
+	sc := actions.Scope{ProjectID: p.ID, Agent: who, Level: perm.Propose}
+	a, err := s.cfg.Actions.Propose(r.Context(), sc, "git_push", "", "người dùng thao tác trên dashboard", storage.ActionArgs{})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if a.Status != "pending" { // it ran on its own
+		s.writeGitAction(w, r, "git_push", a)
+		return
+	}
+	audit := r.Clone(context.WithoutCancel(r.Context()))
+	var decided storage.Action // read only once it ended (done)
+	done, err := s.gitBackground(r, p, "push", func(ctx context.Context) (any, error) {
+		d, err := s.cfg.Actions.Decide(ctx, a.ID, true, who)
+		if err != nil {
+			return nil, err
+		}
+		decided = d
+		s.auditAction(audit, "git.push", d.ID, map[string]any{"project": d.ProjectID, "status": d.Status})
+		if d.Status == "failed" {
+			return chat.ToActionDTO(d), errors.New(d.Detail)
+		}
+		return chat.ToActionDTO(d), nil
+	})
+	switch {
+	case errors.Is(err, errGitBusy): // another push started meanwhile
+		_, _ = s.cfg.Actions.Decide(r.Context(), a.ID, false, who)
+		writeError(w, http.StatusConflict, err.Error())
+	case !done: // it goes on: a "git" event tells its end
+		writeJSON(w, http.StatusAccepted, map[string]any{"action": chat.ToActionDTO(a), "running": "push"})
+	case decided.ID == "": // not decided
+		writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		s.writeGitAction(w, r, "", decided)
+	}
 }
 
 func (s *server) runGitAction(w http.ResponseWriter, r *http.Request, kind, taskID string, args storage.ActionArgs) {
@@ -177,7 +303,15 @@ func (s *server) runGitAction(w http.ResponseWriter, r *http.Request, kind, task
 			return
 		}
 	}
-	s.auditAction(r, "git."+strings.TrimPrefix(kind, "git_"), a.ID, map[string]any{"project": a.ProjectID, "status": a.Status, "files": len(a.Args.Files)})
+	s.writeGitAction(w, r, kind, a)
+}
+
+// writeGitAction answers with a decided git action (audited first, unless
+// kind is "": its runner did).
+func (s *server) writeGitAction(w http.ResponseWriter, r *http.Request, kind string, a storage.Action) {
+	if kind != "" {
+		s.auditAction(r, "git."+strings.TrimPrefix(kind, "git_"), a.ID, map[string]any{"project": a.ProjectID, "status": a.Status, "files": len(a.Args.Files)})
+	}
 	if a.Status == "failed" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": a.Detail, "action": chat.ToActionDTO(a)})
 		return

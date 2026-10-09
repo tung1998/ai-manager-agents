@@ -3,7 +3,10 @@ package api_test
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -136,4 +139,88 @@ func TestEventsPushChat(t *testing.T) {
 		}
 	}
 	t.Fatalf("pushed = %v", got)
+}
+
+// An answer being written is followed on the page's one stream ("turn"
+// events), not a stream of its own: its events come in order up to done.
+func TestEventsFollowTurn(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	bin := filepath.Join(t.TempDir(), "claude")
+	result := `{"type":"result","subtype":"success","is_error":false,"result":"xong","session_id":"s1","total_cost_usd":0.01,"usage":{"input_tokens":3,"output_tokens":4}}`
+	os.WriteFile(bin, []byte("#!/bin/sh\ncat >/dev/null\nsleep 1\ncat <<'JSON'\n"+
+		`{"type":"system","subtype":"init","session_id":"s1"}`+"\n"+
+		`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"xong"}}}`+"\n"+
+		result+"\nJSON\n"), 0o755)
+	do(t, admin, "POST", e.srv.URL+"/api/providers", map[string]any{"name": "CC", "kind": "claude_cli", "base_url": bin}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "pack": "solo"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{}, nil)
+	cid := body["conversation"].(map[string]any)["id"].(string)
+
+	rctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(rctx, "GET", e.srv.URL+"/api/events", nil)
+	resp, err := admin.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 1<<20), 1<<22)
+	name, sid := "", -1
+	for sid < 0 && sc.Scan() {
+		line := sc.Text()
+		if v, ok := strings.CutPrefix(line, "event: "); ok {
+			name = v
+		}
+		if v, ok := strings.CutPrefix(line, "data: "); ok && name == "hello" {
+			var h struct{ SID int }
+			json.Unmarshal([]byte(v), &h)
+			sid = h.SID
+		}
+	}
+
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/conversations/"+cid+"/messages", map[string]any{"text": "chào"}, nil)
+	turn, _ := body["turn_id"].(string)
+	if r, _ := do(t, admin, "POST", e.srv.URL+"/api/events/turns", map[string]any{"sid": sid + 100, "turn": turn, "on": true}, nil); r.StatusCode != 404 {
+		t.Fatalf("another page's stream = %d", r.StatusCode)
+	}
+	if r, b := do(t, admin, "POST", e.srv.URL+"/api/events/turns", map[string]any{"sid": sid, "turn": turn, "on": true}, nil); r.StatusCode != 204 {
+		t.Fatalf("follow = %d %v", r.StatusCode, b)
+	}
+	var types []string
+	next := 0
+	for sc.Scan() {
+		line := sc.Text()
+		if v, ok := strings.CutPrefix(line, "event: "); ok {
+			name = v
+		}
+		v, ok := strings.CutPrefix(line, "data: ")
+		if !ok || name != "turn" {
+			continue
+		}
+		var d struct {
+			Turn   string
+			Events []struct {
+				Seq  int
+				Type string
+			}
+		}
+		json.Unmarshal([]byte(v), &d)
+		for _, ev := range d.Events {
+			if d.Turn != turn || ev.Seq != next {
+				t.Fatalf("event %v of %s, want seq %d", ev, d.Turn, next)
+			}
+			next++
+			types = append(types, ev.Type)
+		}
+		if n := len(types); n > 0 && (types[n-1] == "done" || types[n-1] == "error") {
+			break
+		}
+	}
+	if got := strings.Join(types, ","); !strings.Contains(got, "text") || !strings.HasSuffix(got, "done") {
+		t.Fatalf("turn events = %s", got)
+	}
 }

@@ -8,6 +8,7 @@ export default {
   'git.push': 'Push ({n} commit)',
   'git.pushNew': 'Push và tạo nhánh trên remote',
   'git.pushed': 'Đã push',
+  'git.pushRunning': 'Đang push ở nền, xong sẽ báo',
   'git.fetch': 'Cập nhật từ remote',
   'git.noUpstream': 'chưa có trên remote',
   'git.synced': 'đã đồng bộ',
