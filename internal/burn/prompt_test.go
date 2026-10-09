@@ -351,7 +351,7 @@ func TestTemplates(t *testing.T) {
 		t.Errorf("the general template keeps the order:\n%s", g)
 	}
 	ux := scanPrompt(storage.BurnSession{Template: "ux"}, w, nil, false)
-	if !strings.Contains(ux, "390px") || !strings.Contains(ux, "screenshot") || strings.Contains(ux, "ROADMAP FIRST") || !strings.Contains(ux, `burn_scan_done(item="w"`) {
+	if !strings.Contains(ux, "390px") || !strings.Contains(ux, "screenshot") || !strings.Contains(ux, "first piece") || strings.Contains(ux, "ROADMAP FIRST") || !strings.Contains(ux, `burn_scan_done(item="w"`) {
 		t.Errorf("ux template:\n%s", ux)
 	}
 	if i := scanPrompt(storage.BurnSession{Template: "ideas"}, w, nil, false); !strings.Contains(i, "product's owner") {

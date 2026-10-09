@@ -60,6 +60,7 @@ Steps, in this order:
 [[- template "roadmap"]][[template "bugs"]][[template "upgrades"]]
 [[- end]]
 [[- end]]
+   Missing what you need to judge your area for real (a way to run it, see it, measure it or test it): building that is the first piece, high priority; record it and say so, never conclude "nothing to do" without it.
    The same mistake in many places is ONE piece. A new idea worth doing (a feature, an integration, a different flow) is a piece too, kind "idea".
 3. Challenge each one before recording it, as a sceptic: read the code again around it. Is it real (not handled elsewhere, not intended, reachable)? Is it worth a worker's time? Drop what does not hold.
    For a bug, write the concrete path that triggers it in real use (what the person or caller does, step by step) and why nothing on that path stops it (a component that disables itself while loading, a lock already held, a server-side check). No such path, only "could happen if": drop it. Most turned-down pieces were exactly this.
