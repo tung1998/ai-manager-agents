@@ -18,6 +18,8 @@ const source = ref('')
 const loaded = ref(!editing.value)
 // a project's workflow: which agent fills each role (the canvas may add some)
 const bindings = ref<Record<string, string>>({})
+// ADR-072: the version read with the data; sent back on save so a stale save 409s instead of overwriting
+const version = ref('')
 onMounted(async () => {
   if (!editing.value) return
   try {
@@ -27,6 +29,7 @@ onMounted(async () => {
       const w = (await $fetch<{ workflow: ProjectWorkflow }>(`/api/workflows/${props.workflowId}`)).workflow
       bindings.value = { ...(w.bindings ?? {}) }
       source.value = w.source
+      version.value = w.version
     }
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -159,7 +162,8 @@ async function save() {
       await $fetch(`/api/workflow-library/${key}`, { method: 'PUT', body: { source: source.value } })
       if (!editing.value) await tieChat(`lib:${key}`)
     } else if (editing.value) {
-      await $fetch(`/api/workflows/${props.workflowId}`, { method: 'PATCH', body: { source: source.value, bindings: bindings.value } })
+      const res = await $fetch<{ workflow: ProjectWorkflow }>(`/api/workflows/${props.workflowId}`, { method: 'PATCH', body: { source: source.value, bindings: bindings.value, version: version.value } })
+      version.value = res.workflow.version
     } else {
       const res = await $fetch<{ workflow: ProjectWorkflow }>(`/api/projects/${props.projectId}/workflows`, { method: 'POST', body: { source: source.value, bindings: bindings.value } })
       await tieChat(`wf:${res.workflow.id}`)

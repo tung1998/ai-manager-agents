@@ -64,6 +64,13 @@ func policyVersion(p perm.Policy) string {
 	}{p.Packs, p.DenyPaths, p.WorktreeLinks, p.QuickCheck, p.QuickChecks})
 }
 
+func workflowVersion(wf storage.Workflow) string {
+	return versionOf(struct {
+		Source   string
+		Bindings map[string]string
+	}{wf.Source, wf.Bindings})
+}
+
 func channelVersion(c storage.Channel) string {
 	return versionOf(struct {
 		Name, AgentID, Mode, Scope, Refusal, Approval, Header, ReplyMode, Defaults string
