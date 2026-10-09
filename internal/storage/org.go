@@ -463,6 +463,10 @@ type Change struct {
 	Kind           string // message | conversation | conversation.deleted
 	ConversationID string
 	Message        *Message
+	// ProjectID/CreatedBy: the deleted conversation's, so a listener can still
+	// scope visibility (e.g. a private assistant chat) once it is gone.
+	ProjectID string
+	CreatedBy string
 }
 
 // MessageHit is a message found by a search of the chats (ADR-086).

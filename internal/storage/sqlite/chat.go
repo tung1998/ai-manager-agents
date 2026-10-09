@@ -242,9 +242,10 @@ func (r chatRepo) ListConversationsTagged(ctx context.Context, projectID, source
 }
 
 func (r chatRepo) DeleteConversation(ctx context.Context, id string) error {
+	conv, _ := r.GetConversation(ctx, id) // best effort: scope the change event even once the row is gone
 	err := execOne(ctx, r.db, `DELETE FROM conversations WHERE id=?`, id)
 	if err == nil {
-		r.tell(storage.Change{Kind: "conversation.deleted", ConversationID: id})
+		r.tell(storage.Change{Kind: "conversation.deleted", ConversationID: id, ProjectID: conv.ProjectID, CreatedBy: conv.CreatedBy})
 	}
 	return err
 }

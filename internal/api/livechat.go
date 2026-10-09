@@ -51,7 +51,8 @@ func (s *server) chatChanged(c storage.Change) {
 	ctx := context.Background()
 	b := s.cfg.Events
 	if c.Kind == "conversation.deleted" {
-		b.Send(events.Event{Name: "conversation.deleted", Data: map[string]any{"id": c.ConversationID}}, nil)
+		see := s.canSee(storage.Conversation{ProjectID: c.ProjectID, CreatedBy: c.CreatedBy})
+		b.Send(events.Event{Name: "conversation.deleted", Data: map[string]any{"id": c.ConversationID}}, see)
 		return
 	}
 	conv, err := s.cfg.Store.Chat().GetConversation(ctx, c.ConversationID)
