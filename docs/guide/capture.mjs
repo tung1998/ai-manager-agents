@@ -5,6 +5,7 @@
 //
 //   make build && make ui-build      # bin/office and dashboard/.output
 //   node docs/guide/capture.mjs
+//   node docs/guide/capture.mjs --mobile [--lang=vi] [--out=dir]   # phone shots for a UX review
 //
 // Env: OFFICE_BIN, OFFICE_UI_DIR, CHROME (paths), KEEP=1 (leave it running).
 import { spawn, execFileSync } from 'node:child_process'
@@ -38,7 +39,12 @@ const UI = 'http://127.0.0.1:12704'
 // --lang=vi: Vietnamese dashboard and sample data, shots in images/vi/ (for vi.html)
 const LANG = (process.argv.find(a => a.startsWith('--lang=')) ?? '--lang=en').slice(7) === 'vi' ? 'vi' : 'en'
 const T = (en, vi) => (LANG === 'vi' ? vi : en)
-const OUT = LANG === 'vi' ? join(here, 'images', 'vi') : join(here, 'images')
+// --mobile: every screen at phone size (390×844), the whole page, into a folder
+// of its own (--out=dir, default the temp dir's agent-office-mobile/), never the
+// guide's images: for a UX review (burn/hunt-ux.md), not for the guide
+const MOBILE = process.argv.includes('--mobile')
+const OUT = MOBILE ? resolve((process.argv.find(a => a.startsWith('--out=')) ?? '').slice(6) || join(tmpdir(), 'agent-office-mobile', LANG))
+  : LANG === 'vi' ? join(here, 'images', 'vi') : join(here, 'images')
 const CONTENT = T('Content & Planning', 'Kế hoạch & Nội dung')
 // --only-missing (or ONLY_MISSING=1) keeps the shots already there
 // --retake=08-permissions,19-bot shoots those again too
@@ -392,7 +398,8 @@ async function browser() {
 async function capture({ ao, shop, lead }) {
   mkdirSync(OUT, { recursive: true })
   const page = await browser()
-  await page.size(1440, 900)
+  if (MOBILE) await page.size(390, 844, true)
+  else await page.size(1440, 900)
   await page.go('/login', 1500)
   await page.eval(`document.cookie = 'office-lang=${LANG}; path=/; max-age=31536000'; localStorage.setItem('nuxt-color-mode', 'light'); true`)
   await page.go('/login', 2000)
@@ -439,13 +446,14 @@ async function capture({ ao, shop, lead }) {
   const take = async (name, path) => {
     if (!want(name)) return
     for (let attempt = 1; attempt <= 2; attempt++) {
-      try { await page.go(path); await page.shot(name); return } catch (e) {
+      try { await page.go(path); await page.shot(name, MOBILE); return } catch (e) {
         log(`(${attempt === 1 ? 'retry' : 'skip'}) ${name}: ${e.message}`)
         await page.reset().catch(err => log('(reset failed)', err.message))
       }
     }
   }
   for (const [name, path] of screens) await take(name, path)
+  if (MOBILE) return // the guide's extras (dark, the update page) are not for a phone review
 
   // dark mode and phone
   const mode = m => page.eval(`localStorage.setItem('nuxt-color-mode', '${m}'); true`).catch(() => {})
