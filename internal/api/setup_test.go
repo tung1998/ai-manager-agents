@@ -47,7 +47,9 @@ func TestSetupFlowAPI(t *testing.T) {
 	}
 
 	answer := "```json\n" + `{"description":"Shop Nuxt.","pack_key":"solo","reason":"Nhỏ","confidence":0.7,
-	  "agent_changes":[{"action":"update","key":"assistant","instructions":"Chạy pnpm test.","reason":"CLAUDE.md"}],"notes":[]}` + "\n```"
+	  "agent_changes":[{"action":"update","key":"assistant","instructions":"Chạy pnpm test.","reason":"CLAUDE.md"}],"notes":[],
+	  "skills":[{"name":"made-up","reason":"x"}],"mcp":[{"name":"context7","reason":"docs"},{"name":"github","reason":"PRs"}],
+	  "quick_checks":".ts .vue: npx eslint {file}"}` + "\n```"
 	srv := fakeClaude(t, answer)
 	do(t, admin, "POST", e.srv.URL+"/api/providers", map[string]any{"name": "Claude", "kind": "anthropic", "base_url": srv.URL, "api_key": "sk-ant-test-0000-key"}, nil)
 
@@ -60,6 +62,13 @@ func TestSetupFlowAPI(t *testing.T) {
 	if prop["pack_key"] != "solo" || len(result["problems"].([]any)) != 0 {
 		t.Fatalf("result = %v", result)
 	}
+	// a skill not in the library is dropped with a warning; MCP picks say what they need
+	if len(prop["skills"].([]any)) != 0 || !strings.Contains(strings.Join(anyStrings(result["warnings"]), ";"), "made-up") {
+		t.Fatalf("skills = %v, warnings = %v", prop["skills"], result["warnings"])
+	}
+	if mcp := prop["mcp"].([]any); len(mcp) != 2 || mcp[1].(map[string]any)["needs"] != "key" || prop["quick_checks"] == "" {
+		t.Fatalf("mcp = %v, quick_checks = %v", prop["mcp"], prop["quick_checks"])
+	}
 
 	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+id+"/setup/build", map[string]any{
 		"pack_key": "team", "changes": []map[string]any{{"action": "add", "key": "Bad Key", "reason": "x"}}}, nil)
@@ -68,9 +77,36 @@ func TestSetupFlowAPI(t *testing.T) {
 	}
 
 	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+id+"/setup/apply", map[string]any{
-		"pack_key": "solo", "changes": prop["agent_changes"], "description": "Shop Nuxt."}, nil)
+		"pack_key": "solo", "changes": prop["agent_changes"], "description": "Shop Nuxt.",
+		"mcp": []string{"context7", "github"}, "skills": []string{"missing-skill"}, "quick_checks": prop["quick_checks"]}, nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("apply = %d %v", resp.StatusCode, body)
+	}
+	ready := map[string]string{}
+	for _, x := range body["ready"].([]any) {
+		it := x.(map[string]any)
+		ready[it["kind"].(string)+":"+it["name"].(string)] = it["status"].(string)
+	}
+	if ready["mcp:context7"] != "ok" || ready["mcp:github"] != "todo" || ready["skill:missing-skill"] != "error" ||
+		ready["quick_check:kiểm tra nhanh"] != "ok" || ready["agents:agent"] != "ok" {
+		t.Fatalf("ready = %v", ready)
+	}
+	_, pol := do(t, admin, "GET", e.srv.URL+"/api/projects/"+id+"/policy", nil, nil)
+	if pp, _ := pol["policy"].(map[string]any); pp == nil || pp["quick_check"] != true || pp["quick_checks"] != ".ts .vue: npx eslint {file}" {
+		t.Fatalf("policy = %v", pol)
+	}
+	_, ms := do(t, admin, "GET", e.srv.URL+"/api/mcp/servers", nil, nil)
+	var c7 map[string]any
+	for _, x := range ms["servers"].([]any) {
+		if m := x.(map[string]any); m["name"] == "context7" {
+			c7 = m
+		}
+		if x.(map[string]any)["name"] == "github" {
+			t.Fatal("an MCP that needs a key must not be added")
+		}
+	}
+	if c7 == nil || c7["kind"] != "stdio" || len(c7["agents"].([]any)) != 1 {
+		t.Fatalf("context7 = %v", c7)
 	}
 	p := body["project"].(map[string]any)
 	if p["description"] != "Shop Nuxt." || p["agent_count"].(float64) != 1 {
@@ -124,4 +160,13 @@ func TestUsageAPIAndBudget(t *testing.T) {
 	if resp.StatusCode != 429 || body["code"] != "budget" {
 		t.Fatalf("over budget = %d %v", resp.StatusCode, body)
 	}
+}
+
+func anyStrings(v any) []string {
+	var out []string
+	list, _ := v.([]any)
+	for _, x := range list {
+		out = append(out, x.(string))
+	}
+	return out
 }

@@ -142,6 +142,9 @@ func New(cfg Config) http.Handler {
 	if cfg.Automation != nil && cfg.Automation.Stash == nil && cfg.Providers != nil && cfg.Store != nil {
 		cfg.Automation.Stash = mcpStash{st: cfg.Store, box: cfg.Providers.Box()} // MCP servers turned off
 	}
+	if cfg.Setup != nil && cfg.Setup.Toolbox == nil && cfg.Automation != nil {
+		cfg.Setup.Toolbox = setupToolbox(cfg.Automation) // skills/MCP the setup may pick
+	}
 	s := &server{cfg: cfg, origins: map[string]bool{}, log: cfg.Logger, sys: sysinfo.New(cmp.Or(cfg.System.HomeDir, "/"))}
 	src := ""
 	if cfg.Updater != nil {

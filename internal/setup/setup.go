@@ -9,10 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/llm"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/scan"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -32,9 +34,20 @@ type AgentChange struct {
 	Description  string `json:"description,omitempty"`
 	ModelTier    string `json:"model_tier,omitempty"`
 	Instructions string `json:"instructions,omitempty"` // add: full prompt; update: project context appended
-	ReadOnly     *bool  `json:"read_only,omitempty"`
-	Source       string `json:"source,omitempty"` // existing agent file it came from
-	Reason       string `json:"reason"`
+	// ReadOnly is kept so older proposals still decode; Level/Caps take
+	// priority when set (see internal/perm for the level/capability model).
+	ReadOnly *bool `json:"read_only,omitempty"`
+	// Level is the agent's permission package (internal/perm.Read..Operate).
+	Level *string `json:"level,omitempty"`
+	// Caps are the agent's own picks of capabilities (internal/perm.Caps);
+	// unknown ids are dropped and reported in Problems.
+	Caps *[]string `json:"caps,omitempty"`
+	// Commands narrow the project's command catalog for this agent; ones
+	// outside the project's catalog are reported in Problems, not dropped
+	// (Resolve already ignores them at run time).
+	Commands *[]string `json:"commands,omitempty"`
+	Source   string    `json:"source,omitempty"` // existing agent file it came from
+	Reason   string    `json:"reason"`
 }
 
 // Proposal is the model's recommendation.
@@ -44,18 +57,29 @@ type Proposal struct {
 	Reason      string        `json:"reason"`
 	Confidence  float64       `json:"confidence"`
 	Changes     []AgentChange `json:"agent_changes"`
-	Notes       []string      `json:"notes"`
+	// Skills and MCP are picked from the Toolbox (unknown names dropped);
+	// QuickChecks are the project's own checks by file ending (ADR-135).
+	Skills      []Pick   `json:"skills"`
+	MCP         []Pick   `json:"mcp"`
+	QuickChecks string   `json:"quick_checks"`
+	Notes       []string `json:"notes"`
 }
 
 // Result is a proposal plus the pack it produces and how it was made.
 type Result struct {
-	Proposal           Proposal   `json:"proposal"`
-	Pack               team.Pack  `json:"pack"`
-	Problems           []string   `json:"problems"`
-	Provider           string     `json:"provider"`
-	Model              string     `json:"model"`
-	Usage              llm.Result `json:"usage"`
-	SuggestedWorkflows []string   `json:"suggested_workflows"`
+	Proposal Proposal  `json:"proposal"`
+	Pack     team.Pack `json:"pack"`
+	// Problems block Apply/Accept (e.g. team.Validate failures, no agents left).
+	Problems []string `json:"problems"`
+	// Warnings don't block: an unknown level/cap was dropped, or a command
+	// isn't in the project's catalog (Resolve already ignores it at run time).
+	Warnings []string   `json:"warnings"`
+	Provider string     `json:"provider"`
+	Model    string     `json:"model"`
+	Usage    llm.Result `json:"usage"`
+	// SuggestedWorkflows are shipped workflows the scan's signals call for,
+	// beyond the pack's own (see SuggestWorkflows).
+	SuggestedWorkflows []string `json:"suggested_workflows"`
 }
 
 // Assistant runs the setup flow.
@@ -63,6 +87,8 @@ type Assistant struct {
 	store     storage.Store
 	providers *provider.Service
 	team      *team.Service
+	// Toolbox lists the skills/MCP the setup may pick (nil: none).
+	Toolbox func() Toolbox
 }
 
 // New builds an Assistant.
@@ -89,9 +115,14 @@ func (a *Assistant) Propose(ctx context.Context, projectID, projectName, project
 	if err != nil {
 		return Result{}, err
 	}
+	policy := perm.LoadPolicy(ctx, a.store, projectID)
+	var box Toolbox
+	if a.Toolbox != nil {
+		box = a.Toolbox()
+	}
 	out, err := a.providers.Call(ctx, p, llm.Request{
 		Model: model, System: systemPrompt + languageNote + chat.LoadLanguage(ctx, a.store).Rule(), MaxTokens: 6000,
-		Prompt: userPrompt(projectName, projectText, goal, packs),
+		Prompt: userPrompt(projectName, projectText, goal, packs, policy.Catalog, box),
 	}, usage.Meta{Kind: "setup_propose", ProjectID: projectID})
 	if err != nil {
 		return Result{}, fmt.Errorf("gọi AI lỗi: %w", err)
@@ -105,12 +136,15 @@ func (a *Assistant) Propose(ctx context.Context, projectID, projectName, project
 		res.Model = model
 	}
 	res.Usage.Text = ""
-	p2, problems, err := Build(prop.PackKey, prop.Changes)
+	p2, problems, warnings, err := Build(prop.PackKey, prop.Changes, policy.Catalog)
 	if err != nil {
 		return res, err
 	}
 	if problems == nil {
 		problems = []string{}
+	}
+	if warnings == nil {
+		warnings = []string{}
 	}
 	if res.Proposal.Changes == nil {
 		res.Proposal.Changes = []AgentChange{}
@@ -118,7 +152,14 @@ func (a *Assistant) Propose(ctx context.Context, projectID, projectName, project
 	if res.Proposal.Notes == nil {
 		res.Proposal.Notes = []string{}
 	}
-	res.Pack, res.Problems = p2, problems
+	var w []string
+	res.Proposal.Skills, w = cleanPicks("skill", prop.Skills, box.Skills)
+	warnings = append(warnings, w...)
+	res.Proposal.MCP, w = cleanPicks("MCP", prop.MCP, box.MCP)
+	warnings = append(warnings, w...)
+	res.Proposal.QuickChecks, w = cleanQuickChecks(prop.QuickChecks)
+	warnings = append(warnings, w...)
+	res.Pack, res.Problems, res.Warnings = p2, problems, warnings
 	res.SuggestedWorkflows = SuggestWorkflows(sum, p2.Workflows)
 	if res.SuggestedWorkflows == nil {
 		res.SuggestedWorkflows = []string{}
@@ -160,31 +201,23 @@ func SuggestWorkflows(sum *scan.Summary, packWorkflows []string) []string {
 }
 
 // Build applies changes to a starter pack and validates the result.
-// Problems are returned (not as an error) so the user can untick the
-// offending change. extraWorkflows are keys the user kept from
-// SuggestWorkflows; unknown keys are kept as-is and skipped at install time.
-func Build(packKey string, changes []AgentChange, extraWorkflows ...string) (team.Pack, []string, error) {
+// Problems block Apply/Accept (the user must untick the offending change);
+// Warnings don't (an unknown level/cap was dropped, or a command isn't in
+// catalog). catalog is the project's command catalog (internal/perm
+// Policy.Catalog); a nil/empty one skips the out-of-catalog Commands check.
+// extraWorkflows are keys the user kept from SuggestWorkflows; unknown keys
+// are kept as-is and skipped at install time.
+func Build(packKey string, changes []AgentChange, catalog []string, extraWorkflows ...string) (team.Pack, []string, []string, error) {
 	t, err := team.PackByKey(packKey)
 	if err != nil {
-		return t, nil, err
+		return t, nil, nil, err
 	}
 	for _, k := range extraWorkflows {
-		k = strings.TrimSpace(k)
-		if k == "" {
-			continue
-		}
-		found := false
-		for _, w := range t.Workflows {
-			if w == k {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if k = strings.TrimSpace(k); k != "" && !slices.Contains(t.Workflows, k) {
 			t.Workflows = append(t.Workflows, k)
 		}
 	}
-	t = Apply(t, changes)
+	t, warnings := Apply(t, changes, catalog)
 	var problems []string
 	if len(t.Agents) == 0 {
 		problems = append(problems, "cần ít nhất một agent")
@@ -192,16 +225,76 @@ func Build(packKey string, changes []AgentChange, extraWorkflows ...string) (tea
 	if err := team.Validate(t.Agents); err != nil {
 		var ve *team.ValidationError
 		if !errors.As(err, &ve) {
-			return t, nil, err
+			return t, nil, nil, err
 		}
 		problems = append(problems, ve.Problems...)
 	}
-	return t, problems, nil
+	return t, problems, warnings, nil
+}
+
+// validCaps keeps only the known capability ids, reporting the rest as warnings.
+func validCaps(ids []string) (ok []string, warnings []string) {
+	for _, id := range ids {
+		found := false
+		for _, c := range perm.Caps {
+			if c.ID == id {
+				found = true
+				break
+			}
+		}
+		if found {
+			ok = append(ok, id)
+		} else {
+			warnings = append(warnings, fmt.Sprintf("quyền %q không có", id))
+		}
+	}
+	return ok, warnings
+}
+
+// applyPermissions sets Level/Caps/Commands from a change onto an agent's
+// permissions, falling back to the legacy ReadOnly flag. isNew agents with no
+// permission field at all keep the safe Read-level default. Problems here are
+// never blocking: bad input is dropped and reported as a warning.
+func applyPermissions(perms *storage.Permissions, c AgentChange, catalog []string, isNew bool) []string {
+	var warnings []string
+	levelInvalid := c.Level != nil && !perm.Valid(*c.Level)
+	if levelInvalid {
+		warnings = append(warnings, fmt.Sprintf("mức quyền %q không hợp lệ", *c.Level))
+	}
+	switch {
+	case c.Level != nil && !levelInvalid:
+		perms.Level = *c.Level
+	case c.ReadOnly != nil:
+		perms.ReadOnly = *c.ReadOnly
+	case isNew:
+		// Agent mới: level sai hoặc không có gì thì vẫn phải an toàn (chỉ đọc).
+		perms.ReadOnly = true
+	}
+	if c.Caps != nil {
+		ok, probs := validCaps(*c.Caps)
+		perms.Caps = &ok
+		warnings = append(warnings, probs...)
+	}
+	if c.Commands != nil {
+		cmds := append([]string(nil), *c.Commands...)
+		perms.Commands = &cmds
+		if len(catalog) > 0 {
+			for _, cmd := range cmds {
+				if !slices.Contains(catalog, cmd) {
+					warnings = append(warnings, fmt.Sprintf("lệnh %q không có trong catalog project", cmd))
+				}
+			}
+		}
+	}
+	return warnings
 }
 
 // Apply edits a pack copy. Unknown keys in update/remove are ignored.
-func Apply(t team.Pack, changes []AgentChange) team.Pack {
+// catalog is the project's command catalog, used only to warn about
+// Commands picks outside it (Resolve ignores them at run time regardless).
+func Apply(t team.Pack, changes []AgentChange, catalog []string) (team.Pack, []string) {
 	agents := append([]team.AgentSpec(nil), t.Agents...)
+	var warnings []string
 	idx := func(key string) int {
 		for i, a := range agents {
 			if a.Key == key {
@@ -228,12 +321,7 @@ func Apply(t team.Pack, changes []AgentChange) team.Pack {
 			if strings.TrimSpace(c.Instructions) != "" {
 				a.Instructions = strings.TrimSpace(a.Instructions + "\n\nBối cảnh project:\n" + strings.TrimSpace(c.Instructions))
 			}
-			if c.ReadOnly != nil {
-				a.Permissions.ReadOnly = *c.ReadOnly
-				if !a.Permissions.ReadOnly {
-					a.Permissions.RequiresApproval = true // writes always need a human
-				}
-			}
+			warnings = append(warnings, applyPermissions(&a.Permissions, c, catalog, false)...)
 		case "add":
 			if key == "" || idx(key) >= 0 {
 				continue
@@ -241,17 +329,11 @@ func Apply(t team.Pack, changes []AgentChange) team.Pack {
 			spec := team.AgentSpec{
 				Key: key, Name: orDefault(c.Name, key), Role: c.Role,
 				Description: c.Description, ModelTier: c.ModelTier, Instructions: strings.TrimSpace(c.Instructions),
-				Permissions: storage.Permissions{ReadOnly: true},
 			}
 			if !storage.ValidTier(spec.ModelTier) {
 				spec.ModelTier = storage.TierFast
 			}
-			if c.ReadOnly != nil {
-				spec.Permissions.ReadOnly = *c.ReadOnly
-			}
-			if !spec.Permissions.ReadOnly {
-				spec.Permissions.RequiresApproval = true // writes always need a human
-			}
+			warnings = append(warnings, applyPermissions(&spec.Permissions, c, catalog, true)...)
 			agents = append(agents, spec)
 		case "remove":
 			i := idx(key)
@@ -265,16 +347,18 @@ func Apply(t team.Pack, changes []AgentChange) team.Pack {
 		}
 	}
 	t.Agents = agents
-	return t
+	return t, warnings
 }
 
 // Accept applies the accepted changes and gives the project the pack's
 // agents and workflows. A project with no agents yet gets the pack in
 // place (as before); a project that already has agents only gets the
 // pack's keys it's missing, so a rescan's setup never overwrites or
-// removes an agent an admin has hand-edited.
+// removes an agent an admin has hand-edited. Warnings (see Build) don't
+// block acceptance.
 func (a *Assistant) Accept(ctx context.Context, repoID, packKey string, changes []AgentChange, extraWorkflows ...string) (team.Pack, error) {
-	p, problems, err := Build(packKey, changes, extraWorkflows...)
+	policy := perm.LoadPolicy(ctx, a.store, repoID)
+	p, problems, _, err := Build(packKey, changes, policy.Catalog, extraWorkflows...)
 	if err != nil {
 		return p, err
 	}

@@ -34,7 +34,7 @@ export default {
 
   // setup with AI
   'team.setup.pack': 'Gói khởi đầu',
-  'team.setup.hasAgentsWarn': 'Project đang có {n} agent. Áp dụng thiết lập mới sẽ thay các agent này (khôi phục được ở Lịch sử).',
+  'team.setup.hasAgentsWarn': 'Project đang có {n} agent. Áp dụng chỉ thêm agent còn thiếu, agent đang có giữ nguyên.',
 
   // home: getting started
   'team.home.step3Title': 'Cho project các agent',

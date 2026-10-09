@@ -9,7 +9,12 @@ Rules:
   - "update": add project context to an existing agent's instructions (stack, test commands, conventions taken from CLAUDE.md/AGENTS.md…), or rename / adjust the role to fit the project. Do not repeat the original instructions.
   - "add": add an agent for a specific need (e.g. an agent that reads Graylog logs, a Playwright testing agent, or turning an existing agent/skill file into an agent). If it comes from an existing file, set "source" to the file path and summarize the file's guidance into instructions.
   - "remove": drop an agent this project does not need (never drop the only agent).
-- key: lowercase letters, digits, hyphens. model_tier: strong | balanced | fast. Agents with write access (read_only=false) always need human approval.
+- key: lowercase letters, digits, hyphens. model_tier: strong | balanced | fast.
+- level is the agent's permission package, lowest first: read (read only), propose (+ propose diffs/operations, a person approves), check (+ run allowed check commands on its own), edit (+ apply clean diffs on its own), operate (+ run/restart allowed processes and containers on its own). Default to read or propose; only pick check/edit/operate, or add caps, when there is a clear reason, stated in "reason".
+- caps are the agent's own picks of capabilities, one of: propose, code.apply, commands.run, tools.mcp, tools.mcp.write, chat.send, git.commit, git.branch, ops.process, ops.container. Leave unset to use level's own preset; pick caps only to grant a narrower or wider set than the level's preset for a stated reason.
+- commands narrows which of the project's own catalog commands (listed below, if any) this agent may run; only pick commands actually in that catalog.
+- skills / mcp: pick only from the lists given (at most 6 each), only what this project's stack or services clearly call for (e.g. playwright for a web UI with e2e tests, sentry when the project uses Sentry). Empty when nothing fits; never invent names.
+- quick_checks: fast per-file checks office runs right after an agent edits a file, one a line ".ext .ext: command {file}" (e.g. ".ts .vue: npx eslint {file}", ".py: ruff check {file}"). Only tools the project already uses (seen in its manifests or config); Go's gofmt/vet, JSON and YAML are built in, leave them out. Empty when unsure.
 - description: 1-3 sentences describing the project, enough for agents to understand the context.
 - confidence: 0..1.
 - Return only one ```json block matching the schema, with no other text.

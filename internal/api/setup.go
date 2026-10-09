@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/scan"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -83,6 +84,11 @@ type setupChoice struct {
 	Changes     []setup.AgentChange `json:"changes"`
 	Description *string             `json:"description"`
 	Workflows   []string            `json:"workflows,omitempty"` // suggested keys the user kept
+	// what the person kept of the proposal's skills, MCP servers and quick
+	// checks (nil quick checks: leave the project's as they are)
+	Skills      []string `json:"skills,omitempty"`
+	MCP         []string `json:"mcp,omitempty"`
+	QuickChecks *string  `json:"quick_checks,omitempty"`
 }
 
 func (s *server) setupBuild(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +96,8 @@ func (s *server) setupBuild(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	t, problems, err := setup.Build(in.PackKey, in.Changes, in.Workflows...)
+	policy := perm.LoadPolicy(r.Context(), s.cfg.Store, r.PathValue("id"))
+	t, problems, warnings, err := setup.Build(in.PackKey, in.Changes, policy.Catalog, in.Workflows...)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -98,7 +105,10 @@ func (s *server) setupBuild(w http.ResponseWriter, r *http.Request) {
 	if problems == nil {
 		problems = []string{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"pack": t, "problems": problems})
+	if warnings == nil {
+		warnings = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pack": t, "problems": problems, "warnings": warnings})
 }
 
 func (s *server) setupApply(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +133,9 @@ func (s *server) setupApply(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.auditAction(r, "project.setup_apply", x.ID, map[string]any{"pack": in.PackKey, "changes": len(in.Changes)})
+	ready := append(s.setupExtras(r, x, in), s.readiness(r.Context(), x.ID)...)
+	s.auditAction(r, "project.setup_apply", x.ID, map[string]any{"pack": in.PackKey, "changes": len(in.Changes),
+		"skills": in.Skills, "mcp": in.MCP})
 	d, _ := s.repoDTO(r, x, true)
-	writeJSON(w, http.StatusOK, map[string]any{"project": d})
+	writeJSON(w, http.StatusOK, map[string]any{"project": d, "ready": ready})
 }

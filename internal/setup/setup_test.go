@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/scan"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
@@ -108,62 +109,111 @@ func TestProposeAndAccept(t *testing.T) {
 }
 
 func TestBuildReportsProblems(t *testing.T) {
-	_, problems, err := setup.Build("team", []setup.AgentChange{
+	_, problems, _, err := setup.Build("team", []setup.AgentChange{
 		{Action: "add", Key: "Bad Key", Reason: "x"},
-	})
+	}, nil)
 	if err != nil || len(problems) == 0 {
 		t.Fatalf("problems = %v, %v", problems, err)
 	}
-	if _, _, err := setup.Build("nope", nil); err == nil {
+	if _, _, _, err := setup.Build("nope", nil, nil); err == nil {
 		t.Fatal("unknown pack must fail")
 	}
 }
 
-func TestApplyUpdateReadOnlyFalseForcesApproval(t *testing.T) {
-	p, problems, err := setup.Build("team", []setup.AgentChange{
-		{Action: "update", Key: "product-manager", ReadOnly: boolPtr(false), Reason: "cần ghi file"},
-	})
-	if err != nil || len(problems) != 0 {
-		t.Fatalf("problems = %v, %v", problems, err)
+func TestBuildAddAgentDefaultsToReadLevel(t *testing.T) {
+	pack, problems, warnings, err := setup.Build("team", []setup.AgentChange{
+		{Action: "add", Key: "reader", Reason: "x"},
+	}, nil)
+	if err != nil || len(problems) != 0 || len(warnings) != 0 {
+		t.Fatalf("problems = %v, warnings = %v, err = %v", problems, warnings, err)
 	}
-	var found bool
-	for _, a := range p.Agents {
-		if a.Key != "product-manager" {
-			continue
-		}
-		found = true
-		if a.Permissions.ReadOnly {
-			t.Fatal("ReadOnly phải là false sau update")
-		}
-		if !a.Permissions.RequiresApproval {
-			t.Fatal("agent ghi được sau update phải RequiresApproval=true")
+	var ag *team.AgentSpec
+	for i, a := range pack.Agents {
+		if a.Key == "reader" {
+			ag = &pack.Agents[i]
 		}
 	}
-	if !found {
-		t.Fatal("agent product-manager không còn trong pack")
+	if ag == nil || perm.Agent(ag.Agent("p", 0)) != perm.Read {
+		t.Fatalf("reader = %+v", ag)
 	}
 }
 
-func TestApplyUpdateWithoutReadOnlyKeepsApproval(t *testing.T) {
-	p, problems, err := setup.Build("team", []setup.AgentChange{
-		{Action: "update", Key: "team-lead", Name: "Trưởng nhóm mới", Reason: "đổi tên"},
-	})
-	if err != nil || len(problems) != 0 {
-		t.Fatalf("problems = %v, %v", problems, err)
+func TestBuildInvalidLevelIsDroppedWithWarning(t *testing.T) {
+	pack, problems, warnings, err := setup.Build("team", []setup.AgentChange{
+		{Action: "update", Key: "engineer", Level: ptr("god-mode"), Reason: "x"},
+	}, nil)
+	if err != nil || len(problems) != 0 || len(warnings) == 0 {
+		t.Fatalf("problems = %v, warnings = %v, err = %v", problems, warnings, err)
 	}
-	for _, a := range p.Agents {
-		if a.Key != "team-lead" {
-			continue
+	for _, a := range pack.Agents {
+		if a.Key == "engineer" && a.Permissions.Level == "god-mode" {
+			t.Fatalf("invalid level must not be kept: %+v", a.Permissions)
 		}
-		if a.Permissions.RequiresApproval {
-			t.Fatal("update không đụng ReadOnly thì không được tự bật RequiresApproval")
-		}
-		return
 	}
-	t.Fatal("agent team-lead không còn trong pack")
 }
 
-func boolPtr(b bool) *bool { return &b }
+func TestBuildAddAgentInvalidLevelDefaultsToRead(t *testing.T) {
+	pack, problems, warnings, err := setup.Build("team", []setup.AgentChange{
+		{Action: "add", Key: "newbie", Level: ptr("god-mode"), Reason: "x"},
+	}, nil)
+	if err != nil || len(problems) != 0 || len(warnings) == 0 {
+		t.Fatalf("problems = %v, warnings = %v, err = %v", problems, warnings, err)
+	}
+	var ag *team.AgentSpec
+	for i, a := range pack.Agents {
+		if a.Key == "newbie" {
+			ag = &pack.Agents[i]
+		}
+	}
+	if ag == nil || perm.Agent(ag.Agent("p", 0)) != perm.Read {
+		t.Fatalf("a new agent with an invalid level must still default to read: %+v", ag)
+	}
+}
+
+func TestBuildCapsCommitRaisesLevelToEdit(t *testing.T) {
+	pack, problems, warnings, err := setup.Build("team", []setup.AgentChange{
+		{Action: "update", Key: "engineer", Caps: &[]string{perm.CapCommit}, Reason: "x"},
+	}, nil)
+	if err != nil || len(problems) != 0 || len(warnings) != 0 {
+		t.Fatalf("problems = %v, warnings = %v, err = %v", problems, warnings, err)
+	}
+	for _, a := range pack.Agents {
+		if a.Key == "engineer" {
+			sa := a.Agent("p", 0)
+			if perm.Agent(sa) != perm.Edit {
+				t.Fatalf("level = %v, want edit", perm.Agent(sa))
+			}
+		}
+	}
+}
+
+func TestBuildCommandsOutsideCatalogWarnsButDoesNotBlock(t *testing.T) {
+	_, problems, warnings, err := setup.Build("team", []setup.AgentChange{
+		{Action: "update", Key: "engineer", Commands: &[]string{"rm -rf /"}, Reason: "x"},
+	}, []string{"go test ./..."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) == 0 {
+		t.Fatal("expected a warning for a command outside the catalog")
+	}
+	if len(problems) != 0 {
+		t.Fatalf("a command outside the catalog must not block: problems = %v", problems)
+	}
+}
+
+func ptr(s string) *string { return &s }
+
+func TestAcceptNotBlockedByCommandWarning(t *testing.T) {
+	a, st, _, _ := env(t, aiAnswer)
+	ctx := context.Background()
+	repo, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/code/shop"})
+	if _, err := a.Accept(ctx, repo.ID, "team", []setup.AgentChange{
+		{Action: "update", Key: "engineer", Commands: &[]string{"rm -rf /"}, Reason: "x"},
+	}); err != nil {
+		t.Fatalf("a command outside the catalog must only warn, not block Accept: %v", err)
+	}
+}
 
 func TestNoProvider(t *testing.T) {
 	dir := t.TempDir()
@@ -239,7 +289,7 @@ func TestSuggestWorkflows(t *testing.T) {
 
 func TestBuildMergesExtraWorkflows(t *testing.T) {
 	t.Run("adds a new workflow key", func(t *testing.T) {
-		p, _, err := setup.Build("solo", nil, "fix-tests")
+		p, _, _, err := setup.Build("solo", nil, nil, "fix-tests")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -248,7 +298,7 @@ func TestBuildMergesExtraWorkflows(t *testing.T) {
 		}
 	})
 	t.Run("untick: not passed, not added", func(t *testing.T) {
-		p, _, err := setup.Build("solo", nil)
+		p, _, _, err := setup.Build("solo", nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -257,7 +307,7 @@ func TestBuildMergesExtraWorkflows(t *testing.T) {
 		}
 	})
 	t.Run("no duplicate when pack already has it", func(t *testing.T) {
-		p, _, err := setup.Build("team", nil, "fix-tests")
+		p, _, _, err := setup.Build("team", nil, nil, "fix-tests")
 		if err != nil {
 			t.Fatal(err)
 		}

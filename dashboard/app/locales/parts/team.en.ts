@@ -34,7 +34,7 @@ const en: Record<keyof typeof vi, string> = {
 
   // setup with AI
   'team.setup.pack': 'Starter pack',
-  'team.setup.hasAgentsWarn': 'This project has {n} agents. Applying the new setup replaces them (restorable from History).',
+  'team.setup.hasAgentsWarn': 'This project has {n} agents. Applying only adds the missing ones; existing agents stay as they are.',
 
   // home: getting started
   'team.home.step3Title': 'Give projects their agents',
