@@ -26,7 +26,9 @@ const fabVisible = useFabVisible()
         </template>
         <template #right>
           <HeaderStats v-if="isAdmin" />
-          <slot name="actions" />
+          <div class="flex items-center gap-1.5 max-sm:[&_[data-slot=base]:has([data-slot=leadingIcon])_[data-slot=label]]:sr-only">
+            <slot name="actions" />
+          </div>
         </template>
       </UDashboardNavbar>
     </template>
