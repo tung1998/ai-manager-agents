@@ -639,6 +639,9 @@ func next(items []storage.BurnItem, busy map[string]bool, draining bool) (storag
 			if busy[it.ID] || hunting(it) { // a scan runs beside the work
 				continue
 			}
+			if (it.Status == "queued" || it.Status == "found") && clashes(it, items, busy) { // not begun: after the one on its files (ADR-144)
+				continue
+			}
 			if it.Status == "found" && it.Kind == KindQuest {
 				if st == KindQuest && !questOn {
 					return it, true

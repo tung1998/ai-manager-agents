@@ -146,10 +146,10 @@ func scanPrompt(b storage.BurnSession, it storage.BurnItem, items []storage.Burn
 	}
 	return prompts.Render("burn/scan", struct {
 		ID, Focus, Order, Hunt, Map, Lessons, Coverage string
-		FocusLooks, Taken, Scanned, Setbacks           []string
+		FocusLooks, Taken, Scanned, Setbacks, Changed  []string
 		Batch, Left, MaxChecks                         int
 		Again                                          bool
-	}{it.ID, b.Focus, b.Order, hunt(b), b.CodeMap, b.Lessons, b.Coverage, looks(b), taken, scanned, setbacks(items), scanBatch, left(b.Coverage), maxChecks, again})
+	}{it.ID, b.Focus, b.Order, hunt(b), b.CodeMap, b.Lessons, b.Coverage, looks(b), taken, scanned, setbacks(items), changed(b, items), scanBatch, left(b.Coverage), maxChecks, again})
 }
 
 // left: the items of a coverage plan not checked yet.

@@ -2253,3 +2253,13 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
     - Việc đã thất bại 2 lần (cùng `pieceKey`) thì lượt quét không được ghi lại; lượt quét được bảo ghi việc sửa nguyên nhân nếu lỗi nằm ở quy trình hay môi trường. Người dùng vẫn ghi lại được.
     - 3 việc liền nhau trong lần chạy thất bại cùng một loại lý do (phần đầu của lý do, trước dấu ":" và bỏ ngoặc) thì Burn ngưng nhận việc mới (Drain), báo lý do trong chat để người dùng xem cài đặt, lệnh kiểm chứng hay môi trường.
   - **Khi lần chạy dừng** (có ít nhất một việc xong, thất bại hoặc bị bác): sau tổng kết, agent của Burn chạy một lượt trong chat Burn, quyền Đọc (`burn/retro.md`). Lượt này nhận số liệu của lần chạy: kết quả theo loại việc, thất bại và bị bác theo lý do, việc làm đi làm lại, độ phủ. Agent trả lời ba ý: điều gì hỏng và nguyên nhân thật; còn thiếu gì (vùng chưa tới, mục tiêu, loại việc chưa làm, có đáng chi phí không); nên đổi gì, cho người dùng (cài đặt Burn) và cho chính Burn trong office. Khối ```lessons ở cuối thay sổ bài học cho lần chạy sau.
+
+## ADR-144: Burn: việc cùng file không chạy song song; review đọc code của lần chạy và thấy kết luận trước trên cùng file
+- **Bối cảnh (10/10):** lần chạy "Trải nghiệm & mobile" 2026-10-09 dành gần nửa số việc cho `docs/guide/capture.mjs`. Hai việc chạy cùng lúc trên file này, nên một việc phải gỡ conflict marker. Hai lần review cho hai hướng ngược nhau: bọc `soft()`, rồi bỏ để "fail loudly". Review vấn đề/cách làm đọc `main`, nên kết luận nhầm một commit của lần chạy "không tồn tại". Scan thấy màn hình thiếu trong danh sách chụp thì ghi thành việc sửa công cụ, thay vì chụp màn đó để xem.
+- **Quyết định:**
+  - File của một việc gồm đường dẫn có trong tiêu đề/phiếu việc ("Where: file:line") và file đã sửa sau khi gộp. Tên ngắn (`capture.mjs`) khớp với đường dẫn đầy đủ.
+  - Việc chưa bắt đầu (queued/found) chờ nếu có việc đang chạy trên cùng file. Việc đã bắt đầu thì làm tiếp như cũ.
+  - Review vấn đề và cách làm chạy chỉ-đọc trong worktree của lần chạy (khi đã có), và được nhắc đọc nhánh của lần chạy, không kết luận chỉ từ main. Review kết quả vẫn đọc worktree của việc.
+  - Review được xem tối đa 5 việc khác của lần chạy trên cùng file, kèm kết luận của chúng. Muốn đi ngược kết luận đó thì phải nói lý do.
+  - Scan được xem các file mà việc xong của lần chạy đã sửa, kèm việc nào sửa. Việc cho rằng việc trước "chưa đủ" phải có bằng chứng từ code hiện tại, nêu tên việc trước, và gom thành một việc.
+  - Template ux: màn hình thiếu trong danh sách của script chụp không phải là việc. Chụp nó bằng chế độ một route hoặc bằng trình duyệt. Công cụ chỉ thành việc khi không có cách nào chụp được màn hình.

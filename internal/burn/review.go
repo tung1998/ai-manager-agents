@@ -211,13 +211,16 @@ func (s *Service) review(ctx context.Context, b storage.BurnSession, it *storage
 	if err != nil {
 		return false, "", err
 	}
-	text := reviewPrompt(b, *it, stage)
+	items, _ := s.store.Burn().Items(ctx, b.ID)
+	text := reviewPrompt(b, *it, stage, items...)
 	if r.Workflow != "" {
 		text = workflow.Call(r.Workflow, text)
 	}
 	rctx := chat.WithCeiling(chat.WithTurnTimeout(actor.With(ctx, "burn:"+b.StartedBy), 0), perm.Read)
 	if stage == "result" { // it reads the piece's own worktree
 		rctx = chat.WithTree(rctx, "burn-"+it.ID, true)
+	} else if s.RunTree(b) != "" { // the run's code, with what was merged in it, not the project's (ADR-144)
+		rctx = chat.WithTree(rctx, runTree(b), true)
 	}
 	res, err := s.run(rctx, conv, text)
 	if err == nil && res.failed != "" {
@@ -264,15 +267,17 @@ func (s *Service) ensureReviewConversation(ctx context.Context, b storage.BurnSe
 	return conv.ID, nil
 }
 
-// reviewPrompt asks a stage's reviewer about a piece (burn/review.md).
-func reviewPrompt(b storage.BurnSession, it storage.BurnItem, stage string) string {
+// reviewPrompt asks a stage's reviewer about a piece (burn/review.md);
+// items are the Burn's, for the run's other pieces on the same files.
+func reviewPrompt(b storage.BurnSession, it storage.BurnItem, stage string, items ...storage.BurnItem) string {
 	d := struct {
 		Stage, ID, Kind, Title, Detail, Focus, ReviewNote string
-		Summary, Worktree, Agree, Disagree                string
-		FocusChecks                                       []string
+		Summary, Worktree, Agree, Disagree, RunBranch     string
+		FocusChecks, Related                              []string
 	}{Stage: stage, ID: it.ID, Kind: it.Kind, Title: it.Title, Detail: it.Detail, Focus: b.Focus,
 		// a workflow runs in chats of its own, not in the piece's worktree: where it is
-		Worktree: it.Worktree, Agree: verdictAgree, Disagree: verdictDisagree}
+		Worktree: it.Worktree, Agree: verdictAgree, Disagree: verdictDisagree,
+		RunBranch: b.RunBranch, Related: related(b, it, items)}
 	if stage == "result" {
 		d.FocusChecks = checks(b)
 		if it.ReviewNote != "" {

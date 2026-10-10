@@ -11,8 +11,17 @@ Check the result for: [[.]].
 [[- if .ReviewNote]]
 Earlier review notes: [[.ReviewNote]]
 [[- end]]
+[[- if .Related]]
+Other pieces of this run on the same files (keep to what was agreed there; reversing it, say why):
+[[- range .Related]]
+- [[.]]
+[[- end]]
+[[- end]]
 
 Burn is an agent that finds and does work on its own in this project. You are an independent reviewer, READ-ONLY (no file edits, no proposed actions). Read the real code before concluding.
+[[- if and .RunBranch (ne .Stage "result")]]
+Read the code of this run (branch `[[.RunBranch]]`, the folder you are in): it holds the pieces already merged in the run, which the project's main branch does not have yet. A commit missing from main may be on that branch (`git log [[.RunBranch]]`); never conclude from main alone.
+[[- end]]
 [[- if eq .Stage "issue"]]
 Analyse the PROBLEM: is it real (check the code, cite file:line), is it worth doing (what it changes for the product's users against its risk), does it repeat work already done or go against an earlier decision. A feature, a flow made right or a fix at the root is not turned down for being larger than a bug fix; a lone nit with little value is.
 [[- else if eq .Stage "plan"]]

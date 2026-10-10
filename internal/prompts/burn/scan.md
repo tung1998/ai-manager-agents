@@ -37,6 +37,14 @@ Already recorded (waiting, being done, done or dropped): do NOT record any of th
 - [[.]]
 [[- end]]
 [[- end]]
+[[- if .Changed]]
+
+Files this run's finished pieces changed, and by which (your worktree has them as they are now):
+[[- range .Changed]]
+- [[.]]
+[[- end]]
+- On these files, read them as they are now before finding fault. A piece whose premise is that one of those pieces fell short needs evidence from the code as it is now; name that piece in its detail, and fold all that is left on the file into one piece, never one piece per gap.
+[[- end]]
 [[- if .Scanned]]
 
 What the latest scans said they looked at:
