@@ -142,13 +142,13 @@ function open(g: Group) {
       <LoadingRows v-if="loading && !groups.length" :n="6" />
       <p v-else-if="!groups.length" class="p-4 text-sm text-(--ui-text-muted)">{{ t('job.empty') }}</p>
       <div v-else class="overflow-x-auto">
-        <table class="w-full text-sm">
+        <table class="w-full table-fixed text-sm">
           <thead class="border-b border-(--ui-border) text-left text-xs text-(--ui-text-muted)">
             <tr>
               <th class="px-4 py-2 font-medium">{{ t('job.colWork') }}</th>
               <th
-                v-for="c in ([['runs', 'job.colRuns'], ['failed', 'job.colFailRate'], ['cost', 'job.colCost'], ['last', 'job.colLast']] as const)" :key="c[0]"
-                class="px-3 py-2 font-medium whitespace-nowrap" :class="[c[0] === 'last' ? 'text-right' : '', c[0] !== 'cost' ? 'max-sm:hidden' : 'max-sm:text-right']"
+                v-for="c in ([['runs', 'job.colRuns', 'w-36'], ['failed', 'job.colFailRate', 'w-24'], ['cost', 'job.colCost', 'w-20 sm:w-36'], ['last', 'job.colLast', 'w-28']] as const)" :key="c[0]"
+                class="px-3 py-2 font-medium whitespace-nowrap" :class="[c[2], c[0] === 'last' ? 'text-right' : '', c[0] !== 'cost' ? 'max-sm:hidden' : 'max-sm:text-right']"
               >
                 <button type="button" class="inline-flex items-center gap-1 hover:text-(--ui-text)" :class="sortBy === c[0] && 'text-(--ui-text)'" @click="sortBy = c[0]">
                   {{ t(c[1]) }}<UIcon v-if="sortBy === c[0]" name="i-lucide-arrow-down" class="size-3" />
@@ -158,7 +158,7 @@ function open(g: Group) {
           </thead>
           <tbody class="divide-y divide-(--ui-border)">
             <tr v-for="g in sorted" :key="g.key" class="cursor-pointer transition hover:bg-(--ui-bg-elevated)/60" @click="open(g)">
-              <td class="max-w-0 px-4 py-2.5 max-sm:px-3">
+              <td class="px-4 py-2.5 max-sm:px-3">
                 <div class="flex min-w-0 items-center gap-3">
                   <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--ui-bg-elevated)">
                     <UIcon :name="kindIcon(g)" class="size-4 text-(--ui-text-muted)" :class="{ 'animate-spin text-primary': g.active }" />
@@ -182,7 +182,7 @@ function open(g: Group) {
                 <span v-if="g.failed" class="text-(--ui-error)">{{ failRate(g) }}%<span class="text-xs text-(--ui-text-muted)"> · {{ g.failed }}</span></span>
                 <span v-else class="text-(--ui-text-dimmed)">0%</span>
               </td>
-              <td class="w-36 px-3 py-2.5 max-sm:w-auto max-sm:text-right">
+              <td class="w-20 px-3 py-2.5 text-right sm:w-36 sm:text-left">
                 <!-- a phone: the cost, and when, under it -->
                 <p class="text-xs text-(--ui-text-muted) sm:hidden">{{ ago(g.last_at) }}</p>
                 <div class="flex items-center gap-2 max-sm:justify-end">

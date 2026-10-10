@@ -249,8 +249,8 @@ function badges(f: Flags) {
   </div>
 
   <!-- changes: the list, one file's diff -->
-  <div v-if="view === 'changes'" class="grid min-h-0 flex-1 gap-4 md:grid-cols-[18rem_1fr]">
-    <div class="flex max-h-[40vh] min-h-0 flex-col overflow-hidden rounded-lg border border-(--ui-border) md:max-h-none">
+  <div v-if="view === 'changes'" class="grid min-h-0 flex-1 gap-4 md:grid-cols-[18rem_1fr]" :class="!picked && 'grid-rows-[minmax(0,1fr)] md:grid-rows-none'">
+    <div class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--ui-border) md:max-h-none" :class="picked && 'max-h-[40vh]'">
       <div class="flex items-center gap-1 border-b border-(--ui-border) px-2 py-1.5">
         <span class="flex-1 text-xs text-(--ui-text-muted)">{{ t('git.changes', { n: changes?.length ?? 0 }) }}</span>
         <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :aria-label="t('files.refresh')" :title="t('files.refresh')" @click="loadChanges" />
@@ -268,7 +268,7 @@ function badges(f: Flags) {
         </button>
       </div>
     </div>
-    <div class="flex min-h-[60vh] min-w-0 flex-col overflow-hidden rounded-lg border border-(--ui-border)">
+    <div class="flex min-w-0 flex-col overflow-hidden rounded-lg border border-(--ui-border)" :class="picked ? 'min-h-[60vh]' : 'hidden md:flex'">
       <div v-if="!picked" class="flex flex-1 items-center justify-center p-6 text-sm text-(--ui-text-muted)">{{ t('files.pickChange') }}</div>
       <template v-else>
         <div class="flex items-center gap-2 border-b border-(--ui-border) bg-(--ui-bg-muted) px-3 py-1.5">
@@ -283,9 +283,9 @@ function badges(f: Flags) {
     </div>
   </div>
 
-  <div v-else class="grid min-h-0 flex-1 gap-4 md:grid-cols-[18rem_1fr]">
+  <div v-else class="grid min-h-0 flex-1 gap-4 md:grid-cols-[18rem_1fr]" :class="!file && 'grid-rows-[minmax(0,1fr)] md:grid-rows-none'">
     <!-- tree -->
-    <div class="flex max-h-[40vh] min-h-0 flex-col overflow-hidden rounded-lg border border-(--ui-border) md:max-h-none">
+    <div class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--ui-border) md:max-h-none" :class="file && 'max-h-[40vh]'">
       <div class="flex items-center gap-1 border-b border-(--ui-border) px-2 py-1.5">
         <USwitch v-model="showHidden" size="xs" :label="t('files.showHidden')" class="flex-1" />
         <UTooltip :text="t('files.hiddenInfo')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" /></UTooltip>
@@ -319,7 +319,7 @@ function badges(f: Flags) {
     </div>
 
     <!-- editor -->
-    <div class="flex min-h-[60vh] min-w-0 flex-col overflow-hidden rounded-lg border border-(--ui-border)">
+    <div class="flex min-w-0 flex-col overflow-hidden rounded-lg border border-(--ui-border)" :class="file ? 'min-h-[60vh]' : 'hidden md:flex'">
       <div v-if="!file" class="flex flex-1 items-center justify-center p-6 text-sm text-(--ui-text-muted)">{{ t('files.pick') }}</div>
       <template v-else>
         <div class="flex flex-wrap items-center gap-2 border-b border-(--ui-border) bg-(--ui-bg-muted) px-3 py-1.5">

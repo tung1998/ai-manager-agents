@@ -48,6 +48,8 @@ type burnDTO struct {
 	// ADR-135: waits past review_cap pieces not merged; finishes after stop_after done (0 = none)
 	ReviewCap int `json:"review_cap"`
 	StopAfter int `json:"stop_after"`
+	// ADR-139: a builder Burn's feature list, to show its idea→feature progress
+	Features []burn.Feature `json:"features,omitempty"`
 }
 
 type burnItemDTO struct {
@@ -72,7 +74,7 @@ type burnItemDTO struct {
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
 	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.Focus, cmp.Or(b.Order, "roadmap"), cmp.Or(b.Template, "general"), b.HuntPrompt,
-		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, "", b.Verify, b.CodeMap, b.Lessons, b.Coverage, b.ReviewCap, b.StopAfter}
+		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, "", b.Verify, b.CodeMap, b.Lessons, b.Coverage, b.ReviewCap, b.StopAfter, nil}
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
@@ -108,6 +110,15 @@ func (s *server) getBurn(w http.ResponseWriter, r *http.Request) {
 	}
 	dto := toBurnDTO(b)
 	dto.RunTree = s.cfg.Burn.RunTree(b)
+	if b.Template == "builder" {
+		dir := dto.RunTree
+		if dir == "" {
+			if rp, err := s.cfg.Store.Repos().Get(r.Context(), pid); err == nil {
+				dir = rp.Path
+			}
+		}
+		dto.Features = burn.Features(dir)
+	}
 	out := map[string]any{"burn": dto, "items": items, "runs": runs}
 	if reset, ok := s.cfg.Burn.WeeklyReset(r.Context(), b.AgentID); ok { // the suggested stop time
 		out["weekly_reset"] = reset

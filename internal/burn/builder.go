@@ -52,6 +52,28 @@ func readFeatures(dir string) []feature {
 	return nil
 }
 
+// Feature is one entry of a builder Burn's features.json, for callers
+// outside this package (the project page, to show its progress).
+type Feature struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Passes bool   `json:"passes"`
+}
+
+// Features reads dir's feature list for display (ADR-139): none when dir
+// is "" (no run worktree and no project folder) or features.json is not
+// there yet (the start piece has not run).
+func Features(dir string) []Feature {
+	if dir == "" {
+		return nil
+	}
+	var out []Feature
+	for _, f := range readFeatures(dir) {
+		out = append(out, Feature{f.ID, f.Title, f.Passes})
+	}
+	return out
+}
+
 // acceptance are the acceptance commands of the features passing in dir,
 // each once, in the list's order.
 func acceptance(dir string) []string {

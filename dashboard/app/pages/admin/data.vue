@@ -131,12 +131,8 @@ async function saveAuto() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
-    <div class="flex items-center gap-2">
-      <UIcon name="i-lucide-database" class="size-5" />
-      <h1 class="text-lg font-semibold">{{ t('nav.data') }}</h1>
-    </div>
-
+  <PageShell :title="t('nav.data')">
+  <div class="max-w-6xl space-y-4">
     <!-- what is kept, at a glance -->
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       <UCard v-for="c in [
@@ -299,4 +295,5 @@ async function saveAuto() {
       </template>
     </UModal>
   </div>
+  </PageShell>
 </template>

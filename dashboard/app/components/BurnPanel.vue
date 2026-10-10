@@ -7,7 +7,8 @@ interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_parallel: number,
   run_branch?: string, run_tree?: string, focus: string, order: 'roadmap' | 'bugs' | 'auto', template: BurnTemplate, hunt_prompt: string, ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
   waiting_until?: string, started_by?: string, started_at?: string,
-  review_profile_id: string, verify: string, code_map: string, lessons: string, coverage: string, review_cap: number, stop_after: number
+  review_profile_id: string, verify: string, code_map: string, lessons: string, coverage: string, review_cap: number, stop_after: number,
+  features?: { id: string, title: string, passes: boolean }[]
 }
 interface Item {
   id: string, title: string, kind: '' | 'unfinished' | 'upgrade' | 'bug' | 'idea' | 'quest', detail: string, status: string, priority: number,
@@ -233,6 +234,13 @@ const coverage = computed(() => {
   return { done: lines.filter(l => /^\[[xX]\]/.test(l)).length, total: lines.filter(l => /^\[[ xX]\]/.test(l)).length }
 })
 const totalCost = computed(() => shown.value.reduce((n, i) => n + i.cost_usd, 0))
+
+// a builder Burn (ADR-139): idle before its first Start, no cue what it does;
+// started, its progress is a feature list (features.json), not the generic board
+const isBuilder = computed(() => burn.value?.template === 'builder')
+const showBuilderBanner = computed(() => isBuilder.value && burn.value?.state === 'stopped' && items.value.length === 0)
+const builderFeatures = computed(() => burn.value?.features ?? [])
+const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).length)
 </script>
 
 <template>
@@ -267,7 +275,23 @@ const totalCost = computed(() => shown.value.reduce((n, i) => n + i.cost_usd, 0)
       </p>
       <UAlert v-if="offAgent" color="warning" variant="subtle" icon="i-lucide-power-off" :title="t('burn.agentOff', { name: offAgent.name })"
         :actions="[{ label: t('burn.agentOffChange'), color: 'warning', variant: 'outline', onClick: () => { settingsOpen = true } }, { label: t('burn.agentOffOpen'), color: 'neutral', variant: 'ghost', to: `/projects/${projectId}/agents/${offAgent.id}` }]" />
+      <UAlert v-if="showBuilderBanner" color="primary" variant="subtle" icon="i-lucide-sparkles" :title="t('burn.builder.startBanner')"
+        :actions="[{ label: t('burn.start'), color: 'primary', onClick: openStart }]" />
       <p v-if="form.focus" class="text-xs"><span class="text-(--ui-text-muted)">{{ t('burn.focus') }}:</span> {{ form.focus }}</p>
+    </UCard>
+
+    <!-- a builder Burn's feature progress (ADR-139), above the generic board -->
+    <UCard v-if="isBuilder && (builderFeatures.length || running)" :ui="{ body: 'space-y-2 sm:p-4' }">
+      <p class="text-xs font-medium text-(--ui-text-muted)">
+        <template v-if="builderFeatures.length">{{ t('burn.builder.progress', { done: builderDone, total: builderFeatures.length }) }}</template>
+        <template v-else>{{ t('burn.builder.preparing') }}</template>
+      </p>
+      <ul v-if="builderFeatures.length" class="grid gap-1 sm:grid-cols-2">
+        <li v-for="f in builderFeatures" :key="f.id" class="flex items-center gap-1.5 text-xs">
+          <UIcon :name="f.passes ? 'i-lucide-circle-check' : 'i-lucide-circle'" class="size-3.5 shrink-0" :class="f.passes ? 'text-(--ui-success)' : 'text-(--ui-text-dimmed)'" />
+          <span class="truncate" :class="{ 'text-(--ui-text-muted)': !f.passes }">{{ f.title }}</span>
+        </li>
+      </ul>
     </UCard>
 
     <!-- the pieces of work, by where they are -->

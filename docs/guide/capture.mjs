@@ -7,6 +7,7 @@
 //   node docs/guide/capture.mjs
 //   node docs/guide/capture.mjs --mobile [--lang=vi] [--out=dir]   # phone shots for a UX review
 //   node docs/guide/capture.mjs --mobile --reuse --only=13-burn,26-jobs     # some of the screens
+//   (04a-new-project-idea opens the "New project" modal with the "idea" scope card selected)
 //   node docs/guide/capture.mjs --mobile --reuse --path=/costs --path='{project}/burn/reviews'   # any route, one by one
 //
 // Env: OFFICE_BIN, OFFICE_UI_DIR, CHROME (paths), KEEP=1 (leave it running).
@@ -226,8 +227,12 @@ async function seed() {
     script: { lang: 'bash', body: 'git log --since=yesterday --oneline\necho "@@agent: ' + T('summarise yesterday\'s commits for the team', 'tóm tắt commit hôm qua cho cả nhóm') + '"', timeout_s: 60 },
     escalate: { when: 'signal', action: 'chat', agent_id: lead?.id, prompt: T('Write a 5-line brief from:', 'Viết bản tóm tắt 5 dòng từ:') + '\n{{output}}' }
   })
-  await auto({ name: T('Sentry alert → triage', 'Cảnh báo Sentry → phân loại'), source: 'webhook', action: 'chat', agent_id: dev?.id, prompt: T('A Sentry alert arrived:\n{{payload}}\nFind the root cause and propose a fix.', 'Có cảnh báo Sentry:\n{{payload}}\nTìm nguyên nhân và đề xuất cách sửa.'), limits: { max_runs_per_hour: 6, debounce_seconds: 120 } })
+  // this one doubles as 38-automation-detail/39-automation-edit's seeded automation: must exist, so not soft()
+  await api('POST', `/api/projects/${ao.id}/automations`, { name: T('Sentry alert → triage', 'Cảnh báo Sentry → phân loại'), source: 'webhook', action: 'chat', agent_id: dev?.id, prompt: T('A Sentry alert arrived:\n{{payload}}\nFind the root cause and propose a fix.', 'Có cảnh báo Sentry:\n{{payload}}\nTìm nguyên nhân và đề xuất cách sửa.'), limits: { max_runs_per_hour: 6, debounce_seconds: 120 } })
   await auto({ name: T('Weekly dependency check', 'Kiểm tra thư viện hằng tuần'), source: 'schedule', action: 'chat', agent_id: qa?.id, config: { cron: '0 9 * * 1', timezone: 'Asia/Ho_Chi_Minh' }, prompt: T('List outdated Go and npm dependencies, flag risky upgrades.', 'Liệt kê thư viện Go và npm đã cũ, đánh dấu bản nâng cấp rủi ro.') })
+
+  // a bot (disabled, so it never calls Telegram for real) for 42-bot-detail/43-bot-edit — not soft(): must exist
+  await api('POST', `/api/projects/${ao.id}/channels`, { kind: 'telegram', name: T('Support bot', 'Bot hỗ trợ'), token: '123:demo-bot-token', agent_id: lead?.id, allow: ['*'], enabled: false })
 
   // long-term memory
   for (const text of LANG === 'vi'
@@ -300,6 +305,12 @@ diff --git a/dashboard/app/layouts/default.vue b/dashboard/app/layouts/default.v
     `INSERT INTO runs (id, kind, project_id, agent_id, provider_name, model, status, input_tokens, output_tokens, cost_usd, cost_source, duration_ms, actor, created_at) VALUES ${runs.join(',')}`,
     `INSERT INTO jobs (id, project_id, kind, origin, status, agent_id, title, cost_usd, input_tokens, output_tokens, duration_ms, created_at, started_at, finished_at) VALUES ${jobs.join(',')}`
   ])
+
+  // a finished run of the shop's first council workflow, for 44-workflow-run — not soft(): must exist
+  const shopWorkflow = (await api('GET', `/api/projects/${shop.id}/workflows`)).workflows?.[0]
+  if (!shopWorkflow) throw new Error('seed: demo-shop has no workflow (pack=council should seed one) — 41-workflow-edit/44-workflow-run need it')
+  sql([conv('cnv_demo_council', lead, T('Council: new return policy', 'Hội đồng: chính sách đổi trả mới'), 40)])
+  sql([`INSERT INTO workflow_runs (id, project_id, conversation_id, workflow_id, workflow_key, workflow_name, input, status, turns, cost_usd, result, roles, gates, log, actor, started_at, finished_at) VALUES ('run_demo_council', ${q(shop.id)}, 'cnv_demo_council', ${q(shopWorkflow.id)}, ${q(shopWorkflow.key)}, ${q(shopWorkflow.name)}, ${q(T('Should we extend the return window to 30 days?', 'Có nên kéo dài thời hạn đổi trả lên 30 ngày?'))}, 'done', 3, 0.0412, ${q(T('Approved: extend to 30 days, with a 10% restocking fee over 14 days.', 'Đồng ý: kéo dài lên 30 ngày, phí nhập lại 10% nếu quá 14 ngày.'))}, '[]', '[]', '[]', ${q('human:' + EMAIL)}, ${q(ts(40))}, ${q(ts(35))})`])
   return { ao, shop, content, lead, dev }
 }
 
@@ -415,9 +426,40 @@ async function capture({ ao, shop, lead }) {
   if (!ok) throw new Error('browser login failed')
 
   const P = `/projects/${ao.id}`
+  // 38-automation-detail, 39-automation-edit, 41-workflow-edit, 42/43-bot-*, 44-workflow-run: daily-use screens that
+  // need real seeded fixtures. Fetch them for real (no soft()) and throw by name if missing, instead of silently
+  // dropping the screen while the run still reports success — that silent-skip was the whole gap this closes.
+  // Skipped when --path is used (fixtures unused there) or --only names none of these screens.
+  const wantsFixture = !paths.length && (!only.length || only.some(n => /^(38|39|41|42|43|44)-/.test(n)))
+  let webhookAuto, shopWorkflow, bot, councilRun
+  if (wantsFixture) {
+    const automations = (await api('GET', `/api/projects/${ao.id}/automations`)).automations
+    webhookAuto = automations?.find(a => a.source === 'webhook') ?? automations?.[0]
+    if (!webhookAuto) throw new Error('capture: no automation found on ao project — 38-automation-detail/39-automation-edit need one')
+    shopWorkflow = (await api('GET', `/api/projects/${shop.id}/workflows`)).workflows?.[0]
+    if (!shopWorkflow) throw new Error('capture: demo-shop has no workflow — 41-workflow-edit needs one')
+    bot = (await api('GET', `/api/projects/${ao.id}/channels`)).channels?.[0]
+    if (!bot) throw new Error('capture: no channel/bot found on ao project — 42-bot-detail/43-bot-edit need one')
+    councilRun = (await api('GET', `/api/projects/${shop.id}/workflow-runs?workflow=${shopWorkflow.id}&limit=1`)).runs?.[0]
+    if (!councilRun) throw new Error('capture: demo-shop workflow has no run — 44-workflow-run needs one')
+  }
+  // opens the "New project" modal and selects the "idea" scope card, for 04a-new-project-idea
+  const openIdeaModal = async () => {
+    const opened = await page.click(T('Add project', 'Thêm project'))
+    if (!opened) throw new Error('new-project button not found')
+    for (let i = 0; i < 20; i++) {
+      if (await page.eval(`!!document.querySelector('[role=dialog]')`).catch(() => false)) break
+      await sleep(200)
+    }
+    const ideaTitle = T('From an idea', 'Từ ý tưởng')
+    const picked = await page.eval(`(() => { const el = [...document.querySelectorAll('button')].find(b => b.querySelector('p')?.textContent.trim() === ${JSON.stringify(ideaTitle)}); el?.click(); return !!el })()`)
+    if (!picked) throw new Error('idea scope card not found')
+    await sleep(400)
+  }
   const screens = [
     ['02-overview', '/'],
     ['03-projects', '/projects'],
+    ['04a-new-project-idea', '/projects', openIdeaModal],
     ['04-chat', `${P}?tab=chat&c=cnv_demo_theme`],
     ['05-chat-answer', `${P}?tab=chat&c=cnv_demo_build`],
     ['06-team-model', `${P}?tab=agents`],
@@ -447,14 +489,26 @@ async function capture({ ao, shop, lead }) {
     ['29-audit', '/admin/audit'],
     ['30-data', '/admin/data'],
     ['31-transfer', '/admin/transfer'],
-    ['33-account', '/account']
+    ['33-account', '/account'],
+    ['40-skill-edit', `${P}/skills/edit?name=release-notes&scope=user`],
+    // these 6 need wantsFixture's lookups above, which throw by name if the fixture is missing — never silently
+    // dropped here like the conditional `...(x ? [...] : [])` spreads this replaced
+    ...(wantsFixture ? [
+      ['38-automation-detail', `${P}/automations/${webhookAuto.id}`], ['39-automation-edit', `${P}/automations/${webhookAuto.id}/edit`],
+      ['41-workflow-edit', `/projects/${shop.id}/workflows/edit?w=${shopWorkflow.id}`],
+      ['42-bot-detail', `${P}/bots/${bot.id}`], ['43-bot-edit', `${P}/bots/${bot.id}/edit`],
+      ['44-workflow-run', `/projects/${shop.id}/workflows/runs/${councilRun.id}`]
+    ] : [])
   ]
   const want = name => (!only.length || only.includes(name)) && (!onlyMissing || retake.includes(name) || !existsSync(join(OUT, name + '.png')))
-  const take = async (name, path) => {
+  // 38-44 must come out with real content — fail the whole run rather than report success with gaps
+  const REQUIRED = /^(38|39|40|41|42|43|44)-/
+  const take = async (name, path, prep) => {
     if (!want(name)) return
     for (let attempt = 1; attempt <= 2; attempt++) {
-      try { await page.go(path); await page.shot(name, MOBILE); return } catch (e) {
+      try { await page.go(path); if (prep) await prep(); await page.shot(name, MOBILE); return } catch (e) {
         log(`(${attempt === 1 ? 'retry' : 'skip'}) ${name}: ${e.message}`)
+        if (attempt === 2 && REQUIRED.test(name)) throw new Error(`capture: ${name} failed twice, giving up: ${e.message}`)
         await page.reset().catch(err => log('(reset failed)', err.message))
       }
     }
@@ -466,7 +520,7 @@ async function capture({ ao, shop, lead }) {
     }
     return
   }
-  for (const [name, path] of screens) await take(name, path)
+  for (const [name, path, prep] of screens) await take(name, path, prep)
   if (MOBILE) return // the guide's extras (dark, the update page) are not for a phone review
 
   // dark mode and phone

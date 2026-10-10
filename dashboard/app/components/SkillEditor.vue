@@ -136,7 +136,7 @@ async function save(accept = false) {
             <UTextarea v-model="form.description" :rows="2" autoresize class="w-full" :placeholder="t('skill.descriptionPlaceholder')" />
           </UFormField>
           <UFormField :label="t('skill.body')" :help="t('skill.bodyHelp')" :class="hl('body')">
-            <UTextarea v-model="form.body" :rows="18" autoresize class="w-full font-mono text-xs" :placeholder="t('skill.bodyPlaceholder')" />
+            <UTextarea v-model="form.body" :rows="8" autoresize class="w-full font-mono text-xs" :placeholder="t('skill.bodyPlaceholder')" />
           </UFormField>
           <p v-if="Object.keys(otherFiles).length" class="text-xs text-(--ui-text-muted)">
             {{ t('skill.otherFiles', { files: Object.keys(otherFiles).join(', ') }) }}
