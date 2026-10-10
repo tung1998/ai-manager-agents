@@ -2263,3 +2263,10 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Review được xem tối đa 5 việc khác của lần chạy trên cùng file, kèm kết luận của chúng. Muốn đi ngược kết luận đó thì phải nói lý do.
   - Scan được xem các file mà việc xong của lần chạy đã sửa, kèm việc nào sửa. Việc cho rằng việc trước "chưa đủ" phải có bằng chứng từ code hiện tại, nêu tên việc trước, và gom thành một việc.
   - Template ux: màn hình thiếu trong danh sách của script chụp không phải là việc. Chụp nó bằng chế độ một route hoặc bằng trình duyệt. Công cụ chỉ thành việc khi không có cách nào chụp được màn hình.
+
+## ADR-145: Burn: lượt quét không dừng sau vài mục; đánh dấu mục phải ghi file đã đọc
+- **Bối cảnh (10/10):** Burn agent-office mẫu "Ý tưởng & tích hợp" được đặt 3 việc song song nhưng thường chỉ có 1 việc chạy. Trong 20 phút có 7 lượt quét, mỗi lượt khoảng 3 phút, chỉ ra 2 việc; 5 lượt trắng tay. Lý do không nằm ở trần 10 việc một lượt. Trần "tối đa 8 mục mỗi lượt" (ADR-141) khiến scanner xem xong vài mục là kết thúc, và lessons/code map từ các lần chạy trước dặn "không có commit mới = không có gì mới, đánh dấu nhanh". Vì vậy mỗi lượt đánh dấu lướt các vùng cũ, không ghi việc nào. Khi đi sang vùng chưa đọc, lượt quét ra 2 việc ngay.
+- **Quyết định:**
+  - Trần mục đánh dấu mỗi lượt không còn là điểm dừng: nâng lên 25, chỉ để bắt một danh sách bị đánh dấu hàng loạt. Lượt quét đi tiếp từng mục chưa xem tới khi ghi đủ 10 việc hoặc hết mục.
+  - Mục đánh dấu trong lượt phải ghi file đã đọc (đường dẫn, `file:dòng` hoặc ảnh chụp) sau " — ". Thiếu thì `burn_scan_done` từ chối. Mục đã đánh dấu từ lượt trước giữ nguyên.
+  - "Không có commit mới", "đã xác nhận ổn trước đó" hay code map ghi "solid" không phải lý do để đánh dấu. Code map chỉ ghi vị trí và quy ước, không ghi kết luận. Lessons (cả khi rút kinh nghiệm cuối lần chạy) không được có luật bỏ qua vùng không đổi.

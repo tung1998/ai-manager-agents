@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -41,9 +42,11 @@ const maxNones = 3
 // maxCoverage caps the coverage plan kept (ADR-141).
 const maxCoverage = 16000
 
-// maxChecks: coverage items one scan may check off, so each is looked at
-// for real in it, not ticked from memory (ADR-141).
-const maxChecks = 8
+// maxChecks: coverage items one scan may check off. It is no stop sign: a
+// scan goes on item after item until it has recorded scanBatch pieces or
+// the plan is done; it only catches a plan ticked wholesale from memory
+// (ADR-141, ADR-145), with each item checked naming what was read.
+const maxChecks = 25
 
 // maxCodeMap caps the code map kept (ADR-130).
 const maxCodeMap = 8000
@@ -84,17 +87,28 @@ func uncheck(plan string) string {
 }
 
 // planProblem is why a scan's new coverage plan is refused (ADR-141): an
-// item that bundles several areas, or more items checked off than one scan
-// can look at for real.
+// item that bundles several areas, one checked off this scan without the
+// file it read (ADR-145), or more items checked off than one scan can look
+// at for real.
 func planProblem(before, after string) string {
+	seen := map[string]bool{} // checked before this scan
+	for _, line := range strings.Split(before, "\n") {
+		if text, ok, checked := item(line); ok && checked {
+			area, _, _ := strings.Cut(text, " — ")
+			seen[strings.TrimSpace(area)] = true
+		}
+	}
 	for _, line := range strings.Split(after, "\n") {
-		text, ok, _ := item(line)
+		text, ok, checked := item(line)
 		if !ok {
 			continue
 		}
-		area, _, _ := strings.Cut(text, " — ")
+		area, result, _ := strings.Cut(text, " — ")
 		if strings.Count(area, ",") >= 2 {
 			return fmt.Sprintf("mỗi mục chỉ một vùng (một màn, một gói, một tính năng), tách dòng %q thành từng mục", oneLine(area, 80))
+		}
+		if checked && !seen[strings.TrimSpace(area)] && !readRe.MatchString(result) {
+			return fmt.Sprintf("mục %q đánh dấu mà không ghi file đã đọc trong lượt này: ghi \"- [x] vùng — kết quả (file:dòng đã đọc)\"; chưa đọc thật thì để [ ]", oneLine(area, 80))
 		}
 	}
 	was, _ := coverageCount(before)
@@ -107,6 +121,10 @@ func planProblem(before, after string) string {
 	}
 	return ""
 }
+
+// readRe is what an item checked off names of what was read: a file, or a
+// screenshot.
+var readRe = regexp.MustCompile(pathRe.String() + `|\.(?:png|jpe?g)\b`)
 
 // coverageCount reads a coverage plan: its items ("- [ ]" or "- [x]"
 // lines) and how many are checked.

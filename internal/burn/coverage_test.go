@@ -94,19 +94,33 @@ func TestScanBatch(t *testing.T) {
 // looked at dropped. A new run sets every item back.
 func TestPlanProblem(t *testing.T) {
 	var before, after strings.Builder
-	for i := range 20 {
+	for i := range maxChecks + 5 {
 		fmt.Fprintf(&before, "- [ ] /screen%d\n", i)
 		box := "[ ]"
 		if i < maxChecks {
 			box = "[x]"
 		}
-		fmt.Fprintf(&after, "- %s /screen%d — nothing\n", box, i)
+		fmt.Fprintf(&after, "- %s /screen%d — nothing (screen%d.vue read)\n", box, i, i)
 	}
 	if why := planProblem(before.String(), after.String()); why != "" {
-		t.Fatalf("maxChecks looked at is fine: %s", why)
+		t.Fatalf("maxChecks looked at, each with its file, is fine: %s", why)
 	}
-	if why := planProblem(before.String(), after.String()+"- [x] /extra — đã xem lần trước\n"); why == "" {
+	if why := planProblem(before.String(), after.String()+"- [x] /extra — nothing (extra.vue)\n"); why == "" {
 		t.Fatal("one more checked than a scan can look at")
+	}
+	// ADR-145: an item checked this scan names what was read; one checked
+	// before keeps its result as it is.
+	if why := planProblem("- [ ] internal/llm", "- [x] internal/llm — nothing: no commits since"); why == "" {
+		t.Fatal("checked without the file read")
+	}
+	if why := planProblem("- [ ] internal/llm", "- [x] internal/llm — nothing: single-turn by design (internal/llm/cli.go:40)"); why != "" {
+		t.Fatalf("checked with the file read: %s", why)
+	}
+	if why := planProblem("- [ ] /projects", "- [x] /projects — 1 piece (shot 03-projects.png)"); why != "" {
+		t.Fatalf("checked with the screenshot: %s", why)
+	}
+	if why := planProblem("- [x] internal/llm — solid\n- [ ] /a", "- [x] internal/llm — solid\n- [ ] /a"); why != "" {
+		t.Fatalf("checked in an earlier scan: %s", why)
 	}
 	if why := planProblem("", "- [x] 01-login, 02-overview, 03-projects — đã xem ở các lần quét trước"); why == "" {
 		t.Fatal("areas bundled on one line")
