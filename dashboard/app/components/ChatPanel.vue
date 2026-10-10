@@ -947,7 +947,8 @@ onBeforeUnmount(() => {
           </template>
           <template v-else>
             <p class="text-sm">{{ t('chat.askAboutProject') }}</p>
-            <p class="text-xs">{{ t('chat.readOnlyHint') }}</p>
+            <!-- what the hint promises follows the picked agent's permission -->
+            <p class="text-xs">{{ t(permRank(pickedLevel) >= permRank('edit') ? 'chat.editHint' : 'chat.readOnlyHint') }}</p>
           </template>
         </div>
 

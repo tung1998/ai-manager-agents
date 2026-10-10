@@ -38,7 +38,7 @@ const usd = (v: number) => v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(3)}`
 <template>
   <UCard :ui="{ body: 'flex flex-wrap items-center gap-3 sm:p-4' }">
     <UIcon name="i-lucide-wallet" class="size-5 text-(--ui-text-muted)" />
-    <div class="min-w-0 flex-1">
+    <div class="min-w-0 flex-1 basis-40">
       <p class="font-medium">{{ t('budget.officeTitle') }}</p>
       <p class="text-xs text-(--ui-text-muted)">
         <USkeleton v-if="!sum" class="h-3 w-40" />

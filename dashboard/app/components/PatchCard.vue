@@ -74,7 +74,7 @@ async function decide(approve: boolean, skip = false) {
 <template>
   <div class="overflow-hidden rounded-lg border border-(--ui-border)">
     <div class="flex flex-wrap items-center gap-2 bg-(--ui-bg-muted) px-3 py-2 text-sm">
-      <button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left" @click="open = !open">
+      <button type="button" class="flex min-w-0 flex-1 basis-48 items-center gap-2 text-left" @click="open = !open">
         <UIcon :name="open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4 shrink-0" />
         <UIcon name="i-lucide-file-diff" class="size-4 shrink-0 text-primary" />
         <span class="truncate font-mono text-xs">{{ patch.files.join(', ') }}</span>

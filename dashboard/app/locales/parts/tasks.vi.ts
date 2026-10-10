@@ -72,6 +72,7 @@ export default {
   'chat.askAboutAutomation': 'Mô tả việc bạn muốn tự động: chạy khi nào, làm gì. Agent sẽ điền form bên cạnh, kể cả viết script.',
   'chat.automationHint': 'Chưa lưu gì cho tới khi bạn bấm Lưu.',
   'chat.readOnlyHint': 'Agent chỉ đọc; mọi thay đổi code đều cần bạn duyệt.',
+  'chat.editHint': 'Agent được sửa code theo quyền đã cấp; chỉnh quyền ở tab Quyền.',
   'chat.toolsUsed': 'Đã dùng {n} công cụ',
   'chat.replying': 'Đang trả lời…',
   'chat.placeholderWithAgent': 'Nhắn {agent}… (Enter gửi, Shift+Enter xuống dòng)',

@@ -315,7 +315,7 @@ async function testRun() {
         </label>
         <div class="space-y-2 rounded-lg bg-(--ui-bg-elevated)/50 p-3">
           <div class="flex flex-wrap items-center gap-2">
-            <UInput v-model="testPayload" size="sm" class="min-w-0 flex-1 font-mono" :placeholder="t('auto.testPayload')" />
+            <UInput v-model="testPayload" size="sm" class="min-w-0 flex-1 basis-40 font-mono" :placeholder="t('auto.testPayload')" />
             <UButton v-if="isAdmin" size="sm" icon="i-lucide-play" :label="t('auto.testRun')" :loading="testing" :disabled="!form.script.body.trim()" @click="testRun" />
           </div>
           <template v-if="tested">

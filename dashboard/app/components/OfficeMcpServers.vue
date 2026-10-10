@@ -210,7 +210,7 @@ async function save() {
       <div v-for="s in list" :key="s.id" class="px-4 py-2.5">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
           <UIcon :name="s.kind === 'stdio' ? 'i-lucide-terminal' : 'i-lucide-plug'" class="size-4 shrink-0 text-primary" />
-          <div class="min-w-0 flex-1">
+          <div class="min-w-0 flex-1 basis-40">
             <p class="flex items-center gap-2 truncate font-mono text-sm font-medium">
               {{ s.name }}
               <UTooltip v-if="s.moved_from" :text="t('tools.gwMovedFromInfo', { name: s.moved_from.name, time: fmt(s.moved_from.moved_at) })">

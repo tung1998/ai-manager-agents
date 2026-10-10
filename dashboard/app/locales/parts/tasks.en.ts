@@ -73,6 +73,7 @@ const en: Record<keyof typeof vi, string> = {
   'chat.askAboutAutomation': 'Describe what to automate: when it runs and what it does. The agent fills the form next to this, scripts included.',
   'chat.automationHint': 'Nothing is saved until you press Save.',
   'chat.readOnlyHint': 'The agent is read-only; every code change still needs your approval.',
+  'chat.editHint': 'The agent can edit code within the permission it has; change it in the Permissions tab.',
   'chat.toolsUsed': 'Used {n} tools',
   'chat.replying': 'Replying…',
   'chat.placeholderWithAgent': 'Message {agent}… (Enter to send, Shift+Enter for a new line)',

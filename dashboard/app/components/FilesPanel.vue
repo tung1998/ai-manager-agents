@@ -323,7 +323,7 @@ function badges(f: Flags) {
       <div v-if="!file" class="flex flex-1 items-center justify-center p-6 text-sm text-(--ui-text-muted)">{{ t('files.pick') }}</div>
       <template v-else>
         <div class="flex flex-wrap items-center gap-2 border-b border-(--ui-border) bg-(--ui-bg-muted) px-3 py-1.5">
-          <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ file.path }}</span>
+          <span class="min-w-0 flex-1 basis-40 truncate font-mono text-xs">{{ file.path }}</span>
           <UBadge v-for="b in badges(file.flags)" :key="b.label" :label="b.label" :color="b.color" variant="subtle" size="sm" />
           <UBadge v-if="dirty" :label="t('files.unsaved')" color="warning" variant="outline" size="sm" />
           <template v-if="file.content !== undefined">

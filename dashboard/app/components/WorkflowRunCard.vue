@@ -93,7 +93,7 @@ async function stop() {
 
     <div v-for="g in waiting" :key="g.key" class="flex flex-wrap items-center gap-2 rounded-md bg-(--ui-warning)/10 px-2.5 py-1.5 text-xs">
       <UIcon name="i-lucide-user-check" class="size-4 text-(--ui-warning)" />
-      <span class="min-w-0 flex-1">{{ t('wf.runs.gateWaiting', { name: g.name }) }} <NuxtLink v-if="!detail" :to="pageTo" class="text-primary">{{ t('wf.runs.seeWhat') }}</NuxtLink></span>
+      <span class="min-w-0 flex-1 basis-48">{{ t('wf.runs.gateWaiting', { name: g.name }) }} <NuxtLink v-if="!detail" :to="pageTo" class="text-primary">{{ t('wf.runs.seeWhat') }}</NuxtLink></span>
       <template v-if="isAdmin">
         <UButton size="xs" color="success" icon="i-lucide-check" :label="t('wf.runs.approve')" :loading="deciding === g.key" @click="decide(g, true)" />
         <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-x" :label="t('wf.runs.reject')" :disabled="deciding === g.key" @click="decide(g, false)" />

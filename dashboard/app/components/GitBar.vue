@@ -135,11 +135,13 @@ const menu = computed(() => [[
 <template>
   <div v-if="repo && st" class="flex min-w-0 items-center gap-2">
   <component :is="isAdmin ? Dropdown : 'div'" :items="menu" :content="{ align: 'start' }">
-    <button type="button" class="flex min-w-0 items-center gap-1.5 hover:text-(--ui-text)" :disabled="!isAdmin" :title="st.upstream || t('git.noUpstream')">
+    <button type="button" class="flex min-w-0 items-center gap-1.5 overflow-hidden hover:text-(--ui-text)" :disabled="!isAdmin" :title="st.upstream || t('git.noUpstream')">
       <UIcon :name="busy ? 'i-lucide-loader-circle' : 'i-lucide-git-branch'" class="size-3 shrink-0" :class="busy && 'animate-spin'" />
       <span class="min-w-8 truncate font-mono">{{ st.branch || 'HEAD' }}</span>
       <template v-if="!st.upstream">
-        <span class="shrink-0">· {{ t('git.noUpstream') }}</span>
+        <!-- on a phone an icon says it (the title has the words): the branch keeps the room -->
+        <UIcon name="i-lucide-cloud-off" class="size-3 shrink-0 sm:hidden" />
+        <span class="min-w-0 truncate max-sm:hidden">· {{ t('git.noUpstream') }}</span>
       </template>
       <template v-else-if="!st.ahead && !st.behind">
         <UIcon name="i-lucide-check" class="size-3 shrink-0 text-(--ui-success)" />
