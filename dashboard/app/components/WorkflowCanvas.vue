@@ -187,6 +187,7 @@ function onEdgesChange(changes: EdgeChange[]) {
 }
 
 function onDragStop(e: NodeDragEvent) {
+  interacted.value = true
   const moved = e.nodes.length ? e.nodes : [e.node]
   const at = (n: { position: { x: number, y: number } }) => ({ x: Math.round(n.position.x), y: Math.round(n.position.y) })
   const input = moved.find(n => n.id === INPUT)
@@ -290,13 +291,36 @@ function addStep(p: Drop, position: { x: number, y: number }, link: boolean) {
   selected.value = s.id
 }
 
-// the first draw fits the view once the nodes are measured
+// the first draw fits the view once the nodes are measured; until the user
+// pans, zooms or drags a node, the graph box resizing re-fits too: on a phone
+// the nodes are measured while the box is still 0 wide (that fit is skipped)
+// and only a later resize gives the room to fit into
 const fitted = ref(false)
+const interacted = ref(false)
 function onNodesInitialized() {
   if (fitted.value) return
   fitted.value = true
   fitFree()
 }
+function onUserMoved() {
+  interacted.value = true
+}
+const canvasEl = ref<HTMLElement>()
+let resizeObserver: ResizeObserver | undefined
+let resizeFrame = 0
+onMounted(() => {
+  if (!canvasEl.value) return
+  resizeObserver = new ResizeObserver(() => {
+    if (!fitted.value || interacted.value) return
+    cancelAnimationFrame(resizeFrame)
+    resizeFrame = requestAnimationFrame(fitFree)
+  })
+  resizeObserver.observe(canvasEl.value)
+})
+onUnmounted(() => {
+  resizeObserver?.disconnect()
+  cancelAnimationFrame(resizeFrame)
+})
 
 // the roles a coordinate step hands work to (none named: every role but its coordinator)
 const coordRoles = (s: WorkflowStep) => s.roles?.length ? s.roles : view.value.roles.filter(r => r.key !== s.role).map(r => r.key)
@@ -383,14 +407,14 @@ const palette = computed(() => STEP_TYPES.map(s => ({ ...s, label: stepLabel(s.t
     <UButton v-if="!formOpen" class="absolute start-2 top-2 z-10 max-md:hidden" size="sm" color="neutral" variant="outline" icon="i-lucide-panel-left-open" :label="t('wf.canvas.details')" @click="formOpen = true" />
 
     <!-- the graph -->
-    <div class="relative h-[26rem] min-w-0 shrink-0 md:absolute md:inset-0 md:h-auto" @dragover="onDragOver" @drop="onDrop">
+    <div ref="canvasEl" class="relative h-[26rem] min-w-0 shrink-0 md:absolute md:inset-0 md:h-auto" @dragover="onDragOver" @drop="onDrop">
       <VueFlow
         :id="flowId" :nodes="nodes" :edges="edges"
         :edges-updatable="false"
         :delete-key-code="['Backspace', 'Delete']" :min-zoom="0.2" :max-zoom="1.5"
         :default-edge-options="{ type: 'smoothstep' }"
         @nodes-initialized="onNodesInitialized" @connect="onConnect" @nodes-change="onNodesChange" @edges-change="onEdgesChange"
-        @node-drag-stop="onDragStop" @node-click="onNodeClick" @pane-click="selected = ''"
+        @node-drag-stop="onDragStop" @node-click="onNodeClick" @pane-click="selected = ''" @move-start="onUserMoved"
       >
         <Background :gap="18" :size="1.2" />
         <Controls :show-interactive="false" :show-fit-view="false" position="bottom-center">
