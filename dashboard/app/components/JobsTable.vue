@@ -136,18 +136,18 @@ useLive(['jobs'], () => load())
             <tr class="border-b border-(--ui-border)">
               <th class="px-4 py-2 font-medium">{{ t('job.colStatus') }}</th>
               <th class="px-2 py-2 font-medium">{{ t('job.colTitle') }}</th>
-              <th class="px-2 py-2 font-medium">{{ t('job.colSource') }}</th>
-              <th class="px-2 py-2 font-medium">{{ t('job.colAgent') }}</th>
+              <th class="px-2 py-2 font-medium max-sm:hidden">{{ t('job.colSource') }}</th>
+              <th class="px-2 py-2 font-medium max-sm:hidden">{{ t('job.colAgent') }}</th>
               <th class="px-2 py-2 text-right font-medium">{{ t('job.colCost') }}</th>
-              <th class="px-2 py-2 text-right font-medium">{{ t('job.colTime') }}</th>
-              <th class="px-2 py-2 font-medium">{{ t('job.colCreated') }}</th>
+              <th class="px-2 py-2 text-right font-medium max-sm:hidden">{{ t('job.colTime') }}</th>
+              <th class="px-2 py-2 font-medium max-sm:hidden">{{ t('job.colCreated') }}</th>
               <th class="px-4 py-2" />
             </tr>
           </thead>
           <tbody>
             <tr v-for="j in jobs" :key="j.id" class="border-b border-(--ui-border) last:border-0 hover:bg-(--ui-bg-elevated)/40">
               <td class="px-4 py-2"><JobStatusBadge :status="j.status" /></td>
-              <td class="max-w-72 px-2 py-2">
+              <td class="max-w-0 px-2 py-2">
                 <span class="flex items-center gap-1.5">
                   <UIcon :name="j.kind === 'task' ? 'i-lucide-list-todo' : j.kind === 'script' ? 'i-lucide-square-terminal' : 'i-lucide-messages-square'" class="size-3.5 shrink-0 text-(--ui-text-muted)" />
                   <span class="truncate" :title="j.title">{{ j.title || '—' }}</span>
@@ -155,16 +155,16 @@ useLive(['jobs'], () => load())
                 <span v-if="j.error" class="block truncate text-xs text-(--ui-error)" :title="j.error">{{ j.error }}</span>
                 <span v-if="!filter?.project && j.project_name" class="block truncate text-xs text-(--ui-text-muted)">{{ j.project_name }}</span>
               </td>
-              <td class="max-w-48 px-2 py-2 text-xs text-(--ui-text-muted)">
+              <td class="max-w-48 px-2 py-2 text-xs text-(--ui-text-muted) max-sm:hidden">
                 <span class="flex items-center gap-1.5">
                   <UIcon :name="sourceIcon[sourceOf(j)]" class="size-3.5 shrink-0" :title="t(`source.${sourceOf(j)}`)" />
                   <span class="truncate">{{ source(j) }}</span>
                 </span>
               </td>
-              <td class="max-w-36 truncate px-2 py-2 text-xs">{{ j.agent_name || '—' }}</td>
+              <td class="max-w-36 truncate px-2 py-2 text-xs max-sm:hidden">{{ j.agent_name || '—' }}</td>
               <td class="px-2 py-2 text-right text-xs tabular-nums">{{ usd(j.cost_usd) }}</td>
-              <td class="px-2 py-2 text-right text-xs tabular-nums">{{ secs(j.duration_ms) }}</td>
-              <td class="whitespace-nowrap px-2 py-2 text-xs text-(--ui-text-muted)">{{ when(j.created_at) }}</td>
+              <td class="px-2 py-2 text-right text-xs tabular-nums max-sm:hidden">{{ secs(j.duration_ms) }}</td>
+              <td class="whitespace-nowrap px-2 py-2 text-xs text-(--ui-text-muted) max-sm:hidden">{{ when(j.created_at) }}</td>
               <td class="whitespace-nowrap px-4 py-2 text-right">
                 <UButton v-if="j.conversation_id || j.task_id || j.kind === 'script'" size="xs" color="neutral" variant="ghost" icon="i-lucide-external-link" :title="t('job.open')" :aria-label="t('job.open')" @click="openJob(j)" />
                 <UButton v-if="isAdmin && (j.status === 'pending' || j.status === 'running')" size="xs" color="neutral" variant="ghost" icon="i-lucide-square" :title="t('job.cancel')" :aria-label="t('job.cancel')" @click="act(j, 'cancel')" />

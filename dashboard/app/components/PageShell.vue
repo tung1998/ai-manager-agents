@@ -1,12 +1,15 @@
 <script setup lang="ts">
 defineProps<{ title: string }>()
 const { isAdmin } = useAuth()
+// the FAB (FloatingChat) sits fixed over the bottom-right corner on mobile;
+// reserve room so it never covers the page's last row/control
+const fabVisible = useFabVisible()
 </script>
 
 <template>
   <!-- the page never scrolls sideways: wide tables scroll inside their own box;
        each block takes the full width (a centered max-w one never grows to its content) -->
-  <UDashboardPanel :ui="{ body: 'overflow-x-hidden min-w-0 max-sm:p-3 *:w-full' }">
+  <UDashboardPanel :ui="{ body: `overflow-x-hidden min-w-0 max-sm:p-3 *:w-full ${fabVisible ? 'max-sm:pb-20' : ''}` }">
     <template #header>
       <UDashboardNavbar :title="title" :ui="{ root: 'max-sm:px-3' }">
         <template #leading>
@@ -23,7 +26,9 @@ const { isAdmin } = useAuth()
         </template>
         <template #right>
           <HeaderStats v-if="isAdmin" />
-          <slot name="actions" />
+          <div class="flex items-center gap-1.5 max-sm:[&_[data-slot=base]:has([data-slot=leadingIcon])_[data-slot=label]]:sr-only">
+            <slot name="actions" />
+          </div>
         </template>
       </UDashboardNavbar>
     </template>

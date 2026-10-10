@@ -113,7 +113,7 @@ useLive(['audit_log'], () => load())
           <thead class="text-left text-xs text-(--ui-text-muted)">
             <tr class="border-b border-(--ui-border)">
               <th class="px-4 py-2 font-medium">{{ t('audit.colTime') }}</th>
-              <th class="px-2 py-2 font-medium">{{ t('audit.colWho') }}</th>
+              <th class="px-2 py-2 font-medium max-sm:hidden">{{ t('audit.colWho') }}</th>
               <th class="px-2 py-2 font-medium">{{ t('audit.colChange') }}</th>
               <th class="px-2 py-2 font-medium">{{ t('audit.colTarget') }}</th>
               <th v-if="!compact" class="px-4 py-2 font-medium">{{ t('audit.colSource') }}</th>
@@ -123,7 +123,7 @@ useLive(['audit_log'], () => load())
             <template v-for="e in entries" :key="e.id">
               <tr class="cursor-pointer border-b border-(--ui-border) last:border-0 hover:bg-(--ui-bg-elevated)/40" @click="open = open === e.id ? null : e.id">
                 <td class="whitespace-nowrap px-4 py-2 text-xs text-(--ui-text-muted)">{{ when(e.at) }}</td>
-                <td class="max-w-56 px-2 py-2">
+                <td class="max-w-56 px-2 py-2 max-sm:hidden">
                   <span class="flex items-center gap-1.5">
                     <UIcon :name="whoIcon(e.actor_kind)" class="size-3.5 shrink-0 text-(--ui-text-muted)" :title="label('audit.kind.', e.actor_kind)" />
                     <span class="truncate">{{ e.actor_name || label('audit.kind.', e.actor_kind) }}</span>
@@ -137,12 +137,13 @@ useLive(['audit_log'], () => load())
                     <UBadge v-if="!e.ok" color="error" variant="subtle" size="sm" :label="t('audit.failed')" />
                   </span>
                 </td>
-                <td class="max-w-64 px-2 py-2">
+                <td class="max-w-0 px-2 py-2">
                   <span class="block truncate" :title="targetName(e)">{{ targetName(e) || '—' }}</span>
                   <span v-if="!compact && !filter?.project && e.project_name" class="block truncate text-xs text-(--ui-text-muted)">{{ e.project_name }}</span>
+                  <span class="block truncate text-xs text-(--ui-text-muted) sm:hidden">{{ e.actor_name || label('audit.kind.', e.actor_kind) }}</span>
                 </td>
                 <td v-if="!compact" class="whitespace-nowrap px-4 py-2" @click.stop>
-                  <span class="mr-1 text-xs text-(--ui-text-muted)">{{ label('audit.via.', e.via) }}</span>
+                  <span class="mr-1 text-xs text-(--ui-text-muted) max-sm:hidden">{{ label('audit.via.', e.via) }}</span>
                   <UButton v-if="e.conversation_id && e.project_id" size="xs" color="neutral" variant="ghost" icon="i-lucide-messages-square" :title="t('audit.openChat')" :aria-label="t('audit.openChat')" @click="openChat(e)" />
                   <UButton v-if="e.job_id" size="xs" color="neutral" variant="ghost" icon="i-lucide-list-checks" :title="t('audit.openJob')" :aria-label="t('audit.openJob')" @click="jobId = e.job_id" />
                 </td>
