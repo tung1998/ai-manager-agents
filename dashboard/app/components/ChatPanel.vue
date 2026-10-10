@@ -589,11 +589,15 @@ function follow(id: string) {
   liveText.value = ''
   liveTools.value = []
   liveStatus.value = ''
+  let afterTool = false // text after a tool call is a new paragraph, not glued to the last one
   unfollow = followTurn<ChatEvent>(id, (ev) => {
     switch (ev.type) {
       case 'status': liveStatus.value = ev.text ?? ''; break
-      case 'text': liveText.value += ev.text ?? ''; scrollDown(); break
-      case 'tool': if (ev.tool) liveTools.value.push(ev.tool); scrollDown(); break
+      case 'text':
+        if (afterTool && liveText.value && ev.text) liveText.value += '\n\n'
+        afterTool = false
+        liveText.value += ev.text ?? ''; scrollDown(); break
+      case 'tool': if (ev.tool) liveTools.value.push(ev.tool); afterTool = true; scrollDown(); break
       case 'done':
       case 'error':
         if (ev.message) {
@@ -1007,7 +1011,7 @@ onBeforeUnmount(() => {
             <span>{{ liveStatus || t('chat.replying') }}</span>
           </div>
           <ul v-if="liveTools.length" class="space-y-0.5 ps-6 text-xs text-(--ui-text-muted)">
-            <li v-for="(t, i) in liveTools" :key="i">{{ t.summary }}</li>
+            <li v-for="(t, i) in liveTools" :key="i" class="line-clamp-2 break-all" :title="t.summary">{{ t.summary }}</li>
           </ul>
           <!-- eslint-disable-next-line vue/no-v-html -->
           <div v-if="liveText" class="markdown text-sm" v-html="renderMarkdown(liveText)" />

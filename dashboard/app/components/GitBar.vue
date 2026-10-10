@@ -137,7 +137,7 @@ const menu = computed(() => [[
   <component :is="isAdmin ? Dropdown : 'div'" :items="menu" :content="{ align: 'start' }">
     <button type="button" class="flex min-w-0 items-center gap-1.5 hover:text-(--ui-text)" :disabled="!isAdmin" :title="st.upstream || t('git.noUpstream')">
       <UIcon :name="busy ? 'i-lucide-loader-circle' : 'i-lucide-git-branch'" class="size-3 shrink-0" :class="busy && 'animate-spin'" />
-      <span class="truncate font-mono">{{ st.branch || 'HEAD' }}</span>
+      <span class="min-w-8 truncate font-mono">{{ st.branch || 'HEAD' }}</span>
       <template v-if="!st.upstream">
         <span class="shrink-0">· {{ t('git.noUpstream') }}</span>
       </template>
@@ -149,7 +149,8 @@ const menu = computed(() => [[
         <span v-if="st.ahead" class="shrink-0 tabular-nums" :title="t('git.aheadTitle', { n: st.ahead })">↑{{ st.ahead }}</span>
         <span v-if="st.behind" class="shrink-0 tabular-nums text-(--ui-warning)" :title="t('git.behindTitle', { n: st.behind })">↓{{ st.behind }}</span>
       </template>
-      <span v-if="changes" class="shrink-0">· {{ t('git.changes', { n: changes }) }}</span>
+      <!-- on a phone the link below says it: the two side by side overflow the header -->
+      <span v-if="changes" class="shrink-0" :class="isAdmin && 'max-sm:hidden'">· {{ t('git.changes', { n: changes }) }}</span>
       <UIcon v-if="isAdmin" name="i-lucide-chevron-down" class="size-3 shrink-0" />
     </button>
   </component>
@@ -157,7 +158,8 @@ const menu = computed(() => [[
     v-if="changes && isAdmin" type="button" class="shrink-0 text-primary underline-offset-2 hover:underline"
     @click="viewChanges"
   >
-    {{ t('git.viewChanges') }}
+    <span class="sm:hidden">{{ t('git.changes', { n: changes }) }}</span>
+    <span class="max-sm:hidden">{{ t('git.viewChanges') }}</span>
   </button>
   </div>
 
