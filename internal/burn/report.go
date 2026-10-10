@@ -33,6 +33,7 @@ func (s *Service) report(ctx context.Context, b storage.BurnSession, why string)
 			}
 		}()
 	}
+	go s.retro(context.WithoutCancel(ctx), b) // what went wrong, what to change (ADR-143)
 }
 
 // summary is a run's report: since it started, what was done, failed or

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,7 +52,7 @@ const maxCodeMap = 8000
 // areas looked at.
 const (
 	maxTakenInScan   = 60
-	maxScannedInScan = 10
+	maxScannedInScan = 3 // the coverage plan says where to go on; these only show the latest
 )
 
 // hunting: a scan (a piece with no kind).
@@ -123,12 +124,15 @@ func coverageCount(plan string) (checked, total int) {
 
 // scanPrompt is a scan's turn (burn/scan.md).
 func scanPrompt(b storage.BurnSession, it storage.BurnItem, items []storage.BurnItem, again bool) string {
-	var taken []string
-	for _, x := range items {
-		if x.ID == it.ID || hunting(x) {
-			continue
+	var pieces []storage.BurnItem
+	for i := len(items) - 1; i >= 0; i-- { // latest first, so a piece tried again shows its last try
+		if x := items[i]; x.ID != it.ID && !hunting(x) {
+			pieces = append(pieces, x)
 		}
-		taken = append(taken, fmt.Sprintf("[%s] %s", x.Status, oneLine(x.Title, 120)))
+	}
+	var taken []string
+	for _, g := range slices.Backward(groupByPiece(pieces)) {
+		taken = append(taken, fmt.Sprintf("[%s%s] %s", g.it.Status, times(g.n), oneLine(g.it.Title, 120)))
 	}
 	if len(taken) > maxTakenInScan {
 		taken = taken[len(taken)-maxTakenInScan:]
@@ -174,6 +178,9 @@ func (s *Service) record(ctx context.Context, b storage.BurnSession, from string
 		if !hunting(it) && sameTitle(it.Title, title) {
 			return fmt.Sprintf("Đã có việc này: %s (%s).", it.ID, it.Status), nil
 		}
+	}
+	if n, why := failedBefore(items, title); n >= maxTries && from != "" { // a scan recording it again (ADR-143)
+		return "", fmt.Errorf("việc này đã thất bại %d lần (lần cuối: %s): không ghi lại. Nếu nguyên nhân nằm ở quy trình hay môi trường, ghi một việc sửa nguyên nhân đó", n, oneLine(why, 200))
 	}
 	if from != "" {
 		s.mu.Lock()

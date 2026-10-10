@@ -121,3 +121,21 @@ func TestPlanProblem(t *testing.T) {
 		t.Fatalf("uncheck = %q", got)
 	}
 }
+
+// A piece tried again and again shows once in a scan's prompt, with its
+// count: nine failed tries of one feature took most of the-compound's
+// prompt (09/10).
+func TestTriesShowOnce(t *testing.T) {
+	if pieceKey("wire-ending (retry 2026-10-09i): Nối ending") != "wire-ending" || pieceKey("Sửa (lần 2) bảng Jobs") != "sửa bảng jobs" {
+		t.Fatal("pieceKey")
+	}
+	var items []storage.BurnItem
+	for i := range 9 {
+		items = append(items, storage.BurnItem{ID: fmt.Sprint("f", i), Kind: "unfinished", Status: "failed", Title: fmt.Sprintf("wire-ending (retry %d): Nối ending", i), Summary: "corrupt patch"})
+	}
+	items = append(items, storage.BurnItem{ID: "d", Kind: "bug", Status: "done", Title: "Bảng Jobs cắt chữ"})
+	p := scanPrompt(storage.BurnSession{}, storage.BurnItem{ID: "w"}, items, false)
+	if strings.Count(p, "wire-ending") != 2 || !strings.Contains(p, "[failed ×9] wire-ending (retry 8)") || !strings.Contains(p, "[done] Bảng Jobs cắt chữ") {
+		t.Fatalf("each piece once, its latest try, in the taken list and the setbacks:\n%s", p)
+	}
+}

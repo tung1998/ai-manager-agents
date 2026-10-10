@@ -853,6 +853,9 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	_ = s.store.Burn().UpdateItem(context.WithoutCancel(ctx), cur)
 	if ctx.Err() == nil {
 		s.sayItem(ctx, b, cur)
+		if cur.Status == "failed" {
+			s.watch(ctx, b) // the same reason again and again: the process, not the piece (ADR-143)
+		}
 	}
 	return failed
 }

@@ -335,10 +335,23 @@ func TestBurnDrainFinishesThenStops(t *testing.T) {
 	if it, _ := f.st.Burn().Item(ctx, second.ID); it.Status != "queued" || it.Worktree != "" {
 		t.Fatalf("a new piece was started while draining: %+v", it)
 	}
-	// its summary: the last message of its chat, and to the bot's chat (ADR-120)
-	msgs, _ := f.st.Chat().ListMessages(ctx, b.ConversationID)
-	if last := msgs[len(msgs)-1]; last.Author != "Burn" || !strings.Contains(last.Content, "đã làm nốt việc dở") || !strings.Contains(last.Content, "đang làm") {
-		t.Fatalf("last message: %+v", last)
+	// its summary in its chat (and to the bot's chat, ADR-120), then the
+	// look back at the run (ADR-143)
+	var msgs []storage.Message
+	summaryAt, retroAt := -1, -1
+	for deadline := time.Now().Add(10 * time.Second); retroAt < 0 && time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		msgs, _ = f.st.Chat().ListMessages(ctx, b.ConversationID)
+		for i, m := range msgs {
+			if m.Author == "Burn" && strings.Contains(m.Content, "đã làm nốt việc dở") && strings.Contains(m.Content, "đang làm") {
+				summaryAt = i
+			}
+			if m.Role == "user" && strings.Contains(m.Content, "This run of the Burn has ended") {
+				retroAt = i
+			}
+		}
+	}
+	if summaryAt < 0 || retroAt < summaryAt {
+		t.Fatalf("summary at %d, look back at %d", summaryAt, retroAt)
 	}
 	// and its log on the way: started, the piece begun and done
 	var log strings.Builder

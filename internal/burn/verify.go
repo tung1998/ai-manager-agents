@@ -144,13 +144,68 @@ func setbacks(items []storage.BurnItem) []string {
 	}
 	slices.SortStableFunc(list, func(a, b storage.BurnItem) int { return b.UpdatedAt.Compare(a.UpdatedAt) })
 	var out []string
-	for i, it := range list {
-		if i == maxSetbacks {
+	for _, g := range groupByPiece(list) { // the same piece tried again: once, with its count
+		if len(out) == maxSetbacks {
 			break
 		}
-		out = append(out, fmt.Sprintf("[%s] %s: %s", it.Status, oneLine(it.Title, 100), oneLine(it.Summary, 240)))
+		out = append(out, fmt.Sprintf("[%s%s] %s: %s", g.it.Status, times(g.n), oneLine(g.it.Title, 100), oneLine(g.it.Summary, 240)))
 	}
 	return out
+}
+
+// pieceKey is what tells one piece from another across its tries: its
+// title without the parts in brackets, and for "<id>: <title>" its id.
+func pieceKey(title string) string {
+	var sb strings.Builder
+	depth := 0
+	for _, r := range title {
+		switch {
+		case r == '(':
+			depth++
+		case r == ')' && depth > 0:
+			depth--
+		case depth == 0:
+			sb.WriteRune(r)
+		}
+	}
+	key := strings.ToLower(strings.Join(strings.Fields(sb.String()), " "))
+	if id, _, ok := strings.Cut(key, ":"); ok {
+		if id = strings.TrimSpace(id); id != "" && !strings.Contains(id, " ") {
+			return id
+		}
+	}
+	return key
+}
+
+// tries is one piece across its tries: the first (latest) of them and how
+// many there are.
+type tries struct {
+	it storage.BurnItem
+	n  int
+}
+
+// groupByPiece folds the tries of a piece into one, keeping the order.
+func groupByPiece(items []storage.BurnItem) []tries {
+	var out []tries
+	at := map[string]int{}
+	for _, it := range items {
+		k := pieceKey(it.Title)
+		if i, ok := at[k]; ok {
+			out[i].n++
+			continue
+		}
+		at[k] = len(out)
+		out = append(out, tries{it, 1})
+	}
+	return out
+}
+
+// times is " ×n" past one.
+func times(n int) string {
+	if n < 2 {
+		return ""
+	}
+	return fmt.Sprintf(" ×%d", n)
 }
 
 // keepLessons saves what a scan wrote as the Burn's lessons.

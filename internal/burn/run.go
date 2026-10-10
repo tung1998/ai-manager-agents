@@ -114,7 +114,7 @@ func (s *Service) integrate(ctx context.Context, b storage.BurnSession, it *stor
 	if err != nil {
 		base = "HEAD" // started before ADR-123
 	}
-	diff, err := gitIn(ctx, it.Worktree, "", "diff", "--cached", "--binary", "--no-renames", base)
+	diff, err := gitDiff(ctx, it.Worktree, base)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (s *Service) integrate(ctx context.Context, b storage.BurnSession, it *stor
 			it.Files = strings.Fields(names) // what it touched, for the run's summary (ADR-131)
 		}
 		s.runMu.Lock()
-		err = s.mergeInto(ctx, b, p.Path, *it, diff+"\n")
+		err = s.mergeInto(ctx, b, p.Path, *it, diff)
 		s.runMu.Unlock()
 		if err != nil {
 			return err
@@ -185,7 +185,7 @@ func (s *Service) replay(ctx context.Context, b storage.BurnSession, repo string
 	if err != nil {
 		return nil, errors.New("worktree không có mốc bắt đầu")
 	}
-	diff, err := gitIn(ctx, dir, "", "diff", "--cached", "--binary", "--no-renames", base)
+	diff, err := gitDiff(ctx, dir, base)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +207,7 @@ func (s *Service) replay(ctx context.Context, b storage.BurnSession, repo string
 	if diff == "" {
 		return nil, nil
 	}
-	_, aerr := gitIn(ctx, dir, diff+"\n", "apply", "--binary", "--3way", "--whitespace=nowarn", "-")
+	_, aerr := gitIn(ctx, dir, diff, "apply", "--binary", "--3way", "--whitespace=nowarn", "-")
 	if aerr == nil {
 		return nil, nil
 	}
@@ -219,8 +219,23 @@ func (s *Service) replay(ctx context.Context, b storage.BurnSession, repo string
 	for _, args := range [][]string{{"reset", "-q", "--hard", base}, {"clean", "-fdq"}, {"update-ref", baseRef, base}} {
 		_, _ = gitIn(ctx, dir, "", args...)
 	}
-	_, _ = gitIn(ctx, dir, diff+"\n", "apply", "--binary", "--index", "--whitespace=nowarn", "-")
+	_, _ = gitIn(ctx, dir, diff, "apply", "--binary", "--index", "--whitespace=nowarn", "-")
 	return nil, aerr
+}
+
+// gitDiff is what dir's index changed since base, as a patch, untrimmed:
+// gitIn trims, and a hunk ending on a blank context line (a lone " ") then
+// loses it, so the patch no longer applies ("corrupt patch") on every try.
+func gitDiff(ctx context.Context, dir, base string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.quotepath=false", "diff", "--cached", "--binary", "--no-renames", base)
+	cmd.Dir = dir
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git diff: %s: %w", strings.TrimSpace(stderr.String()), err)
+	}
+	return string(out), nil
 }
 
 func gitIn(ctx context.Context, dir, input string, args ...string) (string, error) {

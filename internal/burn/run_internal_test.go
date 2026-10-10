@@ -121,3 +121,36 @@ func TestReplayKeepsTheWorkOnAClash(t *testing.T) {
 		t.Fatalf("run = %q", got)
 	}
 }
+
+// A piece whose last hunk ends on a blank context line still applies: the
+// patch is kept as git wrote it (trimmed, it was "corrupt" on every try).
+func TestDiffEndingOnBlankLineApplies(t *testing.T) {
+	ctx := context.Background()
+	src, dst := t.TempDir(), t.TempDir()
+	body := "a\nb\nc\n\nd\ne\nf\ng\nh\n"
+	for _, dir := range []string{src, dst} {
+		for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@x.io"}, {"config", "user.name", "t"}} {
+			if out, err := gitIn(ctx, dir, "", args...); err != nil {
+				t.Fatal(out, err)
+			}
+		}
+		os.WriteFile(filepath.Join(dir, "f.txt"), []byte(body), 0o644)
+		gitIn(ctx, dir, "", "add", "-A")
+		gitIn(ctx, dir, "", "commit", "-qm", "base")
+	}
+	os.WriteFile(filepath.Join(src, "f.txt"), []byte(strings.Replace(body, "a\n", "A\n", 1)), 0o644)
+	gitIn(ctx, src, "", "add", "-A")
+	diff, err := gitDiff(ctx, src, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(diff, "\n \n") {
+		t.Fatalf("the case is not reproduced, diff:\n%q", diff)
+	}
+	if out, err := gitIn(ctx, dst, strings.TrimSpace(diff)+"\n", "apply", "--check", "-"); err == nil {
+		t.Fatalf("a trimmed patch applied, the test proves nothing: %s", out)
+	}
+	if out, err := gitIn(ctx, dst, diff, "apply", "--binary", "--3way", "--whitespace=nowarn", "-"); err != nil {
+		t.Fatalf("the patch did not apply: %s", out)
+	}
+}
