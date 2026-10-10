@@ -166,12 +166,12 @@ func TestActivityByPlace(t *testing.T) {
 	own, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, AgentID: a.ID, Title: "của mình"})
 	for _, s := range []string{"trả lời 1", "trả lời 2", "trả lời 3"} {
 		st.Chat().AddMessage(ctx, storage.Message{ConversationID: own.ID, Role: "user", Content: "hỏi"})
-		st.Chat().AddMessage(ctx, storage.Message{ConversationID: own.ID, Role: "assistant", Author: a.Name, Content: s})
+		st.Chat().AddMessage(ctx, storage.Message{ConversationID: own.ID, Role: "assistant", Author: a.Name, AgentID: a.ID, Content: s})
 	}
 	// someone else's chat it was pulled into
 	other, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, Title: "của người khác"})
 	st.Chat().UpsertMember(ctx, storage.ChatMember{ConversationID: other.ID, AgentID: a.ID, AgentName: a.Name})
-	st.Chat().AddMessage(ctx, storage.Message{ConversationID: other.ID, Role: "assistant", Author: a.Name, Content: "góp ý"})
+	st.Chat().AddMessage(ctx, storage.Message{ConversationID: other.ID, Role: "assistant", Author: a.Name, AgentID: a.ID, Content: "góp ý"})
 	items, err := svc.Activity(ctx, a, project.ID, 50)
 	if err != nil {
 		t.Fatal(err)
@@ -182,5 +182,52 @@ func TestActivityByPlace(t *testing.T) {
 	}
 	if len(items) != 2 || answers["của mình"] != 3 || answers["của người khác"] != 1 {
 		t.Fatalf("items = %+v", items)
+	}
+}
+
+// Answers count by AgentID, not by the current Author name: a rename
+// shouldn't drop old messages, and two agents sharing a Name shouldn't
+// have their messages counted against each other.
+func TestActivityCountsByAgentIDNotName(t *testing.T) {
+	ctx := context.Background()
+	st, org, project, a := setup(t)
+	svc := agentinfo.New(st, org, time.UTC)
+	conv, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, AgentID: a.ID, Title: "chat"})
+
+	// message sent before the agent is renamed
+	st.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "assistant", Author: a.Name, AgentID: a.ID, Content: "trước khi đổi tên"})
+	oldName := a.Name
+	a.Name = "Tên mới"
+	a, err := org.SaveAgent(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// message sent after the rename
+	st.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "assistant", Author: a.Name, AgentID: a.ID, Content: "sau khi đổi tên"})
+
+	// a second agent that happens to share the old name
+	second := a
+	second.ID, second.Key, second.Name = "", "second", oldName
+	b, err := org.SaveAgent(ctx, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Chat().UpsertMember(ctx, storage.ChatMember{ConversationID: conv.ID, AgentID: b.ID, AgentName: b.Name})
+	st.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "assistant", Author: b.Name, AgentID: b.ID, Content: "từ agent khác"})
+
+	items, err := svc.Activity(ctx, a, project.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Answers != 2 {
+		t.Fatalf("activity for renamed agent = %+v, want 2 answers", items)
+	}
+
+	itemsB, err := svc.Activity(ctx, b, project.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(itemsB) != 1 || itemsB[0].Answers != 1 {
+		t.Fatalf("activity for second agent = %+v, want 1 answer", itemsB)
 	}
 }

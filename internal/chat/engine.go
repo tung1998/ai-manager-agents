@@ -1166,7 +1166,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		return
 	}
 	msg, err := e.store.Chat().AddMessage(context.Background(), storage.Message{
-		ConversationID: conv.ID, Role: "assistant", Content: res.Text, Tools: res.Tools, RunID: runID, Author: agent.Name,
+		ConversationID: conv.ID, Role: "assistant", Content: res.Text, Tools: res.Tools, RunID: runID, Author: agent.Name, AgentID: agent.ID,
 	})
 	if err != nil {
 		fail(err)

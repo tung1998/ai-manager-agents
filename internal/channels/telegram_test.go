@@ -231,3 +231,102 @@ func TestTelegramButtons(t *testing.T) {
 		}
 	}
 }
+
+func TestTelegramRetries429ThenSucceeds(t *testing.T) {
+	var mu sync.Mutex
+	n := 0
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		n++
+		attempt := n
+		bodies = append(bodies, string(b))
+		mu.Unlock()
+		if attempt == 1 {
+			w.Write([]byte(`{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":0.01}}`))
+			return
+		}
+		w.Write([]byte(`{"ok":true,"result":{"message_id":1}}`))
+	}))
+	defer srv.Close()
+	tg := &Telegram{Token: "TOK", BaseURL: srv.URL}
+	var out struct {
+		MessageID int64 `json:"message_id"`
+	}
+	if err := tg.call(context.Background(), "sendMessage", map[string]string{"text": "hi"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if n != 2 {
+		t.Fatalf("calls = %d, want 2", n)
+	}
+	for _, b := range bodies {
+		if !strings.Contains(b, `"text":"hi"`) {
+			t.Fatalf("body missing on a retry: %q", b)
+		}
+	}
+}
+
+func TestTelegramGivesUpAfterMaxRetries429(t *testing.T) {
+	var mu sync.Mutex
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		n++
+		mu.Unlock()
+		w.Write([]byte(`{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":0.01}}`))
+	}))
+	defer srv.Close()
+	tg := &Telegram{Token: "TOK", BaseURL: srv.URL}
+	err := tg.call(context.Background(), "sendMessage", map[string]string{}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if n != tgMaxRetries+1 {
+		t.Fatalf("calls = %d, want %d", n, tgMaxRetries+1)
+	}
+}
+
+func TestTelegram429RetryAfterTooLongFailsFast(t *testing.T) {
+	var mu sync.Mutex
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		n++
+		mu.Unlock()
+		w.Write([]byte(`{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":9999}}`))
+	}))
+	defer srv.Close()
+	tg := &Telegram{Token: "TOK", BaseURL: srv.URL}
+	err := tg.call(context.Background(), "sendMessage", map[string]string{}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if n != 1 {
+		t.Fatalf("calls = %d, want 1 (no retry for an excessive retry_after)", n)
+	}
+}
+
+func TestTelegram429CancelWhileWaiting(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":5}}`))
+	}))
+	defer srv.Close()
+	tg := &Telegram{Token: "TOK", BaseURL: srv.URL}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := tg.call(ctx, "sendMessage", map[string]string{}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("did not exit promptly on ctx cancel: took %v", time.Since(start))
+	}
+}

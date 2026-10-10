@@ -202,7 +202,7 @@ func (e *Engine) awaitChild(parentID string, conv storage.Conversation, project 
 		rec = child.rec
 	}
 	head := fmt.Sprintf("**Quy trình con /%s** (vai %s): ", rec.WorkflowKey, role) // i18n-ignore
-	msg := storage.Message{ConversationID: conv.ID, Role: "assistant", Author: rec.CoordinatorName, Content: head + "\n\n" + strings.TrimSpace(rec.Result) + outputsText(rec)}
+	msg := storage.Message{ConversationID: conv.ID, Role: "assistant", Author: rec.CoordinatorName, AgentID: rec.CoordinatorID, Content: head + "\n\n" + strings.TrimSpace(rec.Result) + outputsText(rec)}
 	if rec.Status != storage.RunDone {
 		msg = storage.Message{ConversationID: conv.ID, Role: "error", Content: head + cmp.Or(rec.Error, "đã dừng")}
 	}

@@ -263,8 +263,8 @@ func (r chatRepo) AddMessage(ctx context.Context, m storage.Message) (storage.Me
 	if m.Attachments == nil {
 		m.Attachments = []storage.Attachment{}
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		m.ID, m.ConversationID, m.Role, m.Content, toJSON(m.Tools), toJSON(m.Attachments), nullStr(m.RunID), m.Author, fmtTime(m.CreatedAt), m.Context)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context, agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		m.ID, m.ConversationID, m.Role, m.Content, toJSON(m.Tools), toJSON(m.Attachments), nullStr(m.RunID), m.Author, fmtTime(m.CreatedAt), m.Context, m.AgentID)
 	if err == nil {
 		_, _ = r.db.ExecContext(ctx, `UPDATE conversations SET updated_at=? WHERE id=?`, fmtTime(m.CreatedAt), m.ConversationID)
 		r.tell(storage.Change{Kind: "message", ConversationID: m.ConversationID, Message: &m})
@@ -273,7 +273,7 @@ func (r chatRepo) AddMessage(ctx context.Context, m storage.Message) (storage.Me
 }
 
 func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]storage.Message, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context
+	rows, err := r.db.QueryContext(ctx, `SELECT id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context, agent_id
 		FROM messages WHERE conversation_id=? ORDER BY created_at, id`, conversationID)
 	if err != nil {
 		return nil, err
@@ -286,7 +286,7 @@ func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]st
 			tools, atts, created string
 			run                  sql.NullString
 		)
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &tools, &atts, &run, &m.Author, &created, &m.Context); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &tools, &atts, &run, &m.Author, &created, &m.Context, &m.AgentID); err != nil {
 			return nil, err
 		}
 		m.RunID = run.String

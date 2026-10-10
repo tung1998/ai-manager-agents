@@ -170,6 +170,69 @@ func TestBusyIsLeft(t *testing.T) {
 	}
 }
 
+// A pending action appears while a summary is being written for an item that
+// was free at Plan time: Run must leave it alone instead of cleaning it away.
+func TestBusyDuringSummarize(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, err := sqlite.Open(filepath.Join(tmp, "o.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	provs := provider.NewService(st, box, llm.Options{})
+	u := usage.New(st, time.UTC)
+	provs.SetUsage(u)
+	flag := filepath.Join(tmp, "go")
+	bin := filepath.Join(tmp, "claude")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+cat > /dev/null
+while [ ! -f "`+flag+`" ]; do sleep 0.02; done
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"- xong","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+	org := team.NewService(st, nil)
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	solo, _ := team.PackByKey("solo")
+	org.ApplyPack(ctx, project.ID, solo, false)
+	engine := chat.NewEngine(st, provs, u)
+	svc := cleanup.New(st, engine, nil, filepath.Join(tmp, "attachments"), filepath.Join(tmp, "o.db"))
+
+	f := fx{st: st, svc: svc, engine: engine, project: project}
+	c := f.chatWith(t, "", 1, time.Now())
+
+	done := make(chan cleanup.Result, 1)
+	go func() {
+		res, _ := svc.Run(ctx, cleanup.Request{IDs: []string{c.ID}, Level: cleanup.LevelSummary})
+		done <- res
+	}()
+	// give Run a moment to enter summarize() before we make the item busy
+	time.Sleep(100 * time.Millisecond)
+	msgs, _ := f.st.Chat().ListMessages(ctx, c.ID)
+	if _, err := f.st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: c.ID, MessageID: msgs[0].ID, Kind: "restart_process", Target: "x", Status: "pending"}); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(flag, []byte("1"), 0o600)
+
+	res := <-done
+	if res.Done != 0 {
+		t.Fatalf("done = %d, want 0", res.Done)
+	}
+	if len(res.Failed) != 1 || res.Failed[0].ID != c.ID {
+		t.Fatalf("failed = %+v", res.Failed)
+	}
+	got, _ := f.st.Chat().GetConversation(ctx, c.ID)
+	stillMsgs, _ := f.st.Chat().ListMessages(ctx, c.ID)
+	if got.Cleaned != "" || len(stillMsgs) != 1 {
+		t.Fatalf("conversation touched: %+v, %d messages", got, len(stillMsgs))
+	}
+}
+
 // An attachment no message points to, older than a day, is junk; one in use stays.
 func TestSweepAttachments(t *testing.T) {
 	f := setup(t)

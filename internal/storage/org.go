@@ -407,6 +407,7 @@ type Message struct {
 	Attachments    []Attachment
 	RunID          string
 	Author         string
+	AgentID        string // the agent that sent it (assistant messages only; "" if none)
 	CreatedAt      time.Time
 	Context        string // the page the person was on (sent to the agent as data)
 }

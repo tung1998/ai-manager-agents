@@ -108,11 +108,11 @@ func (e *Engine) awaitRun(ctx context.Context, turn *Turn, conv storage.Conversa
 		role, content = "error", "⚠️ Quy trình "+rec.WorkflowName+" không xong: "+firstNonEmpty(rec.Error, "lỗi không rõ")
 		runErr = errors.New(content)
 	}
-	author := ""
+	author, agentID := "", ""
 	if role == "assistant" {
-		author = rec.CoordinatorName
+		author, agentID = rec.CoordinatorName, rec.CoordinatorID
 	}
-	m, err := e.store.Chat().AddMessage(bg, storage.Message{ConversationID: conv.ID, Role: role, Content: content, Author: author})
+	m, err := e.store.Chat().AddMessage(bg, storage.Message{ConversationID: conv.ID, Role: role, Content: content, Author: author, AgentID: agentID})
 	if err != nil {
 		e.endJob(turn.JobID, "", err, nil)
 		turn.emit(Event{Type: "error", Text: err.Error()})

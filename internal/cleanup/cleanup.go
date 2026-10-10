@@ -254,6 +254,9 @@ func (s *Service) clean(ctx context.Context, it storage.DataItem, level string) 
 		}
 		note = "📝 Tóm tắt (nội dung gốc đã được dọn ngày " + day + "):\n\n" + text
 	}
+	if why := s.busy(ctx, it); why != "" {
+		return errors.New(why)
+	}
 	state := storage.CleanContent
 	if level == LevelSummary {
 		state = storage.CleanSummary

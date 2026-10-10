@@ -120,41 +120,71 @@ type Telegram struct {
 	menu    menu
 }
 
+// tgMaxRetries caps how many times call() retries a 429 before giving up;
+// tgMaxRetryWait caps how long a single retry_after may ask it to sleep
+// (past that, it is not worth blocking the caller for).
+const (
+	tgMaxRetries   = 5
+	tgMaxRetryWait = 10 * time.Second
+)
+
 func (t *Telegram) call(ctx context.Context, method string, body any, out any) error {
 	base := t.BaseURL
 	if base == "" {
 		base = "https://api.telegram.org"
 	}
 	raw, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, "POST", base+"/bot"+t.Token+"/"+method, bytes.NewReader(raw))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := t.client.Do(req)
-	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) { // its text has the URL, and the URL has the token
-			return fmt.Errorf("telegram %s: %v", method, ue.Err)
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", base+"/bot"+t.Token+"/"+method, bytes.NewReader(raw))
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("telegram %s: lỗi mạng", method)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := t.client.Do(req)
+		if err != nil {
+			var ue *url.Error
+			if errors.As(err, &ue) { // its text has the URL, and the URL has the token
+				return fmt.Errorf("telegram %s: %v", method, ue.Err)
+			}
+			return fmt.Errorf("telegram %s: lỗi mạng", method)
+		}
+		var env struct {
+			OK          bool   `json:"ok"`
+			Description string `json:"description"`
+			ErrorCode   int    `json:"error_code"`
+			Parameters  struct {
+				RetryAfter float64 `json:"retry_after"`
+			} `json:"parameters"`
+			Result json.RawMessage `json:"result"`
+		}
+		decErr := json.NewDecoder(resp.Body).Decode(&env)
+		resp.Body.Close()
+		if decErr != nil {
+			return fmt.Errorf("telegram %s: %s", method, resp.Status)
+		}
+		if !env.OK {
+			if env.ErrorCode == 429 {
+				wait := time.Duration(env.Parameters.RetryAfter * float64(time.Second))
+				if wait <= 0 {
+					wait = time.Second
+				}
+				if attempt < tgMaxRetries && wait <= tgMaxRetryWait {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(wait):
+					}
+					continue
+				}
+				return fmt.Errorf("telegram %s: %s (retry_after %v)", method, env.Description, wait)
+			}
+			return fmt.Errorf("telegram %s: %s", method, env.Description)
+		}
+		if out != nil {
+			return json.Unmarshal(env.Result, out)
+		}
+		return nil
 	}
-	defer resp.Body.Close()
-	var env struct {
-		OK          bool            `json:"ok"`
-		Description string          `json:"description"`
-		Result      json.RawMessage `json:"result"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
-		return fmt.Errorf("telegram %s: %s", method, resp.Status)
-	}
-	if !env.OK {
-		return fmt.Errorf("telegram %s: %s", method, env.Description)
-	}
-	if out != nil {
-		return json.Unmarshal(env.Result, out)
-	}
-	return nil
 }
 
 type tgMessage struct {

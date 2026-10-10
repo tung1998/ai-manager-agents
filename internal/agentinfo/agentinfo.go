@@ -549,7 +549,7 @@ func (s *Service) answers(ctx context.Context, a storage.Agent, conversationID s
 	}
 	var out []storage.Message
 	for _, m := range msgs {
-		if m.Role == "assistant" && m.Author == a.Name {
+		if m.Role == "assistant" && m.AgentID == a.ID {
 			out = append(out, m)
 		}
 	}
