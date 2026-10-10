@@ -241,6 +241,10 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 	if !b.Active() || b.RunBranch == "" {
 		// each start, a chat and a branch (or worktree) of its own: the earlier ones stay as they were
 		b.ConversationID, b.RunBranch = "", newRunBranch(time.Now())
+		if b.Coverage != "" { // a new run looks at everything again (ADR-141)
+			b.Coverage = uncheck(b.Coverage)
+			_ = s.store.Burn().SetCoverage(ctx, b.ID, b.Coverage)
+		}
 	}
 	if err := s.ensureConversation(ctx, &b); err != nil {
 		return b, err

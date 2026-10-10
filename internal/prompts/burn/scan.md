@@ -53,6 +53,7 @@ Steps, in this order:
 [[- else]]
    No coverage plan yet: write it first. It is the list of EVERY area of this project the Burn's work below covers, one checklist line each ("- [ ] <area>"), under short headings: every screen and dialog for how the product is used, every package, API group and background job for bugs, security or speed, every planned feature not done for the roadmap, every part of the spec for a build. Enumerate it from the code and docs (route files, packages, plans), the whole project, not a sample. Then take its items in order.
 [[- end]]
+   One area per item (never "screens A, B, C" on one line). You may check off [[.MaxChecks]] items at most this scan, only ones you looked at in it; office refuses a plan that checks off more, bundles areas, or drops items not looked at. Each new run of the Burn sets every item back to [ ]: what an earlier run saw is to be looked at again.
 2. Find up to [[.Batch]] pieces this scan, item by item, as deep as each needs. Look at an item for real in THIS scan (what an earlier scan saw does not count), then check it off with what came of it: "- [x] <area> — 2 pieces" or "- [x] <area> — nothing: why". [[.Batch]] pieces recorded: stop taking items, the next scan goes on.
 [[- if .Hunt]]
    This Burn is set up to look for this (its template):

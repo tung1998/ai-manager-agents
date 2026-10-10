@@ -2,6 +2,8 @@ package burn
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -84,5 +86,38 @@ func TestScanBatch(t *testing.T) {
 	}
 	if _, err := s.record(ctx, b, "", ToolInput{Title: "từ chat", Kind: "bug"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A scan's plan is refused when it ticks items from memory (ADR-141): more
+// checked than one scan can look at, areas bundled on one line, items not
+// looked at dropped. A new run sets every item back.
+func TestPlanProblem(t *testing.T) {
+	var before, after strings.Builder
+	for i := range 20 {
+		fmt.Fprintf(&before, "- [ ] /screen%d\n", i)
+		box := "[ ]"
+		if i < maxChecks {
+			box = "[x]"
+		}
+		fmt.Fprintf(&after, "- %s /screen%d — nothing\n", box, i)
+	}
+	if why := planProblem(before.String(), after.String()); why != "" {
+		t.Fatalf("maxChecks looked at is fine: %s", why)
+	}
+	if why := planProblem(before.String(), after.String()+"- [x] /extra — đã xem lần trước\n"); why == "" {
+		t.Fatal("one more checked than a scan can look at")
+	}
+	if why := planProblem("", "- [x] 01-login, 02-overview, 03-projects — đã xem ở các lần quét trước"); why == "" {
+		t.Fatal("areas bundled on one line")
+	}
+	if why := planProblem("", "- [ ] /a — notes, with, commas"); why != "" {
+		t.Fatalf("commas in the note are fine: %s", why)
+	}
+	if why := planProblem(before.String(), "- [x] /screen0\n- [ ] /screen1"); why == "" {
+		t.Fatal("items not looked at were dropped")
+	}
+	if got := uncheck("Screens:\n- [x] /a — 2 pieces\n  * [X] /b\n- [ ] /c"); got != "Screens:\n- [ ] /a — 2 pieces\n  * [ ] /b\n- [ ] /c" {
+		t.Fatalf("uncheck = %q", got)
 	}
 }

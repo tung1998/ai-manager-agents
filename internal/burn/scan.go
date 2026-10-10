@@ -40,6 +40,10 @@ const maxNones = 3
 // maxCoverage caps the coverage plan kept (ADR-141).
 const maxCoverage = 16000
 
+// maxChecks: coverage items one scan may check off, so each is looked at
+// for real in it, not ticked from memory (ADR-141).
+const maxChecks = 8
+
 // maxCodeMap caps the code map kept (ADR-130).
 const maxCodeMap = 8000
 
@@ -53,17 +57,65 @@ const (
 // hunting: a scan (a piece with no kind).
 func hunting(it storage.BurnItem) bool { return it.Kind == "" }
 
+// item reads a coverage plan's line: its text after the box, and whether
+// it is an item and checked.
+func item(line string) (text string, isItem, checked bool) {
+	l := strings.TrimLeft(strings.TrimSpace(line), "-*+ ")
+	switch {
+	case strings.HasPrefix(l, "[ ]"):
+		return strings.TrimSpace(l[3:]), true, false
+	case strings.HasPrefix(l, "[x]"), strings.HasPrefix(l, "[X]"):
+		return strings.TrimSpace(l[3:]), true, true
+	}
+	return "", false, false
+}
+
+// uncheck sets every item of a plan back to not looked at: a new run
+// covers it all again.
+func uncheck(plan string) string {
+	lines := strings.Split(plan, "\n")
+	for i, line := range lines {
+		if _, ok, checked := item(line); ok && checked {
+			lines[i] = strings.Replace(strings.Replace(line, "[x]", "[ ]", 1), "[X]", "[ ]", 1)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// planProblem is why a scan's new coverage plan is refused (ADR-141): an
+// item that bundles several areas, or more items checked off than one scan
+// can look at for real.
+func planProblem(before, after string) string {
+	for _, line := range strings.Split(after, "\n") {
+		text, ok, _ := item(line)
+		if !ok {
+			continue
+		}
+		area, _, _ := strings.Cut(text, " — ")
+		if strings.Count(area, ",") >= 2 {
+			return fmt.Sprintf("mỗi mục chỉ một vùng (một màn, một gói, một tính năng), tách dòng %q thành từng mục", oneLine(area, 80))
+		}
+	}
+	was, _ := coverageCount(before)
+	now, _ := coverageCount(after)
+	if now-was > maxChecks {
+		return fmt.Sprintf("lượt này đánh dấu %d mục, tối đa %d: chỉ đánh dấu mục đã xem thật trong lượt này, phần còn lại để [ ] cho lượt sau", now-was, maxChecks)
+	}
+	if left(before)-left(after) > maxChecks { // items not looked at dropped, or merged away
+		return fmt.Sprintf("còn %d mục chưa xem trước lượt này, giờ còn %d: không bỏ hay gộp mục chưa xem, mỗi lượt bớt tối đa %d", left(before), left(after), maxChecks)
+	}
+	return ""
+}
+
 // coverageCount reads a coverage plan: its items ("- [ ]" or "- [x]"
 // lines) and how many are checked.
 func coverageCount(plan string) (checked, total int) {
 	for _, line := range strings.Split(plan, "\n") {
-		l := strings.TrimLeft(strings.TrimSpace(line), "-*+ ")
-		switch {
-		case strings.HasPrefix(l, "[ ]"):
+		if _, ok, done := item(line); ok {
 			total++
-		case strings.HasPrefix(l, "[x]"), strings.HasPrefix(l, "[X]"):
-			checked++
-			total++
+			if done {
+				checked++
+			}
 		}
 	}
 	return checked, total
@@ -91,9 +143,9 @@ func scanPrompt(b storage.BurnSession, it storage.BurnItem, items []storage.Burn
 	return prompts.Render("burn/scan", struct {
 		ID, Focus, Order, Hunt, Map, Lessons, Coverage string
 		FocusLooks, Taken, Scanned, Setbacks           []string
-		Batch, Left                                    int
+		Batch, Left, MaxChecks                         int
 		Again                                          bool
-	}{it.ID, b.Focus, b.Order, hunt(b), b.CodeMap, b.Lessons, b.Coverage, looks(b), taken, scanned, setbacks(items), scanBatch, left(b.Coverage), again})
+	}{it.ID, b.Focus, b.Order, hunt(b), b.CodeMap, b.Lessons, b.Coverage, looks(b), taken, scanned, setbacks(items), scanBatch, left(b.Coverage), maxChecks, again})
 }
 
 // left: the items of a coverage plan not checked yet.
@@ -150,6 +202,15 @@ func (s *Service) record(ctx context.Context, b storage.BurnSession, from string
 func (s *Service) scanDone(ctx context.Context, b storage.BurnSession, it storage.BurnItem, in ToolInput) (string, error) {
 	if !hunting(it) {
 		return "", fmt.Errorf("việc %s không phải lượt quét: báo burn_done hoặc burn_fail", it.ID)
+	}
+	if plan := strings.TrimSpace(in.Coverage); plan != "" {
+		before := b.Coverage
+		if cur, err := s.store.Burn().SessionByID(ctx, b.ID); err == nil {
+			before = cur.Coverage
+		}
+		if why := planProblem(before, plan); why != "" {
+			return "", errors.New("coverage chưa nhận: " + why + ". Sửa rồi gọi lại burn_scan_done")
+		}
 	}
 	s.keepScanned(ctx, b, in.Scanned)
 	if m := strings.TrimSpace(in.Map); m != "" {
