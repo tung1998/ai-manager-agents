@@ -202,6 +202,13 @@ function remove(a: Attachment) {
 const size = (n: number) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`
 const icon = { image: 'i-lucide-image', pdf: 'i-lucide-file-text', text: 'i-lucide-file-code' }
 
+function startSkill() { text.value = '/'; box.value?.textareaRef?.focus() }
+function startWorkflow() { text.value = '#'; box.value?.textareaRef?.focus() }
+const extras = computed(() => [
+  { label: t('prompt.attach'), icon: 'i-lucide-paperclip', onSelect: () => input.value?.click() },
+  { label: t('prompt.pickSkill'), icon: 'i-lucide-slash', disabled: !skills.value.length, onSelect: startSkill },
+  ...(workflows.value.length ? [{ label: t('prompt.pickWorkflow'), icon: 'i-lucide-workflow', onSelect: startWorkflow }] : []),
+])
 defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value?.textareaRef?.focus() })
 </script>
 
@@ -274,9 +281,13 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
 
     <!-- a phone: a size smaller (icons, labels), tighter, all the same height -->
     <div class="@container flex items-center gap-2 px-2 pb-2 max-sm:gap-0.5 max-sm:[&_.iconify]:!size-4 max-sm:[&_button]:!text-xs max-sm:[&_button]:!py-1">
-      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-paperclip" :aria-label="t('prompt.attach')" @click="input?.click()" />
-      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-slash" :aria-label="t('prompt.pickSkill')" :title="t('prompt.pickSkill')" :disabled="!skills.length" @click="text = '/'; box?.textareaRef?.focus()" />
-      <UButton v-if="workflows.length" size="sm" color="neutral" variant="ghost" icon="i-lucide-workflow" :aria-label="t('prompt.pickWorkflow')" :title="t('prompt.pickWorkflow')" @click="text = '#'; box?.textareaRef?.focus()" />
+      <!-- a phone: attach, skills and workflows behind one ⋯, the row keeps room for the actions -->
+      <UDropdownMenu :items="extras" :content="{ side: 'top', align: 'start' }" class="sm:hidden">
+        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-ellipsis" class="sm:hidden" :aria-label="t('common.actions')" />
+      </UDropdownMenu>
+      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-paperclip" class="max-sm:hidden" :aria-label="t('prompt.attach')" @click="input?.click()" />
+      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-slash" class="max-sm:hidden" :aria-label="t('prompt.pickSkill')" :title="t('prompt.pickSkill')" :disabled="!skills.length" @click="startSkill" />
+      <UButton v-if="workflows.length" size="sm" color="neutral" variant="ghost" icon="i-lucide-workflow" class="max-sm:hidden" :aria-label="t('prompt.pickWorkflow')" :title="t('prompt.pickWorkflow')" @click="startWorkflow" />
       <UBadge v-if="activeSkill" color="primary" variant="subtle" size="sm" :icon="skillIcon(activeSkill)" :label="activeSkill.name" />
       <!-- only when the box itself is wide: narrow panels (the corner chat) keep one tidy row -->
       <span class="hidden min-w-0 truncate text-xs text-(--ui-text-dimmed) @2xl:inline" :title="t('prompt.dragHint')">{{ t('prompt.dragHint') }}</span>

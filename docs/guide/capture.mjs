@@ -462,6 +462,12 @@ async function capture({ ao, shop, lead }) {
     ['04a-new-project-idea', '/projects', openIdeaModal],
     ['04-chat', `${P}?tab=chat&c=cnv_demo_theme`],
     ['05-chat-answer', `${P}?tab=chat&c=cnv_demo_build`],
+    // a phone: the box hides behind a button until asked for; open it to see its toolbar
+    ...(MOBILE ? [['05b-chat-compose', `${P}?tab=chat&c=cnv_demo_build`, async () => {
+      const opened = await page.eval(`(() => { const b = document.querySelector('button[aria-label="Viết tin nhắn"], button[aria-label="Write a message"]'); b?.click(); return !!b })()`)
+      if (!opened) throw new Error('compose button not found')
+      await sleep(400)
+    }]] : []),
     ['06-team-model', `${P}?tab=agents`],
     ['07-agent', `${P}/agents/${lead?.id}`],
     ['08-permissions', `${P}?tab=perm`],
