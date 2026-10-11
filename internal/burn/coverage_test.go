@@ -185,3 +185,17 @@ func TestCoverageTaggedByTemplate(t *testing.T) {
 		t.Fatal("the tag line counted as an item")
 	}
 }
+
+// A scan sends only the lines it changed: the rest of the plan stays, a new
+// area goes at the end.
+func TestMergeCoveragePatch(t *testing.T) {
+	before := "## Flows\n- [x] /a — nothing (a.go)\n- [ ] /b\n- [ ] /c"
+	got := mergeCoverage(before, "- [x] /b — 1 piece (b.go)\n- [ ] /new")
+	want := "## Flows\n- [x] /a — nothing (a.go)\n- [x] /b — 1 piece (b.go)\n- [ ] /c\n- [ ] /new"
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	if first := mergeCoverage("", "- [ ] /x\n- [ ] /y"); first != "- [ ] /x\n- [ ] /y" {
+		t.Fatalf("first plan: %q", first)
+	}
+}

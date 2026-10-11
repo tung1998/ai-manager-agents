@@ -10,8 +10,7 @@ Lessons this Burn learned from earlier pieces (follow them):
 [[.Lessons]]
 [[- end]]
 [[- if .Map]]
-The code map the scans keep (to find your way):
-[[.Map]]
+The scans keep a code map: burn_list(what="map") when you need to find your way.
 [[- end]]
 [[- if .Again]]
 This piece is half done: look at git status / git diff in this worktree to see how far it got, then go on.

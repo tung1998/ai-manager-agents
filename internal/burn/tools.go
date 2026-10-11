@@ -106,7 +106,7 @@ func (s *Service) workItem(ctx context.Context, sessionID, conversationID string
 // ToolInput is what the Burn tools take.
 type ToolInput struct {
 	Title, Kind, Detail, Item, Summary, Reason string
-	What                                       string // burn_list: open | closed | scanned
+	What                                       string // burn_list: open | closed | scanned | map
 	Scanned                                    string // burn_scan_done: the areas looked at
 	Map                                        string // burn_scan_done: the code map, updated (ADR-130)
 	Lessons                                    string // burn_scan_done: the lessons, updated (ADR-131)
@@ -117,6 +117,12 @@ type ToolInput struct {
 // list is what burn_list gives (ADR-121): the Burn's data kept out of the
 // coordination prompt, read when needed.
 func (s *Service) list(ctx context.Context, b storage.BurnSession, what string) (string, error) {
+	if what == "map" { // a worker reads it when it needs it, not in every prompt (ADR-146)
+		if b.CodeMap == "" {
+			return "No code map yet.", nil
+		}
+		return b.CodeMap, nil
+	}
 	if what == "scanned" {
 		if b.Scanned == "" {
 			return "No scan has recorded its areas yet.", nil

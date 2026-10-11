@@ -122,45 +122,40 @@ func planProblem(before, after string) string {
 	return ""
 }
 
-// mergeCoverage keeps what this run already looked at when a scan rewrites
-// the plan: an item checked before stays checked (its earlier line comes
-// back if the scan left it [ ] or dropped it), so the count never goes down
-// and a scan that checks new items counts as moving the run on.
+// mergeCoverage applies what a scan sent to the plan (ADR-146): a scan
+// sends only the lines it changed or added, not the whole plan (output
+// tokens), the whole plan the first time. A line for an area the plan has
+// replaces it — but an item checked this run stays checked; a new area is
+// added at the end; the plan's other lines stay as they were.
 func mergeCoverage(before, after string) string {
-	done := map[string]string{} // area → its checked line, before this scan
-	var order []string
-	for _, line := range strings.Split(before, "\n") {
-		if text, ok, checked := item(line); ok && checked {
-			area := areaOf(text)
-			if _, dup := done[area]; !dup {
-				order = append(order, area)
-			}
-			done[area] = line
-		}
-	}
-	if len(done) == 0 {
+	if _, total := coverageCount(before); total == 0 {
 		return after
 	}
-	lines := strings.Split(after, "\n")
-	kept := map[string]bool{}
+	lines := strings.Split(strings.TrimRight(before, "\n"), "\n")
+	at := map[string]int{} // area → its line in the plan
 	for i, line := range lines {
+		if text, ok, _ := item(line); ok {
+			if _, dup := at[areaOf(text)]; !dup {
+				at[areaOf(text)] = i
+			}
+		}
+	}
+	for _, line := range strings.Split(after, "\n") {
 		text, ok, checked := item(line)
 		if !ok {
 			continue
 		}
-		area := areaOf(text)
-		old, was := done[area]
-		if !was {
-			continue
-		}
-		kept[area] = true
-		if !checked {
-			lines[i] = old
-		}
-	}
-	for _, area := range order {
-		if !kept[area] {
-			lines = append(lines, done[area])
+		i, known := at[areaOf(text)]
+		switch {
+		case !known:
+			at[areaOf(text)] = len(lines)
+			lines = append(lines, line)
+		case checked:
+			lines[i] = line
+		default: // [ ]: a checked item is not set back; an unchecked one may be reworded
+			if _, _, was := item(lines[i]); !was {
+				lines[i] = line
+			}
 		}
 	}
 	return strings.Join(lines, "\n")

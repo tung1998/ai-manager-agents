@@ -206,7 +206,7 @@ func TestScanPrompt(t *testing.T) {
 	}
 	// a worker starts from the scan's brief and the map, not a new scan
 	w := workPrompt(storage.BurnSession{CodeMap: "MAP"}, storage.BurnItem{ID: "x", Kind: "bug"}, false, false, false)
-	if !strings.Contains(w, "do not scan the codebase again") || !strings.Contains(w, "MAP") {
+	if !strings.Contains(w, "do not scan the codebase again") || !strings.Contains(w, `burn_list(what="map")`) || strings.Contains(w, "MAP") {
 		t.Errorf("work prompt:\n%s", w)
 	}
 	if q := workPrompt(storage.BurnSession{}, storage.BurnItem{ID: "x", Kind: KindQuest}, false, false, false); strings.Contains(q, "scan found") {

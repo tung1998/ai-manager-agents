@@ -71,7 +71,7 @@ How:
 [[- end]]
 3. Read each one again as a sceptic before recording it: a bug needs the real path that triggers it, an idea the gap it closes in the project's own goals.
 4. burn_add(title, kind, priority, detail): kind bug, unfinished, upgrade or idea; the detail is the worker's brief — Where: file:line · Evidence · Fix · Verify: how to show it is done.
-5. burn_scan_done(item=[[printf "%q" .ID]], scanned=what you looked at, coverage=the whole plan, updated, code_map=the whole map, updated (where things are, not verdicts)[[if .Setbacks]], lessons=the whole lessons list, updated: what the setbacks teach, as short rules, at most about 3000 characters[[end]]).
+5. burn_scan_done(item=[[printf "%q" .ID]], scanned=what you looked at, coverage=[[if .Coverage]]only the lines you changed or added (office merges them)[[else]]the whole plan[[end]], code_map=the whole map, updated, only if it changed (where things are, not verdicts)[[if .Setbacks]], lessons=the whole lessons list, updated, only if the setbacks teach something new: short rules, at most about 3000 characters[[end]]).
 
 [[- define "roadmap"]]
    - Roadmap: planning docs (PLAN, ROADMAP, TODO, specs, ADRs) for approved features not done; a large one, its next part that runs on its own. Also TODO/FIXME, failing tests or builds.

@@ -233,13 +233,13 @@ func (t *Toolbox) Tools() []Tool {
 			Tool{Name: "burn_scan_done", Description: "Burn scan: end your scan, after recording what you found with burn_add (or nothing worth doing: say why).", Schema: obj(map[string]any{
 				"item":     item,
 				"scanned":  map[string]any{"type": "string", "description": "The areas you looked at, briefly"},
-				"coverage": map[string]any{"type": "string", "description": "The whole coverage plan, updated: every area to cover, one \"- [ ] area\" line each, \"- [x] area — what came of it\" once looked at (at most about 15000 characters)"},
-				"code_map": map[string]any{"type": "string", "description": "The whole code map, updated: parts, where they live, key files, conventions, how to build/test (at most about 6000 characters)"},
+				"coverage": map[string]any{"type": "string", "description": "The coverage plan lines you changed or added (office merges them into the plan; the whole plan only when there is none yet): one \"- [ ] area\" line per area, \"- [x] area — what came of it (file read)\" once looked at"},
+				"code_map": map[string]any{"type": "string", "description": "Only when it changed: the whole code map, updated: parts, where they live, key files, conventions, how to build/test (at most about 6000 characters)"},
 				"reason":   map[string]any{"type": "string", "description": "Nothing recorded: why"},
-				"lessons":  map[string]any{"type": "string", "description": "The whole lessons list, updated from the pieces turned down or failed (at most about 3000 characters)"},
+				"lessons":  map[string]any{"type": "string", "description": "Only when it changed: the whole lessons list, updated from the pieces turned down or failed (at most about 3000 characters)"},
 			}, "item", "scanned", "coverage")},
-			Tool{Name: "burn_list", Description: "Burn: list this Burn's pieces: the open ones in full, all closed ones (done/skipped/failed, to avoid doing one again), or every area looked at.", Schema: obj(map[string]any{
-				"what": map[string]any{"type": "string", "enum": []string{"open", "closed", "scanned"}},
+			Tool{Name: "burn_list", Description: "Burn: list this Burn's pieces: the open ones in full, all closed ones (done/skipped/failed, to avoid doing one again), every area looked at, or the code map the scans keep.", Schema: obj(map[string]any{
+				"what": map[string]any{"type": "string", "enum": []string{"open", "closed", "scanned", "map"}},
 			}, "what"), ReadOnly: true},
 			Tool{Name: "burn_fail", Description: "Burn: report the current piece could not be done.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
 		)
