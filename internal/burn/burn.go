@@ -243,6 +243,9 @@ func (s *Service) Begin(ctx context.Context, projectID, who string) (storage.Bur
 		b.ConversationID, b.RunBranch = "", newRunBranch(time.Now())
 		if b.Coverage != "" { // a new run looks at everything again (ADR-141)
 			b.Coverage = uncheck(b.Coverage)
+			if planTemplate(b.Coverage) != templateOf(b) { // written for another template: the first scan writes one for this
+				b.Coverage = ""
+			}
 			_ = s.store.Burn().SetCoverage(ctx, b.ID, b.Coverage)
 		}
 	}

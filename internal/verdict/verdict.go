@@ -34,14 +34,27 @@ func Of(text string) string {
 
 func lineOf(line string) string {
 	l := strings.ToUpper(strings.Trim(strings.TrimSpace(line), "*`_# "))
-	if !strings.HasPrefix(l, "VERDICT:") && !strings.HasPrefix(l, "KẾT LUẬN:") && !strings.HasPrefix(l, "KET LUAN:") {
+	rest, ok := "", false
+	for _, p := range []string{"VERDICT:", "KẾT LUẬN:", "KET LUAN:"} {
+		if r, found := strings.CutPrefix(l, p); found {
+			rest, ok = strings.TrimLeft(r, " *`_"), true
+			break
+		}
+	}
+	if !ok {
 		return ""
 	}
-	switch {
-	case strings.Contains(l, "DISAGREE"), strings.Contains(l, "KHÔNG ĐỒNG Ý"), strings.Contains(l, "KHONG DONG Y"), strings.Contains(l, "PHẢN ĐỐI"):
-		return "no"
-	case strings.Contains(l, "AGREE"), strings.Contains(l, "ĐỒNG Ý"), strings.Contains(l, "DONG Y"), strings.Contains(l, "TÁN THÀNH"):
-		return "yes"
+	// only the word right after the prefix: "VERDICT: AGREE. B's DISAGREE
+	// does not hold" is an AGREE
+	for _, no := range []string{"DISAGREE", "KHÔNG ĐỒNG Ý", "KHONG DONG Y", "PHẢN ĐỐI"} {
+		if strings.HasPrefix(rest, no) {
+			return "no"
+		}
+	}
+	for _, yes := range []string{"AGREE", "ĐỒNG Ý", "DONG Y", "TÁN THÀNH"} {
+		if strings.HasPrefix(rest, yes) {
+			return "yes"
+		}
 	}
 	return ""
 }

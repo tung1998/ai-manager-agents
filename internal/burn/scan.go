@@ -122,6 +122,82 @@ func planProblem(before, after string) string {
 	return ""
 }
 
+// mergeCoverage keeps what this run already looked at when a scan rewrites
+// the plan: an item checked before stays checked (its earlier line comes
+// back if the scan left it [ ] or dropped it), so the count never goes down
+// and a scan that checks new items counts as moving the run on.
+func mergeCoverage(before, after string) string {
+	done := map[string]string{} // area → its checked line, before this scan
+	var order []string
+	for _, line := range strings.Split(before, "\n") {
+		if text, ok, checked := item(line); ok && checked {
+			area := areaOf(text)
+			if _, dup := done[area]; !dup {
+				order = append(order, area)
+			}
+			done[area] = line
+		}
+	}
+	if len(done) == 0 {
+		return after
+	}
+	lines := strings.Split(after, "\n")
+	kept := map[string]bool{}
+	for i, line := range lines {
+		text, ok, checked := item(line)
+		if !ok {
+			continue
+		}
+		area := areaOf(text)
+		old, was := done[area]
+		if !was {
+			continue
+		}
+		kept[area] = true
+		if !checked {
+			lines[i] = old
+		}
+	}
+	for _, area := range order {
+		if !kept[area] {
+			lines = append(lines, done[area])
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// areaOf is an item's area: its text before " — what came of it".
+func areaOf(text string) string {
+	area, _, _ := strings.Cut(text, " — ")
+	return strings.ToLower(strings.TrimSpace(area))
+}
+
+// The plan says which template wrote it: a plan written for another one
+// (a list of packages for bugs, say, under the ideas template) would steer
+// the scans the wrong way, so a run of another template starts afresh.
+const tagPrefix = "<!-- burn template: "
+
+// tagged is plan with its template line, for template t, on top.
+func tagged(plan, t string) string {
+	var lines []string
+	for _, line := range strings.Split(plan, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), tagPrefix) {
+			lines = append(lines, line)
+		}
+	}
+	return tagPrefix + t + " -->\n" + strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+// planTemplate is the template plan was written for ("" untold).
+func planTemplate(plan string) string {
+	for _, line := range strings.Split(plan, "\n") {
+		if r, ok := strings.CutPrefix(strings.TrimSpace(line), tagPrefix); ok {
+			return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(r), "-->"))
+		}
+	}
+	return ""
+}
+
 // readRe is what an item checked off names of what was read: a file, or a
 // screenshot.
 var readRe = regexp.MustCompile(pathRe.String() + `|\.(?:png|jpe?g)\b`)
@@ -228,11 +304,13 @@ func (s *Service) scanDone(ctx context.Context, b storage.BurnSession, it storag
 	if !hunting(it) {
 		return "", fmt.Errorf("việc %s không phải lượt quét: báo burn_done hoặc burn_fail", it.ID)
 	}
-	if plan := strings.TrimSpace(in.Coverage); plan != "" {
+	plan := strings.TrimSpace(in.Coverage)
+	if plan != "" {
 		before := b.Coverage
 		if cur, err := s.store.Burn().SessionByID(ctx, b.ID); err == nil {
 			before = cur.Coverage
 		}
+		plan = mergeCoverage(before, plan)
 		if why := planProblem(before, plan); why != "" {
 			return "", errors.New("coverage chưa nhận: " + why + ". Sửa rồi gọi lại burn_scan_done")
 		}
@@ -245,7 +323,7 @@ func (s *Service) scanDone(ctx context.Context, b storage.BurnSession, it storag
 		_ = s.store.Burn().SetCodeMap(context.WithoutCancel(ctx), b.ID, m)
 	}
 	s.keepLessons(ctx, b, in.Lessons)
-	s.keepCoverage(ctx, b, in.Coverage)
+	s.keepCoverage(ctx, b, plan)
 	if err := s.store.Burn().DeleteItem(ctx, it.ID); err != nil {
 		return "", err
 	}
@@ -326,6 +404,7 @@ func (s *Service) keepCoverage(ctx context.Context, b storage.BurnSession, plan 
 	if plan == "" {
 		return
 	}
+	plan = tagged(plan, templateOf(b))
 	if r := []rune(plan); len(r) > maxCoverage {
 		plan = string(r[:maxCoverage])
 	}

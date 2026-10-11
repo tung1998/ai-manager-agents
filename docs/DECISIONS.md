@@ -2270,3 +2270,12 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Trần mục đánh dấu mỗi lượt không còn là điểm dừng: nâng lên 25, chỉ để bắt một danh sách bị đánh dấu hàng loạt. Lượt quét đi tiếp từng mục chưa xem tới khi ghi đủ 10 việc hoặc hết mục.
   - Mục đánh dấu trong lượt phải ghi file đã đọc (đường dẫn, `file:dòng` hoặc ảnh chụp) sau " — ". Thiếu thì `burn_scan_done` từ chối. Mục đã đánh dấu từ lượt trước giữ nguyên.
   - "Không có commit mới", "đã xác nhận ổn trước đó" hay code map ghi "solid" không phải lý do để đánh dấu. Code map chỉ ghi vị trí và quy ước, không ghi kết luận. Lessons (cả khi rút kinh nghiệm cuối lần chạy) không được có luật bỏ qua vùng không đổi.
+
+## ADR-146: Burn: coverage không bị đếm lùi, gắn theo mẫu; mẫu ý tưởng đi theo luồng; đọc verdict theo từ ngay sau "VERDICT:"
+- **Bối cảnh (10/10):** Lần chạy `burn/2026-10-10-090536` (mẫu "Ý tưởng & tích hợp") chạy 32 phút, xong 3 việc, cả 3 là bug khóa, không có idea nào. Số mục coverage đã phủ đi từ 17, xuống 15, 11 rồi chốt 5/28. Lý do: mỗi lượt quét gửi lại cả plan, làm mất dấu `[x]` cũ. Lượt quét có đánh dấu mục mới vẫn bị tính là "không tiến triển", nên sau 3 lượt Burn ngưng quét. Plan cũng là plan liệt kê package của mẫu khác, nên scanner đi từng package tìm race. Một review ghi "**Kết luận: AGREE.** … ý kiến B (DISAGREE) không đứng được" lại bị đọc thành DISAGREE, vì code dò chữ DISAGREE trên cả dòng. Việc đó phải làm lại một vòng.
+- **Quyết định:**
+  - `burn_scan_done` gộp plan mới với plan cũ. Mục đã `[x]` trong lần chạy này giữ dòng cũ: lượt quét để lại `[ ]` hoặc bỏ mục đi thì office trả nó về.
+  - Plan ghi mẫu đã viết ra nó (dòng `<!-- burn template: … -->`). Khi bắt đầu lần chạy mới với mẫu khác, plan cũ bị bỏ để lượt quét đầu viết plan hợp với mẫu.
+  - Mẫu ideas: plan liệt kê mục tiêu, luồng chính và tích hợp, không liệt kê package. Scanner đi từng luồng từ phía người dùng. Bug chỉ ghi khi nó làm hỏng luồng đang xét, tối đa 1 bug mỗi lượt.
+  - `verdict.Of` chỉ đọc từ đứng ngay sau `VERDICT:` hoặc `KẾT LUẬN:`.
+  - Prompt quét (`burn/scan.md`) giảm từ ~9.0KB còn ~3.7KB. Prompt chỉ còn mục tiêu, dữ liệu đầu vào và cách trả kết quả. Các luật mà office đã tự kiểm bằng code thì bỏ khỏi prompt: tối đa 10 việc mỗi lượt, không ghi trùng tiêu đề, đánh dấu mục phải ghi file đã đọc, không bỏ mục chưa xem, coverage gộp. Cách này theo hướng Anthropic bỏ hơn 80% system prompt của Claude Code cho dòng Claude 5: model mạnh cần mục tiêu hơn luật, luật thừa chỉ cản phán đoán. Prompt của mẫu ideas cũng chỉ còn mục tiêu.

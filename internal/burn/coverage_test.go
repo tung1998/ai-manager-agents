@@ -153,3 +153,35 @@ func TestTriesShowOnce(t *testing.T) {
 		t.Fatalf("each piece once, its latest try, in the taken list and the setbacks:\n%s", p)
 	}
 }
+
+// A scan that rewrites the plan never loses what this run already looked
+// at: items checked before stay checked, dropped ones come back.
+func TestMergeCoverageKeepsChecked(t *testing.T) {
+	before := "- [x] /a — nothing (a.go)\n- [x] /b — 1 piece (b.go)\n- [ ] /c\n- [ ] /d"
+	after := "## Flows\n- [ ] /a\n- [ ] /c\n- [x] /d — nothing (d.go)"
+	got := mergeCoverage(before, after)
+	checked, total := coverageCount(got)
+	if checked != 3 || total != 4 {
+		t.Fatalf("checked %d/%d, want 3/4:\n%s", checked, total, got)
+	}
+	if !strings.Contains(got, "/a — nothing (a.go)") || !strings.Contains(got, "/b — 1 piece (b.go)") {
+		t.Fatalf("earlier lines not kept:\n%s", got)
+	}
+	if planProblem(before, got) != "" {
+		t.Fatalf("merged plan refused: %s", planProblem(before, got))
+	}
+}
+
+// A plan written for another template is not reused by a run of this one.
+func TestCoverageTaggedByTemplate(t *testing.T) {
+	plan := tagged("- [ ] internal/x", "general")
+	if planTemplate(plan) != "general" {
+		t.Fatalf("tag: %q", plan)
+	}
+	if again := tagged(plan, "ideas"); planTemplate(again) != "ideas" || strings.Count(again, tagPrefix) != 1 {
+		t.Fatalf("retag: %q", again)
+	}
+	if _, total := coverageCount(plan); total != 1 {
+		t.Fatal("the tag line counted as an item")
+	}
+}
