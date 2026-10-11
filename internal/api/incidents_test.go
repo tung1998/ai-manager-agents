@@ -95,6 +95,42 @@ func TestIncidentActions(t *testing.T) {
 	}
 }
 
+// Retrying a disabled automation must not overwrite an edit made meanwhile
+// (incidents.go retryIncident, case "automation" — only turns it back on).
+func TestIncidentRetryAutomationKeepsConcurrentEdit(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	a, _ := e.st.Automations().Create(ctx, storage.Automation{ProjectID: pid, Name: "Báo cáo", Source: "webhook", Action: "script", DisabledCode: "failures", DisabledReason: "script lỗi"})
+
+	// an edit lands before the retry call; end-to-end check that retrying
+	// a disabled automation never drops its Config (race ordering itself
+	// is covered by TestReenableKeepsConcurrentEdit in sqlite).
+	edited := a
+	edited.Config.Keywords = []string{"edited"}
+	if err := e.st.Automations().Update(ctx, edited); err != nil {
+		t.Fatalf("concurrent update: %v", err)
+	}
+
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/incidents/retry", map[string]any{"kind": "automation", "id": a.ID}, nil); resp.StatusCode != 200 {
+		t.Fatalf("retry = %d", resp.StatusCode)
+	}
+
+	got, err := e.st.Automations().Get(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Config.Keywords) != 1 || got.Config.Keywords[0] != "edited" {
+		t.Fatalf("retry overwrote the concurrent edit: Config.Keywords = %v", got.Config.Keywords)
+	}
+	if !got.Enabled || got.Failures != 0 || got.DisabledCode != "" || got.DisabledReason != "" {
+		t.Fatalf("automation not re-enabled: %+v", got)
+	}
+}
+
 // The overview's recent chats: across projects, the latest first, bots' too.
 func TestRecentConversations(t *testing.T) {
 	e := setup(t)

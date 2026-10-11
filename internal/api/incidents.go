@@ -265,14 +265,16 @@ func (s *server) retryIncident(w http.ResponseWriter, r *http.Request) {
 		if a, err = s.cfg.Store.Automations().Get(ctx, in.ID); err == nil && a.Config.EndsAt != nil && !a.Config.EndsAt.After(time.Now()) {
 			err = errors.New("giờ dừng đã qua: hãy đặt giờ dừng mới hoặc bỏ giờ dừng")
 		} else if err == nil {
-			a.Enabled, a.Failures, a.DisabledCode, a.DisabledReason = true, 0, "", "" // turned back on
+			var nextRunAt *time.Time
 			if a.Source == "schedule" {
 				if next, nerr := trigger.NextRun(a.Config, time.Now().UTC()); nerr == nil {
-					a.NextRunAt = &next
+					nextRunAt = &next
 				}
 			}
-			if err = s.cfg.Store.Automations().Update(ctx, a); err == nil {
-				s.reloadBot(a)
+			if err = s.cfg.Store.Automations().Reenable(ctx, a.ID, nextRunAt); err == nil {
+				if a, err = s.cfg.Store.Automations().Get(ctx, a.ID); err == nil {
+					s.reloadBot(a)
+				}
 			}
 		}
 	case "bot":

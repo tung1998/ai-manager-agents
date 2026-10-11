@@ -112,6 +112,7 @@ func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.
 	if _, hit := s.limitsHit(ctx, agents...); hit { // out of quota: not asked, the Burn waits
 		return true
 	}
+	from := it.Status
 	ok, note, err := s.review(ctx, b, &it, "result")
 	if err != nil {
 		return s.reviewErrAttempt(ctx, it, "result", agents, err) // stays "review": asked again, unless past the limit
@@ -121,11 +122,31 @@ func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.
 	it.ReviewNote = note
 	if ok {
 		it.Status, it.Reviewed = "done", append(it.Reviewed, "result")
+		// the person may have moved it meanwhile (skip, requeue): theirs
+		// wins, and deliver (which merges the diff into the run) must not
+		// run until the claim above succeeds.
+		if err := s.store.Burn().UpdateItemFrom(ctx, it, from); err != nil {
+			return false
+		}
+		cur, err := s.store.Burn().Item(ctx, it.ID) // re-read: priority etc. may have changed since the claim
+		if err != nil || cur.Status != "done" {
+			// the person moved it again between the claim above and this
+			// read (eg. skip right after): theirs wins, nothing is merged.
+			return false
+		}
+		it = cur
 		s.deliver(ctx, b, &it)
+		if err := s.store.Burn().UpdateItemFrom(ctx, it, "done"); err != nil {
+			// the person skipped it after it was claimed/merged: their
+			// choice wins; the merge already happened and stays.
+			return false
+		}
 	} else {
 		it.Status, it.Summary = s.failedOrAgain(it, reviewLabel["result"]+": chưa đạt. "+oneLine(note, 400))
+		if err := s.store.Burn().UpdateItemFrom(ctx, it, from); err != nil {
+			return false
+		}
 	}
-	_ = s.store.Burn().UpdateItem(ctx, it)
 	s.sayItem(ctx, b, it)
 	return false
 }

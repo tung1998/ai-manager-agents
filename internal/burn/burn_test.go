@@ -666,6 +666,71 @@ func TestBurnReviewAgreesTheResult(t *testing.T) {
 	f.svc.Stop(ctx, f.project.ID)
 }
 
+// A person skipping an item while its result review is still running (slow
+// AI call) must win: finish() must not overwrite the skip with "done" once
+// the review comes back, and must not merge the item's diff into the run.
+func TestBurnFinishDoesNotOverwriteASkipRacingTheReview(t *testing.T) {
+	f := setup(t)
+	tmp := t.TempDir()
+	started := filepath.Join(tmp, "started") // set once finish()'s review call actually starts
+	marker := filepath.Join(tmp, "go")
+	os.WriteFile(f.bin, []byte(`#!/bin/sh
+p=$(cat)
+case "$p" in
+*"result review"*)
+  touch "`+started+`"
+  while [ ! -f "`+marker+`" ]; do sleep 0.05; done
+  r="VERDICT: AGREE. Đúng phạm vi";;
+*) echo "do agent viết" > made-by-agent.txt; sleep 1; r="xong lượt";;
+esac
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped", ReviewProfileID: f.profile(t, "result")})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Thêm file", Kind: "upgrade"})
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: items[0].ID})
+	it := waitItem(t, f.st, items[0].ID, "doing")
+	f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: it.ID, Summary: "đã thêm"})
+	it = waitItem(t, f.st, it.ID, "review")
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(started); err == nil {
+			break // finish() is now genuinely blocked inside the review call
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("finish() never started its result review call")
+		}
+	}
+
+	skipped := it
+	skipped.Status, skipped.Summary = "skipped", "bỏ qua trong lúc đang review"
+	if err := f.st.Burn().UpdateItemFrom(ctx, skipped, "review"); err != nil {
+		t.Fatalf("skip raced out: %v", err)
+	}
+	os.WriteFile(marker, nil, 0o644) // let the review answer come back
+
+	time.Sleep(500 * time.Millisecond) // finish() must settle without a further status change
+	got := waitItemFor(t, f.st, it.ID, "skipped", 10*time.Second)
+	if got.Summary != "bỏ qua trong lúc đang review" {
+		t.Fatalf("skip overwritten: %+v", got)
+	}
+	log := exec.Command("git", "log", "--name-only", b.RunBranch)
+	log.Dir = f.dir
+	if out, _ := log.CombinedOutput(); strings.Contains(string(out), "made-by-agent") {
+		t.Fatalf("skipped item's diff merged into the run anyway: %s", out)
+	}
+	f.svc.Stop(ctx, f.project.ID)
+}
+
 // burn_list gives what the coordination prompt leaves out (ADR-121).
 func TestBurnListTool(t *testing.T) {
 	f := setup(t)

@@ -114,6 +114,11 @@ func (r automationRepo) RecordRun(ctx context.Context, id string, now time.Time,
 		fmtTime(time.Now()), id)
 }
 
+func (r automationRepo) Reenable(ctx context.Context, id string, nextRunAt *time.Time) error {
+	return execOne(ctx, r.db, `UPDATE automations SET enabled=1, failures=0, disabled_code='', disabled_reason='', next_run_at=?, updated_at=? WHERE id=?`,
+		optTime(nextRunAt), fmtTime(time.Now()), id)
+}
+
 func (r automationRepo) Delete(ctx context.Context, id string) error {
 	return execOne(ctx, r.db, `DELETE FROM automations WHERE id=?`, id)
 }

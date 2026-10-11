@@ -51,6 +51,10 @@ type Job struct {
 type JobFilter struct {
 	ProjectID        string
 	ExcludeProjectID string // omit this project's jobs (the office assistant's own)
+	// HideOthersIn: an assistant-chat project whose jobs are hidden unless
+	// CreatedBy is Me (ADR-046: an assistant chat is its creator's alone).
+	HideOthersIn string
+	Me           string
 	Kind             string
 	Origin           string
 	OriginID         string
@@ -268,6 +272,10 @@ type AutomationRepo interface {
 	// "fail" (increment Failures, disabling the automation once it reaches
 	// limit) or "skip" (a budget stop: Failures untouched either way).
 	RecordRun(ctx context.Context, id string, now time.Time, result, failReason string, limit int, keptConv string) error
+	// Reenable turns an automation back on without touching its other
+	// fields (name, config, script, ...), so a concurrent edit in
+	// AutomationBuilder isn't overwritten by a stale read-modify-write.
+	Reenable(ctx context.Context, id string, nextRunAt *time.Time) error
 }
 
 // JobGroup is the jobs of one piece of work: a chat's turns, a task, an

@@ -246,7 +246,7 @@ const en: Record<keyof typeof vi, string> = {
   'admin.updateFromSource': 'Update from source',
   'admin.updateFromSourceDesc': 'Build the server and dashboard from current source into a new build, then restart. If the build or tests fail, the running build stays unchanged; if the new build cannot come up, the supervisor rolls back automatically.',
   'admin.updateRunTests': 'Run tests first (slower, safer)',
-  'admin.updateBusy': '{chats} chats and {tasks} tasks are currently running. Restarting will cut them off.',
+  'admin.updateBusy': '{chats} chats and {tasks} processes are currently running. Restarting will cut them off.',
   'admin.updateProcessNote': 'Office-managed processes for a project (e.g. pnpm dev) will stop; those set to "start with office" restart automatically. Containers are not affected.',
   'admin.updateStart': 'Update and restart',
   'admin.updateLatest': 'Running the latest build',

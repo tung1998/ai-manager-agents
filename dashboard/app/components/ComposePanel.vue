@@ -64,7 +64,10 @@ watch(file, (f, old) => { if (old) load(false) })
 // what the log pane shows: a service's logs, or the last docker action's output
 const view = ref<{ kind: 'service', name: string } | { kind: 'action' } | null>(null)
 watch(services, (list) => {
-  if (!view.value && list[0]) view.value = { kind: 'service', name: list.find(s => s.container?.state === 'running')?.name ?? list[0].name }
+  const v = view.value
+  if (v && v.kind === 'service' && list.some(s => s.name === v.name)) return
+  if (v && v.kind === 'action') return
+  view.value = list[0] ? { kind: 'service', name: list.find(s => s.container?.state === 'running')?.name ?? list[0].name } : null
 }, { immediate: true })
 const logUrl = computed(() => {
   const v = view.value

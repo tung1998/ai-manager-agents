@@ -160,6 +160,10 @@ func (s *server) jobStats(w http.ResponseWriter, r *http.Request) {
 		f.Since = time.Now().UTC().AddDate(0, 0, -7)
 	}
 	f.Status, f.Before, f.Limit = "", "", 0
+	own, me := assistant.ID(r.Context(), s.cfg.Store), "human:"+userFrom(r).Email
+	if own != "" {
+		f.HideOthersIn, f.Me = own, me // an assistant chat is its creator's alone (ADR-046)
+	}
 	by := r.URL.Query().Get("by")
 	rows, err := s.cfg.Store.Jobs().Stats(r.Context(), f, by)
 	if err != nil {
@@ -167,7 +171,7 @@ func (s *server) jobStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// the numbers of the moment: running and waiting now, failed and spent in 24h
-	now := storage.JobFilter{ProjectID: f.ProjectID, Kind: f.Kind, Origin: f.Origin, OriginID: f.OriginID, AgentID: f.AgentID}
+	now := storage.JobFilter{ProjectID: f.ProjectID, Kind: f.Kind, Origin: f.Origin, OriginID: f.OriginID, AgentID: f.AgentID, HideOthersIn: f.HideOthersIn, Me: f.Me}
 	count := func(status string, since time.Time) int {
 		x := now
 		x.Status, x.Since, x.Limit = status, since, 200

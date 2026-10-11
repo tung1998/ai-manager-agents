@@ -245,7 +245,7 @@ export default {
   'admin.updateFromSource': 'Cập nhật từ mã nguồn',
   'admin.updateFromSourceDesc': 'Build server và dashboard từ mã nguồn hiện tại ra bản mới, rồi khởi động lại. Build hoặc test lỗi thì bản đang chạy giữ nguyên; bản mới không lên được thì supervisor tự quay về bản trước.',
   'admin.updateRunTests': 'Chạy test trước (chậm hơn, an toàn hơn)',
-  'admin.updateBusy': 'Đang có {chats} lượt chat và {tasks} Việc chạy. Khởi động lại sẽ cắt ngang chúng.',
+  'admin.updateBusy': 'Đang có {chats} lượt chat và {tasks} tiến trình chạy. Khởi động lại sẽ cắt ngang chúng.',
   'admin.updateProcessNote': 'Tiến trình office chạy cho project (vd pnpm dev) sẽ dừng; mục có "bật cùng office" tự chạy lại. Container không bị ảnh hưởng.',
   'admin.updateStart': 'Cập nhật và khởi động lại',
   'admin.updateLatest': 'Đang chạy bản mới nhất',

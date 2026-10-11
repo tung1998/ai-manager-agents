@@ -24,7 +24,13 @@ const { data, refresh } = useLiveFetch<{ servers: GwServer[], stats: Record<stri
 const list = ref<GwServer[]>([])
 // changed: the machine MCP list shows which servers office has
 const emit = defineEmits<{ changed: [] }>()
-watch(data, (d) => { list.value = d?.servers ?? []; emit('changed') }, { immediate: true })
+const serverIdentity = (s: GwServer[]) => s.map(x => `${x.id}:${x.name}:${x.moved_from?.moved_at ?? ''}`).join('|')
+watch(data, (d) => {
+  const next = d?.servers ?? []
+  const changed = serverIdentity(next) !== serverIdentity(list.value)
+  list.value = next
+  if (changed) emit('changed')
+}, { immediate: true })
 defineExpose({ refresh, servers: list, openClientForm: (id: string, msg: string) => openClientForm(id, msg) })
 const stat = (s: GwServer) => data.value?.stats?.[s.id]
 const fmt = (at: string) => new Date(at).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
@@ -35,11 +41,18 @@ const agentItems = computed(() => (agentData.value?.agents ?? []).map(a => ({
   value: a.id,
   label: a.project ? `${a.name} · ${a.project}` : t('tools.gwAssistant')
 })))
+// a server can only have one PATCH in flight: parallel toggle/trust/setAgents
+// calls each read the same stale s.trusted_tools and overwrite each other
+const busy = ref<Record<string, boolean>>({})
 async function patch(s: GwServer, body: Record<string, unknown>) {
+  if (busy.value[s.id]) return
+  busy.value = { ...busy.value, [s.id]: true }
   try {
     put((await $fetch<{ server: GwServer }>(`/api/mcp/servers/${s.id}`, { method: 'PATCH', body })).server)
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    busy.value = { ...busy.value, [s.id]: false }
   }
 }
 const setAgents = (s: GwServer, ids: string[]) => patch(s, { agents: ids })
@@ -107,13 +120,7 @@ async function check(s: GwServer) {
     checking.value = { ...checking.value, [s.id]: false }
   }
 }
-async function toggle(s: GwServer, enabled: boolean) {
-  try {
-    put((await $fetch<{ server: GwServer }>(`/api/mcp/servers/${s.id}`, { method: 'PATCH', body: { enabled } })).server)
-  } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
-  }
-}
+const toggle = (s: GwServer, enabled: boolean) => patch(s, { enabled })
 async function remove(s: GwServer) {
   if (!confirm(t('tools.gwConfirmDelete', { name: s.name }))) return
   try {
@@ -231,7 +238,7 @@ async function save() {
             <UTooltip :text="tip(s)" :disabled="!tip(s)">
               <UBadge :color="badge[s.last_check_status].color" variant="subtle" size="sm" :icon="badge[s.last_check_status].icon" :label="badge[s.last_check_status].label" />
             </UTooltip>
-            <USwitch :model-value="s.enabled" size="sm" :aria-label="t('tools.gwEnabled')" @update:model-value="v => toggle(s, v)" />
+            <USwitch :model-value="s.enabled" size="sm" :disabled="busy[s.id]" :aria-label="t('tools.gwEnabled')" @update:model-value="v => toggle(s, v)" />
             <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :aria-label="t('tools.mcpCheck')" :loading="checking[s.id]" @click="check(s)" />
             <UButton v-if="loggedIn(s)" size="xs" color="neutral" variant="ghost" icon="i-lucide-log-out" :aria-label="t('tools.gwLogout')" @click="logout(s)" />
             <UButton v-if="s.moved_from" size="xs" color="neutral" variant="ghost" icon="i-lucide-undo-2" :aria-label="t('tools.gwPutBack')" @click="putBack(s)" />
@@ -249,14 +256,14 @@ async function save() {
               <UTooltip :text="t('tools.gwAgentsInfo')"><UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" /></UTooltip>
             </template>
             <USelectMenu :model-value="s.agents" :items="agentItems" value-key="value" multiple size="sm" class="w-full max-w-md"
-                         :placeholder="t('tools.gwAllAgents')" @update:model-value="(v: string[]) => setAgents(s, v)" />
+                         :disabled="busy[s.id]" :placeholder="t('tools.gwAllAgents')" @update:model-value="(v: string[]) => setAgents(s, v)" />
           </UFormField>
           <ul v-if="s.tools.length" class="space-y-1">
             <li v-for="tl in s.tools" :key="tl.name" class="flex items-center gap-2 text-xs">
               <code class="shrink-0">mcp__{{ s.name }}__{{ tl.name }}</code>
               <UBadge v-if="tl.read_only" color="neutral" variant="subtle" size="sm" :label="t('tools.gwReadOnly')" />
               <UTooltip v-else :text="t('tools.gwTrustInfo')">
-                <USwitch :model-value="s.trusted_tools.includes(tl.name)" size="xs" :label="t('tools.gwTrust')"
+                <USwitch :model-value="s.trusted_tools.includes(tl.name)" size="xs" :disabled="busy[s.id]" :label="t('tools.gwTrust')"
                          @update:model-value="v => trust(s, tl.name, v)" />
               </UTooltip>
               <span class="truncate text-(--ui-text-muted)">{{ tl.description }}</span>

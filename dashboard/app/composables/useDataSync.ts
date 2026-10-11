@@ -20,7 +20,7 @@ const routes: [RegExp, string[]][] = [
   [/\/jobs/, ['jobs', 'automations']],
   [/\/limit-alert/, ['settings', 'channels']],
   [/\/channels/, ['channels']],
-  [/\/mcp\/servers/, ['mcp_servers']],
+  [/\/mcp\/servers/, ['mcp_servers', 'mcp_calls']],
   [/\/providers|\/usage|\/budget/, ['providers', 'runs', 'jobs', 'settings']],
   [/\/workflow/, ['workflows', 'workflow_runs', 'agents']],
   [/\/revisions/, ['revisions', 'agents', 'repos']],

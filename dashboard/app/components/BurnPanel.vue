@@ -214,18 +214,19 @@ const columns = computed(() => [
   return { ...c, all, items: expanded.value.has(c.key) ? all : all.slice(0, colMax) }
 }))
 const kindColor = (k: Item['kind']) => ({ '': 'neutral', bug: 'error', unfinished: 'warning', upgrade: 'info', idea: 'primary', quest: 'success' } as const)[k]
-const itemActing = ref('')
+const itemActing = ref<Record<string, string>>({})
 async function itemAction(it: Item, action: 'skip' | 'first' | 'drop-worktree') {
-  if (itemActing.value) return
+  if (itemActing.value[it.id]) return
   if (action === 'drop-worktree' && !confirm(t('burn.dropConfirm'))) return
-  itemActing.value = it.id + action
+  itemActing.value = { ...itemActing.value, [it.id]: action }
   try {
     await $fetch(`/api/burn-items/${it.id}/${action}`, { method: 'POST' })
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   } finally {
-    itemActing.value = ''
+    const { [it.id]: _, ...rest } = itemActing.value
+    itemActing.value = rest
   }
 }
 // the scans' coverage plan (ADR-141): items checked of all; scans go on until every one is
@@ -329,9 +330,9 @@ const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).l
           </div>
           <div class="flex flex-wrap gap-1">
             <UButton v-if="hasReviews(it)" size="xs" color="neutral" variant="ghost" icon="i-lucide-scan-eye" :label="t('burn.review.view')" @click="openReviews(it)" />
-            <UButton v-if="['found', 'skipped', 'failed'].includes(it.status)" size="xs" color="neutral" variant="outline" icon="i-lucide-arrow-up-to-line" :label="t('burn.first')" :loading="itemActing === it.id + 'first'" @click="itemAction(it, 'first')" />
-            <UButton v-if="['found', 'queued', 'paused', 'review'].includes(it.status)" size="xs" color="neutral" variant="ghost" :label="t('burn.skip')" :loading="itemActing === it.id + 'skip'" @click="itemAction(it, 'skip')" />
-            <UButton v-if="it.worktree && ['done', 'failed', 'skipped'].includes(it.status)" size="xs" color="neutral" variant="ghost" icon="i-lucide-trash-2" :label="t('burn.dropWorktree')" :loading="itemActing === it.id + 'drop-worktree'" @click="itemAction(it, 'drop-worktree')" />
+            <UButton v-if="['found', 'skipped', 'failed'].includes(it.status)" size="xs" color="neutral" variant="outline" icon="i-lucide-arrow-up-to-line" :label="t('burn.first')" :loading="itemActing[it.id] === 'first'" :disabled="!!itemActing[it.id] && itemActing[it.id] !== 'first'" @click="itemAction(it, 'first')" />
+            <UButton v-if="['found', 'queued', 'paused', 'review'].includes(it.status)" size="xs" color="neutral" variant="ghost" :label="t('burn.skip')" :loading="itemActing[it.id] === 'skip'" :disabled="!!itemActing[it.id] && itemActing[it.id] !== 'skip'" @click="itemAction(it, 'skip')" />
+            <UButton v-if="it.worktree && ['done', 'failed', 'skipped'].includes(it.status)" size="xs" color="neutral" variant="ghost" icon="i-lucide-trash-2" :label="t('burn.dropWorktree')" :loading="itemActing[it.id] === 'drop-worktree'" :disabled="!!itemActing[it.id] && itemActing[it.id] !== 'drop-worktree'" @click="itemAction(it, 'drop-worktree')" />
           </div>
         </div>
         <UButton v-if="col.all.length > col.items.length" size="xs" color="neutral" variant="ghost" block :label="t('burn.showMore', { n: col.all.length - col.items.length })" @click="expand(col.key)" />

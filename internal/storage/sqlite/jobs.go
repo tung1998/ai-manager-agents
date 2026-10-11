@@ -284,6 +284,10 @@ func (r jobRepo) where(f storage.JobFilter) (string, []any) {
 	}
 	add("status", f.Status)
 	add("agent_id", f.AgentID)
+	if f.HideOthersIn != "" {
+		conds = append(conds, "(project_id<>? OR created_by=?)")
+		args = append(args, f.HideOthersIn, f.Me)
+	}
 	if !f.Since.IsZero() {
 		conds = append(conds, "created_at >= ?")
 		args = append(args, fmtTime(f.Since))

@@ -93,6 +93,9 @@ func (s *server) busyWork() map[string]int {
 	if s.cfg.Chat != nil {
 		b["chats"] = s.cfg.Chat.ActiveTurns()
 	}
+	if s.cfg.Ops != nil {
+		b["tasks"] = len(s.cfg.Ops.Running())
+	}
 	return b
 }
 
@@ -106,7 +109,7 @@ func (s *server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if b := s.busyWork(); !in.Force && (b["chats"] > 0 || b["tasks"] > 0) {
 		writeJSON(w, http.StatusConflict, map[string]any{"code": "busy", "busy": b,
-			"error": fmt.Sprintf("Đang có %d lượt chat và %d Việc chạy; khởi động lại sẽ cắt ngang chúng", b["chats"], b["tasks"])})
+			"error": fmt.Sprintf("Đang có %d lượt chat và %d tiến trình chạy; khởi động lại sẽ cắt ngang chúng", b["chats"], b["tasks"])})
 		return
 	}
 	if err := s.cfg.Updater.Start(selfupdate.Options{Test: in.Test}); err != nil {

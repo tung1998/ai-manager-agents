@@ -25,12 +25,13 @@ async function act(fn: () => Promise<unknown>, ok?: string) {
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+    await refresh()
   } finally {
     busy.value = false
   }
 }
 const runNow = () => act(() => $fetch(`/api/automations/${aid.value}/run`, { method: 'POST', body: {} }), t('auto.ran'))
-const enable = () => act(() => $fetch(`/api/automations/${aid.value}`, { method: 'PATCH', body: automationBody({ ...a.value!, enabled: true }) }))
+const enable = () => act(() => $fetch(`/api/automations/${aid.value}`, { method: 'PATCH', body: { ...automationBody({ ...a.value!, enabled: true }), version: a.value!.version } }))
 async function rotate() {
   if (!confirm(t('auto.rotateConfirm'))) return
   await act(async () => {

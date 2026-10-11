@@ -66,10 +66,11 @@ const when = (d?: string | null) => d ? new Date(d).toLocaleString(dateLocale.va
 
 async function toggle(a: Automation, enabled: boolean) {
   try {
-    await $fetch(`/api/automations/${a.id}`, { method: 'PATCH', body: automationBody({ ...a, enabled }) })
+    await $fetch(`/api/automations/${a.id}`, { method: 'PATCH', body: { ...automationBody({ ...a, enabled }), version: a.version } })
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+    await refresh()
   }
 }
 // the bot stopped (a wrong token, an intent off): try again once it is fixed on Discord/Telegram

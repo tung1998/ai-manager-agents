@@ -306,3 +306,35 @@ func TestJobsOfAConversation(t *testing.T) {
 		t.Fatalf("jobs = %+v %v", got, err)
 	}
 }
+
+func TestHideOthersInOnlyShowsOwnAssistantChatJobs(t *testing.T) { // ADR-046
+	ctx := context.Background()
+	st, p := openStore(t)
+	other, _ := st.Repos().Create(ctx, storage.Repo{Name: "other", Path: t.TempDir()})
+	assistantProj, _ := st.Repos().Create(ctx, storage.Repo{Name: "assistant", Path: t.TempDir()})
+	st.Jobs().Create(ctx, storage.Job{ProjectID: assistantProj.ID, Kind: "chat_turn", Origin: "user", CreatedBy: "human:a@x.com", Status: "done", CostUSD: 1})
+	st.Jobs().Create(ctx, storage.Job{ProjectID: assistantProj.ID, Kind: "chat_turn", Origin: "user", CreatedBy: "human:b@x.com", Status: "done", CostUSD: 2})
+	st.Jobs().Create(ctx, storage.Job{ProjectID: other.ID, Kind: "chat_turn", Origin: "user", CreatedBy: "human:b@x.com", Status: "done", CostUSD: 4})
+
+	// A: sees only their own assistant-chat job, plus the unrelated project's job
+	got, err := st.Jobs().List(ctx, storage.JobFilter{HideOthersIn: assistantProj.ID, Me: "human:a@x.com"})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("list (A) = %+v %v", got, err)
+	}
+	stats, err := st.Jobs().Stats(ctx, storage.JobFilter{HideOthersIn: assistantProj.ID, Me: "human:a@x.com"}, "status")
+	if err != nil || len(stats) != 1 || stats[0].Jobs != 2 || stats[0].CostUSD != 5 {
+		t.Fatalf("stats (A) = %+v %v", stats, err)
+	}
+
+	// B: sees their own assistant-chat job plus the other project's job
+	got, err = st.Jobs().List(ctx, storage.JobFilter{HideOthersIn: assistantProj.ID, Me: "human:b@x.com"})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("list (B) = %+v %v", got, err)
+	}
+
+	// p (unrelated project) is unaffected regardless of HideOthersIn
+	got, err = st.Jobs().List(ctx, storage.JobFilter{ProjectID: p.ID, HideOthersIn: assistantProj.ID, Me: "human:a@x.com"})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("list (p) = %+v %v", got, err)
+	}
+}

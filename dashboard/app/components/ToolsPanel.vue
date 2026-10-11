@@ -256,7 +256,7 @@ const { data: libData, refresh: refreshLib, error: libError } = useLiveFetch<{ i
 const library = computed(() => libData.value?.items ?? [])
 
 const editOpen = ref(false)
-const editing = ref<{ isNew: boolean, name: string, content: string, description: string, files: Record<string, string> }>({ isNew: true, name: '', content: '', description: '', files: {} })
+const editing = ref<{ isNew: boolean, name: string, content: string, description: string, files: Record<string, string>, template?: MCPTemplate }>({ isNew: true, name: '', content: '', description: '', files: {} })
 const editError = ref('')
 const editFindings = ref<Finding[]>([])
 
@@ -272,7 +272,7 @@ async function openEdit(item?: LibraryItem) {
   editError.value = ''
   editFindings.value = []
   if (!item) {
-    editing.value = { isNew: true, name: '', content: starter[props.kind], description: '', files: {} }
+    editing.value = { isNew: true, name: '', content: starter[props.kind], description: '', files: {}, template: undefined }
   } else {
     const full = await $fetch<LibraryItem>(`/api/automation/library/${props.kind}/${item.name}`)
     const files = full.files ?? {}
@@ -281,6 +281,7 @@ async function openEdit(item?: LibraryItem) {
       name: full.name,
       description: full.template?.description ?? '',
       files,
+      template: full.template,
       content: props.kind === 'mcp' ? JSON.stringify(full.template?.config ?? {}, null, 2) : props.kind === 'skill' ? files['SKILL.md'] ?? '' : Object.values(files)[0] ?? ''
     }
   }
@@ -314,7 +315,21 @@ async function saveEdit() {
       editError.value = t('tools.invalidJson')
       return
     }
-    body = { template: { name: e.name, title: e.name, description: e.description, config: cfg, inputs: inputsFrom(cfg) } }
+    const newInputs = inputsFrom(cfg)
+    const prevInputs = e.template?.inputs ?? []
+    const inputs = newInputs.map(i => prevInputs.find(p => p.key === i.key) ?? i)
+    body = {
+      template: {
+        ...e.template,
+        source: undefined,
+        id: undefined,
+        name: e.name,
+        title: e.template?.title || e.name,
+        description: e.description,
+        config: cfg,
+        inputs
+      }
+    }
   } else if (props.kind === 'skill') {
     body = { files: { ...e.files, 'SKILL.md': e.content } }
   } else {
