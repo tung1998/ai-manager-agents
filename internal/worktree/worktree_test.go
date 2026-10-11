@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func run(t *testing.T, dir string, args ...string) string {
@@ -222,5 +223,49 @@ func TestLinkNodeModulesNotInstalled(t *testing.T) {
 	}
 	if diff, files, err := Changes(ctx, dir, nil); err != nil || diff != "" || len(files) != 0 {
 		t.Fatalf("the links are in the diff: %v %q", files, diff)
+	}
+}
+
+// Ensure/Remove used to lock through Manager.lock (a pool private to the
+// Manager instance) while Changes/Accept/Refresh/Discard locked through the
+// package-level lockDir — two separate pools keyed by the same dir, so they
+// never excluded each other. Remove must now block on the same lock that
+// Accept/Refresh/Changes hold, via lockDir.
+func TestRemoveWaitsOnLockDir(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+	m := New(t.TempDir())
+	dir := m.Path("p", "n")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	release := lockDir(dir) // the lock Accept/Refresh/Changes would be holding
+
+	done := make(chan error, 1)
+	go func() { done <- m.Remove(ctx, "", "p", "n") }()
+
+	select {
+	case <-done:
+		t.Fatal("Remove did not wait for lockDir held by a concurrent Accept/Refresh/Changes")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("Remove ran while the lock was held: %v", err)
+	}
+
+	release()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("releasing the lock did not let Remove through")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("Remove did not run after the lock was released: %v", err)
 	}
 }

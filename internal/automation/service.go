@@ -159,6 +159,8 @@ type InstallRequest struct {
 
 // Install runs an InstallRequest.
 func (s *Service) Install(ctx context.Context, req InstallRequest) (InstallResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	res := InstallResult{Findings: []Finding{}}
 	var files map[string]string
 	var mcp map[string]any

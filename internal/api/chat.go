@@ -292,7 +292,7 @@ func (s *server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := s.cfg.Chat.DeleteConversation(r.Context(), r.PathValue("id")); err != nil {
-		s.writeDomainError(w, r, err)
+		s.chatError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

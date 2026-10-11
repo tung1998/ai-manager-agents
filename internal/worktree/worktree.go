@@ -33,13 +33,10 @@ var ErrNotGit = errors.New("thư mục project không phải git repo nên khôn
 // Manager keeps the worktrees under Dir (<office home>/worktrees).
 type Manager struct {
 	Dir string
-
-	mu    sync.Mutex
-	locks map[string]*sync.Mutex
 }
 
 // New builds a Manager.
-func New(dir string) *Manager { return &Manager{Dir: dir, locks: map[string]*sync.Mutex{}} }
+func New(dir string) *Manager { return &Manager{Dir: dir} }
 
 var safeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
@@ -68,23 +65,11 @@ func (m *Manager) Exists(projectID, name string) bool {
 	return err == nil
 }
 
-func (m *Manager) lock(key string) func() {
-	m.mu.Lock()
-	l := m.locks[key]
-	if l == nil {
-		l = &sync.Mutex{}
-		m.locks[key] = l
-	}
-	m.mu.Unlock()
-	l.Lock()
-	return l.Unlock
-}
-
 // Ensure returns the worktree name of a project, creating it from repo's
 // current state when missing. extra lists more ignored paths to link in.
 func (m *Manager) Ensure(ctx context.Context, repo, projectID, name string, extra []string) (string, error) {
 	dir := m.Path(projectID, name)
-	defer m.lock(dir)()
+	defer lockDir(dir)()
 	if m.Exists(projectID, name) {
 		return dir, nil
 	}
@@ -439,7 +424,7 @@ func Discard(ctx context.Context, dir, diff string) error {
 // Remove deletes the worktree name of a project from repo.
 func (m *Manager) Remove(ctx context.Context, repo, projectID, name string) error {
 	dir := m.Path(projectID, name)
-	defer m.lock(dir)()
+	defer lockDir(dir)()
 	return m.remove(ctx, repo, dir)
 }
 

@@ -78,6 +78,8 @@ type Origin struct {
 
 // PutBackMCP writes cfg back where o says the server came from.
 func (s *Service) PutBackMCP(ctx context.Context, o Origin, cfg map[string]any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	switch o.Type {
 	case "user":
 		return s.Installer.InstallMCP(ctx, Target{Scope: "user"}, o.Name, cfg, true)

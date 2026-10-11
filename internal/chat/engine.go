@@ -1606,8 +1606,29 @@ func projectOfTask(ctx context.Context, e *Engine, taskID string) string {
 	return t.ProjectID
 }
 
+// busy reports whether a conversation has a turn running (ErrBusy) or a
+// member hand-off running in the background (ErrAgentBusy); either would
+// race with dropTrees removing the worktree it is writing to.
+func (e *Engine) busy(id string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, ok := e.active[id]; ok {
+		return ErrBusy
+	}
+	prefix := id + "/"
+	for k := range e.bg {
+		if strings.HasPrefix(k, prefix) {
+			return ErrAgentBusy
+		}
+	}
+	return nil
+}
+
 // DeleteConversation deletes a conversation and its worktree.
 func (e *Engine) DeleteConversation(ctx context.Context, id string) error {
+	if err := e.busy(id); err != nil {
+		return err
+	}
 	e.dropTrees(ctx, id)
 	return e.store.Chat().DeleteConversation(ctx, id)
 }
@@ -1629,8 +1650,8 @@ func (e *Engine) dropTrees(ctx context.Context, id string) {
 // CleanConversation takes a chat's content out (ADR-095): its worktrees and
 // messages go, note stays in their place, and it takes no more messages.
 func (e *Engine) CleanConversation(ctx context.Context, id, state, note string) error {
-	if _, running := e.Active(id); running {
-		return ErrBusy
+	if err := e.busy(id); err != nil {
+		return err
 	}
 	e.dropTrees(ctx, id)
 	return e.store.Chat().CleanConversation(ctx, id, state, note)

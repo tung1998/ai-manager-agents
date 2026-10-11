@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func write(t *testing.T, p, s string) {
@@ -414,5 +416,152 @@ func TestInstallMCPOverwriteWithoutExisting(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
 	if len(lines) != 1 || !strings.Contains(lines[0], "add-json") {
 		t.Fatalf("calls = %v, want a single add-json (no remove)", lines)
+	}
+}
+
+// fakeClaudeJSON builds a real (compiled) stand-in `claude` binary that, for
+// "mcp add-json -s user <name> <raw>" and "mcp remove -s user <name>",
+// actually reads, mutates and writes $FAKE_HOME/.claude.json's top-level
+// mcpServers map, like the real CLI does. It touches $FAKE_HOME/.started the
+// instant it is invoked, then sleeps, so a test can tell exactly when the
+// call that holds Service.mu started and how long it stays in flight — a
+// logging-only stub (like fakeClaude above) can't show that Service.mu now
+// keeps SetMCPEnabled from touching the same file while this runs.
+func fakeClaudeJSON(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	write(t, src, `package main
+
+import (
+	"encoding/json"
+	"os"
+	"time"
+)
+
+func main() {
+	a := os.Args[1:] // mcp add-json -s user <name> <raw> | mcp remove -s user <name>
+	home := os.Getenv("FAKE_HOME")
+	os.WriteFile(home+"/.started", []byte("1"), 0o644)
+	time.Sleep(200 * time.Millisecond)
+	path := home + "/.claude.json"
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		panic(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		panic(err)
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+	switch a[1] {
+	case "add-json":
+		var cfg any
+		if err := json.Unmarshal([]byte(a[5]), &cfg); err != nil {
+			panic(err)
+		}
+		servers[a[4]] = cfg
+	case "remove":
+		delete(servers, a[4])
+	}
+	doc["mcpServers"] = servers
+	out, err := json.Marshal(doc)
+	if err != nil {
+		panic(err)
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		panic(err)
+	}
+}
+`)
+	bin := filepath.Join(dir, "fake-claude")
+	cmd := exec.Command("go", "build", "-o", bin, src)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build fake claude: %v\n%s", err, out)
+	}
+	return bin
+}
+
+// Install (user scope, via the CLI) and SetMCPEnabled (user scope, via direct
+// file edit) both read-modify-write ~/.claude.json. Without Service.mu
+// serializing them, SetMCPEnabled could run — and finish — entirely inside
+// the window where Install's subprocess is between its own read and write,
+// silently losing SetMCPEnabled's change. This proves Service.mu (now taken
+// by Install, service.go:162) keeps that from happening: SetMCPEnabled must
+// block until Install's slow file operation is done.
+func TestInstallSetMCPEnabledConcurrent(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	cfg := map[string]any{"mcpServers": map[string]any{"existing": map[string]any{"command": "old"}}}
+	raw, _ := json.Marshal(cfg)
+	write(t, filepath.Join(home, ".claude.json"), string(raw))
+	t.Setenv("FAKE_HOME", home)
+
+	bin := fakeClaudeJSON(t)
+	stash := &memStash{}
+	s := &Service{
+		Home:      home,
+		Installer: Installer{Home: home, Trash: t.TempDir(), Claude: func() string { return bin }},
+		Stash:     stash,
+		Projects:  func(ctx context.Context) map[string]string { return nil },
+	}
+
+	installDone := make(chan struct{})
+	go func() {
+		defer close(installDone)
+		if _, err := s.Install(ctx, InstallRequest{
+			Kind: "mcp", Name: "added", Target: Target{Scope: "user"},
+			Template: &MCPTemplate{Config: map[string]any{"command": "new"}},
+		}); err != nil {
+			t.Error("Install:", err)
+		}
+	}()
+
+	marker := filepath.Join(home, ".started")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Install's subprocess never started")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	before := time.Now()
+	if err := s.SetMCPEnabled(ctx, Ref{Kind: "mcp", Name: "existing", Type: "user", Path: filepath.Join(home, ".claude.json")}, false); err != nil {
+		t.Fatal("SetMCPEnabled:", err)
+	}
+	if blocked := time.Since(before); blocked < 150*time.Millisecond {
+		t.Fatalf("SetMCPEnabled returned after %v while Install's file write was still in flight — Service.mu did not serialize them", blocked)
+	}
+	<-installDone
+
+	got, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(got, &doc); err != nil {
+		t.Fatal(err)
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if _, ok := servers["added"]; !ok {
+		t.Errorf("Install's change was lost: mcpServers = %v", servers)
+	}
+	if _, ok := servers["existing"]; ok {
+		t.Errorf("SetMCPEnabled's change was lost: mcpServers = %v", servers)
+	}
+	recs, err := stash.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Errorf("want 'existing' stashed, got %v", recs)
 	}
 }
