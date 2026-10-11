@@ -199,3 +199,49 @@ func TestMergeCoveragePatch(t *testing.T) {
 		t.Fatalf("first plan: %q", first)
 	}
 }
+
+// ADR-147: a plan past maxCoverage keeps every item, its checked items'
+// results shortened; a scan's new items at the end are not cut off, so it
+// counts as moving the plan on.
+func TestCoverageFitsWithoutCuttingItems(t *testing.T) {
+	var plan strings.Builder
+	for i := range 120 {
+		fmt.Fprintf(&plan, "- [x] internal/area%03d — %s (internal/area%03d/x.go:1-200)\n", i, strings.Repeat("không lỗi mới, đã đọc kỹ ", 6), i)
+	}
+	plan.WriteString("- [ ] internal/last — chưa đọc")
+	got, fits := fitCoverage(plan.String())
+	if !fits || len([]rune(got)) > maxCoverage {
+		t.Fatalf("plan not fitted: %d runes", len([]rune(got)))
+	}
+	if checked, total := coverageCount(got); checked != 120 || total != 121 {
+		t.Fatalf("items lost: %d/%d", checked, total)
+	}
+	if !strings.HasSuffix(got, "- [ ] internal/last — chưa đọc") {
+		t.Fatal("the unchecked item was shortened or cut")
+	}
+	if short := "- [x] /a — ok (a.go)"; func() string { s, _ := fitCoverage(short); return s }() != short {
+		t.Fatal("a plan within the cap was changed")
+	}
+
+	s, ag := limitTestService(t)
+	ctx := context.Background()
+	b, err := s.store.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: ag.ProjectID, AgentID: ag.ID, State: "running", RunBranch: "burn/fit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.keepCoverage(ctx, b, plan.String())
+	cur, _ := s.store.Burn().SessionByID(ctx, b.ID)
+	if _, total := coverageCount(cur.Coverage); total != 121 {
+		t.Fatalf("kept plan lost items: %d", total)
+	}
+}
+
+// ADR-147: an item naming no real area can be checked off without a file.
+func TestCoverageNotApplicable(t *testing.T) {
+	if why := planProblem("- [ ] internal/channels/tools.go", "- [x] internal/channels/tools.go — không tồn tại"); why != "" {
+		t.Fatalf("refused: %s", why)
+	}
+	if why := planProblem("- [ ] /a", "- [x] /a — trùng mục /b"); why != "" {
+		t.Fatalf("refused: %s", why)
+	}
+}

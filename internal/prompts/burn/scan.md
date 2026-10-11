@@ -55,7 +55,7 @@ The coverage plan ([[.Left]] not looked at yet):
 [[- end]]
 
 How:
-1. [[if .Map]]Start from the code map.[[else]]No code map yet: map the codebase first (its parts, where each lives, how to build and test them).[[end]] [[if .Coverage]]Take the unchecked items of the coverage plan in order; add an area it lacks.[[else]]No coverage plan yet: write one, a "- [ ] <area>" line per area this Burn covers, the project's goals and main flows first, enumerated from the code and docs.[[end]] Check an item off as "- [x] <area> — what came of it (file you read)".
+1. [[if .Map]]Start from the code map.[[else]]No code map yet: map the codebase first (its parts, where each lives, how to build and test them).[[end]] [[if .Coverage]]Take the unchecked items of the coverage plan in order; add an area it lacks.[[else]]No coverage plan yet: write one, a "- [ ] <area>" line per area this Burn covers, the project's goals and main flows first, enumerated from the code and docs.[[end]] Check an item off as "- [x] <area> — what came of it (file you read)"; an item that names no real area, "- [x] <area> — không tồn tại" (or "không áp dụng", "trùng mục <area>").
 2. Find up to [[.Batch]] pieces, going item after item.
 [[- if .Hunt]]
 [[.Hunt]]

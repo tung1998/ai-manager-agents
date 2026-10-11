@@ -39,8 +39,13 @@ const scanBatch = 10
 // more this run.
 const maxNones = 3
 
-// maxCoverage caps the coverage plan kept (ADR-141).
+// maxCoverage caps the coverage plan kept (ADR-141). A plan past it has
+// its checked items' results shortened, never items cut (ADR-147).
 const maxCoverage = 16000
+
+// resultCuts: how much of "what came of it" a checked item keeps, step by
+// step, while the plan is past maxCoverage (0: the area alone).
+var resultCuts = []int{120, 60, 0}
 
 // maxChecks: coverage items one scan may check off. It is no stop sign: a
 // scan goes on item after item until it has recorded scanBatch pieces or
@@ -107,7 +112,7 @@ func planProblem(before, after string) string {
 		if strings.Count(area, ",") >= 2 {
 			return fmt.Sprintf("mỗi mục chỉ một vùng (một màn, một gói, một tính năng), tách dòng %q thành từng mục", oneLine(area, 80))
 		}
-		if checked && !seen[strings.TrimSpace(area)] && !readRe.MatchString(result) {
+		if checked && !seen[strings.TrimSpace(area)] && !readRe.MatchString(result) && !naRe.MatchString(result) {
 			return fmt.Sprintf("mục %q đánh dấu mà không ghi file đã đọc trong lượt này: ghi \"- [x] vùng — kết quả (file:dòng đã đọc)\"; chưa đọc thật thì để [ ]", oneLine(area, 80))
 		}
 	}
@@ -196,6 +201,46 @@ func planTemplate(plan string) string {
 // readRe is what an item checked off names of what was read: a file, or a
 // screenshot.
 var readRe = regexp.MustCompile(pathRe.String() + `|\.(?:png|jpe?g)\b`)
+
+// naRe is an item checked off as not there to read: the file does not
+// exist, it does not apply, or it repeats another item (ADR-147), so a
+// wrong item does not stay unchecked for good.
+var naRe = regexp.MustCompile(`(?i)không tồn tại|không áp dụng|trùng (?:với )?mục|does not exist|not applicable|duplicate of`)
+
+// fitCoverage keeps plan within maxCoverage by shortening what its checked
+// items say came of them, step by step, never dropping an item: an item cut
+// off the end would be looked at again, and a scan whose new items were cut
+// would count as moving nothing on (ADR-147). fits is false when even the
+// bare areas are past the cap.
+func fitCoverage(plan string) (string, bool) {
+	if len([]rune(plan)) <= maxCoverage {
+		return plan, true
+	}
+	lines := strings.Split(plan, "\n")
+	for _, keep := range resultCuts {
+		for i, line := range lines {
+			text, ok, checked := item(line)
+			if !ok || !checked {
+				continue
+			}
+			area, result, has := strings.Cut(text, " — ")
+			if !has {
+				continue
+			}
+			r := []rune(strings.TrimSpace(result))
+			switch {
+			case keep == 0:
+				lines[i] = "- [x] " + strings.TrimSpace(area)
+			case len(r) > keep:
+				lines[i] = "- [x] " + strings.TrimSpace(area) + " — " + string(r[:keep-1]) + "…"
+			}
+		}
+		if plan = strings.Join(lines, "\n"); len([]rune(plan)) <= maxCoverage {
+			return plan, true
+		}
+	}
+	return plan, false
+}
 
 // coverageCount reads a coverage plan: its items ("- [ ]" or "- [x]"
 // lines) and how many are checked.
@@ -309,6 +354,10 @@ func (s *Service) scanDone(ctx context.Context, b storage.BurnSession, it storag
 		if why := planProblem(before, plan); why != "" {
 			return "", errors.New("coverage chưa nhận: " + why + ". Sửa rồi gọi lại burn_scan_done")
 		}
+		var fits bool
+		if plan, fits = fitCoverage(tagged(plan, templateOf(b))); !fits {
+			return "", fmt.Errorf("coverage chưa nhận: kế hoạch dài %d ký tự, tối đa %d, kể cả khi đã rút gọn kết quả các mục [x]: viết ngắn lại các mục [ ] rồi gọi lại burn_scan_done", len([]rune(plan)), maxCoverage)
+		}
 	}
 	s.keepScanned(ctx, b, in.Scanned)
 	if m := strings.TrimSpace(in.Map); m != "" {
@@ -399,9 +448,12 @@ func (s *Service) keepCoverage(ctx context.Context, b storage.BurnSession, plan 
 	if plan == "" {
 		return
 	}
-	plan = tagged(plan, templateOf(b))
-	if r := []rune(plan); len(r) > maxCoverage {
+	plan, _ = fitCoverage(tagged(plan, templateOf(b)))
+	if r := []rune(plan); len(r) > maxCoverage { // last resort: whole lines off the end
 		plan = string(r[:maxCoverage])
+		if i := strings.LastIndex(plan, "\n"); i > 0 {
+			plan = plan[:i]
+		}
 	}
 	_ = s.store.Burn().SetCoverage(context.WithoutCancel(ctx), b.ID, plan)
 }
