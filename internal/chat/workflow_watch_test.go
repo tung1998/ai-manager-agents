@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,10 +169,10 @@ func TestDriftOf(t *testing.T) {
 func TestClaudeArgsNoSubagents(t *testing.T) {
 	var r claudeRunner
 	a := r.args(RunRequest{FullAccess: true, NoSubagents: true}, false)
-	if i := slices.Index(a, "--disallowedTools"); i < 0 || a[i+1] != "Agent Task" {
+	if i := slices.Index(a, "--disallowedTools"); i < 0 || !strings.HasSuffix(a[i+1], " Agent Task") {
 		t.Fatalf("args = %v", a)
 	}
-	if a := r.args(RunRequest{FullAccess: true}, false); slices.Contains(a, "--disallowedTools") {
+	if a := r.args(RunRequest{FullAccess: true}, false); strings.Contains(a[slices.Index(a, "--disallowedTools")+1], "Agent") {
 		t.Fatalf("full access without it = %v", a)
 	}
 }

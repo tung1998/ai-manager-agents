@@ -136,3 +136,35 @@ func deny(out io.Writer, reason string) {
 		"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason,
 	}})
 }
+
+// ForegroundCommand runs `office hook foreground`: set by the office binary at start.
+var ForegroundCommand string
+
+// headlessDisallowed: tools that wait for later (a monitor, a wakeup, a cron
+// of the session); a turn is one `claude -p`, nothing calls the agent back.
+const headlessDisallowed = "Monitor ScheduleWakeup CronCreate CronDelete CronList"
+
+// foregroundSettings: Bash and subagents go through `office hook foreground`
+// (runs with every built-in tool: the administrator's, ADR-059).
+func foregroundSettings() string {
+	b, _ := json.Marshal(map[string]any{"hooks": map[string]any{"PreToolUse": []map[string]any{
+		{"matcher": "Bash|Agent|Task", "hooks": []map[string]any{{"type": "command", "command": ForegroundCommand}}},
+	}}})
+	return string(b)
+}
+
+// Foreground is a PreToolUse hook: no run_in_background. A turn is one
+// `claude -p`; when the agent answers, the CLI exits, what runs in the
+// background is killed and no notification ever wakes the agent, so "I'll
+// wait for it" would end the turn with nothing waiting.
+func Foreground(in io.Reader, out io.Writer) {
+	var ev struct {
+		ToolInput map[string]any `json:"tool_input"`
+	}
+	if json.NewDecoder(in).Decode(&ev) != nil {
+		return
+	}
+	if bg, _ := ev.ToolInput["run_in_background"].(bool); bg {
+		deny(out, "agent-office: không chạy nền được — lượt chạy kết thúc khi bạn trả lời, việc chạy nền bị dừng và không có thông báo nào gọi lại bạn. Chạy ở tiền cảnh (Bash timeout tối đa 600000 ms) và đợi kết quả ngay trong lượt này; việc lâu hơn thì dùng propose_action (tiến trình) hoặc propose_automation")
+	}
+}

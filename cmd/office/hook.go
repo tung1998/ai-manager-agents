@@ -34,7 +34,14 @@ func hookCmd() *cobra.Command {
 		},
 	}
 	check.Flags().StringVar(&checks, "checks", "", "kiểm tra riêng của project (base64)")
-	cmd.AddCommand(guard, check)
+	foreground := &cobra.Command{
+		Use: "foreground", Short: "PreToolUse: không chạy nền (lượt chạy kết thúc là bị dừng)",
+		RunE: func(*cobra.Command, []string) error {
+			chat.Foreground(os.Stdin, os.Stdout)
+			return nil
+		},
+	}
+	cmd.AddCommand(guard, check, foreground)
 	return cmd
 }
 
@@ -47,4 +54,5 @@ func setGuardCommand() {
 	q := "'" + strings.ReplaceAll(exe, "'", `'\''`) + "'"
 	chat.GuardCommand = q + " hook guard"
 	chat.CheckCommand = q + " hook check"
+	chat.ForegroundCommand = q + " hook foreground"
 }

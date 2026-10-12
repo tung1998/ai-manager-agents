@@ -117,3 +117,33 @@ func TestGuardProtected(t *testing.T) {
 		t.Error("no path: allowed")
 	}
 }
+
+// A turn is one `claude -p`: what runs in the background dies with it, so the
+// administrator's runs may not start it (nor monitors or wakeups).
+func TestForeground(t *testing.T) {
+	say := func(in map[string]any) string {
+		b, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": in})
+		var out bytes.Buffer
+		Foreground(bytes.NewReader(b), &out)
+		return out.String()
+	}
+	if s := say(map[string]any{"command": "make test", "run_in_background": true}); !strings.Contains(s, `"deny"`) {
+		t.Fatalf("background allowed: %q", s)
+	}
+	for _, in := range []map[string]any{{"command": "make test"}, {"command": "make test", "run_in_background": false}} {
+		if s := say(in); s != "" {
+			t.Fatalf("foreground denied: %v %q", in, s)
+		}
+	}
+	var r claudeRunner
+	old := ForegroundCommand
+	defer func() { ForegroundCommand = old }()
+	ForegroundCommand = "'/x/office' hook foreground"
+	a := r.args(RunRequest{FullAccess: true, NoSubagents: true}, false)
+	if d := a[slices.Index(a, "--disallowedTools")+1]; !strings.Contains(d, "Monitor") || !strings.Contains(d, "ScheduleWakeup") || !strings.Contains(d, "Agent Task") {
+		t.Fatalf("disallowed: %s", d)
+	}
+	if i := slices.Index(a, "--settings"); i < 0 || !strings.Contains(a[i+1], "hook foreground") || !strings.Contains(a[i+1], "Bash|Agent") {
+		t.Fatalf("foreground hook missing: %v", a)
+	}
+}

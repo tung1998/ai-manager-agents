@@ -72,8 +72,15 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 		if resume && req.SessionID != "" {
 			a = append(a, "--resume", req.SessionID)
 		}
+		// nothing wakes the agent after its turn: no monitors, wakeups or
+		// background runs (they would be killed when the CLI exits)
+		disallow := headlessDisallowed
 		if req.NoSubagents {
-			a = append(a, "--disallowedTools", "Agent Task")
+			disallow += " Agent Task"
+		}
+		a = append(a, "--disallowedTools", disallow)
+		if ForegroundCommand != "" {
+			a = append(a, "--settings", foregroundSettings())
 		}
 		return a
 	}
