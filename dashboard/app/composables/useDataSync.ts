@@ -7,6 +7,11 @@ type Listener = { tables: () => string[], fn: () => void }
 const listeners = new Set<Listener>()
 const rawListeners = new Set<(tables: string[]) => void>()
 
+// requestURL: the url a window.fetch call asks for.
+export function requestURL(input: RequestInfo | URL): string {
+  return typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+}
+
 // tablesFor: the tables an API path shows ('*' = refresh on anything).
 const routes: [RegExp, string[]][] = [
   [/\/memories/, ['agent_memories']],
