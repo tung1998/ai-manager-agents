@@ -92,6 +92,29 @@ func TestJobAndCrashRestart(t *testing.T) {
 	}
 }
 
+// A process's own environment is stored and runs over the office's.
+func TestProcessEnv(t *testing.T) {
+	m, st, proj := setup(t)
+	ctx := context.Background()
+	def, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "env", Kind: "job",
+		Command: `echo "port=$PORT ci=$CI"`, Env: map[string]string{"PORT": "4321", "CI": "1"}})
+	if got, _ := st.Processes().Get(ctx, def.ID); got.Env["PORT"] != "4321" {
+		t.Fatalf("stored env: %v", got.Env)
+	}
+	_ = m.Start(ctx, def.ID)
+	waitFor(t, "job exit", func() bool { return m.State(def.ID).Status == "exited" })
+	if out := m.Tail(def.ID, 10); !strings.Contains(out, "port=4321 ci=1") {
+		t.Fatalf("output: %q", out)
+	}
+	def.Env = nil
+	if err := st.Processes().Update(ctx, def); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Processes().Get(ctx, def.ID); len(got.Env) != 0 {
+		t.Fatalf("cleared env: %v", got.Env)
+	}
+}
+
 // TestStopDuringStartRace reproduces Stop() landing between cmd.Start() and
 // launch() taking the lock on a fresh Start(): without the generation check
 // launch()'s unconditional state overwrite resurrects the process as "running"

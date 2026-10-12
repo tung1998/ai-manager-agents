@@ -14,7 +14,12 @@ interface ProcState {
   cpu: number
   mem_bytes: number
 }
-interface Proc { id: string, name: string, command: string, cwd: string, kind: 'service' | 'job', source: string, autostart: boolean, autorestart: boolean, state: ProcState }
+interface Proc { id: string, name: string, command: string, cwd: string, kind: 'service' | 'job', source: string, autostart: boolean, autorestart: boolean, env: Record<string, string>, state: ProcState }
+// what a command runs with, found without running it (PORT from its flag, its
+// script, the folder's .env or its framework's default)
+interface EnvHint { key: string, value: string, source: 'command' | 'script' | 'env-file' | 'default', file?: string, tool?: string, flag?: string, append?: string }
+// a row of the form's environment: hint = found; saved = in the process's env
+interface EnvRow { key: string, value: string, hint?: EnvHint, saved: boolean }
 interface Suggestion { name: string, command: string, cwd: string, kind: 'service' | 'job', source: string, description: string, recommended: boolean }
 interface Detection { package_manager?: string, suggestions: Suggestion[], compose: { file: string }[] }
 
@@ -169,23 +174,102 @@ async function addPicked() {
 const formOpen = ref(false)
 const editing = ref<Proc | null>(null)
 const form = reactive({ name: '', command: '', cwd: '.', kind: 'service' as 'service' | 'job', autostart: false, autorestart: false })
+const envRows = ref<EnvRow[]>([])
 function openForm(p?: Proc) {
   editing.value = p ?? null
   Object.assign(form, p
     ? { name: p.name, command: p.command, cwd: p.cwd, kind: p.kind, autostart: p.autostart, autorestart: p.autorestart }
     : { name: '', command: '', cwd: '.', kind: 'service', autostart: false, autorestart: false })
+  envRows.value = Object.entries(p?.env ?? {}).map(([key, value]) => ({ key, value, saved: true }))
   formOpen.value = true
+  detectEnv()
 }
+
+// found again as the command or folder changes; what was set or typed stays
+const detectingEnv = ref(false)
+async function detectEnv() {
+  if (!form.command.trim()) {
+    envRows.value = envRows.value.filter(r => !r.hint || r.saved || changed(r))
+    return
+  }
+  detectingEnv.value = true
+  try {
+    const { env } = await $fetch<{ env: EnvHint[] }>(`/api/projects/${props.projectId}/ops/env`, { query: { cwd: form.cwd || '.', command: form.command } })
+    const kept = envRows.value.filter(r => !r.hint || r.saved || changed(r))
+    const rows: EnvRow[] = kept.map(r => ({ ...r, hint: env.find(h => h.key === r.key) }))
+    for (const h of env) {
+      if (!rows.some(r => r.key === h.key)) rows.push({ key: h.key, value: h.value, hint: h, saved: false })
+    }
+    envRows.value = rows
+  } catch { /* a hint, not needed to save */ } finally {
+    detectingEnv.value = false
+  }
+}
+let envTimer: ReturnType<typeof setTimeout> | undefined
+watch(() => [form.command, form.cwd], () => {
+  if (!formOpen.value) return
+  clearTimeout(envTimer)
+  envTimer = setTimeout(detectEnv, 500)
+})
+const changed = (r: EnvRow) => !r.hint || r.value !== r.hint.value
+// where a value goes when saved: the command's own flag, a flag added to it,
+// or the process's environment
+function envTarget(r: EnvRow): 'flag' | 'append' | 'env' {
+  if (r.hint?.flag && !r.saved) return 'flag'
+  if (r.hint?.append && !r.saved) return 'append'
+  return 'env'
+}
+function envNote(r: EnvRow) {
+  const h = r.hint
+  const from = !h
+    ? ''
+    : h.source === 'command'
+      ? t('ops.env.fromCommand')
+      : h.source === 'script'
+        ? t('ops.env.fromScript', { file: h.file ?? '' })
+        : h.source === 'env-file'
+          ? t('ops.env.fromFile', { file: h.file ?? '' })
+          : t('ops.env.fromDefault', { tool: h.tool ?? '' })
+  if (!changed(r) && !r.saved) return from
+  const to = { flag: t('ops.env.toFlag'), append: t('ops.env.toAppend'), env: t('ops.env.toEnv') }[envTarget(r)]
+  return h ? `${from} · ${to}` : to
+}
+// set in package.json: a variable may not change it
+const envWarn = (r: EnvRow) => r.hint?.source === 'script' && changed(r) && envTarget(r) === 'env'
+function resetEnv(r: EnvRow) {
+  if (r.hint) Object.assign(r, { value: r.hint.value, saved: false })
+  else envRows.value = envRows.value.filter(x => x !== r)
+}
+const addEnv = () => envRows.value.push({ key: '', value: '', saved: true })
+
+// the command and environment to save: a changed flag is changed in the
+// command, a tool without a variable gets the flag added, the rest is env
+function envToSave() {
+  let command = form.command
+  const env: Record<string, string> = {}
+  for (const r of envRows.value) {
+    const key = r.key.trim()
+    if (!key || (!r.saved && !changed(r))) continue
+    const target = envTarget(r)
+    if (target === 'flag') command = command.replace(r.hint!.flag!, r.hint!.flag!.replace(new RegExp(`${r.hint!.value}$`), r.value.trim()))
+    else if (target === 'append') command += r.hint!.append!.replace('%s', r.value.trim())
+    else env[key] = r.value
+  }
+  return { command, env }
+}
+
 async function saveForm() {
   try {
-    if (editing.value) await $fetch(`/api/processes/${editing.value.id}`, { method: 'PATCH', body: { ...form } })
-    else await $fetch(`/api/projects/${props.projectId}/processes`, { method: 'POST', body: { ...form } })
+    const body = { ...form, ...envToSave() }
+    if (editing.value) await $fetch(`/api/processes/${editing.value.id}`, { method: 'PATCH', body })
+    else await $fetch(`/api/projects/${props.projectId}/processes`, { method: 'POST', body })
     formOpen.value = false
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
 }
+const envPrefix = (p: Proc) => Object.entries(p.env ?? {}).map(([k, v]) => `${k}=${v} `).join('')
 
 // ---- display ----
 const statusMeta = computed<Record<ProcState['status'], { label: string, color: 'success' | 'error' | 'neutral' | 'warning' | 'info', dot: string }>>(() => ({
@@ -261,7 +345,7 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
               />
               <UBadge :color="statusMeta[p.state.status].color" variant="subtle" size="sm" :label="statusMeta[p.state.status].label + (p.state.status === 'crashed' || p.state.status === 'exited' ? ` (${p.state.exit_code})` : '')" />
             </div>
-            <code class="mt-1 block truncate text-xs text-(--ui-text-muted)">{{ p.cwd !== '.' ? `${p.cwd} $ ` : '$ ' }}{{ p.command }}</code>
+            <code class="mt-1 block truncate text-xs text-(--ui-text-muted)">{{ p.cwd !== '.' ? `${p.cwd} $ ` : '$ ' }}{{ envPrefix(p) }}{{ p.command }}</code>
             <div v-if="p.state.status === 'running'" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-(--ui-text-muted) tabular-nums">
               <span>PID {{ p.state.pid }}</span>
               <span>{{ uptime(p) }}</span>
@@ -363,6 +447,25 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
           </UFormField>
           <UFormField :label="t('ops.form.cwd')">
             <UInput v-model="form.cwd" class="w-full font-mono" placeholder="." />
+          </UFormField>
+          <UFormField :label="t('ops.env.title')">
+            <template #hint>
+              <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-scan-search" :loading="detectingEnv" :label="t('ops.env.redetect')" @click="detectEnv" />
+            </template>
+            <div class="space-y-2">
+              <div v-for="(r, i) in envRows" :key="i" class="space-y-0.5">
+                <div class="flex items-center gap-2">
+                  <UInput v-model="r.key" class="w-1/2 shrink-0 font-mono" :disabled="!!r.hint" placeholder="PORT" :aria-label="t('ops.env.key')" />
+                  <UInput v-model="r.value" class="min-w-0 flex-1 font-mono" :aria-label="t('ops.env.value')" />
+                  <UButton
+                    v-if="r.saved || changed(r)" size="sm" color="neutral" variant="ghost" :icon="r.hint ? 'i-lucide-rotate-ccw' : 'i-lucide-x'"
+                    :aria-label="r.hint ? t('ops.env.reset') : t('ops.env.remove')" :title="r.hint ? t('ops.env.reset') : t('ops.env.remove')" @click="resetEnv(r)"
+                  />
+                </div>
+                <p v-if="envNote(r)" class="text-xs" :class="envWarn(r) ? 'text-(--ui-warning)' : 'text-(--ui-text-dimmed)'">{{ envWarn(r) ? t('ops.env.scriptWarn', { file: r.hint?.file ?? '' }) : envNote(r) }}</p>
+              </div>
+              <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-plus" :label="t('ops.env.add')" @click="addEnv" />
+            </div>
           </UFormField>
           <URadioGroup
             v-model="form.kind" orientation="horizontal"

@@ -662,6 +662,7 @@ type Process struct {
 	Source      string
 	Autostart   bool
 	Autorestart bool
+	Env         map[string]string // over the office's environment when it runs (PORT…)
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

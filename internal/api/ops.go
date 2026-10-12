@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 
 func (s *server) opsRoutes(mux *http.ServeMux, auth, admin func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /api/projects/{id}/ops/detect", admin(s.opsDetect))
+	mux.Handle("GET /api/projects/{id}/ops/env", admin(s.opsDetectEnv))
 	mux.Handle("GET /api/projects/{id}/processes", auth(s.listProcesses))
 	mux.Handle("POST /api/projects/{id}/processes", admin(s.createProcess))
 	mux.Handle("PATCH /api/processes/{id}", admin(s.updateProcess))
@@ -35,21 +37,25 @@ func (s *server) opsRoutes(mux *http.ServeMux, auth, admin func(http.HandlerFunc
 }
 
 type processDTO struct {
-	ID          string    `json:"id"`
-	ProjectID   string    `json:"project_id"`
-	Name        string    `json:"name"`
-	Command     string    `json:"command"`
-	Cwd         string    `json:"cwd"`
-	Kind        string    `json:"kind"`
-	Source      string    `json:"source"`
-	Autostart   bool      `json:"autostart"`
-	Autorestart bool      `json:"autorestart"`
-	State       ops.State `json:"state"`
+	ID          string            `json:"id"`
+	ProjectID   string            `json:"project_id"`
+	Name        string            `json:"name"`
+	Command     string            `json:"command"`
+	Cwd         string            `json:"cwd"`
+	Kind        string            `json:"kind"`
+	Source      string            `json:"source"`
+	Autostart   bool              `json:"autostart"`
+	Autorestart bool              `json:"autorestart"`
+	Env         map[string]string `json:"env"`
+	State       ops.State         `json:"state"`
 }
 
 func (s *server) toProcessDTO(p storage.Process) processDTO {
+	if p.Env == nil {
+		p.Env = map[string]string{}
+	}
 	return processDTO{ID: p.ID, ProjectID: p.ProjectID, Name: p.Name, Command: p.Command, Cwd: p.Cwd, Kind: p.Kind, Source: p.Source,
-		Autostart: p.Autostart, Autorestart: p.Autorestart, State: s.cfg.Ops.State(p.ID)}
+		Autostart: p.Autostart, Autorestart: p.Autorestart, Env: p.Env, State: s.cfg.Ops.State(p.ID)}
 }
 
 func (s *server) opsError(w http.ResponseWriter, r *http.Request, err error) {
@@ -80,6 +86,26 @@ func (s *server) opsDetect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ops.Detect(p.Path))
 }
 
+// opsDetectEnv: what a command would run with (PORT…), from its flags, its
+// package.json script, the .env of its folder or its framework's default.
+func (s *server) opsDetectEnv(w http.ResponseWriter, r *http.Request) {
+	p, err := s.cfg.Store.Repos().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if p.Path == "" {
+		writeError(w, http.StatusBadRequest, ops.ErrNoFolder.Error())
+		return
+	}
+	cwd := filepath.Clean(strings.TrimSpace(r.URL.Query().Get("cwd")))
+	if filepath.IsAbs(cwd) || cwd == ".." || strings.HasPrefix(cwd, "../") {
+		writeError(w, http.StatusBadRequest, ops.ErrBadCwd.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"env": ops.DetectEnv(p.Path, cwd, r.URL.Query().Get("command"))})
+}
+
 func (s *server) listProcesses(w http.ResponseWriter, r *http.Request) {
 	list, err := s.cfg.Store.Processes().List(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -101,7 +127,11 @@ type processInput struct {
 	Source      *string `json:"source"`
 	Autostart   *bool   `json:"autostart"`
 	Autorestart *bool   `json:"autorestart"`
+	// replaces the whole set: PORT… over the office's environment
+	Env *map[string]string `json:"env"`
 }
+
+var envKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func (in processInput) apply(p *storage.Process) error {
 	if in.Name != nil {
@@ -124,6 +154,21 @@ func (in processInput) apply(p *storage.Process) error {
 	}
 	if in.Autorestart != nil {
 		p.Autorestart = *in.Autorestart
+	}
+	if in.Env != nil {
+		p.Env = map[string]string{}
+		for k, v := range *in.Env {
+			if k = strings.TrimSpace(k); !envKeyRe.MatchString(k) || len(k) > 100 {
+				return fmt.Errorf("tên biến môi trường không hợp lệ: %q", k)
+			}
+			if len(v) > 4000 || strings.ContainsRune(v, 0) {
+				return fmt.Errorf("giá trị của %s quá dài", k)
+			}
+			p.Env[k] = v
+		}
+		if len(p.Env) > 50 {
+			return errors.New("tối đa 50 biến môi trường")
+		}
 	}
 	switch {
 	case p.Name == "" || len(p.Name) > 80:

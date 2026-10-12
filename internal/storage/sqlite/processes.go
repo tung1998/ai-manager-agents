@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/ids"
@@ -10,16 +11,17 @@ import (
 
 type processRepo struct{ db dbtx }
 
-const processCols = `id, project_id, name, command, cwd, kind, source, autostart, autorestart, created_at, updated_at`
+const processCols = `id, project_id, name, command, cwd, kind, source, autostart, autorestart, env, created_at, updated_at`
 
 func scanProcess(row scanner) (storage.Process, error) {
 	var (
-		p                storage.Process
-		created, updated string
+		p                     storage.Process
+		env, created, updated string
 	)
-	if err := row.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Command, &p.Cwd, &p.Kind, &p.Source, &p.Autostart, &p.Autorestart, &created, &updated); err != nil {
+	if err := row.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Command, &p.Cwd, &p.Kind, &p.Source, &p.Autostart, &p.Autorestart, &env, &created, &updated); err != nil {
 		return p, notFound(err)
 	}
+	_ = json.Unmarshal([]byte(env), &p.Env)
 	var err error
 	if p.CreatedAt, err = parseTime(created); err != nil {
 		return p, err
@@ -37,8 +39,8 @@ func (r processRepo) Create(ctx context.Context, p storage.Process) (storage.Pro
 	}
 	p.CreatedAt = time.Now().UTC()
 	p.UpdatedAt = p.CreatedAt
-	_, err := r.db.ExecContext(ctx, `INSERT INTO processes (`+processCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.ProjectID, p.Name, p.Command, p.Cwd, p.Kind, p.Source, boolInt(p.Autostart), boolInt(p.Autorestart), fmtTime(p.CreatedAt), fmtTime(p.UpdatedAt))
+	_, err := r.db.ExecContext(ctx, `INSERT INTO processes (`+processCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.ProjectID, p.Name, p.Command, p.Cwd, p.Kind, p.Source, boolInt(p.Autostart), boolInt(p.Autorestart), jsonMap(p.Env), fmtTime(p.CreatedAt), fmtTime(p.UpdatedAt))
 	if isUnique(err) {
 		return storage.Process{}, storage.ErrConflict
 	}
@@ -47,8 +49,8 @@ func (r processRepo) Create(ctx context.Context, p storage.Process) (storage.Pro
 
 func (r processRepo) Update(ctx context.Context, p storage.Process) error {
 	p.UpdatedAt = time.Now().UTC()
-	err := execOne(ctx, r.db, `UPDATE processes SET name=?, command=?, cwd=?, kind=?, autostart=?, autorestart=?, updated_at=? WHERE id=?`,
-		p.Name, p.Command, p.Cwd, p.Kind, boolInt(p.Autostart), boolInt(p.Autorestart), fmtTime(p.UpdatedAt), p.ID)
+	err := execOne(ctx, r.db, `UPDATE processes SET name=?, command=?, cwd=?, kind=?, autostart=?, autorestart=?, env=?, updated_at=? WHERE id=?`,
+		p.Name, p.Command, p.Cwd, p.Kind, boolInt(p.Autostart), boolInt(p.Autorestart), jsonMap(p.Env), fmtTime(p.UpdatedAt), p.ID)
 	if isUnique(err) {
 		return storage.ErrConflict
 	}

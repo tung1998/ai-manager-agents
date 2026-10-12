@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -219,6 +221,9 @@ func (m *Manager) launch(p *proc, dir string, startGen uint64) error {
 	cmd := exec.Command("/bin/sh", "-c", p.def.Command)
 	cmd.Dir = dir
 	cmd.Env = append(append([]string(nil), m.env...), "FORCE_COLOR=0", "CI=")
+	for _, k := range slices.Sorted(maps.Keys(p.def.Env)) { // the last of a key wins: its own over the office's
+		cmd.Env = append(cmd.Env, k+"="+p.def.Env[k])
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // own group: stop kills children too
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
