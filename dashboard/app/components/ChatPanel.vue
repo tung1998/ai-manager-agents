@@ -38,6 +38,9 @@ const single = computed(() => !!props.purpose)
 // so the messages get the whole screen
 const page = computed(() => !props.compact && !single.value)
 const composeOpen = ref(false)
+// the pickers by the send button: on a phone just their icon (as the mode
+// picker), the same square as the other buttons (the agent's name is in the placeholder)
+const iconOnPhone = { base: 'max-sm:!w-7 max-sm:!px-0', leading: 'max-sm:!ps-1.5', value: 'max-sm:hidden', trailing: 'max-sm:hidden' }
 const toast = useToast()
 const { t, when } = useLang()
 
@@ -1062,10 +1065,10 @@ onBeforeUnmount(() => {
           <template #actions>
             <ContextMeter :tokens="current?.context_tokens" :window="current?.context_window" />
             <USelect
-              v-if="!single && onAgents.length > 1" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink"
+              v-if="!single && onAgents.length > 1" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink" :ui="iconOnPhone"
               :icon="permOf(pickedLevel).icon" :title="permOf(pickedLevel).description" :aria-label="t('chat.pickAgent')"
             />
-            <EffortSelect v-if="pickedEfforts.length" v-model="effort" :options="pickedEfforts" :fallback="picked?.effort ?? ''" size="sm" class="min-w-0 max-w-44 shrink" :title="t('chat.effort')" :aria-label="t('chat.effort')" />
+            <EffortSelect v-if="pickedEfforts.length" v-model="effort" :options="pickedEfforts" :fallback="picked?.effort ?? ''" size="sm" variant="ghost" class="min-w-0 max-w-44 shrink" :ui="iconOnPhone" :title="t('chat.effort')" :aria-label="t('chat.effort')" />
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />
             <!-- while it answers: queued, sent next -->

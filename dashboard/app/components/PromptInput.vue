@@ -292,7 +292,7 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
       <!-- only when the box itself is wide: narrow panels (the corner chat) keep one tidy row -->
       <span class="hidden min-w-0 truncate text-xs text-(--ui-text-dimmed) @2xl:inline" :title="t('prompt.dragHint')">{{ t('prompt.dragHint') }}</span>
       <!-- the actions shrink (their labels cut) before the row overflows -->
-      <div class="ms-auto flex min-w-0 items-center justify-end gap-2">
+      <div class="ms-auto flex min-w-0 items-center justify-end gap-2 max-sm:gap-0.5">
         <slot name="actions" />
       </div>
     </div>
