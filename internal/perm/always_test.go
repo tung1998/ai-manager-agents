@@ -14,26 +14,72 @@ import (
 
 func TestSuggestPattern(t *testing.T) {
 	for line, want := range map[string]string{
-		"git switch main":       "git switch *",
-		"go test ./internal/x":  "go test *",
-		"ls":                    "ls",
-		"pnpm typecheck":        "pnpm typecheck",
-		"git -C x status":       "git -C x status", // a flag second: exact
-		"git branch -a":         "git branch -a",   // git branch * would cover -D
-		"git reset --soft HEAD": "git reset --soft HEAD",
-		"rm -rf dist":           "",
-		"git push origin main":  "",
-		"git reset --hard":      "",
-		"psql -c drop table x":  "",
-		"bash -c ls":            "",
-		"env FOO=1 make":        "",
-		"sudo make install":     "",
-		"cat a | wc":            "",
-		"echo 'a b' c":          "",
+		"git switch main":         "git switch *",
+		"go test ./internal/x":    "go test *",
+		"ls":                      "ls",
+		"pnpm typecheck":          "pnpm typecheck",
+		"git -C x status":         "git -C x status", // a flag second: exact
+		"git branch -a":           "git branch -a",   // git branch * would cover -D
+		"git reset --soft HEAD":   "git reset --soft HEAD",
+		"rm -rf dist":             "",
+		"git push origin main":    "",
+		"git reset --hard":        "",
+		"psql -c drop table x":    "",
+		"bash -c ls":              "",
+		"env FOO=1 make":          "",
+		"sudo make install":       "",
+		"/bin/bash -c ls":         "",
+		"BASH -c ls":              "",
+		"/usr/bin/env FOO=1 make": "",
+		"cat a | wc":              "",
+		"echo 'a b' c":            "",
 	} {
 		got, ok := perm.SuggestPattern(line)
 		if got != want || ok != (want != "") {
 			t.Errorf("SuggestPattern(%q) = %q %v, want %q", line, got, ok, want)
+		}
+	}
+}
+
+// TestCoversRisky: a wrapper by path or case, or "git *", is not allowed for good.
+func TestCoversRisky(t *testing.T) {
+	for p, want := range map[string]bool{
+		"/bin/bash *":      true,
+		"/usr/bin/env *":   true,
+		"BASH *":           true,
+		"SUDO *":           true,
+		"git *":            true,
+		"git -C x *":       true,
+		"git -c *":         true,
+		"git --no-pager *": true,
+		"rm *":             true,
+		"git switch *":     false,
+		"git log *":        false,
+		"go test *":        false,
+		"bashful *":        false,
+	} {
+		if got := perm.CoversRisky(p); got != want {
+			t.Errorf("CoversRisky(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+// TestRiskyGitGlobals: git's global options don't hide the subcommand.
+func TestRiskyGitGlobals(t *testing.T) {
+	for line, want := range map[string]bool{
+		"git -C . push origin main":                  true,
+		"git --no-pager push":                        true,
+		"git -c x=y reset --hard":                    true,
+		"git --git-dir=.git --work-tree=. clean -fd": true,
+		"git --git-dir .git branch -D x":             true,
+		"/usr/bin/git -C . push":                     true,
+		"cd x && git -C . push":                      true,
+		"git -C . status":                            false,
+		"git -c x=y log":                             false,
+		"git log -C push":                            false, // -C of log, not git's
+	} {
+		if got := perm.Risky(line); got != want {
+			t.Errorf("Risky(%q) = %v, want %v", line, got, want)
 		}
 	}
 }

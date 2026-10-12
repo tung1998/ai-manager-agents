@@ -2,6 +2,7 @@ package actions
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -224,11 +225,19 @@ func TestRunCommandRisky(t *testing.T) {
 	st.Migrate(ctx)
 	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "r", Path: t.TempDir()})
 	svc := New(st, nil)
-	acc := perm.Access{Level: perm.Operate, Caps: []string{perm.CapPropose, perm.CapCommands}, Commands: []string{"git push *", "go version *"}}
+	acc := perm.Access{Level: perm.Operate, Caps: []string{perm.CapPropose, perm.CapCommands},
+		Commands: []string{"git push *", "go version *", "git -C *", "git --no-pager *", "git -c *"}}
 	sc := Scope{ProjectID: proj.ID, RunRef: "r1", Agent: "a", Level: perm.Operate, Access: acc}
 
 	if a, err := svc.Propose(ctx, sc, "run_command", "git push origin main --force", "x"); err != nil || a.Status != "pending" {
 		t.Fatalf("a risky pattern must wait for a person, even with CapCommands: %v %+v", err, a)
+	}
+	// git's global options before the subcommand don't hide a push or reset
+	for i, line := range []string{"git -C . push origin main", "git --no-pager push", "git -c x=y reset --hard"} {
+		sc.RunRef = fmt.Sprintf("g%d", i)
+		if a, err := svc.Propose(ctx, sc, "run_command", line, "x"); err != nil || a.Status != "pending" {
+			t.Fatalf("%q must wait for a person: %v %+v", line, err, a)
+		}
 	}
 	sc.RunRef = "r2"
 	if a, err := svc.Propose(ctx, sc, "run_command", "go version", "x"); err != nil || a.Status != "done" {

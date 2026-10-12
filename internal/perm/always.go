@@ -3,6 +3,7 @@ package perm
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,12 +14,42 @@ import (
 // risky: commands that delete or publish — always asked, never allowed for good.
 var risky = regexp.MustCompile(`(?i)\brm\s|\bgit\s+(push|reset\s+--hard|clean|branch\s+-D)|\bdrop\s|\bdelete\b|\btruncate\b`)
 
-// Risky reports a command line that deletes or publishes.
-func Risky(line string) bool { return risky.MatchString(line) }
+// Risky reports a command line that deletes or publishes. git's global
+// options are skipped first: "git -C . push" is a push.
+func Risky(line string) bool {
+	return risky.MatchString(line) || risky.MatchString(skipGitGlobals(line))
+}
+
+// gitValued: git global options whose value is the next word.
+var gitValued = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
+	"--namespace": true, "--super-prefix": true, "--config-env": true}
+
+// skipGitGlobals drops the options between git and its subcommand
+// ("git -c x=y --no-pager reset --hard" → "git reset --hard").
+func skipGitGlobals(line string) string {
+	f := strings.Fields(line)
+	out := make([]string, 0, len(f))
+	for i := 0; i < len(f); i++ {
+		out = append(out, f[i])
+		if strings.ToLower(filepath.Base(f[i])) != "git" {
+			continue
+		}
+		for i+1 < len(f) && strings.HasPrefix(f[i+1], "-") {
+			if gitValued[f[i+1]] {
+				i++
+			}
+			i++
+		}
+	}
+	return strings.Join(out, " ")
+}
 
 // wrappers run another command: "luôn cho phép" one would allow anything.
 var wrappers = map[string]bool{"sudo": true, "env": true, "xargs": true, "bash": true, "sh": true, "zsh": true,
 	"eval": true, "exec": true, "nohup": true, "time": true, "timeout": true, "nice": true, "watch": true, "su": true, "doas": true}
+
+// wrapper: prog is one, by any path or case ("/bin/bash", "SUDO").
+func wrapper(prog string) bool { return wrappers[strings.ToLower(filepath.Base(prog))] }
 
 // ErrNotAlways: a command that may not be allowed for good.
 var ErrNotAlways = errors.New("lệnh này không được luôn cho phép (xóa, push, hoặc chạy lệnh khác bên trong)")
@@ -30,7 +61,7 @@ var ErrNotAlways = errors.New("lệnh này không được luôn cho phép (xóa
 // command. Risky commands and wrappers get none.
 func SuggestPattern(line string) (string, bool) {
 	args, err := SplitCommand(line)
-	if err != nil || len(args) == 0 || Risky(line) || wrappers[args[0]] {
+	if err != nil || len(args) == 0 || Risky(line) || wrapper(args[0]) {
 		return "", false
 	}
 	exact, err := CleanPattern(strings.Join(args, " "))
@@ -49,15 +80,16 @@ func SuggestPattern(line string) (string, bool) {
 
 // CoversRisky: the pattern allows a risky command (or a wrapper's).
 func CoversRisky(pattern string) bool {
-	if wrappers[program(pattern)] {
+	if wrapper(program(pattern)) {
 		return true
 	}
 	base, wild := strings.CutSuffix(pattern, " *")
 	if !wild {
 		return Risky(pattern)
 	}
-	for _, more := range []string{" --hard", " -D", " x"} {
-		if Risky(base + more) {
+	// " x push": x fills a global option that takes a value ("git -c *")
+	for _, more := range []string{" --hard", " -D", " x", " push", " reset --hard", " clean -fd", " branch -D"} {
+		if Risky(base+more) || Risky(base+" x"+more) {
 			return true
 		}
 	}
