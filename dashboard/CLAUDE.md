@@ -7,3 +7,8 @@
 - Ngày giờ: `toLocale*String(dateLocale.value, …)`, không cứng `'vi-VN'`.
 - Chữ từ backend (lỗi, output AI) giữ nguyên; enum từ backend (status, kind, level) thì dịch theo key.
 - Kiểm tra: `node scripts/check-i18n.mjs` (chạy trong `make test`, `make ui-build` và "Cập nhật office" khi bật test). Dòng buộc phải giữ tiếng Việt (prompt gửi AI, regex) thêm `// i18n-ignore`.
+
+## Loading: bắt buộc
+- Fetch có `await` (trang): thanh `NuxtLoadingIndicator` lo. Tab trong trang project nằm trong `<Suspense :key="tab">` có khung chờ, nên panel `await` trong setup cũng có loading.
+- Fetch không `await` (`lazy`, hoặc không chờ): trong lúc `!data && !error` hiện `<LoadingRows>` (danh sách/bảng) hoặc `<USkeleton>` (số liệu, ô nhập); không bao giờ hiện trạng thái rỗng ("chưa có…", "0 B", "—") trước khi có dữ liệu. Có `error` thì `UAlert` + nút Làm mới.
+- Nút hành động phụ thuộc dữ liệu (Bật, Lưu, Cài đặt) bị `disabled` khi chưa tải xong.

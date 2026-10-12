@@ -106,7 +106,8 @@ useLive(['audit_log'], () => load())
     </div>
 
     <UCard :ui="{ body: 'p-0 sm:p-0' }">
-      <p v-if="!entries.length && !loading" class="p-4 text-sm text-(--ui-text-muted)">{{ t('audit.empty') }}</p>
+      <LoadingRows v-if="!entries.length && loading" :n="5" :icon="false" />
+      <p v-else-if="!entries.length" class="p-4 text-sm text-(--ui-text-muted)">{{ t('audit.empty') }}</p>
       <div class="overflow-x-auto">
         <table v-if="entries.length" class="w-full table-fixed text-sm">
           <thead class="text-left text-xs text-(--ui-text-muted)">

@@ -100,40 +100,49 @@ async function removeRepo() {
       <UAlert v-if="!project.exists" color="error" variant="subtle" icon="i-lucide-folder-x" :title="t('project.notFound')" />
 
 
-      <AutomationsPanel v-if="tab === 'automations'" :project-id="project.id" />
-      <BurnPanel v-else-if="tab === 'burn' && isAdmin" :project-id="project.id" />
-      <FilesPanel v-else-if="tab === 'files' && isAdmin && project.path" :project-id="project.id" />
-      <AuditLog v-else-if="tab === 'log' && isAdmin" :key="project.id" class="max-w-6xl" :filter="{ project: project.id }" show-filters />
-      <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
-      <ProjectWorkflows v-else-if="tab === 'workflows'" :project-id="project.id" />
-      <template v-else-if="['info', 'agents', 'perm', 'skill', 'mcp'].includes(tab)">
-        <div v-if="tab === 'info'" class="space-y-4">
-        <UCard class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">
-          <div class="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
-            <span class="text-(--ui-text-muted)">{{ t('project.infoFolder') }}</span>
-            <span v-if="project.scope === 'folder'" class="min-w-0 break-all font-mono text-xs">{{ project.path }}</span>
-            <span v-else>{{ t('project.machineHelper') }}</span>
-            <template v-if="project.git_remote">
-              <span class="text-(--ui-text-muted)">{{ t('project.infoRemote') }}</span>
-              <span class="min-w-0 break-all font-mono text-xs">{{ project.git_remote }}</span>
-            </template>
-            <span class="text-(--ui-text-muted)">{{ t('project.infoDescription') }}</span>
-            <p class="whitespace-pre-line text-(--ui-text-toned)">{{ project.description || '—' }}</p>
-          </div>
-          <UButton v-if="isAdmin" size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('project.rename')" @click="openEdit" />
-        </UCard>
-          <ProjectBudget :project-id="project.id" />
+      <!-- a tab whose panel waits for its data (an await in setup) shows its shape
+           meanwhile; keyed by the tab, so each switch shows it again -->
+      <Suspense :key="tab">
+        <div class="contents">
+          <AutomationsPanel v-if="tab === 'automations'" :project-id="project.id" />
+          <BurnPanel v-else-if="tab === 'burn' && isAdmin" :project-id="project.id" />
+          <FilesPanel v-else-if="tab === 'files' && isAdmin && project.path" :project-id="project.id" />
+          <AuditLog v-else-if="tab === 'log' && isAdmin" :key="project.id" class="max-w-6xl" :filter="{ project: project.id }" show-filters />
+          <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
+          <ProjectWorkflows v-else-if="tab === 'workflows'" :project-id="project.id" />
+          <template v-else-if="['info', 'agents', 'perm', 'skill', 'mcp'].includes(tab)">
+            <div v-if="tab === 'info'" class="space-y-4">
+            <UCard class="max-w-4xl" :ui="{ body: 'space-y-3 sm:p-4' }">
+              <div class="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
+                <span class="text-(--ui-text-muted)">{{ t('project.infoFolder') }}</span>
+                <span v-if="project.scope === 'folder'" class="min-w-0 break-all font-mono text-xs">{{ project.path }}</span>
+                <span v-else>{{ t('project.machineHelper') }}</span>
+                <template v-if="project.git_remote">
+                  <span class="text-(--ui-text-muted)">{{ t('project.infoRemote') }}</span>
+                  <span class="min-w-0 break-all font-mono text-xs">{{ project.git_remote }}</span>
+                </template>
+                <span class="text-(--ui-text-muted)">{{ t('project.infoDescription') }}</span>
+                <p class="whitespace-pre-line text-(--ui-text-toned)">{{ project.description || '—' }}</p>
+              </div>
+              <UButton v-if="isAdmin" size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('project.rename')" @click="openEdit" />
+            </UCard>
+              <ProjectBudget :project-id="project.id" />
+            </div>
+            <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" />
+            <ToolsPanel v-else-if="tab === 'skill' || tab === 'mcp'" :key="tab" :kind="tab" :project-path="project.path" :project-id="project.id" />
+            <ProjectAgents v-else :project="project" @changed="refresh()" />
+          </template>
+          <template v-else-if="project.agent_count">
+            <!-- Việc is gone (ADR-057): an old link to it opens the chat -->
+            <ChatPanel :project-id="project.id" />
+          </template>
+          <!-- no agent yet: pick a starter pack first -->
+          <ProjectAgents v-else :project="project" @changed="refresh()" />
         </div>
-        <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" />
-        <ToolsPanel v-else-if="tab === 'skill' || tab === 'mcp'" :key="tab" :kind="tab" :project-path="project.path" :project-id="project.id" />
-        <ProjectAgents v-else :project="project" @changed="refresh()" />
-      </template>
-      <template v-else-if="project.agent_count">
-        <!-- Việc is gone (ADR-057): an old link to it opens the chat -->
-        <ChatPanel :project-id="project.id" />
-      </template>
-      <!-- no agent yet: pick a starter pack first -->
-      <ProjectAgents v-else :project="project" @changed="refresh()" />
+        <template #fallback>
+          <div class="max-w-4xl rounded-lg border border-(--ui-border)" aria-busy="true"><LoadingRows :n="5" /></div>
+        </template>
+      </Suspense>
     </div>
     <UAlert v-else-if="loadError" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="apiError(loadError)" />
     <!-- the project on its way -->

@@ -20,7 +20,8 @@ const toast = useToast()
 const { t } = useLang()
 
 // ---- skills ----
-const { data: skillData } = await useLiveFetch<{ skills: Skill[] }>(() => `/api/projects/${props.projectId}/skills`)
+// in the background: the box shows at once, the skill list fills in
+const { data: skillData } = useLiveFetch<{ skills: Skill[] }>(() => `/api/projects/${props.projectId}/skills`, { lazy: true })
 // the project's workflows on, run by "#key" (ADR-109; "/key" still runs one)
 const { data: wfData } = useLiveFetch<{ workflows: ProjectWorkflow[] }>(() => `/api/projects/${props.projectId}/workflows`, { lazy: true })
 const workflows = computed<Skill[]>(() => (wfData.value?.workflows ?? []).filter(w => w.enabled && !w.error && w.callable !== 'sub')

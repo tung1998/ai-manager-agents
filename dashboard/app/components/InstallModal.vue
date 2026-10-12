@@ -17,7 +17,8 @@ const emit = defineEmits<{ done: [] }>()
 const toast = useToast()
 const { t } = useLang()
 const { inv } = useInventory()
-const { data: projData } = await useLiveFetch<{ projects: Project[] }>('/api/projects')
+// in the background: a closed modal never holds up the tab it sits in
+const { data: projData } = useLiveFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
 
 const target = ref('__user')
 const mcpScope = ref<'project' | 'local'>('project')

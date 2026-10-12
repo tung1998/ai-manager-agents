@@ -14,7 +14,9 @@ interface Data { usage: Usage[], projects: { id: string, name: string }[], files
 definePageMeta({ admin: true })
 const toast = useToast()
 const { t, when: fmtWhen } = useLang()
-const { data, refresh } = useFetch<Data>('/api/data')
+const { data, refresh, error } = useFetch<Data>('/api/data')
+// sizing every project's files takes a while: the page shows its shape until then
+const loading = computed(() => !data.value && !error.value)
 
 const KINDS: Kind[] = ['chat', 'burn', 'task']
 const LEVELS: Level[] = ['content', 'summary', 'delete']
@@ -142,6 +144,7 @@ async function saveAuto() {
 <template>
   <PageShell :title="t('nav.data')">
   <div class="max-w-6xl space-y-4">
+    <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="t('common.loadError')" :actions="[{ label: t('common.refresh'), onClick: () => refresh() }]" />
     <!-- what is kept, at a glance -->
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       <UCard v-for="c in [
@@ -151,7 +154,8 @@ async function saveAuto() {
         { label: t('data.dbFile'), size: totals.db, icon: 'i-lucide-hard-drive' }
       ]" :key="c.label" :ui="{ body: 'sm:p-4' }">
         <p class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)"><UIcon :name="c.icon" class="size-4" />{{ c.label }}</p>
-        <p class="mt-1 text-xl font-semibold tabular-nums">{{ fmtBytes(c.size) }}</p>
+        <USkeleton v-if="loading" class="mt-1.5 h-6 w-20" />
+        <p v-else class="mt-1 text-xl font-semibold tabular-nums">{{ fmtBytes(c.size) }}</p>
       </UCard>
       <UCard :ui="{ body: 'sm:p-4' }">
         <p class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
@@ -159,7 +163,8 @@ async function saveAuto() {
           <UTooltip :text="t('data.junkHint')"><UIcon name="i-lucide-info" class="size-3.5" /></UTooltip>
         </p>
         <div class="mt-1 flex items-center justify-between gap-2">
-          <span class="text-xl font-semibold tabular-nums">{{ fmtBytes(totals.junk) }}</span>
+          <USkeleton v-if="loading" class="h-6 w-20" />
+          <span v-else class="text-xl font-semibold tabular-nums">{{ fmtBytes(totals.junk) }}</span>
           <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-brush-cleaning" :label="t('data.sweep')" :loading="sweeping" :disabled="!totals.junk" @click="sweep" />
         </div>
       </UCard>
@@ -194,7 +199,8 @@ async function saveAuto() {
               <td class="px-3 py-2 text-right tabular-nums">{{ r.files?.junk ? fmtBytes(r.files.junk) : '—' }}</td>
               <td class="px-3 py-2 text-right"><UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-eraser" :label="t('data.cleanThis')" @click="cleanProject(r.id)" /></td>
             </tr>
-            <tr v-if="!rows.length"><td colspan="8" class="px-4 py-6 text-center text-(--ui-text-muted)">{{ t('data.empty') }}</td></tr>
+            <tr v-if="loading"><td colspan="8" class="p-0"><LoadingRows :n="3" :icon="false" /></td></tr>
+            <tr v-else-if="!rows.length"><td colspan="8" class="px-4 py-6 text-center text-(--ui-text-muted)">{{ t('data.empty') }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -268,9 +274,10 @@ async function saveAuto() {
     <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
       <div class="flex items-center gap-2">
         <p class="flex flex-1 items-center gap-2 text-sm font-semibold"><UIcon name="i-lucide-calendar-clock" class="size-4" />{{ t('data.autoTitle') }}</p>
-        <USwitch v-model="auto.enabled" />
+        <USwitch v-model="auto.enabled" :disabled="loading" />
       </div>
-      <div class="grid gap-3 sm:grid-cols-3">
+      <LoadingRows v-if="loading" :n="2" :icon="false" />
+      <div v-else class="grid gap-3 sm:grid-cols-3">
         <UFormField :label="t('data.olderThan')">
           <div class="flex items-center gap-2"><UInputNumber v-model="auto.days" :min="1" class="w-32" /><span class="text-sm text-(--ui-text-muted)">{{ t('data.days') }}</span></div>
         </UFormField>
@@ -286,7 +293,7 @@ async function saveAuto() {
       </div>
       <p v-if="auto.enabled && auto.level === 'summary'" class="flex items-start gap-1.5 text-xs text-(--ui-warning)"><UIcon name="i-lucide-info" class="mt-0.5 size-4 shrink-0" />{{ t('data.autoSummaryCost') }}</p>
       <div class="flex flex-wrap items-center gap-3">
-        <UButton size="sm" icon="i-lucide-save" :label="t('common.save')" :loading="savingAuto" :disabled="!auto.kinds.length" @click="saveAuto" />
+        <UButton size="sm" icon="i-lucide-save" :label="t('common.save')" :loading="savingAuto" :disabled="loading || !auto.kinds.length" @click="saveAuto" />
         <span v-if="data?.auto.last_run" class="text-xs text-(--ui-text-muted)">{{ t('data.autoLast', { at: when(data.auto.last_run), msg: data.auto.last_msg ?? '' }) }}</span>
       </div>
     </UCard>

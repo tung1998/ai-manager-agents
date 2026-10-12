@@ -22,7 +22,7 @@ const toast = useToast()
 const saveError = useSaveError()
 // no top-level await: nested async setup under ToolsPanel's :key remount looped
 // Suspense (Maximum call stack on the MCP tab); the template copes with no data yet
-const { data, refresh } = useLiveFetch<{ servers: GwServer[], stats: Record<string, GwStat> }>('/api/mcp/servers')
+const { data, refresh, error: loadError } = useLiveFetch<{ servers: GwServer[], stats: Record<string, GwStat> }>('/api/mcp/servers')
 const list = ref<GwServer[]>([])
 // changed: the machine MCP list shows which servers office has
 const emit = defineEmits<{ changed: [] }>()
@@ -218,7 +218,8 @@ async function save() {
       <UButton class="ms-auto" size="xs" color="neutral" variant="outline" icon="i-lucide-arrow-right-to-line" :label="t('tools.gwImport')" @click="importOpen = true" />
       <UButton size="xs" icon="i-lucide-plus" :label="t('tools.gwAdd')" @click="openForm()" />
     </h3>
-    <p v-if="!list.length" class="rounded-lg border border-dashed border-(--ui-border) px-4 py-3 text-sm text-(--ui-text-muted)">{{ t('tools.gwEmpty') }}</p>
+    <div v-if="!data && !loadError" class="rounded-lg border border-(--ui-border)"><LoadingRows :n="3" /></div>
+    <p v-else-if="!list.length" class="rounded-lg border border-dashed border-(--ui-border) px-4 py-3 text-sm text-(--ui-text-muted)">{{ t('tools.gwEmpty') }}</p>
     <div v-else class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
       <div v-for="s in list" :key="s.id" class="px-4 py-2.5">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">

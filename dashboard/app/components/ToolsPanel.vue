@@ -526,6 +526,7 @@ const summary = (tpl: MCPTemplate) => {
           {{ t('tools.libraryIntro') }}
         </p>
         <UAlert v-if="libError" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="t('common.loadError')" :actions="[{ label: t('common.refresh'), onClick: () => refreshLib() }]" />
+        <div v-else-if="!libData" class="rounded-lg border border-(--ui-border)"><LoadingRows :n="4" /></div>
         <div v-else-if="!library.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
           <UIcon name="i-lucide-library" class="mx-auto size-8 text-(--ui-text-dimmed)" />
           <p class="mt-2 font-medium">{{ t('tools.libraryEmptyTitle') }}</p>
