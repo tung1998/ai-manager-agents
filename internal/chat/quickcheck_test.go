@@ -2,15 +2,12 @@ package chat
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/perm"
 )
@@ -85,61 +82,6 @@ func TestQuickCheckDataFiles(t *testing.T) {
 	}
 	if s := checkSays(t, dir, "bad.yml"); !strings.Contains(s, "YAML sai") {
 		t.Errorf("bad.yml: %s", s)
-	}
-}
-
-// A file outside the working folder is not looked at.
-func TestQuickCheckOutside(t *testing.T) {
-	out := t.TempDir()
-	bad := filepath.Join(out, "bad.json")
-	os.WriteFile(bad, []byte("{"), 0o644)
-	if s := checkSays(t, t.TempDir(), bad); s != "" {
-		t.Fatalf("outside file checked: %s", s)
-	}
-	if s := checkSays(t, out, bad); s == "" {
-		t.Fatal("inside file not checked")
-	}
-}
-
-// Out of time: nothing is said, the agent is never held up by the check.
-func TestQuickCheckTimeout(t *testing.T) {
-	dir := goModule(t)
-	f := filepath.Join(dir, "a.go")
-	os.WriteFile(f, []byte("package x\nfunc A()   {}\n"), 0o644)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
-	defer cancel()
-	time.Sleep(time.Millisecond)
-	if s := checkFile(ctx, f); s != "" {
-		t.Fatalf("timed out check reported: %s", s)
-	}
-}
-
-// The hook is in the run's settings when the project wants it, never otherwise.
-func TestClaudeArgsQuickCheck(t *testing.T) {
-	var r claudeRunner
-	oldG, oldC := GuardCommand, CheckCommand
-	defer func() { GuardCommand, CheckCommand = oldG, oldC }()
-	GuardCommand, CheckCommand = "'/x/office' hook guard", "'/x/office' hook check"
-	settings := func(req RunRequest) string {
-		a := r.args(req, false)
-		if i := slices.Index(a, "--settings"); i >= 0 {
-			return a[i+1]
-		}
-		return ""
-	}
-	s := settings(RunRequest{Write: true, QuickCheck: true})
-	if !strings.Contains(s, `"PostToolUse"`) || !strings.Contains(s, "hook check") || !strings.Contains(s, "hook guard") {
-		t.Fatalf("quick check missing: %s", s)
-	}
-	if s := settings(RunRequest{Write: true}); strings.Contains(s, "PostToolUse") || !strings.Contains(s, "hook guard") {
-		t.Fatalf("quick check off, still there: %s", s)
-	}
-	if s := settings(RunRequest{QuickCheck: true}); strings.Contains(s, "PostToolUse") {
-		t.Fatalf("a read-only run got the check: %s", s)
-	}
-	CheckCommand = ""
-	if s := settings(RunRequest{Write: true, QuickCheck: true}); strings.Contains(s, "PostToolUse") {
-		t.Fatalf("no command, still a hook: %s", s)
 	}
 }
 

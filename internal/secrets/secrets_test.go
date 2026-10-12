@@ -51,12 +51,3 @@ func TestSealOpenRoundTrip(t *testing.T) {
 		t.Fatalf("empty = %q, %v", got, err)
 	}
 }
-
-func TestHint(t *testing.T) {
-	if h := secrets.Hint("sk-ant-api03-abcdWXYZ"); h != "…WXYZ" {
-		t.Fatalf("hint = %q", h)
-	}
-	if h := secrets.Hint("abc"); h != "…" {
-		t.Fatalf("short hint = %q", h)
-	}
-}

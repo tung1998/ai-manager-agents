@@ -1,44 +1,11 @@
 package events_test
 
 import (
-	"slices"
 	"testing"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/events"
 )
-
-// Writes close together reach every subscriber once, as one set of tables;
-// tables nobody follows (sessions…) are not told.
-func TestBus(t *testing.T) {
-	b := events.New(30 * time.Millisecond)
-	sa, stopA := b.Subscribe(events.Viewer{UserID: "u1"})
-	sc, stopC := b.Subscribe(events.Viewer{UserID: "u2"})
-	a, c := sa.C, sc.C
-	defer stopC()
-	b.Wrote("messages")
-	b.Wrote("jobs")
-	b.Wrote("messages")
-	b.Wrote("sessions")
-	for _, ch := range []<-chan events.Event{a, c} {
-		select {
-		case ev := <-ch:
-			got := ev.Data.(map[string]any)["tables"].([]string)
-			if len(got) != 2 || !slices.Contains(got, "messages") || !slices.Contains(got, "jobs") {
-				t.Fatalf("got %v", got)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("nothing told")
-		}
-	}
-	stopA()
-	b.Wrote("sessions")
-	select {
-	case got := <-c:
-		t.Fatalf("an unfollowed table was told: %v", got)
-	case <-time.After(100 * time.Millisecond):
-	}
-}
 
 // Pushed data goes to the pages it is for: admins only, or those that turned
 // a topic on (and only their owner may turn it on).

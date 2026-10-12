@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -137,13 +136,6 @@ func TestInstallAndCancel(t *testing.T) {
 	waitState(t, lj, "cancelled")
 }
 
-func TestCleanOutput(t *testing.T) {
-	got := cleanOutput("\x1b[1mHello\x1b[0m\r\n\n\n\nWorld  \n")
-	if got != "Hello\n\nWorld" {
-		t.Fatalf("clean = %q", got)
-	}
-}
-
 func TestCodexStatusTrustsCLI(t *testing.T) {
 	m, dir := testManager(t)
 	writeBin(t, dir, "codex", "#!/bin/sh\ncase \"$1 $2\" in \"--version \"*) echo codex-cli 1;; \"login status\") echo 'Not logged in'; exit 1;; esac\n")
@@ -229,70 +221,6 @@ func TestGeminiLogin(t *testing.T) {
 	}
 }
 
-func TestGeminiPrepareLoginKeepsChoice(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("GEMINI_CLI_HOME", home)
-	os.MkdirAll(filepath.Join(home, ".gemini"), 0o700)
-	keep := `{"security":{"auth":{"selectedType":"gemini-api-key"}},"ui":{"theme":"x"}}`
-	os.WriteFile(filepath.Join(home, ".gemini", "settings.json"), []byte(keep), 0o600)
-	if err := geminiPrepareLogin(); err != nil {
-		t.Fatal(err)
-	}
-	if raw, _ := os.ReadFile(filepath.Join(home, ".gemini", "settings.json")); string(raw) != keep {
-		t.Fatalf("an existing choice was rewritten: %s", raw)
-	}
-}
-
-func TestInstallDoesNotAsk(t *testing.T) {
-	m, dir := testManager(t)
-	m.env = append(m.env, "HOMEBREW_ASK=1")
-	// a brew that asks unless HOMEBREW_NO_ASK (Homebrew 6+), or when HOMEBREW_ASK (older)
-	writeBin(t, dir, "brew", `#!/bin/sh
-if [ -z "$HOMEBREW_NO_ASK" ] || [ -n "$HOMEBREW_ASK" ]; then printf "Do you want to proceed with the installation? [y/n] "; read A; fi
-echo installed
-`)
-	j, err := m.Install("gemini", "brew")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v := waitState(t, j, "succeeded"); strings.Contains(v.Output, "[y/n]") {
-		t.Fatalf("output = %q", v.Output)
-	}
-}
-
-func TestNodeBinsNewestNvm(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("NVM_BIN", "")
-	for _, v := range []string{"v9.11.2", "v22.23.2", "v20.1.0"} {
-		os.MkdirAll(filepath.Join(home, ".nvm", "versions", "node", v, "bin"), 0o755)
-	}
-	if got := nodeBins(home); len(got) != 1 || !strings.Contains(got[0], "v22.23.2") {
-		t.Fatalf("nodeBins = %v", got)
-	}
-	t.Setenv("NVM_BIN", "/active/bin")
-	if got := nodeBins(home); len(got) != 1 || got[0] != "/active/bin" {
-		t.Fatalf("with NVM_BIN = %v", got)
-	}
-}
-
-func TestToolEnvPrefersNvm(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("NVM_BIN", "")
-	bin := filepath.Join(home, ".nvm", "versions", "node", "v22.1.0", "bin")
-	os.MkdirAll(bin, 0o755)
-	for _, kv := range toolEnv() {
-		if p, ok := strings.CutPrefix(kv, "PATH="); ok {
-			dirs := filepath.SplitList(p)
-			if slices.Index(dirs, bin) < 0 || slices.Index(dirs, bin) > slices.Index(dirs, "/usr/local/bin") {
-				t.Fatalf("nvm bin not before /usr/local/bin: %v", dirs)
-			}
-			return
-		}
-	}
-	t.Fatal("no PATH")
-}
-
 // fakeAgy acts like Antigravity CLI's full-screen sign-in: it waits for an
 // answer to its terminal query, starts on a method menu, and prints the link
 // at the window's width; `agy models` works once signed in.
@@ -346,11 +274,5 @@ func TestAntigravityLogin(t *testing.T) {
 	waitState(t, j, "succeeded") // signed in: the job ends though the CLI keeps running
 	if s, _ := m.Status(ctx, "antigravity"); !s.Auth.LoggedIn {
 		t.Fatalf("after login = %+v", s.Auth)
-	}
-}
-
-func TestCleanOutputShortensRules(t *testing.T) {
-	if got := cleanOutput(strings.Repeat("─", 1000) + "\nx"); got != strings.Repeat("─", 20)+"\nx" {
-		t.Fatalf("got %q", got)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/chat"
-	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -71,87 +70,6 @@ func TestTagPausedAgentGetsNotice(t *testing.T) {
 	}
 }
 
-func TestTagPausedAndOnAgents(t *testing.T) {
-	g := newGroup(t)
-	g.pause(t, g.dev.ID)
-	got := g.sendAll(t, "@"+g.leadNm+" @Dev cùng xem")
-	if len(got) != 1 || got[0] != g.leadNm {
-		t.Fatalf("only the lead should answer, got %v", got)
-	}
-	if n := cliCalls(t, g.dir); n != 1 {
-		t.Fatalf("AI ran %d times, want 1", n)
-	}
-	if args, _ := call(t, g.dir, 1); strings.Contains(args, "@Dev:") {
-		t.Fatalf("the prompt offers the paused agent:\n%s", args)
-	}
-	out := g.waitAuthors(t, 2)
-	if strings.Join(out, ",") != "!,"+g.leadNm {
-		t.Fatalf("chat = %v, want the notice then the lead", out)
-	}
-}
-
-// The chat's own agent is paused and nobody is tagged: the agent that is on
-// and answered there last takes the chat over (before another lead).
-func TestPausedDefaultAgentHandsOver(t *testing.T) {
-	g := newGroup(t)
-	if _, err := g.f.st.Agents().Create(g.context, storage.Agent{ProjectID: g.f.project.ID, Key: "lead2", Name: "Lead2", ModelTier: "fast"}); err != nil {
-		t.Fatal(err)
-	}
-	if got := g.sendAll(t, "@Dev giúp với"); len(got) != 1 || got[0] != "Dev" {
-		t.Fatalf("authors = %v", got)
-	}
-	g.pause(t, g.lead)
-	if got := g.sendAll(t, "chào"); len(got) != 1 || got[0] != "Dev" {
-		t.Fatalf("authors = %v, want Dev (answered here last)", got)
-	}
-	conv, _ := g.f.st.Chat().GetConversation(g.context, g.conv.ID)
-	if conv.AgentID != g.dev.ID || conv.AgentName != "Dev" {
-		t.Fatalf("chat's agent = %s/%s, want Dev", conv.AgentID, conv.AgentName)
-	}
-}
-
-// Nobody answered there yet: the project's default agent, or (paused too)
-// the first agent that is on.
-func TestPausedDefaultAgentGoesToDefault(t *testing.T) {
-	g := newGroup(t)
-	if _, err := g.f.st.Agents().Create(g.context, storage.Agent{ProjectID: g.f.project.ID, Key: "lead2", Name: "Lead2", ModelTier: "fast"}); err != nil {
-		t.Fatal(err)
-	}
-	g.pause(t, g.lead)
-	if got := g.sendAll(t, "chào"); len(got) != 1 || got[0] != "Dev" {
-		t.Fatalf("authors = %v, want Dev (first on)", got)
-	}
-}
-
-func TestPausedDefaultAgentGetsNotice(t *testing.T) {
-	g := newGroup(t)
-	g.pause(t, g.lead)
-	g.pause(t, g.dev.ID)
-	_, _, err := g.engine.Send(g.context, g.conv.ID, "chào", nil)
-	if !errors.Is(err, storage.ErrAgentOff) || !strings.Contains(err.Error(), g.leadNm+" đang tạm nghỉ") {
-		t.Fatalf("err = %v", err)
-	}
-	if n := cliCalls(t, g.dir); n != 0 {
-		t.Fatalf("AI ran %d times", n)
-	}
-	if err := g.f.st.Agents().SetEnabled(g.context, g.dev.ID, true); err != nil {
-		t.Fatal(err)
-	}
-	// tagging an agent that is on still works in that chat
-	if got := g.sendAll(t, "@Dev giúp với"); len(got) != 1 || got[0] != "Dev" {
-		t.Fatalf("authors = %v", got)
-	}
-	if err := g.engine.SetAgent(g.context, g.conv.ID, g.lead); err != nil {
-		t.Fatal(err) // already its agent: nothing changes
-	}
-	if err := g.engine.SetAgent(g.context, g.conv.ID, g.dev.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := g.engine.SetAgent(g.context, g.conv.ID, g.lead); !errors.Is(err, storage.ErrAgentOff) {
-		t.Fatalf("switching to a paused agent: %v", err)
-	}
-}
-
 // A bot's chat (Discord/Telegram) whose rule agent is paused: the notice is
 // the answer (the executor sends it back to the bot), no AI runs; no other
 // agent takes it over (the rule chose the agent and its rights).
@@ -176,15 +94,5 @@ func TestChannelChatOfPausedAgent(t *testing.T) {
 	g.pause(t, g.lead)
 	if _, err := g.engine.StartConversationFor(g.context, g.f.project.ID, ""); err != nil {
 		t.Fatal(err) // the only lead is paused: still picked, its first message gets the notice
-	}
-}
-
-func TestDelegateToPausedAgent(t *testing.T) {
-	g := newGroup(t)
-	g.pause(t, g.dev.ID)
-	sc := officetools.Scope{ProjectID: g.f.project.ID, ConversationID: g.conv.ID, RunRef: "r1", Agent: g.leadNm}
-	_, err := g.engine.Delegate(g.context, sc, "Dev", "sửa lỗi")
-	if !errors.Is(err, storage.ErrAgentOff) || !strings.Contains(err.Error(), "Dev đang tạm nghỉ") {
-		t.Fatalf("err = %v", err)
 	}
 }

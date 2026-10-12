@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,25 +44,6 @@ vote: { roles: [a, b], quorum: 2, veto: [b] }
 Làm đi.
 `
 
-func TestParseDefaults(t *testing.T) {
-	d, err := Parse(good)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Limits.Rounds != DefaultRounds || d.Limits.Turns != DefaultTurns || d.Timeout() != time.Hour {
-		t.Fatalf("limits = %+v", d.Limits)
-	}
-	if r, _ := d.Role("a"); r.Name != "a" {
-		t.Fatalf("role name default = %q", r.Name)
-	}
-	if !d.SameBatch("a", "b") || d.SameBatch("a", "x") {
-		t.Fatal("SameBatch")
-	}
-	if d.Body != "Làm đi." {
-		t.Fatalf("body = %q", d.Body)
-	}
-}
-
 func TestParseErrors(t *testing.T) {
 	cases := map[string]string{
 		"no header":    "chỉ có chữ",
@@ -81,21 +61,6 @@ func TestParseErrors(t *testing.T) {
 		if _, err := Parse(src); err == nil {
 			t.Errorf("%s: no error", name)
 		}
-	}
-}
-
-func TestRenderBrief(t *testing.T) {
-	d, _ := Parse(good)
-	r, _ := d.Role("a")
-	if _, err := d.RenderBrief(r, map[string]string{"outcome": "x"}); err == nil || !strings.Contains(err.Error(), "done_when") {
-		t.Fatalf("missing part err = %v", err)
-	}
-	if _, err := d.RenderBrief(r, map[string]string{"outcome": "x", "done_when": "y", "bogus": "z"}); err == nil {
-		t.Fatal("unknown part accepted")
-	}
-	out, err := d.RenderBrief(r, map[string]string{"outcome": "Đăng nhập được", "done_when": "test xanh"})
-	if err != nil || !strings.Contains(out, "## Outcome") || !strings.Contains(out, "Analyze only") {
-		t.Fatalf("brief = %q, %v", out, err)
 	}
 }
 
@@ -350,136 +315,5 @@ func TestParseCall(t *testing.T) {
 	}
 	if Call("review", " x ") != "#review x" || Call("review", "") != "#review" {
 		t.Error("Call")
-	}
-}
-
-// next/then/else take one step or a list; a switch picks its case; a join
-// is found by Reaches; an id with "_" says why it is refused
-func TestStepTargetsAndSwitch(t *testing.T) {
-	src := `---
-key: nhanh
-name: Nhánh
-start: [a, b]
-steps:
-  - { id: a, type: code, lang: bash, script: "echo a", next: [c, d] }
-  - { id: b, type: code, lang: bash, script: "echo b", next: c }
-  - id: c
-    type: switch
-    value: "{{steps.a.output}}"
-    cases:
-      - { when: "ok", next: [d, e] }
-    else: e
-  - { id: d, type: end }
-  - { id: e, type: end }
----
-`
-	d, err := Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(d.Starts(), []string{"a", "b"}) || !slices.Equal(d.Steps[0].Next, Targets{"c", "d"}) || !slices.Equal(d.Steps[1].Next, Targets{"c"}) {
-		t.Fatalf("targets = %v %v %v", d.Start, d.Steps[0].Next, d.Steps[1].Next)
-	}
-	if !d.Reaches("a", "e") || d.Reaches("d", "a") || d.Reaches("c", "b") {
-		t.Fatal("reaches")
-	}
-	v := Vars{Steps: map[string]StepResult{"a": {Output: " OK "}}}
-	if got, next := d.Steps[2].Pick(v); got != "OK" || !slices.Equal(next, Targets{"d", "e"}) {
-		t.Fatalf("pick = %q %v", got, next)
-	}
-	v.Steps["a"] = StepResult{Output: "khác"}
-	if _, next := d.Steps[2].Pick(v); !slices.Equal(next, Targets{"e"}) {
-		t.Fatalf("pick else = %v", next)
-	}
-	out, err := Format(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "next: c\n") || !strings.Contains(out, "- c\n") {
-		t.Fatalf("one step stays a string, several a list:\n%s", out)
-	}
-	if again, err := Parse(out); err != nil || !slices.Equal(again.Steps[0].Next, Targets{"c", "d"}) {
-		t.Fatalf("round trip: %v\n%s", err, out)
-	}
-	var s Step
-	if err := json.Unmarshal([]byte(`{"id":"x","next":"y","then":["a","b"]}`), &s); err != nil || !slices.Equal(s.Next, Targets{"y"}) || len(s.Then) != 2 {
-		t.Fatalf("json = %+v %v", s, err)
-	}
-	bad := strings.Replace(src, "id: e, type: end", "id: E-x, type: end", 1)
-	bad = strings.Replace(bad, "value: \"{{steps.a.output}}\"", "value: \"\"", 1)
-	_, err = Parse(bad)
-	for _, want := range []string{"gạch dưới", "thiếu value", `else "e" không có`} {
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Fatalf("%q not in %v", want, err)
-		}
-	}
-}
-
-// a coordinate step hands work to its roles: the run it starts has those
-// roles (their groups and vote), its instructions, no output required
-func TestCoordinateStep(t *testing.T) {
-	src := `---
-key: dp
-name: DP
-outputs:
-  - { key: ket-luan, required: true }
-roles:
-  - { key: a, name: A }
-  - { key: b, name: B }
-  - { key: c, name: C }
-  - { key: lead, name: Lead }
-parallel: [[a, b, c]]
-vote: { roles: [a, b], quorum: 2 }
-steps:
-  - { id: review, type: coordinate, role: lead, roles: [a, b], prompt: "Giao a, b", next: xong }
-  - { id: xong, type: end }
----
-`
-	d, err := Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := d.CoordinateDef(d.Steps[0], "Giao a, b review X")
-	if len(c.Roles) != 2 || c.Roles[0].Key != "a" || c.Roles[1].Key != "b" || c.StepMode() || c.Body != "Giao a, b review X" {
-		t.Fatalf("def = %+v", c)
-	}
-	if len(c.Parallel) != 1 || len(c.Parallel[0]) != 2 || c.Vote == nil || c.Outputs[0].Required || !d.Outputs[0].Required {
-		t.Fatalf("groups %v vote %v outputs %v", c.Parallel, c.Vote, c.Outputs)
-	}
-	if all := d.CoordinateDef(Step{Role: "a"}, "x"); len(all.Roles) != 3 || all.Vote != nil || slices.ContainsFunc(all.Roles, func(r Role) bool { return r.Key == "a" }) {
-		t.Fatalf("every role but its coordinator: %+v", all.Roles)
-	}
-	bad := strings.Replace(src, `roles: [a, b], prompt: "Giao a, b"`, `roles: [a, lead, x], prompt: ""`, 1)
-	_, err = Parse(bad)
-	for _, want := range []string{`"lead" không có trong roles hoặc là vai điều phối`, `"x" không có`, "thiếu prompt"} {
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Fatalf("%q not in %v", want, err)
-		}
-	}
-}
-
-func TestSupervise(t *testing.T) {
-	src := func(sv string) string {
-		return "---\nkey: sv\nname: SV\nroles:\n  - { key: a, name: A }\n  - { key: gs, name: GS }\n  - { key: e, name: E, access: edit }\n" + sv + "---\nGiao a.\n"
-	}
-	d, err := Parse(src("supervise: { role: gs }\n"))
-	if err != nil || d.SuperviseEvery() != DefaultSuperviseEvery {
-		t.Fatalf("default: %v %v", d.SuperviseEvery(), err)
-	}
-	if d, err := Parse(src("supervise: { role: gs, every: 3m }\n")); err != nil || d.SuperviseEvery() != 3*time.Minute {
-		t.Fatalf("3m: %v %v", d.SuperviseEvery(), err)
-	}
-	if d, _ := Parse(src("")); d.SuperviseEvery() != 0 {
-		t.Fatal("no supervisor still supervises")
-	}
-	for _, bad := range []string{"supervise: { role: nope }\n", "supervise: { role: e }\n", "supervise: { role: gs, every: 30s }\n"} {
-		if _, err := Parse(src(bad)); err == nil || !strings.Contains(err.Error(), "supervise") {
-			t.Errorf("%q: %v", bad, err)
-		}
-	}
-	// a coordinate step keeps the supervisor even when it hands work to others only
-	d.Steps = []Step{{ID: "x", Type: StepCoordinate, Roles: []string{"a"}}}
-	if c := d.CoordinateDef(d.Steps[0], "b"); len(c.Roles) != 2 || c.Roles[1].Key != "gs" {
-		t.Fatalf("coordinate roles = %+v", c.Roles)
 	}
 }

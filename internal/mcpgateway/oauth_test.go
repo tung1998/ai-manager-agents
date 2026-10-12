@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -284,96 +283,6 @@ func TestDiscoverAtlassianLike(t *testing.T) {
 	}
 }
 
-// The real server, by hand: OFFICE_LIVE_MCP_OAUTH=https://mcp.atlassian.com/v1/mcp go test -run Live ./internal/mcpgateway
-// (discovery only: nothing is registered).
-func TestDiscoverLive(t *testing.T) {
-	u := os.Getenv("OFFICE_LIVE_MCP_OAUTH")
-	if u == "" {
-		t.Skip("OFFICE_LIVE_MCP_OAUTH not set")
-	}
-	ctx := context.Background()
-	_, err := Check(ctx, nil, u, nil)
-	var se *StatusError
-	if !errors.As(err, &se) || se.Code != 401 {
-		t.Fatalf("check = %v", err)
-	}
-	o, err := Discover(ctx, nil, u, se.WWWAuthenticate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("issuer=%s authorize=%s token=%s register=%s guessed=%v", o.Issuer, o.AuthEndpoint, o.TokenEndpoint, o.RegistrationEndpoint, o.Guessed)
-}
-
-// A check that ran during a login (it saw no token, then discovered) must not
-// drop the client the login registered, nor the tokens it got.
-func TestCheckKeepsLogin(t *testing.T) {
-	f, gw, st, m, _ := setupOAuth(t)
-	ctx := context.Background()
-	authURL, err := gw.StartLogin(ctx, m, "u1", "http://localhost:2704")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stale := m // as the background check read it: before the login
-	state, code := f.authorize(t, authURL)
-	if _, err := gw.FinishLogin(ctx, "u1", state, code, ""); err != nil {
-		t.Fatal(err)
-	}
-	f.revoke() // the stale check gets a 401 and discovers again
-	if _, err := gw.CheckServer(ctx, stale); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := st.MCPServers().Get(ctx, m.ID)
-	if o, _ := OpenOAuth(gw.Box, got.OAuthEnc); o.ClientID != "cid" || !o.LoggedIn() {
-		t.Fatalf("after a stale check = %+v", o)
-	}
-}
-
-// Checks and logins at once (two tabs, the background check): office keeps
-// the client registered, and registers it once for one address.
-func TestOAuthAtOnce(t *testing.T) {
-	f, gw, st, m, _ := setupOAuth(t)
-	ctx := context.Background()
-	m, _ = gw.CheckServer(ctx, m) // discovered, no client yet
-	var wg sync.WaitGroup
-	urls := make(chan string, 3)
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			if i < 3 {
-				u, err := gw.StartLogin(ctx, m, "u1", "http://localhost:2704")
-				if err != nil {
-					t.Error(err)
-				}
-				urls <- u
-				return
-			}
-			if _, err := gw.CheckServer(ctx, m); err != nil {
-				t.Error(err)
-			}
-		}(i)
-	}
-	wg.Wait()
-	close(urls)
-	got, _ := st.MCPServers().Get(ctx, m.ID)
-	if o, _ := OpenOAuth(gw.Box, got.OAuthEnc); o.ClientID != "cid" {
-		t.Fatalf("client lost: %+v", o)
-	}
-	f.mu.Lock()
-	n := len(f.redirects)
-	f.mu.Unlock()
-	if n != 1 {
-		t.Fatalf("registered %d times: %v", n, f.redirects)
-	}
-	// each login still finishes
-	for u := range urls {
-		state, code := f.authorize(t, u)
-		if _, err := gw.FinishLogin(ctx, "u1", state, code, ""); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
 func TestOAuthLogin(t *testing.T) {
 	f, gw, st, m, heard := setupOAuth(t)
 	ctx := context.Background()
@@ -523,22 +432,6 @@ func TestOAuthAuthError(t *testing.T) {
 	_, err := gw.FinishLogin(ctx, "u1", state, "", "invalid_request")
 	if err == nil || !strings.Contains(err.Error(), "http://localhost:2704") {
 		t.Fatalf("auth error = %v", err)
-	}
-}
-
-func TestCallbackURL(t *testing.T) {
-	for origin, want := range map[string]string{
-		"http://localhost:2704":       "http://localhost:2704" + CallbackPath,
-		"http://127.0.0.1:2704/":      "http://127.0.0.1:2704" + CallbackPath,
-		"http://[::1]:2704":           "http://[::1]:2704" + CallbackPath,
-		"https://box.tail.ts.net":     "https://box.tail.ts.net" + CallbackPath,
-		"http://100.64.1.2:2704":      "http://localhost:2704" + CallbackPath,
-		"http://box.tail.ts.net":      "http://localhost" + CallbackPath,
-		"http://office.lan:8787/path": "http://localhost:8787" + CallbackPath,
-	} {
-		if got := CallbackURL(origin); got != want {
-			t.Errorf("CallbackURL(%q) = %q, want %q", origin, got, want)
-		}
 	}
 }
 

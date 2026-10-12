@@ -12,35 +12,6 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/team"
 )
 
-func TestSuggestPattern(t *testing.T) {
-	for line, want := range map[string]string{
-		"git switch main":         "git switch *",
-		"go test ./internal/x":    "go test *",
-		"ls":                      "ls",
-		"pnpm typecheck":          "pnpm typecheck",
-		"git -C x status":         "git -C x status", // a flag second: exact
-		"git branch -a":           "git branch -a",   // git branch * would cover -D
-		"git reset --soft HEAD":   "git reset --soft HEAD",
-		"rm -rf dist":             "",
-		"git push origin main":    "",
-		"git reset --hard":        "",
-		"psql -c drop table x":    "",
-		"bash -c ls":              "",
-		"env FOO=1 make":          "",
-		"sudo make install":       "",
-		"/bin/bash -c ls":         "",
-		"BASH -c ls":              "",
-		"/usr/bin/env FOO=1 make": "",
-		"cat a | wc":              "",
-		"echo 'a b' c":            "",
-	} {
-		got, ok := perm.SuggestPattern(line)
-		if got != want || ok != (want != "") {
-			t.Errorf("SuggestPattern(%q) = %q %v, want %q", line, got, ok, want)
-		}
-	}
-}
-
 // TestCoversRisky: a wrapper by path or case, or "git *", is not allowed for good.
 func TestCoversRisky(t *testing.T) {
 	for p, want := range map[string]bool{

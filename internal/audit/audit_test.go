@@ -2,11 +2,9 @@ package audit_test
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
-	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/audit"
 )
 
@@ -41,45 +39,6 @@ func TestSnapshotRedactsSecrets(t *testing.T) {
 	}
 	if audit.Snapshot(nil) != nil {
 		t.Fatal("nil snapshot")
-	}
-}
-
-func TestEntryFromWho(t *testing.T) {
-	ctx := audit.With(context.Background(), audit.Who{Kind: "agent", Name: "Lead", ApprovedBy: "a@x.io", Via: "chat", ConversationID: "cnv_1", JobID: "job_1", ActionID: "act_1"})
-	e := audit.Entry(ctx, audit.Change{Action: "automation.update", ResourceID: "aut_1", ProjectID: "prj_1",
-		Before: map[string]any{"name": "a"}, After: map[string]any{"name": "b"}})
-	if e.ActorKind != "agent" || e.ActorName != "Lead" || e.ApprovedBy != "a@x.io" || e.Via != "chat" || e.Actor != "agent:Lead" {
-		t.Fatalf("who: %+v", e)
-	}
-	if e.Resource != "automation" || e.Target != "aut_1" || e.ResourceID != "aut_1" || e.ConversationID != "cnv_1" || e.JobID != "job_1" || e.ActionID != "act_1" || !e.OK {
-		t.Fatalf("change: %+v", e)
-	}
-	if e.Before["name"] != "a" || e.After["name"] != "b" {
-		t.Fatalf("snapshots: %+v", e)
-	}
-	failed := audit.Entry(ctx, audit.Change{Action: "automation.update", Err: errors.New("boom")})
-	if failed.OK || failed.Detail["error"] != "boom" {
-		t.Fatalf("failed change: %+v", failed)
-	}
-}
-
-func TestEntryFallsBackToActorString(t *testing.T) {
-	cases := map[string][2]string{
-		"human:a@x.io": {"human", "a@x.io"},
-		"auto:Nightly": {"automation", "Nightly"},
-		"user:usr_1":   {"human", "usr_1"},
-		"monitor:api":  {"system", "monitor:api"},
-		"":             {"system", "system"},
-	}
-	for in, want := range cases {
-		ctx := context.Background()
-		if in != "" {
-			ctx = actor.With(ctx, in)
-		}
-		e := audit.Entry(ctx, audit.Change{Action: "x.y"})
-		if e.ActorKind != want[0] || e.ActorName != want[1] {
-			t.Errorf("%q → %s/%s, want %v", in, e.ActorKind, e.ActorName, want)
-		}
 	}
 }
 

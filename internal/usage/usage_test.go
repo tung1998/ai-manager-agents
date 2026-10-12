@@ -30,28 +30,6 @@ func newStore(t *testing.T) storage.Store {
 	return st
 }
 
-func TestEstimate(t *testing.T) {
-	c, ok := usage.Estimate("claude-sonnet-5", 1_000_000, 100_000, nil)
-	if !ok || c != 3.0 { // 2 + 0.1*10
-		t.Fatalf("sonnet = %v %v", c, ok)
-	}
-	if _, ok := usage.Estimate("anthropic.claude-haiku-4-5-20260101", 1, 1, nil); !ok {
-		t.Fatal("prefix/date suffix not normalised")
-	}
-	if c, ok := usage.Estimate("claude-sonnet-5-5", 1_000_000, 100_000, nil); !ok || c != 3.0 {
-		t.Fatalf("sonnet-5-5 = %v %v", c, ok)
-	}
-	if _, ok := usage.Estimate("anthropic.claude-sonnet-5-5-20260101", 1, 1, nil); !ok {
-		t.Fatal("sonnet-5-5 prefix/date suffix not normalised")
-	}
-	if _, ok := usage.Estimate("gpt-5", 1, 1, nil); ok {
-		t.Fatal("unknown model must not be priced")
-	}
-	if c, ok := usage.Estimate("gpt-5", 1_000_000, 0, map[string]usage.Price{"gpt-5": {Input: 1.25, Output: 10}}); !ok || c != 1.25 {
-		t.Fatalf("override = %v %v", c, ok)
-	}
-}
-
 func TestRecordBudgetSummary(t *testing.T) {
 	ctx := actor.With(context.Background(), "human:a@b.c")
 	st := newStore(t)

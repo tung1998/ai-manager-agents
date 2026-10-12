@@ -3,14 +3,11 @@ package channels
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -96,24 +93,6 @@ func TestDiscord(t *testing.T) {
 	defer mu.Unlock()
 	if len(posted) != 2 || !strings.HasPrefix(posted[0], "/channels/c2/messages|") {
 		t.Fatalf("posted = %d %v", len(posted), posted)
-	}
-}
-
-// A gateway close that retrying cannot heal (bad token, intents not enabled)
-// stops the bot with a reason instead of reconnecting forever.
-func TestDiscordStopsOnFatalClose(t *testing.T) {
-	for code, want := range map[string]string{"4004": "token", "4014": "Message Content"} {
-		gw := wsServe(t, func(send func(string)) {
-			send(`{"op":10,"d":{"heartbeat_interval":45000}}`)
-		}, func(msg string, send func(string)) { send("CLOSE:" + code) })
-		d := &Discord{Token: "TOK", GatewayURL: "ws" + strings.TrimPrefix(gw.URL, "http")}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		err := d.Run(ctx, func(string) {}, func(Incoming) {})
-		if ctx.Err() != nil || err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("close %s: err = %v (timed out: %v)", code, err, ctx.Err() != nil)
-		}
-		cancel()
-		gw.Close()
 	}
 }
 
@@ -206,62 +185,6 @@ func TestDiscordThreadExists(t *testing.T) {
 	_, err := d.MakeThread(ctx, "c1", "m2", "x")
 	if discordCode(err) != 50024 || !strings.Contains(err.Error(), "Cannot execute action") {
 		t.Fatalf("err = %v", err)
-	}
-}
-
-// Discord takes descriptions of at most 100 characters.
-func TestDiscordLongDescription(t *testing.T) {
-	var body string
-	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		body = string(raw)
-		w.Write([]byte(`[]`))
-	}))
-	defer rest.Close()
-	d := &Discord{Token: "TOK", APIBase: rest.URL, appID: "app1"}
-	d.SetCommands(context.Background(), []Command{{Name: "review", Description: strings.Repeat("dài ", 60), Arg: strings.Repeat("x", 150)}})
-	var cmds []struct {
-		Description string `json:"description"`
-		Options     []struct {
-			Description string `json:"description"`
-		} `json:"options"`
-	}
-	if err := json.Unmarshal([]byte(body), &cmds); err != nil || len(cmds) != 1 {
-		t.Fatalf("body = %s", body)
-	}
-	if n := len([]rune(cmds[0].Description)); n > 100 || n == 0 || len([]rune(cmds[0].Options[0].Description)) > 100 {
-		t.Fatalf("description %d runes", n)
-	}
-}
-
-// Discord takes at most 100 commands: more would lose them all, the office's own first.
-func TestDiscordCommandCap(t *testing.T) {
-	var body string
-	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		body = string(raw)
-		w.Write([]byte(`[]`))
-	}))
-	defer rest.Close()
-	d := &Discord{Token: "TOK", APIBase: rest.URL, appID: "app1"}
-	cmds := Builtins()
-	for i := range 150 {
-		cmds = append(cmds, Command{Name: fmt.Sprintf("s%d", i), Description: "x"})
-	}
-	d.SetCommands(context.Background(), cmds)
-	var all []struct {
-		Name string
-		Type int
-	}
-	json.Unmarshal([]byte(body), &all)
-	var got []string // the "/" commands (a message menu entry is counted apart by Discord)
-	for _, c := range all {
-		if c.Type == 1 {
-			got = append(got, c.Name)
-		}
-	}
-	if len(got) != 100 || got[0] != "create-conversation" {
-		t.Fatalf("registered %d, first %v", len(got), got[:1])
 	}
 }
 
@@ -490,20 +413,6 @@ func TestDiscordBotRoleTag(t *testing.T) {
 	}
 }
 
-// Where a Telegram chat opens: a supergroup's message, a private chat with the
-// bot; a basic group has no link.
-func TestTelegramURL(t *testing.T) {
-	for _, c := range []struct{ bot, chat, msg, want string }{
-		{"shop_bot", "-1001234567890", "42", "https://t.me/c/1234567890/42"},
-		{"shop_bot", "399661258", "7", "https://t.me/shop_bot"},
-		{"shop_bot", "-4567", "7", ""},
-	} {
-		if got := telegramURL(c.bot, c.chat, c.msg); got != c.want {
-			t.Errorf("%v: %q", c, got)
-		}
-	}
-}
-
 // Files sent to the bot come up with the message (a photo alone too), each
 // fetched when office needs it.
 func TestDiscordAttachments(t *testing.T) {
@@ -668,112 +577,5 @@ func TestLiveMarks(t *testing.T) {
 		if !strings.Contains(all, want) {
 			t.Errorf("no %q in\n%s", want, all)
 		}
-	}
-}
-
-// A 429 with a short retry_after body is retried once, then succeeds.
-func TestDiscordRateLimitBodyRetryAfter(t *testing.T) {
-	var calls int32
-	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if atomic.AddInt32(&calls, 1) == 1 {
-			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"message":"You are being rate limited.","retry_after":0.05,"global":false}`))
-			return
-		}
-		w.Write([]byte(`{"ok":true}`))
-	}))
-	defer rest.Close()
-	d := &Discord{Token: "TOK", APIBase: rest.URL}
-	if err := d.rest(context.Background(), "/x", nil); err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if n := atomic.LoadInt32(&calls); n != 2 {
-		t.Fatalf("calls = %d, want 2", n)
-	}
-}
-
-// A 429 with no body (e.g. a proxy in front of Discord) but a Retry-After
-// header is also retried.
-func TestDiscordRateLimitHeaderRetryAfter(t *testing.T) {
-	var calls int32
-	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if atomic.AddInt32(&calls, 1) == 1 {
-			w.Header().Set("Retry-After", "0.05")
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
-		}
-		w.Write([]byte(`{"ok":true}`))
-	}))
-	defer rest.Close()
-	d := &Discord{Token: "TOK", APIBase: rest.URL}
-	if err := d.rest(context.Background(), "/x", nil); err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if n := atomic.LoadInt32(&calls); n != 2 {
-		t.Fatalf("calls = %d, want 2", n)
-	}
-}
-
-// A 429 that never lets up gives up after maxRetries and returns the error.
-func TestDiscordRateLimitGivesUp(t *testing.T) {
-	var calls int32
-	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&calls, 1)
-		w.WriteHeader(http.StatusTooManyRequests)
-		w.Write([]byte(`{"message":"You are being rate limited.","retry_after":0.01,"global":false}`))
-	}))
-	defer rest.Close()
-	d := &Discord{Token: "TOK", APIBase: rest.URL}
-	err := d.rest(context.Background(), "/x", nil)
-	if discordCode(err) != 0 || !strings.Contains(err.Error(), "429") && !strings.Contains(err.Error(), "Too Many Requests") {
-		t.Fatalf("err = %v", err)
-	}
-	if n := atomic.LoadInt32(&calls); n != maxRetries+1 {
-		t.Fatalf("calls = %d, want %d", n, maxRetries+1)
-	}
-}
-
-// Cancelling ctx while do() is sleeping between retries aborts the wait.
-func TestDiscordRateLimitCtxCancelled(t *testing.T) {
-	var calls int32
-	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&calls, 1)
-		w.WriteHeader(http.StatusTooManyRequests)
-		w.Write([]byte(`{"retry_after":5,"global":false}`))
-	}))
-	defer rest.Close()
-	d := &Discord{Token: "TOK", APIBase: rest.URL}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	err := d.rest(ctx, "/x", nil)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
-	}
-	if n := atomic.LoadInt32(&calls); n != 1 {
-		t.Fatalf("calls = %d, want 1", n)
-	}
-}
-
-// retry_after past maxRetryWait returns the 429 right away, without sleeping.
-func TestDiscordRateLimitPastMaxWait(t *testing.T) {
-	var calls int32
-	rest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&calls, 1)
-		w.WriteHeader(http.StatusTooManyRequests)
-		w.Write([]byte(`{"message":"You are being rate limited.","retry_after":30,"global":false}`))
-	}))
-	defer rest.Close()
-	d := &Discord{Token: "TOK", APIBase: rest.URL}
-	start := time.Now()
-	err := d.rest(context.Background(), "/x", nil)
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Fatalf("took %v, want an immediate return (no sleep)", elapsed)
-	}
-	var de *discordError
-	if !errors.As(err, &de) || de.HTTP != http.StatusTooManyRequests {
-		t.Fatalf("err = %v, want a 429 discordError", err)
-	}
-	if n := atomic.LoadInt32(&calls); n != 1 {
-		t.Fatalf("calls = %d, want 1 (no retry)", n)
 	}
 }

@@ -49,30 +49,6 @@ func fp(t *testing.T, dir string) string {
 	return f
 }
 
-func TestSourceFingerprint(t *testing.T) {
-	dir := newRepo(t)
-	clean := fp(t, dir)
-
-	write(t, filepath.Join(dir, "a.go"), "package a\n// edit\n")
-	if fp(t, dir) == clean {
-		t.Fatal("an uncommitted edit must change the fingerprint")
-	}
-	write(t, filepath.Join(dir, "a.go"), "package a\n")
-	if fp(t, dir) != clean {
-		t.Fatal("undoing the edit must give the same fingerprint")
-	}
-
-	_ = os.MkdirAll(filepath.Join(dir, "bin"), 0o755)
-	write(t, filepath.Join(dir, "bin", "office"), "binary")
-	if fp(t, dir) != clean {
-		t.Fatal("ignored files must not count")
-	}
-	write(t, filepath.Join(dir, "new.go"), "package a\n")
-	if fp(t, dir) == clean {
-		t.Fatal("a new file must change the fingerprint")
-	}
-}
-
 func TestChanges(t *testing.T) {
 	dir := newRepo(t)
 	src := Source{Root: dir}

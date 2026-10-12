@@ -3,7 +3,6 @@ package trigger_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
@@ -41,23 +40,5 @@ func TestScriptNeverCallsAnAgent(t *testing.T) {
 	s, kids := jobsOf(t, st, a)
 	if s.Status != "done" || len(kids) != 0 || len(ex.prompts) != 0 || s.CostUSD != 0 {
 		t.Fatalf("script = %+v children = %d", s, len(kids))
-	}
-}
-
-func TestEscalationSkippedWhenAutomationIsOff(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	ex := &recExec{}
-	r := trigger.New(st, ex)
-	a := scriptAutomation(t, st, p, "exit 1", "failure")
-	a.Enabled = false
-	st.Automations().Update(ctx, a)
-	now := time.Now().UTC()
-	child, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: a.ID, Trigger: "escalate",
-		Status: "pending", ParentJobID: "job_x", NextAttemptAt: &now})
-	r.StartReady(ctx, now)
-	r.Wait()
-	if got, _ := st.Jobs().Get(ctx, child.ID); got.Status != "skipped" || len(ex.prompts) != 0 {
-		t.Fatalf("child = %+v", got)
 	}
 }

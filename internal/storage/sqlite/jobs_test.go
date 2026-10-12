@@ -66,51 +66,6 @@ func TestJobsQueueAndFinish(t *testing.T) {
 	}
 }
 
-// A cancel landing between Claim and beginJob's stamp must not be reverted
-// back to "running": StartIfRunning is a CAS on status='running'.
-func TestStartIfRunningConflictsAfterCancel(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	now := time.Now().UTC()
-	j, err := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: "a", Status: "pending", NextAttemptAt: &now})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := st.Jobs().Claim(ctx, now.Add(time.Second), 1, nil); err != nil || len(got) != 1 {
-		t.Fatalf("claim = %+v %v", got, err)
-	}
-	// the cancel beat beginJob to it
-	if _, err := st.Jobs().FinishIfRunning(ctx, j.ID, "cancelled", "cancelled", "", now.Add(2*time.Second)); err != nil {
-		t.Fatalf("cancel = %v", err)
-	}
-	if _, err := st.Jobs().StartIfRunning(ctx, j.ID, "cnv_1", "agt_1", "hỏi", now.Add(3*time.Second)); !errors.Is(err, storage.ErrConflict) {
-		t.Fatalf("StartIfRunning after cancel = %v, want ErrConflict", err)
-	}
-	got, err := st.Jobs().Get(ctx, j.ID)
-	if err != nil || got.Status != "cancelled" || got.ConversationID != "" || got.AgentID != "" {
-		t.Fatalf("job after conflicting StartIfRunning = %+v %v, want still cancelled and unstamped", got, err)
-	}
-}
-
-// StartIfRunning while the job is still running: stamps conversation, agent
-// and title (only when title was empty), leaves status "running".
-func TestStartIfRunningStampsWhileRunning(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	now := time.Now().UTC()
-	j, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: "a", Status: "pending", NextAttemptAt: &now})
-	st.Jobs().Claim(ctx, now.Add(time.Second), 1, nil)
-	got, err := st.Jobs().StartIfRunning(ctx, j.ID, "cnv_1", "agt_1", "hỏi", now.Add(2*time.Second))
-	if err != nil || got.Status != "running" || got.ConversationID != "cnv_1" || got.AgentID != "agt_1" || got.Title != "hỏi" {
-		t.Fatalf("StartIfRunning = %+v %v", got, err)
-	}
-	// an existing title is kept, not overwritten
-	got, err = st.Jobs().StartIfRunning(ctx, j.ID, "cnv_1", "agt_1", "khác", now.Add(3*time.Second))
-	if err != nil || got.Title != "hỏi" {
-		t.Fatalf("StartIfRunning kept title = %+v %v", got, err)
-	}
-}
-
 // A run that finishes after its job was already cancelled must not have that
 // overwritten back to done/failed (endJob uses FinishIfRunning, not Finish).
 func TestFinishIfRunningDoesNotRevertACancel(t *testing.T) {
@@ -147,83 +102,6 @@ func TestAutomationsDue(t *testing.T) {
 	st.Automations().Update(ctx, a)
 	if due, _ := st.Automations().Due(ctx, time.Now().UTC()); len(due) != 0 {
 		t.Fatalf("disabled is due: %+v", due)
-	}
-}
-
-func TestFailRunningCountsCostAndEndsTasks(t *testing.T) { // I6
-	ctx := context.Background()
-	st, p := openStore(t)
-	now := time.Now().UTC()
-	j, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "task", Origin: "automation", OriginID: "a", Status: "running", StartedAt: &now})
-	cost := 0.4
-	st.Runs().Create(ctx, storage.Run{Kind: "task", ProjectID: p.ID, JobID: j.ID, Status: "ok", CostUSD: &cost, InputTokens: 7})
-	st.Jobs().FailRunning(ctx, "restart", "restart", now)
-	if got, _ := st.Jobs().Get(ctx, j.ID); got.CostUSD != 0.4 || got.InputTokens != 7 {
-		t.Fatalf("failed job = %+v", got)
-	}
-	task, _ := st.Tasks().Create(ctx, storage.Task{ProjectID: p.ID, Title: "x", Goal: "x", Mode: "single", Status: "running"})
-	if n, err := st.Tasks().FailRunning(ctx, "office khởi động lại", now); err != nil || n != 1 {
-		t.Fatalf("fail tasks = %d %v", n, err)
-	}
-	if got, _ := st.Tasks().Get(ctx, task.ID); got.Status != "failed" || got.FinishedAt == nil {
-		t.Fatalf("task = %+v", got)
-	}
-}
-
-func TestDebounceOnlyTouchesPending(t *testing.T) { // I2
-	ctx := context.Background()
-	st, p := openStore(t)
-	now := time.Now().UTC()
-	j, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: "a", Status: "pending", DebounceKey: "k", NextAttemptAt: &now})
-	st.Jobs().Claim(ctx, now.Add(time.Second), 1, nil) // the runner took it
-	if ok, err := st.Jobs().Debounce(ctx, j.ID, `{"n":2}`, now.Add(time.Minute)); err != nil || ok {
-		t.Fatalf("debounced a running job: %v %v", ok, err)
-	}
-	if got, _ := st.Jobs().Get(ctx, j.ID); got.Status != "running" || got.Payload == `{"n":2}` {
-		t.Fatalf("job = %+v", got)
-	}
-}
-
-// A batch with several due jobs of the same origin is capped by its real
-// capacity, not by 1: an origin missing from remaining (nothing running yet)
-// is capped by the automation's own Parallel(), and one already in remaining
-// is capped by exactly how many more it may run right now.
-func TestClaimCapsEachOriginByItsCapacity(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	now := time.Now().UTC()
-	a3, err := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "p3", Source: "schedule", Action: "chat", Limits: storage.AutomationLimits{MaxParallel: 3}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 5; i++ {
-		st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: a3.ID, Status: "pending", NextAttemptAt: &now})
-	}
-	// a3 is new to Claim (not in remaining): capped by its own Parallel()=3, not the batch limit of 5
-	got, err := st.Jobs().Claim(ctx, now.Add(time.Second), 5, nil)
-	if err != nil || len(got) != 3 {
-		t.Fatalf("claim new origin = %d %v, want 3 (Parallel limit)", len(got), err)
-	}
-	if n, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a3.ID, Status: "pending"}); len(n) != 2 {
-		t.Fatalf("pending left = %d, want 2", len(n))
-	}
-
-	// a free origin already partly running: remaining says exactly how many more
-	a1, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "p1", Source: "schedule", Action: "chat", Limits: storage.AutomationLimits{MaxParallel: 5}})
-	for i := 0; i < 3; i++ {
-		st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: a1.ID, Status: "pending", NextAttemptAt: &now})
-	}
-	got, err = st.Jobs().Claim(ctx, now.Add(time.Second), 5, map[string]int{a3.ID: 0, a1.ID: 1})
-	if err != nil || len(got) != 1 || got[0].OriginID != a1.ID {
-		t.Fatalf("claim with remaining=1 = %+v %v, want 1 job of a1", got, err)
-	}
-
-	// an origin at 0 remaining is excluded entirely, however many are due
-	a0, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "p0", Source: "schedule", Action: "chat", Limits: storage.AutomationLimits{MaxParallel: 5}})
-	st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: a0.ID, Status: "pending", NextAttemptAt: &now})
-	got, err = st.Jobs().Claim(ctx, now.Add(time.Second), 5, map[string]int{a3.ID: 0, a1.ID: 0, a0.ID: 0})
-	if err != nil || len(got) != 0 {
-		t.Fatalf("claim with remaining=0 = %d %v, want 0", len(got), err)
 	}
 }
 

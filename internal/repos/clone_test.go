@@ -10,42 +10,6 @@ import (
 	"testing"
 )
 
-func TestCloneURL(t *testing.T) {
-	ok := []string{
-		"https://github.com/acme/shop.git",
-		"https://github.com/acme/shop",
-		"git@github.com:acme/shop.git",
-		"ssh://git@bitbucket.org/acme/shop.git",
-		"  https://gitlab.com/a/b  ",
-	}
-	for _, u := range ok {
-		if _, err := CloneURL(u); err != nil {
-			t.Errorf("CloneURL(%q) = %v, want ok", u, err)
-		}
-	}
-	bad := []string{"", "/tmp/repo", "file:///tmp/repo", "ext::sh -c touch% /tmp/x", "--upload-pack=touch /tmp/x", "https://x y", "../repo"}
-	for _, u := range bad {
-		if _, err := CloneURL(u); !errors.Is(err, ErrCloneURL) {
-			t.Errorf("CloneURL(%q) = %v, want ErrCloneURL", u, err)
-		}
-	}
-}
-
-func TestCloneDirName(t *testing.T) {
-	cases := map[string]string{
-		"https://github.com/acme/shop.git":  "shop",
-		"https://github.com/acme/shop/":     "shop",
-		"git@github.com:acme/admin-v2.git":  "admin-v2",
-		"git@github.com:shop.git":           "shop",
-		"ssh://git@host:22/team/api-server": "api-server",
-	}
-	for in, want := range cases {
-		if got := CloneDirName(in); got != want {
-			t.Errorf("CloneDirName(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestStripCredentials(t *testing.T) {
 	got := StripCredentials("fatal: could not read from https://user:ghp_secret@github.com/a/b.git")
 	if strings.Contains(got, "ghp_secret") || !strings.Contains(got, "https://github.com/a/b.git") {

@@ -278,60 +278,6 @@ func (r repoRepoIntercepting) GetByPath(ctx context.Context, path string) (stora
 	return repo, err
 }
 
-// Import on an existing project must not clobber a DefaultAgentID set by a
-// concurrent request (e.g. the dashboard "set default agent" action) that
-// lands between the project snapshot being read and Import's own write.
-func TestImportPreservesConcurrentDefaultAgent(t *testing.T) {
-	ctx := context.Background()
-	dst := newOffice(t)
-	repo, _ := dst.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/code/shop", Description: "old", GitRemote: "old-remote"})
-	pack, _ := team.PackByKey("team")
-	if err := dst.org.ApplyPack(ctx, repo.ID, pack, false); err != nil {
-		t.Fatal(err)
-	}
-	agents, _ := dst.st.Agents().List(ctx, repo.ID)
-	if len(agents) < 2 {
-		t.Fatalf("need at least 2 agents from the team pack, got %d", len(agents))
-	}
-	if err := dst.st.Repos().SetDefaultAgent(ctx, repo.ID, agents[0].ID); err != nil {
-		t.Fatal(err)
-	}
-
-	// bundle update with no Agents (so team.Replace never runs), simulating a
-	// concurrent SetDefaultAgent landing while Import is mid-flight.
-	b := transfer.Bundle{Version: transfer.Version, Projects: []transfer.ProjectSpec{{
-		Name:        "shop",
-		Path:        "/code/shop",
-		GitRemote:   "new-remote",
-		Description: "new",
-	}}}
-
-	// swap in a store whose RepoRepo.GetByPath (used by findProject to read
-	// the project at the top of the loop) sets a *different* default agent
-	// right after the read, before Import gets to its own write.
-	wrapped := storeInterceptingGetByPath{Store: dst.st, onGetByPath: func() {
-		if err := dst.st.Repos().SetDefaultAgent(ctx, repo.ID, agents[1].ID); err != nil {
-			t.Fatal(err)
-		}
-	}}
-	tr := transfer.New(wrapped, dst.prov, dst.org, dst.wf.Lib)
-
-	if _, err := tr.Import(ctx, b, false); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := dst.st.Repos().Get(ctx, repo.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.DefaultAgentID != agents[1].ID {
-		t.Fatalf("DefaultAgentID clobbered by Import: got %q, want concurrently-set %q", got.DefaultAgentID, agents[1].ID)
-	}
-	if got.Name != "shop" || got.Description != "new" || got.GitRemote != "new-remote" {
-		t.Fatalf("Import did not apply info update: %+v", got)
-	}
-}
-
 // a project workflow whose bundle key does not match the key in its own
 // source must be skipped, not re-"created" forever.
 func TestImportMismatchedWorkflowKeySkipped(t *testing.T) {

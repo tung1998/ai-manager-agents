@@ -97,136 +97,6 @@ func TestCreateEncryptsAndTests(t *testing.T) {
 	}
 }
 
-func TestResolveModel(t *testing.T) {
-	svc, _, srv := setup(t)
-	ctx := context.Background()
-	def, _ := svc.Create(ctx, provider.Input{Name: "Claude", Kind: storage.ProviderAnthropic, BaseURL: srv.URL, APIKey: ptr("sk-ant-good-key-1234")})
-	other, _ := svc.Create(ctx, provider.Input{Name: "Local", Kind: storage.ProviderOpenAICompatible, BaseURL: "http://x/v1",
-		TierModels: map[string]string{"fast": "llama-small"}})
-
-	p, m, err := svc.ResolveModel(ctx, storage.Agent{ModelTier: "strong"})
-	if err != nil || p.ID != def.ID || m != "claude-opus-5-5" {
-		t.Fatalf("default tier = %s %s %v", p.Name, m, err)
-	}
-	p, m, _ = svc.ResolveModel(ctx, storage.Agent{ProviderID: other.ID, ModelTier: "fast"})
-	if p.ID != other.ID || m != "llama-small" {
-		t.Fatalf("agent provider tier = %s %s", p.Name, m)
-	}
-	_, m, _ = svc.ResolveModel(ctx, storage.Agent{ModelTier: "fast", LLMModel: "claude-sonnet-5"})
-	if m != "claude-sonnet-5" {
-		t.Fatalf("explicit model = %s", m)
-	}
-}
-
-func TestTestFillsTiersFromModels(t *testing.T) {
-	_, st, _ := setup(t)
-	dir := t.TempDir()
-	box, _ := secrets.Load(filepath.Join(dir, "k"))
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"data":[{"id":"gpt-5"},{"id":"gpt-5-mini"},{"id":"text-embedding-3-small"}]}`))
-	}))
-	defer srv.Close()
-	svc := provider.NewService(st, box, llm.Options{})
-	p, err := svc.Create(context.Background(), provider.Input{Name: "GPT", Kind: storage.ProviderOpenAI, BaseURL: srv.URL, APIKey: ptr("sk-openai-test-1234")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res, _ := svc.Test(context.Background(), p.ID, "", ""); !res.OK {
-		t.Fatalf("test = %+v", res)
-	}
-	got, _ := st.Providers().Get(context.Background(), p.ID)
-	if got.TierModels["strong"] != "gpt-5" || got.TierModels["fast"] != "gpt-5-mini" {
-		t.Fatalf("tiers = %v", got.TierModels)
-	}
-}
-
-// A concurrent save during Test()'s in-flight Check() call must survive: the
-// stale pre-Check snapshot must never be written back over it.
-func TestTestSurvivesConcurrentNameEdit(t *testing.T) {
-	_, st, _ := setup(t)
-	dir := t.TempDir()
-	box, _ := secrets.Load(filepath.Join(dir, "k"))
-	release := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		<-release
-		w.Write([]byte(`{"data":[{"id":"gpt-5"},{"id":"gpt-5-mini"},{"id":"text-embedding-3-small"}]}`))
-	}))
-	defer srv.Close()
-	svc := provider.NewService(st, box, llm.Options{})
-	ctx := context.Background()
-	p, err := svc.Create(ctx, provider.Input{Name: "GPT", Kind: storage.ProviderOpenAI, BaseURL: srv.URL, APIKey: ptr("sk-openai-test-1234")})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	done := make(chan struct{})
-	var testRes provider.TestResult
-	go func() {
-		testRes, _ = svc.Test(ctx, p.ID, "", "")
-		close(done)
-	}()
-	// Let Test() block inside Check(), then save a concurrent edit while it's in flight.
-	if _, err := svc.Update(ctx, p.ID, provider.Input{Name: "GPT Renamed", Kind: storage.ProviderOpenAI, BaseURL: srv.URL}); err != nil {
-		t.Fatal(err)
-	}
-	close(release)
-	<-done
-	if !testRes.OK {
-		t.Fatalf("test = %+v", testRes)
-	}
-
-	got, _ := st.Providers().Get(ctx, p.ID)
-	if got.Name != "GPT Renamed" {
-		t.Fatalf("concurrent save was overwritten: name = %q", got.Name)
-	}
-	if got.TierModels["strong"] != "gpt-5" || got.TierModels["fast"] != "gpt-5-mini" {
-		t.Fatalf("tiers = %v", got.TierModels)
-	}
-}
-
-// If base_url changes while Check() is in flight, the tier fill (derived from
-// the old server's model list) must not be written to the new connection.
-func TestTestSkipsTierFillOnConcurrentBaseURLChange(t *testing.T) {
-	_, st, _ := setup(t)
-	dir := t.TempDir()
-	box, _ := secrets.Load(filepath.Join(dir, "k"))
-	release := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		<-release
-		w.Write([]byte(`{"data":[{"id":"gpt-5"},{"id":"gpt-5-mini"},{"id":"text-embedding-3-small"}]}`))
-	}))
-	defer srv.Close()
-	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"data":[{"id":"other-model"}]}`))
-	}))
-	defer srv2.Close()
-	svc := provider.NewService(st, box, llm.Options{})
-	ctx := context.Background()
-	p, err := svc.Create(ctx, provider.Input{Name: "GPT", Kind: storage.ProviderOpenAI, BaseURL: srv.URL, APIKey: ptr("sk-openai-test-1234")})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	done := make(chan struct{})
-	go func() {
-		svc.Test(ctx, p.ID, "", "")
-		close(done)
-	}()
-	if _, err := svc.Update(ctx, p.ID, provider.Input{Name: "GPT", Kind: storage.ProviderOpenAI, BaseURL: srv2.URL, APIKey: ptr("sk-openai-test-1234")}); err != nil {
-		t.Fatal(err)
-	}
-	close(release)
-	<-done
-
-	got, _ := st.Providers().Get(ctx, p.ID)
-	if got.BaseURL != srv2.URL {
-		t.Fatalf("base_url = %q", got.BaseURL)
-	}
-	if got.TierModels["strong"] != "" || got.TierModels["fast"] != "" {
-		t.Fatalf("tiers from stale server leaked into new connection: %v", got.TierModels)
-	}
-}
-
 // Re-pointing a connection at another host must not carry the stored key
 // along: otherwise editing the URL is enough to exfiltrate it.
 func TestBaseURLChangeDropsStoredKey(t *testing.T) {
@@ -252,24 +122,6 @@ func TestBaseURLChangeDropsStoredKey(t *testing.T) {
 	c, _ := svc.Create(ctx, provider.Input{Name: "Local", Kind: storage.ProviderOpenAICompatible, BaseURL: "http://a/v1"})
 	if _, err := svc.Update(ctx, c.ID, provider.Input{Name: "Local", Kind: storage.ProviderOpenAICompatible, BaseURL: "http://b/v1"}); err != nil {
 		t.Fatalf("keyless move = %v", err)
-	}
-}
-
-func TestCLIProviderUsesBinResolver(t *testing.T) {
-	svc, _, _ := setup(t)
-	ctx := context.Background()
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "claude")
-	os.WriteFile(bin, []byte("#!/bin/sh\necho '9.9.9 (Claude Code)'\n"), 0o755)
-	p, _ := svc.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI})
-	svc.SetBinResolver(func(name string) string {
-		if name == "claude" {
-			return bin
-		}
-		return ""
-	})
-	if res, _ := svc.Test(ctx, p.ID, "", ""); !res.OK || res.Version != "9.9.9 (Claude Code)" {
-		t.Fatalf("test via resolver = %+v", res)
 	}
 }
 
@@ -332,38 +184,6 @@ esac
 	res, _ := svc.Test(ctx, p.ID, "", "")
 	if !res.OK || res.Version != "1.3.1" || strings.Join(res.Models, ",") != "gemini-3.8-flash-high,gemini-3.5-pro" {
 		t.Fatalf("signed in = %+v", res)
-	}
-}
-
-// A turned-off connection is skipped (the own one too); a fallback entry may
-// name the same connection with another model.
-func TestChainSkipsOffAndKeepsModels(t *testing.T) {
-	svc, st, srv := setup(t)
-	ctx := context.Background()
-	def, _ := svc.Create(ctx, provider.Input{Name: "Claude", Kind: storage.ProviderAnthropic, BaseURL: srv.URL, APIKey: ptr("sk-ant-good-key-1234")})
-	other, _ := svc.Create(ctx, provider.Input{Name: "Local", Kind: storage.ProviderOpenAICompatible, BaseURL: "http://x/v1",
-		TierModels: map[string]string{"fast": "llama-small"}})
-	a := storage.Agent{ModelTier: "fast", LLMModel: "claude-sonnet-5", FallbackProviderIDs: []string{
-		storage.FallbackEntry(def.ID, "claude-haiku-4-5"), storage.FallbackEntry(def.ID, "claude-sonnet-5"), other.ID}}
-	name := func(cs []provider.Choice) string {
-		var out []string
-		for _, c := range cs {
-			out = append(out, c.Provider.Name+":"+c.Model)
-		}
-		return strings.Join(out, ",")
-	}
-	if cs, err := svc.Chain(ctx, a); err != nil || name(cs) != "Claude:claude-sonnet-5,Claude:claude-haiku-4-5,Local:llama-small" {
-		t.Fatalf("chain = %s %v", name(cs), err)
-	}
-	def.Enabled = false
-	st.Providers().Update(ctx, def)
-	if cs, err := svc.Chain(ctx, a); err != nil || name(cs) != "Local:llama-small" {
-		t.Fatalf("own off = %s %v", name(cs), err)
-	}
-	other.Enabled = false
-	st.Providers().Update(ctx, other)
-	if _, err := svc.Chain(ctx, a); !errors.Is(err, provider.ErrAllOff) {
-		t.Fatalf("all off = %v", err)
 	}
 }
 

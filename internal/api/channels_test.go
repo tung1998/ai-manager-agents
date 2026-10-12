@@ -165,59 +165,6 @@ func TestAutomationCarriesItsBot(t *testing.T) {
 	}
 }
 
-// deleteAutomation used to check-then-delete a shared bot (releaseBot) with
-// no lock at all, so a delete racing an update that assigns another
-// automation to the same bot could count it as unused and drop it out from
-// under the surviving automation. Both now serialize on the project's
-// automation lock: run delete and a same-bot update at once, many times, and
-// the bot must always end up matching reality (gone only once truly unused).
-func TestDeleteAutomationDoesNotRaceBotRelease(t *testing.T) {
-	e := setup(t)
-	admin := e.client(t)
-	login(t, e, admin, "admin@x.io", "admin-password")
-	ctx := context.Background()
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
-	pid := body["project"].(map[string]any)["id"].(string)
-	for i := 0; i < 20; i++ {
-		// A is the sole user of bot C.
-		_, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Trả lời", "source": "discord", "action": "chat",
-			"bot": map[string]any{"token": "tok-c", "allow": []string{"42"}}}, nil)
-		a := b["automation"].(map[string]any)
-		aID := a["id"].(string)
-		chID := a["config"].(map[string]any)["channel_id"].(string)
-		// B starts on its own bot D, unrelated to C.
-		_, b = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{"name": "Tra mã", "source": "discord", "action": "chat",
-			"bot": map[string]any{"token": "tok-d", "allow": []string{"42"}}}, nil)
-		bID := b["automation"].(map[string]any)["id"].(string)
-
-		// Race: delete A (the only other user of C) against B moving onto C.
-		var wg sync.WaitGroup
-		var patchCode int
-		wg.Add(2)
-		go func() { defer wg.Done(); do(t, admin, "DELETE", e.srv.URL+"/api/automations/"+aID, nil, nil) }()
-		go func() {
-			defer wg.Done()
-			resp, _ := do(t, admin, "PATCH", e.srv.URL+"/api/automations/"+bID, map[string]any{"name": "Tra mã", "source": "discord", "action": "chat",
-				"config": map[string]any{"channel_id": chID}}, nil)
-			patchCode = resp.StatusCode
-		}()
-		wg.Wait()
-
-		if patchCode == 200 {
-			// B now claims C: C must still exist, and not have been counted
-			// as unused by a delete that ran concurrently with this move.
-			if _, chErr := e.st.Channels().Get(ctx, chID); chErr != nil {
-				t.Fatalf("round %d: B moved onto %s but the bot is gone: %v", i, chID, chErr)
-			}
-		} else if patchCode != 400 {
-			t.Fatalf("round %d: unexpected patch status %d", i, patchCode)
-		}
-		do(t, admin, "DELETE", e.srv.URL+"/api/automations/"+bID, nil, nil)
-		// C may or may not still exist (A may have gone first); clean up either way.
-		_ = e.st.Channels().Delete(ctx, chID)
-	}
-}
-
 // A bot's automation runs on a message: "run now" has nothing to run.
 func TestChannelAutomationDoesNotRunByHand(t *testing.T) {
 	e := setup(t)

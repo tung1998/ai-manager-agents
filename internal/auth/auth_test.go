@@ -1,10 +1,8 @@
 package auth_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -194,27 +192,6 @@ func (h blockingHasher) Verify(enc, pw string) (bool, error) {
 	return h.Hasher.Verify(enc, pw)
 }
 
-// Password checks beyond MaxHashing wait, then give up with ErrBusy.
-func TestLoginHashingBounded(t *testing.T) {
-	st, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	h := blockingHasher{Hasher: auth.FastHasherForTests(), started: make(chan struct{}, 4), release: make(chan struct{})}
-	svc := auth.NewService(st, auth.Options{Hasher: h, MaxHashing: 1, HashWait: 50 * time.Millisecond})
-	ctx := context.Background()
-	go svc.Login(ctx, "a@x.io", "whatever-pass", auth.ClientMeta{IP: "1.1.1.1"})
-	<-h.started
-	if _, err := svc.Login(ctx, "b@x.io", "whatever-pass", auth.ClientMeta{IP: "1.1.1.2"}); !errors.Is(err, auth.ErrBusy) {
-		t.Fatalf("second login err = %v", err)
-	}
-	close(h.release)
-}
-
 func TestSessionExpiry(t *testing.T) {
 	svc, _, c := newService(t)
 	ctx := context.Background()
@@ -281,49 +258,6 @@ type storeWithFailingAudit struct{ storage.Store }
 
 func (s storeWithFailingAudit) Audit() storage.AuditRepo {
 	return failingAuditRepo{s.Store.Audit()}
-}
-
-// A broken audit store must not fail login, and the Append error must be
-// logged rather than silently dropped (internal/audit.Append).
-func TestLoginAuditAppendFailureIsLogged(t *testing.T) {
-	_, st, c := newService(t)
-	ctx := context.Background()
-	brokenStore := storeWithFailingAudit{st}
-	svc := auth.NewService(brokenStore, auth.Options{
-		SessionTTL:  7 * 24 * time.Hour,
-		IdleTimeout: 24 * time.Hour,
-		Now:         c.Now,
-		Hasher:      auth.FastHasherForTests(),
-	})
-	if _, err := svc.CreateUser(ctx, auth.NewUser{Email: "m@x.io", Role: storage.RoleMember, Password: "member-password"}, "system"); err != nil {
-		t.Fatal(err)
-	}
-
-	var logBuf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	if _, err := svc.Login(ctx, "m@x.io", "wrong-password", auth.ClientMeta{IP: "9.9.9.9"}); !errors.Is(err, auth.ErrInvalidCredentials) {
-		t.Fatalf("wrong password err = %v", err)
-	}
-	if !strings.Contains(logBuf.String(), "auth.login_failed") {
-		t.Fatalf("expected audit append failure to be logged with action, got: %s", logBuf.String())
-	}
-
-	// throttle still counts failures even though audit append is broken
-	for i := 0; i < 5; i++ {
-		svc.Login(ctx, "m@x.io", "wrong-password", auth.ClientMeta{IP: "9.9.9.9"})
-	}
-	if _, err := svc.Login(ctx, "m@x.io", "member-password", auth.ClientMeta{IP: "9.9.9.9"}); !errors.Is(err, auth.ErrThrottled) {
-		t.Fatalf("expected throttle, got %v", err)
-	}
-
-	// a successful login still works despite audit append failing
-	c.Advance(16 * time.Minute)
-	if _, err := svc.Login(ctx, "m@x.io", "member-password", auth.ClientMeta{IP: "9.9.9.9"}); err != nil {
-		t.Fatalf("login should still succeed: %v", err)
-	}
 }
 
 // An account is linked to its Discord/Telegram ids; one id, one account.

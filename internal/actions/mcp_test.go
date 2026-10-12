@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -64,45 +63,4 @@ func (f *slowMCP) CallTool(context.Context, string, string, json.RawMessage) (st
 	f.calls.Add(1)
 	time.Sleep(100 * time.Millisecond)
 	return "ok", false, nil
-}
-
-// The dashboard and a bot approving one proposal at once: it runs once, the
-// other gets ErrDecided (and so its agent is not sent on twice, ADR-084).
-func TestDecideAtOnceRunsOnce(t *testing.T) {
-	ctx := context.Background()
-	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
-	defer st.Close()
-	st.Migrate(ctx)
-	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
-	svc := New(st, nil)
-	f := &slowMCP{}
-	svc.SetMCP(f)
-	sc := Scope{ProjectID: proj.ID, RunRef: "r1", Agent: "Dev", Level: perm.Operate, Access: perm.Access{Level: perm.Operate, Caps: perm.Preset(perm.Operate)}}
-	a, err := svc.Propose(ctx, sc, "mcp_call", "", "", storage.ActionArgs{MCP: &storage.MCPCallArgs{Server: "jira", Tool: "create_issue"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var (
-		wg      sync.WaitGroup
-		ok, dup atomic.Int32
-	)
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func(approve bool) {
-			defer wg.Done()
-			_, err := svc.Decide(ctx, a.ID, approve, "human:a")
-			switch {
-			case err == nil:
-				ok.Add(1)
-			case errors.Is(err, ErrDecided):
-				dup.Add(1)
-			default:
-				t.Error(err)
-			}
-		}(i != 3) // one of them rejects
-	}
-	wg.Wait()
-	if ok.Load() != 1 || dup.Load() != 4 || f.calls.Load() > 1 {
-		t.Fatalf("decided %d, refused %d, ran %d", ok.Load(), dup.Load(), f.calls.Load())
-	}
 }

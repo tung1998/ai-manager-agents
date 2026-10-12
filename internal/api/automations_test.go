@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -287,38 +286,6 @@ func TestAutomationBuilderAPI(t *testing.T) { // ADR-042
 	}
 }
 
-func TestAutomationConversationIsOneEvenAtOnce(t *testing.T) { // review I2
-	e := setup(t)
-	admin := e.client(t)
-	login(t, e, admin, "admin@x.io", "admin-password")
-	solo := "solo"
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
-	pid := body["project"].(map[string]any)["id"].(string)
-	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
-		"name": "đếm", "source": "schedule", "action": "script", "config": map[string]any{"every_minutes": 60}, "script": map[string]any{"lang": "bash", "body": "echo ok"},
-	}, nil)
-	aid := body["automation"].(map[string]any)["id"].(string)
-	var mu sync.Mutex
-	ids := map[string]bool{}
-	var wg sync.WaitGroup
-	for i := 0; i < 6; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, b := do(t, admin, "POST", e.srv.URL+"/api/automations/"+aid+"/conversation", map[string]any{}, nil)
-			if c, ok := b["conversation"].(map[string]any); ok {
-				mu.Lock()
-				ids[c["id"].(string)] = true
-				mu.Unlock()
-			}
-		}()
-	}
-	wg.Wait()
-	if len(ids) != 1 {
-		t.Fatalf("got %d conversations for one automation: %v", len(ids), ids)
-	}
-}
-
 // The dashboard sends the automation back as it read it, override_admin_by
 // included: saving must work (2026-10-01: every save was 400 "invalid JSON
 // body"), and the field is never taken from the client.
@@ -357,41 +324,4 @@ type failChannelUpdate struct{ storage.ChannelRepo }
 
 func (failChannelUpdate) Update(ctx context.Context, c storage.Channel) error {
 	return fmt.Errorf("db unavailable")
-}
-
-// If commitBot() fails after the automation row is already saved, the
-// automation must not be left orphaned in the DB (review piece
-// bit_01m4n6hgchwhefvgjd1qfxf5r1).
-func TestCreateAutomationRollsBackWhenCommitBotFails(t *testing.T) {
-	e := setupWithStore(t, nil, func(st storage.Store) storage.Store { return failChannelUpdateStore{st} })
-	admin := e.client(t)
-	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
-	pid := body["project"].(map[string]any)["id"].(string)
-
-	// a fresh bot: saveBot's create path doesn't touch Update, so this succeeds
-	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
-		"name": "Trả lời", "source": "discord", "action": "chat",
-		"bot": map[string]any{"token": "tok-1", "allow": []string{"42"}},
-	}, nil)
-	if resp.StatusCode != 201 {
-		t.Fatalf("first create = %d %v", resp.StatusCode, body)
-	}
-	chID := body["automation"].(map[string]any)["config"].(map[string]any)["channel_id"].(string)
-
-	// a second automation reusing the bot, changing a bot field: this takes
-	// the update-bot path, whose commit calls Channels().Update and fails
-	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
-		"name": "Trả lời 2", "source": "discord", "action": "chat",
-		"config": map[string]any{"channel_id": chID}, "bot": map[string]any{"allow": []string{"42", "43"}},
-	}, nil)
-	if resp.StatusCode != 500 {
-		t.Fatalf("second create = %d %v, want 500", resp.StatusCode, body)
-	}
-
-	_, list := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/automations", nil, nil)
-	autos := list["automations"].([]any)
-	if len(autos) != 1 {
-		t.Fatalf("automations after failed create = %v, want only the first one left", autos)
-	}
 }

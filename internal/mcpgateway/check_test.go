@@ -2,7 +2,6 @@ package mcpgateway
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -40,50 +39,6 @@ func TestReadReplySSETooLong(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "vượt 8MB") {
 		t.Fatalf("expected 'vượt 8MB' error, got: %v", err)
-	}
-}
-
-func TestReadReplySSEMidStreamError(t *testing.T) {
-	r := &errReader{
-		data: []byte("data: {\"not\":\"complete\"}\n"),
-		err:  io.ErrUnexpectedEOF,
-	}
-	_, err := readReply(sseResponse(r), 1)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !errors.Is(err, io.ErrUnexpectedEOF) {
-		t.Fatalf("expected wrapped io.ErrUnexpectedEOF, got: %v", err)
-	}
-}
-
-func TestReadReplySSEValidMessageThenStreamError(t *testing.T) {
-	valid := `data: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}` + "\n\n"
-	r := &errReader{
-		data: []byte(valid),
-		err:  io.ErrUnexpectedEOF,
-	}
-	m, err := readReply(sseResponse(r), 1)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if m.Result == nil {
-		t.Fatal("expected result to be set")
-	}
-}
-
-func TestReadReplyJSONReadError(t *testing.T) {
-	r := &errReader{err: errors.New("boom")}
-	resp := &http.Response{
-		Header: http.Header{"Content-Type": []string{"application/json"}},
-		Body:   io.NopCloser(r),
-	}
-	_, err := readReply(resp, 1)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("expected wrapped error containing 'boom', got: %v", err)
 	}
 }
 

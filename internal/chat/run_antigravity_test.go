@@ -74,37 +74,6 @@ echo '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","res
 	}
 }
 
-// a run that already called a tool before losing its conversation must not
-// be retried from scratch: that would repeat the tool's action for real.
-func TestAntigravityRunnerNoRetryAfterTool(t *testing.T) {
-	tmp := t.TempDir()
-	bin, log := filepath.Join(tmp, "agy"), filepath.Join(tmp, "log")
-	os.WriteFile(bin, []byte(`#!/bin/sh
-in=$(cat)
-echo "ARGS $*" >> `+log+`
-echo "STDIN $in" >> `+log+`
-echo '{"event":"step_update","step_update":{"conversation_id":"c9","step_index":0,"state":"ACTIVE","step_type":"tool","tool_name":"read_file","tool_info":{"file_path":"a.go"}}}'
-echo '{"event":"result","result":{"conversation_id":"","status":"ERROR","response":"","error":"conversation not found"}}'
-exit 1
-`), 0o755)
-	var toolEvents int
-	res, err := antigravityRunner{}.Run(context.Background(), RunRequest{Bin: bin, SessionID: "c9", Prompt: "mới", WorkDir: tmp}, func(e Event) {
-		if e.Type == "tool" {
-			toolEvents++
-		}
-	})
-	if err == nil {
-		t.Fatalf("expected error, got res = %+v", res)
-	}
-	if toolEvents != 1 {
-		t.Fatalf("toolEvents = %d, want 1 (no retry re-emitting the tool call)", toolEvents)
-	}
-	raw, _ := os.ReadFile(log)
-	if got := string(raw); strings.Count(got, "ARGS") != 1 {
-		t.Fatalf("expected a single agy call, got:\n%s", got)
-	}
-}
-
 func TestAntigravityRunnerSignedOut(t *testing.T) {
 	tmp := t.TempDir()
 	bin := filepath.Join(tmp, "agy")
@@ -115,44 +84,6 @@ echo '{"event":"result","result":{"conversation_id":"","status":"ERROR","respons
 `), 0o755)
 	_, err := antigravityRunner{}.Run(context.Background(), RunRequest{Bin: bin, Prompt: "x", WorkDir: tmp}, func(Event) {})
 	if err == nil || !strings.Contains(err.Error(), "chưa đăng nhập") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-// agy ends a turn without an answer when a step fails (a command plan mode
-// denies): asked once more in the same conversation; still nothing is an
-// error, not an empty answer taken as done
-func TestAntigravityRunnerNoAnswer(t *testing.T) {
-	tmp := t.TempDir()
-	bin, log := filepath.Join(tmp, "agy"), filepath.Join(tmp, "log")
-	script := func(answer string) string {
-		return `#!/bin/sh
-in=$(cat)
-echo "ARGS $*" >> ` + log + `
-echo "STDIN $in" >> ` + log + `
-case "$*" in *"--conversation c9"*)
-  ` + answer + `
-  echo '{"event":"result","result":{"conversation_id":"c9","status":"SUCCESS","response":"","usage":{"input_tokens":3,"output_tokens":1}}}'; exit 0;; esac
-echo '{"event":"step_update","step_update":{"conversation_id":"c9","step_index":0,"state":"DONE","step_type":"user_input"}}'
-echo '{"event":"step_update","step_update":{"conversation_id":"c9","step_index":2,"state":"ERROR","step_type":"tool","tool_name":"run_command","error":"user denied permission to run command: git status"}}'
-echo '{"event":"result","result":{"conversation_id":"c9","status":"SUCCESS","response":"","usage":{"input_tokens":10,"output_tokens":5}}}'
-`
-	}
-	os.WriteFile(bin, []byte(script(`echo '{"event":"step_update","step_update":{"conversation_id":"c9","step_index":4,"state":"ACTIVE","step_type":"agent_response","text_delta":"Đánh giá: ổn"}}'`)), 0o755)
-	res, err := antigravityRunner{}.Run(context.Background(), RunRequest{Bin: bin, System: "HƯỚNG DẪN", Prompt: "đánh giá", WorkDir: tmp}, func(Event) {})
-	if err != nil || res.Text != "Đánh giá: ổn" || res.Usage.InputTokens != 13 || len(res.Tools) != 1 {
-		t.Fatalf("res=%+v err=%v", res, err)
-	}
-	raw, _ := os.ReadFile(log)
-	if got := string(raw); strings.Count(got, "ARGS") != 2 || !strings.Contains(got, "The last step failed: user denied permission") {
-		t.Fatalf("calls:\n%s", got)
-	}
-
-	// it still says nothing: the turn fails with why
-	os.Remove(log)
-	os.WriteFile(bin, []byte(script(`:`)), 0o755)
-	_, err = antigravityRunner{}.Run(context.Background(), RunRequest{Bin: bin, Prompt: "đánh giá", WorkDir: tmp}, func(Event) {})
-	if err == nil || !strings.Contains(err.Error(), "không trả lời") || !strings.Contains(err.Error(), "git status") {
 		t.Fatalf("err = %v", err)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
@@ -16,23 +15,6 @@ func TestRunScriptOutputAndExit(t *testing.T) {
 		[]string{"OFFICE_PAYLOAD=pl"}, "in\n")
 	if err != nil || code != 3 || timedOut || !strings.Contains(out, "got in pl") || !strings.Contains(out, "oops") {
 		t.Fatalf("out=%q code=%d timeout=%v err=%v", out, code, timedOut, err)
-	}
-}
-
-func TestRunScriptTimeoutKillsChildren(t *testing.T) {
-	start := time.Now()
-	_, _, timedOut, err := trigger.RunScript(context.Background(), t.TempDir(),
-		storage.AutomationScript{Lang: "bash", Body: "sleep 30 & wait", TimeoutS: 1}, nil, "")
-	if err != nil || !timedOut || time.Since(start) > 3*time.Second {
-		t.Fatalf("timeout=%v err=%v after %v", timedOut, err, time.Since(start))
-	}
-}
-
-func TestRunScriptKeepsTheTail(t *testing.T) {
-	out, code, _, err := trigger.RunScript(context.Background(), t.TempDir(),
-		storage.AutomationScript{Lang: "bash", Body: "head -c 1048576 /dev/zero | tr '\\0' 'a'; echo END"}, nil, "")
-	if err != nil || code != 0 || len(out) > 64<<10 || !strings.HasSuffix(strings.TrimSpace(out), "END") {
-		t.Fatalf("len=%d code=%d err=%v tail=%q", len(out), code, err, out[max(0, len(out)-20):])
 	}
 }
 

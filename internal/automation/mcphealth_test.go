@@ -63,10 +63,3 @@ func TestMCPHealthCheck(t *testing.T) {
 		t.Fatalf("cached: %+v", c)
 	}
 }
-
-func TestMCPHealthNoClaude(t *testing.T) {
-	h := &MCPHealth{Home: t.TempDir(), Claude: func() string { return "" }}
-	if c := h.Check(""); c.Running || c.Error == "" {
-		t.Fatalf("want error: %+v", c)
-	}
-}

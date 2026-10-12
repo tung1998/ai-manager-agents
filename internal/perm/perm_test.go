@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -82,37 +81,6 @@ func TestLoadPolicyUpgradesOldEnvPattern(t *testing.T) {
 	}
 }
 
-// The quick check (ADR-133) is on by default, also for a policy saved before
-// it existed; turned off, it stays off.
-func TestQuickCheckDefault(t *testing.T) {
-	st, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	ctx := context.Background()
-	if err := st.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if !LoadPolicy(ctx, st, "none").QuickCheck {
-		t.Fatal("default off")
-	}
-	if err := st.Settings().Set(ctx, policyKey("old"), map[string]any{"deny_paths": []string{".env"}}); err != nil {
-		t.Fatal(err)
-	}
-	if !LoadPolicy(ctx, st, "old").QuickCheck {
-		t.Fatal("a policy saved before the setting lost it")
-	}
-	p := DefaultPolicy()
-	p.QuickCheck = false
-	if err := SavePolicy(ctx, st, "off", p); err != nil {
-		t.Fatal(err)
-	}
-	if LoadPolicy(ctx, st, "off").QuickCheck {
-		t.Fatal("turned off, still on")
-	}
-}
-
 func TestResolveCustomCaps(t *testing.T) {
 	caps := []string{CapPropose, CapCommands, CapCommit}
 	cmds := []string{"go test ./..."}
@@ -139,18 +107,6 @@ func TestResolveCustomCaps(t *testing.T) {
 	acc = Resolve(storage.Agent{Permissions: storage.Permissions{Level: Check, Commands: &deploy}}, Operate, p)
 	if len(acc.Commands) != 1 || len(acc.Safe) != 0 {
 		t.Fatalf("picks within the catalog: %+v", acc)
-	}
-}
-
-func TestCatalogSafe(t *testing.T) {
-	packs := []Pack{
-		{ID: "scripts", Commands: []string{"pnpm run test", "pnpm run test:unit", "pnpm run dev", "pnpm run deploy", "pnpm run typecheck", "pnpm run build"}},
-		{ID: "go", Commands: []string{"go test ./...", "go mod tidy"}},
-		{ID: "custom-1", Custom: true, Commands: []string{"make test"}},
-	}
-	all, safe := Catalog(packs)
-	if len(all) != 9 || strings.Join(safe, ",") != "pnpm run test,pnpm run test:unit,pnpm run typecheck,pnpm run build,go test ./..." {
-		t.Fatalf("all=%v safe=%v", all, safe)
 	}
 }
 

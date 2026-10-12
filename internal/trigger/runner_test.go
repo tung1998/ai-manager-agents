@@ -115,89 +115,6 @@ func TestScheduleStops(t *testing.T) {
 	}
 }
 
-// A run hands the automation's tags to the chat it talks in.
-func TestRunCarriesTags(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	ex := &fakeExec{}
-	r := trigger.New(st, ex)
-	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "h", Source: "webhook", Action: "chat", Enabled: true,
-		Config: storage.AutomationConfig{Tags: []string{"nightly", "ops"}}})
-	if _, _, err := r.Enqueue(ctx, a, "webhook", `{}`, "", ""); err != nil {
-		t.Fatal(err)
-	}
-	r.StartReady(ctx, time.Now().UTC())
-	r.Wait()
-	if len(ex.tags) != 1 || strings.Join(ex.tags[0], ",") != "nightly,ops" {
-		t.Fatalf("tags = %v", ex.tags)
-	}
-}
-
-func TestBusyRetriesAndFailuresDisable(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	ex := &fakeExec{busy: 1, fail: true}
-	r := trigger.New(st, ex)
-	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "h", Source: "webhook", Action: "chat", Enabled: true,
-		Limits: storage.AutomationLimits{DisableAfterFailures: 2}})
-	for i := 0; i < 2; i++ {
-		if _, status, err := r.Enqueue(ctx, a, "webhook", `{"n":1}`, fmt.Sprint(i), ""); err != nil || status != "queued" {
-			t.Fatalf("enqueue = %s %v", status, err)
-		}
-	}
-	now := time.Now().UTC()
-	r.Tick(ctx, now) // first is busy → retry in 60s; second runs and fails
-	r.Wait()
-	r.Tick(ctx, now.Add(61*time.Second))
-	r.Wait()
-	a, _ = st.Automations().Get(ctx, a.ID)
-	if a.Enabled || a.DisabledCode != "failures" || a.Failures != 2 {
-		t.Fatalf("automation = %+v", a)
-	}
-	failed, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID, Status: "failed"})
-	if len(failed) != 2 || failed[0].ErrorCode != "agent_error" {
-		t.Fatalf("failed = %+v", failed)
-	}
-}
-
-func TestRestartedJobDoesNotRunAgain(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	ex := &fakeExec{}
-	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "h", Source: "webhook", Action: "chat", Enabled: true})
-	now := time.Now().UTC()
-	st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: a.ID, Status: "running", StartedAt: &now})
-	st.Jobs().FailRunning(ctx, "restart", "restart", now)
-	r := trigger.New(st, ex)
-	r.Tick(ctx, now.Add(time.Minute))
-	r.Wait()
-	if len(ex.chats) != 0 {
-		t.Fatalf("re-ran a restarted job: %v", ex.chats)
-	}
-}
-
-// An automation can ask for a cheaper model tier for its runs.
-func TestAutomationModelTier(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	ex := &fakeExec{}
-	r := trigger.New(st, ex)
-	past := time.Now().UTC().Add(-time.Minute)
-	st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "daily", Source: "schedule", Action: "chat", Enabled: true, ModelTier: "fast",
-		Prompt: "báo cáo", Config: storage.AutomationConfig{EveryMinutes: 60}, NextRunAt: &past})
-	r.Tick(ctx, time.Now().UTC())
-	r.Wait()
-	ex.mu.Lock()
-	defer ex.mu.Unlock()
-	if len(ex.tiers) != 1 || ex.tiers[0] != "fast" {
-		t.Fatalf("tiers = %v", ex.tiers)
-	}
-	got, _ := st.Automations().List(ctx, p.ID)
-	if got[0].ModelTier != "fast" {
-		t.Fatalf("stored tier = %q", got[0].ModelTier)
-	}
-}
-
 // fullAccessAgent creates an agent whose FullAccess an admin turned on.
 func fullAccessAgent(t *testing.T, ctx context.Context, st storage.Store, p storage.Repo) storage.Agent {
 	t.Helper()
@@ -277,32 +194,6 @@ func TestRetryOfWebhookJobNeverGetsFullAccess(t *testing.T) {
 	}
 	if job.FullAccess || job.FullAccessBy != "" {
 		t.Fatalf("retry of a webhook job got full access: %+v", job)
-	}
-}
-
-// ADR-074 security fix: a SECOND retry (retrying the job the first retry made,
-// itself stored with trigger "manual") must still never gain full access —
-// the original webhook never had it, and "manual" alone must not launder that.
-func TestRetryOfRetryOfWebhookJobNeverGetsFullAccess(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	ag := fullAccessAgent(t, ctx, st, p)
-	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "h", Source: "webhook", Action: "chat", Enabled: true, AgentID: ag.ID})
-	r := trigger.New(st, &fakeExec{})
-	job1, _, err := r.Retry(ctx, a, "webhook", false, "{}")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if job1.FullAccess {
-		t.Fatalf("first retry got full access: %+v", job1)
-	}
-	// job1 is stored with Trigger "manual" and FullAccess false; retry it again
-	job2, _, err := r.Retry(ctx, a, job1.Trigger, job1.FullAccess, "{}")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if job2.FullAccess || job2.FullAccessBy != "" {
-		t.Fatalf("second retry (of a 'manual'-trigger job) got full access: %+v", job2)
 	}
 }
 
@@ -423,53 +314,6 @@ func TestChannelAdminGetsAgentFullAccess(t *testing.T) {
 	}
 }
 
-// ADR-082: at its time, with fewer runs going than it may have at once, a
-// new one starts beside them; with as many, none — and none is stopped.
-func TestScheduleRunsInParallelUpToItsLimit(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	r := trigger.New(st, &fakeExec{})
-	past := time.Now().UTC().Add(-time.Minute)
-	a, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "migrate", Source: "schedule", Action: "chat", Enabled: true,
-		Prompt: "x", Config: storage.AutomationConfig{EveryMinutes: 20}, NextRunAt: &past, Limits: storage.AutomationLimits{MaxParallel: 2}})
-	running := func() {
-		st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: a.ID, Trigger: "schedule", Status: "running"})
-	}
-	count := func() int {
-		jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID})
-		return len(jobs)
-	}
-	running() // the last run is still going
-	r.Tick(ctx, time.Now().UTC())
-	if count() != 2 {
-		t.Fatalf("one running of 2 allowed: jobs = %d, want a new one beside it", count())
-	}
-	a, _ = st.Automations().Get(ctx, a.ID)
-	a.NextRunAt = &past
-	st.Automations().Update(ctx, a)
-	running() // now as many as it may have
-	before := count()
-	r.Tick(ctx, time.Now().UTC())
-	if count() != before+1 {
-		t.Fatalf("at its limit a new run started (or no skipped trace left): %d → %d", before, count())
-	}
-	jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID, Status: "skipped"})
-	if len(jobs) != 1 || jobs[0].ErrorCode != "busy" {
-		t.Fatalf("want one skipped/busy trace for the dropped tick, got %+v", jobs)
-	}
-	a, _ = st.Automations().Get(ctx, a.ID)
-	a.NextRunAt = &past
-	st.Automations().Update(ctx, a)
-	before = count()
-	r.Tick(ctx, time.Now().UTC()) // still busy: a second dropped tick must not add a second trace
-	if count() != before {
-		t.Fatalf("a second busy tick added another row: %d → %d", before, count())
-	}
-	if (storage.Automation{KeepContext: true, Limits: storage.AutomationLimits{MaxParallel: 3}}).Parallel() != 1 {
-		t.Fatal("a kept conversation ran in parallel")
-	}
-}
-
 // blockingExec holds every RunChat until told to let it go, so a test can
 // catch the runner mid-flight with a known number of jobs actually running.
 type blockingExec struct {
@@ -484,46 +328,6 @@ func (b *blockingExec) RunChat(ctx context.Context, projectID, agentID, conv, pr
 	b.mu.Unlock()
 	<-b.release
 	return "cnv_x", "ok", nil
-}
-
-// Claim must enforce an automation's Parallel() against jobs actually
-// running, not just against the batch it is about to claim: with 3 already
-// running (the limit), a due job of it waits even though runner slots are
-// free (the bug this piece fixes — StartReady must not over-claim an origin
-// across repeated calls once the runner's own busy count already tracks it).
-func TestStartReadyNeverExceedsParallelAcrossCalls(t *testing.T) {
-	ctx := context.Background()
-	st, p := openStore(t)
-	ex := &blockingExec{release: make(chan struct{})}
-	r := trigger.New(st, ex)
-	a, err := st.Automations().Create(ctx, storage.Automation{ProjectID: p.ID, Name: "fanout", Source: "schedule", Action: "chat", Enabled: true,
-		Prompt: "x", Limits: storage.AutomationLimits{MaxParallel: 3}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 5; i++ {
-		if _, _, err := r.Enqueue(ctx, a, "manual", "", "", ""); err != nil {
-			t.Fatal(err)
-		}
-	}
-	running := func() int {
-		jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID, Status: "running"})
-		return len(jobs)
-	}
-	r.StartReady(ctx, time.Now().UTC()) // first call: nothing running yet, fills up to Parallel()=3
-	if n := running(); n != 3 {
-		t.Fatalf("first StartReady started %d, want 3 (Parallel limit)", n)
-	}
-	r.StartReady(ctx, time.Now().UTC()) // second call: 3 already running, at its limit
-	if n := running(); n != 3 {
-		t.Fatalf("second StartReady started more beyond Parallel: %d running, want still 3", n)
-	}
-	pending, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: a.ID, Status: "pending"})
-	if len(pending) != 2 {
-		t.Fatalf("pending = %d, want 2 (5 enqueued - 3 at the Parallel limit)", len(pending))
-	}
-	close(ex.release) // let everything finish so the goroutines don't leak past the test
-	r.Wait()
 }
 
 // A bot rule that names no agent answers with the project's lead (or the

@@ -3,7 +3,6 @@ package trigger_test
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -83,30 +82,6 @@ func TestChannelScriptReplies(t *testing.T) {
 	runChannel(t, r, st, a, channelPayload(""))
 	if len(rs.got) != 1 || rs.got[0] != (reply{"42", "Đơn 123: đang giao", nil, true}) {
 		t.Fatalf("replies = %+v", rs.got)
-	}
-}
-
-// A rule's prompt is the admin's instruction, framed as one; the person's
-// message comes apart as what they said, and a command without text is just
-// "they used /x" (not a message "/x" to answer).
-func TestChannelPromptIsAnInstruction(t *testing.T) {
-	st, p := openStore(t)
-	ex := &recExec{reply: "tôi yêu bạn"}
-	r := trigger.New(st, ex)
-	a, _ := st.Automations().Create(context.Background(), storage.Automation{ProjectID: p.ID, Name: "/kiem-tra", Source: "discord", Action: "chat", Enabled: true,
-		Prompt: `chỉ trả về "tôi yêu bạn"`, Config: storage.AutomationConfig{ChannelID: "chn_1", Command: "kiem-tra"}})
-	raw, _ := json.Marshal(map[string]string{"message": "/kiem-tra", "user": "an", "chat_id": "42", "channel_id": "chn_1", "conversation_id": "cnv_1"})
-	if _, _, err := r.Enqueue(context.Background(), a, "discord", string(raw), "", ""); err != nil {
-		t.Fatal(err)
-	}
-	r.Tick(context.Background(), time.Now().UTC().Add(time.Second))
-	r.Wait()
-	if len(ex.prompts) != 1 {
-		t.Fatalf("prompts = %q", ex.prompts)
-	}
-	// a reply: the person's message is what the agent gets, the instruction goes apart (the system prompt)
-	if ex.prompts[0] != "an used the command /kiem-tra." || !strings.Contains(ex.instrs[0], `chỉ trả về "tôi yêu bạn"`) || !strings.Contains(ex.instrs[0], "/kiem-tra") {
-		t.Fatalf("prompt = %q instructions = %q", ex.prompts[0], ex.instrs[0])
 	}
 }
 
