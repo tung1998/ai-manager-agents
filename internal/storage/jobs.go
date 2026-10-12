@@ -55,11 +55,11 @@ type JobFilter struct {
 	// CreatedBy is Me (ADR-046: an assistant chat is its creator's alone).
 	HideOthersIn string
 	Me           string
-	Kind             string
-	Origin           string
-	OriginID         string
-	OriginIDs        []string // any of these (a bot: its commands, and itself)
-	TaskID           string
+	Kind         string
+	Origin       string
+	OriginID     string
+	OriginIDs    []string // any of these (a bot: its commands, and itself)
+	TaskID       string
 	// ConversationID: a chat's jobs (its turns)
 	ConversationID string
 	Source         string // web | discord | telegram | auto (where it came from)

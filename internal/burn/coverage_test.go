@@ -245,3 +245,22 @@ func TestCoverageNotApplicable(t *testing.T) {
 		t.Fatalf("refused: %s", why)
 	}
 }
+
+// A long Burn's older runs never push this run's early pieces out of the
+// scan's "already recorded" list: 11/10 the scans recorded pieces done hours
+// before in the same run again (updateMonitor, cloneLocks), once they had
+// slid past the cap.
+func TestTakenKeepsThisRun(t *testing.T) {
+	b := storage.BurnSession{RunBranch: "burn/now"}
+	items := []storage.BurnItem{{ID: "early", Kind: "bug", Status: "done", Title: "updateMonitor: no version check", RunBranch: "burn/now"}}
+	for i := range maxTakenInScan + 20 {
+		items = append(items, storage.BurnItem{ID: fmt.Sprint("o", i), Kind: "bug", Status: "done", Title: fmt.Sprintf("old piece %d", i), RunBranch: "burn/old"})
+	}
+	p := scanPrompt(b, storage.BurnItem{ID: "w"}, items, false)
+	if !strings.Contains(p, "[done] updateMonitor: no version check") {
+		t.Fatalf("this run's piece left out of the taken list:\n%s", p)
+	}
+	if strings.Count(p, "] old piece ") != maxTakenInScan-1 {
+		t.Fatalf("older runs fill the rest: %d", strings.Count(p, "] old piece "))
+	}
+}

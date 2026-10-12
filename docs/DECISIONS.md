@@ -2286,3 +2286,12 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Quyết định:**
   - Khi plan vượt trần, `fitCoverage` rút gọn phần "kết quả" của các mục `[x]` theo từng bậc (120 → 60 ký tự → chỉ giữ tên vùng). Không bỏ mục nào. Nếu chỉ còn tên vùng mà vẫn vượt trần, `burn_scan_done` trả lỗi để lượt quét viết ngắn các mục `[ ]`. Phương án cuối cùng là cắt theo dòng nguyên.
   - Mục `[x]` có kết quả "không tồn tại", "không áp dụng" hoặc "trùng mục …" được nhận mà không cần ghi file.
+## ADR-148: Burn: lượt quét thấy hết việc của lần chạy; gộp lỗi cùng loại; test hồi quy phải fail trên code cũ
+- **Bối cảnh (11/10):** Lần chạy `burn/2026-10-11-023019` có 67 việc xong, 18 bị từ chối, 1 thất bại. Có ba nguyên nhân:
+  - Danh sách "đã ghi" trong prompt quét chỉ giữ 60 việc mới nhất, tính trên mọi lần chạy. Việc làm sớm trong cùng lần chạy bị đẩy ra ngoài, nên lượt quét ghi lại lần nữa (updateMonitor, cloneLocks ×2, usage TOCTOU ×2).
+  - Khoảng 25 việc là cùng một lớp lỗi: storage `Update` ghi đè cả dòng, không có version. Burn sửa từng chỗ một, có lần còn sửa lại chính bản sửa trước đó.
+  - Hai việc phải làm lại vì test hồi quy vẫn pass trên code cũ.
+- **Quyết định:**
+  - Danh sách "đã ghi" ưu tiên việc của lần chạy hiện tại và việc còn mở. Việc của các lần chạy cũ chỉ lấp phần còn trống. Trần nâng lên 120.
+  - Prompt quét yêu cầu kiểm trùng theo hàm và file (không theo tiêu đề), và chỉ ghi race khi có đường gọi chạy song song thật. Hành vi mà docs/ADR đã chọn có chủ đích không được coi là lỗi. Cùng một lỗi lặp ở từ 3 chỗ trở lên thì ghi một việc sửa tận gốc.
+  - Prompt worker cho việc loại bug: test hồi quy phải fail khi bỏ bản sửa. Cách kiểm: sao lưu file rồi `git checkout`, không dùng `git stash` vì stash dùng chung giữa các worktree. Tóm tắt phải ghi rõ fail→pass.

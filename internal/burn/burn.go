@@ -766,7 +766,8 @@ func (s *Service) run(ctx context.Context, conversationID, text string) (turnRes
 // work runs one piece in its own worktree; reported done, it is merged into
 // the run (ADR-123).
 func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.BurnItem) (failed bool) {
-	from := it.Status // read before it moves to "doing": the person may skip it meanwhile, and theirs wins
+	// read before it moves to "doing": the person may skip it meanwhile, and theirs wins
+	from := it.Status
 	again := it.Status == "paused" || it.Status == "doing" || it.Worktree != "" // a retry goes on from what is there
 	tree := "burn-" + it.ID
 	it.Status, it.Attempts = "doing", it.Attempts+1

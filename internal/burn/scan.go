@@ -59,7 +59,7 @@ const maxCodeMap = 8000
 // What a scan's prompt carries: the latest pieces recorded, the latest
 // areas looked at.
 const (
-	maxTakenInScan   = 60
+	maxTakenInScan   = 120
 	maxScannedInScan = 3 // the coverage plan says where to go on; these only show the latest
 )
 
@@ -264,13 +264,23 @@ func scanPrompt(b storage.BurnSession, it storage.BurnItem, items []storage.Burn
 			pieces = append(pieces, x)
 		}
 	}
-	var taken []string
-	for _, g := range slices.Backward(groupByPiece(pieces)) {
-		taken = append(taken, fmt.Sprintf("[%s%s] %s", g.it.Status, times(g.n), oneLine(g.it.Title, 120)))
+	// this run's pieces and the open ones first: a run past the cap would
+	// otherwise push its own early pieces out, and the scan record them again;
+	// earlier runs' pieces fill what room is left
+	var mine, rest []string
+	for _, g := range groupByPiece(pieces) {
+		line := fmt.Sprintf("[%s%s] %s", g.it.Status, times(g.n), oneLine(g.it.Title, 120))
+		if g.it.RunBranch == b.RunBranch || openPiece(g.it.Status) {
+			mine = append(mine, line)
+		} else {
+			rest = append(rest, line)
+		}
 	}
+	taken := append(mine, rest...)
 	if len(taken) > maxTakenInScan {
-		taken = taken[len(taken)-maxTakenInScan:]
+		taken = taken[:maxTakenInScan]
 	}
+	slices.Reverse(taken) // oldest first, the latest last
 	var scanned []string
 	if b.Scanned != "" {
 		scanned = strings.Split(strings.TrimSpace(b.Scanned), "\n")
@@ -284,6 +294,15 @@ func scanPrompt(b storage.BurnSession, it storage.BurnItem, items []storage.Burn
 		Batch, Left, MaxChecks                         int
 		Again                                          bool
 	}{it.ID, b.Focus, b.Order, hunt(b), b.CodeMap, b.Lessons, b.Coverage, looks(b), taken, scanned, setbacks(items), changed(b, items), scanBatch, left(b.Coverage), maxChecks, again})
+}
+
+// openPiece: a piece still waiting or being done.
+func openPiece(status string) bool {
+	switch status {
+	case "found", "queued", "doing", "paused", "review":
+		return true
+	}
+	return false
 }
 
 // left: the items of a coverage plan not checked yet.

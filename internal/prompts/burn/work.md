@@ -30,6 +30,9 @@ The reviewer's notes (follow them unless the code shows otherwise):
 [[- end]]
 
 You work in this piece's own worktree, with full access; other Burn pieces may run in parallel in theirs. Do not push or merge. After changing code, run the related build/test until they pass, in the foreground: never end your turn waiting on a background command (nothing wakes you when it ends).
+[[- if eq .Kind "bug"]]
+A bug fix comes with a regression test that FAILS without the fix: run it once against the code with your fix taken out (copy the fixed non-test files aside, `git checkout -- <those files>`, run the test, copy them back; not git stash, it is shared with other worktrees) and say in your summary that it failed before and passes now. A test that passes either way proves nothing; with no way to test it, say why.
+[[- end]]
 [[- if eq .Kind "quest"]]
 The person gave this piece themselves: do what it asks, as asked. Do not look for other work; anything else you notice goes in your summary.
 [[- end]]
