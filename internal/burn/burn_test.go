@@ -754,3 +754,29 @@ func TestBurnDoesAQuest(t *testing.T) {
 		t.Fatalf("quest done = %+v, run %s", q, b.RunBranch)
 	}
 }
+
+// At its time a scheduled Burn turns on by itself, stopping by its plan;
+// turned off by hand, the same slot does not turn it on again.
+func TestBurnTurnsOnBySchedule(t *testing.T) {
+	f := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	now := time.Now()
+	at := now.Add(-time.Minute).Format("15:04")
+	plan := storage.BurnPlan{End: burn.EndHours, Hours: 2, Auto: true, At: at, Days: []int{int(now.Add(-time.Minute).Weekday())}}
+	if _, err := f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", MaxParallel: 1, State: "stopped", Plan: plan}); err != nil {
+		t.Fatal(err)
+	}
+	f.svc.StartDue(ctx, now)
+	b, _ := f.st.Burn().Session(ctx, f.project.ID)
+	if b.State != "running" || b.StartedBy != burn.SchedSource || b.EndsAt == nil || b.EndsAt.Sub(now) < 119*time.Minute || b.EndsAt.Sub(now) > 121*time.Minute {
+		t.Fatalf("not turned on by its plan: %s %s %v", b.State, b.StartedBy, b.EndsAt)
+	}
+	if err := f.svc.Stop(ctx, f.project.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.svc.StartDue(ctx, now.Add(time.Minute))
+	if b, _ := f.st.Burn().Session(ctx, f.project.ID); b.State != "stopped" {
+		t.Fatalf("turned on again after being turned off: %s", b.State)
+	}
+}

@@ -2295,3 +2295,11 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Danh sách "đã ghi" ưu tiên việc của lần chạy hiện tại và việc còn mở. Việc của các lần chạy cũ chỉ lấp phần còn trống. Trần nâng lên 120.
   - Prompt quét yêu cầu kiểm trùng theo hàm và file (không theo tiêu đề), và chỉ ghi race khi có đường gọi chạy song song thật. Hành vi mà docs/ADR đã chọn có chủ đích không được coi là lỗi. Cùng một lỗi lặp ở từ 3 chỗ trở lên thì ghi một việc sửa tận gốc.
   - Prompt worker cho việc loại bug: test hồi quy phải fail khi bỏ bản sửa. Cách kiểm: sao lưu file rồi `git checkout`, không dùng `git stash` vì stash dùng chung giữa các worktree. Tóm tắt phải ghi rõ fail→pass.
+
+## ADR-149: Burn: bật là bật; lịch chạy lưu trong cài đặt, có lịch tự bật
+- **Bối cảnh (12/10):** Cài đặt Burn nằm ở hai nơi: ngăn Cài đặt, và hộp hỏi mỗi lần bấm Bật (cảnh báo + chọn lúc dừng). Bật mỗi lần phải chọn lại. Burn không tự bật được theo giờ, muốn chạy ban đêm phải nhớ bật tay.
+- **Quyết định:**
+  - Phiên Burn có `run_plan` (JSON `storage.BurnPlan`): `end` = `reset` (mặc định, như trước) | `hours` + `hours` | `clock` + `clock` (HH:MM, lần tới của giờ đó) | `none`; `auto` + `days` (0 CN … 6) + `at` (HH:MM); `tz` (múi giờ của trình duyệt khi lưu; rỗng = của máy).
+  - Bật (`POST …/burn/start` không kèm `ends_at`/`no_end`, quest có `start`, lịch) đều qua `Service.TurnOn`: `ends_at` tính từ plan lúc bật. `ends_at`/`no_end` gửi kèm vẫn được (script, dashboard cũ).
+  - Bộ hẹn giờ trong `Service.Start` xem 30 giây một lần các phiên `auto`: tới giờ (trễ tối đa 1 giờ) mà đang tắt và chưa chạy từ mốc đó thì bật, `started_by = auto:lịch Burn`. Tắt tay thì đợi mốc sau. Mỗi mốc chỉ thử một lần; lỗi thì báo vào chat Burn.
+  - Dashboard: công tắc Bật/Tắt trên đầu tab (tắt = làm nốt rồi tắt), dòng trạng thái nói bật thì chạy tới đâu và lần tự bật kế tiếp (`next_start`). Cảnh báo toàn quyền chuyển thành ⓘ cạnh công tắc. Cài đặt chia khối: Lịch chạy, Việc cần làm, Ai làm, Kiểm tra & báo cáo, Nâng cao.

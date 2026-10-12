@@ -230,6 +230,8 @@ async function seed() {
   // this one doubles as 38-automation-detail/39-automation-edit's seeded automation: must exist, so not soft()
   await api('POST', `/api/projects/${ao.id}/automations`, { name: T('Sentry alert → triage', 'Cảnh báo Sentry → phân loại'), source: 'webhook', action: 'chat', agent_id: dev?.id, prompt: T('A Sentry alert arrived:\n{{payload}}\nFind the root cause and propose a fix.', 'Có cảnh báo Sentry:\n{{payload}}\nTìm nguyên nhân và đề xuất cách sửa.'), limits: { max_runs_per_hour: 6, debounce_seconds: 120 } })
   await auto({ name: T('Weekly dependency check', 'Kiểm tra thư viện hằng tuần'), source: 'schedule', action: 'chat', agent_id: qa?.id, config: { cron: '0 9 * * 1', timezone: 'Asia/Ho_Chi_Minh' }, prompt: T('List outdated Go and npm dependencies, flag risky upgrades.', 'Liệt kê thư viện Go và npm đã cũ, đánh dấu bản nâng cấp rủi ro.') })
+  // the Burn: off, turning on by itself on weekday nights until 7:00 (13-burn, 13b-burn-settings)
+  await soft('burn plan', () => api('PUT', `/api/projects/${ao.id}/burn`, { focus: T('checkout first, skip docs', 'ưu tiên checkout, bỏ qua docs'), plan: { end: 'clock', clock: '07:00', auto: true, days: [1, 2, 3, 4, 5], at: '22:00' } }))
 
   // a bot (disabled, so it never calls Telegram for real) for 42-bot-detail/43-bot-edit — not soft(): must exist
   await api('POST', `/api/projects/${ao.id}/channels`, { kind: 'telegram', name: T('Support bot', 'Bot hỗ trợ'), token: '123:demo-bot-token', agent_id: lead?.id, allow: ['*'], enabled: false })
@@ -480,6 +482,7 @@ async function capture({ ao, shop, lead }) {
     ['11-operations', `${P}?tab=ops`],
     ['12-files', `${P}?tab=files`],
     ['13-burn', `${P}?tab=burn`],
+    ['13b-burn-settings', `${P}?tab=burn`, async () => { await page.click(T('Settings', 'Cài đặt')); await sleep(900) }],
     ['14-skills', `${P}?tab=skill`],
     ['15-mcp', `${P}?tab=mcp`],
     ['16-change-log', `${P}?tab=log`],

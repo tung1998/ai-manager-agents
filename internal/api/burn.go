@@ -50,6 +50,9 @@ type burnDTO struct {
 	StopAfter int `json:"stop_after"`
 	// ADR-139: a builder Burn's feature list, to show its idea→feature progress
 	Features []burn.Feature `json:"features,omitempty"`
+	// how long a run lasts once on, when it turns on by itself; next_start: its next time
+	Plan      storage.BurnPlan `json:"plan"`
+	NextStart *time.Time       `json:"next_start,omitempty"`
 }
 
 type burnItemDTO struct {
@@ -74,7 +77,14 @@ type burnItemDTO struct {
 
 func toBurnDTO(b storage.BurnSession) burnDTO {
 	return burnDTO{b.ID, b.ConversationID, b.AgentID, b.ModelTier, b.MaxParallel, b.Focus, cmp.Or(b.Order, "roadmap"), cmp.Or(b.Template, "general"), b.HuntPrompt,
-		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, "", b.Verify, b.CodeMap, b.Lessons, b.Coverage, b.ReviewCap, b.StopAfter, nil}
+		b.ReviewProfileID, b.NotifyChannelID, b.NotifyChatID, b.EndsAt, b.State, b.WaitingUntil, b.StartedBy, b.StartedAt, b.RunBranch, "", b.Verify, b.CodeMap, b.Lessons, b.Coverage, b.ReviewCap, b.StopAfter, nil, b.Plan, nextStart(b.Plan)}
+}
+
+func nextStart(p storage.BurnPlan) *time.Time {
+	if t, ok := burn.NextStart(p, time.Now()); ok {
+		return &t
+	}
+	return nil
 }
 
 // burnSession is the project's, or the defaults for a first one (not saved).
@@ -164,21 +174,22 @@ const maxFocus = 2000
 const maxHuntPrompt = 4000
 
 type burnInput struct {
-	AgentID         *string    `json:"agent_id"`
-	ModelTier       *string    `json:"model_tier"`
-	MaxParallel     *int       `json:"max_parallel"`
-	Focus           *string    `json:"focus"`
-	Order           *string    `json:"order"`
-	Template        *string    `json:"template"`
-	HuntPrompt      *string    `json:"hunt_prompt"`
-	Verify          *string    `json:"verify"`
-	ReviewCap       *int       `json:"review_cap"`
-	StopAfter       *int       `json:"stop_after"`
-	ReviewProfileID *string    `json:"review_profile_id"` // "" = no review
-	NotifyChannelID *string    `json:"notify_channel_id"` // "" = only its own chat
-	NotifyChatID    *string    `json:"notify_chat_id"`
-	EndsAt          *time.Time `json:"ends_at"`
-	NoEnd           bool       `json:"no_end"` // run until stopped by hand
+	AgentID         *string           `json:"agent_id"`
+	ModelTier       *string           `json:"model_tier"`
+	MaxParallel     *int              `json:"max_parallel"`
+	Focus           *string           `json:"focus"`
+	Order           *string           `json:"order"`
+	Template        *string           `json:"template"`
+	HuntPrompt      *string           `json:"hunt_prompt"`
+	Verify          *string           `json:"verify"`
+	ReviewCap       *int              `json:"review_cap"`
+	StopAfter       *int              `json:"stop_after"`
+	ReviewProfileID *string           `json:"review_profile_id"` // "" = no review
+	NotifyChannelID *string           `json:"notify_channel_id"` // "" = only its own chat
+	NotifyChatID    *string           `json:"notify_chat_id"`
+	EndsAt          *time.Time        `json:"ends_at"`
+	NoEnd           bool              `json:"no_end"` // run until stopped by hand
+	Plan            *storage.BurnPlan `json:"plan"`
 }
 
 func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession) error {
@@ -244,6 +255,12 @@ func (s *server) applyBurn(r *http.Request, in burnInput, b *storage.BurnSession
 		t := in.EndsAt.UTC()
 		b.EndsAt = &t
 	}
+	if in.Plan != nil {
+		if err := burn.CheckPlan(*in.Plan); err != nil {
+			return err
+		}
+		b.Plan = *in.Plan
+	}
 	if in.ReviewProfileID != nil {
 		id := strings.TrimSpace(*in.ReviewProfileID)
 		if id != "" {
@@ -284,7 +301,8 @@ func (s *server) saveBurn(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"burn": toBurnDTO(b)})
 }
 
-// startBurn: confirmed on the dashboard (the dialog says what it means).
+// startBurn turns it on: it stops by its saved plan, unless ends_at or
+// no_end say otherwise (a script, an older dashboard).
 func (s *server) startBurn(w http.ResponseWriter, r *http.Request) {
 	var in burnInput
 	if !decode(w, r, &in) {
@@ -300,15 +318,15 @@ func (s *server) startBurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if b.EndsAt == nil && !in.NoEnd { // the suggested stop: the next weekly reset, else 8 hours
-		t := s.cfg.Burn.DefaultEnd(r.Context(), b.AgentID)
-		b.EndsAt = &t
-	}
 	if _, err := s.cfg.Store.Burn().SaveSession(r.Context(), b); err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	b, err = s.cfg.Burn.Begin(r.Context(), pid, userFrom(r).Email)
+	if in.EndsAt != nil || in.NoEnd {
+		b, err = s.cfg.Burn.Begin(r.Context(), pid, userFrom(r).Email)
+	} else {
+		b, err = s.cfg.Burn.TurnOn(r.Context(), pid, userFrom(r).Email, time.Now())
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

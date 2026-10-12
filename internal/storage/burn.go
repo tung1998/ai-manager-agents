@@ -31,11 +31,27 @@ type BurnSession struct {
 	StopAfter                              int    // pieces done in a run after which it finishes (ADR-135); 0 = none
 	NotifyChannelID, NotifyChatID          string // a bot's chat its summary goes to when it stops (ADR-120); "" = none
 	EndsAt                                 *time.Time
-	State                                  string // running | waiting_limit | draining (finishing what is in progress) | stopped
+	Plan                                   BurnPlan // how long a run lasts, when it turns on by itself
+	State                                  string   // running | waiting_limit | draining (finishing what is in progress) | stopped
 	WaitingUntil                           *time.Time
 	StartedBy                              string
 	StartedAt                              *time.Time
 	CreatedAt, UpdatedAt                   time.Time
+}
+
+// BurnPlan is how a Burn runs once turned on, and when it turns on by itself.
+type BurnPlan struct {
+	// End: when a run stops. reset (the agent's weekly limit reset, else 8
+	// hours; "" too) | hours (Hours after it starts) | clock (the next Clock,
+	// HH:MM) | none (until turned off)
+	End   string `json:"end,omitempty"`
+	Hours int    `json:"hours,omitempty"`
+	Clock string `json:"clock,omitempty"`
+	// Auto: it turns on by itself at At (HH:MM) on Days (0 Sunday … 6)
+	Auto bool   `json:"auto,omitempty"`
+	Days []int  `json:"days,omitempty"`
+	At   string `json:"at,omitempty"`
+	TZ   string `json:"tz,omitempty"` // the time zone of Clock and At ("" = the machine's)
 }
 
 // BurnReviewProfile is a saved review setup of a project (ADR-113): the
@@ -91,6 +107,8 @@ type BurnRepo interface {
 	// SetLessons saves its lessons, nothing else (ADR-131).
 	SetLessons(ctx context.Context, id, lessons string) error
 	Running(ctx context.Context) ([]BurnSession, error)
+	// Scheduled: the Burns that turn on by themselves (Plan.Auto).
+	Scheduled(ctx context.Context) ([]BurnSession, error)
 	AddItem(ctx context.Context, it BurnItem) (BurnItem, error)
 	UpdateItem(ctx context.Context, it BurnItem) error
 	// UpdateItemFrom saves it only if the item's current status still equals

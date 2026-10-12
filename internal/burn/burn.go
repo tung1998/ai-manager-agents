@@ -102,7 +102,7 @@ func questKey(title string) string { return strings.ToLower(strings.Join(strings
 // AddQuests gives the project's Burn the quests an automation found (ADR-132),
 // leaving out those an open piece already has (same title, case and spaces
 // aside). With start, a stopped Burn starts on its saved settings (no stop
-// time: DefaultEnd) once any was added; who names the starter. A quest that
+// time: its plan's) once any was added; who names the starter. A quest that
 // cannot be added is skipped; err says why the last one failed, or why the
 // Burn did not start.
 func (s *Service) AddQuests(ctx context.Context, projectID string, qs []Quest, start bool, who string) (added int, started bool, err error) {
@@ -144,14 +144,7 @@ func (s *Service) AddQuests(ctx context.Context, projectID string, qs []Quest, s
 	if added == 0 || !start || b.Active() {
 		return added, false, addErr
 	}
-	if b.EndsAt == nil || !b.EndsAt.After(time.Now()) { // as a start on the dashboard: the suggested stop
-		end := s.DefaultEnd(ctx, b.AgentID)
-		b.EndsAt = &end
-		if b, err = s.store.Burn().SaveSession(ctx, b); err != nil {
-			return added, false, err
-		}
-	}
-	if _, err := s.Begin(ctx, projectID, who); err != nil {
+	if _, err := s.TurnOn(ctx, projectID, who, time.Now()); err != nil { // as turned on on the dashboard: stops by its plan
 		return added, false, err
 	}
 	return added, true, addErr
@@ -173,6 +166,7 @@ type Service struct {
 	full   map[string]bool               // coverage all checked and a scan found nothing more, by run (ADR-141)
 	held   map[string]bool               // waiting for the person's review, by run (ADR-135)
 	capped map[string]bool               // StopAfter reached once, by run (ADR-135)
+	tried  map[string]time.Time          // the schedule's slot last looked at, by project
 	find   bool                          // a free slot gets a worker finding its own piece (off: only the queued ones)
 	runMu  sync.Mutex                    // a run's worktree: made, and pieces merged into it, one at a time
 
@@ -187,7 +181,7 @@ func (s *Service) SetNotify(n Notify) { s.notify = n }
 
 // New builds a Service; Start runs the Burns that were running.
 func New(st storage.Store, engine *chat.Engine, trees *worktree.Manager) *Service {
-	return &Service{store: st, chat: engine, trees: trees, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, nones: map[string]int{}, found: map[string]int{}, marked: map[string]int{}, full: map[string]bool{}, held: map[string]bool{}, capped: map[string]bool{}, find: true}
+	return &Service{store: st, chat: engine, trees: trees, loops: map[string]context.CancelFunc{}, wakes: map[string]chan struct{}{}, nones: map[string]int{}, found: map[string]int{}, marked: map[string]int{}, full: map[string]bool{}, held: map[string]bool{}, capped: map[string]bool{}, tried: map[string]time.Time{}, find: true}
 }
 
 // SetFindWork off: free slots take only the pieces queued, no worker finds
@@ -200,6 +194,7 @@ func (s *Service) Start(ctx context.Context) {
 	s.mu.Lock()
 	s.root = ctx
 	s.mu.Unlock()
+	go s.schedule(ctx) // the Burns that turn on by themselves
 	running, err := s.store.Burn().Running(ctx)
 	if err != nil {
 		return
