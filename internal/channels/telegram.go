@@ -19,6 +19,9 @@ type Incoming struct {
 	ChatID   string // where to answer (a private chat, a group, a Discord channel)
 	UserID   string
 	UserName string
+	// FullName: the name the platform shows for them (a server nickname, a
+	// Telegram first + last name); "" = only the username.
+	FullName string
 	Text     string // without the bot's @mention
 	Private  bool
 	// ReplyTo: the bot's message this one replies to ("" = none): its
@@ -196,8 +199,10 @@ type tgMessage struct {
 		Type string `json:"type"`
 	} `json:"chat"`
 	From struct {
-		ID       int64  `json:"id"`
-		Username string `json:"username"`
+		ID        int64  `json:"id"`
+		Username  string `json:"username"`
+		FirstName string `json:"first_name"`
+		LastName  string `json:"last_name"`
 	} `json:"from"`
 	Photo []struct {
 		FileID   string `json:"file_id"`
@@ -309,7 +314,8 @@ func (t *Telegram) addressed(m *tgMessage) (Incoming, bool) {
 		return Incoming{}, false
 	}
 	text := strings.TrimSpace(m.Text + m.Caption)
-	in := Incoming{ChatID: strconv.FormatInt(m.Chat.ID, 10), UserID: strconv.FormatInt(m.From.ID, 10), UserName: m.From.Username, Private: m.Chat.Type == "private"}
+	in := Incoming{ChatID: strconv.FormatInt(m.Chat.ID, 10), UserID: strconv.FormatInt(m.From.ID, 10), UserName: m.From.Username, Private: m.Chat.Type == "private",
+		FullName: strings.TrimSpace(m.From.FirstName + " " + m.From.LastName)}
 	if m.MessageID != 0 {
 		in.MessageID = strconv.FormatInt(m.MessageID, 10)
 	}

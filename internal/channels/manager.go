@@ -344,7 +344,7 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 		return
 	}
 	p := trigger.ChannelPayload{Message: in.Text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID,
-		Admin: MayDecide(ch, in.UserID)} // an admin runs as the agent's own; anyone else proposes (ADR-081)
+		Admin: MayDecide(ch, in.UserID), Sender: m.senderOf(ctx, ch, in)} // an admin runs as the agent's own; anyone else proposes (ADR-081)
 	if len(in.Files) > 0 && rule.Action == "chat" { // the files go to the agent with the message
 		var skipped []string
 		p.Attachments, skipped = m.saveFiles(actx, ch, in.Files, actor.From(actx))
@@ -772,6 +772,22 @@ func truncate(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if r := []rune(s); len(r) > n {
 		return string(r[:n]) + "…"
+	}
+	return s
+}
+
+// senderOf is who wrote the message, as the chat shows them on its message:
+// the office account their id is linked to, if any.
+func (m *Manager) senderOf(ctx context.Context, ch storage.Channel, in Incoming) *storage.Sender {
+	if in.UserID == "" && in.UserName == "" {
+		return nil
+	}
+	s := &storage.Sender{Kind: ch.Kind, ID: in.UserID, Username: in.UserName, Name: in.FullName, Private: in.Private}
+	if ch.Kind == "discord" && in.MessageID != "" {
+		s.Link = discordURL(in.GuildID, in.ChatID, in.MessageID)
+	}
+	if u, err := m.store.Users().ByChatID(ctx, ch.Kind, in.UserID); err == nil {
+		s.AccountID, s.Account = u.ID, firstNonEmpty(u.Name, u.Email)
 	}
 	return s
 }

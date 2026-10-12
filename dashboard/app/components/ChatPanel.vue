@@ -11,6 +11,8 @@ interface Message {
   tools: ToolCall[]
   attachments?: Attachment[]
   author: string
+  // who wrote it to a bot (Discord, Telegram); none = in office
+  sender?: { kind: 'discord' | 'telegram', id: string, username?: string, name?: string, private?: boolean, link?: string, account_id?: string, account?: string }
   created_at: string
   patches: Patch[]
   actions?: ProposedAction[]
@@ -43,6 +45,7 @@ const composeOpen = ref(false)
 const iconOnPhone = { base: 'max-sm:!w-7 max-sm:!px-0', leading: 'max-sm:!ps-1.5', value: 'max-sm:hidden', trailing: 'max-sm:hidden' }
 const toast = useToast()
 const { t, when } = useLang()
+const { user: me } = useAuth()
 
 const _f1 = useLiveFetch<{ agents: Agent[], default_agent_id: string }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const { data: agentsData } = _f1
@@ -383,6 +386,12 @@ function stopBackground() {
 }
 async function cancelTurn(id: string) {
   await $fetch(`/api/chat/turns/${id}/cancel`, { method: 'POST', body: {} }).catch(() => {})
+}
+// who wrote a message to a bot; an older one only kept "discord:<name>" as its author
+function senderOf(m: Message): Message['sender'] {
+  if (m.sender) return m.sender
+  const [kind, name] = [m.author.split(':', 1)[0], m.author.slice(m.author.indexOf(':') + 1)]
+  return (kind === 'discord' || kind === 'telegram') && name ? { kind, id: name, username: name } : undefined
 }
 // the person's message with the tags of agents marked
 function tagged(text: string) {
@@ -957,6 +966,22 @@ onBeforeUnmount(() => {
         <template v-for="m in messages" :key="m.id">
           <WorkflowRunCard v-for="r in runsAt.before.get(m.id) ?? []" :key="r.id" :run="r" @updated="onRunUpdated" />
           <div v-if="m.role === 'user'" :id="`m-${m.id}`" class="group/msg flex flex-col items-end gap-1.5 rounded-lg transition" :class="marked === m.id && 'ring-2 ring-primary/60 ring-offset-4 ring-offset-(--ui-bg)'">
+            <div v-if="senderOf(m)" class="flex max-w-[80%] flex-wrap items-center justify-end gap-x-1.5 text-xs text-(--ui-text-muted)">
+              <UIcon :name="sourceIcon[senderOf(m)!.kind]" class="size-3.5 shrink-0" :title="t(`source.${senderOf(m)!.kind}`)" />
+              <template v-if="senderOf(m)!.account">
+                <UIcon name="i-lucide-user-check" class="size-3.5 shrink-0" :title="t('chat.senderAccount')" />
+                <span class="font-medium text-(--ui-text)">{{ senderOf(m)!.account }}</span>
+                <span v-if="senderOf(m)!.account_id === me?.id">({{ t('chat.senderYou') }})</span>
+                <span>· {{ senderOf(m)!.name || senderOf(m)!.username }}</span>
+              </template>
+              <template v-else>
+                <span class="font-medium text-(--ui-text)">{{ senderOf(m)!.name || senderOf(m)!.username || senderOf(m)!.id }}</span>
+                <span v-if="senderOf(m)!.name && senderOf(m)!.username">@{{ senderOf(m)!.username }}</span>
+              </template>
+              <span v-if="senderOf(m)!.private !== undefined">· {{ senderOf(m)!.private ? t('chat.senderDm') : t(`chat.senderIn.${senderOf(m)!.kind}`) }}</span>
+              <span>· {{ when(m.created_at) }}</span>
+              <a v-if="senderOf(m)!.link" :href="senderOf(m)!.link" target="_blank" rel="noopener" class="hover:text-(--ui-text)" :aria-label="t('chat.senderOpen')" :title="t('chat.senderOpen')"><UIcon name="i-lucide-external-link" class="size-3.5" /></a>
+            </div>
             <AttachmentList :items="m.attachments ?? []" align="end" />
             <div class="flex max-w-[80%] items-start gap-1">
               <UDropdownMenu :items="messageMenu(m)" :content="{ align: 'end' }">

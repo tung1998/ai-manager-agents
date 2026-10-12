@@ -137,7 +137,7 @@ func isUnique(err error) bool {
 
 type userRepo struct{ db dbtx }
 
-const userCols = `id, email, name, role, password_hash, disabled, must_change, created_at, updated_at, last_login_at`
+const userCols = `id, email, name, role, password_hash, disabled, must_change, created_at, updated_at, last_login_at, discord_id, telegram_id`
 
 func scanUser(row interface{ Scan(...any) error }) (storage.User, error) {
 	var (
@@ -147,7 +147,7 @@ func scanUser(row interface{ Scan(...any) error }) (storage.User, error) {
 		created, updated     string
 		lastLogin            sql.NullString
 	)
-	if err := row.Scan(&u.ID, &u.Email, &u.Name, &role, &u.PasswordHash, &disabled, &mustChange, &created, &updated, &lastLogin); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.Name, &role, &u.PasswordHash, &disabled, &mustChange, &created, &updated, &lastLogin, &u.DiscordID, &u.TelegramID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return u, storage.ErrNotFound
 		}
@@ -242,6 +242,18 @@ func (r userRepo) Delete(ctx context.Context, id string) error {
 
 func (r userRepo) SetDisabled(ctx context.Context, id string, disabled bool) error {
 	return execOne(ctx, r.db, `UPDATE users SET disabled = ?, updated_at = ? WHERE id = ?`, boolInt(disabled), fmtTime(time.Now()), id)
+}
+
+func (r userRepo) SetChatIDs(ctx context.Context, id, discordID, telegramID string) error {
+	return execOne(ctx, r.db, `UPDATE users SET discord_id = ?, telegram_id = ?, updated_at = ? WHERE id = ?`, discordID, telegramID, fmtTime(time.Now()), id)
+}
+
+func (r userRepo) ByChatID(ctx context.Context, kind, chatUserID string) (storage.User, error) {
+	col := map[string]string{"discord": "discord_id", "telegram": "telegram_id"}[kind]
+	if col == "" || chatUserID == "" {
+		return storage.User{}, storage.ErrNotFound
+	}
+	return scanUser(r.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE `+col+` = ? AND disabled = 0 ORDER BY created_at LIMIT 1`, chatUserID))
 }
 
 func (r userRepo) TouchLogin(ctx context.Context, id string, at time.Time) error {

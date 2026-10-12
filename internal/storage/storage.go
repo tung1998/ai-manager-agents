@@ -40,10 +40,13 @@ type User struct {
 	Disabled     bool
 	// MustChange: the default admin of a first run; it sets a real email and
 	// password before anything else.
-	MustChange  bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	LastLoginAt *time.Time
+	MustChange bool
+	// DiscordID, TelegramID: the account's own user ids on the bots'
+	// platforms ("" = none); a message to a bot from one is shown as theirs.
+	DiscordID, TelegramID string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	LastLoginAt           *time.Time
 }
 
 // Session is a logged-in browser. Only the SHA-256 of the token is stored.
@@ -151,6 +154,10 @@ type UserRepo interface {
 	// SetCredentials sets a new email, name and password and clears MustChange.
 	SetCredentials(ctx context.Context, id, email, name, hash string) error
 	SetDisabled(ctx context.Context, id string, disabled bool) error
+	// SetChatIDs sets the account's Discord and Telegram user ids ("" = none).
+	SetChatIDs(ctx context.Context, id, discordID, telegramID string) error
+	// ByChatID is the account a bot's platform user id is linked to.
+	ByChatID(ctx context.Context, kind, chatUserID string) (User, error)
 	TouchLogin(ctx context.Context, id string, at time.Time) error
 	Delete(ctx context.Context, id string) error
 }

@@ -552,7 +552,8 @@ func (m *Manager) resume(ctx context.Context, ch storage.Channel, in Incoming, c
 	}
 	who := firstNonEmpty(in.UserName, in.UserID)
 	text := chat.DecidedPrompt(who, done)
-	p := trigger.ChannelPayload{Message: text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID, ConversationID: conv, Admin: admin}
+	p := trigger.ChannelPayload{Message: text, User: who, UserID: in.UserID, ChatID: in.ChatID, ChannelID: ch.ID, ConversationID: conv, Admin: admin,
+		Sender: m.senderOf(ctx, ch, in)}
 	raw, _ := json.Marshal(p)
 	actx := actor.With(ctx, ch.Kind+":"+who)
 	m.mu.Lock() // registered before the runner can answer

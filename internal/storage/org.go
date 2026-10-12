@@ -417,7 +417,22 @@ type Message struct {
 	Author         string
 	AgentID        string // the agent that sent it (assistant messages only; "" if none)
 	CreatedAt      time.Time
-	Context        string // the page the person was on (sent to the agent as data)
+	Context        string  // the page the person was on (sent to the agent as data)
+	Sender         *Sender // who wrote it from outside office (a bot's chat); nil = in office
+}
+
+// Sender is the person who wrote to a bot (Discord, Telegram), as the
+// platform names them.
+type Sender struct {
+	Kind     string `json:"kind"`               // discord | telegram
+	ID       string `json:"id"`                 // the platform's user id
+	Username string `json:"username,omitempty"` // @handle
+	Name     string `json:"name,omitempty"`     // display name (nickname on the server, else global)
+	Private  bool   `json:"private,omitempty"`  // a direct message, not a server or group
+	Link     string `json:"link,omitempty"`     // the message on the platform
+	// the office account this platform id is linked to (Users), if any
+	AccountID string `json:"account_id,omitempty"`
+	Account   string `json:"account,omitempty"` // its name, else its email
 }
 
 // Attachment references a file a person attached (see internal/attach).

@@ -487,6 +487,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	}
 	if fromChannel { // the files sent with the message go to the agent with it
 		actx = WithAttachments(actx, channelPayloadOf(origin).Attachments)
+		actx = WithSender(actx, channelPayloadOf(origin).Sender)
 		if !channelPayloadOf(origin).Admin { // a Người dùng: proposals, each waiting for an admin (ADR-081)
 			actx = WithCeiling(actx, perm.Propose)
 		}
@@ -510,7 +511,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 	got, text, err = r.exec.RunChat(actx, a.ProjectID, agentID, conv, prompt, a.EditMode)
 	if err == nil && a.Config.Goal.On() && j.ParentJobID == "" { // until its goal is reached (ADR-132)
 		var g goalRun
-		got, text, g, err = r.pursue(ctx, actx, a, j, got, text, now, loc)
+		got, text, g, err = r.pursue(ctx, WithSender(actx, nil), a, j, got, text, now, loc) // its prompts are office's, not the person's
 		r.recordGoal(ctx, j, g, err)
 		text = strings.TrimSpace(text + "\n\n" + g.summary())
 	}
@@ -581,14 +582,15 @@ var ErrNoAnswer = errors.New("không có câu trả lời")
 
 // ChannelPayload is what a message from a chat channel carries (ADR-049).
 type ChannelPayload struct {
-	Message        string   `json:"message"`
-	User           string   `json:"user"`
-	UserID         string   `json:"user_id"`
-	ChatID         string   `json:"chat_id"`
-	ChannelID      string   `json:"channel_id"`
-	ConversationID string   `json:"conversation_id,omitempty"` // action chat: the outside chat's conversation
-	Attachments    []string `json:"attachments,omitempty"`     // files sent with it (attachment ids)
-	Admin          bool     `json:"admin,omitempty"`           // the sender is in the bot's Admin list: the agent's own rights, at its highest (ADR-081)
+	Message        string          `json:"message"`
+	User           string          `json:"user"`
+	UserID         string          `json:"user_id"`
+	ChatID         string          `json:"chat_id"`
+	ChannelID      string          `json:"channel_id"`
+	ConversationID string          `json:"conversation_id,omitempty"` // action chat: the outside chat's conversation
+	Attachments    []string        `json:"attachments,omitempty"`     // files sent with it (attachment ids)
+	Admin          bool            `json:"admin,omitempty"`           // the sender is in the bot's Admin list: the agent's own rights, at its highest (ADR-081)
+	Sender         *storage.Sender `json:"sender,omitempty"`          // who wrote it, shown on its message in the chat
 }
 
 // IsChannel says whether a job's trigger is a chat channel.
@@ -805,6 +807,18 @@ func WithTags(ctx context.Context, tags []string) context.Context {
 func TagsOf(ctx context.Context) []string {
 	tags, _ := ctx.Value(tagsKey{}).([]string)
 	return tags
+}
+
+type senderKey struct{}
+
+// WithSender: who wrote the bot's message the chat's message carries.
+func WithSender(ctx context.Context, s *storage.Sender) context.Context {
+	return context.WithValue(ctx, senderKey{}, s)
+}
+
+func SenderOf(ctx context.Context) *storage.Sender {
+	s, _ := ctx.Value(senderKey{}).(*storage.Sender)
+	return s
 }
 
 type attachmentsKey struct{}

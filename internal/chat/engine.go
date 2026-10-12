@@ -67,6 +67,7 @@ type MessageDTO struct {
 	Tools       []storage.ToolCall   `json:"tools"`
 	Attachments []storage.Attachment `json:"attachments"`
 	Author      string               `json:"author"`
+	Sender      *storage.Sender      `json:"sender,omitempty"` // who wrote it to a bot (Discord, Telegram)
 	CreatedAt   time.Time            `json:"created_at"`
 	Patches     []PatchDTO           `json:"patches"`
 	Actions     []ActionDTO          `json:"actions"`
@@ -774,7 +775,7 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		e.finish(turn)
 		return nil, storage.Message{}, err
 	}
-	msg, err := e.store.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "user", Content: text, Attachments: attach.Refs(files), Author: actor.From(ctx), Context: pageContext})
+	msg, err := e.store.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "user", Content: text, Attachments: attach.Refs(files), Author: actor.From(ctx), Context: pageContext, Sender: senderOf(ctx)})
 	if err != nil {
 		cancel()
 		e.finish(turn)
@@ -871,7 +872,7 @@ func (e *Engine) titleFrom(ctx context.Context, conv *storage.Conversation, text
 // offReply keeps the person's message and answers with the notice of the
 // paused agents it went to; no AI runs, nothing is spent.
 func (e *Engine) offReply(ctx context.Context, conv storage.Conversation, text, pageContext string, files []attach.File, paused []storage.Agent) (*Turn, storage.Message, error) {
-	msg, err := e.store.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "user", Content: text, Attachments: attach.Refs(files), Author: actor.From(ctx), Context: pageContext})
+	msg, err := e.store.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "user", Content: text, Attachments: attach.Refs(files), Author: actor.From(ctx), Context: pageContext, Sender: senderOf(ctx)})
 	if err != nil {
 		return nil, storage.Message{}, err
 	}
@@ -1535,7 +1536,7 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 	}
 	out := make([]MessageDTO, 0, len(msgs))
 	for _, m := range msgs {
-		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID]}
+		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID]}
 		if d.Patches == nil {
 			d.Patches = []PatchDTO{}
 		}

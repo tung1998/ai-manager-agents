@@ -247,10 +247,14 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 		GuildID   string `json:"guild_id"`
 		Content   string `json:"content"`
 		Author    struct {
-			ID       string `json:"id"`
-			Username string `json:"username"`
-			Bot      bool   `json:"bot"`
+			ID         string `json:"id"`
+			Username   string `json:"username"`
+			GlobalName string `json:"global_name"`
+			Bot        bool   `json:"bot"`
 		} `json:"author"`
+		Member *struct {
+			Nick string `json:"nick"`
+		} `json:"member"` // on a server: its nickname there
 		Mentions []struct {
 			ID string `json:"id"`
 		} `json:"mentions"`
@@ -274,7 +278,11 @@ func (d *Discord) addressed(raw json.RawMessage) (Incoming, bool) {
 	if m.Type != 0 && m.Type != 19 { // a person's message or reply; not "X started a thread", a pin, a join…
 		return Incoming{}, false
 	}
-	in := Incoming{ChatID: m.ChannelID, UserID: m.Author.ID, UserName: m.Author.Username, Private: m.GuildID == "", MessageID: m.ID, GuildID: m.GuildID}
+	in := Incoming{ChatID: m.ChannelID, UserID: m.Author.ID, UserName: m.Author.Username, Private: m.GuildID == "", MessageID: m.ID, GuildID: m.GuildID,
+		FullName: m.Author.GlobalName}
+	if m.Member != nil && m.Member.Nick != "" {
+		in.FullName = m.Member.Nick
+	}
 	_, in.InThread = d.threads.Load(m.ChannelID)
 	for _, a := range m.Attachments {
 		url := a.URL
@@ -432,8 +440,9 @@ func (d *Discord) SetCommands(ctx context.Context, cmds []Command) {
 // answer edits that reply.
 func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incoming, bool) {
 	type user struct {
-		ID       string `json:"id"`
-		Username string `json:"username"`
+		ID         string `json:"id"`
+		Username   string `json:"username"`
+		GlobalName string `json:"global_name"`
 	}
 	var x struct {
 		ID        string `json:"id"`
@@ -451,7 +460,8 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 			} `json:"options"`
 		} `json:"data"`
 		Member *struct {
-			User user `json:"user"`
+			User user   `json:"user"`
+			Nick string `json:"nick"`
 		} `json:"member"`
 		User    *user `json:"user"`
 		Message *struct {
@@ -490,9 +500,9 @@ func (d *Discord) interaction(ctx context.Context, raw json.RawMessage) (Incomin
 		}
 	}
 	if x.Member != nil {
-		in.UserID, in.UserName = x.Member.User.ID, x.Member.User.Username
+		in.UserID, in.UserName, in.FullName = x.Member.User.ID, x.Member.User.Username, firstNonEmpty(x.Member.Nick, x.Member.User.GlobalName)
 	} else if x.User != nil {
-		in.UserID, in.UserName = x.User.ID, x.User.Username
+		in.UserID, in.UserName, in.FullName = x.User.ID, x.User.Username, x.User.GlobalName
 	}
 	_, app := d.identity()
 	token := x.Token

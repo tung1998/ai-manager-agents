@@ -298,8 +298,8 @@ func (r chatRepo) AddMessage(ctx context.Context, m storage.Message) (storage.Me
 	if m.Attachments == nil {
 		m.Attachments = []storage.Attachment{}
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context, agent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		m.ID, m.ConversationID, m.Role, m.Content, toJSON(m.Tools), toJSON(m.Attachments), nullStr(m.RunID), m.Author, fmtTime(m.CreatedAt), m.Context, m.AgentID)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context, agent_id, sender) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		m.ID, m.ConversationID, m.Role, m.Content, toJSON(m.Tools), toJSON(m.Attachments), nullStr(m.RunID), m.Author, fmtTime(m.CreatedAt), m.Context, m.AgentID, senderJSON(m.Sender))
 	if err == nil {
 		_, _ = r.db.ExecContext(ctx, `UPDATE conversations SET updated_at=? WHERE id=?`, fmtTime(m.CreatedAt), m.ConversationID)
 		r.tell(storage.Change{Kind: "message", ConversationID: m.ConversationID, Message: &m})
@@ -307,8 +307,16 @@ func (r chatRepo) AddMessage(ctx context.Context, m storage.Message) (storage.Me
 	return m, err
 }
 
+// senderJSON is a message's sender as stored (” = none).
+func senderJSON(s *storage.Sender) string {
+	if s == nil {
+		return ""
+	}
+	return toJSON(s)
+}
+
 func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]storage.Message, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context, agent_id
+	rows, err := r.db.QueryContext(ctx, `SELECT id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context, agent_id, sender
 		FROM messages WHERE conversation_id=? ORDER BY created_at, id`, conversationID)
 	if err != nil {
 		return nil, err
@@ -319,12 +327,19 @@ func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]st
 		var (
 			m                    storage.Message
 			tools, atts, created string
+			sender               string
 			run                  sql.NullString
 		)
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &tools, &atts, &run, &m.Author, &created, &m.Context, &m.AgentID); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &tools, &atts, &run, &m.Author, &created, &m.Context, &m.AgentID, &sender); err != nil {
 			return nil, err
 		}
 		m.RunID = run.String
+		if sender != "" {
+			m.Sender = &storage.Sender{}
+			if err := json.Unmarshal([]byte(sender), m.Sender); err != nil {
+				return nil, err
+			}
+		}
 		if err := json.Unmarshal([]byte(tools), &m.Tools); err != nil {
 			return nil, err
 		}

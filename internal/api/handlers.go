@@ -17,13 +17,15 @@ type userDTO struct {
 	Role        string     `json:"role"`
 	Disabled    bool       `json:"disabled"`
 	MustChange  bool       `json:"must_change"` // the default admin, not set up yet
+	DiscordID   string     `json:"discord_id"`  // its own ids on the bots' platforms ("" = none)
+	TelegramID  string     `json:"telegram_id"`
 	CreatedAt   time.Time  `json:"created_at"`
 	LastLoginAt *time.Time `json:"last_login_at"`
 }
 
 func toDTO(u storage.User) userDTO {
 	return userDTO{ID: u.ID, Email: u.Email, Name: u.Name, Role: string(u.Role), Disabled: u.Disabled, MustChange: u.MustChange,
-		CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt}
+		DiscordID: u.DiscordID, TelegramID: u.TelegramID, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt}
 }
 
 func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
@@ -174,10 +176,42 @@ func (s *server) createUser(w http.ResponseWriter, r *http.Request) {
 func (s *server) updateUser(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var in struct {
-		Disabled *bool `json:"disabled"`
+		Disabled   *bool   `json:"disabled"`
+		DiscordID  *string `json:"discord_id"`
+		TelegramID *string `json:"telegram_id"`
 	}
 	if !decode(w, r, &in) {
 		return
+	}
+	if in.DiscordID != nil || in.TelegramID != nil { // linking the account to its bot ids
+		cur, err := s.cfg.Store.Users().GetByID(r.Context(), id)
+		if errors.Is(err, storage.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		if err != nil {
+			s.internal(w, r, err)
+			return
+		}
+		d, tg := cur.DiscordID, cur.TelegramID
+		if in.DiscordID != nil {
+			d = *in.DiscordID
+		}
+		if in.TelegramID != nil {
+			tg = *in.TelegramID
+		}
+		err = s.cfg.Auth.SetChatIDs(r.Context(), id, d, tg, "human:"+userFrom(r).Email)
+		switch {
+		case errors.Is(err, auth.ErrInvalidChatID):
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		case errors.Is(err, auth.ErrChatIDTaken):
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		case err != nil:
+			s.internal(w, r, err)
+			return
+		}
 	}
 	if in.Disabled != nil {
 		if *in.Disabled && id == userFrom(r).ID {

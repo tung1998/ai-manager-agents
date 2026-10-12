@@ -5,6 +5,8 @@ export interface OfficeUser {
   role: 'admin' | 'member'
   disabled: boolean
   must_change?: boolean // the default admin, until it sets a real email and password
+  discord_id?: string // its own ids on the bots' platforms: a message to a bot from one is shown as this account's
+  telegram_id?: string
   created_at: string
   last_login_at: string | null
 }

@@ -63,6 +63,22 @@ func WithSkill(ctx context.Context, name string) context.Context {
 
 func skillOf(ctx context.Context) string { s, _ := ctx.Value(skillKey{}).(string); return s }
 
+type senderKey struct{}
+
+// WithSender: who wrote, from a bot's chat, the message ctx sends; it is
+// kept on that message.
+func WithSender(ctx context.Context, s *storage.Sender) context.Context {
+	if s == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, senderKey{}, s)
+}
+
+func senderOf(ctx context.Context) *storage.Sender {
+	s, _ := ctx.Value(senderKey{}).(*storage.Sender)
+	return s
+}
+
 type noToolsKey struct{}
 
 // WithNoTools makes the runs of ctx tool-less (untrusted text drives them,

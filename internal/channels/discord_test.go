@@ -31,9 +31,9 @@ func TestDiscord(t *testing.T) {
 			return
 		}
 		send(`{"op":0,"s":1,"t":"READY","d":{"user":{"id":"99","username":"shopbot"}}}`)
-		send(`{"op":0,"s":2,"t":"MESSAGE_CREATE","d":{"channel_id":"c1","content":"xin chào","author":{"id":"7","username":"an"},"mentions":[]}}`)
+		send(`{"op":0,"s":2,"t":"MESSAGE_CREATE","d":{"channel_id":"c1","content":"xin chào","author":{"id":"7","username":"an","global_name":"An Nguyễn"},"mentions":[]}}`)
 		send(`{"op":0,"s":3,"t":"MESSAGE_CREATE","d":{"channel_id":"c2","guild_id":"g","content":"chuyện riêng","author":{"id":"8"},"mentions":[]}}`)
-		send(`{"op":0,"s":4,"t":"MESSAGE_CREATE","d":{"channel_id":"c2","guild_id":"g","content":"<@99> đơn 123","author":{"id":"8","username":"binh"},"mentions":[{"id":"99"}]}}`)
+		send(`{"op":0,"s":4,"t":"MESSAGE_CREATE","d":{"channel_id":"c2","guild_id":"g","content":"<@99> đơn 123","author":{"id":"8","username":"binh","global_name":"Bình"},"member":{"nick":"Bình shop"},"mentions":[{"id":"99"}]}}`)
 		send(`{"op":0,"s":5,"t":"MESSAGE_CREATE","d":{"channel_id":"c2","guild_id":"g","content":"<@99> bot","author":{"id":"5","bot":true},"mentions":[{"id":"99"}]}}`)
 		send(`{"op":0,"s":6,"t":"MESSAGE_CREATE","d":{"channel_id":"c2","guild_id":"g","content":"còn đơn 456?","author":{"id":"8","username":"binh"},"mentions":[],"referenced_message":{"author":{"id":"99"}}}}`)
 	})
@@ -72,13 +72,13 @@ func TestDiscord(t *testing.T) {
 	}
 	// every message comes up; Addressed says whether it is for the bot (a
 	// kept conversation listens to the rest of its chat, ADR-049)
-	if <-bot != "shopbot" || !msgs[0].Private || !msgs[0].Addressed || msgs[0].ChatID != "c1" {
+	if <-bot != "shopbot" || !msgs[0].Private || !msgs[0].Addressed || msgs[0].ChatID != "c1" || msgs[0].FullName != "An Nguyễn" {
 		t.Fatalf("dm = %+v", msgs[0])
 	}
 	if msgs[1].Text != "chuyện riêng" || msgs[1].Addressed {
 		t.Fatalf("untagged = %+v", msgs[1])
 	}
-	if msgs[2].Text != "đơn 123" || !msgs[2].Addressed || msgs[2].UserName != "binh" {
+	if msgs[2].Text != "đơn 123" || !msgs[2].Addressed || msgs[2].UserName != "binh" || msgs[2].FullName != "Bình shop" { // the server nickname first
 		t.Fatalf("tagged = %+v", msgs[2])
 	}
 	if msgs[3].Text != "còn đơn 456?" || !msgs[3].Addressed {

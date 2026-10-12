@@ -13,6 +13,7 @@ const columns = computed<TableColumn<OfficeUser>[]>(() => [
   { accessorKey: 'email', header: t('admin.usersEmail') },
   { accessorKey: 'name', header: t('admin.usersName') },
   { accessorKey: 'role', header: t('admin.usersRole') },
+  { id: 'chat_ids', header: t('admin.usersChatIds') },
   { accessorKey: 'disabled', header: t('admin.usersStatus') },
   { accessorKey: 'last_login_at', header: t('admin.usersLastLogin') },
   { id: 'actions' }
@@ -83,9 +84,40 @@ async function doReset() {
   }
 }
 
+// ---- Discord / Telegram ids ----
+const linkTarget = ref<OfficeUser | null>(null)
+const linkState = reactive({ discord_id: '', telegram_id: '' })
+const linkError = ref('')
+const linking = ref(false)
+
+function openLink(u: OfficeUser) {
+  Object.assign(linkState, { discord_id: u.discord_id ?? '', telegram_id: u.telegram_id ?? '' })
+  linkError.value = ''
+  linkTarget.value = u
+}
+
+async function saveLink() {
+  if (!linkTarget.value || linking.value) return
+  linkError.value = ''
+  linking.value = true
+  try {
+    await $fetch(`/api/users/${linkTarget.value.id}`, { method: 'PATCH', body: { ...linkState } })
+    toast.add({ title: t('admin.usersChatIdsSaved', { email: linkTarget.value.email }), color: 'success' })
+    linkTarget.value = null
+    await refresh()
+  } catch (e) {
+    linkError.value = apiError(e)
+  } finally {
+    linking.value = false
+  }
+}
+
 function rowActions(u: OfficeUser) {
   const busy = togglingId.value === u.id
-  const items = [[{ label: t('admin.usersResetPassword'), icon: 'i-lucide-key-round', onSelect: () => { resetTarget.value = u } }]]
+  const items = [[
+    { label: t('admin.usersResetPassword'), icon: 'i-lucide-key-round', onSelect: () => { resetTarget.value = u } },
+    { label: t('admin.usersChatIdsEdit'), icon: 'i-lucide-link', onSelect: () => openLink(u) }
+  ]]
   if (u.id !== me.value?.id) {
     items.push([u.disabled
       ? { label: t('admin.usersEnable'), icon: 'i-lucide-user-check', disabled: busy, onSelect: () => setDisabled(u, false) }
@@ -111,6 +143,13 @@ function rowActions(u: OfficeUser) {
           :color="row.original.disabled ? 'error' : 'success'"
           variant="subtle"
         />
+      </template>
+      <template #chat_ids-cell="{ row }">
+        <div class="flex flex-col gap-0.5 text-xs">
+          <span v-if="row.original.discord_id" class="flex items-center gap-1"><UIcon :name="sourceIcon.discord" class="size-3.5 shrink-0 text-(--ui-text-muted)" /><span class="font-mono">{{ row.original.discord_id }}</span></span>
+          <span v-if="row.original.telegram_id" class="flex items-center gap-1"><UIcon :name="sourceIcon.telegram" class="size-3.5 shrink-0 text-(--ui-text-muted)" /><span class="font-mono">{{ row.original.telegram_id }}</span></span>
+          <span v-if="!row.original.discord_id && !row.original.telegram_id" class="text-(--ui-text-dimmed)">—</span>
+        </div>
       </template>
       <template #last_login_at-cell="{ row }">
         {{ fmt(row.original.last_login_at) }}
@@ -164,6 +203,26 @@ function rowActions(u: OfficeUser) {
         <div class="flex w-full justify-end gap-2">
           <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="resetTarget = null" />
           <UButton type="submit" form="reset-pw" :label="t('admin.usersResetPassword')" :loading="resetting" :disabled="resetting" />
+        </div>
+      </template>
+    </UModal>
+
+    <UModal :open="!!linkTarget" :title="t('admin.usersChatIdsModal', { email: linkTarget?.email ?? '' })" @update:open="v => { if (!v) linkTarget = null }">
+      <template #body>
+        <form id="link-ids" class="space-y-4" @submit.prevent="saveLink">
+          <UFormField :label="t('source.discord')" :hint="t('admin.usersDiscordHint')">
+            <UInput v-model="linkState.discord_id" inputmode="numeric" placeholder="123456789012345678" class="w-full font-mono" />
+          </UFormField>
+          <UFormField :label="t('source.telegram')" :hint="t('admin.usersTelegramHint')">
+            <UInput v-model="linkState.telegram_id" inputmode="numeric" placeholder="1725044104" class="w-full font-mono" />
+          </UFormField>
+          <UAlert v-if="linkError" color="error" variant="subtle" :description="linkError" />
+        </form>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="linkTarget = null" />
+          <UButton type="submit" form="link-ids" :label="t('common.save')" :loading="linking" :disabled="linking" />
         </div>
       </template>
     </UModal>

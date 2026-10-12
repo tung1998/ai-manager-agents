@@ -402,6 +402,34 @@ func (s *Service) SetDisabled(ctx context.Context, userID string, disabled bool,
 	return nil
 }
 
+// ErrChatIDTaken: another account is linked to that Discord/Telegram id.
+var ErrChatIDTaken = errors.New("ID này đã gắn với tài khoản khác")
+
+// ErrInvalidChatID: a Discord/Telegram user id is digits only.
+var ErrInvalidChatID = errors.New("ID Discord/Telegram chỉ gồm chữ số")
+
+// SetChatIDs links an account to its Discord and Telegram user ids ("" = none);
+// one id belongs to one account.
+func (s *Service) SetChatIDs(ctx context.Context, userID, discordID, telegramID, actor string) error {
+	discordID, telegramID = strings.TrimSpace(discordID), strings.TrimSpace(telegramID)
+	for kind, id := range map[string]string{"discord": discordID, "telegram": telegramID} {
+		if id == "" {
+			continue
+		}
+		if strings.Trim(id, "0123456789") != "" {
+			return ErrInvalidChatID
+		}
+		if u, err := s.store.Users().ByChatID(ctx, kind, id); err == nil && u.ID != userID {
+			return ErrChatIDTaken
+		}
+	}
+	if err := s.store.Users().SetChatIDs(ctx, userID, discordID, telegramID); err != nil {
+		return err
+	}
+	s.audit(ctx, actor, "user.set_chat_ids", userID, map[string]any{"discord_id": discordID, "telegram_id": telegramID})
+	return nil
+}
+
 func (s *Service) setPassword(ctx context.Context, userID, pw string) error {
 	if err := ValidatePassword(pw); err != nil {
 		return err

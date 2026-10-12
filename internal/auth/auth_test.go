@@ -325,3 +325,42 @@ func TestLoginAuditAppendFailureIsLogged(t *testing.T) {
 		t.Fatalf("login should still succeed: %v", err)
 	}
 }
+
+// An account is linked to its Discord/Telegram ids; one id, one account.
+func TestSetChatIDs(t *testing.T) {
+	svc, st, _ := newService(t)
+	ctx := context.Background()
+	a, err := svc.CreateUser(ctx, auth.NewUser{Email: "a@b.co", Name: "A", Role: storage.RoleAdmin, Password: "longenoughpw"}, "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := svc.CreateUser(ctx, auth.NewUser{Email: "b@b.co", Role: storage.RoleMember, Password: "longenoughpw"}, "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetChatIDs(ctx, a.ID, "@an", "", "system"); !errors.Is(err, auth.ErrInvalidChatID) {
+		t.Fatalf("not digits err = %v", err)
+	}
+	if err := svc.SetChatIDs(ctx, a.ID, " 123 ", "456", "system"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetChatIDs(ctx, b.ID, "123", "", "system"); !errors.Is(err, auth.ErrChatIDTaken) {
+		t.Fatalf("taken err = %v", err)
+	}
+	if err := svc.SetChatIDs(ctx, a.ID, "123", "", "system"); err != nil { // its own id again: fine
+		t.Fatal(err)
+	}
+	u, err := st.Users().ByChatID(ctx, "discord", "123")
+	if err != nil || u.ID != a.ID || u.TelegramID != "" {
+		t.Fatalf("by discord id = %+v, %v", u, err)
+	}
+	if _, err := st.Users().ByChatID(ctx, "telegram", "456"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("unlinked telegram id err = %v", err)
+	}
+	if err := svc.SetDisabled(ctx, a.ID, true, "system"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Users().ByChatID(ctx, "discord", "123"); !errors.Is(err, storage.ErrNotFound) { // a disabled account is no one's
+		t.Fatalf("disabled account err = %v", err)
+	}
+}
