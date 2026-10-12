@@ -12,10 +12,15 @@ const ALL = '_'
 const pick = ref(typeof route.query.w === 'string' ? route.query.w : ALL)
 watch(pick, w => router.replace({ query: { ...route.query, w: w === ALL ? undefined : w } }))
 watch(() => route.query.w, w => { pick.value = typeof w === 'string' ? w : ALL })
+// 20 at a time; "load more" asks for 20 more (a new filter starts over)
+const STEP = 20
+const limit = ref(STEP)
+watch(pick, () => { limit.value = STEP })
 const items = computed(() => [{ label: t('wf.runs.all'), value: ALL }, ...props.workflows.map(w => ({ label: w.name, value: w.id }))])
 const { data, error, pending } = useLiveFetch<{ runs: WorkflowRun[] }>(
-  () => `/api/projects/${props.projectId}/workflow-runs?limit=100${pick.value === ALL ? '' : `&workflow=${pick.value}`}`, { lazy: true })
+  () => `/api/projects/${props.projectId}/workflow-runs?limit=${limit.value}${pick.value === ALL ? '' : `&workflow=${pick.value}`}`, { lazy: true })
 const runs = computed(() => data.value?.runs ?? [])
+const more = computed(() => runs.value.length >= limit.value)
 
 const statusColor: Record<WorkflowRun['status'], 'info' | 'success' | 'error' | 'neutral'> = { running: 'info', done: 'success', failed: 'error', stopped: 'neutral' }
 const took = (r: WorkflowRun) => {
@@ -53,6 +58,9 @@ const chatOf = (r: WorkflowRun) => ({ path: `/projects/${props.projectId}`, quer
         <p v-if="r.input" class="mt-1 line-clamp-1 text-xs"><span class="text-(--ui-text-muted)">{{ t('wf.runs.input') }}:</span> {{ r.input }}</p>
         <p v-if="r.error" class="mt-0.5 line-clamp-1 text-xs text-(--ui-error)">{{ r.error }}</p>
         <p v-else-if="r.result" class="mt-0.5 line-clamp-2 text-xs text-(--ui-text-muted)"><span>{{ t('wf.runs.output') }}:</span> {{ r.result }}</p>
+      </li>
+      <li v-if="more" class="p-2 text-center">
+        <UButton size="xs" color="neutral" variant="ghost" :loading="pending" :label="t('wf.runs.more')" @click="limit += STEP" />
       </li>
     </ul>
   </div>

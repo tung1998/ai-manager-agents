@@ -91,6 +91,7 @@ const en: Record<keyof typeof vi, string> = {
 'wf.runs.of': 'Run history',
   'wf.runs.filter': 'Filter by workflow',
   'wf.runs.count': '{n} runs',
+  'wf.runs.more': 'Load more',
   'wf.runs.empty': 'No runs yet',
   'wf.runs.emptyHint': 'Type #key in a chat to run a workflow',
   'wf.runs.openChat': 'Open the calling chat',

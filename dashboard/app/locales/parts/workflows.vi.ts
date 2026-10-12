@@ -90,6 +90,7 @@ export default {
 'wf.runs.of': 'Lịch sử chạy',
   'wf.runs.filter': 'Lọc theo quy trình',
   'wf.runs.count': '{n} lần chạy',
+  'wf.runs.more': 'Tải thêm',
   'wf.runs.empty': 'Chưa có lần chạy nào',
   'wf.runs.emptyHint': 'Gõ #key trong chat để chạy một quy trình',
   'wf.runs.openChat': 'Mở chat đã gọi',
