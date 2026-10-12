@@ -1039,6 +1039,19 @@ func TestNotify(t *testing.T) {
 	if got, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "c9", ReplyTo: "1", Text: "x", Addressed: true}); got == run.ID {
 		t.Fatal("a reply to a plain alert went to the run's chat")
 	}
+	// another project's automation borrowing the bot: it only announces
+	shop, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	far, err := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: shop.ID, AgentID: other.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.NotifyConversation(ctx, ch.ID, "c9", "**Deploy**\nxong", far.ID); err != nil {
+		t.Fatal(err)
+	}
+	bot.wait(t, "c9", 3)
+	if got, _ := m.ConversationFor(ctx, ch, channels.Incoming{ChatID: "c9", ReplyTo: "3", Text: "x", Addressed: true}); got == far.ID {
+		t.Fatal("a reply to a borrowed bot's notice went to the other project's chat")
+	}
 }
 
 // An agent with FullAccess (ADR-074) approves a proposal at once, wherever

@@ -80,12 +80,9 @@ const reviewStages = reviewStageKeys
 const { data: profData } = useLiveFetch<{ profiles: BurnReviewProfile[] }>(() => `/api/projects/${props.projectId}/burn/review-profiles`, { lazy: true })
 const profiles = computed(() => profData.value?.profiles ?? [])
 const templateItems = computed(() => templates.map(v => ({ value: v, label: t(`burn.template.${v}`) })))
-// where its summary goes when it stops (ADR-120): a bot of the project, its chat
-interface Bot { id: string, name: string, kind: 'discord' | 'telegram' }
-const { data: botsData } = useLiveFetch<{ channels: Bot[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true })
-const notifyBot = computed({ get: () => form.notify_channel_id || '__none', set: (v: string) => { form.notify_channel_id = v === '__none' ? '' : v } })
-const botItems = computed(() => [{ value: '__none', label: t('burn.notify.off') }, ...(botsData.value?.channels ?? []).map(b => ({ value: b.id, label: `${b.name} · ${b.kind === 'discord' ? 'Discord' : 'Telegram'}` }))])
-const notifyKind = computed(() => botsData.value?.channels.find(b => b.id === form.notify_channel_id)?.kind)
+// where its summary goes when it stops (ADR-120): a bot (the project's, or
+// one borrowed), its chat
+const notifyKind = ref<string>()
 const profileItems = computed(() => [{ value: '__none', label: t('burn.review.none') }, ...profiles.value.map(p => ({ value: p.id, label: p.name }))])
 const reviewProfile = computed({ get: () => form.review_profile_id || '__none', set: (v: string) => { form.review_profile_id = v === '__none' ? '' : v } })
 const profile = computed(() => profiles.value.find(p => p.id === form.review_profile_id))
@@ -401,7 +398,7 @@ const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).l
           </details>
           <UFormField :label="t('burn.notify.label')" :help="t('burn.notify.help')">
             <div class="grid gap-2 sm:grid-cols-2">
-              <USelect v-model="notifyBot" :items="botItems" class="w-full" />
+              <NotifyBotPicker v-model="form.notify_channel_id" v-model:kind="notifyKind" :project-id="projectId" :none-label="t('burn.notify.off')" />
               <UInput v-model="form.notify_chat_id" class="w-full font-mono text-xs" :disabled="!form.notify_channel_id" :placeholder="notifyKind === 'telegram' ? t('alert.chatTelegram') : t('alert.chatDiscord')" />
             </div>
           </UFormField>

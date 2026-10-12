@@ -69,4 +69,20 @@ func TestPRAutomationConfig(t *testing.T) {
 	if cfg["pull_request"] != true || cfg["notify_channel_id"] != ch.ID || cfg["notify_chat_id"] != "c9" {
 		t.Fatalf("config = %v", cfg)
 	}
+	// a project with no bot borrows another's, listed with its project
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "blog"}, nil)
+	blog := body["project"].(map[string]any)["id"].(string)
+	resp, b = do(t, admin, "POST", e.srv.URL+"/api/projects/"+blog+"/automations", map[string]any{"name": "Báo cáo", "source": "schedule", "action": "chat", "prompt": "x",
+		"config": map[string]any{"every_minutes": 60, "notify_channel_id": ch.ID, "notify_chat_id": "c9"}}, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("borrow = %d %v", resp.StatusCode, b)
+	}
+	if cfg := b["automation"].(map[string]any)["config"].(map[string]any); cfg["notify_channel_id"] != ch.ID {
+		t.Fatalf("borrowed config = %v", cfg)
+	}
+	_, b = do(t, admin, "GET", e.srv.URL+"/api/bots", nil, nil)
+	bots := b["bots"].([]any)
+	if len(bots) != 1 || bots[0].(map[string]any)["project_id"] != pid || bots[0].(map[string]any)["project"] != "shop" {
+		t.Fatalf("bots = %v", bots)
+	}
 }

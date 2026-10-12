@@ -133,12 +133,8 @@ const placeholders = computed(() => fromChannel.value
   : form.config.pull_request
     ? ['{{diff}}', '{{payload.number}}', '{{payload.title}}', '{{payload.author}}', '{{payload.url}}', '{{payload.source}}', '{{payload.target}}']
     : ['{{payload}}', '{{payload.x}}', '{{now}}', '{{today}}', '{{yesterday}}', '{{source}}', '{{automation}}'])
-// the project's bots, for where answers go
-const { data: chData } = useLiveFetch<{ channels: Channel[] }>(() => `/api/projects/${props.projectId}/channels`, { lazy: true, immediate: isAdmin.value })
-const NO_BOT = '__none'
-const notifyBot = computed({ get: () => form.config.notify_channel_id || NO_BOT, set: (v: string) => { form.config.notify_channel_id = v === NO_BOT ? '' : v } })
-const notifyItems = computed(() => [{ label: t('auto.notifyNone'), value: NO_BOT }, ...(chData.value?.channels ?? []).map(c => ({ label: `${c.bot_name ? '@' + c.bot_name : c.name} · ${c.kind === 'discord' ? 'Discord' : 'Telegram'}`, value: c.id }))])
-const notifyKind = computed(() => chData.value?.channels.find(c => c.id === form.config.notify_channel_id)?.kind)
+// the bot answers go out by: the project's, or one borrowed (NotifyBotPicker)
+const notifyKind = ref<string>()
 // ADR-074: permission mode — "agent" follows the picked agent's own
 // permissions, "override" (admin only) replaces them for this automation.
 const effectiveAgent = computed(() => {
@@ -384,7 +380,7 @@ async function testRun() {
       <p class="flex items-center gap-2 text-sm font-semibold"><UIcon name="i-lucide-send" class="size-4" />{{ t('auto.notifyTitle') }}</p>
       <div class="grid gap-3 @lg:grid-cols-2">
         <UFormField :label="t('auto.notifyBot')">
-          <USelect v-model="notifyBot" :items="notifyItems" class="w-full" />
+          <NotifyBotPicker v-model="form.config.notify_channel_id" v-model:kind="notifyKind" :project-id="projectId" :none-label="t('auto.notifyNone')" />
         </UFormField>
         <UFormField v-if="form.config.notify_channel_id" :label="notifyKind === 'telegram' ? t('alert.chatTelegram') : t('alert.chatDiscord')">
           <template #hint>

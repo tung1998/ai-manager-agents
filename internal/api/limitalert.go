@@ -15,27 +15,44 @@ import (
 // Where the AI connections' limit alerts go (a bot's chat), and from how full.
 
 type alertBot struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Kind    string `json:"kind"`
-	Project string `json:"project"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Project   string `json:"project"`
+	ProjectID string `json:"project_id"`
 }
 
-func (s *server) getLimitAlert(w http.ResponseWriter, r *http.Request) {
-	set := limitalert.Load(r.Context(), s.cfg.Store)
-	chans, _ := s.cfg.Store.Channels().List(r.Context(), "")
+// allBots: every project's bots, for what any of them can announce in (the
+// limit alerts, an automation or a Burn borrowing another project's bot)
+func (s *server) allBots(ctx context.Context) []alertBot {
+	chans, _ := s.cfg.Store.Channels().List(ctx, "")
+	names := map[string]string{}
 	bots := []alertBot{}
 	for _, c := range chans {
 		name := c.Name
 		if c.BotName != "" {
 			name = "@" + c.BotName
 		}
-		project := c.ProjectID
-		if p, err := s.cfg.Store.Repos().Get(r.Context(), c.ProjectID); err == nil {
-			project = p.Name
+		project, ok := names[c.ProjectID]
+		if !ok {
+			project = c.ProjectID
+			if p, err := s.cfg.Store.Repos().Get(ctx, c.ProjectID); err == nil {
+				project = p.Name
+			}
+			names[c.ProjectID] = project
 		}
-		bots = append(bots, alertBot{c.ID, name, c.Kind, project})
+		bots = append(bots, alertBot{c.ID, name, c.Kind, project, c.ProjectID})
 	}
+	return bots
+}
+
+func (s *server) listAllBots(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"bots": s.allBots(r.Context())})
+}
+
+func (s *server) getLimitAlert(w http.ResponseWriter, r *http.Request) {
+	set := limitalert.Load(r.Context(), s.cfg.Store)
+	bots := s.allBots(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"channel_id": set.ChannelID, "chat_id": set.ChatID, "threshold": set.Threshold, "bots": bots})
 }
 

@@ -303,10 +303,10 @@ func (s *server) applyAutomation(r *http.Request, in automationInput, a *storage
 		}
 		cfg.PullRequest = in.Config.PullRequest // a GitHub/Bitbucket PR webhook
 	}
-	if !trigger.IsChannel(in.Source) && strings.TrimSpace(in.Config.NotifyChannelID) != "" { // its answers go to a bot's chat of the project too
+	if !trigger.IsChannel(in.Source) && strings.TrimSpace(in.Config.NotifyChannelID) != "" { // its answers go to a bot's chat too: the project's, or one borrowed from another
 		ch, err := s.cfg.Store.Channels().Get(r.Context(), strings.TrimSpace(in.Config.NotifyChannelID))
-		if err != nil || ch.ProjectID != a.ProjectID {
-			return errors.New("hãy chọn bot của project này để gửi kết quả")
+		if err != nil {
+			return errors.New("không có bot này")
 		}
 		cfg.NotifyChannelID, cfg.NotifyChatID = ch.ID, strings.TrimSpace(in.Config.NotifyChatID)
 		if cfg.NotifyChatID == "" {

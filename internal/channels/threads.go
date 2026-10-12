@@ -420,6 +420,18 @@ func (m *Manager) Notify(ctx context.Context, channelID, chatID, text string) er
 	return err
 }
 
+// borrowed: the bot belongs to another project than the chat (an automation
+// lent another project's bot to announce): it only announces, a reply to it
+// does not go on in that chat.
+func (m *Manager) borrowed(ctx context.Context, channelID, convID string) bool {
+	ch, err := m.store.Channels().Get(ctx, channelID)
+	if err != nil {
+		return true
+	}
+	c, err := m.store.Chat().GetConversation(ctx, convID)
+	return err != nil || c.ProjectID != ch.ProjectID
+}
+
 func noteKey(chatID, msgID string) string { return "note:" + chatID + ":" + msgID } // an automation's notice → its chat
 
 // NotifyConversation posts an automation's answer; a reply to it goes on in
@@ -432,7 +444,7 @@ func (m *Manager) NotifyConversation(ctx context.Context, channelID, chatID, tex
 		return errors.New("bot này đang tắt hoặc chưa kết nối")
 	}
 	ids, err := ad.Send(ctx, chatID, text)
-	if convID == "" {
+	if convID == "" || m.borrowed(ctx, channelID, convID) {
 		return err
 	}
 	for _, id := range ids {
