@@ -12,3 +12,7 @@
 - Fetch có `await` (trang): thanh `NuxtLoadingIndicator` lo. Tab trong trang project nằm trong `<Suspense :key="tab">` có khung chờ, nên panel `await` trong setup cũng có loading.
 - Fetch không `await` (`lazy`, hoặc không chờ): trong lúc `!data && !error` hiện `<LoadingRows>` (danh sách/bảng) hoặc `<USkeleton>` (số liệu, ô nhập); không bao giờ hiện trạng thái rỗng ("chưa có…", "0 B", "—") trước khi có dữ liệu. Có `error` thì `UAlert` + nút Làm mới.
 - Nút hành động phụ thuộc dữ liệu (Bật, Lưu, Cài đặt) bị `disabled` khi chưa tải xong.
+
+## Header trang
+- Header (`PageShell`) chỉ có tiêu đề, dòng phụ (`#subtitle`) và chỉ số office; không đặt nút ở đó. Nút của trang đặt qua slot `#actions`: `PageShell` hiện chúng ở đầu phần nội dung, canh phải.
+- Trang chiếm trọn chiều cao (chat, theo dõi) không dùng `#actions`: thao tác nằm trong chính nội dung (tab Thông tin, menu của box…).

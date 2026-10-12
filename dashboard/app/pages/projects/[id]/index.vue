@@ -78,22 +78,6 @@ async function removeRepo() {
     <template v-if="project?.path" #subtitle>
       <GitBar :project-id="project.id" />
     </template>
-    <template #actions>
-      <template v-if="project && isAdmin">
-        <UButton v-if="!project.agent_count" :to="`/projects/${id}/setup`" size="sm" icon="i-lucide-sparkles" :label="t('project.setupAi')" />
-        <UDropdownMenu
-          :content="{ align: 'end' }"
-          :items="[[
-            { label: t('project.rename'), icon: 'i-lucide-pencil', onSelect: openEdit },
-            { label: t('project.setupAi'), icon: 'i-lucide-sparkles', to: `/projects/${id}/setup` }
-          ], [
-            { label: t('project.unmanage'), icon: 'i-lucide-folder-minus', color: 'error', disabled: removing, onSelect: removeRepo }
-          ]]"
-        >
-          <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" :aria-label="t('project.actionsAria')" />
-        </UDropdownMenu>
-      </template>
-    </template>
 
     <!-- Chat fills the page height (the panel body is a bounded flex column) -->
     <div v-if="project" :class="((tab === 'chat' || tab === 'tasks') && project.agent_count) || tab === 'files' ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4'">
@@ -124,7 +108,12 @@ async function removeRepo() {
                 <span class="text-(--ui-text-muted)">{{ t('project.infoDescription') }}</span>
                 <p class="whitespace-pre-line text-(--ui-text-toned)">{{ project.description || '—' }}</p>
               </div>
-              <UButton v-if="isAdmin" size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('project.rename')" @click="openEdit" />
+              <!-- the project's own actions (the page header holds none) -->
+              <div v-if="isAdmin" class="flex flex-wrap gap-2">
+                <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('project.rename')" @click="openEdit" />
+                <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-sparkles" :label="t('project.setupAi')" :to="`/projects/${id}/setup`" />
+                <UButton size="xs" color="error" variant="ghost" icon="i-lucide-folder-minus" :label="t('project.unmanage')" :loading="removing" class="ms-auto" @click="removeRepo" />
+              </div>
             </UCard>
               <ProjectBudget :project-id="project.id" />
             </div>
