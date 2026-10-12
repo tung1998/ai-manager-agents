@@ -4,14 +4,14 @@
 import type { MessageKey } from '~/locales/vi'
 
 const route = useRoute()
-const { t, dateLocale } = useLang()
+const { t, when: fmtWhen } = useLang()
 const projectId = computed(() => String(route.params.id))
 const { data, error, refresh } = useLiveFetch<{ run: WorkflowRun, children: WorkflowRun[] }>(() => `/api/workflow-runs/${route.params.runId}`)
 const run = computed(() => data.value?.run)
 const isolated = computed(() => !!run.value?.caller_conversation_id) // older runs ran inside the chat itself
 const chatTo = computed(() => run.value && ({ path: `/projects/${projectId.value}`, query: { tab: 'chat', c: run.value.caller_conversation_id || run.value.conversation_id } }))
 const statusColor: Record<WorkflowRun['status'], 'info' | 'success' | 'error' | 'neutral'> = { running: 'info', done: 'success', failed: 'error', stopped: 'neutral' }
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value)
+const when = (d: string) => fmtWhen(d, { seconds: true })
 useHead({ title: () => run.value?.workflow_name ?? t('wf.section') })
 </script>
 

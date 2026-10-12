@@ -42,10 +42,26 @@ export function useLang() {
     return text
   }
 
+  // when something happened: the hour alone today, the day too before that,
+  // the year too before this year
+  function when(d: string | number | Date, opts: { seconds?: boolean } = {}): string {
+    const at = new Date(d)
+    const now = new Date()
+    const o: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
+    if (opts.seconds) o.second = '2-digit'
+    if (at.toDateString() !== now.toDateString()) {
+      o.day = '2-digit'
+      o.month = '2-digit'
+      if (at.getFullYear() !== now.getFullYear()) o.year = 'numeric'
+    }
+    return at.toLocaleString(dateLocale.value, o)
+  }
+
   return {
     lang,
     setLang,
     t,
+    when,
     uiLocale,
     dateLocale,
   }

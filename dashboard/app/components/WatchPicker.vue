@@ -4,12 +4,11 @@
 // latest chats across projects, one click opens it here.
 defineProps<{ projects: Project[], hint: string }>()
 const emit = defineEmits<{ pick: [projectId: string, conversationId?: string] }>()
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 
 interface RecentChat { id: string, project_id: string, title: string, agent_name: string, source?: Source, updated_at: string, active_turn?: string }
 const { data: recentData, error: recentError } = useLiveFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 20 }, lazy: true, server: false })
 const recent = computed(() => recentData.value?.conversations ?? [])
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 </script>
 
 <template>

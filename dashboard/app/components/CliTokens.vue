@@ -2,7 +2,7 @@
 // Personal tokens for your own Claude Code CLI (ADR-047): the office tools
 // over MCP, across projects; what it proposes waits for approval here.
 interface Token { id: string, name: string, created_at: string, last_used_at?: string | null, expires_at?: string | null, expired?: boolean }
-const { t, dateLocale } = useLang()
+const { t, when: fmtWhen } = useLang()
 const toast = useToast()
 const copy = useCopy()
 const { data, refresh } = await useLiveFetch<{ tokens: Token[] }>('/api/me/tokens')
@@ -12,7 +12,7 @@ const dayItems = computed(() => [30, 90, 365, 0].map(n => ({ value: n, label: n 
 const created = ref<{ token: string, name: string } | null>(null)
 const mcpURL = computed(() => typeof location === 'undefined' ? '' : `${location.protocol}//${location.hostname}:8787/mcp`)
 const command = computed(() => created.value ? `claude mcp add --transport http agent-office ${mcpURL.value} --header "Authorization: Bearer ${created.value.token}"` : '')
-const when = (d?: string | null) => d ? new Date(d).toLocaleString(dateLocale.value) : t('cli.never')
+const when = (d?: string | null) => d ? fmtWhen(d) : t('cli.never')
 
 const creating = ref(false)
 async function create() {

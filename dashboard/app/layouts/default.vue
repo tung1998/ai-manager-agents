@@ -3,7 +3,7 @@ import type { DropdownMenuItem, NavigationMenuItem } from '@nuxt/ui'
 
 const route = useRoute()
 const { user, build, isAdmin, logout } = useAuth()
-const { t, dateLocale } = useLang()
+const { t, when: fmtWhen } = useLang()
 
 // which office is running, above the user (from /api/auth/me)
 const buildLabel = computed(() => {
@@ -14,7 +14,7 @@ const buildLabel = computed(() => {
 const buildText = computed(() => build.value?.dirty ? `${buildLabel.value} · ${t('build.dirty')}` : buildLabel.value)
 const buildTime = computed(() => {
   const at = build.value?.time
-  return at ? t('build.time', { time: new Date(at).toLocaleString(dateLocale.value) }) : ''
+  return at ? t('build.time', { time: fmtWhen(at) }) : ''
 })
 const buildInfoOpen = ref(false)
 // a dot when the source moved past the running build (admins, once per load)

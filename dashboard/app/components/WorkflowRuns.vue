@@ -4,7 +4,7 @@
 import type { MessageKey } from '~/locales/vi'
 
 const props = defineProps<{ projectId: string, workflows: ProjectWorkflow[] }>()
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 const route = useRoute()
 const router = useRouter()
 
@@ -18,7 +18,6 @@ const { data, error, pending } = useLiveFetch<{ runs: WorkflowRun[] }>(
 const runs = computed(() => data.value?.runs ?? [])
 
 const statusColor: Record<WorkflowRun['status'], 'info' | 'success' | 'error' | 'neutral'> = { running: 'info', done: 'success', failed: 'error', stopped: 'neutral' }
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 const took = (r: WorkflowRun) => {
   const s = Math.round(((r.finished_at ? new Date(r.finished_at) : new Date()).getTime() - new Date(r.started_at).getTime()) / 1000)
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`

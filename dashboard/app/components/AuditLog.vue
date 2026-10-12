@@ -5,7 +5,7 @@ import type { MessageKey } from '~/locales/vi'
 
 const props = defineProps<{ filter?: { project?: string, resource?: string, resource_id?: string }, showFilters?: boolean, projects?: { id: string, name: string }[], compact?: boolean }>()
 const toast = useToast()
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 
 const kind = ref('')
 const via = ref('')
@@ -71,7 +71,6 @@ function label(prefix: string, v: string) {
   const s = t(k)
   return s === k ? v : s
 }
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 const targetName = (e: AuditEntry) => String(e.after?.name ?? e.before?.name ?? e.resource_id ?? '')
 const show = (v: unknown) => v === '***' ? t('audit.secretChanged') : v === undefined ? '—' : typeof v === 'string' ? v : JSON.stringify(v)
 

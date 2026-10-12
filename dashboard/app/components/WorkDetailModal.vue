@@ -4,7 +4,7 @@
 // (logs, a monitor's checks) — a run opens in full, without leaving the page.
 const props = defineProps<{ title: string, subtitle?: string, query: string, summary?: { label: string, value: string, bad?: boolean }[] }>()
 const open = defineModel<boolean>('open', { default: false })
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 
 const jobs = ref<Job[] | null>(null)
 watch([open, () => props.query], async ([o]) => {
@@ -14,7 +14,6 @@ watch([open, () => props.query], async ([o]) => {
     jobs.value = (await $fetch<{ jobs: Job[] }>(`/api/jobs?${props.query}`)).jobs
   } catch { jobs.value = [] }
 }, { immediate: true })
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 const detail = ref<string | null>(null)
 </script>
 

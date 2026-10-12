@@ -4,7 +4,7 @@
 const props = defineProps<{ projectId: string }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
-const { t, dateLocale } = useLang()
+const { t, when: fmtWhen } = useLang()
 
 const { data, refresh } = await useLiveFetch<{ automations: Automation[] }>(() => `/api/projects/${props.projectId}/automations`)
 const { data: agentsData } = useLiveFetch<{ agents: Agent[], default_agent_id: string }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
@@ -61,7 +61,7 @@ function isFullAccess(a: Automation): boolean {
   const agent = a.agent_id ? agents.find(x => x.id === a.agent_id) : (agents.find(x => x.id === agentsData.value?.default_agent_id) ?? agents[0])
   return !!agent?.permissions.full_access
 }
-const when = (d?: string | null) => d ? new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : t('auto.never')
+const when = (d?: string | null) => d ? fmtWhen(d) : t('auto.never')
 
 
 async function toggle(a: Automation, enabled: boolean) {

@@ -3,7 +3,7 @@
 // runs) with how its jobs went, not one per answer. A row opens that work.
 const props = defineProps<{ project?: string, projects?: { id: string, name: string }[] }>()
 const toast = useToast()
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 
 interface Group {
   key: string, kind: 'chat' | 'task' | 'automation' | 'job', project_id: string, project_name: string, source: Source,
@@ -105,7 +105,6 @@ const selectItems = computed(() => ({
 }))
 const activeFilters = computed(() => [origin.value !== 'all', !!status.value, !!project.value && !props.project, since.value !== '168h'].filter(Boolean).length)
 
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 const usd = (v: number) => v >= 1 ? `$${v.toFixed(2)}` : v > 0 ? `$${v.toFixed(3)}` : ''
 const kindIcon = (g: Group) => g.active ? 'i-lucide-loader-circle'
   : g.source !== 'web' ? sourceIcon[g.source]

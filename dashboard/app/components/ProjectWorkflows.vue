@@ -7,7 +7,7 @@ import type { MessageKey } from '~/locales/vi'
 
 const props = defineProps<{ projectId: string }>()
 const toast = useToast()
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 const { isAdmin } = useAuth()
 const route = useRoute()
 const router = useRouter()
@@ -90,7 +90,6 @@ function menu(w: ProjectWorkflow) {
 }
 
 const statusColor: Record<WorkflowRun['status'], 'info' | 'success' | 'error' | 'neutral'> = { running: 'info', done: 'success', failed: 'error', stopped: 'neutral' }
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 const runLink = (r: WorkflowRun) => `/projects/${props.projectId}/workflows/runs/${r.id}`
 // one workflow's runs: the runs view, filtered (its ?w=)
 const runsOf = (w: ProjectWorkflow) => router.replace({ query: { ...route.query, wv: 'runs', w: w.id } }).then(() => { view.value = 'runs' })

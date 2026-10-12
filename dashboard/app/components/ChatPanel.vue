@@ -39,7 +39,7 @@ const single = computed(() => !!props.purpose)
 const page = computed(() => !props.compact && !single.value)
 const composeOpen = ref(false)
 const toast = useToast()
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 
 const _f1 = useLiveFetch<{ agents: Agent[], default_agent_id: string }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const { data: agentsData } = _f1
@@ -666,7 +666,6 @@ function onPatchUpdated(msg: Message, p: Patch) {
   if (i >= 0) msg.patches[i] = p
 }
 
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // ```automation {…}``` (or ```skill```) blocks of an answer: form changes (bad JSON is skipped)
 function fencedBlocks(text: string, lang: string): Record<string, unknown>[] {

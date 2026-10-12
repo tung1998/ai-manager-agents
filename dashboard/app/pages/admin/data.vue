@@ -13,7 +13,7 @@ interface Data { usage: Usage[], projects: { id: string, name: string }[], files
 
 definePageMeta({ admin: true })
 const toast = useToast()
-const { t, dateLocale } = useLang()
+const { t, when: fmtWhen } = useLang()
 const { data, refresh } = useFetch<Data>('/api/data')
 
 const KINDS: Kind[] = ['chat', 'burn', 'task']
@@ -21,7 +21,7 @@ const LEVELS: Level[] = ['content', 'summary', 'delete']
 const kindLabel = (k: Kind) => ({ chat: t('data.kind.chat'), burn: t('data.kind.burn'), task: t('data.kind.task') })[k]
 const levelLabel = (l: Level) => ({ delete: t('data.level.delete'), content: t('data.level.content'), summary: t('data.level.summary') })[l]
 const levelHint = (l: Level) => ({ delete: t('data.level.deleteHint'), content: t('data.level.contentHint'), summary: t('data.level.summaryHint') })[l]
-const when = (iso?: string | null) => iso ? new Date(iso).toLocaleString(dateLocale.value, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+const when = (iso?: string | null) => iso ? fmtWhen(iso) : '—'
 
 // ---- what each project keeps ----
 const projectName = (id: string) => data.value?.projects.find(p => p.id === id)?.name ?? id

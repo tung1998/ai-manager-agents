@@ -17,7 +17,7 @@ interface GwStat { calls: number, errors: number, proposed: number, last_at: str
 interface GwAgent { id: string, name: string, project: string, ai: string }
 interface GwCall { id: string, tool: string, caller: string, caller_kind: string, status: string, error: string, duration_ms: number, created_at: string }
 
-const { t, dateLocale } = useLang()
+const { t, when: fmt } = useLang()
 const toast = useToast()
 const saveError = useSaveError()
 // no top-level await: nested async setup under ToolsPanel's :key remount looped
@@ -35,7 +35,6 @@ watch(data, (d) => {
 }, { immediate: true })
 defineExpose({ refresh, servers: list, openClientForm: (id: string, msg: string) => openClientForm(id, msg) })
 const stat = (s: GwServer) => data.value?.stats?.[s.id]
-const fmt = (at: string) => new Date(at).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // ---- which agents get a server, and its tools that write without asking (ADR-093) ----
 const { data: agentData } = useFetch<{ agents: GwAgent[] }>('/api/mcp/agents')

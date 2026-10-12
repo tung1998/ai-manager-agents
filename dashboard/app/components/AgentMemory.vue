@@ -8,7 +8,7 @@ interface Note { id: string, text: string, topic: string, summary: string, versi
 interface Rev { id: string, reason: string, count: number, items: string[], created_at: string }
 interface Group { topic: string, summary: string, size: number, notes: Note[] }
 const props = defineProps<{ projectId: string, agentId: string }>()
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 const { isAdmin } = useAuth()
 const toast = useToast()
 const saveError = useSaveError()
@@ -30,7 +30,6 @@ const groups = computed<Group[]>(() => {
   by.delete('')
   return [...(core ? [core] : []), ...[...by.values()].reverse()]
 })
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 const sourceLabel = (s: Note['source']) => ({ person: t('mem.fromPerson'), agent: t('mem.fromAgent'), compact: t('mem.fromCompact') })[s]
 const sourceIcon = (s: Note['source']) => ({ person: 'i-lucide-user', agent: 'i-lucide-bot', compact: 'i-lucide-shrink' })[s]
 

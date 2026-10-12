@@ -4,7 +4,7 @@
 const props = defineProps<{ filter?: { project?: string, origin_id?: string, origin_ids?: string[], kind?: string }, showFilters?: boolean, projects?: { id: string, name: string }[] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 
 const kind = ref(props.filter?.kind ?? '')
 const origin = ref<'all' | Source>('all') // where it came from: web, a bot, an automation
@@ -82,7 +82,6 @@ const withAll = (items: { label: string, value: string }[]) => items.map(i => ({
 
 const usd = (v: number) => v >= 1 ? `$${v.toFixed(2)}` : v > 0 ? `$${v.toFixed(3)}` : '—'
 const secs = (ms: number) => !ms ? '—' : ms >= 60000 ? `${(ms / 60000).toFixed(1)}m` : `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s`
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 // where a job came from, as the source filter names it
 const sourceOf = (j: Job): Source => j.trigger === 'discord' || j.trigger === 'telegram' ? j.trigger : j.origin === 'automation' ? 'auto' : 'web'
 const source = (j: Job) => j.origin === 'automation'

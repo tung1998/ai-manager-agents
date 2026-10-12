@@ -28,7 +28,7 @@ interface ComposeView { files: string[], file: string, services: { name: string,
 
 const props = defineProps<{ projectId: string }>()
 const emit = defineEmits<{ askAgent: [text: string, files: never[], send?: boolean] }>()
-const { t, dateLocale } = useLang()
+const { t, when: fmtWhen } = useLang()
 function fixEvent(e: MonitorEvent) {
   const m = monitors.value.find(x => x.id === e.monitor_id)
   const target = m ? `${typeMeta.value[m.type].label} ${m.type === 'process' ? targetLabel(m) : m.target}` : ''
@@ -80,7 +80,7 @@ const typeMeta = computed<Record<Monitor['type'], { label: string, icon: string 
 }))
 const maxLatency = computed(() => Math.max(1, ...monitors.value.map(m => m.avg_latency_ms)))
 const pct = (v: number | null) => v === null ? '—' : `${v >= 99.95 ? 100 : v.toFixed(v >= 99 ? 2 : 1)}%`
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit' })
+const when = (d: string) => fmtWhen(d, { seconds: true })
 const every = (s: number) => s < 60 ? t('monitor.every.seconds', { n: s }) : s < 3600 ? t('monitor.every.minutes', { n: Math.round(s / 60) }) : t('monitor.every.hours', { n: Math.round(s / 3600) })
 function targetLabel(m: Monitor) {
   if (m.type === 'process') return procs.value.find(p => p.id === m.target)?.name ?? t('monitor.processDeleted')

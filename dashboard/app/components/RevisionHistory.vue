@@ -18,7 +18,7 @@ const open = defineModel<boolean>('open', { default: false })
 
 const toast = useToast()
 const { isAdmin } = useAuth()
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 const revisions = ref<Revision[]>([])
 const loading = ref(false)
 const expanded = ref<Record<string, Snapshot | null>>({})
@@ -102,7 +102,7 @@ useLive(['revisions', 'agents'], () => { if (open.value) load() })
             <div class="min-w-0">
               <p class="text-sm font-medium">{{ describe(r.action) }}</p>
               <p class="text-xs text-(--ui-text-muted)">
-                {{ new Date(r.created_at).toLocaleString(dateLocale) }} · {{ who(r.actor) }} · {{ t('rev.agentCount', { n: r.agent_count }) }}
+                {{ when(r.created_at) }} · {{ who(r.actor) }} · {{ t('rev.agentCount', { n: r.agent_count }) }}
               </p>
             </div>
             <div class="flex shrink-0 gap-1">

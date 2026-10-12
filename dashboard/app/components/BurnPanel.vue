@@ -21,7 +21,7 @@ const templates = ['general', 'ux', 'ideas', 'security', 'performance', 'test', 
 type BurnTemplate = typeof templates[number]
 interface AgentLite { id: string, name: string, tier: string, enabled?: boolean }
 const props = defineProps<{ projectId: string }>()
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 const toast = useToast()
 const copy = useCopy()
 
@@ -39,7 +39,6 @@ const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | undefined
 onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 1000) })
 onBeforeUnmount(() => clearInterval(clock))
-const when = (iso: string) => new Date(iso).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 function left(iso: string) {
   const s = Math.max(0, Math.floor((new Date(iso).getTime() - now.value) / 1000))
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60)

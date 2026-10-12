@@ -3,7 +3,7 @@
 // ran with, what a script printed, and where to open what it belongs to.
 const props = defineProps<{ jobId: string | null }>()
 const emit = defineEmits<{ close: [], open: [Job] }>()
-const { t, dateLocale } = useLang()
+const { t, when: fmtWhen } = useLang()
 const data = ref<{ job: Job, children: Job[] | null } | null>(null)
 watch(() => props.jobId, async (id) => {
   data.value = null
@@ -12,7 +12,7 @@ watch(() => props.jobId, async (id) => {
   if (id === props.jobId) data.value = res
 }, { immediate: true })
 const open = computed({ get: () => !!props.jobId, set: (v: boolean) => { if (!v) emit('close') } })
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit' })
+const when = (d: string) => fmtWhen(d, { seconds: true })
 const secs = (ms: number) => !ms ? '—' : ms >= 60000 ? `${(ms / 60000).toFixed(1)}m` : `${(ms / 1000).toFixed(1)}s`
 const kindName = (k: string) => t(`job.kind.${k}` as 'job.kind.script')
 // where it belongs: its chat (the assistant's on its own page), its automation

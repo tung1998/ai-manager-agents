@@ -18,7 +18,7 @@ interface Entry { revision_id: string, at: string, actor: string, action: string
 const route = useRoute()
 const toast = useToast()
 const { isAdmin } = useAuth()
-const { t, dateLocale } = useLang()
+const { t, dateLocale, when } = useLang()
 const projectId = computed(() => route.params.id as string)
 const agentId = computed(() => route.params.agentId as string)
 
@@ -41,7 +41,6 @@ const tab = computed<Tab>({
 
 const usd = (v: number) => v >= 100 ? `$${v.toFixed(0)}` : v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(3)}`
 const secs = (ms: number) => ms >= 60000 ? `${(ms / 60000).toFixed(1)}m` : `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s`
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // ---- overview ----
 const days = ref(7)

@@ -10,7 +10,7 @@ const tab = computed<HomeTab>({
   },
   set: v => navigateTo({ query: { ...route.query, tab: v === 'work' ? undefined : v } }, { replace: true })
 })
-const { t, dateLocale } = useLang()
+const { t, when } = useLang()
 
 const _f2 = useLiveFetch<{ providers: Provider[] }>('/api/providers', { lazy: true })
 const { data: prov } = _f2
@@ -22,15 +22,16 @@ interface RecentChat { id: string, project_id: string, title: string, agent_name
 const _f5 = useLiveFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 6 }, lazy: true })
 const { data: chatData } = _f5
 const recentChats = computed(() => chatData.value?.conversations ?? [])
-const when = (d: string) => new Date(d).toLocaleString(dateLocale.value, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
 
 // what needs a person, and the last day in numbers
-interface Incident { kind: string, severity: 'error' | 'warning' | 'info', project_id: string, project_name: string, title: string, detail: string, link: string, id: string, key: string, prompt?: string }
+interface Incident { kind: string, severity: 'error' | 'warning' | 'info', project_id: string, project_name: string, title: string, detail: string, at: string, link: string, id: string, key: string, prompt?: string }
 const _f6 = useLiveFetch<{ incidents: Incident[], count: number }>('/api/incidents', { key: 'incidents', lazy: true })
 const { data: incData, refresh: refreshInc } = _f6
 const incidents = computed(() => incData.value?.incidents ?? [])
 // the kind of each, as a word next to it
 const incKind = (k: string) => t(`incidents.kind.${k}` as 'incidents.kind.monitor')
+// under the title: where, when (no zero time: an AI limit has none), what
+const incLine = (x: Incident) => [x.project_name, x.at && !x.at.startsWith('0001-') ? when(x.at) : '', x.detail].filter(Boolean).join(' · ')
 const _f7 = useLiveFetch<{ totals: { running: number, pending: number, failed_24h: number, cost_24h: number } }>('/api/jobs/stats?since=24h', { lazy: true })
 const { data: stats } = _f7
 // none is awaited: the page shows at once (a phone over a VPN), each block
@@ -218,7 +219,7 @@ const steps = computed(() => [
                   <span class="truncate text-sm font-medium hover:underline">{{ x.title }}</span>
                   <UBadge :label="incKind(x.kind)" color="neutral" variant="subtle" size="sm" />
                 </span>
-                <span class="block truncate text-xs text-(--ui-text-muted)">{{ x.project_name }}<template v-if="x.detail"> · {{ x.detail }}</template></span>
+                <span class="block truncate text-xs text-(--ui-text-muted)">{{ incLine(x) }}</span>
               </span>
             </component>
             <!-- a chat answered since the person looked: theirs, whoever they are -->
