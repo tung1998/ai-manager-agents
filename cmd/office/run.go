@@ -63,6 +63,7 @@ func serveCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			shareGoBuildCache() // before anything starts a child process
 
 			cfg, err := loadConfig()
 			if err != nil {
@@ -367,6 +368,17 @@ func loopback(addr string) string {
 		host = "127.0.0.1"
 	}
 	return net.JoinHostPort(host, port)
+}
+
+// shareGoBuildCache has the Go builds and tests office starts (agents,
+// checks, scripts, processes) leave the folder out of the build cache's keys:
+// otherwise every chat worktree caches its own copy of each package and test
+// binary, and the cache grows by tens of GB. GOFLAGS set, even empty, is
+// left as it is.
+func shareGoBuildCache() {
+	if _, set := os.LookupEnv("GOFLAGS"); !set {
+		_ = os.Setenv("GOFLAGS", "-trimpath")
+	}
 }
 
 // exitWithParent stops the server (as on Ctrl+C) when its supervisor dies, so
