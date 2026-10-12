@@ -35,6 +35,7 @@ func (e *Engine) callWorkflow(ctx context.Context, conv storage.Conversation, ag
 	turn := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
 		actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx)}
 	turn.total.Store(1)
+	turn.JobID = usage.JobFrom(ctx) // set before beginJob stamps it, so a cancel in that window finds this turn
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn
 	e.mu.Unlock()
 	e.running(conv.ID)
@@ -58,7 +59,7 @@ func (e *Engine) callWorkflow(ctx context.Context, conv storage.Conversation, ag
 	if err != nil {
 		return fail(err)
 	}
-	turn.JobID = job.ID
+	turn.setJobID(job.ID)
 	// the run's chat: the same agent and rights as here, never listed
 	own := storage.Conversation{ProjectID: conv.ProjectID, AgentID: agent.ID, AgentName: agent.Name, CreatedBy: actor.From(ctx), Purpose: RunPurpose,
 		Title: truncate(run.def.Name+": "+oneLine(firstNonEmpty(run.rec.Input, run.def.Name)), 80), Mode: conv.Mode, EditMode: conv.EditMode, Effort: conv.Effort}

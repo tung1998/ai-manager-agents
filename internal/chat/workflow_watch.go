@@ -67,6 +67,10 @@ func (e *Engine) superviseOnce(run *wfRun, conv storage.Conversation, project st
 	a, err := e.pickAgent(ctx, run, role, "")
 	if err != nil {
 		e.wf.mu.Lock()
+		if e.wf.byConv[conv.ID] != run {
+			e.wf.mu.Unlock()
+			return false
+		}
 		text := "Giám sát không chạy: " + err.Error() // i18n-ignore
 		run.notes = append(run.notes, "The supervisor could not run: "+err.Error())
 		run.logf("%s", text)
@@ -85,6 +89,10 @@ func (e *Engine) superviseOnce(run *wfRun, conv storage.Conversation, project st
 		}
 	}
 	e.wf.mu.Lock()
+	if e.wf.byConv[conv.ID] != run {
+		e.wf.mu.Unlock()
+		return false
+	}
 	if last == "" || last == run.watchSeen || run.watching {
 		e.wf.mu.Unlock()
 		return true
@@ -142,9 +150,9 @@ func (e *Engine) wfWatched(prev *Turn, conv storage.Conversation, reply string) 
 	text := fmt.Sprintf("👁 The supervisor (%s) sees drift: %s. Read its message in this chat; if it is right, correct the direction.", prev.agentName, what)
 	run.notes = append(run.notes, text)
 	run.logf("Giám sát: lệch hướng: %s", truncate(what, 200))
-	rec := run.rec
+	rec, seq := run.snapshot()
 	e.wf.mu.Unlock()
-	e.saveRun(rec)
+	e.saveRun(run, rec, seq)
 }
 
 // driftOf reads a supervisor's verdict from its first line (anything but a

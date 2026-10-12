@@ -428,7 +428,7 @@ func (s *Service) audit(ctx context.Context, actor, action, target string, detai
 	}
 	e := audit.Entry(actorpkg.With(ctx, actor), c)
 	e.At = s.opts.Now()
-	_ = s.store.Audit().Append(ctx, e)
+	_ = audit.Append(ctx, s.store.Audit(), e)
 }
 
 func newToken() (token, hash string, err error) {

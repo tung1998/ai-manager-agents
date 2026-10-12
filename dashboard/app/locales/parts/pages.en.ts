@@ -274,6 +274,7 @@ const en: Record<keyof typeof vi, string> = {
   'admin.importPreviewSuffix': '{n} changes',
   'admin.applyChanges': 'Apply {n} changes',
   'admin.importDone': 'Imported {n} changes',
+  'admin.importPartial': 'Imported {n} changes, {m} failed: see details below',
   'admin.importFailed': 'Could not read file',
   'admin.importFailedFallback': 'File is not a valid config bundle',
   'admin.backupTitle': 'Data backup',

@@ -122,7 +122,7 @@ func TestStdio(t *testing.T) {
 	c := rpcClient{t, office.URL + "/mcp/s/local"}
 
 	checked, err := gw.CheckServer(ctx, m)
-	if err != nil || checked.LastCheckStatus != "ok" || len(checked.LastTools) != 7 {
+	if err != nil || checked.LastCheckStatus != "ok" || len(checked.LastTools) != 8 {
 		t.Fatalf("check = %+v %v", checked, err)
 	}
 	if names := gw.Names(ctx); len(names) != 1 || names[0] != "local" {
@@ -203,6 +203,28 @@ func TestStdio(t *testing.T) {
 	}
 	if v != "back" {
 		t.Fatalf("after crash = %q", v)
+	}
+
+	// a stdio call that fails (the process's own isError result, or a
+	// roundTrip error) is logged as "error", not "ok"
+	if _, v := c.tool(14, "fail", nil); !strings.Contains(v, "tool failed on purpose") {
+		t.Fatalf("fail = %q", v)
+	}
+	calls, err := st.MCPCalls().List(ctx, m.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]int{}
+	for _, c := range calls {
+		by[c.Status]++
+	}
+	if by["ok"] == 0 || by["error"] == 0 {
+		t.Fatalf("mcp_calls log = %v (%+v)", by, calls)
+	}
+	for _, c := range calls {
+		if c.Tool == "fail" && (c.Status != "error" || c.Error != "tool failed on purpose") {
+			t.Fatalf("fail call log = %+v", c)
+		}
 	}
 
 	// office shutting down: nothing left running

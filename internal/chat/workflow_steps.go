@@ -175,9 +175,9 @@ func (e *Engine) runSteps(ctx context.Context, own storage.Conversation, run *wf
 				}
 				e.wf.mu.Lock()
 				run.logf("Bước %s", workflow.StepLabel(s))
-				rec := run.rec
+				rec, seq := run.snapshot()
 				e.wf.mu.Unlock()
-				e.saveRun(rec)
+				e.saveRun(run, rec, seq)
 				switch s.Type {
 				case workflow.StepEnd:
 					ended = true
@@ -365,18 +365,18 @@ func (e *Engine) stepAgent(ctx context.Context, own storage.Conversation, projec
 		r.Turns++
 	}
 	run.rec.Turns++
-	rec := run.rec
+	rec, seq := run.snapshot()
 	e.wf.mu.Unlock()
-	e.saveRun(rec)
+	e.saveRun(run, rec, seq)
 	done := func(status string) {
 		e.wf.mu.Lock()
 		delete(e.wf.waiting, key)
 		if r := run.role(s.Role); r != nil {
 			r.Status = status
 		}
-		rec := run.rec
+		rec, seq := run.snapshot()
 		e.wf.mu.Unlock()
-		e.saveRun(rec)
+		e.saveRun(run, rec, seq)
 	}
 	t, why := e.startTurn(own, project, turnSpec{agent: a, background: true, actor: run.rec.Actor, tier: run.tier, ceiling: level, limit: time.Until(run.deadline),
 		title: run.def.Name + " → " + a.Name + " (" + workflow.StepLabel(s) + ")", prompt: prompt + "\n\n" + workflow.AccessNote(d.Access),

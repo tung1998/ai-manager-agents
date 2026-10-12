@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -75,10 +76,19 @@ type Item struct {
 	Modified  bool      `json:"modified"` // a shipped one, changed here
 	Error     string    `json:"error,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Version   string    `json:"version"` // ADR-072: a content hash; "" means the file is gone
 }
 
 // ErrNotFound: no workflow of that key.
 var ErrNotFound = errors.New("không có quy trình này trong thư viện")
+
+// ErrConflict: a save over someone else's change (ADR-072); answered 409.
+var ErrConflict = errors.New("Đã có thay đổi mới ở nơi khác kể từ lúc bạn mở (người khác hoặc agent). Tải lại để xem bản mới rồi sửa lại.")
+
+// saveMu serializes every library write (Save, SaveIf, Delete, Reset) so a
+// version check and the write that follows it see a consistent file, and no
+// write can land between another write's check and its write.
+var saveMu sync.Mutex
 
 func (l Library) path(key string) string { return filepath.Join(l.Dir, key+".md") }
 
@@ -231,7 +241,7 @@ func (l Library) Get(key string) (Item, error) {
 		return Item{}, ErrNotFound
 	}
 	st, _ := os.Stat(p)
-	it := Item{Source: string(raw), Builtin: BuiltinSource(key) != ""}
+	it := Item{Source: string(raw), Builtin: BuiltinSource(key) != "", Version: Hash(string(raw))}
 	if st != nil {
 		it.UpdatedAt = st.ModTime().UTC()
 	}
@@ -248,6 +258,13 @@ func (l Library) Get(key string) (Item, error) {
 
 // Save writes a workflow; its header key must be the file's.
 func (l Library) Save(key, source string) (Def, error) {
+	saveMu.Lock()
+	defer saveMu.Unlock()
+	return l.save(key, source)
+}
+
+// save is Save's write without the lock, for callers that already hold it.
+func (l Library) save(key, source string) (Def, error) {
 	d, err := Parse(source)
 	if err != nil {
 		return d, err
@@ -261,8 +278,29 @@ func (l Library) Save(key, source string) (Def, error) {
 	return d, os.WriteFile(l.path(key), []byte(strings.TrimSpace(source)+"\n"), 0o644)
 }
 
+// SaveIf writes a workflow like Save, but refuses with ErrConflict when want
+// is given and does not match the version read by a previous Get (want == ""
+// skips the check, for tool/agent saves and Reset). The check and the write
+// happen under one lock so two concurrent saves can't both pass it.
+func (l Library) SaveIf(key, source, want string) (Item, error) {
+	saveMu.Lock()
+	defer saveMu.Unlock()
+	if want != "" {
+		cur, _ := l.Get(key) // err (not found/invalid) just means Version is ""
+		if cur.Version != want {
+			return Item{}, ErrConflict
+		}
+	}
+	if _, err := l.save(key, source); err != nil {
+		return Item{}, err
+	}
+	return l.Get(key)
+}
+
 // Delete removes a workflow from the library.
 func (l Library) Delete(key string) error {
+	saveMu.Lock()
+	defer saveMu.Unlock()
 	if !ValidKey(key) {
 		return ErrNotFound
 	}

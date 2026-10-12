@@ -66,6 +66,69 @@ func TestJobsQueueAndFinish(t *testing.T) {
 	}
 }
 
+// A cancel landing between Claim and beginJob's stamp must not be reverted
+// back to "running": StartIfRunning is a CAS on status='running'.
+func TestStartIfRunningConflictsAfterCancel(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	now := time.Now().UTC()
+	j, err := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: "a", Status: "pending", NextAttemptAt: &now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.Jobs().Claim(ctx, now.Add(time.Second), 1, nil); err != nil || len(got) != 1 {
+		t.Fatalf("claim = %+v %v", got, err)
+	}
+	// the cancel beat beginJob to it
+	if _, err := st.Jobs().FinishIfRunning(ctx, j.ID, "cancelled", "cancelled", "", now.Add(2*time.Second)); err != nil {
+		t.Fatalf("cancel = %v", err)
+	}
+	if _, err := st.Jobs().StartIfRunning(ctx, j.ID, "cnv_1", "agt_1", "hỏi", now.Add(3*time.Second)); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("StartIfRunning after cancel = %v, want ErrConflict", err)
+	}
+	got, err := st.Jobs().Get(ctx, j.ID)
+	if err != nil || got.Status != "cancelled" || got.ConversationID != "" || got.AgentID != "" {
+		t.Fatalf("job after conflicting StartIfRunning = %+v %v, want still cancelled and unstamped", got, err)
+	}
+}
+
+// StartIfRunning while the job is still running: stamps conversation, agent
+// and title (only when title was empty), leaves status "running".
+func TestStartIfRunningStampsWhileRunning(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	now := time.Now().UTC()
+	j, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: "a", Status: "pending", NextAttemptAt: &now})
+	st.Jobs().Claim(ctx, now.Add(time.Second), 1, nil)
+	got, err := st.Jobs().StartIfRunning(ctx, j.ID, "cnv_1", "agt_1", "hỏi", now.Add(2*time.Second))
+	if err != nil || got.Status != "running" || got.ConversationID != "cnv_1" || got.AgentID != "agt_1" || got.Title != "hỏi" {
+		t.Fatalf("StartIfRunning = %+v %v", got, err)
+	}
+	// an existing title is kept, not overwritten
+	got, err = st.Jobs().StartIfRunning(ctx, j.ID, "cnv_1", "agt_1", "khác", now.Add(3*time.Second))
+	if err != nil || got.Title != "hỏi" {
+		t.Fatalf("StartIfRunning kept title = %+v %v", got, err)
+	}
+}
+
+// A run that finishes after its job was already cancelled must not have that
+// overwritten back to done/failed (endJob uses FinishIfRunning, not Finish).
+func TestFinishIfRunningDoesNotRevertACancel(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	now := time.Now().UTC()
+	j, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p.ID, Kind: "chat_turn", Origin: "automation", OriginID: "a", Status: "running", StartedAt: &now})
+	if _, err := st.Jobs().FinishIfRunning(ctx, j.ID, "cancelled", "cancelled", "", now.Add(time.Second)); err != nil {
+		t.Fatalf("cancel = %v", err)
+	}
+	if _, err := st.Jobs().FinishIfRunning(ctx, j.ID, "done", "", "", now.Add(2*time.Second)); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("finish after cancel = %v, want ErrConflict", err)
+	}
+	if got, _ := st.Jobs().Get(ctx, j.ID); got.Status != "cancelled" {
+		t.Fatalf("job = %+v, want still cancelled", got)
+	}
+}
+
 func TestAutomationsDue(t *testing.T) {
 	ctx := context.Background()
 	st, p := openStore(t)

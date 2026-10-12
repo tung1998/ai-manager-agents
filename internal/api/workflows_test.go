@@ -69,3 +69,36 @@ func TestWorkflowUpdateConflict(t *testing.T) {
 		t.Fatalf("version did not change after accepted patch")
 	}
 }
+
+// a workflow created with enabled:false is written disabled in one go (no
+// Install/Create-then-Update), so an Update failure can't orphan it enabled.
+func TestWorkflowCreateDisabled(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+
+	src := "---\nkey: thu\nname: Thử\nroles:\n  - key: a\n---\nLàm đi.\n"
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/workflows", map[string]any{"source": src, "enabled": false}, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create = %d %v", resp.StatusCode, body)
+	}
+	wf := body["workflow"].(map[string]any)
+	if wf["enabled"].(bool) {
+		t.Fatalf("workflow created enabled despite enabled:false: %v", wf)
+	}
+	id := wf["id"].(string)
+
+	resp, body = do(t, admin, "GET", e.srv.URL+"/api/workflows/"+id, nil, nil)
+	if resp.StatusCode != 200 || body["workflow"].(map[string]any)["enabled"].(bool) {
+		t.Fatalf("get after create = %d %v", resp.StatusCode, body)
+	}
+
+	// no enabled field => defaults to enabled
+	src2 := "---\nkey: thu2\nname: Thử 2\nroles:\n  - key: a\n---\nLàm đi.\n"
+	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/workflows", map[string]any{"source": src2}, nil)
+	if resp.StatusCode != 201 || !body["workflow"].(map[string]any)["enabled"].(bool) {
+		t.Fatalf("default create = %d %v", resp.StatusCode, body)
+	}
+}

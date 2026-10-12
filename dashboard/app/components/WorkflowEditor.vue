@@ -24,7 +24,9 @@ onMounted(async () => {
   if (!editing.value) return
   try {
     if (library.value) {
-      source.value = (await $fetch<{ workflow: LibraryWorkflow }>(`/api/workflow-library/${props.libKey}`)).workflow.source ?? ''
+      const w = (await $fetch<{ workflow: LibraryWorkflow }>(`/api/workflow-library/${props.libKey}`)).workflow
+      source.value = w.source ?? ''
+      version.value = w.version
     } else {
       const w = (await $fetch<{ workflow: ProjectWorkflow }>(`/api/workflows/${props.workflowId}`)).workflow
       bindings.value = { ...(w.bindings ?? {}) }
@@ -52,7 +54,10 @@ const error = ref('')
 // file's changes (typed, or the chat's) give the canvas its def again.
 const mode = ref<'canvas' | 'text'>(editing.value ? 'text' : 'canvas')
 let modeChosen = !editing.value
-watch(mode, () => { modeChosen = true })
+watch(mode, (m) => {
+  modeChosen = true
+  if (m !== 'canvas' && fmtDirty) void formatNow() // flush the pending canvas edit into the file before leaving it
+})
 const modes = computed(() => [
   { value: 'canvas', label: t('wf.canvas.tab'), icon: 'i-lucide-git-fork' },
   { value: 'text', label: t('wf.canvas.textTab'), icon: 'i-lucide-file-code' }
@@ -102,9 +107,10 @@ async function formatNow() {
   if (!fmtDirty || !draft.value) return
   fmtDirty = false
   const seq = ++fmtSeq
+  const before = source.value // written over only if nothing else changed source while this call was in flight
   try {
     const res = await $fetch<{ source: string, error?: string }>('/api/workflow-library/format', { method: 'POST', body: { def: draft.value } })
-    if (seq !== fmtSeq) return
+    if (seq !== fmtSeq || source.value !== before) return
     fromCanvas = res.source
     source.value = res.source
     error.value = res.error ?? ''
@@ -159,7 +165,8 @@ async function save() {
         const taken = await $fetch(`/api/workflow-library/${key}`).then(() => true, () => false)
         if (taken && !confirm(t('wf.overwrite', { key }))) return
       }
-      await $fetch(`/api/workflow-library/${key}`, { method: 'PUT', body: { source: source.value } })
+      const res2 = await $fetch<{ workflow: LibraryWorkflow }>(`/api/workflow-library/${key}`, { method: 'PUT', body: { source: source.value, version: version.value } })
+      version.value = res2.workflow.version
       if (!editing.value) await tieChat(`lib:${key}`)
     } else if (editing.value) {
       const res = await $fetch<{ workflow: ProjectWorkflow }>(`/api/workflows/${props.workflowId}`, { method: 'PATCH', body: { source: source.value, bindings: bindings.value, version: version.value } })

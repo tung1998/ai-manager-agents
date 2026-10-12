@@ -343,8 +343,9 @@ func (m *Manager) ComposeAction(ctx context.Context, projectID, file, action, se
 	}
 	p.def = storage.Process{ID: actionKey(projectID), ProjectID: projectID, Name: "docker compose " + action, Kind: "job",
 		Command: "docker " + strings.Join(quoted, " ")}
+	startGen := p.gen
 	p.mu.Unlock()
-	return m.launch(p, dir)
+	return m.launch(p, dir, startGen)
 }
 
 // ActionKey is the id to stream an action's output with Since.

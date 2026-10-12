@@ -340,8 +340,12 @@ func (s *server) mcpImport(w http.ResponseWriter, r *http.Request) {
 				res.TakenOut = true
 				origin.Backup = backup
 				raw, _ = json.Marshal(origin)
-				m.OriginRef = string(raw)
-				_ = s.cfg.Store.MCPServers().Update(ctx, m)
+				ref := string(raw)
+				if updated, err := s.updateMCPServerCAS(ctx, m.ID, func(x *storage.MCPServer) { x.OriginRef = ref }); err == nil {
+					m = updated
+				} else {
+					res.Error = "đã gỡ khỏi " + it.Location.Label + " nhưng chưa ghi lại được nguồn gốc: " + err.Error()
+				}
 			}
 		}
 		res.OK = true
@@ -420,11 +424,12 @@ func (s *server) mcpPutBack(w http.ResponseWriter, r *http.Request) {
 		}
 		s.cfg.Gateway.Forget(m.ID)
 	} else {
-		m.OriginRef, m.Origin = "", "manual" // its copy is back in the source
-		if err := s.cfg.Store.MCPServers().Update(ctx, m); err != nil {
+		updated, err := s.updateMCPServerCAS(ctx, m.ID, func(x *storage.MCPServer) { x.OriginRef, x.Origin = "", "manual" }) // its copy is back in the source
+		if err != nil {
 			s.internal(w, r, err)
 			return
 		}
+		m = updated
 	}
 	s.audit(r, audit.Change{Action: "mcp_server.put_back", ResourceID: m.ID, Before: s.auditMCP(m),
 		Detail: map[string]any{"to": o.Label, "name": o.Name, "deleted": in.Delete}})

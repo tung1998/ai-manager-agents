@@ -156,6 +156,20 @@ type Turn struct {
 	cancel context.CancelFunc
 }
 
+// setJobID records the job this turn runs as, under t.mu since TurnByJob
+// reads it from another goroutine while the run is starting.
+func (t *Turn) setJobID(id string) {
+	t.mu.Lock()
+	t.JobID = id
+	t.mu.Unlock()
+}
+
+func (t *Turn) jobID() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.JobID
+}
+
 func (t *Turn) emit(e Event) {
 	t.mu.Lock()
 	e.Seq = len(t.events)
@@ -428,7 +442,7 @@ func (e *Engine) TurnByJob(jobID string) (*Turn, bool) {
 		t.mu.Lock()
 		done := t.done
 		t.mu.Unlock()
-		if t.JobID == jobID && !done {
+		if t.jobID() == jobID && !done {
 			return t, true
 		}
 	}
@@ -746,6 +760,10 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx), limit: limit,
 		wfRun: wfID}
 	turn.total.Store(1)
+	// an automation job's id is already known: set it now, before beginJob
+	// stamps the row, so a cancel landing in that window finds this turn via
+	// TurnByJob instead of racing beginJob's write (ADR-082 follow-up).
+	turn.JobID = usage.JobFrom(ctx)
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn
 	e.mu.Unlock()
 	e.running(conv.ID)
@@ -772,7 +790,7 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		e.finish(turn)
 		return nil, storage.Message{}, err
 	}
-	turn.JobID = job.ID
+	turn.setJobID(job.ID)
 	runCtx = usage.WithJob(runCtx, job.ID)
 	if run != nil {
 		if err := e.startRun(conv, run, turn); err != nil {
@@ -1671,8 +1689,43 @@ func (e *Engine) SweepWorktrees(ctx context.Context, maxAge time.Duration) {
 		if p.Path == "" {
 			continue
 		}
-		e.trees.Sweep(ctx, p.Path, p.ID, func(name string) (bool, bool) { return e.TreeWanted(ctx, name) }, maxAge)
+		e.trees.Sweep(ctx, p.Path, p.ID, func(name string) (bool, bool) {
+			keep, pinned := e.TreeWanted(ctx, name)
+			if keep && !pinned {
+				pinned = e.chatTreeActive(ctx, name, maxAge)
+			}
+			return keep, pinned
+		}, maxAge)
 	}
+}
+
+// chatTreeActive pins a chat worktree recently touched or still holding an
+// unreviewed patch of its own, so Sweep's mtime check (frozen at worktree
+// creation: a nested write never bumps the folder's own mtime) does not
+// delete active conversations or their unreviewed changes.
+func (e *Engine) chatTreeActive(ctx context.Context, name string, maxAge time.Duration) bool {
+	id, ok := strings.CutPrefix(name, "chat-")
+	if !ok {
+		return false
+	}
+	id, _, _ = strings.Cut(id, "--") // an agent's own tree in the chat
+	c, err := e.store.Chat().GetConversation(ctx, id)
+	if err != nil || c.Cleaned != "" {
+		return false
+	}
+	if time.Since(c.UpdatedAt) < maxAge {
+		return true
+	}
+	patches, err := e.store.Chat().ListPatches(ctx, id)
+	if err != nil {
+		return false
+	}
+	for _, p := range patches {
+		if p.Origin == "worktree" && p.Status == "pending" && e.patchTree(p) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // TreeWanted says whether a project's worktree is still of use (keep), and

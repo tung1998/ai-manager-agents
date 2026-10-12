@@ -273,6 +273,7 @@ export default {
   'admin.importPreviewSuffix': '{n} thay đổi',
   'admin.applyChanges': 'Áp dụng {n} thay đổi',
   'admin.importDone': 'Đã nhập {n} thay đổi',
+  'admin.importPartial': 'Đã nhập {n} thay đổi, {m} mục lỗi: xem chi tiết bên dưới',
   'admin.importFailed': 'Không đọc được file',
   'admin.importFailedFallback': 'File không phải bundle config hợp lệ',
   'admin.backupTitle': 'Sao lưu dữ liệu',

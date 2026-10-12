@@ -64,6 +64,20 @@ type wfRun struct {
 	// it was shown
 	watchOn, watching bool
 	watchSeen         string
+	// saveRun ordering: seq is bumped (with e.wf.mu held) each time a
+	// snapshot is taken; savedSeq is the seq of the last write that actually
+	// landed, guarded by saveMu, so a stale snapshot can never overwrite a
+	// newer one that reached sqlite first
+	seq      int
+	savedSeq int
+	saveMu   sync.Mutex
+}
+
+// snapshot copies the run's record and bumps its save sequence; call with
+// e.wf.mu held, right where "rec := run.rec" used to be captured.
+func (r *wfRun) snapshot() (storage.WorkflowRun, int) {
+	r.seq++
+	return r.rec, r.seq
 }
 
 // rootOf is the top of a run's tree (with the lock held).
@@ -361,11 +375,21 @@ func (e *Engine) RunningWorkflow(conversationID string) string {
 	return ""
 }
 
-// save writes the run as it is now (call without the lock, with a copy).
-func (e *Engine) saveRun(rec storage.WorkflowRun) {
+// save writes the run as it is now (call without the lock, with a snapshot
+// from run.snapshot()). Writes are serialized per run and a seq older than
+// the last one actually saved is dropped, so an out-of-order write from a
+// slower goroutine can never revert a newer state already persisted.
+func (e *Engine) saveRun(run *wfRun, rec storage.WorkflowRun, seq int) {
+	run.saveMu.Lock()
+	defer run.saveMu.Unlock()
+	if seq <= run.savedSeq {
+		return
+	}
 	if err := e.store.WorkflowRuns().Update(context.Background(), rec); err != nil {
 		slog.Warn("workflow: save run", "run", rec.ID, "err", err)
+		return
 	}
+	run.savedSeq = seq
 }
 
 // logRun adds a line to the run's log (with the lock held).
@@ -421,7 +445,7 @@ func (e *Engine) finishRun(conversationID, runID, status, result, errText string
 	default:
 		run.logf("Thất bại: %s", errText)
 	}
-	rec := run.rec
+	rec, seq := run.snapshot()
 	var children []string // its sub-workflows still running end with it
 	for conv, r := range e.wf.byConv {
 		if r.rec.ParentRunID == runID {
@@ -429,7 +453,7 @@ func (e *Engine) finishRun(conversationID, runID, status, result, errText string
 		}
 	}
 	e.wf.mu.Unlock()
-	e.saveRun(rec)
+	e.saveRun(run, rec, seq)
 	for _, c := range children {
 		e.StopAll(c)
 	}
@@ -803,9 +827,9 @@ func (e *Engine) wfDelegate(ctx context.Context, sc officetools.Scope, run *wfRu
 	r.AgentID, r.AgentName = a.ID, a.Name
 	e.wf.pending[sc.RunRef] = append(e.wf.pending[sc.RunRef], wfAsk{role: role, agent: a, prompt: prompt})
 	run.logf("Giao vai %s cho %s", d.Name, a.Name)
-	rec := run.rec
+	rec, seq := run.snapshot()
 	e.wf.mu.Unlock()
-	e.saveRun(rec)
+	e.saveRun(run, rec, seq)
 	return fmt.Sprintf("Delegated role %s to %s; it starts when you finish this turn and works in the background (access: %s). Write a short note and stop your turn; you are called back when the roles just delegated are done.",
 		d.Name, a.Name, accessLabel(d.Access)), nil
 }
@@ -910,9 +934,9 @@ func (e *Engine) wfSend(ctx context.Context, sc officetools.Scope, run *wfRun, r
 	prompt := prompts.Render("workflow/send", struct{ Coordinator, Workflow, Role, Message, AccessNote string }{run.coord.Name, run.def.Name, d.Name, message, workflow.AccessNote(d.Access)})
 	e.wf.pending[sc.RunRef] = append(e.wf.pending[sc.RunRef], wfAsk{role: role, agent: a, prompt: prompt})
 	run.logf("Gửi tiếp cho %s (%s)", d.Name, a.Name)
-	rec := run.rec
+	rec, seq := run.snapshot()
 	e.wf.mu.Unlock()
-	e.saveRun(rec)
+	e.saveRun(run, rec, seq)
 	return fmt.Sprintf("Sent to %s (role %s); it starts when you finish this turn. Write a short note and stop your turn.", a.Name, d.Name), nil
 }
 
@@ -968,9 +992,9 @@ func (e *Engine) wfVote(ctx context.Context, sc officetools.Scope, run *wfRun, q
 	run.voting = &wfVoting{question: question, ballots: map[string]string{}}
 	e.wf.pending[sc.RunRef] = append(e.wf.pending[sc.RunRef], asks...)
 	run.logf("Biểu quyết: %s", truncate(oneLine(question), 120))
-	rec := run.rec
+	rec, seq := run.snapshot()
 	e.wf.mu.Unlock()
-	e.saveRun(rec)
+	e.saveRun(run, rec, seq)
 	return fmt.Sprintf("Sent the vote to %d roles; it starts when you finish this turn. Office counts the votes (%d AGREE needed) and calls you back with the result.", len(asks), v.Quorum), nil
 }
 
@@ -1039,9 +1063,9 @@ func (e *Engine) wfGate(ctx context.Context, sc officetools.Scope, run *wfRun, k
 			rg.Status, rg.ActionID, rg.Detail = "waiting", a.ID, ""
 		}
 		run.logf("Mở cổng %s, chờ người dùng duyệt", g.Name)
-		rec := run.rec
+		rec, seq := run.snapshot()
 		e.wf.mu.Unlock()
-		e.saveRun(rec)
+		e.saveRun(run, rec, seq)
 		return "Opened gate " + g.Name + " (an approval card in the chat). Say what needs approving, then STOP your turn; you are called back once it is approved or rejected.", nil
 	}
 	cmdline := cmp.Or(strings.TrimSpace(g.Command), strings.TrimSpace(command))
@@ -1075,9 +1099,9 @@ func (e *Engine) wfGate(ctx context.Context, sc officetools.Scope, run *wfRun, k
 		rg.Status, rg.ActionID, rg.Detail = status, a.ID, truncate(a.Detail, 500)
 	}
 	run.logf("Cổng %s: %s", g.Name, gateStatus(status))
-	rec := run.rec
+	rec, seq := run.snapshot()
 	e.wf.mu.Unlock()
-	e.saveRun(rec)
+	e.saveRun(run, rec, seq)
 	return out, nil
 }
 
@@ -1140,9 +1164,9 @@ func (e *Engine) refreshGates(ctx context.Context, run *wfRun) {
 	}
 	if changed {
 		e.wf.mu.Lock()
-		rec := run.rec
+		rec, seq := run.snapshot()
 		e.wf.mu.Unlock()
-		e.saveRun(rec)
+		e.saveRun(run, rec, seq)
 	}
 }
 
@@ -1287,16 +1311,16 @@ func (e *Engine) startRole(run *wfRun, conv storage.Conversation, project storag
 		if a.vote && run.voting != nil {
 			run.voting.ballots[a.role] = "unclear"
 		}
-		rec := run.rec
+		rec, seq := run.snapshot()
 		e.wf.mu.Unlock()
-		e.saveRun(rec)
+		e.saveRun(run, rec, seq)
 		e.note(conv, why)
 		return false
 	}
 	e.wf.mu.Lock()
-	rec := run.rec
+	rec, seq := run.snapshot()
 	e.wf.mu.Unlock()
-	e.saveRun(rec)
+	e.saveRun(run, rec, seq)
 	e.watchIdle(run, conv, a.role)
 	e.watchRun(run, conv, project)
 	return true
@@ -1354,9 +1378,10 @@ func (e *Engine) wfRoleDone(prev *Turn, conv storage.Conversation, project stora
 	} else if !last {
 		run.owed = true
 	}
-	id, rec := run.rec.ID, run.rec
+	id := run.rec.ID
+	rec, seq := run.snapshot()
 	e.wf.mu.Unlock()
-	e.saveRun(rec)
+	e.saveRun(run, rec, seq)
 	if last {
 		e.wfCallBack(id, conv, project)
 	}

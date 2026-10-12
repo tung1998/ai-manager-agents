@@ -118,6 +118,7 @@ const mcpAccepted = ref<boolean[]>([])
 const quickChecks = ref('')
 const useQuickChecks = ref(true)
 const ready = ref<ReadyItem[] | null>(null)
+let previewToken = 0
 
 async function propose() {
   proposing.value = true
@@ -133,6 +134,7 @@ async function propose() {
     quickChecks.value = res.result.proposal.quick_checks
     useQuickChecks.value = true
     ready.value = null
+    previewToken++
     preview.value = { pack: res.result.pack, problems: res.result.problems, warnings: res.result.warnings }
   } catch (e) {
     const d = (e as { data?: { code?: string, error?: string } }).data
@@ -155,11 +157,15 @@ const chosenMCP = computed(() => (result.value?.proposal.mcp ?? []).filter((_, i
 // Rebuild the preview whenever the pack or ticked changes move.
 watch([packKey, accepted, workflowsAccepted], async () => {
   if (!result.value || !packKey.value) return
+  const token = ++previewToken
   try {
-    preview.value = await $fetch(`/api/projects/${id.value}/setup/build`, {
+    const res = await $fetch(`/api/projects/${id.value}/setup/build`, {
       method: 'POST', body: { pack_key: packKey.value, changes: chosenChanges.value, workflows: chosenWorkflows.value }
     })
+    if (token !== previewToken) return
+    preview.value = res
   } catch (e) {
+    if (token !== previewToken) return
     toast.add({ title: apiError(e), color: 'error' })
   }
 }, { deep: true })

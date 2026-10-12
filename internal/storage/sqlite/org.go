@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/ids"
@@ -174,6 +175,23 @@ func (r providerRepo) SetStatus(ctx context.Context, id, status, detail string, 
 		status, detail, toJSON(models), fmtTime(at), id)
 }
 
+// SetTierModels writes auto-filled tier models, but only while the row still
+// matches prevTiers/baseURL/kind — if the admin edited the provider (or saved
+// different tiers) since prevTiers was read, this is a no-op, not an overwrite.
+func (r providerRepo) SetTierModels(ctx context.Context, id string, newTiers, prevTiers map[string]string, baseURL string, kind storage.ProviderKind) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE providers SET tier_models=?, updated_at=?
+		WHERE id=? AND base_url=? AND kind=? AND tier_models=?`,
+		toJSON(newTiers), fmtTime(time.Now()), id, baseURL, string(kind), toJSON(prevTiers))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // ---- org models ----
 
 // ---- agents ----
@@ -239,6 +257,29 @@ func (r agentRepo) Update(ctx context.Context, a storage.Agent) error {
 	return err
 }
 
+// UpdateIf is Update, but refuses with ErrConflict when the row no longer
+// matches prev (a write landed between the caller's Get and this Update).
+// It re-reads the row and compares it to prev as decoded Go values, not as
+// raw JSON text: a column like permissions can hold the same data in a
+// string that differs from what Go's own json.Marshal would produce (an
+// older migration's json_set, a legacy default of "{}", key order), so a
+// text comparison would conflict forever on rows Go itself never wrote.
+// The store opens with a single connection (sqlite.go SetMaxOpenConns(1)),
+// so this Get-then-Update is race-free the same way every other write here
+// is: all of them serialize through that one connection.
+func (r agentRepo) UpdateIf(ctx context.Context, a, prev storage.Agent) error {
+	cur, err := r.Get(ctx, a.ID)
+	if err != nil {
+		return err
+	}
+	cur.CreatedAt, cur.UpdatedAt = time.Time{}, time.Time{}
+	prev.CreatedAt, prev.UpdatedAt = time.Time{}, time.Time{}
+	if !reflect.DeepEqual(cur, prev) {
+		return storage.ErrConflict
+	}
+	return r.Update(ctx, a)
+}
+
 func (r agentRepo) Get(ctx context.Context, id string) (storage.Agent, error) {
 	return scanAgent(r.db.QueryRowContext(ctx, `SELECT `+agentCols+` FROM agents WHERE id=?`, id))
 }
@@ -302,6 +343,21 @@ func (r repoRepo) Create(ctx context.Context, x storage.Repo) (storage.Repo, err
 func (r repoRepo) Update(ctx context.Context, x storage.Repo) error {
 	return execOne(ctx, r.db, `UPDATE repos SET name=?, git_remote=?, description=?, default_agent_id=?, updated_at=? WHERE id=?`,
 		x.Name, x.GitRemote, x.Description, x.DefaultAgentID, fmtTime(time.Now()), x.ID)
+}
+
+func (r repoRepo) UpdateInfo(ctx context.Context, id, name, description string) error {
+	return execOne(ctx, r.db, `UPDATE repos SET name=?, description=?, updated_at=? WHERE id=?`,
+		name, description, fmtTime(time.Now()), id)
+}
+
+func (r repoRepo) UpdateInfoRemote(ctx context.Context, id, name, description, gitRemote string) error {
+	return execOne(ctx, r.db, `UPDATE repos SET name=?, description=?, git_remote=?, updated_at=? WHERE id=?`,
+		name, description, gitRemote, fmtTime(time.Now()), id)
+}
+
+func (r repoRepo) SetDefaultAgent(ctx context.Context, id, agentID string) error {
+	return execOne(ctx, r.db, `UPDATE repos SET default_agent_id=?, updated_at=? WHERE id=?`,
+		agentID, fmtTime(time.Now()), id)
 }
 
 func (r repoRepo) Get(ctx context.Context, id string) (storage.Repo, error) {

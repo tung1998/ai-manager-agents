@@ -40,20 +40,28 @@ function toNodes(entries: Entry[], depth: number): Node[] {
   return entries.map(e => ({ ...e, depth, open: false, loading: false, children: null }))
 }
 
+let rootSeq = 0
+
 async function openRoot(path = '') {
+  const seq = ++rootSeq
   loading.value = true
   error.value = ''
   try {
-    root.value = await fetchDir(path)
-    nodes.value = toNodes(root.value.entries, 0)
+    const listing = await fetchDir(path)
+    if (seq !== rootSeq) return
+    root.value = listing
+    nodes.value = toNodes(listing.entries, 0)
   } catch (e) {
+    if (seq !== rootSeq) return
     error.value = apiError(e, t('folder.fetchError'))
   } finally {
+    if (seq !== rootSeq) return
     loading.value = false
   }
 }
 
 async function toggle(n: Node) {
+  if (n.loading) return
   if (n.open) {
     n.open = false
     return

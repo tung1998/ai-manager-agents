@@ -148,7 +148,12 @@ func (s *Service) mergeInto(ctx context.Context, b storage.BurnSession, repo str
 		_, _ = gitIn(ctx, run, "", "clean", "-fdq")
 		return fmt.Errorf("%w: %s", errConflict, oneLine(out, 300))
 	}
-	return commit(ctx, run, b.RunBranch, it.Title, it.Summary)
+	if err := commit(ctx, run, b.RunBranch, it.Title, it.Summary); err != nil {
+		_, _ = gitIn(ctx, run, "", "reset", "-q", "--hard", "HEAD") // a failed commit must not leave this piece's changes for the next commit to absorb
+		_, _ = gitIn(ctx, run, "", "clean", "-fdq")
+		return err
+	}
+	return nil
 }
 
 // RunTree is where a project's latest Burn run is, to review: its worktree

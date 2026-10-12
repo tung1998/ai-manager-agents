@@ -143,6 +143,55 @@ func TestLibrary(t *testing.T) {
 	}
 }
 
+func TestLibrarySaveIf(t *testing.T) {
+	l := Library{Dir: filepath.Join(t.TempDir(), "workflows")}
+	if _, err := l.Save("thu", good); err != nil {
+		t.Fatal(err)
+	}
+	it, err := l.Get("thu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it.Version == "" {
+		t.Fatal("Get did not set a version")
+	}
+
+	// a correct version saves and returns a new one
+	other := strings.Replace(good, "Thử", "Thử 2", 1)
+	it2, err := l.SaveIf("thu", other, it.Version)
+	if err != nil {
+		t.Fatalf("SaveIf with current version: %v", err)
+	}
+	if it2.Version == it.Version {
+		t.Fatal("version did not change after a save")
+	}
+
+	// the stale version (it.Version) 409s and does not touch the file
+	if _, err := l.SaveIf("thu", good, it.Version); err != ErrConflict {
+		t.Fatalf("SaveIf with stale version = %v, want ErrConflict", err)
+	}
+	cur, _ := l.Get("thu")
+	if cur.Version != it2.Version {
+		t.Fatal("a conflicted save changed the file")
+	}
+
+	// no version given skips the check (tools, agents)
+	if _, err := l.SaveIf("thu", good, ""); err != nil {
+		t.Fatalf("SaveIf with no version: %v", err)
+	}
+
+	// a version given for a file that is gone 409s instead of recreating it
+	if err := l.Delete("thu"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.SaveIf("thu", good, it2.Version); err != ErrConflict {
+		t.Fatalf("SaveIf on a deleted file = %v, want ErrConflict", err)
+	}
+	if _, err := l.Get("thu"); err != ErrNotFound {
+		t.Fatal("a conflicted save over a deleted file recreated it")
+	}
+}
+
 // a library seeded under the old Vietnamese keys moves to the English ones,
 // keeping what was changed
 func TestSeedRenamesOldKeys(t *testing.T) {

@@ -49,10 +49,26 @@ func (r channelRepo) Create(ctx context.Context, c storage.Channel) (storage.Cha
 	return c, err
 }
 
+// Update writes the whole row, CAS'd on the updated_at the caller's c was
+// read with: two Get-mutate-Update calls racing from the same row land one
+// after another, and the second gets ErrConflict instead of silently
+// dropping the first's change (the api layer's version check only compares
+// a few human-edited fields, not the fields SetStatus/SetThread/Prune touch).
 func (r channelRepo) Update(ctx context.Context, c storage.Channel) error {
 	normChannel(&c)
-	return execOne(ctx, r.db, `UPDATE channels SET name=?, token_enc=?, agent_id=?, mode=?, enabled=?, allow=?, scope=?, filter_enabled=?, refusal=?, approvers=?, approval=?, header=?, reply_mode=?, defaults=?, updated_at=? WHERE id=?`,
-		c.Name, c.TokenEnc, c.AgentID, c.Mode, c.Enabled, toJSON(c.Allow), c.Scope, c.FilterEnabled, c.Refusal, toJSON(c.Approvers), c.Approval, c.Header, c.ReplyMode, c.Defaults, fmtTime(time.Now()), c.ID)
+	res, err := r.db.ExecContext(ctx, `UPDATE channels SET name=?, token_enc=?, agent_id=?, mode=?, enabled=?, allow=?, scope=?, filter_enabled=?, refusal=?, approvers=?, approval=?, header=?, reply_mode=?, defaults=?, updated_at=? WHERE id=? AND updated_at=?`,
+		c.Name, c.TokenEnc, c.AgentID, c.Mode, c.Enabled, toJSON(c.Allow), c.Scope, c.FilterEnabled, c.Refusal, toJSON(c.Approvers), c.Approval, c.Header, c.ReplyMode, c.Defaults, fmtTime(time.Now()), c.ID, fmtTime(c.UpdatedAt))
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return storage.ErrConflict
+	}
+	return nil
 }
 
 func (r channelRepo) Get(ctx context.Context, id string) (storage.Channel, error) {

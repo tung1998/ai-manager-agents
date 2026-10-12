@@ -54,12 +54,13 @@ type monitorDTO struct {
 	Uptime24h     *float64              `json:"uptime_24h"` // percent; nil without checks
 	AvgLatencyMS  int                   `json:"avg_latency_ms"`
 	Trend         []checkPoint          `json:"trend"` // last 30 checks, oldest first
+	Version       string                `json:"version"`
 }
 
 func (s *server) toMonitorDTO(r *http.Request, m storage.Monitor, withStats bool) monitorDTO {
 	d := monitorDTO{ID: m.ID, ProjectID: m.ProjectID, Name: m.Name, Type: m.Type, Target: m.Target, Config: m.Config, IntervalS: m.IntervalS,
 		Enabled: m.Enabled, AIEnabled: m.AIEnabled, AIBudgetUSD: m.AIBudgetUSD, Status: m.Status, LastCheckedAt: m.LastCheckedAt,
-		LastChangeAt: m.LastChangeAt, LastLatencyMS: m.LastLatencyMS, LastMessage: m.LastMessage, Trend: []checkPoint{}}
+		LastChangeAt: m.LastChangeAt, LastLatencyMS: m.LastLatencyMS, LastMessage: m.LastMessage, Trend: []checkPoint{}, Version: monitorVersion(m)}
 	if !m.Enabled {
 		d.Status = "paused"
 	}
@@ -119,6 +120,7 @@ type monitorInput struct {
 	Enabled     *bool                  `json:"enabled"`
 	AIEnabled   *bool                  `json:"ai_enabled"`
 	AIBudgetUSD *float64               `json:"ai_budget_usd"`
+	Version     string                 `json:"version"`
 }
 
 func (s *server) applyMonitor(r *http.Request, in monitorInput, m *storage.Monitor) error {
@@ -225,6 +227,9 @@ func (s *server) updateMonitor(w http.ResponseWriter, r *http.Request) {
 	m, err := s.cfg.Store.Monitors().Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeDomainError(w, r, err)
+		return
+	}
+	if conflicted(w, in.Version, monitorVersion(m)) {
 		return
 	}
 	old := m

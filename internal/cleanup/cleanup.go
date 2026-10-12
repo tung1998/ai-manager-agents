@@ -40,6 +40,9 @@ type Service struct {
 	running bool
 	status  Status
 	files   filesCache
+
+	autoMu sync.Mutex                                     // guards AutoSettings read-modify-write (SetAuto vs autoOnce)
+	runFn  func(context.Context, Request) (Result, error) // overridable in tests; nil = s.Run
 }
 
 // Status is the cleanup going on, or the last one.
@@ -408,6 +411,8 @@ func (s *Service) SetAuto(ctx context.Context, a Auto) (Auto, error) {
 	if a.Days < 1 {
 		return a, errors.New("số ngày ít nhất là 1")
 	}
+	s.autoMu.Lock()
+	defer s.autoMu.Unlock()
 	cur := s.AutoSettings(ctx)
 	a.LastRun, a.LastMsg = cur.LastRun, cur.LastMsg
 	return a, s.store.Settings().Set(ctx, autoKey, a)
@@ -432,17 +437,25 @@ func (s *Service) autoOnce(ctx context.Context) {
 	if !a.Enabled || (a.LastRun != nil && s.now().Sub(*a.LastRun) < 24*time.Hour) {
 		return
 	}
-	res, err := s.Run(ctx, Request{Kinds: a.Kinds, OlderThanDays: a.Days, Level: a.Level})
+	run := s.runFn
+	if run == nil {
+		run = s.Run
+	}
+	res, err := run(ctx, Request{Kinds: a.Kinds, OlderThanDays: a.Days, Level: a.Level})
 	if errors.Is(err, ErrRunning) {
 		return
 	}
 	now := s.now().UTC()
-	a.LastRun = &now
+	msg := fmt.Sprintf("đã dọn %d mục", res.Done)
 	if err != nil {
-		a.LastMsg = err.Error()
-	} else {
-		a.LastMsg = fmt.Sprintf("đã dọn %d mục", res.Done)
+		msg = err.Error()
 	}
-	_ = s.store.Settings().Set(ctx, autoKey, a)
+
+	s.autoMu.Lock()
+	a2 := s.AutoSettings(ctx)
+	a2.LastRun, a2.LastMsg = &now, msg
+	_ = s.store.Settings().Set(ctx, autoKey, a2)
+	s.autoMu.Unlock()
+
 	slog.Info("cleanup: auto", "done", res.Done, "bytes", res.Bytes, "left", len(res.Failed), "err", err)
 }

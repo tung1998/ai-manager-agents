@@ -84,16 +84,23 @@ func (r monitorRepo) Update(ctx context.Context, m storage.Monitor) error {
 func (r monitorRepo) SaveStatus(ctx context.Context, m storage.Monitor) error {
 	// the same result as last time: only when it was checked, and quietly (the
 	// leading comment keeps it from the dashboard's live notices, ADR-072)
-	res, err := r.db.ExecContext(ctx, `/* quiet */ UPDATE monitors SET last_checked_at=?, last_latency_ms=?, last_ping_at=? WHERE id=? AND status=? AND fails=? AND last_message=? AND last_change_at IS ?`,
-		optTime(m.LastCheckedAt), m.LastLatencyMS, optTime(m.LastPingAt), m.ID, m.Status, m.Fails, m.LastMessage, optTime(m.LastChangeAt))
+	res, err := r.db.ExecContext(ctx, `/* quiet */ UPDATE monitors SET last_checked_at=?, last_latency_ms=? WHERE id=? AND status=? AND fails=? AND last_message=? AND last_change_at IS ?`,
+		optTime(m.LastCheckedAt), m.LastLatencyMS, m.ID, m.Status, m.Fails, m.LastMessage, optTime(m.LastChangeAt))
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
 		return nil
 	}
-	return execOne(ctx, r.db, `UPDATE monitors SET status=?, fails=?, last_checked_at=?, last_change_at=?, last_latency_ms=?, last_message=?, last_ping_at=? WHERE id=?`,
-		m.Status, m.Fails, optTime(m.LastCheckedAt), optTime(m.LastChangeAt), m.LastLatencyMS, m.LastMessage, optTime(m.LastPingAt), m.ID)
+	return execOne(ctx, r.db, `UPDATE monitors SET status=?, fails=?, last_checked_at=?, last_change_at=?, last_latency_ms=?, last_message=? WHERE id=?`,
+		m.Status, m.Fails, optTime(m.LastCheckedAt), optTime(m.LastChangeAt), m.LastLatencyMS, m.LastMessage, m.ID)
+}
+
+// SavePing records only the heartbeat time, quietly (ADR-072): it must never
+// touch status/fails/last_checked_at, so a concurrent CheckNow's fresh
+// result can't be clobbered by a stale Ping (see Service.Ping).
+func (r monitorRepo) SavePing(ctx context.Context, id string, at time.Time) error {
+	return execOne(ctx, r.db, `/* quiet */ UPDATE monitors SET last_ping_at=? WHERE id=?`, fmtTime(at), id)
 }
 
 func (r monitorRepo) Get(ctx context.Context, id string) (storage.Monitor, error) {
@@ -211,4 +218,17 @@ func (r monitorRepo) AICostSince(ctx context.Context, monitorID string, since ti
 	var total sql.NullFloat64
 	err := r.db.QueryRowContext(ctx, `SELECT SUM(cost_usd) FROM monitor_events WHERE monitor_id=? AND at>=?`, monitorID, fmtTime(since)).Scan(&total)
 	return total.Float64, err
+}
+
+func (r monitorRepo) RecentAnalysis(ctx context.Context, monitorID, excludeID string, since time.Time) (bool, error) {
+	var hit int
+	err := r.db.QueryRowContext(ctx, `SELECT 1 FROM monitor_events WHERE monitor_id=? AND id<>? AND analysis_status IN ('done','running') AND at>=? LIMIT 1`,
+		monitorID, excludeID, fmtTime(since)).Scan(&hit)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }

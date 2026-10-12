@@ -63,8 +63,20 @@ type proc struct {
 	stopReq   bool
 	done      chan struct{} // closed when the current run exits
 	log       *os.File
-	launching bool // Start to launch: closes the window where 2 Start calls both pass the status check
+	launching bool   // Start to launch: closes the window where 2 Start calls both pass the status check
+	gen       uint64 // bumped by Stop on every call: lets launch() detect a Stop that landed between cmd.Start() and the state lock
 }
+
+// afterStart is a test-only hook invoked right after cmd.Start() succeeds and
+// before launch() takes the lock to commit state. It lets tests land a Stop()
+// call exactly inside that window.
+var afterStart func()
+
+// beforeStart is a test-only hook invoked right before cmd.Start(), after the
+// caller (Start or the restart AfterFunc) has released its lock. It lets
+// tests land a Stop() call in the earlier window between that unlock and
+// cmd.Start() itself.
+var beforeStart func()
 
 // Manager supervises project processes.
 type Manager struct {
@@ -194,15 +206,16 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	}
 	p.launching = true
 	p.def = def
+	startGen := p.gen
 	p.mu.Unlock()
-	err = m.launch(p, dir)
+	err = m.launch(p, dir, startGen)
 	p.mu.Lock()
 	p.launching = false
 	p.mu.Unlock()
 	return err
 }
 
-func (m *Manager) launch(p *proc, dir string) error {
+func (m *Manager) launch(p *proc, dir string, startGen uint64) error {
 	cmd := exec.Command("/bin/sh", "-c", p.def.Command)
 	cmd.Dir = dir
 	cmd.Env = append(append([]string(nil), m.env...), "FORCE_COLOR=0", "CI=")
@@ -216,19 +229,45 @@ func (m *Manager) launch(p *proc, dir string) error {
 		return err
 	}
 	logFile := m.openLog(p.def.ID)
+	if beforeStart != nil {
+		beforeStart()
+	}
 	if err := cmd.Start(); err != nil {
 		if logFile != nil {
 			logFile.Close()
 		}
 		return fmt.Errorf("không chạy được lệnh: %w", err)
 	}
+	if afterStart != nil {
+		afterStart()
+	}
 	now := time.Now().UTC()
 	p.mu.Lock()
 	restarts := p.state.Restarts
-	p.cmd, p.stopReq, p.log, p.done = cmd, false, logFile, make(chan struct{})
-	p.state = State{Status: "running", PID: cmd.Process.Pid, StartedAt: &now, Restarts: restarts}
+	stoppedMeanwhile := p.gen != startGen
+	p.cmd, p.log, p.done = cmd, logFile, make(chan struct{})
+	if stoppedMeanwhile {
+		p.stopReq = true
+		p.state = State{Status: "stopping", PID: cmd.Process.Pid, StartedAt: &now, Restarts: restarts}
+	} else {
+		p.stopReq = false
+		p.state = State{Status: "running", PID: cmd.Process.Pid, StartedAt: &now, Restarts: restarts}
+	}
+	pid, done := cmd.Process.Pid, p.done
 	p.mu.Unlock()
 	p.add("sys", fmt.Sprintf("$ %s  (trong %s)", p.def.Command, dir))
+	if stoppedMeanwhile {
+		// a Stop() landed in the window between cmd.Start() and this lock: honor it now
+		// instead of letting the unconditional state overwrite above resurrect the process.
+		go func() {
+			_ = syscall.Kill(-pid, syscall.SIGTERM)
+			select {
+			case <-done:
+			case <-time.After(stopGrace):
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
+			}
+		}()
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -302,12 +341,14 @@ func (m *Manager) exited(p *proc, dir string, err error) {
 		time.AfterFunc(delay, func() {
 			p.mu.Lock()
 			still := p.state.Status == "restarting"
+			var startGen uint64
 			if still {
 				p.launching = true
+				startGen = p.gen
 			}
 			p.mu.Unlock()
 			if still {
-				err := m.launch(p, dir)
+				err := m.launch(p, dir, startGen)
 				p.mu.Lock()
 				p.launching = false
 				p.mu.Unlock()
@@ -326,6 +367,7 @@ func (m *Manager) exited(p *proc, dir string, err error) {
 func (m *Manager) Stop(id string) error {
 	p := m.get(id)
 	p.mu.Lock()
+	p.gen++ // tells a launch() in flight (Start or restart) that it must not resurrect the process
 	if p.state.Status == "restarting" {
 		p.state.Status = "stopped"
 		p.mu.Unlock()

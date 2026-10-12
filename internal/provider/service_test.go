@@ -140,6 +140,93 @@ func TestTestFillsTiersFromModels(t *testing.T) {
 	}
 }
 
+// A concurrent save during Test()'s in-flight Check() call must survive: the
+// stale pre-Check snapshot must never be written back over it.
+func TestTestSurvivesConcurrentNameEdit(t *testing.T) {
+	_, st, _ := setup(t)
+	dir := t.TempDir()
+	box, _ := secrets.Load(filepath.Join(dir, "k"))
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		w.Write([]byte(`{"data":[{"id":"gpt-5"},{"id":"gpt-5-mini"},{"id":"text-embedding-3-small"}]}`))
+	}))
+	defer srv.Close()
+	svc := provider.NewService(st, box, llm.Options{})
+	ctx := context.Background()
+	p, err := svc.Create(ctx, provider.Input{Name: "GPT", Kind: storage.ProviderOpenAI, BaseURL: srv.URL, APIKey: ptr("sk-openai-test-1234")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	var testRes provider.TestResult
+	go func() {
+		testRes, _ = svc.Test(ctx, p.ID, "", "")
+		close(done)
+	}()
+	// Let Test() block inside Check(), then save a concurrent edit while it's in flight.
+	if _, err := svc.Update(ctx, p.ID, provider.Input{Name: "GPT Renamed", Kind: storage.ProviderOpenAI, BaseURL: srv.URL}); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	<-done
+	if !testRes.OK {
+		t.Fatalf("test = %+v", testRes)
+	}
+
+	got, _ := st.Providers().Get(ctx, p.ID)
+	if got.Name != "GPT Renamed" {
+		t.Fatalf("concurrent save was overwritten: name = %q", got.Name)
+	}
+	if got.TierModels["strong"] != "gpt-5" || got.TierModels["fast"] != "gpt-5-mini" {
+		t.Fatalf("tiers = %v", got.TierModels)
+	}
+}
+
+// If base_url changes while Check() is in flight, the tier fill (derived from
+// the old server's model list) must not be written to the new connection.
+func TestTestSkipsTierFillOnConcurrentBaseURLChange(t *testing.T) {
+	_, st, _ := setup(t)
+	dir := t.TempDir()
+	box, _ := secrets.Load(filepath.Join(dir, "k"))
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		w.Write([]byte(`{"data":[{"id":"gpt-5"},{"id":"gpt-5-mini"},{"id":"text-embedding-3-small"}]}`))
+	}))
+	defer srv.Close()
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[{"id":"other-model"}]}`))
+	}))
+	defer srv2.Close()
+	svc := provider.NewService(st, box, llm.Options{})
+	ctx := context.Background()
+	p, err := svc.Create(ctx, provider.Input{Name: "GPT", Kind: storage.ProviderOpenAI, BaseURL: srv.URL, APIKey: ptr("sk-openai-test-1234")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		svc.Test(ctx, p.ID, "", "")
+		close(done)
+	}()
+	if _, err := svc.Update(ctx, p.ID, provider.Input{Name: "GPT", Kind: storage.ProviderOpenAI, BaseURL: srv2.URL, APIKey: ptr("sk-openai-test-1234")}); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	<-done
+
+	got, _ := st.Providers().Get(ctx, p.ID)
+	if got.BaseURL != srv2.URL {
+		t.Fatalf("base_url = %q", got.BaseURL)
+	}
+	if got.TierModels["strong"] != "" || got.TierModels["fast"] != "" {
+		t.Fatalf("tiers from stale server leaked into new connection: %v", got.TierModels)
+	}
+}
+
 // Re-pointing a connection at another host must not carry the stored key
 // along: otherwise editing the URL is enough to exfiltrate it.
 func TestBaseURLChangeDropsStoredKey(t *testing.T) {

@@ -10,6 +10,7 @@ const rawListeners = new Set<(tables: string[]) => void>()
 // tablesFor: the tables an API path shows ('*' = refresh on anything).
 const routes: [RegExp, string[]][] = [
   [/\/memories/, ['agent_memories']],
+  [/\/burn\/review-profiles/, ['burn_review_profiles']],
   [/\/burn/, ['burn_sessions', 'burn_items']],
   [/\/audit/, ['audit_log']],
   [/\/stats\b/, ['runs', 'jobs']],
@@ -94,10 +95,37 @@ export function onLiveChange(fn: (tables: string[]) => void) {
   if (getCurrentInstance()) onBeforeUnmount(() => rawListeners.delete(fn))
 }
 
+// pushedVer (one race useLiveFetch guards against): a key the SSE stream
+// writes straight to useNuxtData (today only 'incidents', see startLive)
+// bumps here first; a GET in flight for the same key that resolves after
+// a bump would otherwise overwrite the fresher pushed value, so its result
+// is dropped in favor of what the stream already put there.
+const pushedVer = new Map<string, number>()
+
 // useLiveFetch is useFetch that refreshes when what it shows changes.
 export const useLiveFetch = ((url: MaybeRefOrGetter<string>, opts?: object) => {
-  const res = useFetch(url as never, keepOpts(opts, () => tablesFor(toValue(url) ?? '')) as never)
-  const lazyStart = (opts as { immediate?: boolean } | undefined)?.immediate === false
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userOpts = opts as { key?: string, immediate?: boolean, onRequest?: (ctx: any) => void, transform?: (d: any) => any } | undefined
+  const key = userOpts?.key ?? toValue(url)
+  let startVer = pushedVer.get(key) ?? 0
+  const mergedOpts = {
+    ...opts,
+    onRequest: (ctx: unknown) => {
+      startVer = pushedVer.get(key) ?? 0
+      userOpts?.onRequest?.(ctx)
+    },
+    // a pushed write landed for this key while the GET was in flight: keep
+    // what the stream wrote, drop the now-stale response
+    transform: (data: unknown) => {
+      if ((pushedVer.get(key) ?? 0) !== startVer) {
+        const current = useNuxtData(key).data.value
+        if (current !== undefined) return current
+      }
+      return userOpts?.transform ? userOpts.transform(data) : data
+    }
+  }
+  const res = useFetch(url as never, keepOpts(mergedOpts, () => tablesFor(toValue(url) ?? '')) as never)
+  const lazyStart = userOpts?.immediate === false
   useLive(() => tablesFor(toValue(url) ?? ''), () => {
     if (lazyStart && res.status.value === 'idle') return // not started on purpose: a change does not start it
     return res.refresh()
@@ -208,7 +236,10 @@ export function startLive() {
   if (!nuxtApp) {
     nuxtApp = tryUseNuxtApp()
     if (!eventListeners.has('incidents')) eventListeners.set('incidents', new Set())
-    eventListeners.get('incidents')!.add((d) => { void nuxtApp?.runWithContext(() => { useNuxtData('incidents').data.value = d }) })
+    eventListeners.get('incidents')!.add((d) => {
+      pushedVer.set('incidents', (pushedVer.get('incidents') ?? 0) + 1)
+      void nuxtApp?.runWithContext(() => { useNuxtData('incidents').data.value = d })
+    })
   }
   for (const name of pushed) {
     es.addEventListener(name, (e) => {

@@ -74,6 +74,7 @@ type mcpServerDTO struct {
 	MovedFrom       *mcpOriginDTO     `json:"moved_from"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
+	Version         string            `json:"version"`
 }
 
 // mcpToolDTO is a tool without its input schema (the list stays small).
@@ -126,7 +127,7 @@ func (s *server) mcpServerDTO(m storage.MCPServer) mcpServerDTO {
 	return mcpServerDTO{ID: m.ID, Name: m.Name, Kind: m.Kind, URL: m.URL, Headers: mcpgateway.MaskMap(headers),
 		Command: m.Command, Args: m.Args, Env: mcpgateway.MaskMap(env), OAuth: oa, Scope: m.Scope, Origin: m.Origin,
 		Enabled: m.Enabled, Path: "/mcp/s/" + m.Name, LastCheckAt: m.LastCheckAt, LastCheckStatus: m.LastCheckStatus, LastCheckError: m.LastCheckError,
-		Tools: tools, Agents: m.Agents, TrustedTools: m.TrustedTools, MovedFrom: from, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt}
+		Tools: tools, Agents: m.Agents, TrustedTools: m.TrustedTools, MovedFrom: from, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt, Version: mcpServerVersion(m)}
 }
 
 // auditMCP is what the change log keeps of a server (masked, no check results).
@@ -162,6 +163,7 @@ type mcpServerInput struct {
 	// ADR-093: agent ids that get it ([] = every agent), tools trusted to write
 	Agents       *[]string `json:"agents"`
 	TrustedTools *[]string `json:"trusted_tools"`
+	Version      string    `json:"version"` // ADR-072: "" skips the check
 }
 
 // cleanList trims, drops empties and duplicates.
@@ -245,6 +247,28 @@ func (s *server) applyMCPServer(in mcpServerInput, m *storage.MCPServer) error {
 		m.TrustedTools = cleanList(*in.TrustedTools)
 	}
 	return nil
+}
+
+// updateMCPServerCAS re-reads the server, applies mutate and saves it,
+// retrying once against a fresh read if another write raced it in between
+// (storage.ErrConflict): a bulk import or setup step should report that
+// instead of silently dropping a concurrent edit.
+func (s *server) updateMCPServerCAS(ctx context.Context, id string, mutate func(*storage.MCPServer)) (storage.MCPServer, error) {
+	for range 2 {
+		m, err := s.cfg.Store.MCPServers().Get(ctx, id)
+		if err != nil {
+			return m, err
+		}
+		mutate(&m)
+		err = s.cfg.Store.MCPServers().Update(ctx, m)
+		if err == nil {
+			return m, nil
+		}
+		if !errors.Is(err, storage.ErrConflict) {
+			return m, err
+		}
+	}
+	return storage.MCPServer{}, storage.ErrConflict
 }
 
 // applyMCPOAuth applies the form's OAuth client and, when the URL changed,
@@ -351,6 +375,9 @@ func (s *server) updateMCPServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "không đổi được loại MCP")
 		return
 	}
+	if conflicted(w, in.Version, mcpServerVersion(m)) {
+		return
+	}
 	old := m
 	if err := s.applyMCPServer(in, &m); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -363,6 +390,10 @@ func (s *server) updateMCPServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := s.cfg.Store.MCPServers().Update(r.Context(), m); err != nil {
+		if errors.Is(err, storage.ErrConflict) {
+			writeSaveConflict(w) // a write landed between this Get and Update
+			return
+		}
 		s.writeDomainError(w, r, err)
 		return
 	}

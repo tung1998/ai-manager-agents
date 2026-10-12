@@ -40,6 +40,17 @@ func TestDenied(t *testing.T) {
 	}
 }
 
+// ADR-074: DenyPaths must match regardless of case, since a case-variant
+// filename ("secret.PEM") is the same file on a case-insensitive filesystem
+// (macOS APFS) and must not slip past the deny-list.
+func TestDeniedCaseInsensitive(t *testing.T) {
+	p := Policy{DenyPaths: []string{"**/*.pem", "**/*.key", "**/.env*", "migrations/"}}
+	got := p.Denied([]string{"secret.PEM", "a/.ENV", "x.Key", "MIGRATIONS/0001.sql"})
+	if len(got) != 4 {
+		t.Fatalf("expected all 4 case-variant files denied, got: %v", got)
+	}
+}
+
 func TestDefaultPolicyDeniesNestedEnv(t *testing.T) {
 	p := DefaultPolicy()
 	for _, f := range []string{"backend/.env.local", "api/.env.production", "a/b/.env.test", ".env.local", ".env"} {

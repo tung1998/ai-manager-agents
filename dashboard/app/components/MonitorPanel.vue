@@ -20,6 +20,7 @@ interface Monitor {
   uptime_24h: number | null
   avg_latency_ms: number
   trend: Point[]
+  version: string
 }
 interface MonitorEvent { id: string, monitor_id: string, monitor_name: string, kind: 'up' | 'down', message: string, analysis: string, analysis_status: string, cost_usd: number, at: string }
 interface Proc { id: string, name: string, kind: string, state: { status: string, port?: number } }
@@ -161,7 +162,8 @@ async function saveForm() {
   if (saving.value) return
   const body = {
     name: form.name, type: form.type, target: form.target, interval_s: form.interval_s, ai_enabled: form.ai_enabled, ai_budget_usd: Number(form.ai_budget_usd) || 0,
-    config: { expect_status: form.expect_status || undefined, keyword: form.keyword || undefined, timeout_ms: Number(form.timeout_ms) || undefined, file: form.type === 'container' ? form.file : undefined }
+    config: { expect_status: form.expect_status || undefined, keyword: form.keyword || undefined, timeout_ms: Number(form.timeout_ms) || undefined, file: form.type === 'container' ? form.file : undefined },
+    version: editing.value?.version
   }
   saving.value = true
   try {
@@ -173,6 +175,7 @@ async function saveForm() {
     else formOpen.value = false
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
+    await refresh()
   } finally {
     saving.value = false
   }

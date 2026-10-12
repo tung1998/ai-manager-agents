@@ -427,6 +427,7 @@ func (s *server) createAutomation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := commitBot(); err != nil {
+		_ = s.cfg.Store.Automations().Delete(r.Context(), a.ID)
 		s.internal(w, r, err)
 		return
 	}
@@ -499,6 +500,11 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 	change := audit.Change{Action: "automation.update", ResourceID: a.ID, ProjectID: a.ProjectID,
 		Before: s.toAutomationDTO(r, old), After: s.toAutomationDTO(r, a), Detail: map[string]any{"name": a.Name, "enabled": a.Enabled}}
 	if err := s.cfg.Store.Automations().Update(r.Context(), a); err != nil {
+		if errors.Is(err, storage.ErrConflict) {
+			s.dropBot(r, newBot)
+			writeSaveConflict(w) // a write landed between this Get and Update (e.g. the Runner's safety-disable)
+			return
+		}
 		change.Err = err
 		s.audit(r, change)
 		s.internal(w, r, err)
@@ -525,6 +531,12 @@ func (s *server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 func (s *server) deleteAutomation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	old, err := s.cfg.Store.Automations().Get(r.Context(), id)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	defer s.lockAutomations(old.ProjectID)()
+	old, err = s.cfg.Store.Automations().Get(r.Context(), id)
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
@@ -568,13 +580,19 @@ func (s *server) rotateSecret(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	defer s.lockAutomations(a.ProjectID)()
+	a, err = s.cfg.Store.Automations().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
 	if a.Source != "webhook" {
 		writeError(w, http.StatusBadRequest, "chỉ webhook mới có secret")
 		return
 	}
 	var secret string
 	secret, a.Config.SecretHash = trigger.NewSecret()
-	if err := s.cfg.Store.Automations().Update(r.Context(), a); err != nil {
+	if err := s.cfg.Store.Automations().UpdateSecretHash(r.Context(), a.ID, a.Config.SecretHash); err != nil {
 		s.internal(w, r, err)
 		return
 	}

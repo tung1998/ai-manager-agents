@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/assistant"
@@ -95,6 +96,27 @@ func TestMCPServersAPI(t *testing.T) {
 	}
 	if _, body = do(t, admin, "POST", base+"/"+id+"/check", nil, nil); body["server"].(map[string]any)["last_check_status"] != "ok" {
 		t.Fatalf("check after keep = %v", body)
+	}
+
+	// ADR-072: a stale version loses to someone else's change; no version
+	// skips the check; the gateway's own OAuth write (via check) never
+	// conflicts a pending edit
+	var version string
+	_, listed := do(t, admin, "GET", base, nil, nil)
+	for _, x := range listed["servers"].([]any) {
+		m := x.(map[string]any)
+		if m["id"] == id {
+			version = m["version"].(string)
+		}
+	}
+	if resp, body = do(t, admin, "PATCH", base+"/"+id, map[string]any{"enabled": true, "version": "stale"}, nil); resp.StatusCode != 409 {
+		t.Fatalf("stale version = %d %v", resp.StatusCode, body)
+	}
+	if resp, body = do(t, admin, "PATCH", base+"/"+id, map[string]any{"enabled": true}, nil); resp.StatusCode != 200 {
+		t.Fatalf("no version = %d %v", resp.StatusCode, body)
+	}
+	if resp, body = do(t, admin, "PATCH", base+"/"+id, map[string]any{"enabled": true, "version": version}, nil); resp.StatusCode != 200 {
+		t.Fatalf("fresh version = %d %v", resp.StatusCode, body)
 	}
 
 	// no response nor change log ever holds the secret
@@ -239,5 +261,49 @@ func TestMCPServersStdioOAuthAPI(t *testing.T) {
 		if s := mustJSON(v); strings.Contains(s, "very-secret") || strings.Contains(s, "oauth_enc") || strings.Contains(s, "access_token") {
 			t.Fatalf("a secret leaked: %s", s)
 		}
+	}
+}
+
+// Two PATCHes racing on the same MCP server, each editing a different field
+// and neither sending a version, must not both silently win: the storage-level
+// CAS on updated_at makes whichever Update runs second answer 409 instead of
+// dropping the first's change.
+func TestUpdateMCPServerConflict(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	up := upstreamMCP(t)
+	base := e.srv.URL + "/api/mcp/servers"
+	sawConflict := false
+	for i := 0; i < 30 && !sawConflict; i++ {
+		resp, body := do(t, admin, "POST", base, map[string]any{"name": "srv", "url": up.URL}, nil)
+		if resp.StatusCode != 201 {
+			t.Fatalf("round %d: create = %d %v", i, resp.StatusCode, body)
+		}
+		id := body["server"].(map[string]any)["id"].(string)
+		var wg sync.WaitGroup
+		var codeA, codeB int
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			resp, _ := do(t, admin, "PATCH", base+"/"+id, map[string]any{"enabled": false}, nil)
+			codeA = resp.StatusCode
+		}()
+		go func() {
+			defer wg.Done()
+			resp, _ := do(t, admin, "PATCH", base+"/"+id, map[string]any{"agents": []string{"agt_1"}}, nil)
+			codeB = resp.StatusCode
+		}()
+		wg.Wait()
+		if codeA != 200 && codeA != 409 || codeB != 200 && codeB != 409 {
+			t.Fatalf("round %d: unexpected statuses %d %d", i, codeA, codeB)
+		}
+		if codeA == 409 || codeB == 409 {
+			sawConflict = true
+		}
+		do(t, admin, "DELETE", base+"/"+id, nil, nil)
+	}
+	if !sawConflict {
+		t.Fatal("30 rounds of racing PATCHes never produced a 409: the CAS isn't catching the lost-update race")
 	}
 }

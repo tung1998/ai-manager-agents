@@ -80,8 +80,11 @@ func (l *logins) take(state, user string) (pendingLogin, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	p, ok := l.pending[state]
-	delete(l.pending, state)
-	return p, ok && state != "" && p.user == user && time.Now().Before(p.exp)
+	valid := ok && state != "" && p.user == user && time.Now().Before(p.exp)
+	if valid || (ok && time.Now().After(p.exp)) {
+		delete(l.pending, state)
+	}
+	return p, valid
 }
 
 func (g *Gateway) saveOAuth(ctx context.Context, m *storage.MCPServer, o OAuth) error {

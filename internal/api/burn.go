@@ -368,6 +368,7 @@ func (s *server) burnItemAction(w http.ResponseWriter, r *http.Request) {
 	case "first":
 		if it.Status == "found" || it.Status == "skipped" || it.Status == "failed" {
 			it.Status = "queued"
+			it.ReviewErrAttempts = 0
 		}
 		it.Priority = int(time.Now().Unix())
 	case "drop-worktree":

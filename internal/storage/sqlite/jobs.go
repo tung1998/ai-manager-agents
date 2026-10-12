@@ -108,6 +108,10 @@ func (r jobRepo) SetOutput(ctx context.Context, id, output string, exitCode int)
 	return execOne(ctx, r.db, `UPDATE jobs SET output=?, exit_code=? WHERE id=?`, output, exitCode, id)
 }
 
+func (r jobRepo) SetMessageID(ctx context.Context, id, messageID string) error {
+	return execOne(ctx, r.db, `UPDATE jobs SET message_id=? WHERE id=?`, messageID, id)
+}
+
 func (r jobRepo) Get(ctx context.Context, id string) (storage.Job, error) {
 	return scanJob(r.db.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id=?`, id))
 }
@@ -117,6 +121,28 @@ func (r jobRepo) Update(ctx context.Context, j storage.Job) error {
 		debounce_until=?, payload=?, reply=?, next_attempt_at=?, started_at=?, full_access=?, full_access_by=?, extra_dirs=? WHERE id=?`,
 		nullStr(j.ConversationID), nullStr(j.MessageID), nullStr(j.TaskID), j.Status, j.Error, j.ErrorCode, j.AgentID, j.Title,
 		optTime(j.DebounceUntil), j.Payload, replyJSON(j.Reply), optTime(j.NextAttemptAt), optTime(j.StartedAt), j.FullAccess, j.FullAccessBy, extraDirsJSON(j.ExtraDirs), j.ID)
+}
+
+// StartIfRunning is the CAS counterpart of Update's automation-job stamp in
+// beginJob: it only applies while status is still "running", so a cancel
+// landing between Claim and this write (status already "cancelled") isn't
+// reverted back to "running".
+func (r jobRepo) StartIfRunning(ctx context.Context, id, conversationID, agentID, title string, startedAt time.Time) (storage.Job, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE jobs SET conversation_id=?, agent_id=?, started_at=?,
+		title=CASE WHEN COALESCE(title,'')='' THEN ? ELSE title END
+		WHERE id=? AND status='running'`,
+		nullStr(conversationID), agentID, optTime(&startedAt), title, id)
+	if err != nil {
+		return storage.Job{}, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return storage.Job{}, err
+	}
+	if n == 0 {
+		return storage.Job{}, storage.ErrConflict
+	}
+	return r.Get(ctx, id)
 }
 
 func (r jobRepo) Finish(ctx context.Context, id, status, errCode, errMsg string, at time.Time) (storage.Job, error) {
@@ -132,12 +158,22 @@ func (r jobRepo) Finish(ctx context.Context, id, status, errCode, errMsg string,
 }
 
 func (r jobRepo) FinishIfRunning(ctx context.Context, id, status, errCode, errMsg string, at time.Time) (storage.Job, error) {
+	return r.finishIfStatus(ctx, id, "running", status, errCode, errMsg, at)
+}
+
+// FinishIfPending is Finish, but only applies when the job is still pending;
+// ErrConflict when it already started (e.g. a cancel racing Claim/StartReady).
+func (r jobRepo) FinishIfPending(ctx context.Context, id, status, errCode, errMsg string, at time.Time) (storage.Job, error) {
+	return r.finishIfStatus(ctx, id, "pending", status, errCode, errMsg, at)
+}
+
+func (r jobRepo) finishIfStatus(ctx context.Context, id, expected, status, errCode, errMsg string, at time.Time) (storage.Job, error) {
 	res, err := r.db.ExecContext(ctx, `UPDATE jobs SET status=?, error_code=?, error=?, finished_at=?,
 		cost_usd=(SELECT COALESCE(SUM(cost_usd),0) FROM runs WHERE job_id=jobs.id),
 		input_tokens=(SELECT COALESCE(SUM(input_tokens),0) FROM runs WHERE job_id=jobs.id),
 		output_tokens=(SELECT COALESCE(SUM(output_tokens),0) FROM runs WHERE job_id=jobs.id),
 		duration_ms=MAX(0, CAST(ROUND((julianday(?) - julianday(COALESCE(started_at, created_at))) * 86400000) AS INTEGER))
-		WHERE id=? AND status='running'`, status, errCode, errMsg, fmtTime(at), fmtTime(at), id)
+		WHERE id=? AND status=?`, status, errCode, errMsg, fmtTime(at), fmtTime(at), id, expected)
 	if err != nil {
 		return storage.Job{}, err
 	}

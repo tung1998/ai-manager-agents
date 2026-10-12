@@ -656,15 +656,15 @@ func (g *Gateway) checkStdio(ctx context.Context, m storage.MCPServer) ([]storag
 // office's cache, requests under office's own ids, notifications dropped
 // (office keeps the session with the process itself). Answers are plain
 // JSON; there is no server stream (GET is 405).
-func (g *Gateway) serveStdio(w http.ResponseWriter, r *http.Request, m storage.MCPServer, body []byte) {
+func (g *Gateway) serveStdio(w http.ResponseWriter, r *http.Request, m storage.MCPServer, body []byte) (int, string) {
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Allow", "POST, DELETE")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+		return http.StatusMethodNotAllowed, ""
 	case http.MethodDelete:
 		w.WriteHeader(http.StatusNoContent) // the process stays for other runs
-		return
+		return http.StatusNoContent, ""
 	}
 	t := bytes.TrimSpace(body)
 	batch := len(t) > 0 && t[0] == '['
@@ -672,7 +672,7 @@ func (g *Gateway) serveStdio(w http.ResponseWriter, r *http.Request, m storage.M
 	if batch {
 		if json.Unmarshal(t, &msgs) != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
-			return
+			return http.StatusBadRequest, "bad request"
 		}
 	} else {
 		msgs = []json.RawMessage{t}
@@ -683,11 +683,12 @@ func (g *Gateway) serveStdio(w http.ResponseWriter, r *http.Request, m storage.M
 	if err != nil {
 		g.log().Warn("mcp gateway", "server", m.Name, "rpc", rpc, "err", err.Error())
 		http.Error(w, "MCP "+m.Name+": "+err.Error(), http.StatusBadGateway)
-		return
+		return http.StatusBadGateway, err.Error()
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), CallTimeout)
 	defer cancel()
 	var out []json.RawMessage
+	errMsg := ""
 	for _, raw := range msgs {
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(raw, &fields) != nil {
@@ -712,8 +713,16 @@ func (g *Gateway) serveStdio(w http.ResponseWriter, r *http.Request, m storage.M
 			delete(fields, "id")
 			resp, err := p.roundTrip(ctx, fields)
 			if err != nil {
+				if errMsg == "" {
+					errMsg = "MCP " + m.Name + ": " + err.Error()
+				}
 				out = append(out, rpcError(id, -32603, "MCP "+m.Name+": "+err.Error()))
 				continue
+			}
+			if method == "tools/call" {
+				if em := callErrMsg(resp); em != "" && errMsg == "" {
+					errMsg = em
+				}
 			}
 			resp["id"] = id // the client's own id back
 			b, _ := json.Marshal(resp)
@@ -723,15 +732,44 @@ func (g *Gateway) serveStdio(w http.ResponseWriter, r *http.Request, m storage.M
 	g.log().Info("mcp gateway", "server", m.Name, "kind", "stdio", "rpc", rpc, "tool", tool, "ms", time.Since(start).Milliseconds())
 	if len(out) == 0 {
 		w.WriteHeader(http.StatusAccepted)
-		return
+		return http.StatusAccepted, ""
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if batch {
 		b, _ := json.Marshal(out)
 		_, _ = w.Write(b)
-		return
+		return http.StatusOK, errMsg
 	}
 	_, _ = w.Write(out[0])
+	return http.StatusOK, errMsg
+}
+
+// callErrMsg reports a tools/call result's own error: a JSON-RPC error, or a
+// result whose content says isError (ADR-093's resultText, mirrored for the
+// stdio path so its audit log sees the same failures the HTTP path logs).
+func callErrMsg(resp map[string]json.RawMessage) string {
+	if raw, ok := resp["error"]; ok {
+		var e struct {
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		if e.Message != "" {
+			return e.Message
+		}
+		return "error"
+	}
+	raw, ok := resp["result"]
+	if !ok {
+		return ""
+	}
+	text, isErr := resultText(raw)
+	if !isErr {
+		return ""
+	}
+	if text == "" {
+		return "error"
+	}
+	return text
 }
 
 func rpcResult(id, result json.RawMessage) json.RawMessage {

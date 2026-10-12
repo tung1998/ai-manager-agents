@@ -132,6 +132,52 @@ func TestGitActions(t *testing.T) {
 	}
 }
 
+func TestGitCommitDedup(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git missing")
+	}
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	root := t.TempDir()
+	gitRun := func(args ...string) {
+		c := exec.Command("git", args...)
+		c.Dir = root
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatal(string(out))
+		}
+	}
+	gitRun("init", "-q", "-b", "main")
+	gitRun("config", "user.email", "t@x.io")
+	gitRun("config", "user.name", "T")
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("1\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "b.txt"), []byte("1\n"), 0o644)
+	gitRun("add", ".")
+	gitRun("commit", "-qm", "init")
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("2\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "b.txt"), []byte("2\n"), 0o644)
+	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "g", Path: root})
+	svc := New(st, nil)
+	conv, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: proj.ID})
+	sc := Scope{ProjectID: proj.ID, ConversationID: conv.ID, RunRef: "g1", Agent: "a", Level: perm.Propose}
+
+	first, err := svc.Propose(ctx, sc, "git_commit", "", "lưu", storage.ActionArgs{Message: "fix: typo", Files: []string{"a.txt"}})
+	if err != nil || first.Status != "pending" {
+		t.Fatalf("first propose: %v %+v", err, first)
+	}
+	// same message, different files: must become its own action, not echo the first's file list
+	second, err := svc.Propose(ctx, sc, "git_commit", "", "lưu", storage.ActionArgs{Message: "fix: typo", Files: []string{"b.txt"}})
+	if err != nil || second.ID == first.ID || len(second.Args.Files) != 1 || second.Args.Files[0] != "b.txt" {
+		t.Fatalf("different files must not dedup: %v %+v", err, second)
+	}
+	// same message, same files but reordered: must dedup to the existing pending action
+	reordered, err := svc.Propose(ctx, sc, "git_commit", "", "lưu", storage.ActionArgs{Message: "fix: typo", Files: []string{"a.txt"}})
+	if err != nil || reordered.ID != first.ID {
+		t.Fatalf("same files must dedup: %v %+v", err, reordered)
+	}
+}
+
 // at is the preset access of a package.
 // at: an agent at level allowed to run/restart every process of the test
 func at(level string) perm.Access {
@@ -166,5 +212,26 @@ func TestRunCommand(t *testing.T) {
 	sc.RunRef = "c3"
 	if a, _ := svc.Propose(ctx, sc, "run_command", "cat missing.txt", "x"); a.Status != "failed" {
 		t.Fatalf("a failing command is failed: %+v", a)
+	}
+}
+
+// TestRunCommandRisky: a risky pattern saved to an agent's commands before
+// putPolicy rejected them (or by any other path) must still never auto-run.
+func TestRunCommandRisky(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "r", Path: t.TempDir()})
+	svc := New(st, nil)
+	acc := perm.Access{Level: perm.Operate, Caps: []string{perm.CapPropose, perm.CapCommands}, Commands: []string{"git push *", "go version *"}}
+	sc := Scope{ProjectID: proj.ID, RunRef: "r1", Agent: "a", Level: perm.Operate, Access: acc}
+
+	if a, err := svc.Propose(ctx, sc, "run_command", "git push origin main --force", "x"); err != nil || a.Status != "pending" {
+		t.Fatalf("a risky pattern must wait for a person, even with CapCommands: %v %+v", err, a)
+	}
+	sc.RunRef = "r2"
+	if a, err := svc.Propose(ctx, sc, "run_command", "go version", "x"); err != nil || a.Status != "done" {
+		t.Fatalf("a non-risky allowed command still runs on its own: %v %+v", err, a)
 	}
 }

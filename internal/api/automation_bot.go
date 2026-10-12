@@ -96,6 +96,9 @@ func (s *server) saveBot(r *http.Request, in *automationInput, projectID string)
 	}
 	return "", func() error {
 		if err := s.cfg.Store.Channels().Update(r.Context(), c); err != nil {
+			if errors.Is(err, storage.ErrConflict) {
+				return errConflict // a write landed between this Get and Update
+			}
 			return err
 		}
 		s.audit(r, audit.Change{Action: "channel.update", ResourceID: c.ID, ProjectID: projectID, Before: toChannelDTO(old), After: toChannelDTO(c),

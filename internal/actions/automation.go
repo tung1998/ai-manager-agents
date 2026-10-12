@@ -52,7 +52,7 @@ func (s *Service) saveAutomation(ctx context.Context, a storage.Action) error {
 		}
 		old := x
 		spec.Apply(&x, now)
-		err = s.store.Automations().Update(ctx, x)
+		err = s.store.Automations().UpdateSpec(ctx, x)
 		_ = audit.Record(ctx, s.store.Audit(), audit.Change{Action: "automation.update", ResourceID: x.ID, ProjectID: x.ProjectID, Before: old, After: x, Err: err})
 		return err
 	}

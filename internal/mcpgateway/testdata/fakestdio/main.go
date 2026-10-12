@@ -83,7 +83,7 @@ func main() {
 					map[string]any{"name": "echo", "description": "Echo"},
 					map[string]any{"name": "slow"}, map[string]any{"name": "crash"},
 					map[string]any{"name": "ask"}, map[string]any{"name": "pid"}, map[string]any{"name": "inits"},
-					map[string]any{"name": "env"},
+					map[string]any{"name": "env"}, map[string]any{"name": "fail"},
 				}}})
 			case "tools/call":
 				switch m.Params.Name {
@@ -106,6 +106,9 @@ func main() {
 					text(m.ID, strconv.FormatInt(inits.Load(), 10))
 				case "env":
 					text(m.ID, os.Getenv("FAKE_TOKEN"))
+				case "fail":
+					send(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{
+						"content": []any{map[string]any{"type": "text", "text": "tool failed on purpose"}}, "isError": true}})
 				default:
 					text(m.ID, m.Params.Arguments.Text)
 				}

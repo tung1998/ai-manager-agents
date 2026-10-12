@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -193,6 +195,7 @@ func (anthropicRunner) Run(ctx context.Context, req RunRequest, emit func(Event)
 	res := RunResult{}
 	start := time.Now()
 	var answer strings.Builder
+	exhausted := true
 	for round := 0; round < maxToolRounds; round++ {
 		var out struct {
 			Model      string            `json:"model"`
@@ -242,6 +245,7 @@ func (anthropicRunner) Run(ctx context.Context, req RunRequest, emit func(Event)
 			}
 		}
 		if out.StopReason != "tool_use" || len(results) == 0 {
+			exhausted = false
 			break
 		}
 		messages = append(messages, map[string]any{"role": "user", "content": results})
@@ -252,6 +256,14 @@ func (anthropicRunner) Run(ctx context.Context, req RunRequest, emit func(Event)
 	}
 	res.Text = strings.TrimSpace(answer.String())
 	res.Usage.DurationMS = time.Since(start).Milliseconds()
+	if exhausted {
+		note := "(dừng: đã hết " + strconv.Itoa(maxToolRounds) + " vòng gọi công cụ, việc có thể chưa xong)"
+		if res.Text == "" {
+			return res, errors.New("hết vòng gọi công cụ mà không có câu trả lời")
+		}
+		res.Text += "\n\n" + note
+		emit(Event{Type: "text", Text: "\n\n" + note})
+	}
 	return res, nil
 }
 
@@ -291,6 +303,7 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 	res := RunResult{}
 	start := time.Now()
 	var answer strings.Builder
+	exhausted := true
 	for round := 0; round < maxToolRounds; round++ {
 		var out struct {
 			Model   string `json:"model"`
@@ -310,6 +323,7 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 		res.Usage.InputTokens += out.Usage.PromptTokens
 		res.Usage.OutputTokens += out.Usage.CompletionTokens
 		if len(out.Choices) == 0 {
+			exhausted = false
 			break
 		}
 		var msg struct {
@@ -329,6 +343,7 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 			emit(Event{Type: "text", Text: msg.Content})
 		}
 		if len(msg.ToolCalls) == 0 {
+			exhausted = false
 			break
 		}
 		for _, call := range msg.ToolCalls {
@@ -347,5 +362,13 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 	}
 	res.Text = strings.TrimSpace(answer.String())
 	res.Usage.DurationMS = time.Since(start).Milliseconds()
+	if exhausted {
+		note := "(dừng: đã hết " + strconv.Itoa(maxToolRounds) + " vòng gọi công cụ, việc có thể chưa xong)"
+		if res.Text == "" {
+			return res, errors.New("hết vòng gọi công cụ mà không có câu trả lời")
+		}
+		res.Text += "\n\n" + note
+		emit(Event{Type: "text", Text: "\n\n" + note})
+	}
 	return res, nil
 }

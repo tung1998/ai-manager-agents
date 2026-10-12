@@ -515,6 +515,67 @@ func TestSweepOldKeepsWorkInProgress(t *testing.T) {
 	}
 }
 
+// A chat worktree's own directory mtime is frozen at creation (nested writes
+// never bump it), so Sweep must not rely on it alone: a recently active
+// conversation, or one still holding an unreviewed patch from that worktree,
+// must survive even when its folder looks untouched for maxAge.
+func TestSweepChatWorktreePinsActiveWork(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	month := time.Now().Add(-30 * 24 * time.Hour)
+
+	mkConv := func(updated time.Time) storage.Conversation {
+		c, err := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: f.project.ID, Title: "t"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.st.Chat().AddMessage(ctx, storage.Message{ConversationID: c.ID, Role: "user", Content: "hi", CreatedAt: updated}); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+
+	recent := mkConv(time.Now())  // just touched: kept, even if its folder looks old
+	oldWithPatch := mkConv(month) // old, but an unreviewed patch from its own worktree waits
+	oldNoPatch := mkConv(month)   // old, nothing waiting: swept
+	cleaned, _ := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: f.project.ID, Title: "c"})
+	otherAgentTree := mkConv(month) // the patch below names a different worktree than this agent's own
+
+	if err := f.st.Chat().CleanConversation(ctx, cleaned.ID, "CleanContent", "note"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := f.st.Chat().AddPatch(ctx, storage.Patch{ConversationID: oldWithPatch.ID, Diff: "x", Origin: "worktree", Tree: chat.ChatTree(oldWithPatch.ID)}); err != nil {
+		t.Fatal(err)
+	}
+	// pins only the tree it names, not a sibling agent tree of the same chat
+	if _, err := f.st.Chat().AddPatch(ctx, storage.Patch{ConversationID: otherAgentTree.ID, Diff: "x", Origin: "worktree", Tree: chat.ChatTree(otherAgentTree.ID)}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]bool{
+		chat.ChatTree(recent.ID):                           true,
+		chat.ChatTree(oldWithPatch.ID):                     true,
+		chat.ChatTree(oldNoPatch.ID):                       false,
+		chat.ChatTree(cleaned.ID):                          false,
+		chat.ChatAgentTree(otherAgentTree.ID, "agent-two"): false,
+	}
+	for name := range want {
+		dir, err := f.trees.Ensure(ctx, f.dir, f.project.ID, name, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Chtimes(dir, month, month)
+	}
+
+	f.engine.SweepWorktrees(ctx, 14*24*time.Hour)
+	for name, kept := range want {
+		if got := f.trees.Exists(f.project.ID, name); got != kept {
+			t.Errorf("%s: exists=%v, want %v", name, got, kept)
+		}
+	}
+}
+
 // Office restarted while a piece ran: started again, the piece waits (its
 // worktree and what it did there kept), then goes on first.
 func TestBurnGoesOnAfterRestart(t *testing.T) {
@@ -731,6 +792,66 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","s
 	f.svc.Stop(ctx, f.project.ID)
 }
 
+// A person skipping an item while work()'s own checks (checked(), ADR-131)
+// are still running must win: work() must not overwrite the skip once the
+// checks come back, and must not merge or deliver the item.
+func TestBurnWorkDoesNotOverwriteASkipRacingTheChecks(t *testing.T) {
+	f := setup(t)
+	os.WriteFile(f.bin, []byte(strings.Replace(reviewer, "sleep 1", "sleep 0.2", 1)), 0o755)
+	tmp := t.TempDir()
+	started := filepath.Join(tmp, "started") // set once checked()'s verify command actually starts
+	marker := filepath.Join(tmp, "go")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{
+		ProjectID: f.project.ID, ModelTier: "fast", ResultMode: "branch", EndsAt: &ends, State: "stopped",
+		Verify: `touch "` + started + `"; while [ ! -f "` + marker + `" ]; do sleep 0.05; done`,
+	}) // no review profile: a done item goes straight to checked()
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Thêm file", Kind: "upgrade"})
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: items[0].ID})
+	it := waitItem(t, f.st, items[0].ID, "doing")
+	f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: it.ID, Summary: "đã thêm"})
+	if got, _ := f.st.Burn().Item(ctx, it.ID); got.Status != "done" {
+		t.Fatalf("expected done (no review configured): %s", got.Status)
+	}
+
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(started); err == nil {
+			break // checked()'s verify command is now genuinely blocked
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("checked() never started its verify command")
+		}
+	}
+
+	skipped, _ := f.st.Burn().Item(ctx, it.ID)
+	skipped.Status, skipped.Summary = "skipped", "bỏ qua trong lúc đang kiểm chứng"
+	if err := f.st.Burn().UpdateItemFrom(ctx, skipped, "done"); err != nil {
+		t.Fatalf("skip raced out: %v", err)
+	}
+	os.WriteFile(marker, nil, 0o644) // let the verify command finish
+
+	time.Sleep(500 * time.Millisecond) // work() must settle without a further status change
+	got := waitItemFor(t, f.st, it.ID, "skipped", 10*time.Second)
+	if got.Summary != "bỏ qua trong lúc đang kiểm chứng" {
+		t.Fatalf("skip overwritten: %+v", got)
+	}
+	log := exec.Command("git", "log", "--name-only", b.RunBranch)
+	log.Dir = f.dir
+	if out, _ := log.CombinedOutput(); strings.Contains(string(out), "made-by-agent") {
+		t.Fatalf("skipped item's diff merged into the run anyway: %s", out)
+	}
+	f.svc.Stop(ctx, f.project.ID)
+}
+
 // burn_list gives what the coordination prompt leaves out (ADR-121).
 func TestBurnListTool(t *testing.T) {
 	f := setup(t)
@@ -860,6 +981,14 @@ func (r panicBurnRepo) UpdateItem(ctx context.Context, it storage.BurnItem) erro
 		panic("boom: simulated panic in work/run")
 	}
 	return r.BurnRepo.UpdateItem(ctx, it)
+}
+
+func (r panicBurnRepo) UpdateItemFrom(ctx context.Context, it storage.BurnItem, from string) error {
+	if it.Status == "doing" && it.Worktree != "" && it.WorkConversationID != "" && atomic.CompareAndSwapInt32(r.armed, 0, 1) {
+		_ = r.BurnRepo.UpdateItemFrom(ctx, it, from) // the real save still happens first, as it would before any later panic
+		panic("boom: simulated panic in work/run")
+	}
+	return r.BurnRepo.UpdateItemFrom(ctx, it, from)
 }
 
 // A panic while a piece is worked on fails only that piece — its worktree

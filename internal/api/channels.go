@@ -267,6 +267,10 @@ func (s *server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.cfg.Store.Channels().Update(r.Context(), c); err != nil {
+		if errors.Is(err, storage.ErrConflict) {
+			writeSaveConflict(w) // a write landed between this Get and Update
+			return
+		}
 		s.internal(w, r, err)
 		return
 	}

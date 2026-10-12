@@ -246,8 +246,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.logCall(r.Context(), m, c, callTool, st, errMsg, time.Since(start).Milliseconds(), "")
 	}
 	if m.Kind == "stdio" {
-		g.serveStdio(w, r, m, body)
-		logged(http.StatusOK, "")
+		logged(g.serveStdio(w, r, m, body))
 		return
 	}
 	headers, err := OpenMap(g.Box, m.HeadersEnc)

@@ -193,22 +193,51 @@ func (s *server) jobStats(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+// cancelJobRaceHook runs right after cancelJob's initial Get, before it acts
+// on the job's status. Tests use it to force the window where StartReady's
+// Claim flips a still-pending job to running between that Get and the
+// FinishIfPending write below.
+var cancelJobRaceHook = func() {}
+
 func (s *server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	j, err := s.cfg.Store.Jobs().Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	switch {
-	case j.Status == "pending":
-		j, err = s.cfg.Store.Jobs().Finish(r.Context(), j.ID, "cancelled", "cancelled", "", time.Now().UTC())
-		if err != nil {
-			s.internal(w, r, err)
+	cancelJobRaceHook()
+	racedClaim := false // StartReady/Claim won the race between our Get and the pending write below
+	if j.Status == "pending" {
+		nj, ferr := s.cfg.Store.Jobs().FinishIfPending(r.Context(), j.ID, "cancelled", "cancelled", "", time.Now().UTC())
+		switch {
+		case ferr == nil:
+			j = nj
+		case errors.Is(ferr, storage.ErrConflict):
+			if cur, gerr := s.cfg.Store.Jobs().Get(r.Context(), j.ID); gerr == nil {
+				j = cur
+			}
+			racedClaim = true
+		default:
+			s.internal(w, r, ferr)
 			return
 		}
+	}
+	switch {
+	case j.Status == "cancelled":
+		// already finished above
 	case j.Status == "running" && j.Kind == "chat_turn" && j.ConversationID != "":
 		if t, ok := s.cfg.Chat.TurnByJob(j.ID); ok { // a hand-off in the background has its own job
 			t.Cancel()
+		} else if racedClaim {
+			// Claim just flipped it to running: execute() is still setting up
+			// (reading the automation, building the prompt) and hasn't
+			// registered a Turn yet, so TurnByJob finding nothing here does NOT
+			// mean the run is dead — unlike the same situation reached directly
+			// below. Treat it as still alive: refuse the cancel instead of
+			// calling FinishIfRunning, which would mark it cancelled while the
+			// run goes on to actually execute.
+			writeError(w, http.StatusConflict, "job này không còn chạy")
+			return
 		} else if nj, ferr := s.cfg.Store.Jobs().FinishIfRunning(r.Context(), j.ID, "cancelled", "cancelled", "", time.Now().UTC()); ferr == nil {
 			j = nj // no turn in memory (already finished, or lost on restart): cancel the job record itself
 		} else if errors.Is(ferr, storage.ErrConflict) {

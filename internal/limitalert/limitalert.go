@@ -6,12 +6,17 @@ package limitalert
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
+
+// notifyTimeout bounds how long Check holds its lock waiting on a send, so a
+// stuck bot can't stall alerts for every other provider/window.
+const notifyTimeout = 20 * time.Second
 
 // Settings is where alerts go, and from how full (percent; 0 = 80).
 type Settings struct {
@@ -68,14 +73,6 @@ func (a *Alerter) Check(ctx context.Context, providerID, providerName, window st
 		return
 	}
 	seen := "limit_alerted/" + providerID + "/" + window + "/" + strconv.FormatInt(resetsAt.Unix()/60, 10)
-	var told int
-	a.mu.Lock()
-	if _, _ = a.store.Settings().Get(ctx, seen, &told); told >= level {
-		a.mu.Unlock()
-		return
-	}
-	_ = a.store.Settings().Set(ctx, seen, level)
-	a.mu.Unlock()
 	name := WindowNames[window]
 	if name == "" {
 		name = "giới hạn " + window // i18n-ignore
@@ -84,5 +81,19 @@ func (a *Alerter) Check(ctx context.Context, providerID, providerName, window st
 	if level >= 95 {
 		text += " Sắp hết: job mới có thể dừng giữa chừng." // i18n-ignore
 	}
-	_ = a.notify(ctx, s.ChannelID, s.ChatID, text)
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var told int
+	if _, _ = a.store.Settings().Get(ctx, seen, &told); told >= level {
+		return
+	}
+	nctx, cancel := context.WithTimeout(ctx, notifyTimeout)
+	err := a.notify(nctx, s.ChannelID, s.ChatID, text)
+	cancel()
+	if err != nil {
+		slog.Warn("limitalert: notify failed", "provider", providerID, "window", window, "level", level, "err", err)
+		return
+	}
+	_ = a.store.Settings().Set(ctx, seen, level)
 }

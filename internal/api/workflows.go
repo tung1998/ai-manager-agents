@@ -190,6 +190,8 @@ func (s *server) workflowError(w http.ResponseWriter, r *http.Request, err error
 	switch {
 	case errors.Is(err, workflow.ErrNotFound), errors.Is(err, storage.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, workflow.ErrConflict):
+		writeSaveConflict(w)
 	case errors.Is(err, storage.ErrConflict):
 		writeError(w, http.StatusConflict, "Project đã có quy trình cùng key")
 	case errors.Is(err, workflow.ErrBadBinding), errors.Is(err, workflow.ErrInvalid):
@@ -212,21 +214,19 @@ func (s *server) createWorkflow(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	enabled := in.Enabled == nil || *in.Enabled
 	var (
 		x   storage.Workflow
 		err error
 	)
 	switch {
 	case in.Key != "":
-		x, err = s.cfg.Workflows.Install(r.Context(), pid, in.Key, in.Bindings)
+		x, err = s.cfg.Workflows.InstallEnabled(r.Context(), pid, in.Key, in.Bindings, enabled)
 	case in.Source != nil:
-		x, err = s.cfg.Workflows.Create(r.Context(), pid, *in.Source, in.Bindings)
+		x, err = s.cfg.Workflows.CreateEnabled(r.Context(), pid, *in.Source, in.Bindings, enabled)
 	default:
 		writeError(w, http.StatusBadRequest, "cần key (quy trình trong thư viện) hoặc source")
 		return
-	}
-	if err == nil && in.Enabled != nil && !*in.Enabled {
-		x, err = s.cfg.Workflows.Update(r.Context(), x.ID, workflow.Change{Enabled: in.Enabled})
 	}
 	s.audit(r, audit.Change{Action: "workflow.create", Resource: "workflow", ResourceID: x.ID, ProjectID: pid,
 		Detail: map[string]any{"key": x.Key, "from": in.Key}, After: map[string]any{"key": x.Key, "bindings": x.Bindings}, Err: err})
@@ -265,7 +265,11 @@ func (s *server) updateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if conflicted(w, in.Version, workflowVersion(before)) {
 		return
 	}
-	x, err := s.cfg.Workflows.Update(r.Context(), before.ID, workflow.Change{Source: in.Source, Bindings: in.Bindings, Enabled: in.Enabled})
+	change := workflow.Change{Source: in.Source, Bindings: in.Bindings, Enabled: in.Enabled}
+	if in.Version != "" {
+		change.Expect = &before // CAS on the row this request's version check actually saw
+	}
+	x, err := s.cfg.Workflows.Update(r.Context(), before.ID, change)
 	s.audit(r, audit.Change{Action: "workflow.update", Resource: "workflow", ResourceID: before.ID, ProjectID: before.ProjectID,
 		Before: map[string]any{"source": before.Source, "bindings": before.Bindings, "enabled": before.Enabled},
 		After:  map[string]any{"source": x.Source, "bindings": x.Bindings, "enabled": x.Enabled}, Err: err})
@@ -390,19 +394,23 @@ func (s *server) saveLibraryWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Source string `json:"source"`
+		Source  string `json:"source"`
+		Version string `json:"version"` // ADR-072: the version read when the edit started; "" skips the check
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	key := r.PathValue("key")
-	_, err := s.cfg.Workflows.Lib.Save(key, in.Source)
+	it, err := s.cfg.Workflows.Lib.SaveIf(key, in.Source, in.Version)
 	s.audit(r, audit.Change{Action: "workflow_library.save", Resource: "workflow_library", ResourceID: key, Err: err})
+	if errors.Is(err, workflow.ErrConflict) {
+		writeJSON(w, http.StatusConflict, map[string]any{"code": "conflict", "error": err.Error()})
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	it, _ := s.cfg.Workflows.Lib.Get(key)
 	writeJSON(w, http.StatusOK, map[string]any{"workflow": it})
 }
 

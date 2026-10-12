@@ -805,7 +805,7 @@ func (s *server) createAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.cfg.Team.SaveAgent(r.Context(), a)
+	a, err := s.cfg.Team.SaveAgent(r.Context(), a, storage.Agent{})
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
@@ -849,7 +849,7 @@ func (s *server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err = s.cfg.Team.SaveAgent(r.Context(), a)
+	a, err = s.cfg.Team.SaveAgent(r.Context(), a, old)
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
@@ -1216,7 +1216,7 @@ func (s *server) updateRepo(w http.ResponseWriter, r *http.Request) {
 	if in.Description != nil {
 		x.Description = *in.Description
 	}
-	if err := s.cfg.Store.Repos().Update(r.Context(), x); err != nil {
+	if err := s.cfg.Store.Repos().UpdateInfo(r.Context(), x.ID, x.Name, x.Description); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}

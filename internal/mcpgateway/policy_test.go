@@ -101,6 +101,7 @@ func TestPolicy(t *testing.T) {
 	}
 
 	// a trusted tool passes for anyone
+	m, _ = st.MCPServers().Get(ctx, m.ID) // Update is CAS'd on updated_at
 	m.TrustedTools = []string{"write"}
 	_ = st.MCPServers().Update(ctx, m)
 	if code, body := call("c7", "reader", "write"); code != 200 || !strings.Contains(body, "hello write") {
@@ -138,6 +139,7 @@ func TestPolicy(t *testing.T) {
 	}
 
 	// an API run: the same policy, office calls the tool itself
+	m, _ = st.MCPServers().Get(ctx, m.ID)
 	m.TrustedTools = nil
 	_ = st.MCPServers().Update(ctx, m)
 	if text, isErr := gw.Invoke(ctx, callers["reader"], "c7", "resolve", json.RawMessage(`{}`)); isErr || text != "hello resolve" {

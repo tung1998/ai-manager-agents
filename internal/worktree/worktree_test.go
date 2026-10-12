@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -267,5 +268,53 @@ func TestRemoveWaitsOnLockDir(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("Remove did not run after the lock was released: %v", err)
+	}
+}
+
+// TestExcludeLinksConcurrent reproduces the lost-update race: two worktrees
+// of the same project linking different dependency folders concurrently must
+// not clobber each other's line in the shared info/exclude file.
+func TestExcludeLinksConcurrent(t *testing.T) {
+	ctx := context.Background()
+	repo := setupRepo(t)
+
+	for i := 0; i < 50; i++ {
+		var wg sync.WaitGroup
+		errs := make(chan error, 2)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			errs <- excludeLinks(ctx, repo, []string{"a/node_modules"})
+		}()
+		go func() {
+			defer wg.Done()
+			errs <- excludeLinks(ctx, repo, []string{"b/.venv"})
+		}()
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		p, err := git(ctx, repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(filepath.Join(strings.TrimSpace(p), "info", "exclude"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := string(b)
+		if !strings.Contains(content, "/a/node_modules") {
+			t.Fatalf("round %d: missing /a/node_modules in:\n%s", i, content)
+		}
+		if !strings.Contains(content, "/b/.venv") {
+			t.Fatalf("round %d: missing /b/.venv in:\n%s", i, content)
+		}
+		if strings.Count(content, excludeMark) != 1 {
+			t.Fatalf("round %d: excludeMark appears %d times in:\n%s", i, strings.Count(content, excludeMark), content)
+		}
 	}
 }

@@ -185,10 +185,10 @@ func (r chatRepo) ListConversationsFrom(ctx context.Context, projectID, source s
 }
 
 func (r chatRepo) ListConversationsBefore(ctx context.Context, projectID, source string, before time.Time, limit int) ([]storage.Conversation, error) {
-	return r.ListConversationsTagged(ctx, projectID, source, nil, before, limit)
+	return r.ListConversationsTagged(ctx, projectID, source, nil, before, limit, "")
 }
 
-func (r chatRepo) ListConversationsTagged(ctx context.Context, projectID, source string, tags []string, before time.Time, limit int) ([]storage.Conversation, error) {
+func (r chatRepo) ListConversationsTagged(ctx context.Context, projectID, source string, tags []string, before time.Time, limit int, createdBy string) ([]storage.Conversation, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -220,8 +220,43 @@ func (r chatRepo) ListConversationsTagged(ctx context.Context, projectID, source
 		}
 		args = append(args, len(tags))
 	}
+	if createdBy != "" {
+		page += ` AND created_by = ?`
+		args = append(args, createdBy)
+	}
 	args = append(args, limit)
 	rows, err := r.db.QueryContext(ctx, `SELECT `+convRead+` FROM conversations WHERE project_id=? AND task_id IS NULL AND `+where+page+` ORDER BY updated_at DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	var out []storage.Conversation
+	for rows.Next() {
+		c, err := scanConv(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, r.fillTags(ctx, out)
+}
+
+func (r chatRepo) ListAgentConversations(ctx context.Context, projectID, agentID string, since time.Time, limit int) ([]storage.Conversation, error) {
+	if limit <= 0 || limit > 2000 {
+		limit = 2000
+	}
+	where := `purpose IN ('','channel','burn') AND (agent_id=? OR id IN (SELECT conversation_id FROM conversation_agents WHERE agent_id=?))`
+	args := []any{projectID, agentID, agentID}
+	if !since.IsZero() {
+		where += ` AND updated_at >= ?`
+		args = append(args, fmtTime(since))
+	}
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+convRead+` FROM conversations WHERE project_id=? AND task_id IS NULL AND `+where+` ORDER BY updated_at DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}

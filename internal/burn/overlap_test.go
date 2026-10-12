@@ -39,6 +39,19 @@ func TestNextWaitsForPieceOnSameFile(t *testing.T) {
 	}
 }
 
+func TestRelatedIgnoresAmbiguousBasename(t *testing.T) {
+	b := storage.BurnSession{RunBranch: "burn/x"}
+	items := []storage.BurnItem{
+		{ID: "1", Kind: "bug", Status: "done", RunBranch: "burn/x", Title: "api channels fix", Files: []string{"internal/api/channels.go"}, ReviewNote: "AGREE"},
+		{ID: "2", Kind: "bug", Status: "queued", RunBranch: "burn/x", Title: "storage channels bug", Files: []string{"internal/storage/sqlite/channels.go"}},
+		{ID: "3", Kind: "bug", Status: "queued", RunBranch: "burn/x", Title: "unrelated bug", Detail: "Where: channels.go:5"},
+	}
+	r := related(b, items[2], items)
+	if len(r) != 0 {
+		t.Fatalf("related = %v, want none: \"channels.go\" is ambiguous between internal/api and internal/storage/sqlite", r)
+	}
+}
+
 func TestRelatedAndChanged(t *testing.T) {
 	b := storage.BurnSession{RunBranch: "burn/x"}
 	items := []storage.BurnItem{

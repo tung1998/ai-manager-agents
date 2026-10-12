@@ -60,3 +60,60 @@ func TestAssistantChatsArePrivate(t *testing.T) {
 		t.Fatalf("read mine = %d", resp.StatusCode)
 	}
 }
+
+// has_more/pagination must be computed after the per-user filter on assistant
+// chats, or a page full of another person's chats starves "load more" even
+// though the asking person still has older chats of their own.
+func TestAssistantChatsPaginateOwnOnly(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	id, _ := assistant.Ensure(ctx, e.st, t.TempDir())
+	// admin's chats first (oldest), then a pile of member's newer ones, so
+	// naive limit+1-then-filter paging fetches only member chats at first and
+	// never reaches admin's older chats.
+	for i := 0; i < 3; i++ {
+		if _, err := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: id, Title: "admin", CreatedBy: "human:admin@x.io"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 8; i++ {
+		if _, err := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: id, Title: "member", CreatedBy: "human:member@x.io"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seen := map[string]bool{}
+	before := ""
+	for page := 0; page < 10; page++ {
+		url := e.srv.URL + "/api/projects/" + id + "/conversations?limit=2"
+		if before != "" {
+			url += "&before=" + before
+		}
+		resp, body := do(t, admin, "GET", url, nil, nil)
+		if resp.StatusCode != 200 {
+			t.Fatalf("page %d status = %d", page, resp.StatusCode)
+		}
+		list := body["conversations"].([]any)
+		for _, x := range list {
+			c := x.(map[string]any)
+			if c["title"] != "admin" {
+				t.Fatalf("saw another person's chat: %v", c)
+			}
+			seen[c["id"].(string)] = true
+		}
+		if body["has_more"] != true {
+			break
+		}
+		if len(list) == 0 {
+			t.Fatal("has_more=true but page came back empty: pagination can't advance")
+		}
+		before = list[len(list)-1].(map[string]any)["updated_at"].(string)
+		if page == 9 {
+			t.Fatal("did not terminate within 10 pages")
+		}
+	}
+	if len(seen) != 3 {
+		t.Fatalf("admin should see all 3 of their own chats across pages, got %d", len(seen))
+	}
+}

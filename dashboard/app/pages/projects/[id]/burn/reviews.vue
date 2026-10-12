@@ -25,7 +25,9 @@ const selected = ref<string | null>(null)
 interface StageForm { on: boolean, agent: string, workflow: string }
 const blank = (): StageForm => ({ on: false, agent: '__burn', workflow: '__none' })
 const form = reactive({ name: '', stages: { issue: blank(), plan: blank(), result: blank() } as Record<ReviewStage, StageForm> })
+let loadGen = 0
 function load(p?: BurnReviewProfile) {
+  loadGen++
   selected.value = p?.id ?? ''
   form.name = p?.name ?? ''
   for (const k of reviewStageKeys) {
@@ -38,6 +40,7 @@ watch(data, (d) => { if (d && selected.value === null) load(d.profiles[0]) }, { 
 const saving = ref(false)
 async function save() {
   saving.value = true
+  const gen = loadGen
   const stages: Partial<Record<ReviewStage, BurnReviewStage>> = {}
   for (const k of reviewStageKeys) {
     const st = form.stages[k]
@@ -49,7 +52,7 @@ async function save() {
       ? await $fetch<{ profile: BurnReviewProfile }>(`/api/burn-review-profiles/${selected.value}`, { method: 'PUT', body })
       : await $fetch<{ profile: BurnReviewProfile }>(base.value, { method: 'POST', body })
     await refresh()
-    load(res.profile)
+    if (gen === loadGen) load(res.profile)
     toast.add({ title: t('burn.saved'), color: 'success' })
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })

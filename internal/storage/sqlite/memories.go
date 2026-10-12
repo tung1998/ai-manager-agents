@@ -57,8 +57,23 @@ func (r memoryRepo) Create(ctx context.Context, m storage.Memory) (storage.Memor
 	return m, err
 }
 
+// Update is CAS'd on the updated_at the caller's m was read with: a write
+// landing between the handler's Get and Update loses instead of silently
+// overwriting (mirrors channelRepo.Update).
 func (r memoryRepo) Update(ctx context.Context, m storage.Memory) error {
-	return execOne(ctx, r.db, `UPDATE agent_memories SET text=?, topic=?, summary=?, updated_at=? WHERE id=?`, m.Text, m.Topic, m.Summary, fmtTime(time.Now()), m.ID)
+	res, err := r.db.ExecContext(ctx, `UPDATE agent_memories SET text=?, topic=?, summary=?, updated_at=? WHERE id=? AND updated_at=?`,
+		m.Text, m.Topic, m.Summary, fmtTime(time.Now()), m.ID, fmtTime(m.UpdatedAt))
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return storage.ErrConflict
+	}
+	return nil
 }
 
 func (r memoryRepo) Delete(ctx context.Context, id string) error {

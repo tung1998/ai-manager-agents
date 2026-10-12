@@ -1,8 +1,10 @@
 package auth_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -262,5 +264,64 @@ func TestChangePasswordRevokesOtherSessions(t *testing.T) {
 	}
 	if _, err := svc.Login(ctx, "p@x.io", "new-password-2", auth.ClientMeta{}); err != nil {
 		t.Fatalf("login with new password: %v", err)
+	}
+}
+
+// failingAuditRepo errors on every Append, to check that a broken audit
+// store is logged instead of silently dropped (service.go audit()).
+type failingAuditRepo struct{ storage.AuditRepo }
+
+var errAuditAppend = errors.New("audit store down")
+
+func (failingAuditRepo) Append(ctx context.Context, e storage.AuditEntry) error {
+	return errAuditAppend
+}
+
+type storeWithFailingAudit struct{ storage.Store }
+
+func (s storeWithFailingAudit) Audit() storage.AuditRepo {
+	return failingAuditRepo{s.Store.Audit()}
+}
+
+// A broken audit store must not fail login, and the Append error must be
+// logged rather than silently dropped (internal/audit.Append).
+func TestLoginAuditAppendFailureIsLogged(t *testing.T) {
+	_, st, c := newService(t)
+	ctx := context.Background()
+	brokenStore := storeWithFailingAudit{st}
+	svc := auth.NewService(brokenStore, auth.Options{
+		SessionTTL:  7 * 24 * time.Hour,
+		IdleTimeout: 24 * time.Hour,
+		Now:         c.Now,
+		Hasher:      auth.FastHasherForTests(),
+	})
+	if _, err := svc.CreateUser(ctx, auth.NewUser{Email: "m@x.io", Role: storage.RoleMember, Password: "member-password"}, "system"); err != nil {
+		t.Fatal(err)
+	}
+
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	if _, err := svc.Login(ctx, "m@x.io", "wrong-password", auth.ClientMeta{IP: "9.9.9.9"}); !errors.Is(err, auth.ErrInvalidCredentials) {
+		t.Fatalf("wrong password err = %v", err)
+	}
+	if !strings.Contains(logBuf.String(), "auth.login_failed") {
+		t.Fatalf("expected audit append failure to be logged with action, got: %s", logBuf.String())
+	}
+
+	// throttle still counts failures even though audit append is broken
+	for i := 0; i < 5; i++ {
+		svc.Login(ctx, "m@x.io", "wrong-password", auth.ClientMeta{IP: "9.9.9.9"})
+	}
+	if _, err := svc.Login(ctx, "m@x.io", "member-password", auth.ClientMeta{IP: "9.9.9.9"}); !errors.Is(err, auth.ErrThrottled) {
+		t.Fatalf("expected throttle, got %v", err)
+	}
+
+	// a successful login still works despite audit append failing
+	c.Advance(16 * time.Minute)
+	if _, err := svc.Login(ctx, "m@x.io", "member-password", auth.ClientMeta{IP: "9.9.9.9"}); err != nil {
+		t.Fatalf("login should still succeed: %v", err)
 	}
 }

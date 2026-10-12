@@ -86,12 +86,50 @@ func (r automationRepo) Get(ctx context.Context, id string) (storage.Automation,
 }
 
 func (r automationRepo) Update(ctx context.Context, a storage.Automation) error {
-	return execOne(ctx, r.db, `UPDATE automations SET name=?, enabled=?, source=?, config=?, action=?, agent_id=?, prompt=?, edit_mode=?,
+	res, err := r.db.ExecContext(ctx, `UPDATE automations SET name=?, enabled=?, source=?, config=?, action=?, agent_id=?, prompt=?, edit_mode=?,
 		keep_context=?, limits=?, failures=?, disabled_code=?, disabled_reason=?, last_run_at=?, next_run_at=?, updated_at=?, script=?, escalate=?, model_tier=?,
-		permission_mode=?, override_full_access=?, override_admin_by=?, override_extra_dirs=? WHERE id=?`,
+		permission_mode=?, override_full_access=?, override_admin_by=?, override_extra_dirs=? WHERE id=? AND updated_at=?`,
 		a.Name, a.Enabled, a.Source, toJSON(a.Config), a.Action, a.AgentID, a.Prompt, a.EditMode, a.KeepContext, toJSON(a.Limits),
 		a.Failures, a.DisabledCode, a.DisabledReason, optTime(a.LastRunAt), optTime(a.NextRunAt), fmtTime(time.Now()), toJSON(a.Script), toJSON(a.Escalate), a.ModelTier,
-		a.PermissionMode, a.OverrideFullAccess, a.OverrideAdminBy, toJSON(a.OverrideExtraDirs), a.ID)
+		a.PermissionMode, a.OverrideFullAccess, a.OverrideAdminBy, toJSON(a.OverrideExtraDirs), a.ID, fmtTime(a.UpdatedAt))
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return storage.ErrConflict
+	}
+	return nil
+}
+
+// SetNextRun writes next_run_at only (see AutomationRepo.SetNextRun).
+func (r automationRepo) SetNextRun(ctx context.Context, id string, nextRunAt *time.Time) error {
+	return execOne(ctx, r.db, `UPDATE automations SET next_run_at=?, updated_at=? WHERE id=?`,
+		optTime(nextRunAt), fmtTime(time.Now()), id)
+}
+
+// Disable turns an automation off with a reason (see AutomationRepo.Disable).
+func (r automationRepo) Disable(ctx context.Context, id, code, reason string, nextRunAt *time.Time) error {
+	return execOne(ctx, r.db, `UPDATE automations SET enabled=0, disabled_code=?, disabled_reason=?, next_run_at=?, updated_at=? WHERE id=?`,
+		code, reason, optTime(nextRunAt), fmtTime(time.Now()), id)
+}
+
+// UpdateSpec writes the proposal-editable columns only (storage.AutomationRepo),
+// leaving failures/enabled/disabled_code/disabled_reason/last_run_at as
+// RecordRun or Tick last set them. config's conversation_id and secret_hash
+// are read from the row's current config (not the possibly-stale a.Config),
+// so a conversation kept by a just-finished run, or a secret just rotated by
+// UpdateSecretHash, survives this write.
+func (r automationRepo) UpdateSpec(ctx context.Context, a storage.Automation) error {
+	cfg := a.Config
+	cfg.ConversationID, cfg.SecretHash = "", ""
+	return execOne(ctx, r.db, `UPDATE automations SET name=?, source=?, action=?, agent_id=?, prompt=?,
+		config = json_set(?, '$.conversation_id', json_extract(config, '$.conversation_id'), '$.secret_hash', json_extract(config, '$.secret_hash')),
+		script=?, escalate=?, next_run_at=?, updated_at=? WHERE id=?`,
+		a.Name, a.Source, a.Action, a.AgentID, a.Prompt, toJSON(cfg), toJSON(a.Script), toJSON(a.Escalate), optTime(a.NextRunAt), fmtTime(time.Now()), a.ID)
 }
 
 func (r automationRepo) RecordRun(ctx context.Context, id string, now time.Time, result, failReason string, limit int, keptConv string) error {
@@ -112,6 +150,11 @@ func (r automationRepo) RecordRun(ctx context.Context, id string, now time.Time,
 		fail, limit, fail, limit, fail, limit, failReason,
 		keptConv, keptConv,
 		fmtTime(time.Now()), id)
+}
+
+func (r automationRepo) UpdateSecretHash(ctx context.Context, id, secretHash string) error {
+	return execOne(ctx, r.db, `UPDATE automations SET config = json_set(config, '$.secret_hash', ?), updated_at = ? WHERE id = ?`,
+		secretHash, fmtTime(time.Now()), id)
 }
 
 func (r automationRepo) Reenable(ctx context.Context, id string, nextRunAt *time.Time) error {

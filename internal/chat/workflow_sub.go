@@ -94,15 +94,17 @@ func (e *Engine) wfAskFlow(ctx context.Context, sc officetools.Scope, run *wfRun
 		return "", err
 	}
 	e.wf.mu.Lock()
-	defer e.wf.mu.Unlock()
 	r := run.role(d.Key)
 	if r.Status == "working" {
+		e.wf.mu.Unlock()
 		return "", fmt.Errorf("quy trình con của vai %s đang chạy; đợi xong", d.Name)
 	}
 	if again && r.Rounds >= run.def.Limits.Rounds {
+		e.wf.mu.Unlock()
 		return "", fmt.Errorf("đã chạy lại vai %s %d lần (giới hạn); tổng kết với kết quả hiện có", d.Name, r.Rounds)
 	}
 	if err := e.canAsk(run, sc.RunRef, d.Key, a); err != nil {
+		e.wf.mu.Unlock()
 		return "", err
 	}
 	if again {
@@ -111,8 +113,9 @@ func (e *Engine) wfAskFlow(ctx context.Context, sc officetools.Scope, run *wfRun
 	r.AgentID, r.AgentName = a.ID, a.Name
 	e.wf.pending[sc.RunRef] = append(e.wf.pending[sc.RunRef], wfAsk{role: d.Key, agent: a, prompt: input, flow: true, inputs: inputs})
 	run.logf("Giao vai %s: quy trình con /%s, %s điều phối", d.Name, d.Workflow, a.Name)
-	rec := run.rec
-	go e.saveRun(rec)
+	rec, seq := run.snapshot()
+	e.wf.mu.Unlock()
+	e.saveRun(run, rec, seq)
 	return fmt.Sprintf("Delegated role %s: the sub-workflow /%s (coordinated by %s) runs in a chat of its own when you finish this turn. Write a short note and stop your turn; when it is done, its output becomes a message in this chat and you are called back.", d.Name, d.Workflow, a.Name), nil
 }
 
@@ -127,9 +130,9 @@ func (e *Engine) startChild(run *wfRun, conv storage.Conversation, project stora
 		}
 		run.notes = append(run.notes, fmt.Sprintf("Role %s (sub-workflow /%s) could not run: %s", d.Name, d.Workflow, why))
 		run.logf("%s: quy trình con không chạy được", d.Name)
-		rec := run.rec
+		rec, seq := run.snapshot()
 		e.wf.mu.Unlock()
-		e.saveRun(rec)
+		e.saveRun(run, rec, seq)
 		return false
 	}
 	if time.Until(run.deadline) <= time.Second {
@@ -184,9 +187,9 @@ func (e *Engine) startChild(run *wfRun, conv storage.Conversation, project stora
 	e.wf.mu.Lock()
 	r.RunID = child.rec.ID
 	run.logf("%s: chạy quy trình con /%s", d.Name, def.Key)
-	rec := run.rec
+	rec, seq := run.snapshot()
 	e.wf.mu.Unlock()
-	e.saveRun(rec)
+	e.saveRun(run, rec, seq)
 	e.watchIdle(run, conv, a.role)
 	go e.awaitChild(run.rec.ID, conv, project, a.role, child)
 	return true
@@ -229,9 +232,10 @@ func (e *Engine) awaitChild(parentID string, conv storage.Conversation, project 
 	}
 	delete(run.batch, role)
 	last := len(run.batch) == 0
-	id, saved := run.rec.ID, run.rec
+	id := run.rec.ID
+	saved, seq := run.snapshot()
 	e.wf.mu.Unlock()
-	e.saveRun(saved)
+	e.saveRun(run, saved, seq)
 	if last {
 		e.wfCallBack(id, conv, project)
 	}
@@ -274,9 +278,9 @@ func (e *Engine) watchIdle(run *wfRun, conv storage.Conversation, role string) {
 		text := fmt.Sprintf("⏳ Vai %s (%s) đã làm quá %s mà chưa xong.", r.Name, cmp.Or(r.AgentName, r.Workflow), after)
 		run.notes = append(run.notes, fmt.Sprintf("Role %s (%s) has worked for over %s and is not done yet.", r.Name, cmp.Or(r.AgentName, r.Workflow), after))
 		run.logf("%s", text)
-		rec := run.rec
+		rec, seq := run.snapshot()
 		e.wf.mu.Unlock()
-		e.saveRun(rec)
+		e.saveRun(run, rec, seq)
 		e.note(conv, text)
 	})
 }

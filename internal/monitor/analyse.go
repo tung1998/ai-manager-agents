@@ -35,13 +35,9 @@ func (s *Service) maybeAnalyse(m storage.Monitor, ev storage.MonitorEvent) {
 		skip(fmt.Sprintf("Không phân tích: đã dùng $%.3f/%.2f trần AI 24 giờ của giám sát này.", spent, m.AIBudgetUSD))
 		return
 	}
-	if recent, err := s.store.Monitors().Events(ctx, m.ProjectID, 50); err == nil {
-		for _, e := range recent {
-			if e.ID != ev.ID && e.MonitorID == m.ID && e.AnalysisStatus == "done" && s.now().Sub(e.At) < aiCooldown {
-				skip("Không phân tích lại: đã phân tích trong 30 phút gần đây.")
-				return
-			}
-		}
+	if recent, err := s.store.Monitors().RecentAnalysis(ctx, m.ID, ev.ID, s.now().Add(-aiCooldown)); err == nil && recent {
+		skip("Không phân tích lại: đã phân tích hoặc đang phân tích trong 30 phút gần đây.")
+		return
 	}
 	project, err := s.store.Repos().Get(ctx, m.ProjectID)
 	if err != nil {

@@ -10,7 +10,8 @@ interface GwServer {
   id: string, name: string, kind: 'http' | 'stdio', url: string, headers: Record<string, string>,
   command: string, args: string[], env: Record<string, string>, oauth: GwOAuth | null, scope: string, origin: string,
   enabled: boolean, path: string, last_check_at: string | null, last_check_status: GwStatus, last_check_error: string, tools: GwTool[],
-  agents: string[], trusted_tools: string[], moved_from: { type: string, label: string, name: string, moved_at: string, backup: boolean } | null
+  agents: string[], trusted_tools: string[], moved_from: { type: string, label: string, name: string, moved_at: string, backup: boolean } | null,
+  version: string
 }
 interface GwStat { calls: number, errors: number, proposed: number, last_at: string | null }
 interface GwAgent { id: string, name: string, project: string, ai: string }
@@ -18,6 +19,7 @@ interface GwCall { id: string, tool: string, caller: string, caller_kind: string
 
 const { t, dateLocale } = useLang()
 const toast = useToast()
+const saveError = useSaveError()
 // no top-level await: nested async setup under ToolsPanel's :key remount looped
 // Suspense (Maximum call stack on the MCP tab); the template copes with no data yet
 const { data, refresh } = useLiveFetch<{ servers: GwServer[], stats: Record<string, GwStat> }>('/api/mcp/servers')
@@ -48,9 +50,9 @@ async function patch(s: GwServer, body: Record<string, unknown>) {
   if (busy.value[s.id]) return
   busy.value = { ...busy.value, [s.id]: true }
   try {
-    put((await $fetch<{ server: GwServer }>(`/api/mcp/servers/${s.id}`, { method: 'PATCH', body })).server)
+    put((await $fetch<{ server: GwServer }>(`/api/mcp/servers/${s.id}`, { method: 'PATCH', body: { ...body, version: s.version } })).server)
   } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
+    saveError(e, refresh)
   } finally {
     busy.value = { ...busy.value, [s.id]: false }
   }
@@ -185,7 +187,7 @@ async function save() {
     : { url: f.url, headers: sealed(f.rows), oauth_client_id: f.clientOpen ? f.clientId : '', oauth_client_secret: f.clientOpen ? f.clientSecret : '' }
   try {
     if (editing.value) {
-      await $fetch(`/api/mcp/servers/${editing.value.id}`, { method: 'PATCH', body })
+      await $fetch(`/api/mcp/servers/${editing.value.id}`, { method: 'PATCH', body: { ...body, version: editing.value.version } })
     } else {
       await $fetch('/api/mcp/servers', { method: 'POST', body: { ...body, name: f.name, kind: f.kind } })
     }
@@ -193,7 +195,12 @@ async function save() {
     toast.add({ title: t('tools.saved', { name: f.name }), description: t('tools.gwSavedDesc'), color: 'success' })
     await refresh()
   } catch (e) {
-    formError.value = apiError(e)
+    if ((e as { data?: { code?: string } })?.data?.code === 'conflict') {
+      formOpen.value = false
+      saveError(e, refresh)
+    } else {
+      formError.value = apiError(e)
+    }
   } finally {
     saving.value = false
   }

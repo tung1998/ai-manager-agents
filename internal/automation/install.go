@@ -74,14 +74,26 @@ func (in Installer) InstallSkill(t Target, name string, files map[string]string,
 	if err != nil {
 		return "", err
 	}
+	if err := validateFilePaths(files); err != nil {
+		return "", err
+	}
 	dir := filepath.Join(base, name)
 	if _, err := os.Stat(dir); err == nil {
 		if !overwrite {
 			return "", ErrExists
 		}
-		if _, err := in.toTrash(dir, "skill-"+name); err != nil {
+		dest, err := in.toTrash(dir, "skill-"+name)
+		if err != nil {
 			return "", err
 		}
+		if err := writeFiles(dir, files); err != nil {
+			_ = os.RemoveAll(dir)
+			if rerr := os.Rename(dest, dir); rerr != nil {
+				return "", fmt.Errorf("cài lỗi (%w) và khôi phục bản cũ cũng lỗi (%v); bản sao lưu ở %s", err, rerr, dest)
+			}
+			return "", err
+		}
+		return dir, nil
 	}
 	if err := writeFiles(dir, files); err != nil {
 		return "", err
@@ -89,12 +101,21 @@ func (in Installer) InstallSkill(t Target, name string, files map[string]string,
 	return dir, nil
 }
 
-func writeFiles(dir string, files map[string]string) error {
-	for rel, content := range files {
+// validateFilePaths checks every relative path in files is safe to write
+// before any destructive step (like trashing an existing skill) happens.
+func validateFilePaths(files map[string]string) error {
+	for rel := range files {
 		clean := filepath.Clean(rel)
 		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("đường dẫn file không hợp lệ: %s", rel)
 		}
+	}
+	return nil
+}
+
+func writeFiles(dir string, files map[string]string) error {
+	for rel, content := range files {
+		clean := filepath.Clean(rel)
 		p := filepath.Join(dir, clean)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return err
@@ -124,14 +145,29 @@ func (in Installer) InstallAgent(t Target, name, content string, overwrite bool)
 		if !overwrite {
 			return "", ErrExists
 		}
-		if _, err := in.toTrash(p, "agent-"+name); err != nil {
+		dest, err := in.toTrash(p, "agent-"+name)
+		if err != nil {
 			return "", err
 		}
+		if werr := writeAgentFile(base, p, content); werr != nil {
+			if rerr := os.Rename(dest, p); rerr != nil {
+				return "", fmt.Errorf("cài lỗi (%w) và khôi phục bản cũ cũng lỗi (%v); bản sao lưu ở %s", werr, rerr, dest)
+			}
+			return "", werr
+		}
+		return p, nil
 	}
-	if err := os.MkdirAll(base, 0o755); err != nil {
+	if err := writeAgentFile(base, p, content); err != nil {
 		return "", err
 	}
-	return p, os.WriteFile(p, []byte(content), 0o644)
+	return p, nil
+}
+
+func writeAgentFile(base, p, content string) error {
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte(content), 0o644)
 }
 
 // ReadSkill loads a skill folder (text files up to 256 KB each, 2 MB total).
@@ -179,12 +215,20 @@ func (in Installer) Remove(ctx context.Context, item Item) (string, error) {
 	case "mcp":
 		switch loc.Type {
 		case "user":
-			return "", in.claudeMCP(ctx, "", "remove", "-s", "user", item.Name)
+			bk, err := in.backup(in.claudeJSONPath(), "claude.json")
+			if err != nil {
+				return "", err
+			}
+			return bk, in.claudeMCP(ctx, "", "remove", "-s", "user", item.Name)
 		case "local":
 			if loc.ProjectPath == "" {
 				return "", ErrNotAllowed
 			}
-			return "", in.claudeMCP(ctx, loc.ProjectPath, "remove", "-s", "local", item.Name)
+			bk, err := in.backup(in.claudeJSONPath(), "claude.json")
+			if err != nil {
+				return "", err
+			}
+			return bk, in.claudeMCP(ctx, loc.ProjectPath, "remove", "-s", "local", item.Name)
 		case "project":
 			return in.editMCPJSON(loc.ProjectPath, func(servers map[string]any) error {
 				if _, ok := servers[item.Name]; !ok {

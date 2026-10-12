@@ -107,10 +107,13 @@ func (s *Service) gate(ctx context.Context, b storage.BurnSession, it storage.Bu
 // (committed to its branch, or its diff put up); not, it goes again with what
 // the reviewer said, then fails. failed: the review could not run.
 func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.BurnItem) (failed bool) {
-	r, _ := s.reviewer(ctx, b, "result")
-	agents := s.stageAgents(ctx, b, r)
-	if _, hit := s.limitsHit(ctx, agents...); hit { // out of quota: not asked, the Burn waits
-		return true
+	r, ok := s.reviewer(ctx, b, "result")
+	var agents []string
+	if ok {
+		agents = s.stageAgents(ctx, b, r)
+		if _, hit := s.limitsHit(ctx, agents...); hit { // out of quota: not asked, the Burn waits
+			return true
+		}
 	}
 	from := it.Status
 	ok, note, err := s.review(ctx, b, &it, "result")
@@ -177,7 +180,7 @@ func (s *Service) deliver(ctx context.Context, b storage.BurnSession, it *storag
 		it.Worktree = ""
 		it.Status, it.Summary = s.failedOrAgain(*it, "Chưa gộp được vào lần chạy ("+err.Error()+"): làm lại trên bản mới nhất.")
 	case err != nil:
-		it.Summary = strings.TrimSpace(it.Summary + "\n(không giao được kết quả: " + err.Error() + ")")
+		it.Status, it.Summary = s.failedOrAgain(*it, strings.TrimSpace(it.Summary+"\n(Chưa giao được kết quả: "+err.Error()+")"))
 	}
 }
 

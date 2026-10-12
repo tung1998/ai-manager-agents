@@ -24,6 +24,20 @@ type Workflow struct {
 type WorkflowRepo interface {
 	Create(ctx context.Context, w Workflow) (Workflow, error) // ErrConflict: the key is taken in the project
 	Update(ctx context.Context, w Workflow) error
+	// UpdateContent writes only key/name/description/source/bindings (not
+	// Enabled), so a content save never clobbers a concurrent Enabled toggle
+	// (and vice versa: ToggleEnabled never touches these columns).
+	UpdateContent(ctx context.Context, w Workflow) error
+	// UpdateContentIf is UpdateContent, but refuses with ErrConflict when the
+	// row's current source/bindings do not match expectSource/expectBindings
+	// (ADR-072: a content write that landed between the caller's Get and
+	// this write).
+	UpdateContentIf(ctx context.Context, w Workflow, expectSource string, expectBindings map[string]string) error
+	// SetEnabled writes only the Enabled column.
+	SetEnabled(ctx context.Context, id string, enabled bool) error
+	// SetSource writes only source_key/source_hash (FromLibrary's final step,
+	// after UpdateContent/UpdateContentIf already wrote the content columns).
+	SetSource(ctx context.Context, id, sourceKey, sourceHash string) error
 	Get(ctx context.Context, id string) (Workflow, error)
 	GetByKey(ctx context.Context, projectID, key string) (Workflow, error)
 	List(ctx context.Context, projectID string) ([]Workflow, error) // "" = every project

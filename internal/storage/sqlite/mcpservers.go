@@ -80,16 +80,29 @@ func (r mcpServerRepo) Create(ctx context.Context, m storage.MCPServer) (storage
 	return m, err
 }
 
+// Update writes the whole row, CAS'd on the updated_at the caller's m was
+// read with: see channelRepo.Update for why (the api layer's version check
+// excludes fields SetCheck/SetOAuth touch, so it can't catch every race).
 func (r mcpServerRepo) Update(ctx context.Context, m storage.MCPServer) error {
 	normMCPServer(&m)
-	err := execOne(ctx, r.db, `UPDATE mcp_servers SET name=?, kind=?, url=?, command=?, args=?, env_enc=?, headers_enc=?, scope=?, origin=?, enabled=?,
-		agents=?, trusted_tools=?, origin_ref=?, updated_at=? WHERE id=?`,
+	res, err := r.db.ExecContext(ctx, `UPDATE mcp_servers SET name=?, kind=?, url=?, command=?, args=?, env_enc=?, headers_enc=?, scope=?, origin=?, enabled=?,
+		agents=?, trusted_tools=?, origin_ref=?, updated_at=? WHERE id=? AND updated_at=?`,
 		m.Name, m.Kind, m.URL, m.Command, toJSON(m.Args), m.EnvEnc, m.HeadersEnc, m.Scope, m.Origin, m.Enabled,
-		toJSON(m.Agents), toJSON(m.TrustedTools), m.OriginRef, fmtTime(time.Now()), m.ID)
+		toJSON(m.Agents), toJSON(m.TrustedTools), m.OriginRef, fmtTime(time.Now()), m.ID, fmtTime(m.UpdatedAt))
 	if isUnique(err) {
 		return storage.ErrConflict
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return storage.ErrConflict
+	}
+	return nil
 }
 
 func (r mcpServerRepo) Get(ctx context.Context, id string) (storage.MCPServer, error) {

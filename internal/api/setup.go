@@ -132,7 +132,7 @@ func (s *server) setupApply(w http.ResponseWriter, r *http.Request) {
 	x, _ = s.cfg.Store.Repos().Get(r.Context(), x.ID) // its default agent is set
 	if in.Description != nil {
 		x.Description = strings.TrimSpace(*in.Description)
-		if err := s.cfg.Store.Repos().Update(r.Context(), x); err != nil {
+		if err := s.cfg.Store.Repos().UpdateInfo(r.Context(), x.ID, x.Name, x.Description); err != nil {
 			s.internal(w, r, err)
 			return
 		}

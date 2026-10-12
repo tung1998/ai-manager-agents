@@ -91,8 +91,11 @@ func (s *Service) Stats(ctx context.Context, a storage.Agent, projectID string, 
 	now := time.Now().In(s.loc)
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, s.loc).AddDate(0, 0, -(days - 1))
 	out := Stats{Days: days, PerDay: []DayRow{}, ByModel: []ModelRow{}, TopErrors: []ErrorRow{}}
+	dayIdx := make(map[string]int, days)
 	for d := 0; d < days; d++ {
-		out.PerDay = append(out.PerDay, DayRow{Day: start.AddDate(0, 0, d).Format(time.DateOnly)})
+		day := start.AddDate(0, 0, d).Format(time.DateOnly)
+		out.PerDay = append(out.PerDay, DayRow{Day: day})
+		dayIdx[day] = d
 	}
 	runs, err := s.store.Runs().Since(ctx, start)
 	if err != nil {
@@ -110,7 +113,11 @@ func (s *Service) Stats(ctx context.Context, a storage.Agent, projectID string, 
 			t := r.CreatedAt
 			out.LastRunAt = &t
 		}
-		day := &out.PerDay[min(max(int(r.CreatedAt.In(s.loc).Sub(start).Hours()/24), 0), days-1)]
+		idx, ok := dayIdx[r.CreatedAt.In(s.loc).Format(time.DateOnly)]
+		if !ok {
+			idx = min(max(int(r.CreatedAt.In(s.loc).Sub(start).Hours()/24), 0), days-1)
+		}
+		day := &out.PerDay[idx]
 		if r.Status == "ok" {
 			out.OK++
 			day.OK++
@@ -206,12 +213,12 @@ func percentile(sorted []int64, p float64) int64 {
 // patches are the diffs of the agent's answers and task steps since t.
 func (s *Service) patches(ctx context.Context, a storage.Agent, projectID string, since time.Time) ([]storage.Patch, error) {
 	var out []storage.Patch
-	convs, err := s.store.Chat().ListConversationsFrom(ctx, projectID, "all", 200) // with the bots' chats
+	convs, err := s.store.Chat().ListAgentConversations(ctx, projectID, a.ID, since, 2000)
 	if err != nil {
 		return nil, err
 	}
 	for _, c := range convs {
-		if c.AgentID != a.ID || c.UpdatedAt.Before(since) {
+		if c.AgentID != a.ID { // own chats only, not ones it merely joined
 			continue
 		}
 		ps, err := s.store.Chat().ListPatches(ctx, c.ID)
@@ -224,14 +231,11 @@ func (s *Service) patches(ctx context.Context, a storage.Agent, projectID string
 			}
 		}
 	}
-	tasks, err := s.store.Tasks().List(ctx, projectID, 100)
+	tasks, err := s.store.Tasks().ListByAgentSince(ctx, projectID, a.ID, since)
 	if err != nil {
 		return nil, err
 	}
 	for _, t := range tasks {
-		if t.CreatedAt.Before(since) {
-			continue
-		}
 		steps, err := s.store.Tasks().ListSteps(ctx, t.ID)
 		if err != nil {
 			return nil, err
@@ -279,21 +283,11 @@ type Item struct {
 func (s *Service) Activity(ctx context.Context, a storage.Agent, projectID string, limit int) ([]Item, error) {
 	limit = min(max(limit, 1), 100)
 	out := []Item{}
-	convs, err := s.store.Chat().ListConversationsFrom(ctx, projectID, "all", 200) // with the bots' chats
+	convs, err := s.store.Chat().ListAgentConversations(ctx, projectID, a.ID, time.Time{}, limit)
 	if err != nil {
 		return nil, err
 	}
 	for _, c := range convs {
-		// a place it took part in: its own chat, or one it was pulled into (a member)
-		in := c.AgentID == a.ID
-		if !in {
-			if ms, err := s.store.Chat().Members(ctx, c.ID); err == nil {
-				in = slices.ContainsFunc(ms, func(m storage.ChatMember) bool { return m.AgentID == a.ID })
-			}
-		}
-		if !in {
-			continue
-		}
 		it := Item{Kind: "chat", At: c.UpdatedAt, Title: c.Title, ConversationID: c.ID, Source: chatSource(c)}
 		if said, err := s.answers(ctx, a, c.ID); err == nil {
 			it.Answers = len(said)
@@ -464,6 +458,7 @@ var ErrNoBefore = errors.New("lần này tạo agent nên không có bản trư�
 // Restore puts agent a back to how it was just before the change stored in
 // revisionID (its id and key stay). Saving snapshots first, so it can be undone.
 func (s *Service) Restore(ctx context.Context, a storage.Agent, revisionID string) (storage.Agent, error) {
+	old := a
 	rev, err := s.store.Revisions().Get(ctx, revisionID)
 	if err != nil {
 		return a, err
@@ -526,7 +521,7 @@ func (s *Service) Restore(ctx context.Context, a storage.Agent, revisionID strin
 			}
 		}
 	}
-	return s.team.SaveAgent(ctx, a)
+	return s.team.SaveAgent(ctx, a, old)
 }
 
 // chatSource is where a chat started: a bot (discord, telegram), an automation, or the web.

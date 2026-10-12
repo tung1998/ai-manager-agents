@@ -38,6 +38,7 @@ function query(before = '') {
   return q.toString()
 }
 let loadToken = 0
+let pagesLoaded = 0
 async function load(more = false) {
   const token = ++loadToken
   loading.value = true
@@ -46,6 +47,7 @@ async function load(more = false) {
     if (token !== loadToken) return
     groups.value = more ? [...groups.value, ...res.groups] : res.groups
     nextBefore.value = res.next_before
+    pagesLoaded = more ? pagesLoaded + 1 : 1
   } catch (e) {
     if (token !== loadToken) return
     toast.add({ title: apiError(e), color: 'error' })
@@ -53,14 +55,41 @@ async function load(more = false) {
     if (token === loadToken) loading.value = false
   }
 }
+// background refresh: re-fetches every page already shown (so "more" results and
+// pages loaded via it survive), instead of load()'s single first page that would
+// otherwise wipe out anything loaded past page 1
+let refreshing = false
+async function refresh() {
+  if (loading.value || refreshing || !pagesLoaded) return
+  const token = loadToken // any load() started before or during this refresh invalidates it
+  refreshing = true
+  try {
+    const merged: Group[] = []
+    let before = ''
+    for (let i = 0; i < pagesLoaded; i++) {
+      if (loading.value || token !== loadToken) return
+      const res = await $fetch<{ groups: Group[], next_before: string }>(`/api/jobs/groups?${query(before)}`)
+      merged.push(...res.groups)
+      before = res.next_before
+      if (!before) break
+    }
+    if (loading.value || token !== loadToken) return // a load() ran (fully or partly) while refreshing, don't overwrite it
+    groups.value = merged
+    nextBefore.value = before
+  } catch {
+    // background refresh: stay quiet on failure, next tick retries
+  } finally {
+    refreshing = false
+  }
+}
 watch([origin, searchQ, status, project, since], () => load(), { immediate: true })
-useLive(['jobs', 'conversations'], () => load()) // retried, dismissed, removed: the table follows
+useLive(['jobs', 'conversations'], () => refresh()) // retried, dismissed, removed: the table follows
 
 // follow what is still running
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   timer = setInterval(() => {
-    if (groups.value.some(g => g.active > 0)) load()
+    if (groups.value.some(g => g.active > 0)) refresh()
   }, 5000)
 })
 onBeforeUnmount(() => clearInterval(timer))

@@ -185,6 +185,12 @@ func Suggest(def Def, agents []storage.Agent, defaultID string, families map[str
 // Install copies the library workflow key into a project; bindings nil =
 // suggested ones.
 func (s *Service) Install(ctx context.Context, projectID, key string, bindings map[string]string) (storage.Workflow, error) {
+	return s.InstallEnabled(ctx, projectID, key, bindings, true)
+}
+
+// InstallEnabled is Install with the initial Enabled state given explicitly,
+// so a workflow created disabled never passes through an enabled state.
+func (s *Service) InstallEnabled(ctx context.Context, projectID, key string, bindings map[string]string, enabled bool) (storage.Workflow, error) {
 	it, err := s.Lib.Get(key)
 	if errors.Is(err, ErrNotFound) && BuiltinSource(key) != "" {
 		it, err = Item{Source: BuiltinSource(key)}, nil // taken out of the library, still shipped
@@ -192,15 +198,20 @@ func (s *Service) Install(ctx context.Context, projectID, key string, bindings m
 	if err != nil {
 		return storage.Workflow{}, err
 	}
-	return s.create(ctx, projectID, it.Source, key, bindings)
+	return s.create(ctx, projectID, it.Source, key, bindings, enabled)
 }
 
 // Create adds a workflow written for the project.
 func (s *Service) Create(ctx context.Context, projectID, source string, bindings map[string]string) (storage.Workflow, error) {
-	return s.create(ctx, projectID, source, "", bindings)
+	return s.CreateEnabled(ctx, projectID, source, bindings, true)
 }
 
-func (s *Service) create(ctx context.Context, projectID, source, from string, bindings map[string]string) (storage.Workflow, error) {
+// CreateEnabled is Create with the initial Enabled state given explicitly.
+func (s *Service) CreateEnabled(ctx context.Context, projectID, source string, bindings map[string]string, enabled bool) (storage.Workflow, error) {
+	return s.create(ctx, projectID, source, "", bindings, enabled)
+}
+
+func (s *Service) create(ctx context.Context, projectID, source, from string, bindings map[string]string, enabled bool) (storage.Workflow, error) {
 	def, err := Parse(source)
 	if err != nil {
 		return storage.Workflow{}, err
@@ -217,7 +228,7 @@ func (s *Service) create(ctx context.Context, projectID, source, from string, bi
 		return storage.Workflow{}, err
 	}
 	w := storage.Workflow{ProjectID: projectID, Key: def.Key, Name: def.Name, Description: def.Description, Source: strings.TrimSpace(source) + "\n",
-		Bindings: b, Enabled: true}
+		Bindings: b, Enabled: enabled}
 	if from != "" {
 		w.SourceKey, w.SourceHash = from, Hash(source)
 	}
@@ -229,14 +240,25 @@ type Change struct {
 	Source   *string
 	Bindings map[string]string // nil = as they are; roles no longer there are dropped
 	Enabled  *bool
+	// Expect: the source/bindings the caller's own Get saw (ADR-072). When
+	// set, the write is a compare-and-swap against the row's current
+	// source/bindings and fails with ErrConflict if someone else's write
+	// landed between the caller's Get and this Update; nil (tool/agent
+	// saves, FromLibrary) keeps the old blind-overwrite behavior.
+	Expect *storage.Workflow
 }
 
-// Update changes a project's workflow.
+// Update changes a project's workflow. A content change (Source/Bindings)
+// and an Enabled change are written as two separate column-scoped writes
+// (ADR-072), so a tab that only flips Enabled and a tab that only edits
+// Source/Bindings can never clobber each other no matter how their requests
+// interleave: each write touches only the columns its own Change named.
 func (s *Service) Update(ctx context.Context, id string, c Change) (storage.Workflow, error) {
 	w, err := s.Store.Workflows().Get(ctx, id)
 	if err != nil {
 		return w, err
 	}
+	contentChanged := c.Source != nil || c.Bindings != nil
 	src := w.Source
 	if c.Source != nil {
 		src = strings.TrimSpace(*c.Source) + "\n"
@@ -262,7 +284,24 @@ func (s *Service) Update(ctx context.Context, id string, c Change) (storage.Work
 	if c.Enabled != nil {
 		w.Enabled = *c.Enabled
 	}
-	return w, s.Store.Workflows().Update(ctx, w)
+	if contentChanged {
+		if c.Expect != nil {
+			if err := s.Store.Workflows().UpdateContentIf(ctx, w, c.Expect.Source, c.Expect.Bindings); err != nil {
+				if errors.Is(err, storage.ErrConflict) {
+					return w, ErrConflict // distinct from the key-uniqueness ErrConflict of Create
+				}
+				return w, err
+			}
+		} else if err := s.Store.Workflows().UpdateContent(ctx, w); err != nil {
+			return w, err
+		}
+	}
+	if c.Enabled != nil {
+		if err := s.Store.Workflows().SetEnabled(ctx, id, *c.Enabled); err != nil {
+			return w, err
+		}
+	}
+	return w, nil
 }
 
 // FromLibrary replaces a project's workflow with the library's newer one
@@ -281,7 +320,7 @@ func (s *Service) FromLibrary(ctx context.Context, id string) (storage.Workflow,
 		return w, err
 	}
 	w.SourceKey, w.SourceHash = it.Def.Key, Hash(it.Source)
-	return w, s.Store.Workflows().Update(ctx, w)
+	return w, s.Store.Workflows().SetSource(ctx, id, w.SourceKey, w.SourceHash)
 }
 
 // HasUpdate: the library workflow a project's copy came from changed since.

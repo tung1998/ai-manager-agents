@@ -34,7 +34,10 @@ function watchUpdate() {
     } catch { waitForRestart() } // the server went away: it is restarting
   }, 1500)
 }
-onMounted(() => { if (running.value) { showLog.value = true; watchUpdate() } })
+watch(() => state.value?.status, (status) => {
+  if (status === 'running') { showLog.value = true; watchUpdate() }
+  else if (status === 'restarting') { showLog.value = true; waitForRestart() }
+}, { immediate: true })
 onBeforeUnmount(() => { clearInterval(poll); clearInterval(restartPoll) })
 
 async function start(force = false) {

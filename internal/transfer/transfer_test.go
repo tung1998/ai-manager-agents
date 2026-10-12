@@ -54,9 +54,10 @@ func TestExportImportRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	agents, _ := src.st.Agents().List(ctx, repo.ID)
+	old := agents[0]
 	agents[0].ProviderID = gpt.ID
 	agents[0].Name = "Trưởng nhóm shop"
-	src.org.SaveAgent(ctx, agents[0])
+	src.org.SaveAgent(ctx, agents[0], old)
 	src.st.Repos().Create(ctx, storage.Repo{Name: "Trợ lý máy"})
 	mine := strings.Replace(workflow.BuiltinSource("handoff"), "key: handoff", "key: giao-gon", 1)
 	if _, err := src.wf.Lib.Save("giao-gon", mine); err != nil {
@@ -143,6 +144,227 @@ func TestExportImportRoundTrip(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join(dir, "projects", "*.json"))
 	if len(files) != 1 {
 		t.Fatalf("stale project files: %v", files)
+	}
+}
+
+// A dry-run preview must agree with what the real import does. Providers
+// created by the same bundle must be visible to the agents being resolved in
+// the same pass, not fall back to the default-provider placeholder.
+func TestImportDryRunMatchesRealRunForNewProvider(t *testing.T) {
+	ctx := context.Background()
+	run := func(t *testing.T, bundle transfer.Bundle) string {
+		dst := newOffice(t)
+		repo, _ := dst.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/code/shop"})
+		agent := storage.Agent{ProjectID: repo.ID, Key: "lead", Name: "Lead", ModelTier: "balanced"}
+		created, err := dst.st.Agents().Create(ctx, agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if created.ProviderID != "" {
+			t.Fatalf("test setup: agent should default to no provider, got %q", created.ProviderID)
+		}
+		if err := dst.st.Repos().SetDefaultAgent(ctx, repo.ID, created.ID); err != nil {
+			t.Fatal(err)
+		}
+		bundle.Projects[0].Path = "/code/shop"
+
+		plan, err := dst.tr.Import(ctx, bundle, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dryOp := ""
+		for _, c := range plan.Changes {
+			if c.Kind == "project" {
+				dryOp = c.Op
+			}
+		}
+
+		real := newOffice(t)
+		repo2, _ := real.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/code/shop"})
+		agent2 := agent
+		agent2.ProjectID = repo2.ID
+		created2, err := real.st.Agents().Create(ctx, agent2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := real.st.Repos().SetDefaultAgent(ctx, repo2.ID, created2.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := real.tr.Import(ctx, bundle, false); err != nil {
+			t.Fatal(err)
+		}
+		realPlan, err := real.tr.Import(ctx, bundle, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		realOp := ""
+		for _, c := range realPlan.Changes {
+			if c.Kind == "project" {
+				realOp = c.Op
+			}
+		}
+		if realOp != "unchanged" {
+			t.Fatalf("real import did not settle: %s", realOp)
+		}
+		return dryOp
+	}
+
+	t.Run("agent references new provider", func(t *testing.T) {
+		bundle := transfer.Bundle{Version: transfer.Version, Providers: []transfer.ProviderSpec{
+			{Name: "New Provider", Kind: string(storage.ProviderClaudeCLI), Enabled: true},
+		}, Projects: []transfer.ProjectSpec{{
+			Name: "shop",
+			Agents: &team.Snapshot{Default: "lead", Agents: []team.AgentSpec{
+				{Key: "lead", Name: "Lead", ModelTier: "balanced", Provider: "New Provider"},
+			}},
+		}}}
+		if op := run(t, bundle); op != "update" {
+			t.Fatalf("dry-run project op = %q, want update", op)
+		}
+	})
+
+	t.Run("fallback references new provider", func(t *testing.T) {
+		bundle := transfer.Bundle{Version: transfer.Version, Providers: []transfer.ProviderSpec{
+			{Name: "New Provider", Kind: string(storage.ProviderClaudeCLI), Enabled: true},
+		}, Projects: []transfer.ProjectSpec{{
+			Name: "shop",
+			Agents: &team.Snapshot{Default: "lead", Agents: []team.AgentSpec{
+				{Key: "lead", Name: "Lead", ModelTier: "balanced", FallbackNames: []string{"New Provider|"}},
+			}},
+		}}}
+		if op := run(t, bundle); op != "update" {
+			t.Fatalf("dry-run project op = %q, want update", op)
+		}
+	})
+
+	t.Run("provider skipped for missing key stays unchanged", func(t *testing.T) {
+		bundle := transfer.Bundle{Version: transfer.Version, Providers: []transfer.ProviderSpec{
+			{Name: "New Anthropic", Kind: string(storage.ProviderAnthropic), Enabled: true},
+		}, Projects: []transfer.ProjectSpec{{
+			Name: "shop",
+			Agents: &team.Snapshot{Default: "lead", Agents: []team.AgentSpec{
+				{Key: "lead", Name: "Lead", ModelTier: "balanced", Provider: "New Anthropic"},
+			}},
+		}}}
+		if op := run(t, bundle); op != "unchanged" {
+			t.Fatalf("dry-run project op = %q, want unchanged (provider skipped for missing key both times)", op)
+		}
+	})
+}
+
+// storeInterceptingGetByPath wraps a storage.Store so that the repo lookup
+// Import's findProject performs (RepoRepo.GetByPath) triggers a side effect
+// first, simulating a concurrent SetDefaultAgent landing between Import's
+// read of the project and Import's own write.
+type storeInterceptingGetByPath struct {
+	storage.Store
+	onGetByPath func()
+}
+
+func (s storeInterceptingGetByPath) Repos() storage.RepoRepo {
+	return repoRepoIntercepting{RepoRepo: s.Store.Repos(), onGetByPath: s.onGetByPath}
+}
+
+type repoRepoIntercepting struct {
+	storage.RepoRepo
+	onGetByPath func()
+}
+
+func (r repoRepoIntercepting) GetByPath(ctx context.Context, path string) (storage.Repo, error) {
+	repo, err := r.RepoRepo.GetByPath(ctx, path)
+	if err == nil && r.onGetByPath != nil {
+		r.onGetByPath()
+	}
+	return repo, err
+}
+
+// Import on an existing project must not clobber a DefaultAgentID set by a
+// concurrent request (e.g. the dashboard "set default agent" action) that
+// lands between the project snapshot being read and Import's own write.
+func TestImportPreservesConcurrentDefaultAgent(t *testing.T) {
+	ctx := context.Background()
+	dst := newOffice(t)
+	repo, _ := dst.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/code/shop", Description: "old", GitRemote: "old-remote"})
+	pack, _ := team.PackByKey("team")
+	if err := dst.org.ApplyPack(ctx, repo.ID, pack, false); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := dst.st.Agents().List(ctx, repo.ID)
+	if len(agents) < 2 {
+		t.Fatalf("need at least 2 agents from the team pack, got %d", len(agents))
+	}
+	if err := dst.st.Repos().SetDefaultAgent(ctx, repo.ID, agents[0].ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// bundle update with no Agents (so team.Replace never runs), simulating a
+	// concurrent SetDefaultAgent landing while Import is mid-flight.
+	b := transfer.Bundle{Version: transfer.Version, Projects: []transfer.ProjectSpec{{
+		Name:        "shop",
+		Path:        "/code/shop",
+		GitRemote:   "new-remote",
+		Description: "new",
+	}}}
+
+	// swap in a store whose RepoRepo.GetByPath (used by findProject to read
+	// the project at the top of the loop) sets a *different* default agent
+	// right after the read, before Import gets to its own write.
+	wrapped := storeInterceptingGetByPath{Store: dst.st, onGetByPath: func() {
+		if err := dst.st.Repos().SetDefaultAgent(ctx, repo.ID, agents[1].ID); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	tr := transfer.New(wrapped, dst.prov, dst.org, dst.wf.Lib)
+
+	if _, err := tr.Import(ctx, b, false); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := dst.st.Repos().Get(ctx, repo.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DefaultAgentID != agents[1].ID {
+		t.Fatalf("DefaultAgentID clobbered by Import: got %q, want concurrently-set %q", got.DefaultAgentID, agents[1].ID)
+	}
+	if got.Name != "shop" || got.Description != "new" || got.GitRemote != "new-remote" {
+		t.Fatalf("Import did not apply info update: %+v", got)
+	}
+}
+
+// a project workflow whose bundle key does not match the key in its own
+// source must be skipped, not re-"created" forever.
+func TestImportMismatchedWorkflowKeySkipped(t *testing.T) {
+	ctx := context.Background()
+	dst := newOffice(t)
+	repo, _ := dst.st.Repos().Create(ctx, storage.Repo{Name: "shop"})
+	_ = repo
+
+	source := strings.Replace(workflow.BuiltinSource("handoff"), "key: handoff", "key: bar", 1)
+	b := transfer.Bundle{
+		Version:   transfer.Version,
+		Providers: []transfer.ProviderSpec{},
+		Workflows: []transfer.LibraryEntry{},
+		Projects: []transfer.ProjectSpec{{
+			Name:      "shop",
+			Workflows: []transfer.ProjectWorkflow{{Key: "foo", Source: source, Enabled: true}},
+		}},
+	}
+
+	plan, err := dst.tr.Import(ctx, b, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 1 || plan.Changes[0].Op != "skip" {
+		t.Fatalf("first dry run = %+v, want a single skip", plan.Changes)
+	}
+
+	again, err := dst.tr.Import(ctx, b, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.Changes) != 1 || again.Changes[0].Op != "skip" {
+		t.Fatalf("second dry run = %+v, want skip again (not create)", again.Changes)
 	}
 }
 

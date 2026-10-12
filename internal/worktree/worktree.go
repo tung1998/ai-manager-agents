@@ -228,7 +228,8 @@ func excludeLinks(ctx context.Context, repo string, links []string) error {
 	if err != nil {
 		return err
 	}
-	file := filepath.Join(strings.TrimSpace(p), "info", "exclude")
+	file := filepath.Clean(filepath.Join(strings.TrimSpace(p), "info", "exclude"))
+	defer lockDir(file)()
 	b, _ := os.ReadFile(file)
 	have := map[string]bool{}
 	for _, l := range strings.Split(string(b), "\n") {
@@ -255,7 +256,11 @@ func excludeLinks(ctx context.Context, repo string, links []string) error {
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(file, buf.Bytes(), 0o644)
+	tmp := file + ".tmp"
+	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, file)
 }
 
 var dirLocks sync.Map // worktree dir → *sync.Mutex: one git index user at a time

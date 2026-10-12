@@ -314,8 +314,7 @@ func (s *Service) Ping(ctx context.Context, token string) error {
 		return storage.ErrNotFound
 	}
 	now := s.now().UTC()
-	m.LastPingAt = &now
-	if err := s.store.Monitors().SaveStatus(ctx, m); err != nil {
+	if err := s.store.Monitors().SavePing(ctx, m.ID, now); err != nil {
 		return err
 	}
 	if m.Enabled && s.claim(m.ID) {

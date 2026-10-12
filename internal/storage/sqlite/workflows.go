@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/ids"
@@ -62,6 +63,35 @@ func (r workflowRepo) Update(ctx context.Context, w storage.Workflow) error {
 		return storage.ErrConflict
 	}
 	return err
+}
+
+func (r workflowRepo) UpdateContent(ctx context.Context, w storage.Workflow) error {
+	err := execOne(ctx, r.db, `UPDATE workflows SET key=?, name=?, description=?, source=?, bindings=?, updated_at=? WHERE id=?`,
+		w.Key, w.Name, w.Description, w.Source, bindingsJSON(w.Bindings), fmtTime(time.Now()), w.ID)
+	if isUnique(err) {
+		return storage.ErrConflict
+	}
+	return err
+}
+
+func (r workflowRepo) UpdateContentIf(ctx context.Context, w storage.Workflow, expectSource string, expectBindings map[string]string) error {
+	err := execOne(ctx, r.db, `UPDATE workflows SET key=?, name=?, description=?, source=?, bindings=?, updated_at=? WHERE id=? AND source=? AND bindings=?`,
+		w.Key, w.Name, w.Description, w.Source, bindingsJSON(w.Bindings), fmtTime(time.Now()), w.ID, expectSource, bindingsJSON(expectBindings))
+	if isUnique(err) {
+		return storage.ErrConflict
+	}
+	if errors.Is(err, storage.ErrNotFound) {
+		return storage.ErrConflict
+	}
+	return err
+}
+
+func (r workflowRepo) SetEnabled(ctx context.Context, id string, enabled bool) error {
+	return execOne(ctx, r.db, `UPDATE workflows SET enabled=?, updated_at=? WHERE id=?`, boolInt(enabled), fmtTime(time.Now()), id)
+}
+
+func (r workflowRepo) SetSource(ctx context.Context, id, sourceKey, sourceHash string) error {
+	return execOne(ctx, r.db, `UPDATE workflows SET source_key=?, source_hash=?, updated_at=? WHERE id=?`, sourceKey, sourceHash, fmtTime(time.Now()), id)
 }
 
 func (r workflowRepo) Get(ctx context.Context, id string) (storage.Workflow, error) {

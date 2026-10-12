@@ -34,10 +34,21 @@ const pending = computed(() => plan.value?.filter(c => c.op === 'create' || c.op
 async function applyImport() {
   importing.value = true
   try {
-    await $fetch('/api/transfer/import', { method: 'POST', body: { bundle: bundle.value, dry_run: false } })
-    toast.add({ title: t('admin.importDone', { n: pending.value }), color: 'success' })
-    plan.value = null
-    bundle.value = null
+    const planned = new Map((plan.value ?? []).map(c => [`${c.kind}:${c.name}`, c.op]))
+    const res = await $fetch<{ changes: Change[] }>('/api/transfer/import', { method: 'POST', body: { bundle: bundle.value, dry_run: false } })
+    const applied = res.changes.filter(c => c.op === 'create' || c.op === 'update').length
+    const failed = res.changes.filter((c) => {
+      const want = planned.get(`${c.kind}:${c.name}`)
+      return c.op === 'skip' && (want === 'create' || want === 'update')
+    }).length
+    if (failed > 0) {
+      toast.add({ title: t('admin.importPartial', { n: applied, m: failed }), color: 'warning' })
+      plan.value = res.changes
+    } else {
+      toast.add({ title: t('admin.importDone', { n: applied }), color: 'success' })
+      plan.value = null
+      bundle.value = null
+    }
   } catch (err) {
     toast.add({ title: apiError(err), color: 'error' })
   } finally {

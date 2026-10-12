@@ -26,6 +26,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/mcpgateway"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
@@ -66,14 +67,24 @@ func setup(t *testing.T) *env { return setupWith(t, nil) }
 var cliPath string
 
 func setupWith(t *testing.T, proxies []netip.Prefix) *env {
+	return setupWithStore(t, proxies, nil)
+}
+
+// setupWithStore is setupWith with an optional wrap around the real sqlite
+// store (e.g. to fail a specific repo call and exercise an error branch).
+func setupWithStore(t *testing.T, proxies []netip.Prefix, wrap func(storage.Store) storage.Store) *env {
 	t.Helper()
-	st, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
+	sqliteSt, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
-	if err := st.Migrate(context.Background()); err != nil {
+	t.Cleanup(func() { sqliteSt.Close() })
+	if err := sqliteSt.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	var st storage.Store = sqliteSt
+	if wrap != nil {
+		st = wrap(st)
 	}
 	svc := auth.NewService(st, auth.Options{Hasher: auth.FastHasherForTests()})
 	box, err := secrets.Load(filepath.Join(t.TempDir(), "secret.key"))
@@ -89,8 +100,8 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	chatEng := chat.NewEngine(st, provs, u)
 	acts := actions.New(st, nil)
 	bus := events.New(20 * time.Millisecond)
-	st.OnWrite(bus.Wrote)
-	st.OnChat(bus.Chat)
+	sqliteSt.OnWrite(bus.Wrote)
+	sqliteSt.OnChat(bus.Chat)
 	mem := memory.New(st, func(_ context.Context, _, _ string, items []storage.Memory) ([]string, error) {
 		return []string{fmt.Sprintf("gộp %d ghi nhớ", len(items))}, nil
 	})
@@ -101,6 +112,7 @@ func setupWith(t *testing.T, proxies []netip.Prefix) *env {
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
 		Providers: provs, Team: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org, wfs.Lib), Workflows: wfs, Usage: u, CLITools: cliManager(), Chat: chatEng,
 		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcp, Memory: mem, Events: bus, Automation: testAutomation(t, st),
+		Monitors: monitor.New(st, nil, chatEng),
 		Gateway: &mcpgateway.Gateway{Store: st, Box: box, Auth: mcp.Authorized, Identify: testIdentify(mcp)}})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)

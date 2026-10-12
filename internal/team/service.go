@@ -64,12 +64,10 @@ func (s *Service) Load(ctx context.Context, projectID string) (Snapshot, error) 
 
 // SaveAgent creates (a.ID empty) or updates an agent of a.ProjectID after
 // checking the project's agents as a whole. The first agent of a project
-// becomes its default.
-func (s *Service) SaveAgent(ctx context.Context, a storage.Agent) (storage.Agent, error) {
-	r, err := s.store.Repos().Get(ctx, a.ProjectID)
-	if err != nil {
-		return a, err
-	}
+// becomes its default. old is the agent as the caller read it before
+// mutating it into a; for an update, the storage write is refused with
+// ErrConflict if someone else's write landed since (a lost update).
+func (s *Service) SaveAgent(ctx context.Context, a, old storage.Agent) (storage.Agent, error) {
 	agents, err := s.store.Agents().List(ctx, a.ProjectID)
 	if err != nil {
 		return a, err
@@ -101,16 +99,19 @@ func (s *Service) SaveAgent(ctx context.Context, a storage.Agent) (storage.Agent
 			return err
 		}
 		if a.ID != "" {
-			return tx.Agents().Update(ctx, a)
+			return tx.Agents().UpdateIf(ctx, a, old)
 		}
 		created, err := tx.Agents().Create(ctx, a)
 		if err != nil {
 			return err
 		}
 		a = created
-		if _, ok := storage.DefaultAgent(r, agents); !ok && r.DefaultAgentID == "" {
-			r.DefaultAgentID = a.ID
-			return tx.Repos().Update(ctx, r)
+		cur, err := tx.Repos().Get(ctx, a.ProjectID)
+		if err != nil {
+			return err
+		}
+		if _, ok := storage.DefaultAgent(cur, agents); !ok && cur.DefaultAgentID == "" {
+			return tx.Repos().SetDefaultAgent(ctx, a.ProjectID, a.ID)
 		}
 		return nil
 	})
@@ -143,12 +144,7 @@ func (s *Service) SetDefault(ctx context.Context, projectID, agentID string) err
 	if a.ProjectID != projectID {
 		return storage.ErrNotFound
 	}
-	r, err := s.store.Repos().Get(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	r.DefaultAgentID = agentID
-	return s.store.Repos().Update(ctx, r)
+	return s.store.Repos().SetDefaultAgent(ctx, projectID, agentID)
 }
 
 // Revisions lists snapshots of a project's agents, newest first.

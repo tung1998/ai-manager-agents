@@ -277,9 +277,13 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 	if (sc.ConversationID != "" || sc.TaskID != "") && kind != "mcp_call" && kind != "send_message" { // differs by its arguments
 		if list, err := s.store.Actions().List(ctx, sc.ConversationID, sc.TaskID, ""); err == nil {
 			for _, x := range list {
-				if x.Status == "pending" && x.Kind == a.Kind && x.Target == a.Target {
-					return x, nil
+				if x.Status != "pending" || x.Kind != a.Kind || x.Target != a.Target {
+					continue
 				}
+				if a.Kind == "git_commit" && !sameFiles(x.Args.Files, a.Args.Files) {
+					continue
+				}
+				return x, nil
 			}
 		}
 	}
@@ -351,6 +355,9 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 	case "git_push":
 		return false // publishing code always needs a person
 	case "run_command":
+		if perm.Risky(a.Target) {
+			return false // always asked, never auto-run, even for a pattern saved before this check existed
+		}
 		args, _ := perm.SplitCommand(a.Target)
 		if _, safe := perm.MatchCommand(acc.Safe, args); safe {
 			return true // checks and reads, from read only
@@ -578,6 +585,17 @@ func (s *Service) projectPath(ctx context.Context, projectID string) (string, er
 		return "", errors.New("project không gắn thư mục")
 	}
 	return p.Path, nil
+}
+
+// sameFiles compares two commits' file lists as sets, ignoring order.
+func sameFiles(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }
 
 func firstNonEmpty(a, b string) string {

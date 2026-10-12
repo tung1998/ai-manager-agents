@@ -163,20 +163,22 @@ func (r chatRepo) CleanConversation(ctx context.Context, id, state, note string)
 		return err
 	}
 	now := time.Now().UTC()
-	for _, q := range []string{
-		`DELETE FROM patches WHERE conversation_id = ?`,
-		`DELETE FROM messages WHERE conversation_id = ?`,
-		`UPDATE conversation_agents SET session_id = '', last_message_id = '', context_tokens = 0 WHERE conversation_id = ?`,
-	} {
-		if _, err := r.db.ExecContext(ctx, q, id); err != nil {
+	if err := inTx(ctx, r.db, func(db dbtx) error {
+		for _, q := range []string{
+			`DELETE FROM patches WHERE conversation_id = ?`,
+			`DELETE FROM messages WHERE conversation_id = ?`,
+			`UPDATE conversation_agents SET session_id = '', last_message_id = '', context_tokens = 0 WHERE conversation_id = ?`,
+		} {
+			if _, err := db.ExecContext(ctx, q, id); err != nil {
+				return err
+			}
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, role, content, tools, attachments, author, created_at, context) VALUES (?,?,'assistant',?,'[]','[]','Office',?,'')`,
+			ids.New("msg"), id, note, fmtTime(now)); err != nil {
 			return err
 		}
-	}
-	if _, err := r.db.ExecContext(ctx, `INSERT INTO messages (id, conversation_id, role, content, tools, attachments, author, created_at, context) VALUES (?,?,'assistant',?,'[]','[]','Office',?,'')`,
-		ids.New("msg"), id, note, fmtTime(now)); err != nil {
-		return err
-	}
-	if err := execOne(ctx, r.db, `UPDATE conversations SET cleaned = ?, cleaned_at = ?, session_id = '', context_tokens = 0 WHERE id = ?`, state, fmtTime(now), id); err != nil {
+		return execOne(ctx, db, `UPDATE conversations SET cleaned = ?, cleaned_at = ?, session_id = '', context_tokens = 0 WHERE id = ?`, state, fmtTime(now), id)
+	}); err != nil {
 		return err
 	}
 	r.tell(storage.Change{Kind: "conversation", ConversationID: id})
@@ -184,10 +186,12 @@ func (r chatRepo) CleanConversation(ctx context.Context, id, state, note string)
 }
 
 func (r taskRepo) CleanTask(ctx context.Context, id, state, result string) error {
-	for _, q := range []string{`DELETE FROM patches WHERE task_id = ?`, `DELETE FROM task_steps WHERE task_id = ?`} {
-		if _, err := r.db.ExecContext(ctx, q, id); err != nil {
-			return err
+	return inTx(ctx, r.db, func(db dbtx) error {
+		for _, q := range []string{`DELETE FROM patches WHERE task_id = ?`, `DELETE FROM task_steps WHERE task_id = ?`} {
+			if _, err := db.ExecContext(ctx, q, id); err != nil {
+				return err
+			}
 		}
-	}
-	return execOne(ctx, r.db, `UPDATE tasks SET result = ?, detail = '', cleaned = ? WHERE id = ?`, result, state, id)
+		return execOne(ctx, db, `UPDATE tasks SET result = ?, detail = '', cleaned = ? WHERE id = ?`, result, state, id)
+	})
 }

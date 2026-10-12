@@ -43,17 +43,36 @@ var (
 )
 
 func commitLock(root string) func() {
+	return lockFor(&commitLocksMu, commitLocks, root)
+}
+
+// fetchLocks serializes fetches per repo root: `git fetch` overwrites the
+// single shared FETCH_HEAD file, so two concurrent fetches (BranchDiff's own
+// base+head fetches, or a dashboard Fetch landing in between) can make a
+// later `rev-parse FETCH_HEAD` read the wrong fetch's commit. Kept separate
+// from commitLock so a slow network fetch never blocks a commit on the same
+// repo.
+var (
+	fetchLocksMu sync.Mutex
+	fetchLocks   = map[string]*sync.Mutex{}
+)
+
+func fetchLock(root string) func() {
+	return lockFor(&fetchLocksMu, fetchLocks, root)
+}
+
+func lockFor(mu *sync.Mutex, locks map[string]*sync.Mutex, root string) func() {
 	key := root
 	if abs, err := filepath.Abs(root); err == nil {
 		key = abs
 	}
-	commitLocksMu.Lock()
-	l := commitLocks[key]
+	mu.Lock()
+	l := locks[key]
 	if l == nil {
 		l = &sync.Mutex{}
-		commitLocks[key] = l
+		locks[key] = l
 	}
-	commitLocksMu.Unlock()
+	mu.Unlock()
 	l.Lock()
 	return l.Unlock
 }
@@ -279,6 +298,7 @@ func Push(ctx context.Context, root string) (string, error) {
 // Fetch updates the remote-tracking branches (read-only for the working
 // tree), so ahead/behind in ReadStatus is current.
 func Fetch(ctx context.Context, root string) error {
+	defer fetchLock(root)()
 	_, err := git(ctx, root, "fetch", "--quiet", "--prune")
 	return err
 }
@@ -293,6 +313,7 @@ func BranchDiff(ctx context.Context, root, base string, heads []string, max int)
 	if base == "" || strings.HasPrefix(base, "-") {
 		return "", errors.New("thiếu nhánh")
 	}
+	defer fetchLock(root)()
 	if _, err := git(ctx, root, "fetch", "--no-tags", "origin", base); err != nil {
 		return "", err
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -344,10 +345,19 @@ func (s *Service) Test(ctx context.Context, id, prompt, model string) (TestResul
 	res := TestResult{OK: true, Detail: chk.Detail, Models: chk.Models, Version: chk.Version}
 	// Fill tiers the user left empty from the listed models (OpenAI, local servers).
 	if len(chk.Models) > 0 && (p.TierModels[storage.TierStrong] == "" || p.TierModels[storage.TierBalanced] == "" || p.TierModels[storage.TierFast] == "") && !p.Kind.IsCLI() {
-		p.TierModels = llm.SuggestTiers(p.TierModels, chk.Models)
-		if err := s.store.Providers().Update(ctx, p); err != nil {
+		newTiers := llm.SuggestTiers(p.TierModels, chk.Models)
+		ok, err := s.store.Providers().SetTierModels(ctx, id, newTiers, p.TierModels, p.BaseURL, p.Kind)
+		if err != nil {
 			return res, err
 		}
+		if !ok {
+			// Provider was edited (or tiers changed) since Check() started: the
+			// admin's save wins, do not overwrite it with this stale snapshot.
+			slog.Warn("provider test: skipped tier auto-fill, provider changed concurrently", "provider_id", id)
+		}
+		// Keep newTiers on the local snapshot (regardless of whether the DB write
+		// above won) so the prompt call below can pick the balanced model just filled in.
+		p.TierModels = newTiers
 	}
 	if prompt != "" {
 		if model == "" {

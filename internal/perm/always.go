@@ -41,14 +41,14 @@ func SuggestPattern(line string) (string, bool) {
 		return exact, true
 	}
 	p, err := CleanPattern(args[0] + " " + args[1] + " *")
-	if err != nil || coversRisky(p) {
+	if err != nil || CoversRisky(p) {
 		return exact, true
 	}
 	return p, true
 }
 
-// coversRisky: the pattern allows a risky command (or a wrapper's).
-func coversRisky(pattern string) bool {
+// CoversRisky: the pattern allows a risky command (or a wrapper's).
+func CoversRisky(pattern string) bool {
 	if wrappers[program(pattern)] {
 		return true
 	}
@@ -122,7 +122,7 @@ func AllowAlways(ctx context.Context, st storage.Store, projectID, agentID, patt
 	if err != nil {
 		return Allowed{}, err
 	}
-	if coversRisky(pattern) {
+	if CoversRisky(pattern) {
 		return Allowed{}, ErrNotAlways
 	}
 	ag, err := st.Agents().Get(ctx, agentID)

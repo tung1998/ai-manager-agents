@@ -31,9 +31,16 @@ func conflicted(w http.ResponseWriter, want, now string) bool {
 	if want == "" || want == now {
 		return false
 	}
+	writeSaveConflict(w)
+	return true
+}
+
+// writeSaveConflict answers 409 the same way conflicted does, for a save
+// that lost the storage-level CAS (a write landed between the handler's Get
+// and Update) rather than the version check above.
+func writeSaveConflict(w http.ResponseWriter) {
 	writeJSON(w, http.StatusConflict, map[string]any{"code": "conflict",
 		"error": "Đã có thay đổi mới ở nơi khác kể từ lúc bạn mở (người khác hoặc agent). Tải lại để xem bản mới rồi sửa lại."})
-	return true
 }
 
 func automationVersion(a storage.Automation) string {
@@ -69,6 +76,26 @@ func workflowVersion(wf storage.Workflow) string {
 		Source   string
 		Bindings map[string]string
 	}{wf.Source, wf.Bindings})
+}
+
+// mcpServerVersion skips what office writes itself: OAuth tokens (refreshed
+// by the gateway between edits), check results and timestamps.
+func mcpServerVersion(m storage.MCPServer) string {
+	return versionOf(struct {
+		Name, Kind, URL, Command, EnvEnc, HeadersEnc, Scope string
+		Enabled                                             bool
+		Args, Agents, TrustedTools                          []string
+	}{m.Name, m.Kind, m.URL, m.Command, m.EnvEnc, m.HeadersEnc, m.Scope, m.Enabled, m.Args, m.Agents, m.TrustedTools})
+}
+
+func monitorVersion(m storage.Monitor) string {
+	return versionOf(struct {
+		Name, Type, Target string
+		Config             storage.MonitorConfig
+		IntervalS          int
+		AIEnabled          bool
+		AIBudgetUSD        float64
+	}{m.Name, m.Type, m.Target, m.Config, m.IntervalS, m.AIEnabled, m.AIBudgetUSD})
 }
 
 func channelVersion(c storage.Channel) string {

@@ -111,6 +111,9 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, fmt.Errorf("lệnh %q không hợp lệ: chạy không qua shell nên không dùng | ; & > $, và * chỉ ở cuối", x)
 			}
+			if perm.CoversRisky(c) {
+				return nil, fmt.Errorf("lệnh %q: %w", x, perm.ErrNotAlways)
+			}
 			if !slices.Contains(out, c) {
 				out = append(out, c)
 			}

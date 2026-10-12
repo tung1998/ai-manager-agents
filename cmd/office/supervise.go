@@ -241,15 +241,18 @@ func supervise(args []string) error {
 				ui.stop()
 				api.stop()
 				ui = nil
-				if err := selfupdate.Rollback(src); err != nil {
-					fmt.Fprintln(os.Stderr, "office: không quay về được:", err)
+				rbErr := selfupdate.Rollback(src)
+				if rbErr != nil {
+					fmt.Fprintln(os.Stderr, "office: không quay về được:", rbErr)
+					selfupdate.SaveResult(homeDir(), selfupdate.Result{State: "failed", Message: "Bản mới không khởi động được và quay về bản trước cũng thất bại (" + rbErr.Error() + "); có thể vẫn đang chạy bản mới bị lỗi", At: time.Now().UTC()})
+				} else {
+					selfupdate.SaveResult(homeDir(), selfupdate.Result{State: "rolled_back", Message: "Bản mới không khởi động được (kiểm tra /healthz thất bại), đã quay về bản trước", At: time.Now().UTC()})
 				}
 				if err := startAPI(); err != nil {
 					return err
 				}
 				startUI()
 				savePIDs(api, ui)
-				selfupdate.SaveResult(homeDir(), selfupdate.Result{State: "rolled_back", Message: "Bản mới không khởi động được (kiểm tra /healthz thất bại), đã quay về bản trước", At: time.Now().UTC()})
 				lastStart = time.Now()
 				continue
 			}

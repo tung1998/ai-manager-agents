@@ -401,10 +401,15 @@ func TestOAuthLogin(t *testing.T) {
 	}
 	state, code := f.authorize(t, authURL)
 
-	// another person, a wrong state: refused; a state works once only
+	// another person touching the state: refused, but the owner's pending
+	// login must survive so their own callback still succeeds
 	if _, err := gw.FinishLogin(ctx, "u2", state, code, ""); !errors.Is(err, ErrBadState) {
 		t.Fatalf("other user = %v", err)
 	}
+	if _, ok := gw.logins.take(state, "u1"); !ok {
+		t.Fatal("other user's failed attempt deleted the owner's pending login")
+	}
+	// a state works once only
 	if _, err := gw.FinishLogin(ctx, "u1", state, code, ""); !errors.Is(err, ErrBadState) {
 		t.Fatalf("used state = %v", err)
 	}

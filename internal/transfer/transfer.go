@@ -245,6 +245,10 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 				if ps.IsDefault {
 					_ = s.store.Providers().SetDefault(ctx, p.ID)
 				}
+			} else {
+				// agents referencing this would-be-created provider must see it as a
+				// change, not fall back to the default-provider placeholder ("").
+				byName[ps.Name] = storage.Provider{Name: ps.Name, ID: "dryrun:" + ps.Name}
 			}
 			continue
 		}
@@ -366,8 +370,7 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 			if dryRun {
 				continue
 			}
-			repo.Name, repo.Description, repo.GitRemote = ps.Name, ps.Description, ps.GitRemote
-			if err := s.store.Repos().Update(ctx, repo); err != nil {
+			if err := s.store.Repos().UpdateInfoRemote(ctx, repo.ID, ps.Name, ps.Description, ps.GitRemote); err != nil {
 				return res, err
 			}
 		}
@@ -458,11 +461,16 @@ func (s *Service) roles(ctx context.Context, projectID string, byKey map[string]
 	return out, nil
 }
 
-// badWorkflow names the first workflow that does not parse ("" = none).
+// badWorkflow names the first workflow that does not parse, or whose source key
+// does not match its bundle key ("" = none).
 func badWorkflow(list []ProjectWorkflow) string {
 	for _, w := range list {
-		if _, err := workflow.Parse(w.Source); err != nil {
+		def, err := workflow.Parse(w.Source)
+		if err != nil {
 			return "quy trình " + w.Key + ": " + err.Error()
+		}
+		if def.Key != w.Key {
+			return "quy trình " + w.Key + ": key trong source là " + def.Key
 		}
 	}
 	return ""

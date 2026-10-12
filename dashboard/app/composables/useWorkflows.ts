@@ -260,6 +260,7 @@ export interface LibraryWorkflow {
   modified: boolean // a shipped one, changed here
   error?: string
   updated_at: string
+  version: string
 }
 
 export interface RunRole {

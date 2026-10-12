@@ -36,10 +36,12 @@ func TestHistoryAndRestore(t *testing.T) {
 	svc := agentinfo.New(st, org, time.UTC)
 	original := a.Instructions
 
+	old := a
 	a.Instructions = "Viết ngắn."
-	a, _ = org.SaveAgent(ctx, a)
+	a, _ = org.SaveAgent(ctx, a, old)
+	old = a
 	a.Role, a.Key = "Người review", "reviewer"
-	a, err := org.SaveAgent(ctx, a)
+	a, err := org.SaveAgent(ctx, a, old)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,10 +89,12 @@ func TestRestoreNeverTurnsOnFullAccess(t *testing.T) {
 	st, org, _, a := setup(t)
 	svc := agentinfo.New(st, org, time.UTC)
 
+	old := a
 	a.Permissions.FullAccess, a.Permissions.FullAccessBy, a.Permissions.ExtraDirs = true, "admin@x.io", []string{"/tmp/x"}
-	a, _ = org.SaveAgent(ctx, a) // live agent now has full access
-	a.Role = "Người review"      // a trivial change: its snapshot captures the full-access state above
-	a, err := org.SaveAgent(ctx, a)
+	a, _ = org.SaveAgent(ctx, a, old) // live agent now has full access
+	old = a
+	a.Role = "Người review" // a trivial change: its snapshot captures the full-access state above
+	a, err := org.SaveAgent(ctx, a, old)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,8 +201,9 @@ func TestActivityCountsByAgentIDNotName(t *testing.T) {
 	// message sent before the agent is renamed
 	st.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "assistant", Author: a.Name, AgentID: a.ID, Content: "trước khi đổi tên"})
 	oldName := a.Name
+	old := a
 	a.Name = "Tên mới"
-	a, err := org.SaveAgent(ctx, a)
+	a, err := org.SaveAgent(ctx, a, old)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +213,7 @@ func TestActivityCountsByAgentIDNotName(t *testing.T) {
 	// a second agent that happens to share the old name
 	second := a
 	second.ID, second.Key, second.Name = "", "second", oldName
-	b, err := org.SaveAgent(ctx, second)
+	b, err := org.SaveAgent(ctx, second, storage.Agent{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,5 +234,63 @@ func TestActivityCountsByAgentIDNotName(t *testing.T) {
 	}
 	if len(itemsB) != 1 || itemsB[0].Answers != 1 {
 		t.Fatalf("activity for second agent = %+v, want 1 answer", itemsB)
+	}
+}
+
+// When a project has more conversations and tasks than the old fixed page
+// size (200/100), the agent's own chat and task — still newer than the
+// stats window, and member-only for the chat case — must not be dropped
+// just because 200+ other items were created more recently.
+func TestPatchesAndActivityBeyondDBPageLimit(t *testing.T) {
+	ctx := context.Background()
+	st, org, project, a := setup(t)
+	svc := agentinfo.New(st, org, time.UTC)
+
+	own, err := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, AgentID: a.ID, Title: "chat của agent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Chat().AddPatch(ctx, storage.Patch{ConversationID: own.ID, Diff: "x"})
+
+	memberOnly, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, Title: "chat agent chỉ là thành viên"})
+	st.Chat().UpsertMember(ctx, storage.ChatMember{ConversationID: memberOnly.ID, AgentID: a.ID, AgentName: a.Name})
+
+	task, err := st.Tasks().Create(ctx, storage.Task{ProjectID: project.ID, Title: "việc của agent", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, err := st.Tasks().AddStep(ctx, storage.TaskStep{TaskID: task.ID, AgentID: a.ID, Phase: "work", Status: "done"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Chat().AddPatch(ctx, storage.Patch{TaskID: task.ID, StepID: step.ID, Diff: "y"})
+
+	// 205 newer conversations and 105 newer tasks belonging to other agents
+	// push the ones above outside a fixed 200/100-row DB page.
+	for i := 0; i < 205; i++ {
+		st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: project.ID, Title: "filler chat"})
+	}
+	for i := 0; i < 105; i++ {
+		st.Tasks().Create(ctx, storage.Task{ProjectID: project.ID, Title: "filler task", Status: "running"})
+	}
+
+	items, err := svc.Activity(ctx, a, project.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var titles []string
+	for _, it := range items {
+		titles = append(titles, it.Title)
+	}
+	if len(items) != 2 {
+		t.Fatalf("activity dropped the agent's own/member chats past the page limit: %v", titles)
+	}
+
+	s, err := svc.Stats(ctx, a, project.ID, 90)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Patches.Total != 2 { // one chat patch, one task-step patch
+		t.Fatalf("patches dropped past the page limit: %+v", s.Patches)
 	}
 }

@@ -2,10 +2,12 @@ package automation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,14 +47,7 @@ func (s *Service) TakeOutMCP(ctx context.Context, it Item) (string, error) {
 	loc := it.Location
 	switch loc.Type {
 	case "user", "local":
-		backup, err := s.Installer.backup(loc.Path, "claude.json")
-		if err != nil {
-			return "", err
-		}
-		if _, err := s.Installer.Remove(ctx, it); err != nil {
-			return backup, err
-		}
-		return backup, nil
+		return s.Installer.Remove(ctx, it)
 	case "project":
 		return s.Installer.Remove(ctx, it)
 	case "codex":
@@ -76,16 +71,31 @@ type Origin struct {
 	ConfigEnc string `json:"config_enc,omitempty"`
 }
 
-// PutBackMCP writes cfg back where o says the server came from.
+// PutBackMCP writes cfg back where o says the server came from. TakeOutMCP
+// removed the server from its source, so if a server by that name exists
+// there now, someone added it back while it was moved out: refuse (ErrExists)
+// instead of silently overwriting it, unless it already matches cfg (a retry
+// of a put-back that failed partway through).
 func (s *Service) PutBackMCP(ctx context.Context, o Origin, cfg map[string]any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch o.Type {
 	case "user":
+		if done, err := checkMCPConflict(s.Installer.existingUserMCP(o.Name)(), cfg); done {
+			return err
+		}
 		return s.Installer.InstallMCP(ctx, Target{Scope: "user"}, o.Name, cfg, true)
 	case "local":
+		if done, err := checkMCPConflict(s.Installer.existingLocalMCP(o.ProjectPath, o.Name)(), cfg); done {
+			return err
+		}
 		return s.Installer.InstallMCP(ctx, Target{Scope: "local", ProjectPath: o.ProjectPath}, o.Name, cfg, true)
 	case "project":
+		doc := readJSON(filepath.Join(o.ProjectPath, ".mcp.json"))
+		servers, _ := doc["mcpServers"].(map[string]any)
+		if done, err := checkMCPConflict(rawMCPEntry(servers, o.Name), cfg); done {
+			return err
+		}
 		return s.Installer.InstallMCP(ctx, Target{Scope: "project", ProjectPath: o.ProjectPath}, o.Name, cfg, true)
 	case "codex":
 		home, _ := os.UserHomeDir()
@@ -95,9 +105,48 @@ func (s *Service) PutBackMCP(ctx context.Context, o Origin, cfg map[string]any) 
 		if filepath.Clean(o.Path) != filepath.Join(home, ".codex", "config.toml") {
 			return ErrNotAllowed // only Codex's own config
 		}
+		if existing, err := codexServer(o.Path, o.Name); err == nil {
+			raw, err := json.Marshal(existing)
+			if err != nil {
+				return err
+			}
+			if done, err := checkMCPConflict(string(raw), cfg); done {
+				return err
+			}
+		} else if err != ErrNotFound && !os.IsNotExist(err) {
+			return err
+		}
 		return appendCodexServer(o.Path, o.Name, cfg)
 	}
 	return ErrNotAllowed
+}
+
+// checkMCPConflict compares existingRaw (a server's current raw JSON under
+// this name, "" if none) against cfg. done is true when PutBackMCP must stop
+// here and return err as-is: nothing there yet (done=false) means proceed to
+// install; an identical config (done=true, err=nil) means a harmless retry of
+// a put-back that failed partway through; anything else (done=true,
+// err=ErrExists or a marshal error) means someone put a different server back
+// under this name while it was moved out.
+func checkMCPConflict(existingRaw string, cfg map[string]any) (done bool, err error) {
+	if existingRaw == "" {
+		return false, nil
+	}
+	want, err := json.Marshal(cfg)
+	if err != nil {
+		return true, err
+	}
+	var existing, wantNorm any
+	if err := json.Unmarshal([]byte(existingRaw), &existing); err != nil {
+		return true, ErrExists // unreadable current config: treat as conflicting
+	}
+	if err := json.Unmarshal(want, &wantNorm); err != nil {
+		return true, err
+	}
+	if reflect.DeepEqual(existing, wantNorm) {
+		return true, nil
+	}
+	return true, ErrExists
 }
 
 // backup copies a file into trash.

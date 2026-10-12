@@ -56,8 +56,10 @@ type agyEvent struct {
 
 func (r antigravityRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
 	res, stepErr, err := r.run(ctx, req, emit)
-	// a conversation agy no longer has: start over with the transcript
-	if err != nil && req.SessionID != "" && res.Text == "" && stepErr == "" {
+	// a conversation agy no longer has: start over with the transcript; not
+	// when the first attempt already acted (a tool call), since restarting
+	// would repeat that action for real, not just its display
+	if err != nil && req.SessionID != "" && res.Text == "" && stepErr == "" && len(res.Tools) == 0 && ctx.Err() == nil {
 		req.SessionID = ""
 		res, stepErr, err = r.run(ctx, req, emit)
 	}

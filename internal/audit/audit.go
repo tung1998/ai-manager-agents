@@ -100,9 +100,14 @@ func Entry(ctx context.Context, c Change) storage.AuditEntry {
 
 // Record appends c; a failure is logged, never silently dropped.
 func Record(ctx context.Context, repo storage.AuditRepo, c Change) error {
-	err := repo.Append(ctx, Entry(ctx, c))
+	return Append(ctx, repo, Entry(ctx, c))
+}
+
+// Append appends an already-built entry e; a failure is logged, never silently dropped.
+func Append(ctx context.Context, repo storage.AuditRepo, e storage.AuditEntry) error {
+	err := repo.Append(ctx, e)
 	if err != nil {
-		slog.Error("audit: ghi nhật ký thất bại", "action", c.Action, "resource", c.ResourceID, "err", err)
+		slog.Error("audit: ghi nhật ký thất bại", "action", e.Action, "resource", e.Target, "err", err)
 	}
 	return err
 }

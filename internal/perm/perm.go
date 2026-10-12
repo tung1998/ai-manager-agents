@@ -186,11 +186,17 @@ func (p Policy) Denied(files []string) []string {
 }
 
 // matchPath supports shell globs, "**/" for any folder depth, and a trailing
-// "/" for a whole folder.
+// "/" for a whole folder. Compared case-insensitively: a deny-listed file may
+// have been deleted in the diff being checked, so it can't be resolved and
+// stat'd to compare by inode like extra dirs are — and for a deny-list, a
+// false-positive match is far cheaper than a missed one on a case-insensitive
+// filesystem (e.g. "secret.PEM" vs "*.pem" on macOS APFS).
 func matchPath(pat, file string) bool {
 	if pat == "" {
 		return false
 	}
+	pat = strings.ToLower(pat)
+	file = strings.ToLower(file)
 	if strings.HasSuffix(pat, "/") {
 		return strings.HasPrefix(file, pat) || strings.Contains(file, "/"+pat)
 	}

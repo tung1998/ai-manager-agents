@@ -132,7 +132,13 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	list, err := s.cfg.Store.Chat().ListConversationsTagged(r.Context(), r.PathValue("id"), r.URL.Query().Get("source"), tags, before, limit+1)
+	private := r.PathValue("id") == assistant.ID(r.Context(), s.cfg.Store) // assistant chats are each person's own
+	me := "human:" + userFrom(r).Email
+	filterBy := ""
+	if private {
+		filterBy = me
+	}
+	list, err := s.cfg.Store.Chat().ListConversationsTagged(r.Context(), r.PathValue("id"), r.URL.Query().Get("source"), tags, before, limit+1, filterBy)
 	if err != nil {
 		s.internal(w, r, err)
 		return
@@ -142,8 +148,6 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 		list = list[:limit]
 	}
 	out := make([]conversationDTO, 0, len(list))
-	private := r.PathValue("id") == assistant.ID(r.Context(), s.cfg.Store) // assistant chats are each person's own
-	me := "human:" + userFrom(r).Email
 	for _, c := range list {
 		if private && c.CreatedBy != me {
 			continue

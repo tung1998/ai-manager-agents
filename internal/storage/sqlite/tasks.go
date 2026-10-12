@@ -100,6 +100,24 @@ func (r taskRepo) List(ctx context.Context, projectID string, limit int) ([]stor
 	return out, rows.Err()
 }
 
+func (r taskRepo) ListByAgentSince(ctx context.Context, projectID, agentID string, since time.Time) ([]storage.Task, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+taskRead+` FROM tasks WHERE project_id=? AND created_at>=? AND id IN (SELECT task_id FROM task_steps WHERE agent_id=?) ORDER BY created_at DESC`,
+		projectID, fmtTime(since), agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storage.Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 func (r taskRepo) Delete(ctx context.Context, id string) error {
 	return execOne(ctx, r.db, `DELETE FROM tasks WHERE id=?`, id)
 }

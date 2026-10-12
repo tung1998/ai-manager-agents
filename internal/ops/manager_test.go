@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -88,5 +89,105 @@ func TestJobAndCrashRestart(t *testing.T) {
 	escape, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "x", Cwd: "../..", Command: "true"})
 	if err := m.Start(ctx, escape.ID); err != ErrBadCwd {
 		t.Fatalf("cwd escape: %v", err)
+	}
+}
+
+// TestStopDuringStartRace reproduces Stop() landing between cmd.Start() and
+// launch() taking the lock on a fresh Start(): without the generation check
+// launch()'s unconditional state overwrite resurrects the process as "running"
+// even though Stop() already reported "stopped".
+func TestStopDuringStartRace(t *testing.T) {
+	m, st, proj := setup(t)
+	ctx := context.Background()
+	def, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "svc", Kind: "service", Command: "sleep 30"})
+
+	var once sync.Once
+	afterStart = func() { once.Do(func() { _ = m.Stop(def.ID) }) }
+	t.Cleanup(func() { afterStart = nil })
+
+	if err := m.Start(ctx, def.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Reaching "stopped" at all requires cmd.Wait() to return, i.e. the real
+	// process was actually killed, not just the status field flipped.
+	waitFor(t, "stopped after start race", func() bool { return m.State(def.ID).Status == "stopped" })
+	time.Sleep(300 * time.Millisecond)
+	if s := m.State(def.ID); s.Status != "stopped" || s.PID != 0 {
+		t.Fatalf("resurrected after start race: %+v", s)
+	}
+}
+
+// TestStopDuringRestartRace reproduces Stop() landing between cmd.Start() and
+// the lock during an auto-restart's launch() call: without the generation
+// check, the service kept crashing and auto-restarting forever as if Stop had
+// never been called.
+func TestStopDuringRestartRace(t *testing.T) {
+	m, st, proj := setup(t)
+	ctx := context.Background()
+	def, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "api", Kind: "service", Autorestart: true, Command: "echo boom; exit 3"})
+
+	if err := m.Start(ctx, def.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "restarting", func() bool { return m.State(def.ID).Status == "restarting" })
+
+	var once sync.Once
+	afterStart = func() { once.Do(func() { _ = m.Stop(def.ID) }) }
+	t.Cleanup(func() { afterStart = nil })
+
+	waitFor(t, "stopped after restart race", func() bool { return m.State(def.ID).Status == "stopped" })
+	restarts := m.State(def.ID).Restarts
+	time.Sleep(1500 * time.Millisecond) // longer than the restart backoff: no further restart must happen
+	if s := m.State(def.ID); s.Status != "stopped" || s.Restarts != restarts {
+		t.Fatalf("resurrected/restarted after restart race: %+v", s)
+	}
+}
+
+// TestStopBeforeStartRace reproduces Stop() landing even earlier: after the
+// caller (Start) released its lock but before launch() calls cmd.Start() at
+// all (building cmd/pipes/openLog takes time too). The generation must be
+// captured under the same lock that decided to launch, not inside launch()
+// itself, otherwise this earlier window still resurrects the process.
+func TestStopBeforeStartRace(t *testing.T) {
+	m, st, proj := setup(t)
+	ctx := context.Background()
+	def, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "svc", Kind: "service", Command: "sleep 30"})
+
+	var once sync.Once
+	beforeStart = func() { once.Do(func() { _ = m.Stop(def.ID) }) }
+	t.Cleanup(func() { beforeStart = nil })
+
+	if err := m.Start(ctx, def.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "stopped after before-start race", func() bool { return m.State(def.ID).Status == "stopped" })
+	time.Sleep(300 * time.Millisecond)
+	if s := m.State(def.ID); s.Status != "stopped" || s.PID != 0 {
+		t.Fatalf("resurrected after before-start race: %+v", s)
+	}
+}
+
+// TestStopBeforeRestartRace is TestStopBeforeStartRace's counterpart on the
+// auto-restart path: Stop() lands after the AfterFunc released its lock but
+// before the restart's launch() calls cmd.Start().
+func TestStopBeforeRestartRace(t *testing.T) {
+	m, st, proj := setup(t)
+	ctx := context.Background()
+	def, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "api", Kind: "service", Autorestart: true, Command: "echo boom; exit 3"})
+
+	if err := m.Start(ctx, def.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "restarting", func() bool { return m.State(def.ID).Status == "restarting" })
+
+	var once sync.Once
+	beforeStart = func() { once.Do(func() { _ = m.Stop(def.ID) }) }
+	t.Cleanup(func() { beforeStart = nil })
+
+	waitFor(t, "stopped after before-restart race", func() bool { return m.State(def.ID).Status == "stopped" })
+	restarts := m.State(def.ID).Restarts
+	time.Sleep(1500 * time.Millisecond)
+	if s := m.State(def.ID); s.Status != "stopped" || s.Restarts != restarts {
+		t.Fatalf("resurrected/restarted after before-restart race: %+v", s)
 	}
 }

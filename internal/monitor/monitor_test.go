@@ -120,3 +120,50 @@ func TestTCPAndHeartbeat(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Ping only records the heartbeat time: it must never overwrite a status an
+// in-flight CheckNow is about to (or just did) save, in either direction.
+func TestPingDoesNotClobberInFlightCheck(t *testing.T) {
+	s, st, p := setup(t)
+	ctx := context.Background()
+	hb, _ := st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "cron", Type: "heartbeat", Token: NewToken(), IntervalS: 60, Enabled: true})
+	hb.Status, hb.Fails = "down", 1
+	if err := st.Monitors().SaveStatus(ctx, hb); err != nil {
+		t.Fatal(err)
+	}
+
+	// simulate a scheduled tick already running CheckNow for this monitor.
+	if !s.claim(hb.ID) {
+		t.Fatal("claim")
+	}
+	if err := s.Ping(ctx, hb.Token); err != nil {
+		t.Fatal(err)
+	}
+	s.release(hb.ID)
+
+	got, err := st.Monitors().Get(ctx, hb.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "down" || got.Fails != 1 {
+		t.Fatalf("ping overwrote the in-flight status: %+v", got)
+	}
+	if got.LastPingAt == nil {
+		t.Fatalf("ping was not recorded: %+v", got)
+	}
+
+	// the other direction: CheckNow persisting a stale snapshot (fetched
+	// before the ping) must not erase the ping that landed meanwhile.
+	stale := got
+	stale.LastPingAt = nil
+	if err := st.Monitors().SaveStatus(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	after, err := st.Monitors().Get(ctx, hb.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.LastPingAt == nil || !after.LastPingAt.Equal(*got.LastPingAt) {
+		t.Fatalf("a stale SaveStatus erased the ping: %+v", after)
+	}
+}

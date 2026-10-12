@@ -71,4 +71,48 @@ func TestSaveConflicts(t *testing.T) {
 	if resp, _ := do(t, admin, "PUT", e.srv.URL+"/api/projects/"+pid+"/policy", pol, nil); resp.StatusCode != 409 {
 		t.Fatalf("policy stale save = %d", resp.StatusCode)
 	}
+
+	// monitor
+	mresp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/monitors", map[string]any{"name": "Shop", "type": "http", "target": "http://localhost:1"}, nil)
+	if mresp.StatusCode != 201 {
+		t.Fatalf("monitor create = %d %v", mresp.StatusCode, b)
+	}
+	mid, mv := b["id"].(string), b["version"].(string)
+	if mv == "" {
+		t.Fatal("no monitor version")
+	}
+	editMon := func(name, version string) int {
+		resp, _ := do(t, admin, "PATCH", e.srv.URL+"/api/monitors/"+mid, map[string]any{"name": name, "type": "http", "target": "http://localhost:1", "version": version}, nil)
+		return resp.StatusCode
+	}
+	if code := editMon("Shop2", mv); code != 200 { // first form save with the version it opened with
+		t.Fatalf("monitor save = %d", code)
+	}
+	if code := editMon("Shop3", mv); code != 409 { // second form, same stale version
+		t.Fatalf("monitor stale save = %d", code)
+	}
+	if code := editMon("Shop4", ""); code != 200 { // no version (a tool, an agent): as before
+		t.Fatalf("monitor no version = %d", code)
+	}
+	// a form opened before the pause keeps a version read before it
+	_, b = do(t, admin, "GET", e.srv.URL+"/api/monitors?project="+pid, nil, nil)
+	var mv2 string
+	for _, x := range b["monitors"].([]any) {
+		mm := x.(map[string]any)
+		if mm["id"].(string) == mid {
+			mv2 = mm["version"].(string)
+		}
+	}
+	if resp, _ := do(t, admin, "PATCH", e.srv.URL+"/api/monitors/"+mid, map[string]any{"enabled": false}, nil); resp.StatusCode != 200 {
+		t.Fatalf("monitor pause = %d", resp.StatusCode)
+	}
+	if code := editMon("Shop5", mv2); code != 200 { // pausing (its own switch) must not stale the open form's version
+		t.Fatalf("monitor save after pause = %d", code)
+	}
+	if resp, _ := do(t, admin, "PATCH", e.srv.URL+"/api/monitors/"+mid, map[string]any{"ai_enabled": true}, nil); resp.StatusCode != 200 {
+		t.Fatalf("monitor ai_enabled = %d", resp.StatusCode)
+	}
+	if code := editMon("Shop6", mv2); code != 409 { // ai_enabled is part of the hash: must stale an open form
+		t.Fatalf("monitor save after ai_enabled change = %d", code)
+	}
 }

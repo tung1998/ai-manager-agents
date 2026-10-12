@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
 // ADR-074 security fix: only a scheduled automation may override to full
@@ -339,5 +342,56 @@ func TestAutomationSaveIgnoresOverrideAdminBy(t *testing.T) {
 	}
 	if by := body["automation"].(map[string]any)["override_admin_by"]; by != "admin@x.io" {
 		t.Fatalf("override_admin_by = %v, want the admin who saved", by)
+	}
+}
+
+// failChannelUpdateStore makes Channels().Update fail, to simulate a DB
+// error landing after the automation row has already been created.
+type failChannelUpdateStore struct{ storage.Store }
+
+func (s failChannelUpdateStore) Channels() storage.ChannelRepo {
+	return failChannelUpdate{s.Store.Channels()}
+}
+
+type failChannelUpdate struct{ storage.ChannelRepo }
+
+func (failChannelUpdate) Update(ctx context.Context, c storage.Channel) error {
+	return fmt.Errorf("db unavailable")
+}
+
+// If commitBot() fails after the automation row is already saved, the
+// automation must not be left orphaned in the DB (review piece
+// bit_01m4n6hgchwhefvgjd1qfxf5r1).
+func TestCreateAutomationRollsBackWhenCommitBotFails(t *testing.T) {
+	e := setupWithStore(t, nil, func(st storage.Store) storage.Store { return failChannelUpdateStore{st} })
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+
+	// a fresh bot: saveBot's create path doesn't touch Update, so this succeeds
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
+		"name": "Trả lời", "source": "discord", "action": "chat",
+		"bot": map[string]any{"token": "tok-1", "allow": []string{"42"}},
+	}, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("first create = %d %v", resp.StatusCode, body)
+	}
+	chID := body["automation"].(map[string]any)["config"].(map[string]any)["channel_id"].(string)
+
+	// a second automation reusing the bot, changing a bot field: this takes
+	// the update-bot path, whose commit calls Channels().Update and fails
+	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/automations", map[string]any{
+		"name": "Trả lời 2", "source": "discord", "action": "chat",
+		"config": map[string]any{"channel_id": chID}, "bot": map[string]any{"allow": []string{"42", "43"}},
+	}, nil)
+	if resp.StatusCode != 500 {
+		t.Fatalf("second create = %d %v, want 500", resp.StatusCode, body)
+	}
+
+	_, list := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/automations", nil, nil)
+	autos := list["automations"].([]any)
+	if len(autos) != 1 {
+		t.Fatalf("automations after failed create = %v, want only the first one left", autos)
 	}
 }

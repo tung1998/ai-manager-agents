@@ -256,12 +256,20 @@ type ProviderRepo interface {
 	Delete(ctx context.Context, id string) error
 	SetDefault(ctx context.Context, id string) error
 	SetStatus(ctx context.Context, id, status, detail string, models []string, at time.Time) error
+	// SetTierModels writes auto-filled tier models only if the row still matches
+	// prevTiers/baseURL/kind (unchanged since they were read); it is a no-op,
+	// not an error, if a concurrent edit moved the row in the meantime.
+	SetTierModels(ctx context.Context, id string, newTiers, prevTiers map[string]string, baseURL string, kind ProviderKind) (bool, error)
 }
 
 // AgentRepo manages the agents of a project.
 type AgentRepo interface {
 	Create(ctx context.Context, a Agent) (Agent, error)
 	Update(ctx context.Context, a Agent) error
+	// UpdateIf is Update, but refuses with ErrConflict when the row's
+	// content columns no longer match prev (a write landed between the
+	// caller's Get and this Update).
+	UpdateIf(ctx context.Context, a, prev Agent) error
 	Get(ctx context.Context, id string) (Agent, error)
 	List(ctx context.Context, projectID string) ([]Agent, error) // by sort
 	Delete(ctx context.Context, id string) error
@@ -508,8 +516,13 @@ type ChatRepo interface {
 	// ListConversationsBefore is the next page: those updated before (zero: the newest).
 	ListConversationsBefore(ctx context.Context, projectID, source string, before time.Time, limit int) ([]Conversation, error)
 	// ListConversationsTagged is ListConversationsBefore keeping only the chats
-	// that have every one of tags (none: all).
-	ListConversationsTagged(ctx context.Context, projectID, source string, tags []string, before time.Time, limit int) ([]Conversation, error)
+	// that have every one of tags (none: all); createdBy not "": only that
+	// person's chats (the assistant's own chats are private per person).
+	ListConversationsTagged(ctx context.Context, projectID, source string, tags []string, before time.Time, limit int, createdBy string) ([]Conversation, error)
+	// ListAgentConversations lists a project's chats (as ListConversationsFrom
+	// with source "all") owned by agentID or that it is a member of, updated at
+	// or after since (zero: no lower bound), newest first, capped at limit.
+	ListAgentConversations(ctx context.Context, projectID, agentID string, since time.Time, limit int) ([]Conversation, error)
 	// SetConversationTags replaces a chat's tags.
 	SetConversationTags(ctx context.Context, conversationID string, tags []string) error
 	// ProjectTags lists the tags of a project's chats, the last used first;
@@ -612,6 +625,9 @@ type TaskRepo interface {
 	AddStep(ctx context.Context, s TaskStep) (TaskStep, error)
 	UpdateStep(ctx context.Context, s TaskStep) error
 	ListSteps(ctx context.Context, taskID string) ([]TaskStep, error)
+	// ListByAgentSince lists a project's tasks created at or after since that
+	// have at least one step run by agentID.
+	ListByAgentSince(ctx context.Context, projectID, agentID string, since time.Time) ([]Task, error)
 	// CleanTask takes a finished task's steps and diffs out; result replaces its result.
 	CleanTask(ctx context.Context, id, state, result string) error
 	ListPatches(ctx context.Context, taskID string) ([]Patch, error)
@@ -623,6 +639,12 @@ type TaskRepo interface {
 type RepoRepo interface {
 	Create(ctx context.Context, r Repo) (Repo, error)
 	Update(ctx context.Context, r Repo) error
+	// UpdateInfo writes only name and description, leaving other fields untouched.
+	UpdateInfo(ctx context.Context, id, name, description string) error
+	// UpdateInfoRemote writes name, description and git remote, leaving other fields (notably default_agent_id) untouched.
+	UpdateInfoRemote(ctx context.Context, id, name, description, gitRemote string) error
+	// SetDefaultAgent writes only the default agent, leaving other fields untouched.
+	SetDefaultAgent(ctx context.Context, id, agentID string) error
 	Get(ctx context.Context, id string) (Repo, error)
 	GetByPath(ctx context.Context, path string) (Repo, error)
 	List(ctx context.Context) ([]Repo, error)
@@ -712,6 +734,7 @@ type MonitorRepo interface {
 	Create(ctx context.Context, m Monitor) (Monitor, error)
 	Update(ctx context.Context, m Monitor) error     // definition fields
 	SaveStatus(ctx context.Context, m Monitor) error // status fields
+	SavePing(ctx context.Context, id string, at time.Time) error
 	Get(ctx context.Context, id string) (Monitor, error)
 	GetByToken(ctx context.Context, token string) (Monitor, error)
 	List(ctx context.Context, projectID string) ([]Monitor, error) // "" = all
@@ -725,6 +748,9 @@ type MonitorRepo interface {
 	UpdateEvent(ctx context.Context, e MonitorEvent) error
 	Events(ctx context.Context, projectID string, limit int) ([]MonitorEvent, error) // "" = all
 	AICostSince(ctx context.Context, monitorID string, since time.Time) (float64, error)
+	// RecentAnalysis reports whether monitorID has a running or completed
+	// analysis event (other than excludeID) since the given time.
+	RecentAnalysis(ctx context.Context, monitorID, excludeID string, since time.Time) (bool, error)
 }
 
 // Action is an operation an agent proposed; it runs only after approval.

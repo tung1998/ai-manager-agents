@@ -16,15 +16,7 @@ import (
 func (e *Engine) beginJob(ctx context.Context, conv storage.Conversation, agentID, title string) (storage.Job, error) {
 	now := time.Now().UTC()
 	if id := usage.JobFrom(ctx); id != "" {
-		j, err := e.store.Jobs().Get(ctx, id)
-		if err != nil {
-			return j, err
-		}
-		j.Status, j.ConversationID, j.AgentID, j.StartedAt = "running", conv.ID, agentID, &now
-		if j.Title == "" {
-			j.Title = title
-		}
-		return j, e.store.Jobs().Update(ctx, j)
+		return e.store.Jobs().StartIfRunning(ctx, id, conv.ID, agentID, title, now)
 	}
 	return e.store.Jobs().Create(ctx, storage.Job{ProjectID: conv.ProjectID, Kind: "chat_turn", Origin: "user", Trigger: "ui",
 		CreatedBy: actor.From(ctx), ConversationID: conv.ID, AgentID: agentID, Title: title, Status: "running", StartedAt: &now})
@@ -34,10 +26,7 @@ func (e *Engine) beginJob(ctx context.Context, conv storage.Conversation, agentI
 func (e *Engine) endJob(jobID, messageID string, runErr, ctxErr error) {
 	ctx := context.Background()
 	if messageID != "" {
-		if j, err := e.store.Jobs().Get(ctx, jobID); err == nil {
-			j.MessageID = messageID
-			_ = e.store.Jobs().Update(ctx, j)
-		}
+		_ = e.store.Jobs().SetMessageID(ctx, jobID, messageID)
 	}
 	status, code, msg := "done", "", ""
 	var be *usage.BudgetError
@@ -53,7 +42,10 @@ func (e *Engine) endJob(jobID, messageID string, runErr, ctxErr error) {
 	case runErr != nil:
 		status, code, msg = "failed", "agent_error", runErr.Error()
 	}
-	_, _ = e.store.Jobs().Finish(ctx, jobID, status, code, msg, time.Now().UTC())
+	// FinishIfRunning, not Finish: a cancel may have already moved the job to
+	// "cancelled" (e.g. via FinishIfRunning in cancelJob) while this run was
+	// wrapping up; don't let that get overwritten back to done/failed.
+	_, _ = e.store.Jobs().FinishIfRunning(ctx, jobID, status, code, msg, time.Now().UTC())
 }
 
 // outOfTokens are how the AI services say a run stopped because the account

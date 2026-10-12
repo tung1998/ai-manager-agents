@@ -2,10 +2,12 @@ package gitops
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -167,5 +169,78 @@ func TestBranchDiffFromFork(t *testing.T) {
 	}
 	if _, err := BranchDiff(ctx, "", "main", []string{"fix/pay"}, 1<<20); err == nil {
 		t.Fatal("no folder: no error")
+	}
+}
+
+// Two PR webhooks on the same repo root at once must not race on the shared
+// FETCH_HEAD and report each other's diff (fetchLock in BranchDiff/Fetch).
+func TestBranchDiffConcurrentNoCrossContamination(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git missing")
+	}
+	origin, work, project := t.TempDir(), t.TempDir(), t.TempDir()
+	run := func(dir string, args ...string) {
+		c := exec.Command("git", append([]string{"-c", "user.email=t@x.io", "-c", "user.name=T"}, args...)...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatal(string(out))
+		}
+	}
+	run(origin, "init", "-q", "--bare", "-b", "main")
+	run(work, "clone", "-q", origin, ".")
+	os.WriteFile(filepath.Join(work, "pay.go"), []byte("package pay\n"), 0o644)
+	run(work, "add", "-A")
+	run(work, "commit", "-qm", "init")
+	run(work, "push", "-q", "origin", "HEAD:main")
+	run(project, "clone", "-q", origin, ".")
+
+	const n = 2
+	markers := make([]string, n)
+	for i := 0; i < n; i++ {
+		marker := fmt.Sprintf("Marker%d", i)
+		markers[i] = marker
+		os.WriteFile(filepath.Join(work, "pay.go"), []byte(fmt.Sprintf("package pay\n\nfunc %s() {}\n", marker)), 0o644)
+		run(work, "commit", "-qam", marker)
+		run(work, "push", "-q", "origin", fmt.Sprintf("HEAD:refs/pull/%d/head", i))
+	}
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	results := make([]string, n)
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			d, err := BranchDiff(ctx, project, "main", []string{fmt.Sprintf("refs/pull/%d/head", i)}, 1<<20)
+			results[i], errs[i] = d, err
+		}(i)
+	}
+	// a plain Fetch (e.g. from the dashboard) landing in between must not
+	// make either BranchDiff read a wrong FETCH_HEAD either.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		Fetch(ctx, project)
+	}()
+	wg.Wait()
+
+	for i := 0; i < n; i++ {
+		if errs[i] != nil {
+			t.Fatalf("BranchDiff(%d): %v", i, errs[i])
+		}
+		own := fmt.Sprintf("+func %s() {}", markers[i])
+		if !strings.Contains(results[i], own) {
+			t.Fatalf("BranchDiff(%d) missing own marker %q: %s", i, own, results[i])
+		}
+		for j := 0; j < n; j++ {
+			if j == i {
+				continue
+			}
+			other := fmt.Sprintf("func %s() {}", markers[j])
+			if strings.Contains(results[i], other) {
+				t.Fatalf("BranchDiff(%d) cross-contaminated with marker from %d: %s", i, j, results[i])
+			}
+		}
 	}
 }

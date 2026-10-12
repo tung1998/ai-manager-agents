@@ -49,6 +49,60 @@ func overlap(a, b []string) bool {
 	return false
 }
 
+// basenameDirs maps a bare file name to the distinct full paths (with a "/")
+// ending in it, across every path list given. Used to tell whether a bare
+// name (e.g. "channels.go") unambiguously picks out one real file, or could
+// be any of several unrelated files sharing that basename.
+func basenameDirs(lists ...[]string) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, list := range lists {
+		for _, p := range list {
+			i := strings.LastIndex(p, "/")
+			if i < 0 {
+				continue
+			}
+			base := p[i+1:]
+			if out[base] == nil {
+				out[base] = map[string]bool{}
+			}
+			out[base][p] = true
+		}
+	}
+	return out
+}
+
+// samePathStrict is samePath, but refuses to let a bare name (no "/") match
+// a full path by suffix when that basename is shared by two or more
+// distinct files among amb — an unqualified mention like "channels.go" is
+// then ambiguous and must not be treated as the same file as any one of them.
+func samePathStrict(a, b string, amb map[string]map[string]bool) bool {
+	if len(a) < len(b) {
+		a, b = b, a
+	}
+	if a == b {
+		return true
+	}
+	if !strings.HasSuffix(a, "/"+b) {
+		return false
+	}
+	if !strings.Contains(b, "/") && len(amb[b]) > 1 {
+		return false
+	}
+	return true
+}
+
+// overlapStrict is overlap using samePathStrict.
+func overlapStrict(a, b []string, amb map[string]map[string]bool) bool {
+	for _, x := range a {
+		for _, y := range b {
+			if samePathStrict(x, y, amb) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // clashes: a piece being worked on now is on one of its files; it waits
 // for that one, not to clash with it when merged.
 func clashes(it storage.BurnItem, items []storage.BurnItem, busy map[string]bool) bool {
@@ -74,9 +128,15 @@ func related(b storage.BurnSession, it storage.BurnItem, items []storage.BurnIte
 	if len(mine) == 0 {
 		return nil
 	}
+	all := make([][]string, 0, len(items)+1)
+	all = append(all, mine)
+	for _, x := range items {
+		all = append(all, paths(x))
+	}
+	amb := basenameDirs(all...)
 	var out []string
 	for _, x := range slices.Backward(items) {
-		if x.ID == it.ID || hunting(x) || x.RunBranch != b.RunBranch || x.Status == "found" || !overlap(mine, paths(x)) {
+		if x.ID == it.ID || hunting(x) || x.RunBranch != b.RunBranch || x.Status == "found" || !overlapStrict(mine, paths(x), amb) {
 			continue
 		}
 		line := fmt.Sprintf("[%s] %s", x.Status, oneLine(x.Title, 120))

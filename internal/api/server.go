@@ -113,12 +113,13 @@ type server struct {
 	turnFollows sync.Map // "sid:turn" → stop: answers a tab follows on its one stream (ADR-127)
 
 	automationMu    sync.Mutex             // guards automationLocks
-	automationLocks map[string]*sync.Mutex // one project's automation create/update at a time (ADR-049 command dedupe)
+	automationLocks map[string]*sync.Mutex // one project's automation create/update/delete at a time (ADR-049 command dedupe)
 }
 
-// lockAutomations serializes create/update of a project's automations, so
-// the check-then-write of a bot's custom /command (unique per channel) is
-// never raced by two requests reading "free" before either writes.
+// lockAutomations serializes create/update/delete of a project's automations, so
+// the check-then-write of a bot's custom /command (unique per channel), and of
+// releaseBot's check-then-delete of a shared bot, is never raced by two requests
+// reading "free" before either writes.
 func (s *server) lockAutomations(projectID string) func() {
 	s.automationMu.Lock()
 	if s.automationLocks == nil {

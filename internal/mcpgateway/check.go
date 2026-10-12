@@ -260,11 +260,17 @@ func readReply(resp *http.Response, id int) (rpcMessage, error) {
 		if m, ok := flush(); ok {
 			return m, nil
 		}
+		if err := sc.Err(); err != nil {
+			if errors.Is(err, bufio.ErrTooLong) {
+				return rpcMessage{}, errors.New("sự kiện SSE của MCP vượt 8MB")
+			}
+			return rpcMessage{}, fmt.Errorf("đọc luồng SSE của MCP lỗi: %w", err)
+		}
 		return rpcMessage{}, errors.New("MCP không trả lời trong luồng SSE")
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return rpcMessage{}, errors.New("đọc phản hồi của MCP bị lỗi")
+		return rpcMessage{}, fmt.Errorf("đọc phản hồi của MCP bị lỗi: %w", err)
 	}
 	var one rpcMessage
 	if json.Unmarshal(raw, &one) == nil && (one.Result != nil || one.Error != nil) {

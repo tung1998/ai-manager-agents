@@ -95,7 +95,7 @@ async function skipAll() {
 }
 // Bỏ qua N mục: every item that can be let go (not a card to decide, not a
 // chat to read), let go at once
-const dismissable = computed(() => incidents.value.filter(x => !['approval', 'patch', 'unread'].includes(x.kind)))
+const dismissable = computed(() => incidents.value.filter(x => !['approval', 'patch', 'unread', 'stalled'].includes(x.kind)))
 const dismissingAll = ref(false)
 async function dismissAll() {
   const keys = dismissable.value.map(x => x.key)

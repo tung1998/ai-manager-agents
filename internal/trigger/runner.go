@@ -121,17 +121,14 @@ func (r *Runner) Tick(ctx context.Context, now time.Time) {
 	due, _ := r.store.Automations().Due(ctx, now)
 	for _, a := range due {
 		if end := a.Config.EndsAt; end != nil && !now.Before(*end) { // its stop time: it stops, as a Burn does (runs going on finish)
-			a.Enabled, a.NextRunAt = false, nil
-			a.DisabledCode, a.DisabledReason = "ended", "đã tới giờ dừng "+end.In(time.Local).Format("15:04 02/01/2006")
-			_ = r.store.Automations().Update(ctx, a)
+			_ = r.store.Automations().Disable(ctx, a.ID, "ended", "đã tới giờ dừng "+end.In(time.Local).Format("15:04 02/01/2006"), nil)
 			continue
 		}
 		next, err := NextRun(a.Config, now) // from now: many missed runs are caught up once
 		if err != nil {
 			continue
 		}
-		a.NextRunAt = &next
-		_ = r.store.Automations().Update(ctx, a)
+		_ = r.store.Automations().SetNextRun(ctx, a.ID, &next)
 		if n, _ := r.store.Jobs().Active(ctx, "automation", a.ID); n >= a.Parallel() {
 			r.recordSkippedBusy(ctx, a) // leave a trace: this tick was dropped, not silently lost
 			continue                    // as many runs as it may have are still going: none more, none stopped (ADR-082)
@@ -411,8 +408,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 			local := now.In(loc)
 			day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 			if spent, _ := r.store.Jobs().CostSince(ctx, "automation", a.ID, day); spent >= a.Limits.DailyCostUSD {
-				a.Enabled, a.DisabledCode, a.DisabledReason = false, "daily_cost", "chạm trần chi phí trong ngày"
-				_ = r.store.Automations().Update(ctx, a)
+				_ = r.store.Automations().Disable(ctx, a.ID, "daily_cost", "chạm trần chi phí trong ngày", a.NextRunAt)
 				finish("skipped", "budget", "chạm trần chi phí trong ngày")
 				return
 			}

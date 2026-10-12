@@ -309,6 +309,65 @@ func TestReviewErrAttemptDoesNotCountAQuotaError(t *testing.T) {
 	}
 }
 
+// finish must not gate on the Burn's own agent's quota when "result" is not
+// a configured review stage: an unconfigured stage is never reviewed, so no
+// agent's quota should hold the piece back from being finished at once.
+func TestFinishIgnoresQuotaWhenResultStageNotConfigured(t *testing.T) {
+	f := newReviewErrFixture(t)
+	ctx := context.Background()
+	b, _ := f.st.Burn().SessionByID(ctx, f.it.SessionID)
+	prov, err := f.st.Providers().Create(ctx, storage.Provider{Name: "p", Kind: storage.ProviderClaudeCLI, IsDefault: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag, err := f.st.Agents().Create(ctx, storage.Agent{ProjectID: b.ProjectID, Name: "burn-agent", ProviderID: prov.ID, ModelTier: "fast", Instructions: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.AgentID = ag.ID
+	// a review profile that configures "plan" but not "result": reviewer()
+	// still looks up the "result" entry, finds ok=false, but (the bug) backfills
+	// its empty AgentID with b.AgentID before returning — so finish() must be
+	// the one to ignore it, not reviewer() leaving AgentID blank.
+	prof, err := f.st.Burn().SaveReviewProfile(ctx, storage.BurnReviewProfile{ProjectID: b.ProjectID, Name: "r", Stages: map[string]storage.BurnReviewStage{"plan": {AgentID: ag.ID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.ReviewProfileID = prof.ID
+	b, err = f.st.Burn().SaveSession(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lim := chat.Limits{Status: "rejected", Windows: map[string]chat.LimitWindow{
+		"five_hour": {Utilization: 1, ResetsAt: time.Now().Add(time.Hour)},
+	}}
+	if err := f.st.Settings().Set(ctx, chat.LimitsKey(prov.ID), lim); err != nil {
+		t.Fatal(err)
+	}
+	it := f.it
+	it.Status = "review"
+	if err := f.st.Burn().UpdateItemFrom(ctx, it, "queued"); err != nil {
+		t.Fatal(err)
+	}
+	if failed := f.s.finish(ctx, b, it); failed {
+		t.Fatal("finish() = failed, want it to finish at once: \"result\" is not a configured review stage, so the Burn's own agent's quota must not gate it")
+	}
+	got, err := f.st.Burn().Item(ctx, it.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// review() agreed at once (stage not configured) and finish() went on to
+	// deliver, which fails here only because the fixture's item has no real
+	// worktree to merge — proof review ran instead of staying gated on quota
+	// in "review".
+	if got.Status == "review" {
+		t.Fatalf("item status = %q, want it to have left \"review\": the quota check must not have gated an unconfigured stage", got.Status)
+	}
+	if !strings.Contains(got.Summary, "không có worktree") {
+		t.Fatalf("item summary = %q, want it to show deliver ran (no worktree), proving review() was not skipped by a quota wait", got.Summary)
+	}
+}
+
 // A workflow reviewer's role agent out of quota stalls every piece: the Burn
 // waits for its reset instead of asking again and again (ADR-124).
 func TestWaitLimitCountsTheReviewersAgents(t *testing.T) {

@@ -766,6 +766,7 @@ func (s *Service) run(ctx context.Context, conversationID, text string) (turnRes
 // work runs one piece in its own worktree; reported done, it is merged into
 // the run (ADR-123).
 func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.BurnItem) (failed bool) {
+	from := it.Status // read before it moves to "doing": the person may skip it meanwhile, and theirs wins
 	again := it.Status == "paused" || it.Status == "doing" || it.Worktree != "" // a retry goes on from what is there
 	tree := "burn-" + it.ID
 	it.Status, it.Attempts = "doing", it.Attempts+1
@@ -781,18 +782,24 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	}
 	if perr != nil {
 		it.Status, it.Summary = "failed", "không tạo được worktree: "+perr.Error()
-		_ = s.store.Burn().UpdateItem(ctx, it)
+		if s.store.Burn().UpdateItemFrom(ctx, it, from) != nil {
+			return false // the person moved it meanwhile: theirs wins
+		}
 		s.sayItem(ctx, b, it)
 		return false
 	}
 	// its own chat (ADR-116): what other pieces did does not crowd its context
 	if perr = s.ensureWorkConversation(ctx, b, &it); perr != nil {
 		it.Status, it.Summary = s.failedOrAgain(it, "không tạo được chat làm việc: "+perr.Error())
-		_ = s.store.Burn().UpdateItem(ctx, it)
+		if s.store.Burn().UpdateItemFrom(ctx, it, from) != nil {
+			return false
+		}
 		s.sayItem(ctx, b, it)
 		return false
 	}
-	_ = s.store.Burn().UpdateItem(ctx, it)
+	if s.store.Burn().UpdateItemFrom(ctx, it, from) != nil {
+		return false // skipped (or otherwise moved) while its worktree/chat were set up: do not start the agent
+	}
 	// held back for its review (ADR-112): no diff until the reviewer agrees
 	held := s.reviews(ctx, b, "result")
 	prompt := workPrompt(b, it, again && !fresh, held, fresh)
@@ -829,6 +836,7 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	}
 	cur.Subagents += res.subagents
 	cur.CostUSD += res.cost
+	fromCur := cur.Status // read before checked()'s build/test (which can take a while): the person may skip it meanwhile, and theirs wins
 	switch {
 	case ctx.Err() != nil: // stopped: it waits
 		if cur.Status == "doing" {
@@ -852,11 +860,16 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	case cur.Status == "done" && held: // review turned on meanwhile
 		cur.Status = "review"
 	case cur.Status == "done":
+		if latest, lerr := s.store.Burn().Item(context.WithoutCancel(ctx), cur.ID); lerr != nil || latest.Status != fromCur {
+			return false // skipped (or otherwise moved) while checked() ran: theirs wins, no merge
+		}
 		s.deliver(context.WithoutCancel(ctx), b, &cur)
 	case cur.Status == "doing": // it said nothing of how it went
 		cur.Status, cur.Summary = s.failedOrAgain(cur, "agent không báo kết quả (burn_done/burn_fail)")
 	}
-	_ = s.store.Burn().UpdateItem(context.WithoutCancel(ctx), cur)
+	if s.store.Burn().UpdateItemFrom(context.WithoutCancel(ctx), cur, fromCur) != nil {
+		return failed // the person moved it meanwhile (e.g. skip): theirs wins, don't re-announce or re-watch
+	}
 	if ctx.Err() == nil {
 		s.sayItem(ctx, b, cur)
 		if cur.Status == "failed" {

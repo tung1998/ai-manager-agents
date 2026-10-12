@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -36,5 +37,35 @@ func TestChannelPrune(t *testing.T) {
 	var rule string
 	if ok, _ := st.Settings().Get(ctx, "channel_rule/"+ch.ID+"/42/1", &rule); ok {
 		t.Fatal("an old reply rule stayed")
+	}
+}
+
+// Two Get-mutate-Update calls starting from the same row must not let the
+// second silently clobber the first's field (lost update): Update is CAS'd
+// on updated_at, so the second call gets ErrConflict instead.
+func TestChannelUpdateConflict(t *testing.T) {
+	ctx := context.Background()
+	st, p := openStore(t)
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: p.ID, Kind: "discord", Name: "Bot", Enabled: true, TokenEnc: "t"})
+
+	a, _ := st.Channels().Get(ctx, ch.ID)
+	b, _ := st.Channels().Get(ctx, ch.ID)
+
+	a.Enabled = false
+	if err := st.Channels().Update(ctx, a); err != nil {
+		t.Fatalf("first update: %v", err)
+	}
+
+	b.Header = "hi"
+	if err := st.Channels().Update(ctx, b); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("second update from the same stale row: got %v, want ErrConflict", err)
+	}
+
+	got, _ := st.Channels().Get(ctx, ch.ID)
+	if got.Enabled {
+		t.Fatal("the first update's field was lost")
+	}
+	if got.Header == "hi" {
+		t.Fatal("the conflicting update's field was applied despite ErrConflict")
 	}
 }

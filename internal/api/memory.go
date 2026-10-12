@@ -156,7 +156,7 @@ func (s *server) editMemory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Một ghi nhớ tối đa %d ký tự.", memory.MaxNote))
 		return
 	}
-	next := storage.Memory{ID: old.ID, Text: text, Topic: old.Topic, Summary: old.Summary}
+	next := storage.Memory{ID: old.ID, Text: text, Topic: old.Topic, Summary: old.Summary, UpdatedAt: old.UpdatedAt}
 	if in.Topic != nil {
 		next.Topic = *in.Topic
 	}
@@ -165,6 +165,10 @@ func (s *server) editMemory(w http.ResponseWriter, r *http.Request) {
 	}
 	next.Topic, next.Summary = memory.Clean(next.Topic, next.Summary)
 	if err := s.cfg.Store.Memories().Update(r.Context(), next); err != nil {
+		if errors.Is(err, storage.ErrConflict) {
+			writeSaveConflict(w)
+			return
+		}
 		s.writeDomainError(w, r, err)
 		return
 	}

@@ -3,8 +3,10 @@ package channels
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
 
@@ -27,14 +29,26 @@ func (m *Manager) stopChat(ctx context.Context, key string) (int, []string) {
 		if err != nil {
 			continue
 		}
-		switch j.Status {
-		case "pending": // not started: it never runs, so nothing answers it; Reply frees its place
-			if _, err := m.store.Jobs().Finish(ctx, id, "cancelled", "cancelled", "dừng từ bot", time.Now().UTC()); err != nil {
+		if j.Status == "pending" { // not started: it never runs, so nothing answers it; Reply frees its place
+			nj, err := m.store.Jobs().FinishIfPending(ctx, id, "cancelled", "cancelled", "dừng từ bot", time.Now().UTC())
+			if err != nil {
+				if !errors.Is(err, storage.ErrConflict) {
+					continue
+				}
+				// claimed between Get and the write: it is now actually running,
+				// fall through to the running case so it gets stopped, not
+				// marked cancelled while it keeps executing.
+				if cur, gerr := m.store.Jobs().Get(ctx, id); gerr == nil {
+					j = cur
+				}
+			} else {
+				m.setStopped(id, true)
+				m.Reply(ctx, nj, "", nil, true)
+				n++
 				continue
 			}
-			m.setStopped(id, true)
-			m.Reply(ctx, j, "", nil, true)
-			n++
+		}
+		switch j.Status {
 		case "running":
 			var p trigger.ChannelPayload
 			if json.Unmarshal([]byte(j.Payload), &p) != nil || p.ConversationID == "" || m.engine == nil {

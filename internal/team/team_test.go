@@ -54,6 +54,43 @@ func TestPacksAreValid(t *testing.T) {
 	}
 }
 
+// A SaveAgent loses its storage-level CAS (internal/storage/sqlite agentRepo
+// UpdateIf) when another write lands between the caller's Get and this
+// Save's own Update: the second Save must see ErrConflict instead of
+// silently overwriting the first Save's change with its own stale copy.
+func TestSaveAgentConcurrentEditConflicts(t *testing.T) {
+	ctx := context.Background()
+	st, svc, _, r := setup(t)
+	solo, err := team.PackByKey("solo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ApplyPack(ctx, r.ID, solo, false); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := st.Agents().List(ctx, r.ID)
+	base := agents[0]
+
+	copy1, copy2 := base, base
+	copy1.Instructions = "from copy1"
+	if _, err := svc.SaveAgent(ctx, copy1, base); err != nil {
+		t.Fatal(err)
+	}
+
+	copy2.Permissions.ReadOnly = !copy2.Permissions.ReadOnly
+	if _, err := svc.SaveAgent(ctx, copy2, base); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("stale concurrent save = %v, want ErrConflict", err)
+	}
+
+	got, err := st.Agents().Get(ctx, base.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Instructions != "from copy1" {
+		t.Fatalf("copy1's save was lost: Instructions = %q", got.Instructions)
+	}
+}
+
 func TestApplyPackSaveDeleteRestore(t *testing.T) {
 	ctx := context.Background()
 	st, svc, wf, r := setup(t)
@@ -77,11 +114,12 @@ func TestApplyPackSaveDeleteRestore(t *testing.T) {
 	}
 	planner := agents[0]
 	// a bad key is refused; the default moves on when it is deleted
-	if _, err := svc.SaveAgent(ctx, storage.Agent{ProjectID: r.ID, Key: "Bad Key", Name: "x", ModelTier: "fast"}); err == nil {
+	if _, err := svc.SaveAgent(ctx, storage.Agent{ProjectID: r.ID, Key: "Bad Key", Name: "x", ModelTier: "fast"}, storage.Agent{}); err == nil {
 		t.Fatal("bad key accepted")
 	}
+	old := planner
 	planner.Name = "Kế hoạch"
-	if _, err := svc.SaveAgent(ctx, planner); err != nil {
+	if _, err := svc.SaveAgent(ctx, planner, old); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.DeleteAgent(ctx, planner.ID); err != nil {
@@ -111,12 +149,69 @@ func TestApplyPackSaveDeleteRestore(t *testing.T) {
 	}
 	// the first agent of an empty project is its default
 	r2, _ := st.Repos().Create(ctx, storage.Repo{Name: "b", Path: "/b"})
-	a, err := svc.SaveAgent(ctx, storage.Agent{ProjectID: r2.ID, Key: "solo", Name: "Solo", ModelTier: "strong"})
+	a, err := svc.SaveAgent(ctx, storage.Agent{ProjectID: r2.ID, Key: "solo", Name: "Solo", ModelTier: "strong"}, storage.Agent{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r2, _ = st.Repos().Get(ctx, r2.ID); r2.DefaultAgentID != a.ID {
 		t.Fatalf("first agent not default: %q", r2.DefaultAgentID)
+	}
+}
+
+// raceStore wraps a storage.Store so its Agents().List call — the point
+// SaveAgent reaches right after it used to read the repo row, before
+// opening its transaction — triggers a rename landing on that same repo
+// row, simulating a concurrent updateRepo commit.
+type raceStore struct {
+	storage.Store
+	onAgentsList func()
+}
+
+func (s raceStore) Agents() storage.AgentRepo {
+	return raceAgentRepo{AgentRepo: s.Store.Agents(), onList: s.onAgentsList}
+}
+
+type raceAgentRepo struct {
+	storage.AgentRepo
+	onList func()
+}
+
+func (r raceAgentRepo) List(ctx context.Context, projectID string) ([]storage.Agent, error) {
+	agents, err := r.AgentRepo.List(ctx, projectID)
+	if r.onList != nil {
+		r.onList()
+	}
+	return agents, err
+}
+
+// SaveAgent's first-agent default-set must not clobber a rename that lands
+// on the repo row between its initial read and its write, the same race
+// UpdateInfo/SetDefaultAgent were split to avoid.
+func TestSaveAgentFirstDefaultDoesNotClobberConcurrentRename(t *testing.T) {
+	ctx := context.Background()
+	st, _, wf, r := setup(t)
+
+	rs := raceStore{Store: st, onAgentsList: func() {
+		if err := st.Repos().UpdateInfo(ctx, r.ID, "renamed-shop", "new description"); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	svc := team.NewService(rs, wf)
+
+	a, err := svc.SaveAgent(ctx, storage.Agent{ProjectID: r.ID, Key: "solo", Name: "Solo", ModelTier: "strong"}, storage.Agent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.Repos().Get(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "renamed-shop" || got.Description != "new description" {
+		t.Fatalf("rename clobbered by SaveAgent: %+v", got)
+	}
+	if got.DefaultAgentID != a.ID {
+		t.Fatalf("first agent not default: %q", got.DefaultAgentID)
 	}
 }
 
@@ -139,12 +234,13 @@ func TestMergeKeepsExistingAddsNew(t *testing.T) {
 
 	// hand-edit the existing agent, and add one the pack doesn't know about
 	existing := agents[0]
+	old := existing
 	existing.Instructions = "custom instructions"
 	existing.Permissions.ReadOnly = !existing.Permissions.ReadOnly
-	if _, err := svc.SaveAgent(ctx, existing); err != nil {
+	if _, err := svc.SaveAgent(ctx, existing, old); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.SaveAgent(ctx, storage.Agent{ProjectID: r.ID, Key: "custom", Name: "Custom", ModelTier: "fast"}); err != nil {
+	if _, err := svc.SaveAgent(ctx, storage.Agent{ProjectID: r.ID, Key: "custom", Name: "Custom", ModelTier: "fast"}, storage.Agent{}); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := st.Agents().List(ctx, r.ID)

@@ -145,17 +145,21 @@ func (s *server) setupMCP(r *http.Request, name string, agentIDs []string) Ready
 		}
 		if len(m.Agents) > 0 {
 			before := m
-			for _, id := range agentIDs {
-				if !slices.Contains(m.Agents, id) {
-					m.Agents = append(m.Agents, id)
+			added := false
+			updated, err := s.updateMCPServerCAS(ctx, m.ID, func(x *storage.MCPServer) {
+				for _, id := range agentIDs {
+					if !slices.Contains(x.Agents, id) {
+						x.Agents = append(x.Agents, id)
+						added = true
+					}
 				}
+			})
+			if err != nil {
+				it.Status, it.Detail = "error", err.Error()
+				return it
 			}
-			if len(m.Agents) != len(before.Agents) {
-				if err := s.cfg.Store.MCPServers().Update(ctx, m); err != nil {
-					it.Status, it.Detail = "error", err.Error()
-					return it
-				}
-				s.audit(r, audit.Change{Action: "mcp_server.update", ResourceID: m.ID, Before: s.auditMCP(before), After: s.auditMCP(m)})
+			if added {
+				s.audit(r, audit.Change{Action: "mcp_server.update", ResourceID: m.ID, Before: s.auditMCP(before), After: s.auditMCP(updated)})
 			}
 		}
 		return mcpReady(it, m)

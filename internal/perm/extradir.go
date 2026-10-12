@@ -50,22 +50,22 @@ func CheckExtraDir(projectPath, dir string) error {
 		return fmt.Errorf("không được dùng thư mục gốc (/): %s", dir)
 	}
 	if home != "" {
-		if real == home || isAncestor(real, home) {
+		if isAncestorOrSame(real, home) {
 			return fmt.Errorf("không được dùng thư mục home của người dùng hay thư mục cha của nó: %s", dir)
 		}
 		for _, sub := range sensitiveHomeDirs {
 			sensitive := filepath.Join(home, sub)
-			if real == sensitive || isAncestor(sensitive, real) {
+			if isAncestorOrSame(sensitive, real) {
 				return fmt.Errorf("không được dùng thư mục chứa khóa/thông tin đăng nhập (~/%s): %s", sub, dir)
 			}
 		}
-		if officeHome := filepath.Join(home, agentOfficeHome); real == officeHome || isAncestor(officeHome, real) {
+		if officeHome := filepath.Join(home, agentOfficeHome); isAncestorOrSame(officeHome, real) {
 			return fmt.Errorf("không được dùng thư mục dữ liệu office (~/%s): %s", agentOfficeHome, dir)
 		}
 	}
 	if projectPath != "" {
 		if realProject, err := filepath.EvalSymlinks(filepath.Clean(projectPath)); err == nil {
-			if real == realProject || isAncestor(real, realProject) {
+			if isAncestorOrSame(real, realProject) {
 				return fmt.Errorf("không được dùng thư mục project hay thư mục cha của project: %s", dir)
 			}
 		}
@@ -80,10 +80,12 @@ func CheckExtraDir(projectPath, dir string) error {
 
 // hasOfficeDirComponent reports whether any path component is named
 // ".office" — a project's own or another project's (ADR-074): both hold
-// office's data and are never a safe extra read dir.
+// office's data and are never a safe extra read dir. Compared case-insensitively
+// since the component is resolved from a case-insensitive filesystem on macOS,
+// where "~/.Office" names the same real folder as "~/.office".
 func hasOfficeDirComponent(path string) bool {
 	for p := filepath.Clean(path); ; {
-		if filepath.Base(p) == ".office" {
+		if strings.EqualFold(filepath.Base(p), ".office") {
 			return true
 		}
 		parent := filepath.Dir(p)
@@ -112,8 +114,27 @@ func FilterValidExtraDirs(projectPath string, dirs []string) []string {
 	return out
 }
 
-// isAncestor reports whether child is dir itself or lies anywhere under it.
-func isAncestor(dir, child string) bool {
-	rel, err := filepath.Rel(dir, child)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+// isAncestorOrSame reports whether child is dir itself or lies anywhere under
+// it. Compares by inode (os.SameFile) rather than string equality, so a
+// case-variant or Unicode-normalization-variant path that resolves to the same
+// directory on a case-insensitive filesystem (macOS APFS) is still caught —
+// EvalSymlinks does not canonicalize case or Unicode form. Falls back to a
+// plain path-prefix check when dir doesn't exist (e.g. a sensitive home dir
+// the user never created).
+func isAncestorOrSame(dir, child string) bool {
+	dirFi, err := os.Stat(dir)
+	if err != nil {
+		rel, err := filepath.Rel(dir, child)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+	}
+	for p := filepath.Clean(child); ; {
+		if fi, err := os.Stat(p); err == nil && os.SameFile(dirFi, fi) {
+			return true
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return false
+		}
+		p = parent
+	}
 }
