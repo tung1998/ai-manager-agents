@@ -151,6 +151,9 @@ func (w Workspace) Search(pattern, glob string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if out, ok := searchRipgrep(root, pattern, glob); ok {
+		return out, nil
+	}
 	var b strings.Builder
 	hits, files := 0, 0
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
