@@ -331,7 +331,7 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
     <li><b>Copy link</b> to any message. Paste a chat link into another chat and the agent reads it.</li>
     <li>Agents can search past chats (<code>search_history</code>) when you say "like last time".</li>
   </ul>
-  <figure><img src="images/05-chat-answer.png" alt="Chat answer" loading="lazy"><figcaption>The lead investigates a failed build, reads process logs and delegates the fix.</figcaption></figure>
+  <figure><img src="images/05-chat-answer.png" alt="Chat answer" loading="lazy"><figcaption>A question sent from Discord (its sender line on top); the lead investigates a failed build, reads process logs and delegates the fix.</figcaption></figure>
   <div class="row">
     <figure><img src="images/34-dark-chat.png" alt="Dark mode" loading="lazy"><figcaption>Dark mode (Account → Appearance).</figcaption></figure>
     <figure class="phone"><img src="images/36-mobile-chat.png" alt="Mobile" loading="lazy"><figcaption>On a phone.</figcaption></figure>
@@ -426,7 +426,8 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
   <ol class="steps">
     <li>Create a bot in Discord (Developer Portal) or Telegram (@BotFather) and paste its token.</li>
     <li>Add <b>Admins</b> and <b>Users</b> by their chat IDs. Only they can talk to it.</li>
-    <li>Talk to it: "@bot fix the failing test". Discord threads keep each task separate. The bot shows when it's working, posts images and files, and sends approval cards with buttons.</li>
+    <li>Talk to it: "@bot fix the failing test", or send it a direct message (no tag needed). Discord threads keep each task separate. The bot shows when it's working, posts images and files, and sends approval cards with buttons.</li>
+    <li>In the office chat, a message from a bot has a sender line above it: display name, @username, direct message or server/group, and a link to the original. An id linked to an account (see <a href="#users">Users</a>) shows that account's name.</li>
     <li>Add commands: each command is its own automation (script or chat).</li>
   </ol>
 </section>
@@ -521,12 +522,13 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <section id="users">
   <h2><span class="num">23</span>Users &amp; account</h2>
   <div class="row">
-    <figure><img src="images/28-users.png" alt="Users" loading="lazy"><figcaption>Administration → Accounts: create, reset password, disable (ends sessions).</figcaption></figure>
+    <figure><img src="images/28-users.png" alt="Users" loading="lazy"><figcaption>Administration → Accounts: create, reset password, link Discord/Telegram, disable (ends sessions).</figcaption></figure>
     <figure><img src="images/33-account.png" alt="Account" loading="lazy"><figcaption>Account: name, password, language, theme, personal API tokens.</figcaption></figure>
   </div>
   <ul>
     <li><b>Admin</b>: everything. <b>Member</b>: chat and use projects, delete only their own chats.</li>
     <li><b>Personal tokens</b> let other tools reach the office's MCP endpoint with your role's rights. They expire after 30/90/365 days, or never.</li>
+    <li><b>Link Discord / Telegram</b> (an account's <b>⋯</b> menu): enter the numeric user ID. Messages to a bot from that id show the account's name, with "(you)" when it's yours. One id per account; it identifies only, it grants no bot rights.</li>
   </ul>
 </section>
 

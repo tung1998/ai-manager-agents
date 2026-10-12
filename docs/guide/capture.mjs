@@ -290,6 +290,10 @@ diff --git a/dashboard/app/layouts/default.vue b/dashboard/app/layouts/default.v
       'Kế hoạch để cả nhóm làm song song:\n\n1. **T2–T3** · gộp dashboard vào file chạy (backend)\n2. **T3–T4** · quy trình phát hành + checksum (devops)\n3. **T4–T5** · hướng dẫn sử dụng có ảnh (tài liệu)\n4. **T6** · chạy thử `office doctor` trên 3 máy (QA)\n\nRủi ro: gộp dashboard làm file chạy nặng gấp đôi; nên nén gzip.'), 600),
     `INSERT INTO conversation_tags (conversation_id, tag, created_at) VALUES ('cnv_demo_theme', 'ui', ${q(ts(12))}), ('cnv_demo_build', 'bug', ${q(ts(95))}), ('cnv_demo_plan', ${q(T('planning', 'kế-hoạch'))}, ${q(ts(600))})`
   ])
+  // the build question came from the Discord bot, from the demo admin's own linked id (05-chat-answer, 28-users)
+  await soft('discord id', () => api('PATCH', `/api/users/${me.id}`, { discord_id: '402881937615273984' }))
+  const sender = { kind: 'discord', id: '402881937615273984', username: 'alex_dev', name: 'Alex N.', private: false, link: 'https://discord.com/channels/1/2/3', account_id: me.id, account: user }
+  sql([`UPDATE messages SET author = 'discord:alex_dev', sender = ${q(JSON.stringify(sender))} WHERE id = 'msg_demo_b1'`])
   const runs = []
   const jobs = []
   for (let d = 0; d < 14; d++) {

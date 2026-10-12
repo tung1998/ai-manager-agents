@@ -284,6 +284,7 @@ Index `(day, agent_id)`, `(incident_id)`. View `cost_daily` group theo `day, age
 | role | text | `admin` \| `member` |
 | password_hash | text | argon2id encoded |
 | disabled | bool | |
+| discord_id, telegram_id | text | user ID trên nền tảng bot ('' = chưa gắn); một ID một tài khoản. Tin gửi bot từ ID đó hiện tên tài khoản (`messages.sender`) |
 | created_at, updated_at, last_login_at | ts | |
 
 ### `sessions`

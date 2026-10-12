@@ -978,7 +978,7 @@ onBeforeUnmount(() => {
                 <span class="font-medium text-(--ui-text)">{{ senderOf(m)!.name || senderOf(m)!.username || senderOf(m)!.id }}</span>
                 <span v-if="senderOf(m)!.name && senderOf(m)!.username">@{{ senderOf(m)!.username }}</span>
               </template>
-              <span v-if="senderOf(m)!.private !== undefined">· {{ senderOf(m)!.private ? t('chat.senderDm') : t(`chat.senderIn.${senderOf(m)!.kind}`) }}</span>
+              <span v-if="m.sender">· {{ senderOf(m)!.private ? t('chat.senderDm') : t(`chat.senderIn.${senderOf(m)!.kind}`) }}</span>
               <span>· {{ when(m.created_at) }}</span>
               <a v-if="senderOf(m)!.link" :href="senderOf(m)!.link" target="_blank" rel="noopener" class="hover:text-(--ui-text)" :aria-label="t('chat.senderOpen')" :title="t('chat.senderOpen')"><UIcon name="i-lucide-external-link" class="size-3.5" /></a>
             </div>

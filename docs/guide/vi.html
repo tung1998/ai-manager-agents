@@ -332,7 +332,7 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
     <li><b>Chép link</b> tới bất kỳ tin nhắn nào. Dán link chat vào chat khác thì agent đọc được.</li>
     <li>Agent tìm được chat cũ (<code>search_history</code>) khi bạn nói "như lần trước".</li>
   </ul>
-  <figure><img src="images/vi/05-chat-answer.png" alt="Câu trả lời trong chat" loading="lazy"><figcaption>Trưởng nhóm điều tra build lỗi, đọc log tiến trình và giao việc sửa.</figcaption></figure>
+  <figure><img src="images/vi/05-chat-answer.png" alt="Câu trả lời trong chat" loading="lazy"><figcaption>Câu hỏi gửi từ Discord (dòng người gửi phía trên); trưởng nhóm điều tra build lỗi, đọc log tiến trình và giao việc sửa.</figcaption></figure>
   <div class="row">
     <figure><img src="images/vi/34-dark-chat.png" alt="Giao diện tối" loading="lazy"><figcaption>Giao diện tối (Tài khoản → Giao diện).</figcaption></figure>
     <figure class="phone"><img src="images/vi/36-mobile-chat.png" alt="Trên điện thoại" loading="lazy"><figcaption>Trên điện thoại.</figcaption></figure>
@@ -427,7 +427,8 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
   <ol class="steps">
     <li>Tạo bot trên Discord (Developer Portal) hoặc Telegram (@BotFather) rồi dán token.</li>
     <li>Thêm <b>Admin</b> và <b>Người dùng</b> bằng ID chat. Chỉ họ nói chuyện được với bot.</li>
-    <li>Nhắn cho bot: "@bot sửa test đang lỗi". Thread Discord giữ mỗi việc riêng một luồng. Bot báo khi đang làm, gửi ảnh và file, và gửi thẻ duyệt có nút bấm.</li>
+    <li>Nhắn cho bot: "@bot sửa test đang lỗi", hoặc nhắn riêng (DM) không cần tag. Thread Discord giữ mỗi việc riêng một luồng. Bot báo khi đang làm, gửi ảnh và file, và gửi thẻ duyệt có nút bấm.</li>
+    <li>Trong chat của office, tin từ bot có một dòng người gửi phía trên: tên hiển thị, @username, tin riêng hay trên server/nhóm, link về tin gốc. ID đã gắn với tài khoản (mục <a href="#users">Tài khoản</a>) thì hiện tên tài khoản.</li>
     <li>Thêm lệnh: mỗi lệnh là một tự động hóa riêng (script hoặc chat).</li>
   </ol>
 </section>
@@ -522,12 +523,13 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <section id="users">
   <h2><span class="num">23</span>Tài khoản</h2>
   <div class="row">
-    <figure><img src="images/vi/28-users.png" alt="Danh sách tài khoản" loading="lazy"><figcaption>Quản trị → Tài khoản: tạo, đặt lại mật khẩu, vô hiệu hóa (thu hồi phiên đăng nhập).</figcaption></figure>
+    <figure><img src="images/vi/28-users.png" alt="Danh sách tài khoản" loading="lazy"><figcaption>Quản trị → Tài khoản: tạo, đặt lại mật khẩu, gắn Discord/Telegram, vô hiệu hóa (thu hồi phiên đăng nhập).</figcaption></figure>
     <figure><img src="images/vi/33-account.png" alt="Tài khoản của bạn" loading="lazy"><figcaption>Tài khoản của bạn: tên, mật khẩu, ngôn ngữ, giao diện, token cá nhân.</figcaption></figure>
   </div>
   <ul>
     <li><b>Admin</b>: làm được mọi thứ. <b>Member</b>: chat và dùng project, chỉ xóa được chat của mình.</li>
     <li><b>Token cá nhân</b> cho công cụ khác gọi cổng MCP của office với quyền theo vai trò của bạn. Hết hạn sau 30/90/365 ngày, hoặc không hết hạn.</li>
+    <li><b>Gắn Discord / Telegram</b> (menu <b>⋯</b> của tài khoản): nhập User ID dạng số. Tin gửi bot từ ID đó hiện tên tài khoản, kèm "(bạn)" nếu là bạn. Mỗi ID một tài khoản; chỉ để nhận diện, không thêm quyền với bot.</li>
   </ul>
 </section>
 

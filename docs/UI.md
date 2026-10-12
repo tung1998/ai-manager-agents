@@ -26,7 +26,7 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 | `/watch` | Theo dõi | Nhiều khung chat của các project cạnh nhau, chia dọc/ngang, lưu trong trình duyệt (không đồng bộ máy khác) | Thêm/xoá khung |
 | `/assistant` | Trợ lý office | Chat với trợ lý office (project ảo, không gắn thư mục, dùng để quản lý chính office) | |
 | `/account` | Tài khoản | Đổi tên/mật khẩu, ngôn ngữ, giao diện sáng/tối, cài CLI | |
-| `/admin/users` (admin) | Người dùng | Danh sách tài khoản, tạo, đặt lại mật khẩu, bật/tắt (tắt thu hồi session) | |
+| `/admin/users` (admin) | Người dùng | Danh sách tài khoản, tạo, đặt lại mật khẩu, gắn Discord/Telegram ID (tin gửi bot từ ID đó hiện tên tài khoản; chỉ nhận diện, không cấp quyền), bật/tắt (tắt thu hồi session) | |
 | `/admin/audit` (admin) | Nhật ký thao tác | Lịch sử thay đổi cấu hình/quyền toàn máy | |
 | `/admin/transfer` (admin) | Chuyển máy | Export/import toàn bộ cấu hình (backup sang máy khác) | |
 | `/admin/update` (admin) | Cập nhật office | Build lại từ mã nguồn, xem log trực tiếp, tự quay về bản cũ nếu lỗi | Cập nhật, kiểm tra có bản mới |
