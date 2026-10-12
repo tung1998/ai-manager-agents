@@ -25,7 +25,7 @@ if (!revs.length) {
   process.exit(1)
 }
 
-const sh = (cwd, args, input) => execFileSync('git', args, { cwd, input, stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'] }).toString().trim()
+const sh = (cwd, args, input) => execFileSync('git', args, { cwd, input, stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'], maxBuffer: 1 << 30 }).toString().trim()
 const here = dirname(fileURLToPath(import.meta.url))
 const PRIV = dirname(sh(here, ['rev-parse', '--path-format=absolute', '--git-common-dir']))
 const PUB = resolve(to ?? join(dirname(PRIV), 'agent-office'))
