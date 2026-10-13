@@ -15,15 +15,24 @@ const { data: wfData } = useLiveFetch<{ workflows: ProjectWorkflow[] }>(() => `/
 const profiles = computed(() => data.value?.profiles ?? [])
 useHead({ title: () => t('burn.review.profiles') })
 
-const agentItems = computed(() => [{ value: '__burn', label: t('burn.review.agentSame') },
-  ...(agentsData.value?.agents ?? []).map(a => ({ value: a.id, label: a.enabled === false ? `${a.name} (${t('burn.agentOffTag')})` : a.name }))])
-const workflowItems = computed(() => [{ value: '__none', label: t('burn.review.workflowNone') },
-  ...(wfData.value?.workflows ?? []).filter(w => w.enabled && !w.error && w.callable !== 'sub').map(w => ({ value: w.key, label: `#${w.key} · ${w.name}` }))])
+// one pick per stage: an agent reviews itself, or a workflow reviews
+// ('a:<id>' / 'w:<key>'; 'a:' is the Burn's own agent)
+const reviewerItems = computed(() => {
+  const agents = [{ value: 'a:', label: t('burn.review.agentSame'), icon: 'i-lucide-bot' },
+    ...(agentsData.value?.agents ?? []).map(a => ({ value: `a:${a.id}`, label: a.enabled === false ? `${a.name} (${t('burn.agentOffTag')})` : a.name, icon: 'i-lucide-bot' }))]
+  const wfs = (wfData.value?.workflows ?? []).filter(w => w.enabled && !w.error && w.callable !== 'sub')
+    .map(w => ({ value: `w:${w.key}`, label: `#${w.key} · ${w.name}`, icon: 'i-lucide-workflow' }))
+  const groups: { type?: 'label', value?: string, label: string, icon?: string }[][] = [[{ type: 'label', label: t('burn.review.groupAgents') }, ...agents]]
+  if (wfs.length) groups.push([{ type: 'label', label: t('burn.review.groupWorkflows') }, ...wfs])
+  return groups
+})
+const reviewerIcon = (v: string) => v.startsWith('w:') ? 'i-lucide-workflow' : 'i-lucide-bot'
 
 // the profile being edited ('' = a new one)
 const selected = ref<string | null>(null)
-interface StageForm { on: boolean, agent: string, workflow: string }
-const blank = (): StageForm => ({ on: false, agent: '__burn', workflow: '__none' })
+// agent is kept for a workflow pick: the agent that runs it, as loaded
+interface StageForm { on: boolean, who: string, agent: string }
+const blank = (): StageForm => ({ on: false, who: 'a:', agent: '' })
 const form = reactive({ name: '', stages: { issue: blank(), plan: blank(), result: blank() } as Record<ReviewStage, StageForm> })
 let loadGen = 0
 function load(p?: BurnReviewProfile) {
@@ -32,7 +41,7 @@ function load(p?: BurnReviewProfile) {
   form.name = p?.name ?? ''
   for (const k of reviewStageKeys) {
     const st = p?.stages[k]
-    form.stages[k] = { on: !!st, agent: st?.agent_id || '__burn', workflow: st?.workflow || '__none' }
+    form.stages[k] = { on: !!st, who: st?.workflow ? `w:${st.workflow}` : `a:${st?.agent_id ?? ''}`, agent: st?.agent_id ?? '' }
   }
 }
 watch(data, (d) => { if (d && selected.value === null) load(d.profiles[0]) }, { immediate: true }) // the first one, once loaded
@@ -44,7 +53,9 @@ async function save() {
   const stages: Partial<Record<ReviewStage, BurnReviewStage>> = {}
   for (const k of reviewStageKeys) {
     const st = form.stages[k]
-    if (st.on) stages[k] = { agent_id: st.agent === '__burn' ? '' : st.agent, workflow: st.workflow === '__none' ? '' : st.workflow }
+    if (!st.on) continue
+    const wf = st.who.startsWith('w:')
+    stages[k] = { agent_id: wf ? st.agent : st.who.slice(2), workflow: wf ? st.who.slice(2) : '' }
   }
   try {
     const body = { name: form.name, stages }
@@ -105,13 +116,12 @@ async function remove() {
         </UFormField>
         <div v-for="k in reviewStageKeys" :key="k" class="space-y-3 rounded-lg border border-(--ui-border) p-3">
           <USwitch v-model="form.stages[k].on" :label="t('burn.review.stageTitle', { stage: t(`burn.review.${k}`) })" :description="t(`burn.review.${k}Help`)" />
-          <div v-if="form.stages[k].on" class="grid gap-3 sm:grid-cols-2">
-            <UFormField :label="t('burn.review.agent')">
-              <USelect v-model="form.stages[k].agent" :items="agentItems" class="w-full" />
-            </UFormField>
-            <UFormField :label="t('burn.review.workflow')" :help="t('burn.review.workflowHelp')">
-              <USelect v-model="form.stages[k].workflow" :items="workflowItems" class="w-full" />
-            </UFormField>
+          <div v-if="form.stages[k].on" class="space-y-1.5">
+            <p class="flex items-center gap-1.5 text-sm font-medium">
+              {{ t('burn.review.reviewer') }}
+              <UTooltip :text="t('burn.review.reviewerHelp')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-dimmed)" /></UTooltip>
+            </p>
+            <USelect v-model="form.stages[k].who" :items="reviewerItems" :icon="reviewerIcon(form.stages[k].who)" class="w-full sm:max-w-md" :aria-label="t('burn.review.reviewer')" />
           </div>
         </div>
         <div class="flex justify-end gap-2">
