@@ -5,7 +5,7 @@ interface Bot { id: string, name: string, kind: 'discord' | 'telegram', project:
 interface ErrorRule { streak: number, count: number, window: number }
 const { t } = useLang()
 const toast = useToast()
-const { data, refresh } = useLiveFetch<{ channel_id: string, chat_id: string, threshold: number, errors: ErrorRule, bots: Bot[] }>('/api/limit-alert', { lazy: true })
+const { data, refresh } = useLiveFetch<{ channel_id: string, chat_id: string, threshold: number, errors?: ErrorRule, bots: Bot[] }>('/api/limit-alert', { lazy: true })
 const form = reactive({ channel_id: '', chat_id: '', threshold: 80, errors: { streak: 3, count: 5, window: 30 } as ErrorRule })
 const { stale, reset: resync } = useDraft(data, form, d => Object.assign(form, { channel_id: d.channel_id, chat_id: d.chat_id, threshold: d.threshold, errors: { streak: 3, count: 5, window: 30, ...d.errors } })) // never over what is being typed
 const NONE = '__none'
