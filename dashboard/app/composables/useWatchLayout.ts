@@ -19,12 +19,15 @@ export function useWatchLayout() {
       const raw = localStorage.getItem(KEY)
       if (raw) root.value = JSON.parse(raw) as WatchNode
     } catch { /* broken or private mode: start empty */ }
-    watch(root, (v) => {
+    // saved for the app's whole life: made in the first caller's scope, it
+    // stopped when that page was left and was never made again (changes then
+    // lived only in memory, lost on reload)
+    effectScope(true).run(() => watch(root, (v) => {
       try {
         if (v) localStorage.setItem(KEY, JSON.stringify(v))
         else localStorage.removeItem(KEY)
       } catch { /* private mode */ }
-    }, { deep: true })
+    }, { deep: true }))
   }
 
   // the node and its parent split
