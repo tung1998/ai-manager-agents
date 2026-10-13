@@ -137,6 +137,7 @@ func TestInstallAndCancel(t *testing.T) {
 }
 
 func TestCodexStatusTrustsCLI(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
 	m, dir := testManager(t)
 	writeBin(t, dir, "codex", "#!/bin/sh\ncase \"$1 $2\" in \"--version \"*) echo codex-cli 1;; \"login status\") echo 'Not logged in'; exit 1;; esac\n")
 	s, _ := m.Status(context.Background(), "codex")

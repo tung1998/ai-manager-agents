@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -193,8 +194,69 @@ func (c *codexCLI) Check(ctx context.Context) (CheckResult, error) {
 	if st, _ := run(ctx, c.bin, "", "login", "status"); strings.Contains(strings.ToLower(st), "not logged in") {
 		return CheckResult{}, fmt.Errorf("%s · %w: hãy bấm Đăng nhập để ký lại phiên Codex", v, ErrNeedsLogin)
 	}
+	if expired, detail := CodexSessionExpired(time.Now()); expired {
+		return CheckResult{}, fmt.Errorf("%s · %w: %s, hãy bấm Đăng nhập để ký lại phiên Codex", v, ErrNeedsLogin, detail)
+	}
 	return CheckResult{Version: v, Detail: v}, nil
 }
+
+// codexStaleAfter: a ChatGPT session whose access token expired and was not
+// refreshed for this long is treated as signed out (its refresh token is
+// revoked long before; codex refreshes an active session every few days).
+const codexStaleAfter = 30 * 24 * time.Hour
+
+// CodexSessionExpired reads Codex's credentials file. `codex login status`
+// only checks the file exists, so a session idle for months still reads
+// "Logged in" while every request fails with "token could not be refreshed".
+// No file (credentials in the keyring) or an API key is not expired.
+func CodexSessionExpired(now time.Time) (bool, string) {
+	dir := os.Getenv("CODEX_HOME")
+	if dir == "" {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".codex")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "auth.json"))
+	if err != nil {
+		return false, ""
+	}
+	var a struct {
+		APIKey string `json:"OPENAI_API_KEY"`
+		Tokens *struct {
+			AccessToken string `json:"access_token"`
+		} `json:"tokens"`
+		LastRefresh time.Time `json:"last_refresh"`
+	}
+	if json.Unmarshal(raw, &a) != nil || a.APIKey != "" || a.Tokens == nil {
+		return false, ""
+	}
+	exp := jwtExpiry(a.Tokens.AccessToken)
+	if !exp.IsZero() && now.After(exp) && now.Sub(a.LastRefresh) > codexStaleAfter {
+		return true, "phiên ChatGPT đã hết hạn từ " + exp.Format("2006-01-02")
+	}
+	return false, ""
+}
+
+// jwtExpiry reads a JWT's exp claim without verifying it (zero if unreadable).
+func jwtExpiry(tok string) time.Time {
+	parts := strings.Split(tok, ".")
+	if len(parts) != 3 {
+		return time.Time{}
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if err != nil {
+		return time.Time{}
+	}
+	var c struct {
+		Exp int64 `json:"exp"`
+	}
+	if json.Unmarshal(raw, &c) != nil || c.Exp == 0 {
+		return time.Time{}
+	}
+	return time.Unix(c.Exp, 0)
+}
+
+// codexAuthFailed: codex's own wording when the ChatGPT session is dead.
+var codexAuthFailed = regexp.MustCompile(`(?i)could not be refreshed|token_expired|sign(ing)? in again|log out and sign in`)
 
 func (c *codexCLI) Complete(ctx context.Context, req Request) (Result, error) {
 	start := time.Now()
@@ -209,6 +271,10 @@ func (c *codexCLI) Complete(ctx context.Context, req Request) (Result, error) {
 	args = append(args, "-") // read the prompt from stdin
 	out, err := run(ctx, c.bin, prompt, args...)
 	if err != nil {
+		var ce *cliError
+		if errors.As(err, &ce) && codexAuthFailed.MatchString(ce.stderr) {
+			return Result{}, fmt.Errorf("%w: phiên Codex đã hết hạn, hãy đăng nhập lại", ErrNeedsLogin)
+		}
 		return Result{}, err
 	}
 	res := Result{Model: req.Model, DurationMS: time.Since(start).Milliseconds()}

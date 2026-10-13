@@ -2,11 +2,14 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCLIFailureReadsTheEndOfTheJSON(t *testing.T) {
@@ -40,5 +43,38 @@ func TestClaudeCheckSignedOut(t *testing.T) {
 	c = &claudeCLI{bin: fakeBin(t, "true")}
 	if res, err := c.Check(context.Background()); err != nil || res.Version == "" {
 		t.Fatalf("signed in: %v %+v", err, res)
+	}
+}
+
+func TestCodexSessionExpired(t *testing.T) {
+	now := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	jwt := func(exp time.Time) string {
+		body := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, exp.Unix())))
+		return "h." + body + ".s"
+	}
+	write := func(s string) {
+		dir := t.TempDir()
+		t.Setenv("CODEX_HOME", dir)
+		if s != "" {
+			if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(s), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	cases := []struct {
+		name, auth string
+		want       bool
+	}{
+		{"no file (keyring)", "", false},
+		{"api key", `{"OPENAI_API_KEY":"sk-x"}`, false},
+		{"fresh", `{"tokens":{"access_token":"` + jwt(now.Add(48*time.Hour)) + `"},"last_refresh":"2026-10-10T00:00:00Z"}`, false},
+		{"expired but recently refreshed", `{"tokens":{"access_token":"` + jwt(now.Add(-time.Hour)) + `"},"last_refresh":"2026-10-01T00:00:00Z"}`, false},
+		{"idle for months", `{"tokens":{"access_token":"` + jwt(time.Date(2026, 4, 23, 0, 0, 0, 0, time.UTC)) + `"},"last_refresh":"2026-04-13T08:22:13.75Z"}`, true},
+	}
+	for _, c := range cases {
+		write(c.auth)
+		if got, detail := CodexSessionExpired(now); got != c.want {
+			t.Errorf("%s: got %v (%s), want %v", c.name, got, detail, c.want)
+		}
 	}
 }

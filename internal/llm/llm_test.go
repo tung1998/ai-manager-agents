@@ -137,6 +137,7 @@ echo "{\"type\":\"result\",\"is_error\":false,\"result\":\"echo:$prompt\",\"tota
 }
 
 func TestCodexCLI(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
 	bin := fakeBin(t, "codex", `
 if [ "$1" = "--version" ]; then echo "codex-cli 1.2.3"; exit 0; fi
 cat >/dev/null

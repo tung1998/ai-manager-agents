@@ -215,10 +215,17 @@ func codexStatus(ctx context.Context, bin string, env []string) Auth {
 	case strings.Contains(low, "not logged in"):
 		return Auth{LoggedIn: false, Detail: text}
 	case err == nil && strings.Contains(low, "logged in"):
+		// the CLI only checks the file exists: an expired session reads "Logged in" too
+		if expired, detail := llm.CodexSessionExpired(time.Now()); expired {
+			return Auth{LoggedIn: false, Detail: detail}
+		}
 		return Auth{LoggedIn: true, Detail: text}
 	}
 	if home, herr := os.UserHomeDir(); herr == nil {
 		if _, serr := os.Stat(filepath.Join(home, ".codex", "auth.json")); serr == nil {
+			if expired, detail := llm.CodexSessionExpired(time.Now()); expired {
+				return Auth{LoggedIn: false, Detail: detail}
+			}
 			return Auth{LoggedIn: true, Detail: "đã có ~/.codex/auth.json"}
 		}
 	}
