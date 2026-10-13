@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -193,7 +194,36 @@ func codexLimits(home, threadID string, now time.Time) *Limits {
 	if len(files) == 0 {
 		return nil
 	}
-	f, err := os.Open(files[len(files)-1])
+	return codexRolloutLimits(files[len(files)-1], now)
+}
+
+// CodexLatestLimits is the usage Codex last saw on this machine (its newest
+// session, office's or the person's own), so a connection shows its quota
+// before office ever ran it.
+func CodexLatestLimits(home string) *Limits {
+	days, _ := filepath.Glob(filepath.Join(home, "sessions", "*", "*", "*"))
+	slices.Sort(days) // YYYY/MM/DD: the newest day last
+	for i := len(days) - 1; i >= 0 && i >= len(days)-7; i-- {
+		files, _ := filepath.Glob(filepath.Join(days[i], "rollout-*.jsonl"))
+		var newest string
+		var at time.Time
+		for _, f := range files {
+			if st, err := os.Stat(f); err == nil && st.ModTime().After(at) {
+				newest, at = f, st.ModTime()
+			}
+		}
+		if newest != "" {
+			if l := codexRolloutLimits(newest, at); l != nil {
+				return l
+			}
+		}
+	}
+	return nil
+}
+
+// codexRolloutLimits reads the last rate_limits in one rollout file.
+func codexRolloutLimits(path string, now time.Time) *Limits {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}

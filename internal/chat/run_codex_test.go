@@ -47,6 +47,9 @@ func TestCodexLimitsFromRollout(t *testing.T) {
 	if w := l.Windows["seven_day"]; w.Utilization != 0.41 {
 		t.Fatalf("seven_day = %+v", w)
 	}
+	if l := CodexLatestLimits(home); l == nil || l.Windows["five_hour"].Utilization != 0.25 {
+		t.Fatalf("latest = %+v", l)
+	}
 	if codexLimits(home, "missing", time.Now()) != nil {
 		t.Fatal("no rollout: want nil")
 	}

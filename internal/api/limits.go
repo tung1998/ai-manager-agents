@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/chat"
+	"bitbucket.org/senprints/agent-office/internal/llm"
+	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
 // providerLimits lists the latest usage windows each connection reported
@@ -26,7 +28,15 @@ func (s *server) providerLimits(w http.ResponseWriter, r *http.Request) {
 	out := []dto{}
 	for _, p := range list {
 		var l chat.Limits
-		if ok, err := s.cfg.Store.Settings().Get(r.Context(), chat.LimitsKey(p.ID), &l); err != nil || !ok || len(l.Windows) == 0 {
+		ok, err := s.cfg.Store.Settings().Get(r.Context(), chat.LimitsKey(p.ID), &l)
+		if p.Kind == storage.ProviderCodexCLI {
+			// Codex keeps its quota in its session files: the newest one may
+			// be from the person's own use, newer than office's last run
+			if c := chat.CodexLatestLimits(llm.CodexHome()); c != nil && c.UpdatedAt.After(l.UpdatedAt) {
+				l, ok, err = *c, true, nil
+			}
+		}
+		if err != nil || !ok || len(l.Windows) == 0 {
 			continue
 		}
 		out = append(out, dto{p.ID, p.Name, p.IsDefault, l.Status, l.Windows, l.UpdatedAt})
