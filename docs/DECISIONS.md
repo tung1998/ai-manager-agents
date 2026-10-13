@@ -605,7 +605,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
 - **Giao diện.**
   - Trang **Quản trị → Cập nhật office**: bản đang chạy (version, commit, có thay đổi chưa commit hay không), trạng thái supervisor, kết quả lần trước, nút cập nhật (tùy chọn chạy test), log build trực tiếp; sau khi khởi động lại thì trang tự tải lại.
   - Project trỏ vào mã nguồn office có dòng nhắc kèm nút sang trang này. Project đó vẫn là project bình thường.
-- **Tiến trình của project** dừng khi cập nhật; mục bật "bật cùng office" tự chạy lại. Container không bị ảnh hưởng.
+- **Tiến trình của project** dừng khi cập nhật; mục bật "bật cùng office" tự chạy lại; khi cập nhật có thể chọn chạy lại cả các tiến trình đang chạy (lưu ở resume-processes.json, dùng một lần). Container không bị ảnh hưởng.
 
 **Đã kiểm tra trên bản sao repo:**
 - Cập nhật thành công: có PID mới, kết quả `ok`.

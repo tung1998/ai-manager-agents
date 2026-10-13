@@ -135,6 +135,7 @@ func serveCmd() *cobra.Command {
 			procs := ops.NewManager(a.store, filepath.Join(h.Dir, "logs"), a.cli.Env())
 			defer procs.Shutdown() // project processes stop with the office
 			go procs.RunSampler(ctx, 3*time.Second)
+			procs.SetResumeFile(filepath.Join(h.Dir, "resume-processes.json"))
 			procs.Autostart(ctx)
 			// agents read build/run/monitoring data through the office tools (MCP for Claude Code)
 			acts := actions.New(a.store, procs) // agents propose, people approve
@@ -291,6 +292,7 @@ func serveCmd() *cobra.Command {
 				_ = srv.Shutdown(shutdownCtx)
 				cancel()
 				gateway.Close()
+				procs.SaveResume() // before they stop: "start them again" after the restart
 				procs.Shutdown()
 				a.Close()
 				os.Exit(selfupdate.RestartCode)

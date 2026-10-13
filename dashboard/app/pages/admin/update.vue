@@ -15,6 +15,7 @@ const toast = useToast()
 const { t, when } = useLang()
 const { data, refresh } = await useLiveFetch<Status>('/api/system/update')
 const runTests = ref(true)
+const resumeProcs = ref(true) // the running processes start again after the restart
 const starting = ref(false)
 const restarting = ref(false)
 const state = computed(() => data.value?.state)
@@ -43,7 +44,7 @@ onBeforeUnmount(() => { clearInterval(poll); clearInterval(restartPoll) })
 async function start(force = false) {
   starting.value = true
   try {
-    await $fetch('/api/system/update', { method: 'POST', body: { test: runTests.value, force } })
+    await $fetch('/api/system/update', { method: 'POST', body: { test: runTests.value, force, resume: resumeProcs.value } })
     showLog.value = true
     streamKey.value++
     await refresh()
@@ -173,6 +174,7 @@ const lastMeta = computed(() => ({
           </div>
           <template v-if="!upToDate">
             <UCheckbox v-model="runTests" :label="t('admin.updateRunTests')" :disabled="running" />
+            <UCheckbox v-if="data.busy.tasks" v-model="resumeProcs" :label="t('admin.updateResumeProcs', { n: data.busy.tasks })" :disabled="running" />
             <p v-if="data.busy.chats || data.busy.tasks" class="text-sm text-(--ui-warning)">
               <UIcon name="i-lucide-triangle-alert" class="align-middle" />
               {{ t('admin.updateBusy', { chats: data.busy.chats, tasks: data.busy.tasks }) }}

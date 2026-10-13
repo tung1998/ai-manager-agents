@@ -101,8 +101,9 @@ func (s *server) busyWork() map[string]int {
 
 func (s *server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Test  bool `json:"test"`
-		Force bool `json:"force"`
+		Test   bool `json:"test"`
+		Force  bool `json:"force"`
+		Resume bool `json:"resume"` // start the running processes again after the restart
 	}
 	if !decode(w, r, &in) {
 		return
@@ -112,6 +113,9 @@ func (s *server) startUpdate(w http.ResponseWriter, r *http.Request) {
 			"error": fmt.Sprintf("Đang có %d lượt chat và %d tiến trình chạy; khởi động lại sẽ cắt ngang chúng", b["chats"], b["tasks"])})
 		return
 	}
+	if s.cfg.Ops != nil {
+		s.cfg.Ops.ResumeAfterRestart(in.Resume)
+	}
 	if err := s.cfg.Updater.Start(selfupdate.Options{Test: in.Test}); err != nil {
 		if errors.Is(err, selfupdate.ErrBusy) {
 			writeError(w, http.StatusConflict, err.Error())
@@ -120,7 +124,7 @@ func (s *server) startUpdate(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	s.auditAction(r, "system.update", "", map[string]any{"test": in.Test, "force": in.Force})
+	s.auditAction(r, "system.update", "", map[string]any{"test": in.Test, "force": in.Force, "resume": in.Resume})
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 

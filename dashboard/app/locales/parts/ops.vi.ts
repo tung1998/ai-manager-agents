@@ -86,6 +86,8 @@ export default {
   'ops.menu.askAgent': 'Hỏi agent về log',
   'ops.menu.edit': 'Sửa',
   'ops.menu.delete': 'Xóa',
+  'ops.menu.autostartOn': 'Bật cùng office',
+  'ops.menu.autostartOff': 'Bỏ bật cùng office',
   'ops.actionsLabel': 'Thao tác',
   'ops.pin': 'Ghim lệnh hay dùng',
   'ops.unpin': 'Bỏ ghim',

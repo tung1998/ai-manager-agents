@@ -3,6 +3,7 @@ package ops
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -88,6 +90,9 @@ type Manager struct {
 
 	mu    sync.Mutex
 	procs map[string]*proc
+
+	resumeFile string      // running processes saved across a restart ("" = off)
+	resume     atomic.Bool // the coming restart should start them again
 }
 
 // NewManager builds a Manager; env is the environment commands run with.
@@ -412,14 +417,56 @@ func (m *Manager) Forget(id string) {
 	m.mu.Unlock()
 }
 
-// Autostart starts processes marked to start with office.
+// SetResumeFile sets where the processes running at a restart are saved.
+func (m *Manager) SetResumeFile(path string) { m.resumeFile = path }
+
+// ResumeAfterRestart asks the coming restart to start again what runs now.
+func (m *Manager) ResumeAfterRestart(on bool) { m.resume.Store(on) }
+
+// SaveResume writes the running processes for the next start, when asked to.
+// Call it right before Shutdown on a restart.
+func (m *Manager) SaveResume() {
+	if m.resumeFile == "" || !m.resume.Load() {
+		return
+	}
+	ids := []string{}
+	for _, r := range m.Running() {
+		ids = append(ids, r.ID)
+	}
+	if raw, err := json.Marshal(ids); err == nil {
+		_ = os.WriteFile(m.resumeFile, raw, 0o600)
+	}
+}
+
+// takeResume reads and removes the processes saved at the last restart.
+func (m *Manager) takeResume() map[string]bool {
+	out := map[string]bool{}
+	if m.resumeFile == "" {
+		return out
+	}
+	raw, err := os.ReadFile(m.resumeFile)
+	if err != nil {
+		return out
+	}
+	_ = os.Remove(m.resumeFile)
+	var ids []string
+	_ = json.Unmarshal(raw, &ids)
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
+}
+
+// Autostart starts processes marked to start with office, and those that
+// ran when office restarted with "start them again".
 func (m *Manager) Autostart(ctx context.Context) {
+	resume := m.takeResume()
 	list, err := m.store.Processes().List(ctx, "")
 	if err != nil {
 		return
 	}
 	for _, d := range list {
-		if d.Autostart {
+		if d.Autostart || resume[d.ID] {
 			_ = m.Start(ctx, d.ID)
 		}
 	}

@@ -87,6 +87,8 @@ const en: Record<keyof typeof vi, string> = {
   'ops.menu.askAgent': 'Ask agent about log',
   'ops.menu.edit': 'Edit',
   'ops.menu.delete': 'Delete',
+  'ops.menu.autostartOn': 'Start with office',
+  'ops.menu.autostartOff': 'Stop starting with office',
   'ops.actionsLabel': 'Actions',
   'ops.pin': 'Pin as frequently used',
   'ops.unpin': 'Unpin',

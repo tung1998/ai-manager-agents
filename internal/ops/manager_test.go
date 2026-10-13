@@ -113,3 +113,37 @@ func TestProcessEnv(t *testing.T) {
 		t.Fatalf("cleared env: %v", got.Env)
 	}
 }
+
+func TestResumeAfterRestart(t *testing.T) {
+	m, st, proj := setup(t)
+	ctx := context.Background()
+	file := filepath.Join(t.TempDir(), "resume.json")
+	m.SetResumeFile(file)
+	def, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "dev", Kind: "service", Command: "sleep 60"})
+	_ = m.Start(ctx, def.ID)
+
+	m.SaveResume() // not asked: nothing saved
+	m.Shutdown()
+	m.Autostart(ctx)
+	if s := m.State(def.ID).Status; s != "stopped" {
+		t.Fatalf("started without being asked: %s", s)
+	}
+
+	_ = m.Start(ctx, def.ID)
+	m.ResumeAfterRestart(true)
+	m.SaveResume()
+	m.Shutdown()
+	// the next office: a new manager on the same file
+	next := NewManager(st, t.TempDir(), nil)
+	t.Cleanup(next.Shutdown)
+	next.SetResumeFile(file)
+	next.Autostart(ctx)
+	if s := next.State(def.ID).Status; s != "running" {
+		t.Fatalf("not resumed: %s", s)
+	}
+	next.Shutdown()
+	next.Autostart(ctx) // the file is used once
+	if s := next.State(def.ID).Status; s != "stopped" {
+		t.Fatalf("resumed twice: %s", s)
+	}
+}
