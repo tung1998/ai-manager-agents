@@ -197,7 +197,35 @@ func (c *codexCLI) Check(ctx context.Context) (CheckResult, error) {
 	if expired, detail := CodexSessionExpired(time.Now()); expired {
 		return CheckResult{}, fmt.Errorf("%s · %w: %s, hãy bấm Đăng nhập để ký lại phiên Codex", v, ErrNeedsLogin, detail)
 	}
-	return CheckResult{Version: v, Detail: v}, nil
+	return CheckResult{Version: v, Models: codexModels(ctx, c.bin), Detail: v}, nil
+}
+
+// codexModels lists the models Codex offers in its picker, best first
+// (`codex debug models` prints its catalog); nil when it cannot tell.
+func codexModels(ctx context.Context, bin string) []string {
+	out, err := run(ctx, bin, "", "debug", "models")
+	if err != nil {
+		return nil
+	}
+	type model struct {
+		Slug       string `json:"slug"`
+		Visibility string `json:"visibility"`
+		Priority   int    `json:"priority"`
+	}
+	var cat struct {
+		Models []model `json:"models"`
+	}
+	if json.Unmarshal([]byte(out), &cat) != nil {
+		return nil
+	}
+	slices.SortStableFunc(cat.Models, func(a, b model) int { return cmp.Compare(a.Priority, b.Priority) })
+	var ms []string
+	for _, m := range cat.Models {
+		if m.Slug != "" && m.Visibility == "list" {
+			ms = append(ms, m.Slug)
+		}
+	}
+	return ms
 }
 
 // codexStaleAfter: a ChatGPT session whose access token expired and was not
@@ -210,12 +238,7 @@ const codexStaleAfter = 30 * 24 * time.Hour
 // "Logged in" while every request fails with "token could not be refreshed".
 // No file (credentials in the keyring) or an API key is not expired.
 func CodexSessionExpired(now time.Time) (bool, string) {
-	dir := os.Getenv("CODEX_HOME")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".codex")
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "auth.json"))
+	raw, err := os.ReadFile(filepath.Join(CodexHome(), "auth.json"))
 	if err != nil {
 		return false, ""
 	}
@@ -234,6 +257,15 @@ func CodexSessionExpired(now time.Time) (bool, string) {
 		return true, "phiên ChatGPT đã hết hạn từ " + exp.Format("2006-01-02")
 	}
 	return false, ""
+}
+
+// CodexHome is where Codex keeps its config, credentials and sessions.
+func CodexHome() string {
+	if dir := os.Getenv("CODEX_HOME"); dir != "" {
+		return dir
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".codex")
 }
 
 // jwtExpiry reads a JWT's exp claim without verifying it (zero if unreadable).

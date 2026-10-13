@@ -9,10 +9,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -166,6 +168,7 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	werr := cmd.Wait()
 	res.Usage.DurationMS = time.Since(start).Milliseconds()
 	res.Text = strings.TrimSpace(strings.Join(answer, "\n\n"))
+	res.Limits = codexLimits(llm.CodexHome(), res.SessionID, time.Now())
 	if scanErr != nil {
 		return res, scanErr
 	}
@@ -177,4 +180,70 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 		return res, fmt.Errorf("codex: %s", truncate(msg, 500))
 	}
 	return res, nil
+}
+
+// codexLimits reads the usage windows Codex wrote to the session's rollout
+// file (`codex exec --json` does not print them): the last token_count
+// event's rate_limits, mapped onto Claude's window names.
+func codexLimits(home, threadID string, now time.Time) *Limits {
+	if threadID == "" {
+		return nil
+	}
+	files, _ := filepath.Glob(filepath.Join(home, "sessions", "*", "*", "*", "rollout-*-"+threadID+".jsonl"))
+	if len(files) == 0 {
+		return nil
+	}
+	f, err := os.Open(files[len(files)-1])
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	type window struct {
+		UsedPercent   float64 `json:"used_percent"`
+		WindowMinutes int     `json:"window_minutes"`
+		ResetsAt      int64   `json:"resets_at"`
+	}
+	var last *struct {
+		Primary, Secondary *window
+		Reached            *string `json:"rate_limit_reached_type"`
+	}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 16<<20)
+	for sc.Scan() {
+		if !bytes.Contains(sc.Bytes(), []byte(`"rate_limits"`)) {
+			continue
+		}
+		var ev struct {
+			Payload struct {
+				RateLimits *struct {
+					Primary, Secondary *window
+					Reached            *string `json:"rate_limit_reached_type"`
+				} `json:"rate_limits"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Payload.RateLimits != nil {
+			last = ev.Payload.RateLimits
+		}
+	}
+	if last == nil {
+		return nil
+	}
+	lim := &Limits{Status: "allowed", Windows: map[string]LimitWindow{}, UpdatedAt: now.UTC()}
+	for _, w := range []*window{last.Primary, last.Secondary} {
+		if w == nil || w.WindowMinutes == 0 {
+			continue
+		}
+		key := "w" + strconv.Itoa(w.WindowMinutes) + "m"
+		switch w.WindowMinutes {
+		case 300:
+			key = "five_hour"
+		case 7 * 24 * 60:
+			key = "seven_day"
+		}
+		lim.Windows[key] = LimitWindow{Utilization: w.UsedPercent / 100, ResetsAt: time.Unix(w.ResetsAt, 0)}
+	}
+	if last.Reached != nil && *last.Reached != "" {
+		lim.Status = "rejected"
+	}
+	return lim
 }
