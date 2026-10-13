@@ -15,7 +15,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -264,26 +263,27 @@ func CodexSessionExpired(now time.Time) (bool, string) {
 	return false, ""
 }
 
-// codexRejectedAt is when a real call last had the ChatGPT session refused
-// (UnixNano). The token can still look valid (revoked by the server, e.g. a
-// sign-in elsewhere), so `codex login status` keeps saying "Logged in".
-var codexRejectedAt atomic.Int64
+// codexRejectedFile marks that a real call had the ChatGPT session refused.
+// The token can still look valid (revoked by the server, e.g. a sign-in
+// elsewhere), so `codex login status` keeps saying "Logged in". A file, so
+// the mark outlives an office restart.
+func codexRejectedFile() string { return filepath.Join(CodexHome(), ".office-rejected") }
 
 // MarkCodexRejected records that the server refused the Codex session.
-func MarkCodexRejected() { codexRejectedAt.Store(time.Now().UnixNano()) }
+func MarkCodexRejected() { _ = os.WriteFile(codexRejectedFile(), nil, 0o600) }
 
 // CodexRejected: a real call was refused and auth.json has not changed since
 // (a new sign-in rewrites it).
 func CodexRejected() (bool, string) {
-	at := codexRejectedAt.Load()
-	if at == 0 {
+	mark, err := os.Stat(codexRejectedFile())
+	if err != nil {
 		return false, ""
 	}
-	st, err := os.Stat(filepath.Join(CodexHome(), "auth.json"))
-	if err != nil || st.ModTime().UnixNano() > at {
+	auth, err := os.Stat(filepath.Join(CodexHome(), "auth.json"))
+	if err != nil || auth.ModTime().After(mark.ModTime()) {
 		return false, ""
 	}
-	return true, "máy chủ từ chối phiên ChatGPT lúc " + time.Unix(0, at).Format("15:04 02/01")
+	return true, "máy chủ từ chối phiên ChatGPT lúc " + mark.ModTime().Format("15:04 02/01")
 }
 
 // CodexHome is where Codex keeps its config, credentials and sessions.

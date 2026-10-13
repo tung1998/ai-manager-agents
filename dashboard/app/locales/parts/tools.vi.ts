@@ -140,6 +140,8 @@ export default {
   'prov.actions': 'Thao tác',
   'prov.sendTestPrompt': 'Gửi thử prompt',
   'prov.edit': 'Sửa',
+  'prov.cliAccount': 'Tài khoản đăng nhập',
+  'prov.cliAccountTitle': 'Tài khoản của {name}',
   'prov.setDefault': 'Đặt làm mặc định',
   'prov.enabled': 'Bật',
   'prov.off': 'Đang tắt',

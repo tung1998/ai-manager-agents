@@ -39,7 +39,10 @@ const selectedPreset = computed(() => presetOf(form.preset))
 const needsKey = computed(() => selectedPreset.value ? selectedPreset.value.need_key : !!selectedKind.value?.needs_key)
 const commonKinds = computed(() => kinds.value.filter(k => k.common))
 const advancedOpen = ref(false)
-const cliTool = computed(() => ({ claude_cli: 'claude', codex_cli: 'codex', gemini_cli: 'gemini', antigravity_cli: 'antigravity' } as Record<string, 'claude' | 'codex' | 'gemini' | 'antigravity'>)[form.kind])
+const toolOf = (kind: string) => ({ claude_cli: 'claude', codex_cli: 'codex', gemini_cli: 'gemini', antigravity_cli: 'antigravity' } as Record<string, 'claude' | 'codex' | 'gemini' | 'antigravity'>)[kind]
+const cliTool = computed(() => toolOf(form.kind))
+// the CLI account of a provider: sign in again / sign out
+const accountOf = ref<Provider | null>(null)
 const cliReady = ref(true)
 watch(cliTool, (v) => { if (!v) cliReady.value = true })
 const norm = (u: string) => u.trim().replace(/\/+$/, '')
@@ -253,6 +256,7 @@ function menu(p: Provider) {
   return [
     [
       { label: t('prov.sendTestPrompt'), icon: 'i-lucide-message-square', onSelect: () => openPromptTest(p) },
+      ...(toolOf(p.kind) ? [{ label: t('prov.cliAccount'), icon: 'i-lucide-user-round-key', onSelect: () => { accountOf.value = p } }] : []),
       { label: t('prov.edit'), icon: 'i-lucide-pencil', onSelect: () => openEdit(p) },
       { label: t('prov.setDefault'), icon: 'i-lucide-star', disabled: p.is_default || !!settingDefault.value, onSelect: () => setDefault(p) }
     ],
@@ -550,6 +554,15 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
           <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="formOpen = false" />
           <UButton type="submit" form="provider-form" :loading="saving" :disabled="!cliReady" :label="editing ? t('prov.saveAndTest') : t('prov.addAndTest')" />
         </div>
+      </template>
+    </UModal>
+
+    <UModal
+      :open="!!accountOf" :title="t('prov.cliAccountTitle', { name: accountOf?.name ?? '' })"
+      @update:open="(v: boolean) => { if (!v) accountOf = null }"
+    >
+      <template #body>
+        <CliSetup v-if="accountOf && toolOf(accountOf.kind)" :key="accountOf.id" :tool="toolOf(accountOf.kind)!" />
       </template>
     </UModal>
 

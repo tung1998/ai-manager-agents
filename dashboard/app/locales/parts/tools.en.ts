@@ -137,6 +137,8 @@ const en: Record<keyof typeof vi, string> = {
   'prov.actions': 'Actions',
   'prov.sendTestPrompt': 'Send test prompt',
   'prov.edit': 'Edit',
+  'prov.cliAccount': 'Signed-in account',
+  'prov.cliAccountTitle': '{name} account',
   'prov.setDefault': 'Set as default',
   'prov.enabled': 'On',
   'prov.off': 'Off',
