@@ -58,6 +58,24 @@ func (s *server) cliLogin(w http.ResponseWriter, r *http.Request) {
 	s.cliStarted(w, r, j, err, "login")
 }
 
+func (s *server) cliLogout(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	switch err := s.cfg.CLITools.Logout(r.Context(), id); {
+	case errors.Is(err, clitools.ErrBusy):
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	case errors.Is(err, clitools.ErrUnknownTool), errors.Is(err, clitools.ErrNotInstalled):
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.auditAction(r, "cli.logout", id, nil)
+	st, _ := s.cfg.CLITools.Status(r.Context(), id)
+	writeJSON(w, http.StatusOK, st)
+}
+
 func (s *server) cliJob(w http.ResponseWriter, r *http.Request) {
 	j, ok := s.cfg.CLITools.Job(r.PathValue("id"))
 	if !ok {

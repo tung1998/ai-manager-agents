@@ -176,6 +176,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("GET /api/cli-tools/{id}", admin(s.cliTool))
 		mux.Handle("POST /api/cli-tools/{id}/install", admin(s.cliInstall))
 		mux.Handle("POST /api/cli-tools/{id}/login", admin(s.cliLogin))
+		mux.Handle("POST /api/cli-tools/{id}/logout", admin(s.cliLogout))
 		mux.Handle("GET /api/cli-jobs/{id}", admin(s.cliJob))
 		mux.Handle("POST /api/cli-jobs/{id}/input", admin(s.cliJobInput))
 		mux.Handle("POST /api/cli-jobs/{id}/cancel", admin(s.cliJobCancel))

@@ -103,6 +103,9 @@ export default {
   'cli.cancel': 'Hủy',
   'cli.failed': 'Không thành công{detail}',
   'cli.copied': 'Đã sao chép',
+  'cli.relogin': 'Đăng nhập lại',
+  'cli.logout': 'Đăng xuất',
+  'cli.confirmLogout': 'Đăng xuất {name} trên máy này ({cmd})? Agent dùng {name} sẽ dừng chạy được cho tới khi đăng nhập lại.',
   // folder.* — FolderTree.vue
   'folder.hidden': 'Thư mục ẩn',
   'folder.upOneLevel': 'Lên một cấp',

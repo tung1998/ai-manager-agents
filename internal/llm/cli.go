@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -194,7 +195,11 @@ func (c *codexCLI) Check(ctx context.Context) (CheckResult, error) {
 	if st, _ := run(ctx, c.bin, "", "login", "status"); strings.Contains(strings.ToLower(st), "not logged in") {
 		return CheckResult{}, fmt.Errorf("%s · %w: hãy bấm Đăng nhập để ký lại phiên Codex", v, ErrNeedsLogin)
 	}
-	if expired, detail := CodexSessionExpired(time.Now()); expired {
+	expired, detail := CodexSessionExpired(time.Now())
+	if !expired {
+		expired, detail = CodexRejected()
+	}
+	if expired {
 		return CheckResult{}, fmt.Errorf("%s · %w: %s, hãy bấm Đăng nhập để ký lại phiên Codex", v, ErrNeedsLogin, detail)
 	}
 	return CheckResult{Version: v, Models: codexModels(ctx, c.bin), Detail: v}, nil
@@ -257,6 +262,28 @@ func CodexSessionExpired(now time.Time) (bool, string) {
 		return true, "phiên ChatGPT đã hết hạn từ " + exp.Format("2006-01-02")
 	}
 	return false, ""
+}
+
+// codexRejectedAt is when a real call last had the ChatGPT session refused
+// (UnixNano). The token can still look valid (revoked by the server, e.g. a
+// sign-in elsewhere), so `codex login status` keeps saying "Logged in".
+var codexRejectedAt atomic.Int64
+
+// MarkCodexRejected records that the server refused the Codex session.
+func MarkCodexRejected() { codexRejectedAt.Store(time.Now().UnixNano()) }
+
+// CodexRejected: a real call was refused and auth.json has not changed since
+// (a new sign-in rewrites it).
+func CodexRejected() (bool, string) {
+	at := codexRejectedAt.Load()
+	if at == 0 {
+		return false, ""
+	}
+	st, err := os.Stat(filepath.Join(CodexHome(), "auth.json"))
+	if err != nil || st.ModTime().UnixNano() > at {
+		return false, ""
+	}
+	return true, "máy chủ từ chối phiên ChatGPT lúc " + time.Unix(0, at).Format("15:04 02/01")
 }
 
 // CodexHome is where Codex keeps its config, credentials and sessions.
@@ -339,10 +366,12 @@ func (c *codexCLI) Complete(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		var ce *cliError
 		if errors.As(err, &ce) && codexAuthFailed.MatchString(ce.stderr) {
+			MarkCodexRejected()
 			return Result{}, fmt.Errorf("%w: phiên Codex đã hết hạn, hãy đăng nhập lại", ErrNeedsLogin)
 		}
 		if msg := codexFailure(out); msg != "" {
 			if codexAuthFailed.MatchString(msg) {
+				MarkCodexRejected()
 				return Result{}, fmt.Errorf("%w: phiên Codex đã hết hạn, hãy đăng nhập lại", ErrNeedsLogin)
 			}
 			return Result{}, fmt.Errorf("codex: %s", msg)

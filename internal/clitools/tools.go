@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,10 +38,15 @@ type Tool struct {
 	Bin      string `json:"bin"`
 	DocsURL  string `json:"docs_url"`
 	LoginCmd string `json:"login_command"`
+	// LogoutCmd is shown before signing out: a subcommand, or the
+	// credentials file removed when the tool has none (logoutFiles)
+	LogoutCmd string `json:"logout_command"`
 
-	methods   []Method
-	loginArgv []string
-	status    func(ctx context.Context, bin string, env []string) Auth
+	methods     []Method
+	loginArgv   []string
+	logoutArgv  []string
+	logoutFiles func() []string
+	status      func(ctx context.Context, bin string, env []string) Auth
 	// loginEnv / prepareLogin set up a sign-in that is no subcommand of its
 	// own; loginDone ends it once signed in (Gemini's sign-in opens its chat).
 	loginEnv     []string
@@ -72,6 +78,7 @@ var tools = []Tool{
 	{
 		ID: "claude", Name: "Claude Code", Bin: "claude", DocsURL: "https://code.claude.com/docs/en/setup",
 		LoginCmd: "claude auth login", loginArgv: []string{"claude", "auth", "login"},
+		LogoutCmd: "claude auth logout", logoutArgv: []string{"claude", "auth", "logout"},
 		methods: []Method{
 			{ID: "native", Label: "Trình cài chính thức", Command: "curl -fsSL https://claude.ai/install.sh | bash", Requires: "curl", Recommended: true,
 				argv: []string{"/bin/sh", "-c", "curl -fsSL https://claude.ai/install.sh | bash"}},
@@ -85,6 +92,7 @@ var tools = []Tool{
 	{
 		ID: "codex", Name: "Codex", Bin: "codex", DocsURL: "https://github.com/openai/codex",
 		LoginCmd: "codex login --device-auth", loginArgv: []string{"codex", "login", "--device-auth"},
+		LogoutCmd: "codex logout", logoutArgv: []string{"codex", "logout"},
 		methods: []Method{
 			{ID: "brew", Label: "Homebrew", Command: "brew install --cask codex", Requires: "brew", Recommended: true,
 				argv: []string{"brew", "install", "--cask", "codex"}},
@@ -97,6 +105,8 @@ var tools = []Tool{
 		ID: "gemini", Name: "Gemini CLI", Bin: "gemini", DocsURL: "https://github.com/google-gemini/gemini-cli",
 		// Gemini signs in when it starts; NO_BROWSER prints the URL and asks for the code
 		LoginCmd: "gemini", loginArgv: []string{"gemini"},
+		// no logout subcommand (only /logout inside its chat): drop the Google credentials
+		LogoutCmd: "rm ~/.gemini/oauth_creds.json", logoutFiles: func() []string { return []string{filepath.Join(geminiDir(), "oauth_creds.json")} },
 		loginEnv: []string{"NO_BROWSER=true", "GEMINI_CLI_TRUST_WORKSPACE=true"},
 		methods: []Method{
 			{ID: "npm", Label: "npm (cần Node 20+)", Command: "npm install -g @google/gemini-cli", Requires: "npm", Recommended: true,
@@ -113,6 +123,12 @@ var tools = []Tool{
 		// and free) since June 2026 (ADR-106)
 		ID: "antigravity", Name: "Antigravity CLI", Bin: "agy", DocsURL: "https://antigravity.google/docs/cli",
 		LoginCmd: "agy", loginArgv: []string{"agy"},
+		// no logout subcommand either
+		LogoutCmd: "rm ~/.gemini/antigravity-cli/antigravity-oauth-token",
+		logoutFiles: func() []string {
+			home, _ := os.UserHomeDir()
+			return []string{filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")}
+		},
 		// a full-screen sign-in: it waits for answers to its terminal queries,
 		// wraps the link at the window width, and starts on a method menu
 		loginTerm: term{cols: 1000, answer: true, keys: []autoKey{{after: "Select login method", keys: "\r"}}},
@@ -151,11 +167,7 @@ func geminiStatus(ctx context.Context, bin string, env []string) Auth {
 // no sign-in method is chosen yet, so the CLI goes straight to the URL instead
 // of a menu the dashboard cannot drive.
 func geminiPrepareLogin() error {
-	home := os.Getenv("GEMINI_CLI_HOME")
-	if home == "" {
-		home, _ = os.UserHomeDir()
-	}
-	dir := filepath.Join(home, ".gemini")
+	dir := geminiDir()
 	path := filepath.Join(dir, "settings.json")
 	settings := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil {
@@ -184,6 +196,15 @@ func geminiPrepareLogin() error {
 		return err
 	}
 	return os.WriteFile(path, raw, 0o600)
+}
+
+// geminiDir is Gemini CLI's settings and credentials folder.
+func geminiDir() string {
+	home := os.Getenv("GEMINI_CLI_HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	return filepath.Join(home, ".gemini")
 }
 
 // claudeStatus reads `claude auth status --json`.
@@ -217,6 +238,10 @@ func codexStatus(ctx context.Context, bin string, env []string) Auth {
 	case err == nil && strings.Contains(low, "logged in"):
 		// the CLI only checks the file exists: an expired session reads "Logged in" too
 		if expired, detail := llm.CodexSessionExpired(time.Now()); expired {
+			return Auth{LoggedIn: false, Detail: detail}
+		}
+		// nor does it know the server refused the session in a real call
+		if rejected, detail := llm.CodexRejected(); rejected {
 			return Auth{LoggedIn: false, Detail: detail}
 		}
 		return Auth{LoggedIn: true, Detail: text}
@@ -465,6 +490,40 @@ func (m *Manager) Login(id string) (*Job, error) {
 		}()
 	}
 	return j, err
+}
+
+// Logout signs the tool out: its logout subcommand, or removing its
+// credentials file. Signing in again after it starts from a clean slate
+// (Gemini's sign-in skips straight to its chat while credentials exist).
+func (m *Manager) Logout(ctx context.Context, id string) error {
+	t, ok := m.find(id)
+	if !ok {
+		return ErrUnknownTool
+	}
+	m.mu.Lock()
+	j := m.last[id]
+	m.mu.Unlock()
+	if j != nil && j.Snapshot().State == "running" {
+		return ErrBusy
+	}
+	if t.logoutFiles != nil {
+		for _, f := range t.logoutFiles() {
+			if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+		return nil
+	}
+	path := m.lookPath(t.Bin)
+	if path == "" {
+		return ErrNotInstalled
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if out, err := runOut(ctx, m.env, path, t.logoutArgv[1:]...); err != nil {
+		return fmt.Errorf("%s: %v: %s", t.LogoutCmd, err, strings.TrimSpace(out))
+	}
+	return nil
 }
 
 func (m *Manager) start(tool, action string, argv []string, timeout time.Duration, tm term, env ...string) (*Job, error) {

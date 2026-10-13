@@ -180,6 +180,7 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	if res.Text == "" {
 		if msg := llm.CodexFailure(strings.Join(failed, "\n")); msg != "" {
 			if llm.CodexAuthFailed(msg) || llm.CodexAuthFailed(stderr.String()) {
+				llm.MarkCodexRejected()
 				return res, fmt.Errorf("%w: phiên Codex bị từ chối (%s), hãy bấm Đăng nhập ở Kết nối AI để ký lại", llm.ErrNeedsLogin, truncate(msg, 200))
 			}
 			return res, fmt.Errorf("codex: %s", truncate(msg, 500))
@@ -191,6 +192,7 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 			msg = werr.Error()
 		}
 		if llm.CodexAuthFailed(msg) {
+			llm.MarkCodexRejected()
 			return res, fmt.Errorf("%w: phiên Codex bị từ chối (%s), hãy bấm Đăng nhập ở Kết nối AI để ký lại", llm.ErrNeedsLogin, truncate(msg, 200))
 		}
 		return res, fmt.Errorf("codex: %s", truncate(msg, 500))

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bitbucket.org/senprints/agent-office/internal/llm"
 )
 
 // fakeClaude behaves like `claude` for --version, auth status and auth login.
@@ -275,5 +277,55 @@ func TestAntigravityLogin(t *testing.T) {
 	waitState(t, j, "succeeded") // signed in: the job ends though the CLI keeps running
 	if s, _ := m.Status(ctx, "antigravity"); !s.Auth.LoggedIn {
 		t.Fatalf("after login = %+v", s.Auth)
+	}
+}
+
+func TestCodexStatusRejectedSession(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	auth := filepath.Join(home, "auth.json")
+	if err := os.WriteFile(auth, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(auth, past, past)
+	m, dir := testManager(t)
+	writeBin(t, dir, "codex", "#!/bin/sh\ncase \"$1 $2\" in \"--version \"*) echo codex-cli 1;; \"login status\") echo 'Logged in using ChatGPT';; esac\n")
+	llm.MarkCodexRejected()
+	if s, _ := m.Status(context.Background(), "codex"); s.Auth.LoggedIn {
+		t.Fatalf("a session the server refused must read signed out: %+v", s.Auth)
+	}
+	// a new sign-in rewrites auth.json
+	future := time.Now().Add(time.Minute)
+	_ = os.Chtimes(auth, future, future)
+	if s, _ := m.Status(context.Background(), "codex"); !s.Auth.LoggedIn {
+		t.Fatalf("signed in again: %+v", s.Auth)
+	}
+}
+
+func TestLogout(t *testing.T) {
+	m, dir := testManager(t)
+	marker := filepath.Join(dir, "logged-out")
+	writeBin(t, dir, "codex", "#!/bin/sh\n[ \"$1\" = logout ] && touch "+marker+"\n")
+	if err := m.Logout(context.Background(), "codex"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("codex logout did not run")
+	}
+	// Gemini has no logout subcommand: its credentials file goes
+	gh := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", gh)
+	creds := filepath.Join(gh, ".gemini", "oauth_creds.json")
+	_ = os.MkdirAll(filepath.Dir(creds), 0o700)
+	_ = os.WriteFile(creds, []byte(`{}`), 0o600)
+	if err := m.Logout(context.Background(), "gemini"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(creds); !os.IsNotExist(err) {
+		t.Fatal("gemini credentials still there")
+	}
+	if err := m.Logout(context.Background(), "gemini"); err != nil {
+		t.Fatalf("already signed out is fine: %v", err)
 	}
 }
