@@ -7,10 +7,10 @@ const { t } = useLang()
 </script>
 
 <template>
-  <div class="inline-flex rounded-lg bg-(--ui-bg-elevated) p-0.5" role="tablist">
+  <div class="inline-flex max-w-full overflow-x-auto rounded-lg bg-(--ui-bg-elevated) p-0.5" role="tablist">
     <button
       v-for="it in items" :key="it.value" type="button" role="tab" :aria-selected="model === it.value"
-      class="relative flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm transition"
+      class="relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-sm transition"
       :class="model === it.value ? 'bg-(--ui-bg) font-medium shadow-sm' : 'text-(--ui-text-muted) hover:text-(--ui-text)'"
       @click="model = it.value"
     >

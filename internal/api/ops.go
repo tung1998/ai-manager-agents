@@ -20,6 +20,7 @@ import (
 func (s *server) opsRoutes(mux *http.ServeMux, auth, admin func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /api/projects/{id}/ops/detect", admin(s.opsDetect))
 	mux.Handle("GET /api/projects/{id}/ops/env", admin(s.opsDetectEnv))
+	mux.Handle("GET /api/projects/{id}/ops/envfiles", admin(s.opsEnvFiles))
 	mux.Handle("GET /api/projects/{id}/processes", auth(s.listProcesses))
 	mux.Handle("POST /api/projects/{id}/processes", admin(s.createProcess))
 	mux.Handle("PATCH /api/processes/{id}", admin(s.updateProcess))
@@ -104,6 +105,21 @@ func (s *server) opsDetectEnv(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"env": ops.DetectEnv(p.Path, cwd, r.URL.Query().Get("command"))})
+}
+
+// opsEnvFiles: the project's .env-style files, to edit as variables (read
+// and saved through the file editor's /file).
+func (s *server) opsEnvFiles(w http.ResponseWriter, r *http.Request) {
+	p, err := s.cfg.Store.Repos().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	if p.Path == "" {
+		writeError(w, http.StatusBadRequest, ops.ErrNoFolder.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"files": ops.FindEnvFiles(p.Path)})
 }
 
 func (s *server) listProcesses(w http.ResponseWriter, r *http.Request) {
