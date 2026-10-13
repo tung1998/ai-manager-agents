@@ -33,12 +33,11 @@ const remove = (i: number) => { model.value = shown.value.filter((_, j) => j !==
           {{ providerOf(r.id)?.name ?? r.id }}
           <UBadge v-if="providerOf(r.id)?.enabled === false" :label="t('org.form.fallbackOff')" size="sm" color="neutral" variant="subtle" />
         </span>
-        <UInput
-          :model-value="r.model" :list="`fallback-models-${i}`" size="xs" class="w-40 font-mono" :disabled="disabled"
+        <ModelInput
+          :model-value="r.model" :models="providerOf(r.id)?.models" size="xs" class="w-40" :disabled="disabled"
           :placeholder="r.id === mainId ? t('org.form.fallbackModelNeeded') : (tier && providerOf(r.id)?.tier_models[tier]) || t('org.form.fallbackModel')"
-          @change="(e: Event) => setModel(i, (e.target as HTMLInputElement).value)"
+          @update:model-value="(v: string) => setModel(i, v)"
         />
-        <datalist :id="`fallback-models-${i}`"><option v-for="m in providerOf(r.id)?.models ?? []" :key="m" :value="m" /></datalist>
         <template v-if="!disabled">
           <UButton v-if="i > 0" size="xs" color="neutral" variant="ghost" icon="i-lucide-arrow-up" :aria-label="t('org.form.fallbackUp')" @click="up(i)" />
           <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('org.form.fallbackRemove')" @click="remove(i)" />

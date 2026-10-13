@@ -534,10 +534,7 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
                   </p>
                   <div class="mt-2 grid gap-3 sm:grid-cols-3">
                     <UFormField v-for="tier in (['strong', 'balanced', 'fast'] as const)" :key="tier" :label="modelTierLabel[tier]">
-                      <UInput v-model="form.tier_models[tier]" :list="`models-${tier}`" class="w-full font-mono" size="sm" />
-                      <datalist :id="`models-${tier}`">
-                        <option v-for="m in editing?.models ?? []" :key="m" :value="m" />
-                      </datalist>
+                      <ModelInput v-model="form.tier_models[tier]" :models="editing?.models" class="w-full" size="sm" />
                     </UFormField>
                   </div>
                 </div>
@@ -561,10 +558,7 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
       <template #body>
         <div class="space-y-4">
           <UFormField :label="t('prov.model2')">
-            <UInput v-model="testModel" list="test-models" class="w-full font-mono" />
-            <datalist id="test-models">
-              <option v-for="m in testTarget?.models ?? []" :key="m" :value="m" />
-            </datalist>
+            <ModelInput v-model="testModel" :models="testTarget?.models" class="w-full" />
           </UFormField>
           <UFormField :label="t('prov.prompt')">
             <UTextarea v-model="testPrompt" :rows="3" class="w-full" />

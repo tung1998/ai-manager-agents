@@ -359,8 +359,7 @@ async function restore(e: Entry) {
             </UFormField>
             <!-- the tier's model as the placeholder: a hint beside the label pushed it onto two lines -->
             <UFormField :label="t('org.form.specificModel')">
-              <UInput v-model="form.llm_model" list="agent-page-models" :placeholder="formProvider?.tier_models[form.model_tier] || ''" class="w-full font-mono" />
-              <datalist id="agent-page-models"><option v-for="m in formProvider?.models ?? []" :key="m" :value="m" /></datalist>
+              <ModelInput v-model="form.llm_model" :models="formProvider?.models" :placeholder="formProvider?.tier_models[form.model_tier] || ''" class="w-full" />
             </UFormField>
             <UFormField v-if="formEfforts.length" :label="t('org.form.effort')">
               <template #hint>

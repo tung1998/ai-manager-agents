@@ -85,10 +85,7 @@ async function save() {
           :label="t('org.form.specificModel')"
           :help="t('org.form.specificModelHelp', { model: chosen?.tier_models?.[form.model_tier] || t('org.form.specificModelFallback') })"
         >
-          <UInput v-model="form.llm_model" list="assistant-models" class="w-full font-mono" />
-          <datalist id="assistant-models">
-            <option v-for="m in chosen?.models ?? []" :key="m" :value="m" />
-          </datalist>
+          <ModelInput v-model="form.llm_model" :models="chosen?.models" class="w-full" />
         </UFormField>
         <FallbackPicker v-model="form.fallback_provider_ids" :providers="providers" :main-id="chosen?.id" :tier="form.model_tier" />
 
