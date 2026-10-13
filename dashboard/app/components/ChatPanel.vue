@@ -287,15 +287,17 @@ onLiveChange(async (tables) => {
   if (!tables.includes('*') && !tables.some(t => ['patches', 'actions', 'conversation_agents'].includes(t))) return // '*': back online
   if (!single.value && tables.includes('*')) refreshConvs()
   const c = current.value
-  if (!c || streaming.value || loadingMsgs.value) return
+  if (!c || streaming.value || sending.value || loadingMsgs.value) return
   try {
     const res = await $fetch<{ messages: Message[], members?: Member[], running?: RunningTurn[], conversation: Conversation }>(`/api/conversations/${c.id}?limit=${PAGE}`)
-    if (current.value?.id !== c.id || streaming.value) return
+    if (current.value?.id !== c.id || streaming.value || sending.value) return
     const known = new Set(messages.value.map(m => m.id))
     const fresh = res.messages.filter(m => !known.has(m.id))
     const changed = res.messages.some(m => { const x = messages.value.find(y => y.id === m.id); return x && JSON.stringify(x) !== JSON.stringify(m) })
     if (!fresh.length && !changed) return
+    // by time: one this fetch missed (sent or pushed meanwhile) keeps its place at the end, not above the page
     messages.value = [...messages.value.filter(m => !res.messages.some(n => n.id === m.id)), ...res.messages]
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
     applyGroup(res.members, res.running)
     if (res.conversation.active_turn && !streaming.value) follow(res.conversation.active_turn)
     if (fresh.length) scrollDown()
