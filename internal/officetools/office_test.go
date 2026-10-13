@@ -142,6 +142,9 @@ func (fakeWorkflows) WorkflowScope(Scope) (coordinator, inRun bool) { return tru
 func (fakeWorkflows) WorkflowCall(context.Context, Scope, string, json.RawMessage) (string, error) {
 	return "", nil
 }
+func (fakeWorkflows) StartWorkflow(context.Context, Scope, string, string) (string, error) {
+	return "", nil
+}
 
 type fakeRunner struct{}
 

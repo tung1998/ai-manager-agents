@@ -55,6 +55,9 @@ type Workflows interface {
 	// inRun = it is a turn of a running workflow (no delegate then).
 	WorkflowScope(sc Scope) (coordinator, inRun bool)
 	WorkflowCall(ctx context.Context, sc Scope, name string, raw json.RawMessage) (string, error)
+	// StartWorkflow runs workflow key of the project in sc's chat with input,
+	// as if the person wrote "#key input": it starts when the turn ends.
+	StartWorkflow(ctx context.Context, sc Scope, key, input string) (string, error)
 }
 
 // SetWorkflow turns on the workflow_* tools.
@@ -260,6 +263,8 @@ func (t *Toolbox) Tools() []Tool {
 	}
 	if t.wf != nil {
 		str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
+		list = append(list, Tool{Name: "run_workflow", Description: "Run one of the project's workflows in this chat yourself, as the person would by writing \"#key input\": it starts when your turn ends and its result comes back to this chat. Use it when a listed workflow fits the request; write the input the workflow needs.",
+			Schema: obj(map[string]any{"key": str("Workflow key (without #)"), "input": str("The workflow's input: the request, with the context it needs")}, "key", "input")})
 		brief := map[string]any{"type": "object", "description": "The brief, by the sections the workflow asks for: outcome, question, context, constraints (verified), current_option (open to challenge), tried (and why dropped), files, done_when, must_not. Not how to change each file.",
 			"additionalProperties": map[string]any{"type": "string"}}
 		list = append(list,
@@ -304,8 +309,11 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 		if sc.Office && x.Name == "delegate" {
 			continue // the assistant hands work to a project's chat instead
 		}
-		if t.wf != nil && (x.Name == "delegate" || strings.HasPrefix(x.Name, "workflow_")) {
+		if t.wf != nil && (x.Name == "delegate" || x.Name == "run_workflow" || strings.HasPrefix(x.Name, "workflow_")) {
 			coord, inRun := t.wf.WorkflowScope(sc)
+			if x.Name == "run_workflow" && (inRun || sc.ConversationID == "" || sc.Office || !perm.AtLeast(sc.Level, perm.Propose)) {
+				continue // a chat's own turn, by an agent that may run things
+			}
 			if x.Name == "delegate" && inRun {
 				continue // a workflow gives work through its own tools
 			}
@@ -331,7 +339,7 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 // proposes: a tool that proposes a change or runs something (none for an
 // assistant that only answers).
 func proposes(name string) bool {
-	return strings.HasPrefix(name, "propose") || name == "run_automation" || name == "send_to_chat"
+	return strings.HasPrefix(name, "propose") || name == "run_automation" || name == "send_to_chat" || name == "run_workflow"
 }
 
 // Has reports whether name is one of the tools.
@@ -491,6 +499,13 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 			return "Không có quy trình ở đây", true
 		}
 		out, err = t.wf.WorkflowCall(ctx, sc, name, raw)
+	case "run_workflow":
+		if t.wf == nil || !t.Has(sc, name) {
+			return "Không chạy được quy trình ở đây", true
+		}
+		var w struct{ Key, Input string }
+		_ = json.Unmarshal(raw, &w)
+		out, err = t.wf.StartWorkflow(ctx, sc, w.Key, w.Input)
 	case "delegate":
 		if t.delegate == nil {
 			return "Không có công cụ giao việc ở đây", true

@@ -2303,3 +2303,10 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Bật (`POST …/burn/start` không kèm `ends_at`/`no_end`, quest có `start`, lịch) đều qua `Service.TurnOn`: `ends_at` tính từ plan lúc bật. `ends_at`/`no_end` gửi kèm vẫn được (script, dashboard cũ).
   - Bộ hẹn giờ trong `Service.Start` xem 30 giây một lần các phiên `auto`: tới giờ (trễ tối đa 1 giờ) mà đang tắt và chưa chạy từ mốc đó thì bật, `started_by = auto:lịch Burn`. Tắt tay thì đợi mốc sau. Mỗi mốc chỉ thử một lần; lỗi thì báo vào chat Burn.
   - Dashboard: công tắc Bật/Tắt trên đầu tab (tắt = làm nốt rồi tắt), dòng trạng thái nói bật thì chạy tới đâu và lần tự bật kế tiếp (`next_start`). Cảnh báo toàn quyền chuyển thành ⓘ cạnh công tắc. Cài đặt chia khối: Lịch chạy, Việc cần làm, Ai làm, Kiểm tra & báo cáo, Nâng cao.
+
+## ADR-150: Agent tự chạy quy trình (`run_workflow`)
+- **Bối cảnh (12/10):** Quy trình chỉ chạy khi tin bắt đầu bằng `#key` (người, bot, tự động hóa). Agent không có công cụ nào để bắt đầu một quy trình và cũng không biết project có quy trình nào, nên người phải tự gõ `#key` rồi nhập yêu cầu.
+- **Quyết định:**
+  - Công cụ `run_workflow(key, input)` cho agent trả lời trong chat của project (`purpose` rỗng, không phải việc, bot, chat ẩn), gói quyền từ Đề xuất trở lên, không phải trợ lý office, không đang trong một quy trình (ở đó dùng `workflow_*`).
+  - Gọi công cụ là xếp `#key input` vào hàng chờ của chat, tác giả là người đã gửi tin của lượt đó. Lượt kết thúc thì tin đi như người tự gõ, nên mọi thứ giống hệt: kiểm `enabled`/`callable: sub`, chat riêng của lần chạy, giới hạn, ngân sách, cổng, Dừng. Agent điều phối là agent của chat.
+  - Lời nhắc hệ thống của chat project liệt kê các quy trình chạy được (`#key: tên, mô tả`, prompt `chat/workflows`) khi agent có quyền dùng công cụ.

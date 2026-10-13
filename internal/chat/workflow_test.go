@@ -724,3 +724,34 @@ steps:
 		t.Fatalf("runs = %+v", runs)
 	}
 }
+
+// An agent runs a workflow itself (run_workflow): "#key input" waits in its
+// chat as the person and goes when the answer ends, then runs as if typed.
+func TestAgentStartsWorkflowItself(t *testing.T) {
+	g := newWFGroup(t)
+	g.install(t, "council", map[string]string{"a": g.dev.ID, "b": g.qa.ID})
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	if _, _, err := g.engine.Send(g.context, g.conv.ID, "test này chập chờn, xem giúp", nil); err != nil {
+		t.Fatal(err)
+	}
+	turn, ok := g.engine.Active(g.conv.ID)
+	if !ok {
+		t.Fatal("no answer in progress")
+	}
+	sc := officetools.Scope{ProjectID: g.f.project.ID, ConversationID: g.conv.ID, RunRef: turn.ID, Agent: g.leadNm}
+	if _, err := g.engine.StartWorkflow(g.context, sc, "nope", "x"); err == nil || !strings.Contains(err.Error(), "#council") {
+		t.Fatalf("unknown key: %v", err)
+	}
+	if _, err := g.engine.StartWorkflow(g.context, sc, "#council", "vì sao test chập chờn"); err != nil {
+		t.Fatal(err)
+	}
+	if runs, _ := g.f.st.WorkflowRuns().List(g.context, g.f.project.ID, g.conv.ID, 1); len(runs) != 0 {
+		t.Fatal("the run started before the answer ended")
+	}
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	g.own(t)
+	if r := g.run(t); r.WorkflowKey != "council" || r.Input != "vì sao test chập chờn" {
+		t.Fatalf("run = %+v", r)
+	}
+	g.engine.StopAll(g.conv.ID)
+}

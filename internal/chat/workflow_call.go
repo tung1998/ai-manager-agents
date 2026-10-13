@@ -12,8 +12,12 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/attach"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
+	"bitbucket.org/senprints/agent-office/internal/perm"
+	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/usage"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
 // SetOnRunWait is told, when a turn of a workflow's own chat ends, the chat
@@ -153,4 +157,91 @@ func callerContext(msgs []storage.Message) string {
 	}
 	slices.Reverse(parts)
 	return strings.Join(parts, "\n\n")
+}
+
+// StartWorkflow is an agent running a workflow of the project itself (the
+// run_workflow tool): "#key input" waits in its chat like a message the
+// person wrote while it answered, as that person, and goes when the chat is
+// free; the run is then called exactly as if they had typed it.
+func (e *Engine) StartWorkflow(ctx context.Context, sc officetools.Scope, key, input string) (string, error) {
+	e.mu.Lock()
+	t := e.turns[sc.RunRef]
+	e.mu.Unlock()
+	if t == nil || t.ConversationID != sc.ConversationID {
+		return "", errors.New("chỉ chạy được quy trình từ một lượt trả lời trong chat")
+	}
+	if t.wfRun != "" {
+		return "", errors.New("đang trong một quy trình: giao việc bằng các công cụ workflow_*")
+	}
+	conv, err := e.store.Chat().GetConversation(ctx, sc.ConversationID)
+	if err != nil {
+		return "", err
+	}
+	if conv.Purpose != "" || conv.TaskID != "" {
+		return "", errors.New("chỉ chạy được quy trình trong chat của project")
+	}
+	key = strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(key), workflow.Prefix), "/")
+	w, err := e.store.Workflows().GetByKey(ctx, conv.ProjectID, key)
+	if err != nil || !w.Enabled {
+		return "", fmt.Errorf("không có quy trình đang bật %q (có: %s)", key, strings.Join(e.startable(ctx, conv.ProjectID), ", "))
+	}
+	def, err := workflow.Parse(w.Source)
+	if err != nil {
+		return "", fmt.Errorf("quy trình %s không hợp lệ: %w", key, err)
+	}
+	if def.Callable == workflow.CallableSub {
+		return "", fmt.Errorf("quy trình %s chỉ để quy trình khác gọi (callable: sub)", key)
+	}
+	if e.calledFrom(conv.ID) != nil {
+		return "", ErrWorkflowRunning
+	}
+	if _, err := e.Queue(actor.With(ctx, t.actor), conv.ID, workflow.Call(def.Key, input), "", nil, storage.QueuedOptions{}); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Workflow #%s (%s) starts in this chat when your turn ends; its result comes back here. End your turn now with one short line saying you started it; do not do its work yourself.", def.Key, def.Name), nil
+}
+
+// startable: the keys of the project's workflows a chat may run.
+func (e *Engine) startable(ctx context.Context, projectID string) []string {
+	var out []string
+	for _, w := range e.chatWorkflows(ctx, projectID) {
+		out = append(out, workflow.Prefix+w.Key)
+	}
+	return out
+}
+
+// chatWorkflows: the project's enabled workflows a chat may run (not callable: sub).
+func (e *Engine) chatWorkflows(ctx context.Context, projectID string) []storage.Workflow {
+	list, err := e.store.Workflows().List(ctx, projectID)
+	if err != nil {
+		return nil
+	}
+	var out []storage.Workflow
+	for _, w := range list {
+		if !w.Enabled {
+			continue
+		}
+		if def, err := workflow.Parse(w.Source); err != nil || def.Callable == workflow.CallableSub {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// workflowsBrief lists the workflows the agent of a project chat may run
+// with run_workflow ("" = none, or it may not run them).
+func (e *Engine) workflowsBrief(ctx context.Context, conv storage.Conversation, level string) string {
+	if conv.Purpose != "" || conv.TaskID != "" || !perm.AtLeast(level, perm.Propose) {
+		return ""
+	}
+	type item struct{ Key, Name, Description string }
+	var items []item
+	for _, w := range e.chatWorkflows(ctx, conv.ProjectID) {
+		items = append(items, item{w.Key, w.Name, oneLine(w.Description)})
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	return "\n" + prompts.Render("chat/workflows", map[string]any{"Workflows": items}) + "\n"
 }

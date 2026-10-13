@@ -1071,6 +1071,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		}
 	case teamChat(conv): // the team and how to give it work
 		req.System += e.groupBrief(ctx, conv, agent)
+		if !e.isAssistant(ctx, project.ID) {
+			req.System += e.workflowsBrief(ctx, conv, level) // what it may run itself (run_workflow)
+		}
 	}
 	if clash != "" {
 		req.System += "\n\n" + prompts.Render("chat/conflicts", map[string]any{"Files": clash})
