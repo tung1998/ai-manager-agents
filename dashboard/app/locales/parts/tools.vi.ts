@@ -103,6 +103,8 @@ export default {
   'cli.cancel': 'Hủy',
   'cli.failed': 'Không thành công{detail}',
   'cli.copied': 'Đã sao chép',
+  'cli.checking': 'Đang kiểm tra {tool} trên máy…',
+  'cli.retry': 'Thử lại',
   'cli.relogin': 'Đăng nhập lại',
   'cli.logout': 'Đăng xuất',
   'cli.confirmLogout': 'Đăng xuất {name} trên máy này ({cmd})? Agent dùng {name} sẽ dừng chạy được cho tới khi đăng nhập lại.',

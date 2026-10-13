@@ -251,6 +251,9 @@ func codexStatus(ctx context.Context, bin string, env []string) Auth {
 			if expired, detail := llm.CodexSessionExpired(time.Now()); expired {
 				return Auth{LoggedIn: false, Detail: detail}
 			}
+			if rejected, detail := llm.CodexRejected(); rejected {
+				return Auth{LoggedIn: false, Detail: detail}
+			}
 			return Auth{LoggedIn: true, Detail: "đã có ~/.codex/auth.json"}
 		}
 	}

@@ -35,6 +35,7 @@ const { t } = useLang()
 
 const status = ref<ToolStatus | null>(null)
 const disabled = ref(false) // server started with --cli-setup=false
+const loadError = ref('')
 const method = ref('')
 const job = ref<JobView | null>(null)
 const code = ref('')
@@ -46,6 +47,7 @@ watch(ready, v => emit('ready', v), { immediate: true })
 watch(disabled, (v) => { if (v) emit('ready', true) })
 
 async function load() {
+  loadError.value = ''
   try {
     status.value = await $fetch<ToolStatus>(`/api/cli-tools/${props.tool}`)
     const methods = status.value.methods
@@ -53,6 +55,7 @@ async function load() {
     if (status.value.job?.state === 'running') follow(status.value.job)
   } catch (e) {
     if ((e as { statusCode?: number }).statusCode === 404) disabled.value = true
+    else loadError.value = apiError(e)
   }
 }
 
@@ -141,7 +144,19 @@ onBeforeUnmount(() => clearTimeout(timer))
 </script>
 
 <template>
-  <div v-if="status && !disabled && ready && !running" class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+  <!-- the status runs the CLI (version, sign-in): it can take seconds -->
+  <div v-if="!status && !disabled" class="flex items-center gap-2 text-sm text-(--ui-text-muted)">
+    <template v-if="loadError">
+      <UIcon name="i-lucide-circle-alert" class="size-4 shrink-0 text-(--ui-error)" />
+      <span class="min-w-0 flex-1">{{ loadError }}</span>
+      <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :label="t('cli.retry')" @click="load" />
+    </template>
+    <template v-else>
+      <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+      {{ t('cli.checking', { tool: props.tool }) }}
+    </template>
+  </div>
+  <div v-else-if="status && !disabled && ready && !running" class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
     <UIcon name="i-lucide-circle-check" class="size-4 shrink-0 text-(--ui-success)" />
     <span class="min-w-0 flex-1 basis-40 truncate">
       {{ t('cli.loggedIn', { name: status.name }) }}<span v-if="status.auth.account" class="text-(--ui-text-muted)"> · {{ status.auth.account }}</span>

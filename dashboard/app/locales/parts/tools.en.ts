@@ -102,6 +102,8 @@ const en: Record<keyof typeof vi, string> = {
   'cli.cancel': 'Cancel',
   'cli.failed': 'Failed{detail}',
   'cli.copied': 'Copied',
+  'cli.checking': 'Checking {tool} on this machine…',
+  'cli.retry': 'Retry',
   'cli.relogin': 'Sign in again',
   'cli.logout': 'Sign out',
   'cli.confirmLogout': 'Sign {name} out on this machine ({cmd})? Agents on {name} cannot run until it signs in again.',
