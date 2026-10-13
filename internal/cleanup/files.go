@@ -133,7 +133,7 @@ func (s *Service) scan(ctx context.Context) (Files, error) {
 // junkTree: nothing uses the worktree any more (a Burn piece that is over
 // keeps its branch; its folder is of no more use).
 func (s *Service) junkTree(ctx context.Context, name string) bool {
-	if id, ok := strings.CutPrefix(name, "burn-"); ok && !strings.HasPrefix(name, "burn-scan-") {
+	if id, ok := strings.CutPrefix(name, "burn-"); ok && !strings.HasPrefix(name, "burn-scan-") && !strings.HasPrefix(name, "burn-run-") {
 		it, err := s.store.Burn().Item(ctx, id)
 		return err != nil || (it.Status != "doing" && it.Status != "paused" && it.Status != "queued" && it.Status != "review")
 	}
@@ -141,7 +141,7 @@ func (s *Service) junkTree(ctx context.Context, name string) bool {
 		t, err := s.store.Tasks().Get(ctx, id)
 		return err != nil || t.Status != "running"
 	}
-	if !strings.HasPrefix(name, "chat-") && !strings.HasPrefix(name, "burn-scan-") {
+	if !strings.HasPrefix(name, "chat-") && !strings.HasPrefix(name, "burn-scan-") && !strings.HasPrefix(name, "burn-run-") {
 		return false // not office's own: left alone
 	}
 	keep, _ := s.chat.TreeWanted(ctx, name)

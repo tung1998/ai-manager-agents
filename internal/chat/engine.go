@@ -135,6 +135,7 @@ type Turn struct {
 	actor    string        // who sent the message
 	tier     string        // the model tier asked for ("" = each agent's)
 	ceiling  string        // the most the message's sender may have run ("" = none): its hand-offs keep it (ADR-081)
+	tree     treeOpt       // the worktree it runs in, not the chat's (a Burn piece's): its hand-offs and workflow roles too
 	limit    time.Duration // how long each of its turns may take (0: no limit), its hand-offs too (ADR-082)
 	total    *atomic.Int32
 
@@ -758,7 +759,7 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	limit := turnTimeout(ctx) // none, or an automation's own (ADR-082)
 	runCtx, cancel := withTimeout(WithInstructions(WithModelTier(base, ModelTierFrom(ctx)), instructionsOf(ctx)), limit)
 	turn := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx), limit: limit,
+		queue: queue, actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx), tree: treeOptOf(ctx), limit: limit,
 		wfRun: wfID}
 	turn.total.Store(1)
 	// an automation job's id is already known: set it now, before beginJob
@@ -1735,8 +1736,20 @@ func (e *Engine) TreeWanted(ctx context.Context, name string) (keep, pinned bool
 	// a Burn's: a piece's own (its work waits there while paused, however
 	// long: kept until the piece is over), and its scans
 	if id, ok := strings.CutPrefix(name, "burn-scan-"); ok {
-		_, err := e.store.Burn().SessionByID(ctx, id)
-		return err == nil, false
+		s, err := e.store.Burn().SessionByID(ctx, id)
+		return err == nil, err == nil && s.State != "stopped"
+	}
+	if run, ok := strings.CutPrefix(name, "burn-run-"); ok { // a run's code (ADR-144): kept while it runs
+		list, err := e.store.Burn().Running(ctx)
+		if err != nil {
+			return true, true
+		}
+		for _, s := range list {
+			if strings.TrimPrefix(s.RunBranch, "burn/") == run {
+				return true, true
+			}
+		}
+		return true, false
 	}
 	if id, ok := strings.CutPrefix(name, "burn-"); ok {
 		it, err := e.store.Burn().Item(ctx, id)

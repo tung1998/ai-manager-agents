@@ -173,7 +173,7 @@ func (e *Engine) startChild(run *wfRun, conv storage.Conversation, project stora
 	if run.ceiling != "" {
 		level = perm.Min(level, run.ceiling)
 	}
-	sctx := WithCeiling(WithModelTier(actor.With(ctx, run.rec.Actor), run.tier), level)
+	sctx := WithCeiling(WithModelTier(withTreeOpt(actor.With(ctx, run.rec.Actor), run.tree), run.tier), level)
 	child.inputs = a.inputs
 	if err := e.launch(sctx, own, child, "/"+def.Key+" "+a.prompt, prompt, "", nil); err != nil {
 		_ = e.store.Chat().DeleteConversation(ctx, own.ID)

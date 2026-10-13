@@ -139,7 +139,16 @@ func WithPinnedTree(ctx context.Context, name string) context.Context {
 	return context.WithValue(ctx, treeKey{}, treeOpt{name, true, true})
 }
 
-func treeOf(ctx context.Context) string { o, _ := ctx.Value(treeKey{}).(treeOpt); return o.name }
+func treeOf(ctx context.Context) string     { o, _ := ctx.Value(treeKey{}).(treeOpt); return o.name }
+func treeOptOf(ctx context.Context) treeOpt { o, _ := ctx.Value(treeKey{}).(treeOpt); return o }
+
+// withTreeOpt runs ctx's turns in o's worktree, when it names one.
+func withTreeOpt(ctx context.Context, o treeOpt) context.Context {
+	if o.name == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, treeKey{}, o)
+}
 func pinnedTree(ctx context.Context) bool {
 	o, _ := ctx.Value(treeKey{}).(treeOpt)
 	return o.pinned

@@ -154,3 +154,44 @@ func TestDiffEndingOnBlankLineApplies(t *testing.T) {
 		t.Fatalf("the patch did not apply: %s", out)
 	}
 }
+
+// A result review is given what the piece changed since it started, new
+// files too; a diff too long to give is only its list of files.
+func TestReviewDiff(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git missing")
+	}
+	ctx := context.Background()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		c := exec.Command("git", append([]string{"-c", "user.email=t@x.io", "-c", "user.name=T"}, args...)...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatal(string(out))
+		}
+	}
+	run("init", "-q", "-b", "main")
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("1\n2\n"), 0o644)
+	run("add", "-A")
+	run("commit", "-q", "-m", "init")
+	run("update-ref", baseRef, "HEAD")
+	if got := reviewDiff(ctx, dir); got != "" {
+		t.Fatalf("no change: %q", got)
+	}
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("1\nhai\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("mới\n"), 0o644)
+	got := reviewDiff(ctx, dir)
+	for _, want := range []string{"a.txt", "b.txt", "+hai", "+mới"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("diff lacks %q:\n%s", want, got)
+		}
+	}
+	os.WriteFile(filepath.Join(dir, "c.txt"), []byte(strings.Repeat("dài\n", reviewDiffMax)), 0o644)
+	got = reviewDiff(ctx, dir)
+	if !strings.Contains(got, "c.txt") || strings.Contains(got, "+dài") {
+		t.Fatalf("a long diff is its files only:\n%.300s", got)
+	}
+	if reviewDiff(ctx, "") != "" {
+		t.Fatal("no worktree: no diff")
+	}
+}

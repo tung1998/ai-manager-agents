@@ -39,6 +39,7 @@ type wfRun struct {
 	coord    storage.Agent
 	tier     string          // the model tier of the message that started it
 	ceiling  string          // the most that message may have run (a bot's user…)
+	tree     treeOpt         // the worktree that message ran in (a Burn piece's): its roles read there too
 	deadline time.Time       // the run's timeout
 	timer    *time.Timer     // fires at the deadline
 	batch    map[string]bool // roles answering now; when none is left the coordinator is called back
@@ -319,6 +320,7 @@ func (e *Engine) differWarnings(ctx context.Context, run *wfRun, byID map[string
 
 // startRun keeps a prepared run going once its first turn has started.
 func (e *Engine) startRun(conv storage.Conversation, run *wfRun, turn *Turn) error {
+	run.tree = turn.tree
 	if err := e.beginRun(conv, run, turn.actor, turn.tier, turn.ceiling); err != nil {
 		return err
 	}
@@ -1298,7 +1300,7 @@ func (e *Engine) startRole(run *wfRun, conv storage.Conversation, project storag
 	r.Turns++
 	e.wf.mu.Unlock()
 	t, why := e.startTurn(conv, project, turnSpec{agent: a.agent, background: true, delegator: run.coord.ID, actor: run.rec.Actor,
-		tier: run.tier, ceiling: level, limit: limit, title: run.coord.Name + " → " + a.agent.Name + " (" + d.Name + ")", prompt: a.prompt,
+		tier: run.tier, ceiling: level, tree: run.tree, limit: limit, title: run.coord.Name + " → " + a.agent.Name + " (" + d.Name + ")", prompt: a.prompt,
 		wfRun: run.rec.ID, wfRole: a.role, wfVote: a.vote})
 	if t == nil {
 		e.wf.mu.Lock()
@@ -1413,7 +1415,7 @@ func (e *Engine) wfCallBack(runID string, conv storage.Conversation, project sto
 			run.logf("Biểu quyết không thông qua")
 		}
 	}
-	coord, tier, actorOf := run.coord, run.tier, run.rec.Actor
+	coord, tier, tree, actorOf := run.coord, run.tier, run.tree, run.rec.Actor
 	limit := time.Until(run.deadline)
 	e.wf.mu.Unlock()
 	if limit <= time.Second {
@@ -1423,7 +1425,7 @@ func (e *Engine) wfCallBack(runID string, conv storage.Conversation, project sto
 		Workflow, Vote string
 		Done, Notes    []string
 	}{run.def.Name, vote, lines, notes})
-	t, why := e.startTurn(conv, project, turnSpec{agent: coord, actor: actorOf, tier: tier, ceiling: run.ceiling, limit: limit,
+	t, why := e.startTurn(conv, project, turnSpec{agent: coord, actor: actorOf, tier: tier, ceiling: run.ceiling, tree: tree, limit: limit,
 		title: "Quy trình " + run.def.Name + " → " + coord.Name, prompt: prompt, wfRun: runID})
 	if t == nil {
 		if why == "" { // the chat is busy: again in a moment

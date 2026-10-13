@@ -47,6 +47,10 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 )
 
+// worktreeIdle: a chat's worktree untouched this long, with no change
+// waiting for review, is removed (the chat stays).
+const worktreeIdle = 3 * 24 * time.Hour
+
 // serveCmd is the API server. `office run` (the supervisor) starts it as a
 // child; it can also be run directly.
 func serveCmd() *cobra.Command {
@@ -115,7 +119,19 @@ func serveCmd() *cobra.Command {
 			// agents edit and check in their own git worktrees (ADR-037)
 			trees := worktree.New(filepath.Join(h.Dir, "worktrees"))
 			chatEngine.SetWorktrees(trees)
-			go chatEngine.SweepWorktrees(ctx, 14*24*time.Hour)
+			// each is a copy of the project: idle ones go (made again when the
+			// chat goes on), not only at start — an office up for weeks kept them all
+			go func() {
+				for t := time.NewTicker(6 * time.Hour); ; {
+					chatEngine.SweepWorktrees(ctx, worktreeIdle)
+					select {
+					case <-ctx.Done():
+						t.Stop()
+						return
+					case <-t.C:
+					}
+				}
+			}()
 			procs := ops.NewManager(a.store, filepath.Join(h.Dir, "logs"), a.cli.Env())
 			defer procs.Shutdown() // project processes stop with the office
 			go procs.RunSampler(ctx, 3*time.Second)

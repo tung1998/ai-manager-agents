@@ -31,7 +31,13 @@ The person gave this piece themselves: whether to do it is their call, not yours
 [[- end]]
 [[- else if eq .Stage "result"]]
 The agent reports done: [[.Summary]]
-The changes are in worktree [[.Worktree]], against where it started: `git diff refs/worktree/burn-base` there (the agent may also have committed).
+The changes are in worktree [[.Worktree]] (the folder you are in), against where it started: `git diff --cached refs/worktree/burn-base` there.
+[[- if .Diff]]
+What it changed (start from this; read more of a file only where the diff is not enough, never search other folders):
+```diff
+[[.Diff]]
+```
+[[- end]]
 Review the RESULT in that worktree: does it do what the piece's detail asks, any bugs, missing tests or changes out of scope. A change of behaviour the detail asks for is in scope, not a reason to disagree; out of scope is only what the detail did not ask for. Run build/test to verify if your access allows. If you disagree, say exactly what must change (passed to the agent to redo).
 [[- end]]
 

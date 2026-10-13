@@ -42,6 +42,7 @@ func (e *Engine) launch(ctx context.Context, own storage.Conversation, run *wfRu
 	if run.inputs == nil {
 		run.inputs = inputsFrom(run.def, run.rec.Input)
 	}
+	run.tree = treeOptOf(ctx)
 	if err := e.beginRun(own, run, actor.From(ctx), ModelTierFrom(ctx), ceilingOf(ctx)); err != nil {
 		return err
 	}
@@ -378,7 +379,7 @@ func (e *Engine) stepAgent(ctx context.Context, own storage.Conversation, projec
 		e.wf.mu.Unlock()
 		e.saveRun(run, rec, seq)
 	}
-	t, why := e.startTurn(own, project, turnSpec{agent: a, background: true, actor: run.rec.Actor, tier: run.tier, ceiling: level, limit: time.Until(run.deadline),
+	t, why := e.startTurn(own, project, turnSpec{agent: a, background: true, actor: run.rec.Actor, tier: run.tier, ceiling: level, tree: run.tree, limit: time.Until(run.deadline),
 		title: run.def.Name + " → " + a.Name + " (" + workflow.StepLabel(s) + ")", prompt: prompt + "\n\n" + workflow.AccessNote(d.Access),
 		wfRun: run.rec.ID, wfStep: s.ID})
 	if t == nil {
@@ -469,7 +470,7 @@ func (e *Engine) runChild(ctx context.Context, own storage.Conversation, project
 	if err != nil {
 		return storage.WorkflowRun{}, err
 	}
-	sctx := actor.With(context.Background(), run.rec.Actor)
+	sctx := withTreeOpt(actor.With(context.Background(), run.rec.Actor), run.tree)
 	if run.tier != "" {
 		sctx = WithModelTier(sctx, run.tier)
 	}

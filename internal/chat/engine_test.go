@@ -348,6 +348,7 @@ while ! mkdir `+dir+`/.lock 2>/dev/null; do sleep 0.01; done
 n=$(ls `+dir+` | grep -c 'args$')
 n=$((n+1))
 echo "$*" > `+dir+`/call$n.args
+pwd -P > `+dir+`/call$n.pwd
 rmdir `+dir+`/.lock
 cat > `+dir+`/call$n.in
 who=lead

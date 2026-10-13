@@ -301,19 +301,21 @@ func TestSweepKeepsBurnWorktrees(t *testing.T) {
 	}
 }
 
-// Office's start sweeps worktrees idle for 14 days by their folder's time,
-// which does not move when only files inside change: a piece in progress
-// (paused, or doing) keeps its worktree however old; a piece that is over,
-// a scan of a session that is gone, an orphan go.
+// Office sweeps worktrees idle for a while by their folder's time, which
+// does not move when only files inside change: a piece in progress (paused,
+// or doing) and a running Burn's scan and run keep theirs however old; a
+// piece that is over, a scan of a session that is gone, an old run, an
+// orphan go.
 func TestSweepOldKeepsWorkInProgress(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
-	b, _ := f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ResultMode: "branch", State: "stopped"})
+	b, _ := f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ResultMode: "branch", State: "running", RunBranch: "burn/2026-10-12-0800"})
 	paused, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "dở", Kind: "bug", Status: "paused"})
 	doing, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "đang làm", Kind: "bug", Status: "doing"})
 	done, _ := f.st.Burn().AddItem(ctx, storage.BurnItem{SessionID: b.ID, Title: "xong", Kind: "bug", Status: "done"})
 	want := map[string]bool{"burn-" + paused.ID: true, "burn-" + doing.ID: true, "burn-" + done.ID: false,
-		"burn-scan-bse_gone": false, "burn-bit_gone": false}
+		"burn-scan-bse_gone": false, "burn-bit_gone": false,
+		"burn-scan-" + b.ID: true, "burn-run-2026-10-12-0800": true, "burn-run-2026-10-01-0800": false}
 	month := time.Now().Add(-30 * 24 * time.Hour)
 	for name := range want {
 		dir, err := f.trees.Ensure(ctx, f.dir, f.project.ID, name, nil)

@@ -33,7 +33,7 @@ func (e *Engine) callWorkflow(ctx context.Context, conv storage.Conversation, ag
 	}
 	wctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	turn := &Turn{ID: fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano()), ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx)}
+		actor: actor.From(ctx), agentID: agent.ID, agentName: agent.Name, total: new(atomic.Int32), tier: ModelTierFrom(ctx), ceiling: ceilingOf(ctx), tree: treeOptOf(ctx)}
 	turn.total.Store(1)
 	turn.JobID = usage.JobFrom(ctx) // set before beginJob stamps it, so a cancel in that window finds this turn
 	e.active[conv.ID], e.turns[turn.ID] = turn, turn

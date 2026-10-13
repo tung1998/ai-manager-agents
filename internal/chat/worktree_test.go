@@ -3,6 +3,7 @@ package chat_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -347,5 +348,47 @@ func TestMergeAfterProjectMoved(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(f.dir, "hello.txt")); strings.Contains(string(b), "<<<<<<<") {
 		t.Fatalf("conflict markers reached the project: %q", b)
+	}
+}
+
+// A workflow called in a given worktree (a Burn piece's review) runs its
+// roles there too, not in the project: the reviewers read the piece's code
+// where it is, instead of each searching for it.
+func TestWorkflowRolesRunInCallersTree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	g := newWFGroup(t)
+	gitRun(t, g.f.dir, "init", "-q")
+	gitRun(t, g.f.dir, "add", "-A")
+	gitRun(t, g.f.dir, "commit", "-q", "-m", "init")
+	trees := worktree.New(filepath.Join(t.TempDir(), "worktrees"))
+	g.engine.SetWorktrees(trees)
+	tree, err := trees.Ensure(g.context, g.f.dir, g.f.project.ID, "burn-bit_x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.install(t, "council", map[string]string{"a": g.dev.ID, "b": g.qa.ID})
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("1"), 0o644)
+	ctx := chat.WithTree(g.context, "burn-bit_x", true)
+	if _, _, err := g.engine.Send(ctx, g.conv.ID, "/council xem kết quả", nil); err != nil {
+		t.Fatal(err)
+	}
+	own := g.own(t)
+	if _, err := g.during(t, "workflow_delegate", map[string]any{"role": "a", "brief": map[string]string{"question": "Đúng chưa?", "context": "việc x"}}); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(g.dir, "sleep-lead"))
+	g.waitIn(t, own, 3)
+	want, _ := filepath.EvalSymlinks(tree)
+	var dev string
+	for i := 1; i <= 3; i++ {
+		if a, _ := call(t, g.dir, i); strings.Contains(a, "You are Dev") {
+			b, _ := os.ReadFile(filepath.Join(g.dir, fmt.Sprintf("call%d.pwd", i)))
+			dev = strings.TrimSpace(string(b))
+		}
+	}
+	if dev != want {
+		t.Fatalf("Dev ran in %q, want the caller's worktree %q", dev, want)
 	}
 }

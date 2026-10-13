@@ -151,6 +151,7 @@ type turnSpec struct {
 	total      *atomic.Int32 // replies to the person's message so far, hand-offs included
 	tier       string        // model tier for this turn ("" = the agent's)
 	ceiling    string        // the most the person's message may have run (ADR-081)
+	tree       treeOpt       // the worktree it runs in ("" = the chat's)
 	limit      time.Duration // how long it may take (0: none; <0: a chat's default, none) — the message's, ADR-082
 	// a workflow's turn: its run, the role ("" = the coordinator), a ballot
 	wfRun, wfRole string
@@ -176,13 +177,14 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 	if s.ceiling != "" {
 		base = WithCeiling(base, s.ceiling)
 	}
+	base = withTreeOpt(base, s.tree)
 	limit := s.limit
 	if limit < 0 { // not said: a chat's turn
 		limit = defaultTurnTimeout
 	}
 	runCtx, cancel := withTimeout(WithModelTier(base, s.tier), limit)
 	t := &Turn{ID: turnID, ConversationID: conv.ID, wake: make(chan struct{}), cancel: cancel,
-		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor, total: s.total, tier: s.tier, ceiling: s.ceiling, limit: limit,
+		queue: s.queue, hops: s.hops, answered: s.answered, actor: s.actor, total: s.total, tier: s.tier, ceiling: s.ceiling, tree: s.tree, limit: limit,
 		agentID: s.agent.ID, agentName: s.agent.Name, background: s.background, delegator: s.delegator,
 		wfRun: s.wfRun, wfRole: s.wfRole, wfVote: s.wfVote, wfWatch: s.wfWatch, wfStep: s.wfStep}
 	e.mu.Lock()
@@ -268,7 +270,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 				notes = append(notes, fmt.Sprintf("Đã dừng giao việc cho %s: quá %d lượt agent giao việc cho nhau trong một tin nhắn. Hãy tag lại nếu cần.", d.agent.Name, most))
 				continue
 			}
-			started, why := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor, total: prev.total, tier: prev.tier, ceiling: prev.ceiling, limit: prev.limit,
+			started, why := e.startTurn(conv, project, turnSpec{agent: d.agent, background: true, delegator: agent.ID, hops: hops + 1, actor: prev.actor, total: prev.total, tier: prev.tier, ceiling: prev.ceiling, tree: prev.tree, limit: prev.limit,
 				title:  agent.Name + " → " + d.agent.Name,
 				prompt: prompts.Handoff{From: agent.Name, Task: d.task}.String()})
 			if started == nil {
@@ -288,7 +290,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 			if tier == "" && agents[i].ModelTier == storage.TierStrong && agents[i].LLMModel == "" {
 				tier = storage.TierBalanced
 			}
-			_, why := e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, total: prev.total, tier: tier, ceiling: prev.ceiling, limit: prev.limit, title: agent.Name + " → " + agents[i].Name,
+			_, why := e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, total: prev.total, tier: tier, ceiling: prev.ceiling, tree: prev.tree, limit: prev.limit, title: agent.Name + " → " + agents[i].Name,
 				prompt: prompts.Handoff{Kind: "report", From: agent.Name}.String()})
 			e.note(conv, why)
 		}
@@ -297,7 +299,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 	// the next agent the person tagged; one that cannot answer is skipped with a note
 	for i, q := range prev.queue {
 		next, why := e.startTurn(conv, project, turnSpec{agent: q.agent, queue: prev.queue[i+1:], hops: hops, answered: prev.answered + 1, actor: prev.actor,
-			replace: prev, total: prev.total, tier: prev.tier, ceiling: prev.ceiling, limit: prev.limit, title: q.from + " → " + q.agent.Name,
+			replace: prev, total: prev.total, tier: prev.tier, ceiling: prev.ceiling, tree: prev.tree, limit: prev.limit, title: q.from + " → " + q.agent.Name,
 			prompt: prompts.Handoff{Kind: "tagged", From: promptName(q.from)}.String()})
 		if next != nil {
 			return next.ID

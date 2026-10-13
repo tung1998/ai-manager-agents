@@ -816,7 +816,7 @@ Mỗi ADR gồm: bối cảnh, quyết định, lý do, phương án đã loại
   - Agent làm ngay trong thư mục project với cùng bộ công cụ ghi, không có diff và không cần duyệt.
   - Mỗi project chỉ một lượt chat sửa thẳng tại một thời điểm.
 - **Khi không dùng được worktree** (không phải git repo): quay về cách của ADR-022, tức là đọc và viết diff bằng chữ.
-- **Dọn dẹp:** khi khởi động, xóa worktree của Việc, của cuộc trò chuyện đã xóa, và worktree không đổi trong 14 ngày.
+- **Dọn dẹp:** khi khởi động rồi cứ 6 giờ một lần, xóa worktree của Việc, của cuộc trò chuyện đã xóa, và worktree không dùng trong 3 ngày (trước là 14 ngày, chỉ lúc khởi động: office chạy liền nhiều tuần giữ lại hơn 150 bản sao repo). Chat có thay đổi chờ duyệt vẫn giữ; chat dùng lại thì worktree được tạo lại.
 
 **Giới hạn.**
 - Worktree không tự cập nhật khi code ở project đổi sau lúc tạo. Nếu diff không còn áp được thì thẻ báo lỗi, người dùng nhờ agent làm lại.
@@ -1851,7 +1851,7 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Cổng MCP fail-closed:** cổng chỉ có `Auth` (không có `Identify`) thì người gọi là người chỉ được đọc: tool có ghi bị từ chối, không chạy thẳng như trước. Office dùng `Identify` nên không đổi hành vi thật.
 - **Duyệt một lần:** `actions.Service.Decide` và `chat.Engine.DecidePatch` giữ khóa theo id trong lúc quyết. Dashboard và bot duyệt cùng lúc thì chỉ một bên chạy, bên kia nhận `ErrDecided` (409 trên API). Bot nhận `ErrDecided` thì báo "đã được quyết trước đó" và không cho agent làm tiếp lần nữa. Nhờ vậy mỗi đợt quyết định chỉ sinh một lượt làm tiếp (ADR-084). `chat.ErrDecided` là cùng một lỗi với `actions.ErrDecided`.
 - **OAuth của MCP:** đăng nhập, callback, đăng xuất và phần lưu của lượt kiểm tra giữ khóa theo server. Hai lượt đăng nhập cùng lúc chỉ đăng ký client một lần; lượt kiểm tra chạy song song không làm mất client hay token đã có.
-- **Worktree của Burn:** `worktree.Manager.Sweep` nhận `keep(name) (keep, pinned)`. Worktree `burn-<việc>` của việc đang `doing`/`paused` được giữ dù cũ hơn hạn 14 ngày. Thời gian của thư mục gốc không đổi khi chỉ file bên trong thay đổi, nên trước đây việc dở lâu có thể bị xóa lúc office khởi động. Việc đã xong hoặc thất bại thì vẫn dọn theo hạn.
+- **Worktree của Burn:** `worktree.Manager.Sweep` nhận `keep(name) (keep, pinned)`. Worktree `burn-<việc>` của việc đang `doing`/`paused` được giữ dù cũ hơn hạn 14 ngày. Thời gian của thư mục gốc không đổi khi chỉ file bên trong thay đổi, nên trước đây việc dở lâu có thể bị xóa lúc office khởi động. Việc đã xong hoặc thất bại thì vẫn dọn theo hạn. `burn-scan-<phiên>` và `burn-run-<lần chạy>` của phiên Burn đang chạy cũng được giữ; `burn-run-*` trước đây bị coi là rác vì không khớp việc nào.
 
 ## ADR-095: Quản lý dữ liệu và dọn dẹp
 - Trang **Quản trị → Quản lý dữ liệu** (chỉ admin) đo theo từng project: chat, chat của Burn, Việc đã xong (không tính Việc đang chạy), worktree, đính kèm, rác, và file database. Dung lượng chat là số byte văn bản lưu trong DB (nội dung, tool call, bản ghi đính kèm, diff), không phải dung lượng file DB. Worktree chỉ symlink thư mục phụ thuộc (`node_modules`…), nên không tính phần đó.
