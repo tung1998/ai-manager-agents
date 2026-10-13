@@ -283,6 +283,12 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 				if a.Kind == "git_commit" && !sameFiles(x.Args.Files, a.Args.Files) {
 					continue
 				}
+				// the same command in another folder (an agent's worktree, a
+				// workflow's check step in the project) is another card: else
+				// the step waits on a card left on an agent's finished turn
+				if a.Kind == "run_command" && x.Args.Dir != a.Args.Dir {
+					continue
+				}
 				return x, nil
 			}
 		}
@@ -390,6 +396,10 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 		return a, ErrDecided
 	}
 	defer s.deciding.Delete(id)
+	// once decided it runs to the end and is recorded, even when whoever
+	// asked gave up waiting (an agent's tool call timing out on a long test):
+	// else the command is killed and the card stays pending, approved
+	ctx = context.WithoutCancel(ctx)
 	a, err := s.store.Actions().Get(ctx, id)
 	if err != nil {
 		return a, err

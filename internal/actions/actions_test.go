@@ -168,6 +168,27 @@ func TestRunCommand(t *testing.T) {
 	if a, _ := svc.Propose(ctx, sc, "run_command", "cat missing.txt", "x"); a.Status != "failed" {
 		t.Fatalf("a failing command is failed: %+v", a)
 	}
+
+	// in a chat a pending command is reused, but not one for another folder
+	conv, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: proj.ID})
+	sc.ConversationID, sc.Dir = conv.ID, root
+	first, _ := svc.Propose(ctx, sc, "run_command", "ls", "x")
+	if again, _ := svc.Propose(ctx, sc, "run_command", "ls", "x"); again.ID != first.ID {
+		t.Fatalf("same command, same folder: one card: %s %s", first.ID, again.ID)
+	}
+	sc.Dir = ""
+	if other, _ := svc.Propose(ctx, sc, "run_command", "ls", "x"); other.ID == first.ID || other.Status != "pending" {
+		t.Fatalf("same command in another folder is its own card: %+v", other)
+	}
+
+	// whoever decided gave up waiting (a tool call timed out): it still runs
+	// and is recorded, not left pending
+	gone, cancel := context.WithCancel(ctx)
+	cancel()
+	svc.Decide(gone, first.ID, true, "x")
+	if got, _ := st.Actions().Get(ctx, first.ID); got.Status != "done" {
+		t.Fatalf("a decided command ends recorded: %+v", got)
+	}
 }
 
 // TestRunCommandRisky: a risky pattern saved to an agent's commands before
