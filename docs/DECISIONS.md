@@ -2317,3 +2317,17 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - `usage.Service.SetOnRecord`: mỗi lượt gọi AI được ghi (chat, việc, test kết nối…) báo cho `limitalert.Alerter.Run` trong goroutine riêng.
   - Quy tắc nằm trong cài đặt cảnh báo hạn mức (`limit_alert.errors`: `streak`, `count`, `window` phút; thiếu = mặc định 3 lỗi liên tiếp hoặc 5 lỗi trong 30 phút; 0 = tắt quy tắc đó). Gửi vào cùng bot và kênh với cảnh báo hạn mức (ADR-069).
   - Theo từng kết nối, đếm trong bộ nhớ (khởi động lại thì đếm lại): báo một lần khi đủ chuỗi lỗi liên tiếp; báo khi số lỗi trong cửa sổ đủ, rồi im một cửa sổ. Đã báo mà sau đó gửi được thì báo "gửi được lại". Lượt bị chặn vì ngân sách (`blocked`) không tính. Tin kèm model và lỗi gần nhất.
+
+## ADR-152: Burn tạm dừng khi lỗi kỹ thuật, không đánh việc thất bại
+- **Bối cảnh (13/10):** Codex bị từ chối đăng nhập (401) suốt một lần chạy Burn. Review kết quả của cả 7 việc đều lỗi, mỗi việc 3 lần, rồi bị đánh "thất bại" ($10.68, không gộp được gì). Burn vẫn tiếp tục nhận việc mới. Lỗi này là của máy, không phải của việc. Gốc rễ:
+  - Lỗi review chỉ được phân biệt "hết quota" với "lỗi khác".
+  - Regex đăng nhập của Codex không khớp câu `401 Unauthorized … invalidated oauth token`.
+  - Claude CLI trả `is_error` thì câu báo lỗi bị lưu như câu trả lời, nên review chấm "chưa đạt".
+  - `watch` (ADR-143) không chạy khi review lỗi.
+- **Quyết định:**
+  - Burn có trạng thái `blocked` (vẫn tính là đang chạy). Lỗi kỹ thuật là: `llm.ErrNeedsLogin`; 401/403/5xx; unauthorized, invalidated oauth; mạng (từ chối kết nối, không phân giải được host, timeout, quá tải); không tìm thấy CLI.
+  - Khi review hoặc lượt làm của worker gặp lỗi kỹ thuật, việc giữ nguyên chỗ (review vẫn là review, đang làm thì sang `paused`), không tính lượt thử. Burn báo một lần vào chat và bot, rồi chờ 15 phút, sau đó tự thử lại.
+  - Có lượt gọi AI thành công thì Burn quay lại `running` và báo "đã chạy lại được". Đang `draining` thì chỉ chờ, vẫn giữ `draining`.
+  - `Resume` nhận cả `blocked`: thử lại ngay. Dashboard: nhãn đỏ "tạm dừng: lỗi kỹ thuật", nút **Thử lại ngay**.
+  - Lỗi review không thuộc loại kỹ thuật vẫn tính 3 lần như cũ, nhưng khi đánh thất bại thì gọi `watch`: 3 việc liền thất bại cùng một lý do thì Burn ngưng nhận việc mới.
+  - Claude CLI: kết quả `is_error` không được dùng làm câu trả lời. Codex: regex đăng nhập khớp thêm `status 401`, `401 unauthorized`, `invalidated oauth token`, kể cả trong stderr khi tiến trình thoát lỗi.

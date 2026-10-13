@@ -5,9 +5,10 @@ import (
 	"time"
 )
 
-// Active: the Burn runs (working, waiting for its limit, or finishing what it has).
+// Active: the Burn runs (working, waiting for its limit or for a technical
+// error to clear, or finishing what it has).
 func (b BurnSession) Active() bool {
-	return b.State == "running" || b.State == "waiting_limit" || b.State == "draining"
+	return b.State == "running" || b.State == "waiting_limit" || b.State == "blocked" || b.State == "draining"
 }
 
 // BurnSession is a project's Burn: its settings and whether it runs.
@@ -32,7 +33,7 @@ type BurnSession struct {
 	NotifyChannelID, NotifyChatID          string // a bot's chat its summary goes to when it stops (ADR-120); "" = none
 	EndsAt                                 *time.Time
 	Plan                                   BurnPlan // how long a run lasts, when it turns on by itself
-	State                                  string   // running | waiting_limit | draining (finishing what is in progress) | stopped
+	State                                  string   // running | waiting_limit | blocked (a technical error, ADR-152) | draining (finishing what is in progress) | stopped
 	WaitingUntil                           *time.Time
 	StartedBy                              string
 	StartedAt                              *time.Time

@@ -369,14 +369,18 @@ func (s *Service) Drain(ctx context.Context, projectID string) error {
 	return nil
 }
 
-// Resume takes a draining Burn back to work as before.
+// Resume takes a draining Burn back to work as before, or a blocked one
+// (ADR-152) to try again now.
 func (s *Service) Resume(ctx context.Context, projectID string) error {
 	b, err := s.store.Burn().Session(ctx, projectID)
 	if err != nil {
 		return err
 	}
-	if b.State != "draining" {
-		return errors.New("Burn không ở trạng thái đang hoàn thành nốt")
+	if b.State != "draining" && b.State != "blocked" {
+		return errors.New("Burn không ở trạng thái đang hoàn thành nốt hay tạm dừng vì lỗi")
+	}
+	if b.State == "blocked" { // tried again now, not after its wait (ADR-152)
+		b.WaitingUntil = nil
 	}
 	b.State = "running"
 	if b.WaitingUntil != nil && b.WaitingUntil.After(time.Now()) {
@@ -473,12 +477,16 @@ func (s *Service) loop(ctx context.Context, projectID string, wake chan struct{}
 				wait(ctx, wake, min(time.Until(*b.WaitingUntil), time.Minute))
 				continue
 			}
+			msg := "Quota AI đã reset: chạy tiếp."
 			if b.State == "waiting_limit" {
 				b.State = "running"
 			}
+			if b.State == "blocked" { // stays blocked until a turn goes through (unblock)
+				msg = "Thử chạy lại sau lỗi kỹ thuật."
+			}
 			b.WaitingUntil = nil
 			b, _ = s.store.Burn().SaveSession(ctx, b)
-			s.say(ctx, b, "Quota AI đã reset: chạy tiếp.")
+			s.say(ctx, b, msg)
 		}
 		draining := b.State == "draining"
 		if conv := b.ConversationID; s.ensureConversation(ctx, &b) == nil && b.ConversationID != conv { // its agent was changed while it ran
@@ -595,14 +603,14 @@ func (s *Service) drained(ctx context.Context, sessionID string) bool {
 // has (ADR-112); a worker not claimed yet goes straight to finding one.
 func (s *Service) step(ctx context.Context, b storage.BurnSession, it storage.BurnItem) {
 	if it.Status == "review" { // done: its result waits for the reviewer (ADR-112)
-		if s.finish(ctx, b, it) && !s.waitLimit(ctx, b) {
+		if s.finish(ctx, b, it) && !s.waitLimit(ctx, b) && !s.blocked(ctx, b) {
 			sleep(ctx, time.Minute) // the review could not run: ask again in a while
 		}
 		return
 	}
 	if !hunting(it) {
 		if proceed, failed := s.gate(ctx, b, it); !proceed { // reviewed before it is done
-			if failed && !s.waitLimit(ctx, b) {
+			if failed && !s.waitLimit(ctx, b) && !s.blocked(ctx, b) {
 				sleep(ctx, time.Minute)
 			}
 			return
@@ -814,6 +822,9 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 	}
 	turnCtx := chat.WithPinnedTree(runCtx(ctx, b, tree, true), tree)
 	res, err := s.run(turnCtx, it.WorkConversationID, prompt)
+	if err == nil && res.failed == "" {
+		s.unblock(ctx, b.ProjectID) // a turn went through
+	}
 	if !worker && err == nil && res.failed == "" && ctx.Err() == nil {
 		// it ended its turn without burn_done/burn_fail (often: waiting on a
 		// background command, which never wakes it): asked once to report
@@ -843,6 +854,12 @@ func (s *Service) work(ctx context.Context, b storage.BurnSession, it storage.Bu
 		if _, hit := s.limitHit(ctx, b.AgentID); hit { // not its fault: it goes on after the reset
 			cur.Status, cur.Attempts = "paused", max(cur.Attempts-1, 0)
 			s.say(ctx, b, "**Tạm dừng** "+oneLine(cur.Title, 120)+": hết quota AI, làm tiếp sau khi reset")
+			break
+		}
+		if why := firstNonEmpty(res.failed, errText(err)); cur.Status == "doing" && (technical(err) || technicalText(res.failed)) {
+			// the machine's, not the piece's: it waits, untried (ADR-152)
+			cur.Status, cur.Attempts = "paused", max(cur.Attempts-1, 0)
+			s.block(ctx, b.ProjectID, why)
 			break
 		}
 		cur.Status, cur.Summary = s.failedOrAgain(cur, firstNonEmpty(res.failed, errText(err)))

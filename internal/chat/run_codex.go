@@ -190,6 +190,9 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 		if msg == "" {
 			msg = werr.Error()
 		}
+		if llm.CodexAuthFailed(msg) {
+			return res, fmt.Errorf("%w: phiên Codex bị từ chối (%s), hãy bấm Đăng nhập ở Kết nối AI để ký lại", llm.ErrNeedsLogin, truncate(msg, 200))
+		}
 		return res, fmt.Errorf("codex: %s", truncate(msg, 500))
 	}
 	return res, nil

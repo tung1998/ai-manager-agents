@@ -82,8 +82,9 @@ func (s *Service) gate(ctx context.Context, b storage.BurnSession, it storage.Bu
 		}
 		ok, note, err := s.review(ctx, b, &it, stage)
 		if err != nil {
-			return false, s.reviewErrAttempt(ctx, it, stage, agents, err)
+			return false, s.reviewErrAttempt(ctx, b, it, stage, agents, err)
 		}
+		s.unblock(ctx, b.ProjectID)
 		it.ReviewErrAttempts = 0
 		from := it.Status
 		it.ReviewNote = note
@@ -118,8 +119,9 @@ func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.
 	from := it.Status
 	ok, note, err := s.review(ctx, b, &it, "result")
 	if err != nil {
-		return s.reviewErrAttempt(ctx, it, "result", agents, err) // stays "review": asked again, unless past the limit
+		return s.reviewErrAttempt(ctx, b, it, "result", agents, err) // stays "review": asked again, unless past the limit
 	}
+	s.unblock(ctx, b.ProjectID)
 	it.ReviewErrAttempts = 0
 	ctx = context.WithoutCancel(ctx)
 	it.ReviewNote = note
@@ -187,10 +189,10 @@ func (s *Service) deliver(ctx context.Context, b storage.BurnSession, it *storag
 var reviewLabel = map[string]string{"issue": "Review vấn đề", "plan": "Review cách làm", "result": "Review kết quả"}
 
 // maxReviewErrAttempts: how many times in a row review() may fail with a
-// system error (an agent gone, a bad review profile, the network) before the
-// piece is failed instead of asked again forever (ADR-120). The AI
-// connection's limit is not a system error and is not counted here: it is
-// checked separately (limitHit), and keeps the piece retrying as before.
+// system error (an agent gone, a bad review profile) before the piece is
+// failed instead of asked again forever (ADR-120). The AI connection's limit
+// and a technical error (signed out, refused, down: ADR-152) are not counted
+// here: the first waits for its reset, the second blocks the whole Burn.
 const maxReviewErrAttempts = 3
 
 // reviewErrAttempt counts a system error from review(): past the threshold,
@@ -203,11 +205,15 @@ const maxReviewErrAttempts = 3
 // if its status is still what this call started from, so a change made
 // elsewhere while review() ran (paused, skipped, a person acting on it) is
 // not overwritten.
-func (s *Service) reviewErrAttempt(ctx context.Context, it storage.BurnItem, stage string, agents []string, err error) (retry bool) {
+func (s *Service) reviewErrAttempt(ctx context.Context, b storage.BurnSession, it storage.BurnItem, stage string, agents []string, err error) (retry bool) {
 	if ctx.Err() != nil {
 		return false
 	}
 	if _, hit := s.limitsHit(ctx, agents...); hit || chat.OutOfTokens(err) {
+		return true
+	}
+	if technical(err) { // the machine's, not the piece's: the Burn waits (ADR-152)
+		s.block(ctx, b.ProjectID, reviewLabel[stage]+": "+err.Error())
 		return true
 	}
 	ctx = context.WithoutCancel(ctx)
@@ -219,7 +225,10 @@ func (s *Service) reviewErrAttempt(ctx context.Context, it storage.BurnItem, sta
 	}
 	it.Status = "failed"
 	it.Summary = fmt.Sprintf("%s: lỗi hệ thống liên tục (%d lần liền): %s", reviewLabel[stage], it.ReviewErrAttempts, err.Error())
-	_ = s.store.Burn().UpdateItemFrom(ctx, it, from)
+	if s.store.Burn().UpdateItemFrom(ctx, it, from) == nil {
+		s.sayItem(ctx, b, it)
+		s.watch(ctx, b) // the same reason again and again: the process, not the piece (ADR-143)
+	}
 	return false
 }
 

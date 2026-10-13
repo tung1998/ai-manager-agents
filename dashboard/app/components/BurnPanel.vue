@@ -5,7 +5,7 @@
 // page shows its conversation.
 interface Burn {
   id?: string, conversation_id?: string, agent_id: string, model_tier: 'strong' | 'balanced' | 'fast', max_parallel: number,
-  run_branch?: string, run_tree?: string, focus: string, order: 'roadmap' | 'bugs' | 'auto', template: BurnTemplate, hunt_prompt: string, ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
+  run_branch?: string, run_tree?: string, focus: string, order: 'roadmap' | 'bugs' | 'auto', template: BurnTemplate, hunt_prompt: string, ends_at: string | null, state: 'running' | 'stopped' | 'waiting_limit' | 'blocked' | 'draining', notify_channel_id?: string, notify_chat_id?: string,
   waiting_until?: string, started_by?: string, started_at?: string,
   review_profile_id: string, verify: string, code_map: string, lessons: string, coverage: string, review_cap: number, stop_after: number,
   features?: { id: string, title: string, passes: boolean }[]
@@ -35,10 +35,12 @@ const burn = computed(() => data.value?.burn)
 const loading = computed(() => !data.value && !loadError.value)
 const items = computed(() => data.value?.items ?? [])
 const agents = computed(() => agentsData.value?.agents ?? [])
-const running = computed(() => burn.value?.state === 'running' || burn.value?.state === 'waiting_limit' || burn.value?.state === 'draining')
+const running = computed(() => burn.value?.state === 'running' || burn.value?.state === 'waiting_limit' || burn.value?.state === 'blocked' || burn.value?.state === 'draining')
 const draining = computed(() => burn.value?.state === 'draining')
+// a technical error (ADR-152): it waits, then tries again; Thử lại ngay tries now
+const blocked = computed(() => burn.value?.state === 'blocked')
 // the switch: on while it works (draining: turned off, finishing what it has)
-const on = computed(() => burn.value?.state === 'running' || burn.value?.state === 'waiting_limit')
+const on = computed(() => burn.value?.state === 'running' || burn.value?.state === 'waiting_limit' || burn.value?.state === 'blocked')
 
 // the time left, ticking
 const now = ref(Date.now())
@@ -266,12 +268,13 @@ const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).l
           <p class="flex items-center gap-2 font-semibold">
             {{ t('burn.title') }}
             <USkeleton v-if="loading" class="h-5 w-16" />
-            <UBadge v-else-if="burn" :label="t(`burn.state.${burn.state}`)" :color="burn.state === 'running' ? 'warning' : burn.state === 'waiting_limit' || burn.state === 'draining' ? 'info' : 'neutral'" variant="subtle" size="sm" />
+            <UBadge v-else-if="burn" :label="t(`burn.state.${burn.state}`)" :color="burn.state === 'running' ? 'warning' : burn.state === 'blocked' ? 'error' : burn.state === 'waiting_limit' || burn.state === 'draining' ? 'info' : 'neutral'" variant="subtle" size="sm" />
           </p>
           <!-- what it does now, or what turning it on will do -->
           <USkeleton v-if="loading" class="mt-1 h-3.5 w-48" />
           <p v-else-if="burn" class="flex flex-wrap items-center gap-x-1.5 text-xs text-(--ui-text-muted)">
             <template v-if="burn.state === 'waiting_limit' && burn.waiting_until">{{ t('burn.waitingUntil', { at: when(burn.waiting_until) }) }}</template>
+            <template v-else-if="blocked">{{ burn.waiting_until ? t('burn.blockedUntil', { at: when(burn.waiting_until) }) : t('burn.blockedHint') }}</template>
             <template v-else-if="draining">{{ t('burn.drainingHint') }}</template>
             <template v-else-if="on && burn.ends_at"><span class="tabular-nums">{{ t('burn.endsIn', { left: left(burn.ends_at), at: when(burn.ends_at) }) }}</span></template>
             <template v-else-if="on">{{ t('burn.noEnd') }}</template>
@@ -286,6 +289,7 @@ const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).l
         <div class="ms-auto flex flex-wrap items-center gap-1.5">
           <UButton v-if="burn?.conversation_id" size="sm" color="neutral" variant="ghost" icon="i-lucide-messages-square" :label="t('burn.openChat')" :to="`/projects/${projectId}?tab=chat&c=${burn.conversation_id}`" />
           <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-settings-2" :label="t('burn.settings')" :disabled="loading" @click="settingsOpen = true" />
+          <UButton v-if="blocked" size="sm" color="error" variant="outline" icon="i-lucide-rotate-cw" :label="t('burn.retryNow')" :loading="acting === 'resume'" @click="stop('resume')" />
           <template v-if="draining">
             <UButton size="sm" color="warning" variant="outline" icon="i-lucide-play" :label="t('burn.resume')" :loading="acting === 'resume'" @click="stop('resume')" />
             <UButton size="sm" color="neutral" icon="i-lucide-square" :label="t('burn.stopNow')" :loading="acting === 'stop'" @click="stop('stop')" />

@@ -782,3 +782,74 @@ func TestBurnTurnsOnBySchedule(t *testing.T) {
 		t.Fatalf("turned on again after being turned off: %s", b.State)
 	}
 }
+
+// A review the AI connection refuses (signed out: 401) is the machine's, not
+// the piece's (ADR-152): the piece stays in review, untried, the Burn says
+// so and waits ("blocked"); resumed once the connection works, it goes on.
+func TestBurnBlocksOnATechnicalErrorInsteadOfFailing(t *testing.T) {
+	f := setup(t)
+	agree := filepath.Join(t.TempDir(), "agree")
+	os.WriteFile(f.bin, []byte(`#!/bin/sh
+p=$(cat)
+case "$p" in
+*"result review"*)
+  if [ ! -f "`+agree+`" ]; then
+    echo '{"type":"system","subtype":"init","session_id":"s1"}'
+    echo '{"type":"result","subtype":"success","is_error":true,"result":"API Error: 401 Unauthorized: Encountered invalidated oauth token","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+    exit 1
+  fi
+  r="VERDICT: AGREE. Đúng phạm vi";;
+*) echo "do agent viết" > made-by-agent.txt; r="xong lượt";;
+esac
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$r"'","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`), 0o755)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.svc.Start(ctx)
+	ends := time.Now().Add(time.Hour)
+	f.st.Burn().SaveSession(ctx, storage.BurnSession{ProjectID: f.project.ID, ModelTier: "fast", EndsAt: &ends, State: "stopped", ReviewProfileID: f.profile(t, "result")})
+	b, err := f.svc.Begin(ctx, f.project.ID, "admin@x.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := actions.Scope{ProjectID: f.project.ID, ConversationID: b.ConversationID}
+	f.svc.Tool(ctx, sc, "burn_add", burn.ToolInput{Title: "Thêm file", Kind: "upgrade"})
+	items, _ := f.st.Burn().Items(ctx, b.ID)
+	f.svc.Tool(ctx, sc, "burn_pick", burn.ToolInput{Item: items[0].ID})
+	it := waitItem(t, f.st, items[0].ID, "doing")
+	f.svc.Tool(ctx, sc, "burn_done", burn.ToolInput{Item: it.ID, Summary: "đã thêm"})
+
+	var cur storage.BurnSession
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(30 * time.Millisecond) {
+		cur, _ = f.st.Burn().Session(ctx, f.project.ID)
+		if cur.State == "blocked" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Burn not blocked: %s", cur.State)
+		}
+	}
+	got, _ := f.st.Burn().Item(ctx, it.ID)
+	if got.Status != "review" || got.ReviewErrAttempts != 0 {
+		t.Fatalf("piece blamed for a technical error: %+v", got)
+	}
+	msgs, _ := f.st.Chat().ListMessages(ctx, b.ConversationID)
+	said := false
+	for _, m := range msgs {
+		said = said || strings.Contains(m.Content, "lỗi kỹ thuật")
+	}
+	if !said {
+		t.Fatal("the Burn did not say it was blocked")
+	}
+
+	os.WriteFile(agree, nil, 0o644) // signed in again
+	if err := f.svc.Resume(ctx, f.project.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitDelivered(t, f.st, it.ID)
+	if cur, _ = f.st.Burn().Session(ctx, f.project.ID); cur.State != "running" {
+		t.Fatalf("state after it went through: %s", cur.State)
+	}
+	f.svc.Stop(ctx, f.project.ID)
+}

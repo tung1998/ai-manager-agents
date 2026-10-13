@@ -357,6 +357,11 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 					why = append(why, "("+ev.Subtype+")")
 				}
 				resErr = fmt.Errorf("claude: %s", strings.Join(why, " · "))
+				if ev.IsError {
+					// its result is the error ("API Error: 401 …"), not an
+					// answer: kept as text it would read as the agent's reply
+					res.Text = ""
+				}
 			}
 		}
 	}

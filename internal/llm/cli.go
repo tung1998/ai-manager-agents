@@ -322,7 +322,7 @@ func codexFailure(out string) string {
 }
 
 // codexAuthFailed: codex's own wording when the ChatGPT session is dead.
-var codexAuthFailed = regexp.MustCompile(`(?i)could not be refreshed|token_expired|sign(ing)? in again|log out and sign in|unauthorized \(401\)`)
+var codexAuthFailed = regexp.MustCompile(`(?i)could not be refreshed|token_expired|sign(ing)? in again|log out and sign in|unauthorized \(401\)|status 401|401 unauthorized|invalidated oauth token`)
 
 func (c *codexCLI) Complete(ctx context.Context, req Request) (Result, error) {
 	start := time.Now()
