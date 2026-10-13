@@ -255,6 +255,34 @@ func jwtExpiry(tok string) time.Time {
 	return time.Unix(c.Exp, 0)
 }
 
+// codexFailure is the reason in a failed `codex exec --json` run: the
+// turn.failed (or last error) event, which comes after the thread/turn
+// started events a plain prefix cut would show instead.
+func codexFailure(out string) string {
+	msg := ""
+	sc := bufio.NewScanner(strings.NewReader(out))
+	sc.Buffer(make([]byte, 1<<20), 8<<20)
+	for sc.Scan() {
+		var ev struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+			Error   struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(sc.Bytes(), &ev) != nil {
+			continue
+		}
+		switch {
+		case ev.Type == "turn.failed" && ev.Error.Message != "":
+			return ev.Error.Message
+		case ev.Type == "error" && ev.Message != "":
+			msg = ev.Message
+		}
+	}
+	return msg
+}
+
 // codexAuthFailed: codex's own wording when the ChatGPT session is dead.
 var codexAuthFailed = regexp.MustCompile(`(?i)could not be refreshed|token_expired|sign(ing)? in again|log out and sign in`)
 
@@ -274,6 +302,12 @@ func (c *codexCLI) Complete(ctx context.Context, req Request) (Result, error) {
 		var ce *cliError
 		if errors.As(err, &ce) && codexAuthFailed.MatchString(ce.stderr) {
 			return Result{}, fmt.Errorf("%w: phiên Codex đã hết hạn, hãy đăng nhập lại", ErrNeedsLogin)
+		}
+		if msg := codexFailure(out); msg != "" {
+			if codexAuthFailed.MatchString(msg) {
+				return Result{}, fmt.Errorf("%w: phiên Codex đã hết hạn, hãy đăng nhập lại", ErrNeedsLogin)
+			}
+			return Result{}, fmt.Errorf("codex: %s", msg)
 		}
 		return Result{}, err
 	}

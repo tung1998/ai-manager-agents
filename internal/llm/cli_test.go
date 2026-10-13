@@ -78,3 +78,17 @@ func TestCodexSessionExpired(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexFailureReadsTurnFailed(t *testing.T) {
+	out := `{"type":"thread.started","thread_id":"x"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 1/5"}
+{"type":"turn.failed","error":{"message":"unexpected status 503: auth_unavailable"}}
+`
+	if got := codexFailure(out); got != "unexpected status 503: auth_unavailable" {
+		t.Fatalf("got %q", got)
+	}
+	if got := codexFailure(`{"type":"error","message":"Missing environment variable"}`); got != "Missing environment variable" {
+		t.Fatalf("error only: %q", got)
+	}
+}
