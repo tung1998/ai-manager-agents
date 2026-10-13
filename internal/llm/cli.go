@@ -287,6 +287,12 @@ func jwtExpiry(tok string) time.Time {
 	return time.Unix(c.Exp, 0)
 }
 
+// CodexFailure is codexFailure for the chat runner.
+func CodexFailure(out string) string { return codexFailure(out) }
+
+// CodexAuthFailed: msg says the ChatGPT session is dead (sign in again).
+func CodexAuthFailed(msg string) bool { return codexAuthFailed.MatchString(msg) }
+
 // codexFailure is the reason in a failed `codex exec --json` run: the
 // turn.failed (or last error) event, which comes after the thread/turn
 // started events a plain prefix cut would show instead.
@@ -316,7 +322,7 @@ func codexFailure(out string) string {
 }
 
 // codexAuthFailed: codex's own wording when the ChatGPT session is dead.
-var codexAuthFailed = regexp.MustCompile(`(?i)could not be refreshed|token_expired|sign(ing)? in again|log out and sign in`)
+var codexAuthFailed = regexp.MustCompile(`(?i)could not be refreshed|token_expired|sign(ing)? in again|log out and sign in|unauthorized \(401\)`)
 
 func (c *codexCLI) Complete(ctx context.Context, req Request) (Result, error) {
 	start := time.Now()

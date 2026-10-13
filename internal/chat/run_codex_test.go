@@ -2,10 +2,13 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"bitbucket.org/senprints/agent-office/internal/llm"
 )
 
 // A JSON line over the scanner's 16MB cap must fail the run instead of
@@ -52,5 +55,23 @@ func TestCodexLimitsFromRollout(t *testing.T) {
 	}
 	if codexLimits(home, "missing", time.Now()) != nil {
 		t.Fatal("no rollout: want nil")
+	}
+}
+
+// A session the server rejects (turn.failed 401) is a sign-in, not a reply.
+func TestCodexRejectedSessionNeedsLogin(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "codex")
+	script := `#!/bin/sh
+cat >/dev/null
+echo '{"type":"thread.started","thread_id":"s1"}'
+echo '{"type":"turn.started"}'
+echo '{"type":"turn.failed","error":{"message":"workspace routing discovery unauthorized (401)"}}'
+exit 1
+`
+	os.WriteFile(bin, []byte(script), 0o755)
+	_, err := codexRunner{}.Run(context.Background(), RunRequest{Bin: bin, WorkDir: dir, Prompt: "hi"}, func(Event) {})
+	if !errors.Is(err, llm.ErrNeedsLogin) {
+		t.Fatalf("err = %v, want ErrNeedsLogin", err)
 	}
 }

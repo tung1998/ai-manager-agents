@@ -117,6 +117,7 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	res := RunResult{}
 	res.Usage.Model = req.Model
 	var answer []string
+	var failed []string // turn.failed / error lines: why a run that answered nothing failed
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
@@ -137,6 +138,9 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 		}
 		if json.Unmarshal(sc.Bytes(), &ev) != nil {
 			continue
+		}
+		if ev.Type == "turn.failed" || ev.Type == "error" {
+			failed = append(failed, sc.Text())
 		}
 		switch {
 		case ev.Type == "thread.started" && ev.ThreadID != "":
@@ -172,6 +176,14 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	res.Limits = codexLimits(llm.CodexHome(), res.SessionID, time.Now())
 	if scanErr != nil {
 		return res, scanErr
+	}
+	if res.Text == "" {
+		if msg := llm.CodexFailure(strings.Join(failed, "\n")); msg != "" {
+			if llm.CodexAuthFailed(msg) || llm.CodexAuthFailed(stderr.String()) {
+				return res, fmt.Errorf("%w: phiên Codex bị từ chối (%s), hãy bấm Đăng nhập ở Kết nối AI để ký lại", llm.ErrNeedsLogin, truncate(msg, 200))
+			}
+			return res, fmt.Errorf("codex: %s", truncate(msg, 500))
+		}
 	}
 	if werr != nil && res.Text == "" {
 		msg := strings.TrimSpace(stderr.String())
