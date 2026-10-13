@@ -23,7 +23,20 @@ type Settings struct {
 	ChannelID string `json:"channel_id"`
 	ChatID    string `json:"chat_id"`
 	Threshold int    `json:"threshold"`
+	// Errors: when prompts to a connection keep failing (nil = the defaults)
+	Errors *ErrorRule `json:"errors,omitempty"`
 }
+
+// ErrorRule says when failed prompts are told: Streak in a row, or Count
+// within Window minutes (0 = that rule is off).
+type ErrorRule struct {
+	Streak int `json:"streak"`
+	Count  int `json:"count"`
+	Window int `json:"window"`
+}
+
+// DefaultErrors: 3 in a row, or 5 within 30 minutes.
+var DefaultErrors = ErrorRule{Streak: 3, Count: 5, Window: 30}
 
 const key = "limit_alert"
 
@@ -32,6 +45,13 @@ func Load(ctx context.Context, st storage.Store) Settings {
 	_, _ = st.Settings().Get(ctx, key, &s)
 	if s.Threshold <= 0 || s.Threshold > 99 {
 		s.Threshold = 80
+	}
+	if s.Errors == nil {
+		e := DefaultErrors
+		s.Errors = &e
+	}
+	if s.Errors.Count > 0 && s.Errors.Window <= 0 {
+		s.Errors.Window = DefaultErrors.Window
 	}
 	return s
 }
@@ -48,9 +68,13 @@ type Alerter struct {
 	store  storage.Store
 	notify Notify
 	mu     sync.Mutex // runs ending together: one of them tells
+	errMu  sync.Mutex
+	errs   map[string]*failures // provider id → its recent failures
 }
 
-func New(st storage.Store, n Notify) *Alerter { return &Alerter{store: st, notify: n} }
+func New(st storage.Store, n Notify) *Alerter {
+	return &Alerter{store: st, notify: n, errs: map[string]*failures{}}
+}
 
 // WindowNames are how people read the windows.
 var WindowNames = map[string]string{"five_hour": "giới hạn 5 giờ", "seven_day": "giới hạn tuần (mọi model)"} // i18n-ignore

@@ -1,11 +1,13 @@
 <script setup lang="ts">
-// Where the AI connections' limit alerts go (ADR-069): a bot's chat, from how full.
+// Where the AI connections' limit alerts go (ADR-069): a bot's chat, from how full;
+// and prompts that keep failing, in a row or too many within a while (ADR-151).
 interface Bot { id: string, name: string, kind: 'discord' | 'telegram', project: string }
+interface ErrorRule { streak: number, count: number, window: number }
 const { t } = useLang()
 const toast = useToast()
-const { data, refresh } = useLiveFetch<{ channel_id: string, chat_id: string, threshold: number, bots: Bot[] }>('/api/limit-alert', { lazy: true })
-const form = reactive({ channel_id: '', chat_id: '', threshold: 80 })
-const { stale, reset: resync } = useDraft(data, form, d => Object.assign(form, { channel_id: d.channel_id, chat_id: d.chat_id, threshold: d.threshold })) // never over what is being typed
+const { data, refresh } = useLiveFetch<{ channel_id: string, chat_id: string, threshold: number, errors: ErrorRule, bots: Bot[] }>('/api/limit-alert', { lazy: true })
+const form = reactive({ channel_id: '', chat_id: '', threshold: 80, errors: { streak: 3, count: 5, window: 30 } as ErrorRule })
+const { stale, reset: resync } = useDraft(data, form, d => Object.assign(form, { channel_id: d.channel_id, chat_id: d.chat_id, threshold: d.threshold, errors: { streak: 3, count: 5, window: 30, ...d.errors } })) // never over what is being typed
 const NONE = '__none'
 const bot = computed({ get: () => form.channel_id || NONE, set: (v: string) => { form.channel_id = v === NONE ? '' : v } })
 const botItems = computed(() => [{ label: t('alert.off'), value: NONE }, ...(data.value?.bots ?? []).map(b => ({ label: `${b.name} · ${b.kind === 'discord' ? 'Discord' : 'Telegram'} · ${b.project}`, value: b.id }))])
@@ -50,6 +52,19 @@ async function save(test = false) {
         <UButton color="neutral" variant="outline" icon="i-lucide-send" :label="t('alert.test')" :disabled="!form.channel_id || !form.chat_id" :loading="saving" @click="save(true)" />
         <UButton icon="i-lucide-save" :label="t('common.save')" :loading="saving" @click="save()" />
       </div>
+    </div>
+    <!-- failed prompts: N in a row, or N within M minutes (0 = that rule off) -->
+    <div v-if="data" class="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+      <UIcon name="i-lucide-triangle-alert" class="size-4 text-(--ui-text-muted)" />
+      <span>{{ t('alert.errors') }}</span>
+      <UTooltip :text="t('alert.errorsHelp')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+      <UInputNumber v-model="form.errors.streak" :min="0" :max="100" size="sm" class="w-24" />
+      <span>{{ t('alert.inARow') }}</span>
+      <span class="text-(--ui-text-muted)">{{ t('alert.or') }}</span>
+      <UInputNumber v-model="form.errors.count" :min="0" :max="1000" size="sm" class="w-24" />
+      <span>{{ t('alert.errorsWithin') }}</span>
+      <UInputNumber v-model="form.errors.window" :min="1" :max="1440" :step="5" size="sm" class="w-24" :disabled="!form.errors.count" />
+      <span>{{ t('alert.minutes') }}</span>
     </div>
   </UCard>
 </template>

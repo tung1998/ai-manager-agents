@@ -43,7 +43,12 @@ type Service struct {
 	now   func() time.Time
 
 	mu sync.Mutex // serializes Settings read-modify-write (SetProjectLimit, SaveSettings)
+	// onRecord hears each call recorded (the failed-prompt alerts), off the caller's path
+	onRecord func(ctx context.Context, r storage.Run)
 }
+
+// SetOnRecord is told each call once it is recorded, in its own goroutine.
+func (s *Service) SetOnRecord(fn func(ctx context.Context, r storage.Run)) { s.onRecord = fn }
 
 // New builds a Service; days are counted in loc (nil: local time).
 func New(store storage.Store, loc *time.Location) *Service {
@@ -188,7 +193,11 @@ func (s *Service) Record(ctx context.Context, m Meta, p storage.Provider, model 
 			r.CostUSD, r.CostSource = &c, "estimate"
 		}
 	}
-	return s.store.Runs().Create(ctx, r)
+	run, err := s.store.Runs().Create(ctx, r)
+	if err == nil && s.onRecord != nil {
+		go s.onRecord(context.WithoutCancel(ctx), run)
+	}
+	return run, err
 }
 
 // Runs lists recent calls.

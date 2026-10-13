@@ -2310,3 +2310,10 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Công cụ `run_workflow(key, input)` cho agent trả lời trong chat của project (`purpose` rỗng, không phải việc, bot, chat ẩn), gói quyền từ Đề xuất trở lên, không phải trợ lý office, không đang trong một quy trình (ở đó dùng `workflow_*`).
   - Gọi công cụ là xếp `#key input` vào hàng chờ của chat, tác giả là người đã gửi tin của lượt đó. Lượt kết thúc thì tin đi như người tự gõ, nên mọi thứ giống hệt: kiểm `enabled`/`callable: sub`, chat riêng của lần chạy, giới hạn, ngân sách, cổng, Dừng. Agent điều phối là agent của chat.
   - Lời nhắc hệ thống của chat project liệt kê các quy trình chạy được (`#key: tên, mô tả`, prompt `chat/workflows`) khi agent có quyền dùng công cụ.
+
+## ADR-151: Cảnh báo gửi prompt lỗi
+- **Bối cảnh (13/10):** Codex bị từ chối đăng nhập (401) suốt nhiều giờ mà không ai biết: thẻ kết nối vẫn "Hoạt động", chỉ tỉ lệ lỗi trên thẻ tăng.
+- **Quyết định:**
+  - `usage.Service.SetOnRecord`: mỗi lượt gọi AI được ghi (chat, việc, test kết nối…) báo cho `limitalert.Alerter.Run` trong goroutine riêng.
+  - Quy tắc nằm trong cài đặt cảnh báo hạn mức (`limit_alert.errors`: `streak`, `count`, `window` phút; thiếu = mặc định 3 lỗi liên tiếp hoặc 5 lỗi trong 30 phút; 0 = tắt quy tắc đó). Gửi vào cùng bot và kênh với cảnh báo hạn mức (ADR-069).
+  - Theo từng kết nối, đếm trong bộ nhớ (khởi động lại thì đếm lại): báo một lần khi đủ chuỗi lỗi liên tiếp; báo khi số lỗi trong cửa sổ đủ, rồi im một cửa sổ. Đã báo mà sau đó gửi được thì báo "gửi được lại". Lượt bị chặn vì ngân sách (`blocked`) không tính. Tin kèm model và lỗi gần nhất.

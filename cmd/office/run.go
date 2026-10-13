@@ -186,6 +186,7 @@ func serveCmd() *cobra.Command {
 					alerts.Check(ctx, p.ID, p.Name, name, w.Utilization, w.ResetsAt)
 				}
 			})
+			a.usage.SetOnRecord(alerts.Run)                                            // prompts that keep failing: told in the same chat
 			bots.SetDecider(chatDecider{store: a.store, chat: chatEngine, acts: acts}) // proposals decided from the chat (ADR-054)
 			office.SetSendFile(bots.SendFileFor)                                       // an agent in a bot's chat posts images and files there (ADR-083)
 			chatEngine.SetOnBotDecided(bots.DecidedOnDashboard)                        // a bot chat's card decided on the dashboard: the bot goes on (ADR-084)

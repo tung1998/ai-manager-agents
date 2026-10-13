@@ -53,7 +53,7 @@ func (s *server) listAllBots(w http.ResponseWriter, r *http.Request) {
 func (s *server) getLimitAlert(w http.ResponseWriter, r *http.Request) {
 	set := limitalert.Load(r.Context(), s.cfg.Store)
 	bots := s.allBots(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{"channel_id": set.ChannelID, "chat_id": set.ChatID, "threshold": set.Threshold, "bots": bots})
+	writeJSON(w, http.StatusOK, map[string]any{"channel_id": set.ChannelID, "chat_id": set.ChatID, "threshold": set.Threshold, "errors": set.Errors, "bots": bots})
 }
 
 func (s *server) setLimitAlert(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +62,10 @@ func (s *server) setLimitAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ChannelID, in.ChatID = strings.TrimSpace(in.ChannelID), strings.TrimSpace(in.ChatID)
+	if e := in.Errors; e != nil && (e.Streak < 0 || e.Count < 0 || e.Window < 0 || e.Streak > 100 || e.Count > 1000 || e.Window > 1440) {
+		writeError(w, http.StatusBadRequest, "quy tắc cảnh báo lỗi không hợp lệ (liên tiếp 0–100, số lỗi 0–1000, trong 0–1440 phút)")
+		return
+	}
 	if in.ChannelID != "" {
 		if _, err := s.cfg.Store.Channels().Get(r.Context(), in.ChannelID); err != nil {
 			writeError(w, http.StatusBadRequest, "không có bot này")
@@ -89,7 +93,7 @@ func (s *server) testLimitAlert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "chưa chọn bot và kênh nhận cảnh báo")
 		return
 	}
-	if err := n.Notify(r.Context(), set.ChannelID, set.ChatID, "✅ Office sẽ báo ở đây khi hạn mức AI vượt "+fmt.Sprint(set.Threshold)+"%."); err != nil { // i18n-ignore
+	if err := n.Notify(r.Context(), set.ChannelID, set.ChatID, "✅ Office sẽ báo ở đây khi hạn mức AI vượt "+fmt.Sprint(set.Threshold)+"%"+errorRuleText(*set.Errors)+"."); err != nil { // i18n-ignore
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -130,4 +134,19 @@ func (s *server) limitIncidents(ctx context.Context) []incident {
 		}
 	}
 	return out
+}
+
+// errorRuleText says the failed-prompt rule in the test message ("" = off).
+func errorRuleText(e limitalert.ErrorRule) string {
+	var parts []string
+	if e.Streak > 0 {
+		parts = append(parts, fmt.Sprintf("%d lần lỗi liên tiếp", e.Streak)) // i18n-ignore
+	}
+	if e.Count > 0 {
+		parts = append(parts, fmt.Sprintf("%d lần lỗi trong %d phút", e.Count, e.Window)) // i18n-ignore
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return ", và khi gửi prompt bị " + strings.Join(parts, " hoặc ") // i18n-ignore
 }
