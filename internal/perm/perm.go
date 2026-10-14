@@ -5,6 +5,8 @@ package perm
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"path"
 	"strings"
 
@@ -133,8 +135,20 @@ func policyKey(projectID string) string { return "policy:" + projectID }
 
 // LoadPolicy reads a project's policy (the default when none is saved).
 func LoadPolicy(ctx context.Context, st storage.Store, projectID string) Policy {
+	p, _ := LoadPolicyRaw(ctx, st, projectID)
+	return p
+}
+
+// LoadPolicyRaw is LoadPolicy plus the raw JSON currently stored for the
+// project (or "" when none is), to pass to SavePolicyIf for a real
+// compare-and-swap save. A stored policy that is not valid JSON reads as the
+// default but keeps its raw value, so a save can still overwrite it.
+func LoadPolicyRaw(ctx context.Context, st storage.Store, projectID string) (Policy, string) {
 	p := DefaultPolicy()
-	if ok, err := st.Settings().Get(ctx, policyKey(projectID), &p); err != nil || !ok {
+	raw, ok, err := st.Settings().GetRaw(ctx, policyKey(projectID))
+	if err != nil || !ok {
+		raw = ""
+	} else if json.Unmarshal([]byte(raw), &p) != nil {
 		p = DefaultPolicy()
 	}
 	p.MaxLevel = Operate // the mode picked per chat/task is the limit
@@ -162,12 +176,41 @@ func LoadPolicy(ctx context.Context, st storage.Store, projectID string) Policy 
 			}
 		}
 	}
-	return p
+	return p, raw
 }
 
 // SavePolicy stores a project's policy.
 func SavePolicy(ctx context.Context, st storage.Store, projectID string, p Policy) error {
 	return st.Settings().Set(ctx, policyKey(projectID), p)
+}
+
+// SavePolicyIf stores p only if the stored policy is still the raw JSON
+// previously returned by LoadPolicyRaw, failing with storage.ErrConflict
+// when another write landed in between (real compare-and-swap, unlike the
+// advisory version-hash check the API layer also does for user-facing 409s).
+func SavePolicyIf(ctx context.Context, st storage.Store, projectID, expectedRaw string, p Policy) error {
+	return st.Settings().SetIf(ctx, policyKey(projectID), expectedRaw, p)
+}
+
+// policyRetries bounds UpdatePolicy's re-read-and-retry on a conflicting save.
+const policyRetries = 5
+
+// UpdatePolicy changes the stored policy with compare-and-swap: it re-reads
+// and retries when another save lands in between, so a background write (an
+// "always allow", project setup) never silently drops an admin's edit.
+// change returns false to leave the policy as is.
+func UpdatePolicy(ctx context.Context, st storage.Store, projectID string, change func(*Policy) (bool, error)) (Policy, error) {
+	for i := 0; ; i++ {
+		p, raw := LoadPolicyRaw(ctx, st, projectID)
+		ok, err := change(&p)
+		if err != nil || !ok {
+			return p, err
+		}
+		err = SavePolicyIf(ctx, st, projectID, raw, p)
+		if !errors.Is(err, storage.ErrConflict) || i == policyRetries-1 {
+			return p, err
+		}
+	}
 }
 
 // Denied returns the files of a diff that the policy forbids.

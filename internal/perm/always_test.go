@@ -2,8 +2,10 @@ package perm_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 
 	"bitbucket.org/senprints/agent-office/internal/perm"
@@ -128,5 +130,128 @@ func TestAllowAlways(t *testing.T) {
 	}
 	if _, err := perm.AllowAlways(ctx, st, proj.ID, ag.ID, "rm *"); err == nil {
 		t.Fatal("rm must be refused")
+	}
+}
+
+// TestSavePolicyIfRejectsConcurrentWrite: two admins both load the same
+// policy, both edit from that shared starting point and save — the second
+// save must be rejected (a real conflict), not silently clobber the first
+// admin's change.
+func TestSavePolicyIfRejectsConcurrentWrite(t *testing.T) {
+	ctx := context.Background()
+	st, proj, _ := alwaysStore(t)
+
+	base := perm.DefaultPolicy()
+	base.QuickChecks = "seed"
+	if err := perm.SavePolicy(ctx, st, proj.ID, base); err != nil {
+		t.Fatal(err)
+	}
+
+	// both admins open the editor at the same time: same read, same raw.
+	shared, raw := perm.LoadPolicyRaw(ctx, st, proj.ID)
+
+	first := shared
+	first.QuickChecks = "from admin A"
+	if err := perm.SavePolicyIf(ctx, st, proj.ID, raw, first); err != nil {
+		t.Fatalf("first save should succeed: %v", err)
+	}
+
+	second := shared
+	second.QuickChecks = "from admin B"
+	if err := perm.SavePolicyIf(ctx, st, proj.ID, raw, second); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("second save with stale raw = %v, want storage.ErrConflict", err)
+	}
+
+	got := perm.LoadPolicy(ctx, st, proj.ID)
+	if got.QuickChecks != "from admin A" {
+		t.Fatalf("QuickChecks = %q, want admin A's change kept (not silently clobbered)", got.QuickChecks)
+	}
+}
+
+// Two saves race from one shared read: exactly one lands, the other gets
+// ErrConflict, and the stored policy is the winner's.
+func TestSavePolicyIfConcurrent(t *testing.T) {
+	ctx := context.Background()
+	st, proj, _ := alwaysStore(t)
+	if err := perm.SavePolicy(ctx, st, proj.ID, perm.DefaultPolicy()); err != nil {
+		t.Fatal(err)
+	}
+	shared, raw := perm.LoadPolicyRaw(ctx, st, proj.ID)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	errs := make([]error, 2)
+	for i, who := range []string{"A", "B"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p := shared
+			p.QuickChecks = who
+			<-start
+			errs[i] = perm.SavePolicyIf(ctx, st, proj.ID, raw, p)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	won := -1
+	for i, err := range errs {
+		switch {
+		case err == nil:
+			if won >= 0 {
+				t.Fatal("both saves landed")
+			}
+			won = i
+		case !errors.Is(err, storage.ErrConflict):
+			t.Fatalf("save %d: %v", i, err)
+		}
+	}
+	if won < 0 {
+		t.Fatal("no save landed")
+	}
+	if got := perm.LoadPolicy(ctx, st, proj.ID).QuickChecks; got != []string{"A", "B"}[won] {
+		t.Fatalf("stored %q, want the winner's", got)
+	}
+}
+
+// A stored policy that is not valid JSON must still be overwritable.
+func TestSavePolicyIfOverwritesCorrupt(t *testing.T) {
+	ctx := context.Background()
+	st, proj, _ := alwaysStore(t)
+	if err := st.Settings().Set(ctx, "policy:"+proj.ID, "not a policy"); err != nil {
+		t.Fatal(err)
+	}
+	p, raw := perm.LoadPolicyRaw(ctx, st, proj.ID)
+	p.QuickChecks = "fixed"
+	if err := perm.SavePolicyIf(ctx, st, proj.ID, raw, p); err != nil {
+		t.Fatalf("save over a corrupt policy: %v", err)
+	}
+	if got := perm.LoadPolicy(ctx, st, proj.ID).QuickChecks; got != "fixed" {
+		t.Fatalf("QuickChecks = %q", got)
+	}
+}
+
+// UpdatePolicy re-reads and retries when a save lands in between, so both
+// changes survive.
+func TestUpdatePolicyRetriesOnConflict(t *testing.T) {
+	ctx := context.Background()
+	st, proj, _ := alwaysStore(t)
+	calls := 0
+	_, err := perm.UpdatePolicy(ctx, st, proj.ID, func(p *perm.Policy) (bool, error) {
+		calls++
+		if calls == 1 { // an admin saves while this change is being made
+			other := perm.LoadPolicy(ctx, st, proj.ID)
+			other.QuickChecks = "admin"
+			if err := perm.SavePolicy(ctx, st, proj.ID, other); err != nil {
+				t.Fatal(err)
+			}
+		}
+		p.DenyPaths = append(p.DenyPaths, "secret/**")
+		return true, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := perm.LoadPolicy(ctx, st, proj.ID)
+	if calls != 2 || got.QuickChecks != "admin" || !slices.Contains(got.DenyPaths, "secret/**") {
+		t.Fatalf("calls=%d policy=%+v: the admin's edit or the change was lost", calls, got)
 	}
 }

@@ -215,7 +215,7 @@ func (geminiRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (
 	if req.SessionID == "" {
 		prompt = req.System + "\n\n" + transcript(req.History, prompt)
 	}
-	cmd.Stdin = strings.NewReader(prompt)
+	cmd.Stdin = strings.NewReader(strings.ToValidUTF8(prompt, "�")) // a stray cut byte must not make the CLI refuse the whole turn
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()

@@ -15,6 +15,8 @@ func TestTechnical(t *testing.T) {
 		errors.New("API Error: 529 overloaded_error"),
 		errors.New("dial tcp: lookup api.anthropic.com: no such host"),
 		errors.New("API Error: 403 Forbidden"),
+		// the CLI refused office's own input: no piece is to blame (Burn 14/10)
+		errors.New("⚠️ Quy trình Hai góc nhìn và tổng hợp không xong: bước Góc nhìn A: codex: Failed to read prompt from stdin: input is not valid UTF-8 (invalid byte at offset 9530)"),
 	}
 	for _, err := range yes {
 		if !technical(err) {

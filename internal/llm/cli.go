@@ -31,7 +31,7 @@ func runEnv(ctx context.Context, bin string, stdin string, env []string, args ..
 		cmd.Env = append(os.Environ(), env...)
 	}
 	if stdin != "" {
-		cmd.Stdin = strings.NewReader(stdin)
+		cmd.Stdin = strings.NewReader(strings.ToValidUTF8(stdin, "�"))
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

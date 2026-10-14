@@ -69,14 +69,13 @@ func (s *Service) Start(ctx context.Context, r Request) error {
 	if !validLevel(r.Level) {
 		return errLevel
 	}
-	s.mu.Lock()
-	busy := s.running
-	s.mu.Unlock()
-	if busy {
-		return ErrRunning
+	// claimed here, not in the goroutine: a second Start (double click, two
+	// tabs) must get ErrRunning instead of a success that cleans nothing
+	if err := s.claim(r); err != nil {
+		return err
 	}
 	go func() {
-		if _, err := s.Run(context.WithoutCancel(ctx), r); err != nil {
+		if _, err := s.run(context.WithoutCancel(ctx), r); err != nil {
 			slog.Warn("cleanup", "err", err)
 		}
 	}()
@@ -200,16 +199,28 @@ func (s *Service) busy(ctx context.Context, it storage.DataItem) string {
 // Run cleans what Plan picks; a summary that cannot be made leaves its item
 // as it is. One run at a time.
 func (s *Service) Run(ctx context.Context, r Request) (Result, error) {
-	var res Result
+	if err := s.claim(r); err != nil {
+		return Result{}, err
+	}
+	return s.run(ctx, r)
+}
+
+// claim marks a run as started, or fails with ErrRunning when one is.
+func (s *Service) claim(r Request) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.running {
-		s.mu.Unlock()
-		return res, ErrRunning
+		return ErrRunning
 	}
 	s.running = true
 	started := s.now().UTC()
 	s.status = Status{Running: true, Level: r.Level, StartedAt: &started}
-	s.mu.Unlock()
+	return nil
+}
+
+// run does a claimed run and releases it.
+func (s *Service) run(ctx context.Context, r Request) (Result, error) {
+	var res Result
 	defer func() {
 		s.mu.Lock()
 		s.running = false

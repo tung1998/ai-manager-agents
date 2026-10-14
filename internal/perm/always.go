@@ -165,21 +165,27 @@ func AllowAlways(ctx context.Context, st storage.Store, projectID, agentID, patt
 	if r, err := st.Repos().Get(ctx, projectID); err == nil {
 		root = r.Path
 	}
-	pol := LoadPolicy(ctx, st, projectID)
 	out := Allowed{Pattern: pattern}
-	var i int
-	out.Pack, i, out.NewPack = PlanAlways(root, pol, pattern)
-	if i != -2 { // not in the catalog yet
+	pol, err := UpdatePolicy(ctx, st, projectID, func(pol *Policy) (bool, error) {
+		var i int
+		out.Added = false // a retry starts over from the re-read policy
+		out.Pack, i, out.NewPack = PlanAlways(root, *pol, pattern)
+		if i == -2 { // already in the catalog
+			return false, nil
+		}
 		if out.NewPack {
 			pol.Packs = append(pol.Packs, Pack{ID: autoPackID(program(pattern)), Label: out.Pack, Icon: "i-lucide-terminal", Commands: []string{pattern}, Custom: true})
 		} else {
 			pol.Packs[i].Commands = append(pol.Packs[i].Commands, pattern)
 		}
-		if err := SavePolicy(ctx, st, projectID, pol); err != nil {
-			return out, err
-		}
 		out.Added = true
-		pol = LoadPolicy(ctx, st, projectID)
+		return true, nil
+	})
+	if err != nil {
+		return out, err
+	}
+	if out.Added {
+		pol = LoadPolicy(ctx, st, projectID) // Catalog/Safe as saved
 	}
 	picks := slices.Clone(pol.Safe)
 	if ag.Permissions.Commands != nil {

@@ -20,12 +20,18 @@ const file = ref('')
 // CPU/RAM (docker stats samples for a moment, so it never blocks the view).
 const data = ref<View | null>(null)
 const loadError = ref('')
-let loading = false
+// one load per file at a time (polls must not pile up), but switching the
+// file starts a new one at once, and only the newest load may fill the panel
+let seq = 0
+let loadingFile: string | null = null
 async function load(withStats = true) {
-  if (loading) return
-  loading = true
+  const f = file.value
+  if (loadingFile === f) return
+  loadingFile = f
+  const my = ++seq
   try {
-    const v = await $fetch<View>(`/api/projects/${props.projectId}/compose`, { query: { file: file.value, stats: withStats ? '1' : '0' } })
+    const v = await $fetch<View>(`/api/projects/${props.projectId}/compose`, { query: { file: f, stats: withStats ? '1' : '0' } })
+    if (my !== seq) return // a newer load (another file) owns the panel
     if (!withStats && data.value) { // keep the last numbers until fresh ones arrive
       const old = new Map(data.value.services.map(s => [s.name, s.container?.stats]))
       for (const sv of v.services) if (sv.container && !sv.container.stats) sv.container.stats = old.get(sv.name)
@@ -34,9 +40,9 @@ async function load(withStats = true) {
     loadError.value = ''
     if (!file.value && v.file) file.value = v.file
   } catch (e) {
-    loadError.value = apiError(e)
+    if (my === seq) loadError.value = apiError(e)
   } finally {
-    loading = false
+    if (my === seq) loadingFile = null
   }
 }
 const refresh = () => load(true)

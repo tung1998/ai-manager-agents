@@ -186,3 +186,21 @@ func TestAutoSettings(t *testing.T) {
 		t.Fatalf("saved = %+v %v", a, err)
 	}
 }
+
+// A second Start while one is running (double click, two tabs) must say so,
+// not report a success that never cleans.
+func TestStartTwiceReportsRunning(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	c := f.chatWith(t, "", 2, time.Now())
+	req := cleanup.Request{IDs: []string{c.ID}, Level: cleanup.LevelDelete}
+	if err := f.svc.Start(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Start(ctx, req); !errors.Is(err, cleanup.ErrRunning) && f.svc.Status().FinishedAt == nil {
+		t.Fatalf("second Start = %v while the first runs, want ErrRunning", err)
+	}
+	for f.svc.Status().Running {
+		time.Sleep(5 * time.Millisecond)
+	}
+}

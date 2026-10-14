@@ -2,6 +2,7 @@ package api
 
 import (
 	"bitbucket.org/senprints/agent-office/internal/audit"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -61,8 +62,8 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		Version string `json:"version"` // the policy as it was read (409 when changed since)
 	}
 	// a body without quick_check (an older client) keeps what is set
-	cur := perm.LoadPolicy(r.Context(), s.cfg.Store, r.PathValue("id"))
-	body.QuickCheck, body.QuickChecks = cur.QuickCheck, cur.QuickChecks
+	old, raw := perm.LoadPolicyRaw(r.Context(), s.cfg.Store, r.PathValue("id"))
+	body.QuickCheck, body.QuickChecks = old.QuickCheck, old.QuickChecks
 	if !decode(w, r, &body) {
 		return
 	}
@@ -77,7 +78,7 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	if conflicted(w, body.Version, policyVersion(perm.LoadPolicy(r.Context(), s.cfg.Store, projectID))) {
+	if conflicted(w, body.Version, policyVersion(old)) {
 		return
 	}
 	in.MaxLevel = perm.Operate // no project cap: the chat/task mode is the limit
@@ -137,8 +138,11 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		packs = append(packs, p)
 	}
 	in.Packs = packs
-	old := perm.LoadPolicy(r.Context(), s.cfg.Store, projectID)
-	if err := perm.SavePolicy(r.Context(), s.cfg.Store, projectID, in); err != nil {
+	if err := perm.SavePolicyIf(r.Context(), s.cfg.Store, projectID, raw, in); err != nil {
+		if errors.Is(err, storage.ErrConflict) {
+			writeSaveConflict(w) // a write landed between this Get and Update
+			return
+		}
 		s.internal(w, r, err)
 		return
 	}

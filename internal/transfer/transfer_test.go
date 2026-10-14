@@ -314,6 +314,91 @@ func TestImportMismatchedWorkflowKeySkipped(t *testing.T) {
 	}
 }
 
+// importing a bundle whose provider copy has no api_key_env (built elsewhere,
+// or exported from a provider using a stored secret) must not blank out an
+// existing provider's working env-var key when other fields changed.
+func TestImportUpdateKeepsExistingAPIKeyEnvWhenBundleHasNone(t *testing.T) {
+	ctx := context.Background()
+	dst := newOffice(t)
+	if _, err := dst.prov.Create(ctx, provider.Input{Name: "Claude API", Kind: storage.ProviderAnthropic, APIKeyEnv: "FOO_KEY"}); err != nil {
+		t.Fatal(err)
+	}
+
+	b := transfer.Bundle{
+		Version: transfer.Version,
+		Providers: []transfer.ProviderSpec{{
+			Name:    "Claude API",
+			Kind:    string(storage.ProviderAnthropic),
+			Enabled: false,
+		}},
+	}
+
+	plan, err := dst.tr.Import(ctx, b, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var op, detail string
+	for _, c := range plan.Changes {
+		if c.Kind == "provider" && c.Name == "Claude API" {
+			op, detail = c.Op, c.Detail
+		}
+	}
+	if op != "update" {
+		t.Fatalf("op = %q (detail %q), want update to have actually applied", op, detail)
+	}
+	after := findProvider(t, dst.st, "Claude API")
+	if after.APIKeyEnv != "FOO_KEY" {
+		t.Fatalf("APIKeyEnv = %q, want it kept as %q", after.APIKeyEnv, "FOO_KEY")
+	}
+	if after.Enabled {
+		t.Fatal("Enabled = true, want it updated to false")
+	}
+}
+
+// when the bundle's provider copy has no api_key_env but every other field
+// already matches the existing provider, the plan must report "unchanged"
+// (not "update") and must not touch the stored env-var key either.
+func TestImportProviderUnchangedWhenOnlyAPIKeyEnvMissingFromBundle(t *testing.T) {
+	ctx := context.Background()
+	dst := newOffice(t)
+	created, err := dst.prov.Create(ctx, provider.Input{Name: "Claude API", Kind: storage.ProviderAnthropic, APIKeyEnv: "FOO_KEY", Enabled: boolPtr(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b := transfer.Bundle{
+		Version: transfer.Version,
+		Providers: []transfer.ProviderSpec{{
+			Name:       "Claude API",
+			Kind:       string(storage.ProviderAnthropic),
+			Enabled:    true,
+			TierModels: created.TierModels,
+		}},
+	}
+
+	for _, dryRun := range []bool{true, false} {
+		plan, err := dst.tr.Import(ctx, b, dryRun)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var op string
+		for _, c := range plan.Changes {
+			if c.Kind == "provider" && c.Name == "Claude API" {
+				op = c.Op
+			}
+		}
+		if op != "unchanged" {
+			t.Fatalf("dryRun=%v: op = %q, want unchanged", dryRun, op)
+		}
+	}
+	after := findProvider(t, dst.st, "Claude API")
+	if after.APIKeyEnv != "FOO_KEY" {
+		t.Fatalf("APIKeyEnv = %q, want it kept as %q", after.APIKeyEnv, "FOO_KEY")
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
 func findProvider(t *testing.T, st storage.Store, name string) storage.Provider {
 	list, _ := st.Providers().List(context.Background())
 	for _, p := range list {

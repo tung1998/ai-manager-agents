@@ -103,7 +103,7 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 		// the run's token reaches Codex through its environment, not argv
 		cmd.Env = append(os.Environ(), codexTokenEnv+"="+req.Office.Token)
 	}
-	cmd.Stdin = strings.NewReader(prompt)
+	cmd.Stdin = strings.NewReader(strings.ToValidUTF8(prompt, "�")) // a stray cut byte must not make the CLI refuse the whole turn
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()

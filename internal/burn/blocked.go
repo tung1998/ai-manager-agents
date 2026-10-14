@@ -23,7 +23,7 @@ const blockedRetry = 15 * time.Minute
 
 // technicalErr: how the AI CLIs, their APIs and the network say a call did
 // not get through (not what the agent answered).
-var technicalErr = regexp.MustCompile(`(?i)(status|error|code)[: ]+(401|403|5\d\d)\b|\b(401|403) (unauthori[sz]ed|forbidden)|unauthori[sz]ed|invalidated oauth|oauth token|could not be refreshed|token_expired|sign(ing)? in again|not logged in|chưa đăng nhập|connection (refused|reset)|no such host|i/o timeout|tls handshake|network is unreachable|service unavailable|bad gateway|gateway timeout|overloaded|executable file not found`)
+var technicalErr = regexp.MustCompile(`(?i)(status|error|code)[: ]+(401|403|5\d\d)\b|\b(401|403) (unauthori[sz]ed|forbidden)|unauthori[sz]ed|invalidated oauth|oauth token|could not be refreshed|token_expired|sign(ing)? in again|not logged in|chưa đăng nhập|connection (refused|reset)|no such host|i/o timeout|tls handshake|network is unreachable|service unavailable|bad gateway|gateway timeout|overloaded|executable file not found|failed to read prompt|not valid utf-8`)
 
 // technical: msg is a technical error, not the piece's.
 func technical(err error) bool {

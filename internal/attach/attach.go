@@ -81,7 +81,14 @@ func SafeName(name string) string {
 	name = strings.TrimLeft(name, ".")
 	if len(name) > 120 {
 		ext := filepath.Ext(name)
-		name = name[:120-len(ext)] + ext
+		if len(ext) >= 120 {
+			ext = ""
+		}
+		cut := 120 - len(ext)
+		for cut > 0 && !utf8.RuneStart(name[cut]) {
+			cut--
+		}
+		name = name[:cut] + ext
 	}
 	if name == "" {
 		name = "file"

@@ -281,23 +281,27 @@ func (s *server) setupQuickChecks(r *http.Request, projectID, checks string) Rea
 		it.Status, it.Detail = "error", err.Error()
 		return it
 	}
-	pol := perm.LoadPolicy(ctx, s.cfg.Store, projectID)
-	before := pol
-	pol.QuickCheck = true
-	switch {
-	case checks == "":
-		it.Detail = "bật kiểm tra có sẵn (gofmt/vet, JSON, YAML)"
-	case strings.TrimSpace(pol.QuickChecks) == "":
-		pol.QuickChecks = checks
-		it.Detail = strings.ReplaceAll(checks, "\n", "; ")
-	default:
-		it.Detail = "giữ lệnh project đã có"
-	}
-	if pol.QuickCheck != before.QuickCheck || pol.QuickChecks != before.QuickChecks {
-		if err := perm.SavePolicy(ctx, s.cfg.Store, projectID, pol); err != nil {
-			it.Status, it.Detail = "error", err.Error()
-			return it
+	changed := false
+	pol, err := perm.UpdatePolicy(ctx, s.cfg.Store, projectID, func(pol *perm.Policy) (bool, error) {
+		before := *pol
+		pol.QuickCheck = true
+		switch {
+		case checks == "":
+			it.Detail = "bật kiểm tra có sẵn (gofmt/vet, JSON, YAML)"
+		case strings.TrimSpace(pol.QuickChecks) == "":
+			pol.QuickChecks = checks
+			it.Detail = strings.ReplaceAll(checks, "\n", "; ")
+		default:
+			it.Detail = "giữ lệnh project đã có"
 		}
+		changed = pol.QuickCheck != before.QuickCheck || pol.QuickChecks != before.QuickChecks
+		return changed, nil
+	})
+	if err != nil {
+		it.Status, it.Detail = "error", err.Error()
+		return it
+	}
+	if changed {
 		s.audit(r, audit.Change{Action: "policy.update", Resource: "policy", ProjectID: projectID,
 			After: map[string]any{"quick_check": pol.QuickCheck, "quick_checks": pol.QuickChecks}})
 	}

@@ -360,6 +360,9 @@ func (m *Manager) step(ctx context.Context, jobID string, ad Adapter, w waiter, 
 		return
 	}
 	w.edited = now
+	if w.status == "" {
+		w.sending = true // settle must leave this message to us, not send its own
+	}
 	m.waiting[jobID] = w
 	status, chatID, text := w.status, w.chat, stepsText(w.lines, false)
 	m.mu.Unlock()
@@ -371,19 +374,27 @@ func (m *Manager) step(ctx context.Context, jobID string, ad Adapter, w waiter, 
 		return
 	}
 	ids, err := ad.Send(ctx, chatID, text)
-	if err != nil || len(ids) == 0 {
-		return
-	}
 	m.mu.Lock()
 	cur, ok := m.waiting[jobID]
 	if ok {
-		cur.status = ids[0]
+		cur.sending = false
+		if err == nil && len(ids) > 0 {
+			cur.status = ids[0]
+		}
 		m.waiting[jobID] = cur
 	}
 	m.mu.Unlock()
-	if !ok { // answered meanwhile: its last steps were not in it
-		_ = ed.Edit(context.WithoutCancel(ctx), chatID, ids[0], stepsText(w.lines, true))
+	if ok { // still running: a later step or settle finishes the message
+		return
 	}
+	// answered meanwhile: settle left the steps to us, so they go out here
+	// even when this Send failed (a rate limit, a network hiccup)
+	ctx = context.WithoutCancel(ctx)
+	if err != nil || len(ids) == 0 {
+		_, _ = ad.Send(ctx, chatID, stepsText(w.lines, true))
+		return
+	}
+	_ = ed.Edit(ctx, chatID, ids[0], stepsText(w.lines, true))
 }
 
 // settle clears a message's marks once it is answered.
@@ -396,9 +407,12 @@ func (m *Manager) settle(ctx context.Context, ad Adapter, w waiter) {
 		if len(w.lines) == 0 {
 			return
 		}
+		if w.sending { // step()'s in-flight Send will finish this message itself
+			return
+		}
 		if ed, ok := ad.(Editor); ok && w.status != "" {
 			_ = ed.Edit(ctx, w.chat, w.status, stepsText(w.lines, true))
-		} else if !ok {
+		} else {
 			_, _ = ad.Send(ctx, w.chat, stepsText(w.lines, true))
 		}
 		return

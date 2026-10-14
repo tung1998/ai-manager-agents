@@ -196,3 +196,44 @@ func (r settingRepo) Set(ctx context.Context, key string, v any) error {
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`, key, string(raw), fmtTime(time.Now()))
 	return err
 }
+
+func (r settingRepo) GetRaw(ctx context.Context, key string) (string, bool, error) {
+	var raw string
+	err := r.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, key).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return raw, true, nil
+}
+
+// SetIf is a compare-and-swap: it only writes when the row still holds
+// expected (or, for expected=="", only when the row still doesn't exist).
+func (r settingRepo) SetIf(ctx context.Context, key, expected string, v any) error {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	now := fmtTime(time.Now())
+	var res sql.Result
+	if expected == "" {
+		res, err = r.db.ExecContext(ctx, `INSERT INTO settings (key, value, updated_at) VALUES (?,?,?)
+			ON CONFLICT(key) DO NOTHING`, key, string(raw), now)
+	} else {
+		res, err = r.db.ExecContext(ctx,
+			`UPDATE settings SET value=?, updated_at=? WHERE key=? AND value=?`, string(raw), now, key, expected)
+	}
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return storage.ErrConflict
+	}
+	return nil
+}

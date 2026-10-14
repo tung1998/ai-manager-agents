@@ -205,7 +205,7 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = req.WorkDir
-	cmd.Stdin = strings.NewReader(prompt)
+	cmd.Stdin = strings.NewReader(strings.ToValidUTF8(prompt, "�")) // a stray cut byte must not make the CLI refuse the whole turn
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()

@@ -228,6 +228,12 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 		in := provider.Input{Name: ps.Name, Kind: storage.ProviderKind(ps.Kind), Preset: &ps.Preset, BaseURL: ps.BaseURL, APIKeyEnv: ps.APIKeyEnv,
 			TierModels: ps.TierModels, Enabled: &ps.Enabled}
 		existing, ok := byName[ps.Name]
+		if ok && ps.APIKeyEnv == "" && existing.APIKeyEnv != "" {
+			// the bundle never carries a working env-var key it doesn't know about
+			// (e.g. built on another machine, or from a provider using a stored
+			// secret there): don't let it blank out the existing one.
+			in.APIKeyEnv = existing.APIKeyEnv
+		}
 		if !ok {
 			needsKey := in.Kind == storage.ProviderAnthropic || in.Kind == storage.ProviderOpenAI
 			if needsKey && ps.APIKeyEnv == "" {
@@ -252,7 +258,7 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 			}
 			continue
 		}
-		same := existing.Kind == in.Kind && existing.BaseURL == ps.BaseURL && existing.APIKeyEnv == ps.APIKeyEnv &&
+		same := existing.Kind == in.Kind && existing.BaseURL == ps.BaseURL && existing.APIKeyEnv == in.APIKeyEnv &&
 			existing.Enabled == ps.Enabled && reflect.DeepEqual(nonNil(existing.TierModels), nonNil(ps.TierModels)) &&
 			(!ps.IsDefault || existing.IsDefault)
 		if same {

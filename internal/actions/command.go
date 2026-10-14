@@ -14,7 +14,7 @@ import (
 
 const (
 	commandTimeout = 5 * time.Minute
-	commandOutput  = 6000 // bytes of output kept (the tail)
+	commandOutput  = 6000 // runes of output kept (the tail)
 )
 
 // runCommand runs one allowed command line in the project folder, without a
@@ -32,8 +32,8 @@ func runCommand(ctx context.Context, root, line string) (string, error) {
 	cmd.Stdout, cmd.Stderr = &out, &out
 	runErr := cmd.Run()
 	text := strings.TrimSpace(out.String())
-	if len(text) > commandOutput {
-		text = "…" + text[len(text)-commandOutput:]
+	if runes := []rune(text); len(runes) > commandOutput {
+		text = "…" + string(runes[len(runes)-commandOutput:])
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return text, fmt.Errorf("quá %s, đã dừng lệnh", commandTimeout)

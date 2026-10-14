@@ -76,6 +76,7 @@ type waiter struct {
 	// as the CLI does; lines are the ones of the status message shown now
 	verbose bool
 	lines   []string
+	sending bool // a status Send is in flight (status is still ""); settle must leave it to step
 	stopped bool // /stop or /push ended it: nothing more goes to the chat
 }
 
