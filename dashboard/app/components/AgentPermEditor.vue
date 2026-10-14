@@ -91,8 +91,10 @@ function toggleIn(key: 'processes' | 'containers', current: string[], v: string,
       <label class="flex cursor-pointer items-start gap-2.5">
         <USwitch size="sm" class="mt-0.5" :model-value="perms.full_access ?? false" @update:model-value="(v: boolean) => perms.full_access = v" />
         <span class="min-w-0 flex-1">
-          <span class="text-sm font-medium">{{ t('org.agent.fullAccess') }}</span>
-          <span class="block text-xs text-(--ui-text-muted)">{{ t('org.agent.fullAccessHint') }}</span>
+          <span class="flex items-center gap-1.5">
+            <span class="text-sm font-medium">{{ t('org.agent.fullAccess') }}</span>
+            <InfoTip :text="t('org.agent.fullAccessHint')" icon-class="size-3.5 text-(--ui-text-dimmed)" />
+          </span>
           <span v-if="perms.full_access && perms.full_access_by" class="block text-xs text-(--ui-text-muted) italic">{{ t('org.agent.fullAccessBy', { who: perms.full_access_by }) }}</span>
         </span>
       </label>
@@ -122,7 +124,8 @@ function toggleIn(key: 'processes' | 'containers', current: string[], v: string,
         {{ t('perm.editor.customFrom', { label: permOf(base).label }) }}
         <button v-if="!disabled" type="button" class="text-primary underline-offset-2 hover:underline" @click="pickPreset(base)">{{ t('perm.editor.backToPreset', { label: permOf(base).label }) }}</button>
       </template>
-      <template v-else>{{ t('perm.editor.presetHint', { description: permOf(level).description }) }}</template>
+      <template v-else>{{ permOf(level).description }}</template>
+      <InfoTip :text="t('perm.editor.presetInfo')" icon-class="ms-1 inline-block size-3.5 align-text-bottom" />
     </p>
 
     <!-- single capabilities, by group -->
@@ -137,9 +140,9 @@ function toggleIn(key: 'processes' | 'containers', current: string[], v: string,
             class="flex items-start gap-2.5 px-3 py-2" :class="disabled ? '' : 'cursor-pointer hover:bg-(--ui-bg-elevated)/50'"
           >
             <USwitch size="sm" class="mt-0.5" :model-value="caps.includes(c.id)" :disabled="disabled" @update:model-value="(v: boolean) => toggle(c.id, v)" />
-            <span class="min-w-0 flex-1">
+            <span class="flex min-w-0 flex-1 items-center gap-1.5">
               <span class="text-sm">{{ c.label }}</span>
-              <span class="block text-xs text-(--ui-text-muted)">{{ c.description }}</span>
+              <InfoTip :text="c.description" icon-class="size-3.5 text-(--ui-text-dimmed)" />
             </span>
             <UBadge size="sm" color="neutral" variant="outline" :label="permOf(c.min).label" class="shrink-0" :title="t('perm.editor.inPackage', { label: permOf(c.min).label })" />
           </label>

@@ -136,7 +136,7 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
   <div v-if="sel === '__input'" class="space-y-2 text-sm">
     <p class="flex items-center gap-1.5 font-medium">
       <UIcon name="i-lucide-log-in" class="size-4 text-primary" />{{ t('wf.inputs') }}
-      <UTooltip :text="t('wf.canvas.inputsInfo')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" /></UTooltip>
+      <InfoTip :text="t('wf.canvas.inputsInfo')" icon-class="size-3.5 text-(--ui-text-muted)" />
     </p>
     <WorkflowFieldsEditor :model-value="def.inputs" @update:model-value="v => setDef({ inputs: v })" />
   </div>
@@ -181,8 +181,8 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
 
     <!-- coordinate: an agent decides inside the step (ADR-111) -->
     <template v-else-if="step.type === 'coordinate'">
-      <UFormField :label="t('wf.step.coordRoles')" :hint="miss('roles')" :ui="ui">
-        <template #help><span class="text-xs">{{ t('wf.step.coordRolesInfo') }}</span></template>
+      <UFormField :hint="miss('roles')" :ui="ui">
+        <template #label><InfoLabel :label="t('wf.step.coordRoles')" :info="t('wf.step.coordRolesInfo')" /></template>
         <div class="flex gap-1">
           <USelect
             multiple :model-value="step.roles ?? []" :items="roleItems.filter(r => r.value !== step!.role)" size="sm" class="min-w-0 flex-1" :placeholder="t('wf.step.allRoles')"
@@ -194,10 +194,10 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
       <UFormField :label="t('wf.step.coordinator')" :hint="miss('role')" :ui="ui">
         <USelect :model-value="step.role || NONE" :items="coordItems" size="sm" class="w-full" @update:model-value="v => patch({ role: v === NONE ? undefined : String(v), roles: step!.roles?.filter(k => k !== v) })" />
       </UFormField>
-      <UFormField :label="t('wf.step.coordPrompt')" :hint="miss('prompt')" :ui="ui">
+      <UFormField :hint="miss('prompt')" :ui="ui">
+        <template #label><InfoLabel :label="t('wf.step.coordPrompt')" :info="t('wf.step.coordInfo')" /></template>
         <UTextarea :model-value="step.prompt ?? ''" :rows="6" autoresize :maxrows="20" class="w-full" @update:model-value="v => patch({ prompt: String(v) })" />
       </UFormField>
-      <p class="text-xs text-(--ui-text-muted)">{{ t('wf.step.coordInfo') }}</p>
     </template>
 
     <!-- a sub-workflow -->
@@ -220,10 +220,10 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
           <UInputNumber :model-value="step.timeout_s ?? 0" :min="0" size="sm" class="w-full" @update:model-value="v => patch({ timeout_s: v || undefined })" />
         </UFormField>
       </div>
-      <UFormField :label="t('wf.step.script')" :hint="miss('script')" :ui="ui">
+      <UFormField :hint="miss('script')" :ui="ui">
+        <template #label><InfoLabel :label="t('wf.step.script')" :info="t('wf.step.codeInfo')" /></template>
         <UTextarea :model-value="step.script ?? ''" :rows="8" autoresize :maxrows="24" class="w-full font-mono text-xs" @update:model-value="v => patch({ script: String(v) })" />
       </UFormField>
-      <p class="text-xs text-(--ui-text-muted)">{{ t('wf.step.codeInfo') }}</p>
     </template>
 
     <!-- http -->
@@ -247,9 +247,9 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
 
     <!-- condition -->
     <template v-else-if="step.type === 'condition'">
-      <UFormField :label="t('wf.step.if')" :hint="miss('if')" :ui="ui">
+      <UFormField :hint="miss('if')" :ui="ui">
+        <template #label><InfoLabel :label="t('wf.step.if')" :info="t('wf.step.ifInfo')" /></template>
         <UInput :model-value="step.if ?? ''" size="sm" class="w-full font-mono" placeholder="{{steps.a.status}} == 200" @update:model-value="v => patch({ if: String(v) })" />
-        <template #help><span class="text-xs">{{ t('wf.step.ifInfo') }}</span></template>
       </UFormField>
       <div class="grid grid-cols-2 gap-2">
         <UFormField :label="t('wf.canvas.yes')" :hint="miss('then')" :ui="ui">
@@ -260,16 +260,16 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
         </UFormField>
       </div>
       <UFormField :label="t('wf.step.maxLoops')">
-        <template #hint><UTooltip :text="t('wf.step.maxLoopsInfo')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" /></UTooltip></template>
+        <template #hint><InfoTip :text="t('wf.step.maxLoopsInfo')" icon-class="size-3.5 text-(--ui-text-muted)" /></template>
         <UInputNumber :model-value="step.max_loops ?? 0" :min="0" :max="50" size="sm" class="w-32" @update:model-value="v => patch({ max_loops: v || undefined })" />
       </UFormField>
     </template>
 
     <!-- switch: the value, a case per way out -->
     <template v-else-if="step.type === 'switch'">
-      <UFormField :label="t('wf.step.value')" :hint="miss('value')" :ui="ui">
+      <UFormField :hint="miss('value')" :ui="ui">
+        <template #label><InfoLabel :label="t('wf.step.value')" :info="t('wf.step.valueInfo')" /></template>
         <UInput :model-value="step.value ?? ''" size="sm" class="w-full font-mono" placeholder="{{steps.a.json.kind}}" @update:model-value="v => patch({ value: String(v) })" />
-        <template #help><span class="text-xs">{{ t('wf.step.valueInfo') }}</span></template>
       </UFormField>
       <UFormField :label="t('wf.step.cases')" :hint="miss('cases')" :ui="ui">
         <div class="space-y-1.5">
@@ -314,7 +314,7 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
         />
       </UFormField>
       <UFormField :label="t('wf.outputs')">
-        <template #hint><UTooltip :text="t('wf.canvas.outputsInfo')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" /></UTooltip></template>
+        <template #hint><InfoTip :text="t('wf.canvas.outputsInfo')" icon-class="size-3.5 text-(--ui-text-muted)" /></template>
         <WorkflowFieldsEditor :model-value="def.outputs" with-type @update:model-value="v => setDef({ outputs: v })" />
       </UFormField>
     </template>
@@ -335,7 +335,7 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
     <div class="space-y-1 border-t border-(--ui-border) pt-2">
       <p class="flex items-center gap-1 text-xs text-(--ui-text-muted)">
         {{ t('wf.step.vars') }}
-        <UTooltip :text="t('wf.step.varsInfo')"><UIcon name="i-lucide-info" class="size-3.5" /></UTooltip>
+        <InfoTip :text="t('wf.step.varsInfo')" icon-class="size-3.5" />
       </p>
       <div class="flex flex-wrap gap-1">
         <code v-for="v in vars" :key="v" class="rounded bg-(--ui-bg-elevated) px-1 font-mono text-[11px]">{{ v }}</code>

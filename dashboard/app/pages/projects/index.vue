@@ -204,7 +204,8 @@ async function add() {
 
           <template v-if="form.scope === 'clone'">
             <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
-              <UFormField :label="t('projects.cloneUrl')" :help="t('projects.cloneUrlHelp')" required>
+              <UFormField required>
+                <template #label><InfoLabel :label="t('projects.cloneUrl')" :info="t('projects.cloneUrlHelp')" /></template>
                 <UInput v-model="form.url" class="w-full font-mono" icon="i-lucide-link" placeholder="https://github.com/org/repo.git" autofocus />
               </UFormField>
               <UFormField :label="t('projects.cloneDir')">
@@ -233,10 +234,8 @@ async function add() {
             </UFormField>
           </template>
 
-          <UFormField
-            :label="t('projects.name')" :required="form.scope === 'machine'"
-            :help="form.scope !== 'machine' ? t('projects.nameHelp') : undefined"
-          >
+          <UFormField :required="form.scope === 'machine'">
+            <template #label><InfoLabel :label="t('projects.name')" :info="form.scope !== 'machine' ? t('projects.nameHelp') : undefined" /></template>
             <UInput v-model="form.name" class="w-full" :placeholder="form.scope === 'machine' ? t('projects.namePlaceholder') : ''" />
           </UFormField>
 

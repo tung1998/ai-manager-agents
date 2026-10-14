@@ -91,7 +91,7 @@ function removePack(p: CommandPack) {
       <div class="flex items-center gap-2">
         <p class="flex items-center gap-1.5 text-sm font-medium">
           {{ t('policy.commandsTitle') }}
-          <UTooltip :text="t('policy.commandsHelp')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-dimmed)" /></UTooltip>
+          <InfoTip :text="t('policy.commandsHelp')" icon-class="size-3.5 text-(--ui-text-dimmed)" />
         </p>
         <UBadge color="neutral" variant="subtle" size="sm" :label="t('policy.commandsCount', { n: total })" />
         <span class="flex items-center gap-1 text-xs text-(--ui-text-muted)">
@@ -130,7 +130,7 @@ function removePack(p: CommandPack) {
     <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
       <p class="flex items-center gap-1.5 text-sm font-medium">
         {{ t('policy.denyTitle') }}
-        <UTooltip :text="t('policy.denySupports', { star: '*', starstar: '**/', slash: '/' })"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-dimmed)" /></UTooltip>
+        <InfoTip :text="t('policy.denySupports', { star: '*', starstar: '**/', slash: '/' })" icon-class="size-3.5 text-(--ui-text-dimmed)" />
       </p>
       <div class="flex flex-wrap items-center gap-1.5">
         <UBadge v-for="d in form.deny" :key="d" color="neutral" variant="subtle" class="font-mono">
@@ -151,11 +151,16 @@ function removePack(p: CommandPack) {
       <div class="flex items-center justify-between gap-3">
         <p class="flex items-center gap-1.5 text-sm font-medium">
           {{ t('policy.quickCheck') }}
-          <UTooltip :text="t('policy.quickCheckHelp')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-dimmed)" /></UTooltip>
+          <InfoTip :text="t('policy.quickCheckHelp')" icon-class="size-3.5 text-(--ui-text-dimmed)" />
         </p>
         <USwitch v-model="form.quickCheck" size="sm" :disabled="!isAdmin" :aria-label="t('policy.quickCheck')" />
       </div>
-      <UFormField v-if="form.quickCheck" class="mt-3" :label="t('policy.quickChecks')" :help="t('policy.quickChecksHelp')">
+      <UFormField v-if="form.quickCheck" class="mt-3">
+        <template #label>
+          <span class="flex items-center gap-1.5">{{ t('policy.quickChecks') }}
+            <InfoTip :text="t('policy.quickChecksHelp')" icon-class="size-3.5 text-(--ui-text-muted)" />
+          </span>
+        </template>
         <UTextarea v-model="form.quickChecks" :rows="2" :maxlength="2000" autoresize :disabled="!isAdmin" class="w-full font-mono text-xs" placeholder=".ts .vue: npx eslint {file}" />
       </UFormField>
     </UCard>

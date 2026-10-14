@@ -105,7 +105,7 @@ export default {
   'perm.editor.custom': 'Tùy chỉnh',
   'perm.editor.customFrom': 'Tùy chỉnh từ gói {label}.',
   'perm.editor.backToPreset': 'Về gói {label}',
-  'perm.editor.presetHint': '{description} 5 gói xếp từ thấp đến cao: Chỉ đọc → Đề xuất → Tự kiểm tra → Tự sửa code → Vận hành; chọn gói cao hơn thì agent có thêm quyền của gói đó cộng với toàn bộ quyền của các gói thấp hơn nó. Muốn khác đi (vd: Tự sửa code nhưng không cho tự commit) thì bật/tắt từng quyền ở danh sách bên dưới.',
+  'perm.editor.presetInfo': '5 gói xếp từ thấp đến cao: Chỉ đọc → Đề xuất → Tự kiểm tra → Tự sửa code → Vận hành; chọn gói cao hơn thì agent có thêm quyền của gói đó cộng với toàn bộ quyền của các gói thấp hơn nó. Muốn khác đi (vd: Tự sửa code nhưng không cho tự commit) thì bật/tắt từng quyền ở danh sách bên dưới.',
   'perm.editor.inPackage': 'Có trong gói {label} trở lên',
   'perm.editor.gitPushNote': 'Push lên remote luôn cần bạn duyệt, không bao giờ force.',
   'perm.editor.commandsNoModel': 'Danh sách lệnh lấy từ project, nên chỉ chọn được lệnh cụ thể khi agent được mở trong một project. Chưa có project thì chỉ đặt được gói quyền.',

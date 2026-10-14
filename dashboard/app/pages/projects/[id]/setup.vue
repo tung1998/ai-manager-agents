@@ -330,7 +330,8 @@ const actionMeta = computed<Record<string, { label: string, color: 'info' | 'suc
         </template>
 
         <div class="space-y-6">
-          <UFormField :label="t('setup.projectDesc')" :help="t('setup.projectDescHelp')">
+          <UFormField>
+            <template #label><InfoLabel :label="t('setup.projectDesc')" :info="t('setup.projectDescHelp')" /></template>
             <UTextarea v-model="description" :rows="3" class="w-full" />
           </UFormField>
 

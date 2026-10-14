@@ -288,9 +288,7 @@ async function addSuggested() {
               <th class="px-3 py-2.5 font-medium">{{ t('monitor.table.latency') }}</th>
               <th class="px-3 py-2.5 font-medium">{{ t('monitor.table.trend') }}</th>
               <th class="px-3 py-2.5 font-medium">
-                <UTooltip :text="t('monitor.aiTooltip')">
-                  <span class="inline-flex cursor-help items-center gap-1">AI <UIcon name="i-lucide-info" class="size-3" /></span>
-                </UTooltip>
+                <span class="inline-flex items-center gap-1">AI <InfoTip :text="t('monitor.aiTooltip')" icon-class="size-3" /></span>
               </th>
               <th />
             </tr>

@@ -36,7 +36,8 @@ const ratio = computed(() => data.value?.daily_limit_usd ? data.value.today_usd 
         {{ t('budget.today', { v: usd(data.today_usd) }) }}<template v-if="data.daily_limit_usd"> / {{ usd(data.daily_limit_usd) }}</template>
       </p>
       <UProgress v-if="data.daily_limit_usd" :model-value="Math.min(100, ratio * 100)" :color="ratio >= 1 ? 'error' : ratio >= 0.8 ? 'warning' : 'primary'" size="sm" />
-      <UFormField v-if="isAdmin" :label="t('budget.limit')" :help="t('budget.limitHelp')">
+      <UFormField v-if="isAdmin">
+        <template #label><InfoLabel :label="t('budget.limit')" :info="t('budget.limitHelp')" /></template>
         <div class="flex items-center gap-2">
           <UInputNumber v-model="limit" :min="0" :step="0.5" :placeholder="t('costs.noLimitPlaceholder')" class="w-40" />
           <UButton icon="i-lucide-save" :label="t('common.save')" :loading="saving" @click="save" />

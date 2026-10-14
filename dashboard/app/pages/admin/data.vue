@@ -160,7 +160,7 @@ async function saveAuto() {
       <UCard :ui="{ body: 'sm:p-4' }">
         <p class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
           <UIcon name="i-lucide-trash" class="size-4" />{{ t('data.junk') }}
-          <UTooltip :text="t('data.junkHint')"><UIcon name="i-lucide-info" class="size-3.5" /></UTooltip>
+          <InfoTip :text="t('data.junkHint')" icon-class="size-3.5" />
         </p>
         <div class="mt-1 flex items-center justify-between gap-2">
           <USkeleton v-if="loading" class="h-6 w-20" />

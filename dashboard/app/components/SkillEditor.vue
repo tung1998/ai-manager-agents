@@ -124,7 +124,8 @@ async function save(accept = false) {
       <div class="space-y-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pe-1">
         <div v-if="!loaded" class="p-4 text-sm text-(--ui-text-muted)">{{ t('common.loading') }}</div>
         <template v-else>
-          <UFormField :label="t('skill.name')" :help="editing ? t('skill.nameFixed') : t('skill.nameHelp')" required :class="hl('name')">
+          <UFormField required :class="hl('name')">
+            <template #label><InfoLabel :label="t('skill.name')" :info="editing ? t('skill.nameFixed') : t('skill.nameHelp')" /></template>
             <UInput
               :model-value="form.name" class="w-full font-mono" placeholder="tra-don" :disabled="editing"
               @update:model-value="(v: string | number) => { form.name = String(v).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').slice(0, 64) }"
@@ -132,10 +133,12 @@ async function save(accept = false) {
               <template #leading><span class="font-mono text-xs text-(--ui-text-muted)">/</span></template>
             </UInput>
           </UFormField>
-          <UFormField :label="t('skill.description')" :help="t('skill.descriptionHelp')" required :class="hl('description')">
+          <UFormField required :class="hl('description')">
+            <template #label><InfoLabel :label="t('skill.description')" :info="t('skill.descriptionHelp')" /></template>
             <UTextarea v-model="form.description" :rows="2" autoresize class="w-full" :placeholder="t('skill.descriptionPlaceholder')" />
           </UFormField>
-          <UFormField :label="t('skill.body')" :help="t('skill.bodyHelp')" :class="hl('body')">
+          <UFormField :class="hl('body')">
+            <template #label><InfoLabel :label="t('skill.body')" :info="t('skill.bodyHelp')" /></template>
             <UTextarea v-model="form.body" :rows="8" autoresize class="w-full font-mono text-xs" :placeholder="t('skill.bodyPlaceholder')" />
           </UFormField>
           <p v-if="Object.keys(otherFiles).length" class="text-xs text-(--ui-text-muted)">

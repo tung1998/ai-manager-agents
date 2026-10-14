@@ -435,9 +435,7 @@ const summary = (tpl: MCPTemplate) => {
             <template v-else>{{ t('tools.mcpNeverChecked') }}</template>
           </span>
           <span v-if="mcp.check.value?.error" class="text-(--ui-error)">{{ mcp.check.value.error }}</span>
-          <UTooltip :text="t('tools.mcpCheckInfo')">
-            <UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" />
-          </UTooltip>
+          <InfoTip :text="t('tools.mcpCheckInfo')" icon-class="text-(--ui-text-dimmed)" />
           <UButton class="ms-auto" size="xs" color="neutral" variant="outline" icon="i-lucide-refresh-cw" :label="t('tools.mcpCheck')" :loading="mcp.check.value?.running" @click="mcp.recheck()" />
         </div>
         <OfficeMcpServers v-if="kind === 'mcp'" ref="officeMcp" @changed="loadCandidates" />
@@ -622,10 +620,8 @@ const summary = (tpl: MCPTemplate) => {
           <UFormField v-if="kind === 'mcp'" :label="t('common.description')">
             <UInput v-model="editing.description" class="w-full" />
           </UFormField>
-          <UFormField
-            :label="kind === 'skill' ? t('tools.contentSkill') : kind === 'agent' ? t('tools.contentAgent') : t('tools.contentConfig')"
-            :help="kind === 'mcp' ? t('tools.contentMcpHelp') : undefined"
-          >
+          <UFormField>
+            <template #label><InfoLabel :label="kind === 'skill' ? t('tools.contentSkill') : kind === 'agent' ? t('tools.contentAgent') : t('tools.contentConfig')" :info="kind === 'mcp' ? t('tools.contentMcpHelp') : undefined" /></template>
             <UTextarea v-model="editing.content" :rows="16" autoresize class="w-full font-mono text-xs" />
           </UFormField>
           <p v-if="kind === 'skill' && Object.keys(editing.files).length > 1" class="text-xs text-(--ui-text-muted)">

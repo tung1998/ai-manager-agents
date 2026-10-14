@@ -297,9 +297,7 @@ const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).l
           <!-- on is on: it runs by the saved plan, nothing more is asked -->
           <div v-else class="flex items-center gap-2 rounded-lg border border-(--ui-border) py-1 ps-3 pe-2">
             <span class="text-sm font-medium">{{ on ? t('burn.switchOn') : t('burn.switchOff') }}</span>
-            <UTooltip :text="t('burn.confirmDesc')" :content="{ side: 'bottom' }" :ui="{ content: 'max-w-sm h-auto whitespace-normal' }">
-              <UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-dimmed)" />
-            </UTooltip>
+            <InfoTip :text="t('burn.confirmDesc')" icon-class="size-3.5 text-(--ui-text-dimmed)" />
             <USwitch :model-value="on" color="warning" size="lg" :loading="acting === 'start' || acting === 'drain'" :disabled="loading || !!offAgent || !!acting" :aria-label="t('burn.toggle')" @update:model-value="toggle" />
           </div>
         </div>
@@ -432,16 +430,19 @@ const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).l
               <p class="flex items-center gap-2 text-sm font-semibold"><UIcon name="i-lucide-target" class="size-4 text-(--ui-primary)" />{{ t('burn.sec.work') }}</p>
               <p class="text-xs text-(--ui-text-muted)">{{ t('burn.sec.workDesc') }}</p>
             </div>
-            <UFormField :label="t('burn.templateLabel')" :help="t(`burn.template.${form.template}Help`)">
+            <UFormField>
+              <template #label><InfoLabel :label="t('burn.templateLabel')" :info="t(`burn.template.${form.template}Help`)" /></template>
               <USelect v-model="form.template" :items="templateItems" class="w-full" />
             </UFormField>
-            <UFormField v-if="form.template === 'custom'" :label="t('burn.huntPrompt')" :help="t('burn.huntPromptHelp')" required>
+            <UFormField v-if="form.template === 'custom'" required>
+              <template #label><InfoLabel :label="t('burn.huntPrompt')" :info="t('burn.huntPromptHelp')" /></template>
               <UTextarea v-model="form.hunt_prompt" :rows="5" :maxlength="4000" autoresize class="w-full" :placeholder="t('burn.huntPromptPlaceholder')" />
             </UFormField>
             <UFormField v-if="form.template === 'general'" :label="t('burn.orderLabel')">
               <URadioGroup v-model="form.order" :items="(['roadmap', 'bugs', 'auto'] as const).map(o => ({ value: o, label: t(`burn.order.${o}`), description: t(`burn.order.${o}Help`) }))" />
             </UFormField>
-            <UFormField :label="t('burn.focus')" :help="t('burn.focusHelp')">
+            <UFormField>
+              <template #label><InfoLabel :label="t('burn.focus')" :info="t('burn.focusHelp')" /></template>
               <UTextarea v-model="form.focus" :rows="3" :maxlength="2000" autoresize class="w-full" :placeholder="t('burn.focusPlaceholder')" />
             </UFormField>
           </section>
@@ -463,7 +464,8 @@ const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).l
               <UFormField :label="t('burn.tierLabel')" :help="t('burn.tierHelp')">
                 <USelect v-model="form.model_tier" :items="tierItems" class="w-full" />
               </UFormField>
-              <UFormField :label="t('burn.parallelLabel')" :help="t('burn.parallelHelp')">
+              <UFormField>
+                <template #label><InfoLabel :label="t('burn.parallelLabel')" :info="t('burn.parallelHelp')" /></template>
                 <UInputNumber v-model="form.max_parallel" :min="1" :max="5" class="w-full" />
               </UFormField>
             </div>
@@ -477,7 +479,8 @@ const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).l
               <p class="flex items-center gap-2 text-sm font-semibold"><UIcon name="i-lucide-shield-check" class="size-4 text-(--ui-success)" />{{ t('burn.sec.check') }}</p>
               <p class="text-xs text-(--ui-text-muted)">{{ t('burn.sec.checkDesc') }}</p>
             </div>
-            <UFormField :label="t('burn.verify')" :help="t('burn.verifyHelp')">
+            <UFormField>
+              <template #label><InfoLabel :label="t('burn.verify')" :info="t('burn.verifyHelp')" /></template>
               <UTextarea v-model="form.verify" :rows="3" :maxlength="2000" autoresize class="w-full font-mono text-xs" placeholder="go build ./...&#10;go test ./..." />
             </UFormField>
             <UFormField :label="t('burn.review.label')" :help="t('burn.review.help')">
@@ -486,7 +489,8 @@ const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).l
                 <UButton color="neutral" variant="outline" icon="i-lucide-sliders-horizontal" :label="t('burn.review.manage')" :to="profilesPage" />
               </div>
             </UFormField>
-            <UFormField :label="t('burn.notify.label')" :help="t('burn.notify.help')">
+            <UFormField>
+              <template #label><InfoLabel :label="t('burn.notify.label')" :info="t('burn.notify.help')" /></template>
               <div class="grid gap-2 sm:grid-cols-2">
                 <NotifyBotPicker v-model="form.notify_channel_id" v-model:kind="notifyKind" :project-id="projectId" :none-label="t('burn.notify.off')" />
                 <UInput v-model="form.notify_chat_id" class="w-full font-mono text-xs" :disabled="!form.notify_channel_id" :placeholder="notifyKind === 'telegram' ? t('alert.chatTelegram') : t('alert.chatDiscord')" />
@@ -501,10 +505,12 @@ const builderDone = computed(() => builderFeatures.value.filter(f => f.passes).l
             </summary>
             <div class="space-y-3 px-3 pb-3">
               <div class="grid gap-3 sm:grid-cols-2">
-                <UFormField :label="t('burn.reviewCap')" :help="t('burn.reviewCapHelp')">
+                <UFormField>
+                  <template #label><InfoLabel :label="t('burn.reviewCap')" :info="t('burn.reviewCapHelp')" /></template>
                   <UInputNumber v-model="form.review_cap" :min="0" :max="100" class="w-full" />
                 </UFormField>
-                <UFormField :label="t('burn.stopAfter')" :help="t('burn.stopAfterHelp')">
+                <UFormField>
+                  <template #label><InfoLabel :label="t('burn.stopAfter')" :info="t('burn.stopAfterHelp')" /></template>
                   <UInputNumber v-model="form.stop_after" :min="0" :max="100" class="w-full" />
                 </UFormField>
               </div>

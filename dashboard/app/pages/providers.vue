@@ -471,7 +471,8 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
           </UFormField>
 
           <!-- endpoint for compatible APIs is not optional, so it is not hidden -->
-          <UFormField v-if="form.kind === 'openai_compatible' && !form.preset" :label="t('prov.apiUrl')" required :help="t('prov.apiUrlHelp')">
+          <UFormField v-if="form.kind === 'openai_compatible' && !form.preset" required>
+            <template #label><InfoLabel :label="t('prov.apiUrl')" :info="t('prov.apiUrlHelp')" /></template>
             <UInput v-model="form.base_url" :placeholder="selectedKind?.base_url_hint" class="w-full font-mono" />
           </UFormField>
 
@@ -500,7 +501,8 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
           </template>
 
           <!-- stop thresholds on the usage windows (ADR-136): only Claude Code reports them -->
-          <UFormField v-if="form.kind === 'claude_cli'" :label="t('prov.capLabel')" :help="t('prov.capHelp')">
+          <UFormField v-if="form.kind === 'claude_cli'">
+            <template #label><InfoLabel :label="t('prov.capLabel')" :info="t('prov.capHelp')" /></template>
             <div class="grid gap-3 sm:grid-cols-2">
               <UFormField v-for="w in (['five_hour', 'seven_day'] as const)" :key="w" :label="t(`limits.window.${w}`)" size="sm">
                 <UInput v-model.number="form.limit_caps[w]" type="number" :min="0" :max="100" placeholder="0" class="w-full" size="sm">
@@ -518,24 +520,17 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
             />
             <template #content>
               <div class="mt-3 space-y-4 rounded-lg border border-(--ui-border) p-4">
-                <UFormField
-                  v-if="selectedKind?.is_cli" :label="t('prov.cliPathLabel')"
-                  :help="t('prov.cliPathHelp', { cmd: selectedKind.base_url_hint })"
-                >
+                <UFormField v-if="selectedKind?.is_cli">
+                  <template #label><InfoLabel :label="t('prov.cliPathLabel')" :info="t('prov.cliPathHelp', { cmd: selectedKind.base_url_hint })" /></template>
                   <UInput v-model="form.base_url" :placeholder="selectedKind?.base_url_hint" class="w-full font-mono" />
                 </UFormField>
-                <UFormField
-                  v-else-if="form.kind !== 'openai_compatible' || form.preset" :label="t('prov.apiUrl')"
-                  :help="t('prov.apiUrlAdvancedHelp')"
-                >
+                <UFormField v-else-if="form.kind !== 'openai_compatible' || form.preset">
+                  <template #label><InfoLabel :label="t('prov.apiUrl')" :info="t('prov.apiUrlAdvancedHelp')" /></template>
                   <UInput v-model="form.base_url" :placeholder="selectedKind?.base_url_hint" class="w-full font-mono" />
                 </UFormField>
 
                 <div>
-                  <p class="text-sm font-medium">{{ t('prov.tierModels') }}</p>
-                  <p class="mt-0.5 text-xs text-(--ui-text-muted)">
-                    {{ t('prov.tierModelsHelp', { strong: modelTierLabel.strong, balanced: modelTierLabel.balanced, fast: modelTierLabel.fast }) }}
-                  </p>
+                  <p class="text-sm font-medium"><InfoLabel :label="t('prov.tierModels')" :info="t('prov.tierModelsHelp', { strong: modelTierLabel.strong, balanced: modelTierLabel.balanced, fast: modelTierLabel.fast })" /></p>
                   <div class="mt-2 grid gap-3 sm:grid-cols-3">
                     <UFormField v-for="tier in (['strong', 'balanced', 'fast'] as const)" :key="tier" :label="modelTierLabel[tier]">
                       <ModelInput v-model="form.tier_models[tier]" :models="editing?.models" class="w-full" size="sm" />

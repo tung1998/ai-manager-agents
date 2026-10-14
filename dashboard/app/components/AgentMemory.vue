@@ -93,7 +93,7 @@ const shownRev = ref<string | null>(null)
     <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
       <div class="flex flex-wrap items-center gap-2">
         <p class="font-medium">{{ t('mem.title') }}</p>
-        <UTooltip :text="t('mem.help')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+        <InfoTip :text="t('mem.help')" icon-class="size-4 text-(--ui-text-muted)" />
         <div class="ms-auto flex items-center gap-2">
           <label v-if="isAdmin && data" class="flex items-center gap-2 text-xs text-(--ui-text-muted)">
             <USwitch :model-value="data.auto" size="sm" @update:model-value="setAuto" />{{ t('mem.auto') }}
@@ -109,7 +109,7 @@ const shownRev = ref<string | null>(null)
         <div class="flex items-center gap-2 text-sm">
           <UIcon :name="g.topic ? 'i-lucide-folder' : 'i-lucide-pin'" class="size-4 shrink-0 text-(--ui-text-muted)" />
           <span class="font-medium">{{ g.topic || t('mem.core') }}</span>
-          <UTooltip :text="g.topic ? t('mem.topicsHelp') : t('mem.coreHelp')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" /></UTooltip>
+          <InfoTip :text="g.topic ? t('mem.topicsHelp') : t('mem.coreHelp')" icon-class="size-3.5 text-(--ui-text-muted)" />
           <span v-if="g.summary" class="min-w-0 truncate text-xs text-(--ui-text-muted)">{{ g.summary }}</span>
           <span class="ms-auto shrink-0 text-xs text-(--ui-text-muted) tabular-nums">{{ t('mem.size', { n: g.size, max: g.topic ? data.topic_limit : data.limit }) }}</span>
           <UButton v-if="isAdmin" size="xs" color="neutral" variant="ghost" icon="i-lucide-shrink" :loading="compacting === g.topic" :aria-label="t('mem.compact')" :title="t('mem.compact')" @click="compact(g.topic)" />

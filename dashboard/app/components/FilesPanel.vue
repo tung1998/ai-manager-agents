@@ -288,7 +288,7 @@ function badges(f: Flags) {
     <div class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-(--ui-border) md:max-h-none" :class="file && 'max-h-[40vh]'">
       <div class="flex items-center gap-1 border-b border-(--ui-border) px-2 py-1.5">
         <USwitch v-model="showHidden" size="xs" :label="t('files.showHidden')" class="flex-1" />
-        <UTooltip :text="t('files.hiddenInfo')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-muted)" /></UTooltip>
+        <InfoTip :text="t('files.hiddenInfo')" icon-class="size-3.5 text-(--ui-text-muted)" />
         <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-file-plus" :aria-label="t('files.newFile')" :title="t('files.newFile')" @click="newFile" />
         <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :aria-label="t('files.refresh')" :title="t('files.refresh')" @click="reloadTree" />
       </div>

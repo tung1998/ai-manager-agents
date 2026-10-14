@@ -38,8 +38,7 @@ async function revoke(tk: Token) {
 <template>
   <UCard class="max-w-2xl" :ui="{ body: 'space-y-3 sm:p-4' }">
     <div>
-      <p class="text-sm font-medium">{{ t('cli.title') }}</p>
-      <p class="text-xs text-(--ui-text-muted)">{{ t('cli.hint') }}</p>
+      <p class="text-sm font-medium"><InfoLabel :label="t('cli.title')" :info="t('cli.hint')" /></p>
     </div>
     <form class="flex gap-2" @submit.prevent="create">
       <UInput v-model="name" size="sm" class="flex-1" :placeholder="t('cli.namePlaceholder')" />

@@ -144,10 +144,7 @@ const lastMeta = computed(() => ({
       <UCard v-else>
         <div class="space-y-4">
           <div>
-            <p class="font-semibold">{{ t('admin.updateFromSource') }}</p>
-            <p class="text-sm text-(--ui-text-muted)">
-              {{ t('admin.updateFromSourceDesc') }}
-            </p>
+            <p class="font-semibold"><InfoLabel :label="t('admin.updateFromSource')" :info="t('admin.updateFromSourceDesc')" /></p>
           </div>
           <div class="rounded-lg border border-(--ui-border) p-3 text-sm">
             <div class="flex items-center gap-2">

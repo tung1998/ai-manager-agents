@@ -29,7 +29,7 @@ async function save() {
     <div class="flex items-center gap-2">
       <UIcon name="i-lucide-languages" class="size-4 text-(--ui-text-muted)" />
       <p class="font-medium">{{ t('lang.title') }}</p>
-      <UTooltip :text="t('lang.help')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+      <InfoTip :text="t('lang.help')" icon-class="size-4 text-(--ui-text-muted)" />
     </div>
     <StaleNotice :show="stale" @reload="resync" />
     <USkeleton v-if="!data" class="h-10 w-full" />

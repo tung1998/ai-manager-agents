@@ -25,7 +25,8 @@ const remove = (i: number) => { model.value = shown.value.filter((_, j) => j !==
 </script>
 
 <template>
-  <UFormField :label="t('org.form.fallbacks')" :help="t('org.form.fallbacksHelp')">
+  <UFormField>
+    <template #label><InfoLabel :label="t('org.form.fallbacks')" :info="t('org.form.fallbacksHelp')" /></template>
     <div class="space-y-1.5">
       <div v-for="(r, i) in rows" :key="i" class="flex items-center gap-2 rounded-md border border-(--ui-border) px-2 py-1 text-sm" :class="{ 'opacity-60': providerOf(r.id)?.enabled === false }">
         <span class="w-4 text-xs tabular-nums text-(--ui-text-muted)">{{ i + 1 }}</span>

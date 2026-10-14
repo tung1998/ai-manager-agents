@@ -362,7 +362,7 @@ const palette = computed(() => STEP_TYPES.map(s => ({ ...s, label: stepLabel(s.t
       <div class="space-y-1">
         <p class="flex items-center gap-1 px-1 text-xs font-medium text-(--ui-text-muted)">
           {{ t('wf.canvas.steps') }}
-          <UTooltip :text="t('wf.canvas.paletteInfo')"><UIcon name="i-lucide-info" class="size-3.5" /></UTooltip>
+          <InfoTip :text="t('wf.canvas.paletteInfo')" icon-class="size-3.5" />
         </p>
         <div class="flex gap-1 md:flex-col">
           <button

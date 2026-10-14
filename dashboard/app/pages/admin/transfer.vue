@@ -84,8 +84,7 @@ const kindLabelOf = computed<Record<string, string>>(() => ({ provider: t('admin
     <div class="max-w-4xl space-y-6">
       <UCard>
         <template #header>
-          <p class="font-medium">{{ t('admin.exportTitle') }}</p>
-          <p class="text-sm text-(--ui-text-muted)">{{ t('admin.exportDesc') }}</p>
+          <p class="font-medium"><InfoLabel :label="t('admin.exportTitle')" :info="t('admin.exportDesc')" /></p>
         </template>
         <div class="space-y-3">
           <UButton icon="i-lucide-download" :label="t('admin.downloadConfig')" to="/api/transfer/export" external target="_blank" />
@@ -96,8 +95,7 @@ const kindLabelOf = computed<Record<string, string>>(() => ({ provider: t('admin
 
       <UCard>
         <template #header>
-          <p class="font-medium">{{ t('admin.importTitle') }}</p>
-          <p class="text-sm text-(--ui-text-muted)">{{ t('admin.importDesc') }}</p>
+          <p class="font-medium"><InfoLabel :label="t('admin.importTitle')" :info="t('admin.importDesc')" /></p>
         </template>
         <div class="space-y-4">
           <input ref="fileInput" type="file" accept="application/json,.json" class="hidden" @change="onFile">
@@ -122,10 +120,7 @@ const kindLabelOf = computed<Record<string, string>>(() => ({ provider: t('admin
 
       <UCard>
         <template #header>
-          <p class="font-medium">{{ t('admin.backupTitle') }}</p>
-          <p class="text-sm text-(--ui-text-muted)">
-            {{ t('admin.backupDesc') }}
-          </p>
+          <p class="font-medium"><InfoLabel :label="t('admin.backupTitle')" :info="t('admin.backupDesc')" /></p>
         </template>
         <div class="space-y-3">
           <UButton icon="i-lucide-archive" :label="t('admin.createBackup')" :loading="backingUp" @click="backup" />

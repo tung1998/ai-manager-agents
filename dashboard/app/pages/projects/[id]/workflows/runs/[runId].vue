@@ -76,7 +76,7 @@ useHead({ title: () => run.value?.workflow_name ?? t('wf.section') })
       <section class="space-y-2">
         <div class="flex items-center gap-2">
           <h2 class="text-sm font-semibold">{{ t('wf.runPage.content') }}</h2>
-          <UTooltip :text="t('wf.runPage.contentInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+          <InfoTip :text="t('wf.runPage.contentInfo')" icon-class="size-4 text-(--ui-text-muted)" />
         </div>
         <RunTranscript v-if="isolated" :project-id="projectId" :conversation-id="run.conversation_id" class="rounded-lg border border-(--ui-border) p-3" />
         <p v-else class="text-sm text-(--ui-text-muted)">

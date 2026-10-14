@@ -193,7 +193,7 @@ async function save() {
     <div class="flex min-w-0 flex-1 flex-col gap-2">
       <div class="flex items-center gap-2">
         <SegmentedNav v-model="mode" :items="modes" />
-        <UTooltip :text="t('wf.canvas.modeInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+        <InfoTip :text="t('wf.canvas.modeInfo')" icon-class="size-4 text-(--ui-text-muted)" />
       </div>
       <div v-if="!loaded" class="p-4 text-sm text-(--ui-text-muted)">{{ t('common.loading') }}</div>
       <template v-else-if="mode === 'canvas'">
@@ -209,7 +209,7 @@ async function save() {
       <div v-else class="space-y-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pe-1">
         <UFormField :label="t('wf.source')" :class="highlight && 'rounded-lg ring-2 ring-primary/60 ring-offset-2 ring-offset-(--ui-bg) transition'">
           <template #hint>
-            <UTooltip :text="t('wf.sourceInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+            <InfoTip :text="t('wf.sourceInfo')" icon-class="size-4 text-(--ui-text-muted)" />
           </template>
           <UTextarea v-model="source" :rows="18" autoresize :maxrows="40" class="w-full font-mono text-xs" placeholder="---&#10;key: …&#10;name: …&#10;roles: …&#10;---" />
         </UFormField>

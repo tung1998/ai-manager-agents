@@ -100,7 +100,7 @@ const en: Record<keyof typeof vi, string> = {
   'perm.editor.custom': 'Custom',
   'perm.editor.customFrom': 'Customized from the {label} package.',
   'perm.editor.backToPreset': 'Back to {label}',
-  'perm.editor.presetHint': '{description} The 5 packages rank from lowest to highest: Read only → Propose → Self-check → Self-edit code → Operate; picking a higher one adds its own permissions plus everything from every lower package. To differ from the package (e.g. Self-edit code without auto commit), toggle individual permissions below.',
+  'perm.editor.presetInfo': 'The 5 packages rank from lowest to highest: Read only → Propose → Self-check → Self-edit code → Operate; picking a higher one adds its own permissions plus everything from every lower package. To differ from the package (e.g. Self-edit code without auto commit), toggle individual permissions below.',
   'perm.editor.inPackage': 'Included from the {label} package up',
   'perm.editor.gitPushNote': 'Pushing to remote always needs your approval, never forced.',
   'perm.editor.commandsNoModel': 'The command list comes from a project, so specific commands can only be picked when the agent is opened inside a project. Without one, only the permission package can be set.',

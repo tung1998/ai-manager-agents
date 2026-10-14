@@ -119,7 +119,7 @@ async function remove() {
           <div v-if="form.stages[k].on" class="space-y-1.5">
             <p class="flex items-center gap-1.5 text-sm font-medium">
               {{ t('burn.review.reviewer') }}
-              <UTooltip :text="t('burn.review.reviewerHelp')"><UIcon name="i-lucide-info" class="size-3.5 text-(--ui-text-dimmed)" /></UTooltip>
+              <InfoTip :text="t('burn.review.reviewerHelp')" icon-class="size-3.5 text-(--ui-text-dimmed)" />
             </p>
             <USelect v-model="form.stages[k].who" :items="reviewerItems" :icon="reviewerIcon(form.stages[k].who)" class="w-full sm:max-w-md" :aria-label="t('burn.review.reviewer')" />
           </div>

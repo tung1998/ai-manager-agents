@@ -196,9 +196,7 @@ async function testRun() {
         >
           <UIcon :name="s.icon" class="size-4 shrink-0" :class="s.active ? 'text-primary' : 'text-(--ui-text-muted)'" />
           <span class="font-medium whitespace-nowrap">{{ s.title }}</span>
-          <UTooltip :text="s.desc">
-            <UIcon name="i-lucide-info" class="size-3.5 shrink-0 text-(--ui-text-dimmed) hover:text-(--ui-text) max-sm:hidden" @click.stop />
-          </UTooltip>
+          <InfoTip :text="s.desc" icon-class="size-3.5 text-(--ui-text-dimmed)" />
         </button>
       </div>
 
@@ -222,7 +220,8 @@ async function testRun() {
           />
         </div>
         <div class="grid gap-3 @lg:grid-cols-2">
-          <UFormField :label="schedKind === 'every' ? t('auto.schedEvery') : t('auto.schedCron')" :help="schedKind === 'cron' ? t('auto.cronHelp') : undefined">
+          <UFormField>
+            <template #label><InfoLabel :label="schedKind === 'every' ? t('auto.schedEvery') : t('auto.schedCron')" :info="schedKind === 'cron' ? t('auto.cronHelp') : undefined" /></template>
             <div class="flex items-center gap-2">
               <USelect v-model="schedKind" :items="[{ label: t('auto.schedEvery'), value: 'every' }, { label: t('auto.schedCron'), value: 'cron' }]" class="w-36 shrink-0" />
               <template v-if="schedKind === 'every'">
@@ -256,7 +255,7 @@ async function testRun() {
       </template>
       <p v-else-if="form.config.pull_request" class="flex items-start gap-1.5 text-sm text-(--ui-text-muted)">
         {{ t('auto.prShort') }}
-        <UTooltip :text="t('auto.prWhere')"><UIcon name="i-lucide-info" class="mt-0.5 size-4 shrink-0 hover:text-(--ui-text)" /></UTooltip>
+        <InfoTip :text="t('auto.prWhere')" icon-class="mt-0.5 size-4" />
       </p>
       <template v-else>
         <div class="grid gap-3 @lg:grid-cols-2">
@@ -301,13 +300,14 @@ async function testRun() {
             </div>
           </UFormField>
         </div>
-        <UFormField :label="t('auto.scriptBody')" :help="t('auto.scriptHelp')" :class="hl('script')">
+        <UFormField :class="hl('script')">
+          <template #label><InfoLabel :label="t('auto.scriptBody')" :info="t('auto.scriptHelp')" /></template>
           <UTextarea v-model="form.script.body" :rows="12" autoresize class="w-full font-mono text-xs" placeholder="grep -c ERROR logs/app.log || true" />
         </UFormField>
         <label class="flex items-center gap-2.5">
           <USwitch size="sm" :model-value="form.script.burn_start ?? false" @update:model-value="(v: boolean) => { form.script.burn_start = v }" />
           <span class="text-sm">{{ t('auto.burnStart') }}</span>
-          <UTooltip :text="t('auto.burnStartHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+          <InfoTip :text="t('auto.burnStartHint')" icon-class="size-4 text-(--ui-text-muted)" />
         </label>
         <div class="space-y-2 rounded-lg bg-(--ui-bg-elevated)/50 p-3">
           <div class="flex flex-wrap items-center gap-2">
@@ -332,7 +332,7 @@ async function testRun() {
         <p v-if="form.action === 'chat'" class="text-xs text-(--ui-text-muted)">{{ t('auto.replyNoTools') }}</p>
         <UFormField :label="t('auto.tags')" :class="hl('config')">
           <template #hint>
-            <UTooltip :text="t('auto.tagsHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+            <InfoTip :text="t('auto.tagsHint')" icon-class="size-4 text-(--ui-text-muted)" />
           </template>
           <TagPicker v-model="tags" :suggestions="projectTags" :autofocus="false" />
         </UFormField>
@@ -354,7 +354,7 @@ async function testRun() {
         <label class="flex items-center gap-2.5">
           <USwitch v-model="goalOn" size="sm" />
           <span class="text-sm">{{ t('auto.goal') }}</span>
-          <UTooltip :text="t('auto.goalHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+          <InfoTip :text="t('auto.goalHint')" icon-class="size-4 text-(--ui-text-muted)" />
         </label>
         <div v-if="goalOn" class="grid gap-3 @lg:grid-cols-[1fr_auto]">
           <UFormField :label="t('auto.goalCheck')" :hint="t('auto.goalCheckHint')">
@@ -366,7 +366,7 @@ async function testRun() {
           <label class="flex items-center gap-2.5 @lg:col-span-2">
             <USwitch v-model="goal.judge" size="sm" />
             <span class="text-sm">{{ t('auto.goalJudge') }}</span>
-            <UTooltip :text="t('auto.goalJudgeHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+            <InfoTip :text="t('auto.goalJudgeHint')" icon-class="size-4 text-(--ui-text-muted)" />
           </label>
           <UFormField v-if="goal.judge" :label="t('auto.goalText')" required class="@lg:col-span-2">
             <UInput v-model="goal.text" class="w-full" :placeholder="t('auto.goalTextPlaceholder')" />
@@ -384,7 +384,7 @@ async function testRun() {
         </UFormField>
         <UFormField v-if="form.config.notify_channel_id" :label="notifyKind === 'telegram' ? t('alert.chatTelegram') : t('alert.chatDiscord')">
           <template #hint>
-            <UTooltip :text="notifyKind === 'telegram' ? t('auto.chatIdTelegram') : t('auto.chatIdDiscord')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+            <InfoTip :text="notifyKind === 'telegram' ? t('auto.chatIdTelegram') : t('auto.chatIdDiscord')" icon-class="size-4 text-(--ui-text-muted)" />
           </template>
           <UInput v-model="form.config.notify_chat_id" class="w-full font-mono text-xs" placeholder="123456789012345678" />
         </UFormField>
@@ -444,7 +444,8 @@ async function testRun() {
       </div>
       <!-- runs at once and how long each (ADR-082): at its time with as many still going, none more and none stopped -->
       <div class="mt-3 grid gap-3 @lg:grid-cols-3">
-        <UFormField :label="t('auto.maxParallel')" :help="form.keep_context ? t('auto.maxParallelKept') : t('auto.maxParallelHelp')">
+        <UFormField>
+          <template #label><InfoLabel :label="t('auto.maxParallel')" :info="form.keep_context ? t('auto.maxParallelKept') : t('auto.maxParallelHelp')" /></template>
           <UInputNumber v-model="form.limits.max_parallel" :min="1" :max="10" :disabled="form.keep_context" class="w-full" />
         </UFormField>
         <UFormField :label="t('auto.maxMinutes')" :help="t('auto.maxMinutesHelp')"><UInputNumber v-model="form.limits.max_minutes" :min="0" class="w-full" /></UFormField>

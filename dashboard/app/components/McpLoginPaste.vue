@@ -31,7 +31,7 @@ async function finish() {
       <form id="mcp-paste" class="space-y-3" @submit.prevent="finish">
         <UFormField :label="t('tools.gwPasteLabel')">
           <template #hint>
-            <UTooltip :text="t('tools.gwPasteInfo')"><UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" /></UTooltip>
+            <InfoTip :text="t('tools.gwPasteInfo')" icon-class="text-(--ui-text-dimmed)" />
           </template>
           <UInput v-model="link" placeholder="http://localhost:…/api/mcp/oauth/callback?code=…&state=…" class="w-full font-mono" required />
         </UFormField>

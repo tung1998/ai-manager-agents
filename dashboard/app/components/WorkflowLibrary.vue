@@ -31,7 +31,7 @@ async function remove(w: LibraryWorkflow) {
   <div class="space-y-4">
     <div class="flex flex-wrap items-center gap-2">
       <p class="text-sm text-(--ui-text-muted)">{{ t('wf.count', { n: list.length }) }}</p>
-      <UTooltip :text="t('wf.libraryInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+      <InfoTip :text="t('wf.libraryInfo')" icon-class="size-4 text-(--ui-text-muted)" />
       <UButton class="ms-auto" size="sm" icon="i-lucide-plus" :label="t('wf.new')" :to="editTo()" />
     </div>
     <LoadingRows v-if="pending && !data" />

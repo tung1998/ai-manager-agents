@@ -50,7 +50,8 @@ const usd = (v: number) => v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(3)}`
   <UModal v-model:open="open" :title="t('budget.officeTitle')" :ui="{ content: 'max-w-xl' }">
     <template #body>
       <form id="office-budget" class="space-y-5" @submit.prevent="save">
-        <UFormField :label="t('costs.dailyLimit')" :help="t('costs.dailyLimitHelp')">
+        <UFormField>
+          <template #label><InfoLabel :label="t('costs.dailyLimit')" :info="t('costs.dailyLimitHelp')" /></template>
           <UInputNumber v-model="form.daily" :min="0" :step="0.5" :format-options="{ minimumFractionDigits: 0, maximumFractionDigits: 2 }" />
         </UFormField>
         <p class="text-xs text-(--ui-text-muted)">{{ t('budget.perProjectHint') }}</p>

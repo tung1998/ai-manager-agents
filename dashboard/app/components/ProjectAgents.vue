@@ -215,7 +215,7 @@ async function applyPack() {
           </UFormField>
           <UFormField :label="t('org.form.key')" required>
             <template #hint>
-              <UTooltip :text="t('org.form.keyHelp')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+              <InfoTip :text="t('org.form.keyHelp')" icon-class="size-4 text-(--ui-text-muted)" />
             </template>
             <UInput v-model="form.key" class="w-full font-mono" @input="keyTouched = true" />
           </UFormField>

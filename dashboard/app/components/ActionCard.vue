@@ -183,7 +183,7 @@ async function decide(approve: boolean, always = false, skip = false) {
       <UButton size="xs" icon="i-lucide-check" :label="t('action.approve')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
       <span v-if="canAlways" class="inline-flex items-center gap-1">
         <UButton size="xs" variant="soft" icon="i-lucide-infinity" :label="t('action.approveAlways')" :loading="busy === 'always'" :disabled="!!busy" @click="decide(true, true)" />
-        <UTooltip :text="alwaysInfo"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+        <InfoTip :text="alwaysInfo" icon-class="size-4 text-(--ui-text-muted)" />
       </span>
       <UButton size="xs" color="neutral" variant="ghost" :label="t('action.reject')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
       <UTooltip :text="t('action.skipInfo')">

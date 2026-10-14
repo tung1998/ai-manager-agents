@@ -281,18 +281,21 @@ async function save() {
             :label="t('auto.tabBot')" @click="settingsOpen = !settingsOpen"
           />
           <div v-show="settingsOpen" class="space-y-3">
-            <UFormField :label="t('channels.token')" :help="bot.kind === 'discord' ? t('channels.tokenHelpDiscord') : t('channels.tokenHelpTelegram')" :required="isNew">
+            <UFormField :required="isNew">
+              <template #label><InfoLabel :label="t('channels.token')" :info="bot.kind === 'discord' ? t('channels.tokenHelpDiscord') : t('channels.tokenHelpTelegram')" /></template>
               <UInput
                 v-model="bot.token" type="password" name="bot-token" autocomplete="new-password" class="w-full font-mono"
                 :placeholder="isNew ? (bot.kind === 'discord' ? 'MTI3…' : '123456789:AAF…') : t('channels.tokenKept')"
               />
             </UFormField>
             <!-- two lists (ADR-081): admins run as the agent's own, users propose for an admin to approve -->
-            <UFormField :label="t('bot.admins')" :help="t('bot.adminsHelp')">
+            <UFormField>
+              <template #label><InfoLabel :label="t('bot.admins')" :info="t('bot.adminsHelp')" /></template>
               <UTextarea v-model="bot.approvers" :rows="1" autoresize class="w-full font-mono text-xs" :placeholder="bot.kind === 'discord' ? '123456789012345678' : '123456789'" />
             </UFormField>
             <UAlert v-if="ids(bot.approvers).includes('*')" color="error" variant="subtle" icon="i-lucide-shield-alert" :title="t('bot.adminsNoAnyone')" />
-            <UFormField :label="t('channels.allow')" :help="bot.kind === 'discord' ? t('channels.allowHelpDiscord') : t('channels.allowHelpTelegram')">
+            <UFormField>
+              <template #label><InfoLabel :label="t('channels.allow')" :info="bot.kind === 'discord' ? t('channels.allowHelpDiscord') : t('channels.allowHelpTelegram')" /></template>
               <UTextarea v-model="bot.allow" :rows="2" autoresize class="w-full font-mono text-xs" :placeholder="bot.kind === 'discord' ? '123456789012345678' : '123456789'" />
             </UFormField>
             <!-- "*": anyone may message it, proposing only -->
@@ -301,13 +304,15 @@ async function save() {
               :title="t('bot.anyoneTitle')" :description="t('bot.anyoneDesc')"
             />
             <!-- who answered, where: on top of each answer -->
-            <UFormField :label="t('bot.header')" :help="bot.headerOn ? t('bot.headerHelp') : undefined">
+            <UFormField>
+              <template #label><InfoLabel :label="t('bot.header')" :info="bot.headerOn ? t('bot.headerHelp') : undefined" /></template>
               <div class="flex items-center gap-2">
                 <USwitch v-model="bot.headerOn" />
                 <UInput v-if="bot.headerOn" v-model="bot.header" class="min-w-0 flex-1 font-mono text-xs" placeholder="{agent} · {project} · {branch}" />
               </div>
             </UFormField>
-            <UFormField :label="t('channels.refusal')" :help="t('channels.refusalHelp')">
+            <UFormField>
+              <template #label><InfoLabel :label="t('channels.refusal')" :info="t('channels.refusalHelp')" /></template>
               <UInput v-model="bot.refusal" class="w-full" :placeholder="t('channels.refusalPlaceholder')" />
             </UFormField>
           </div>
@@ -317,10 +322,11 @@ async function save() {
         <section class="space-y-3 rounded-xl border border-(--ui-border) p-4">
           <p class="flex items-center gap-2 text-sm font-semibold">
             <span class="flex size-5 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">2</span>{{ t('bot.sectionSetup') }}
-            <UTooltip :text="t('bot.sectionSetupHint')"><UIcon name="i-lucide-info" class="size-4 font-normal text-(--ui-text-muted)" /></UTooltip>
+            <InfoTip :text="t('bot.sectionSetupHint')" icon-class="size-4 font-normal text-(--ui-text-muted)" />
           </p>
           <AutomationForm :project-id="projectId" :form="defaultsDraft" :highlight="openCmd ? [] : highlight" command />
-          <UFormField v-if="defaultsDraft.action === 'chat'" :label="t('bot.replyMode')" :help="bot.replyMode === 'steps' ? t('bot.replyStepsHelp') : t('bot.replyAnswerHelp')">
+          <UFormField v-if="defaultsDraft.action === 'chat'">
+            <template #label><InfoLabel :label="t('bot.replyMode')" :info="bot.replyMode === 'steps' ? t('bot.replyStepsHelp') : t('bot.replyAnswerHelp')" /></template>
             <div class="flex flex-wrap gap-2">
               <button
                 v-for="o in replyModes" :key="o.value" type="button" class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition"
@@ -362,10 +368,12 @@ async function save() {
                     <UIcon name="i-lucide-chevron-right" class="size-3.5 transition group-open:rotate-90" />{{ t('bot.onlySome') }}
                   </summary>
                   <div class="mt-2 grid gap-3 @lg:grid-cols-2">
-                    <UFormField :label="t('auto.keywords')" :help="t('auto.keywordsHelp')">
+                    <UFormField>
+                      <template #label><InfoLabel :label="t('auto.keywords')" :info="t('auto.keywordsHelp')" /></template>
                       <UInput :model-value="keywordsText(c)" class="w-full" :placeholder="t('auto.keywordsPlaceholder')" @update:model-value="(v: string | number) => setKeywords(c, String(v))" />
                     </UFormField>
-                    <UFormField :label="t('auto.scope')" :help="t('auto.scopeHelp')">
+                    <UFormField>
+                      <template #label><InfoLabel :label="t('auto.scope')" :info="t('auto.scopeHelp')" /></template>
                       <UInput v-model="c.draft.config.scope" class="w-full" :placeholder="t('auto.scopePlaceholder')" />
                     </UFormField>
                   </div>
@@ -387,7 +395,8 @@ async function save() {
                       <UInput v-model="c.draft.config.command_description" class="w-full" :placeholder="t('auto.cmdDescriptionPlaceholder')" />
                     </UFormField>
                   </div>
-                  <UFormField :label="t('bot.cmdArg')" :help="t('bot.cmdArgHelp')">
+                  <UFormField>
+                    <template #label><InfoLabel :label="t('bot.cmdArg')" :info="t('bot.cmdArgHelp')" /></template>
                     <UInput v-model="c.draft.config.command_arg" class="w-full @lg:w-64" :placeholder="t('auto.cmdArgDefault')" />
                   </UFormField>
                 </template>

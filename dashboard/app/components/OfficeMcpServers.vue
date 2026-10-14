@@ -212,9 +212,7 @@ async function save() {
       <UIcon name="i-lucide-network" class="text-(--ui-text-muted)" />
       {{ t('tools.gwTitle') }}
       <span class="font-normal text-(--ui-text-muted)">· {{ list.length }}</span>
-      <UTooltip :text="t('tools.gwInfo')">
-        <UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" />
-      </UTooltip>
+      <InfoTip :text="t('tools.gwInfo')" icon-class="text-(--ui-text-dimmed)" />
       <UButton class="ms-auto" size="xs" color="neutral" variant="outline" icon="i-lucide-arrow-right-to-line" :label="t('tools.gwImport')" @click="importOpen = true" />
       <UButton size="xs" icon="i-lucide-plus" :label="t('tools.gwAdd')" @click="openForm()" />
     </h3>
@@ -260,7 +258,7 @@ async function save() {
         <div v-if="open[s.id]" class="mt-2 space-y-3 ps-7">
           <UFormField :label="t('tools.gwAgents')">
             <template #hint>
-              <UTooltip :text="t('tools.gwAgentsInfo')"><UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" /></UTooltip>
+              <InfoTip :text="t('tools.gwAgentsInfo')" icon-class="text-(--ui-text-dimmed)" />
             </template>
             <USelectMenu :model-value="s.agents" :items="agentItems" value-key="value" multiple size="sm" class="w-full max-w-md"
                          :disabled="busy[s.id]" :placeholder="t('tools.gwAllAgents')" @update:model-value="(v: string[]) => setAgents(s, v)" />
@@ -306,7 +304,7 @@ async function save() {
           </UFormField>
           <UFormField :label="t('common.name')">
             <template #hint>
-              <UTooltip :text="t('tools.gwNameInfo')"><UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" /></UTooltip>
+              <InfoTip :text="t('tools.gwNameInfo')" icon-class="text-(--ui-text-dimmed)" />
             </template>
             <UInput v-model="form.name" :disabled="!!editing" :placeholder="form.kind === 'stdio' ? 'filesystem' : 'context7'" class="w-full font-mono" required />
           </UFormField>
@@ -314,7 +312,7 @@ async function save() {
           <template v-if="form.kind === 'stdio'">
             <UFormField :label="t('tools.gwCommand')">
               <template #hint>
-                <UTooltip :text="t('tools.gwCommandInfo')"><UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" /></UTooltip>
+                <InfoTip :text="t('tools.gwCommandInfo')" icon-class="text-(--ui-text-dimmed)" />
               </template>
               <UInput v-model="form.command" placeholder="npx" class="w-full font-mono" required />
             </UFormField>
@@ -323,7 +321,7 @@ async function save() {
             </UFormField>
             <UFormField :label="t('tools.gwEnv')">
               <template #hint>
-                <UTooltip :text="t('tools.gwEnvInfo')"><UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" /></UTooltip>
+                <InfoTip :text="t('tools.gwEnvInfo')" icon-class="text-(--ui-text-dimmed)" />
               </template>
               <div class="space-y-2">
                 <div v-for="(r, i) in form.env" :key="i" class="flex gap-2">
@@ -342,7 +340,7 @@ async function save() {
             </UFormField>
             <UFormField :label="t('tools.gwHeaders')">
               <template #hint>
-                <UTooltip :text="t('tools.gwHeadersInfo')"><UIcon name="i-lucide-info" class="text-(--ui-text-dimmed)" /></UTooltip>
+                <InfoTip :text="t('tools.gwHeadersInfo')" icon-class="text-(--ui-text-dimmed)" />
               </template>
               <div class="space-y-2">
                 <div v-for="(r, i) in form.rows" :key="i" class="flex gap-2">

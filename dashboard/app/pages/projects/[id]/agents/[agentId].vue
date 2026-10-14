@@ -363,7 +363,7 @@ async function restore(e: Entry) {
             </UFormField>
             <UFormField v-if="formEfforts.length" :label="t('org.form.effort')">
               <template #hint>
-                <UTooltip :text="t('org.form.effortHint')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+                <InfoTip :text="t('org.form.effortHint')" icon-class="size-4 text-(--ui-text-muted)" />
               </template>
               <EffortSelect v-model="form.effort" :options="formEfforts" class="w-full" :disabled="!isAdmin" />
             </UFormField>

@@ -101,7 +101,7 @@ const runsOf = (w: ProjectWorkflow) => router.replace({ query: { ...route.query,
       <SegmentedNav v-model="view" :items="views" class="lg:hidden" />
       <div class="flex items-center gap-2" :class="view !== 'list' && 'max-lg:hidden'">
         <p class="text-sm text-(--ui-text-muted)">{{ t('wf.count', { n: workflows.length }) }}</p>
-        <UTooltip :text="t('wf.projectInfo')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+        <InfoTip :text="t('wf.projectInfo')" icon-class="size-4 text-(--ui-text-muted)" />
       </div>
       <div v-if="isAdmin" class="ms-auto flex gap-2" :class="view !== 'list' && 'max-lg:hidden'">
         <UDropdownMenu :items="installItems" :content="{ align: 'end' }" :ui="{ content: 'max-h-80' }">

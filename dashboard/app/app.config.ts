@@ -11,6 +11,8 @@ export default defineAppConfig({
     // which shrinks to the icon on mobile when the trigger label is hidden — min-w-fit wins over width
     select: { slots: { content: 'min-w-fit max-w-[calc(100vw-1rem)]' } },
     selectMenu: { slots: { content: 'min-w-fit max-w-[calc(100vw-1rem)]' } },
-    inputMenu: { slots: { content: 'min-w-fit max-w-[calc(100vw-1rem)]' } }
+    inputMenu: { slots: { content: 'min-w-fit max-w-[calc(100vw-1rem)]' } },
+    // ⓘ explanations are sentences: wrap them instead of cutting to one line
+    tooltip: { slots: { content: 'h-auto max-w-sm', text: 'whitespace-normal! overflow-visible' } }
   }
 })

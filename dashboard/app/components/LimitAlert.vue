@@ -34,7 +34,7 @@ async function save(test = false) {
     <div class="flex items-center gap-2">
       <UIcon name="i-lucide-gauge" class="size-4 text-(--ui-text-muted)" />
       <p class="font-medium">{{ t('alert.title') }}</p>
-      <UTooltip :text="t('alert.help')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+      <InfoTip :text="t('alert.help')" icon-class="size-4 text-(--ui-text-muted)" />
     </div>
     <StaleNotice :show="stale" @reload="resync" />
     <USkeleton v-if="!data" class="h-10 w-full" />
@@ -57,7 +57,7 @@ async function save(test = false) {
     <div v-if="data" class="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
       <UIcon name="i-lucide-triangle-alert" class="size-4 text-(--ui-text-muted)" />
       <span>{{ t('alert.errors') }}</span>
-      <UTooltip :text="t('alert.errorsHelp')"><UIcon name="i-lucide-info" class="size-4 text-(--ui-text-muted)" /></UTooltip>
+      <InfoTip :text="t('alert.errorsHelp')" icon-class="size-4 text-(--ui-text-muted)" />
       <UInputNumber v-model="form.errors.streak" :min="0" :max="100" size="sm" class="w-24" />
       <span>{{ t('alert.inARow') }}</span>
       <span class="text-(--ui-text-muted)">{{ t('alert.or') }}</span>
