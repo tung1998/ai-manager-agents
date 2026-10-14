@@ -61,8 +61,8 @@ const usd = (v: number) => v >= 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(3)}`
           <div class="mt-2 space-y-2">
             <div v-for="(p, i) in form.prices" :key="i" class="flex items-center gap-2">
               <UInput v-model="p.model" placeholder="gpt-5" size="sm" class="flex-1 font-mono" />
-              <UInputNumber v-model="p.input" :min="0" :step="0.1" size="sm" class="w-28" placeholder="input" />
-              <UInputNumber v-model="p.output" :min="0" :step="0.1" size="sm" class="w-28" placeholder="output" />
+              <UInputNumber v-model="p.input" :min="0" :step="0.1" size="sm" class="w-28" :placeholder="t('costs.priceInputPlaceholder')" />
+              <UInputNumber v-model="p.output" :min="0" :step="0.1" size="sm" class="w-28" :placeholder="t('costs.priceOutputPlaceholder')" />
               <UButton icon="i-lucide-x" size="xs" color="neutral" variant="ghost" @click="form.prices.splice(i, 1)" />
             </div>
             <UButton icon="i-lucide-plus" :label="t('costs.addPrice')" size="xs" color="neutral" variant="outline" @click="form.prices.push({ model: '', input: 0, output: 0 })" />

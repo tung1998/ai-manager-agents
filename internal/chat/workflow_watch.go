@@ -33,7 +33,7 @@ func (e *Engine) watchRun(run *wfRun, conv storage.Conversation, project storage
 	if every <= 0 || on {
 		return
 	}
-	go func() {
+	safeGo("watchRun", func() {
 		t := time.NewTicker(every)
 		defer t.Stop()
 		for {
@@ -46,7 +46,7 @@ func (e *Engine) watchRun(run *wfRun, conv storage.Conversation, project storage
 				}
 			}
 		}
-	}()
+	})
 }
 
 // superviseOnce starts one check by the supervisor; false: it never can

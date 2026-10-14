@@ -206,7 +206,7 @@ async function add() {
             <div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
               <UFormField required>
                 <template #label><InfoLabel :label="t('projects.cloneUrl')" :info="t('projects.cloneUrlHelp')" /></template>
-                <UInput v-model="form.url" class="w-full font-mono" icon="i-lucide-link" placeholder="https://github.com/org/repo.git" autofocus />
+                <UInput v-model="form.url" class="w-full font-mono" icon="i-lucide-link" :placeholder="t('projects.cloneUrlPlaceholder')" autofocus />
               </UFormField>
               <UFormField :label="t('projects.cloneDir')">
                 <UInput v-model="form.dir" class="w-full font-mono" :placeholder="urlDir" />

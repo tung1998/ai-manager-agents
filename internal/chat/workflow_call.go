@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -78,7 +80,7 @@ func (e *Engine) callWorkflow(ctx context.Context, conv storage.Conversation, ag
 		_ = e.store.Chat().DeleteConversation(context.WithoutCancel(ctx), own.ID)
 		return fail(err)
 	}
-	go e.awaitRun(wctx, turn, conv, own.ID, run)
+	safeGo("awaitRun", func() { e.awaitRun(wctx, turn, conv, own.ID, run) })
 	return turn, msg, nil
 }
 
@@ -86,6 +88,16 @@ func (e *Engine) callWorkflow(ctx context.Context, conv storage.Conversation, ag
 func (e *Engine) awaitRun(ctx context.Context, turn *Turn, conv storage.Conversation, ownID string, run *wfRun) {
 	defer turn.cancel()
 	defer e.finish(turn)
+	defer func() {
+		// a panic here (e.g. while reading the run's result) must still
+		// close the caller's job instead of leaving it "running" forever.
+		if r := recover(); r != nil {
+			slog.Error("chat: awaitRun panic", "panic", r, "stack", string(debug.Stack()))
+			err := fmt.Errorf("internal error: %v", r)
+			e.endJob(turn.JobID, "", err, nil)
+			turn.emit(Event{Type: "error", Text: err.Error()})
+		}
+	}()
 	select {
 	case <-run.done:
 	case <-ctx.Done(): // Dừng in the chat that called it

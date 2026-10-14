@@ -14,15 +14,22 @@ const Dropdown = resolveComponent('UDropdownMenu')
 const repo = ref(false)
 const st = ref<GitStatus | null>(null)
 const busy = ref('')
+// bumped when projectId changes or the component unmounts: an in-flight
+// request from a stale generation must not touch busy/st/toast on arrival
+let gen = 0
 
 function set(res: { repo: boolean, status?: GitStatus }) {
   repo.value = res.repo
   st.value = res.status ?? null
 }
 async function load() {
+  const g = gen
   try {
-    set(await $fetch(`/api/projects/${props.projectId}/git`))
+    const res = await $fetch(`/api/projects/${props.projectId}/git`)
+    if (g !== gen) return
+    set(res)
   } catch {
+    if (g !== gen) return
     repo.value = false
   }
 }
@@ -31,10 +38,11 @@ async function load() {
 interface GitEnd { project: string, kind: 'fetch' | 'push', repo: boolean, status?: GitStatus, action?: ProposedAction, error?: string }
 let quietFetch = false
 let stuck: ReturnType<typeof setTimeout> | undefined
-function waitEnd(kind: 'fetch' | 'push') {
+function waitEnd(kind: 'fetch' | 'push', g: number) {
   busy.value = kind
   clearTimeout(stuck)
   stuck = setTimeout(() => { // the event was missed (stream reconnecting): look again
+    if (g !== gen) return
     if (busy.value === kind) busy.value = ''
     void load()
   }, 90000)
@@ -55,28 +63,35 @@ onLiveEvent<GitEnd>('git', (d) => {
 
 // fetch: ask the remote what changed (read-only for the working tree)
 async function fetchRemote(quiet = false) {
+  const g = gen
   busy.value = 'fetch'
   quietFetch = quiet
   try {
     const res = await $fetch<{ repo: boolean, status?: GitStatus, running?: string }>(`/api/projects/${props.projectId}/git/fetch`, { method: 'POST', body: {} })
+    if (g !== gen) return
     set(res)
-    if (res.running) return waitEnd('fetch')
+    if (res.running) return waitEnd('fetch', g)
   } catch (e) {
+    if (g !== gen) return
     if (!quiet) toast.add({ title: apiError(e), color: 'error' })
   }
   busy.value = ''
 }
 async function push() {
+  const g = gen
   busy.value = 'push'
   try {
     const res = await $fetch<{ action: ProposedAction, running?: string }>(`/api/projects/${props.projectId}/git/push`, { method: 'POST', body: {} })
+    if (g !== gen) return
     if (res.running) {
       toast.add({ title: t('git.pushRunning'), color: 'info' })
-      return waitEnd('push')
+      return waitEnd('push', g)
     }
     toast.add({ title: t('git.pushed'), description: res.action.detail, color: 'success' })
     await load()
+    if (g !== gen) return
   } catch (e) {
+    if (g !== gen) return
     toast.add({ title: apiError(e), color: 'error' })
   }
   busy.value = ''
@@ -114,11 +129,17 @@ onMounted(async () => {
   window.addEventListener('focus', load)
 })
 onBeforeUnmount(() => {
+  gen++
   clearInterval(timer)
   clearTimeout(stuck)
   window.removeEventListener('focus', load)
 })
-watch(() => props.projectId, load)
+watch(() => props.projectId, () => {
+  gen++
+  busy.value = ''
+  clearTimeout(stuck)
+  void load()
+})
 
 const changes = computed(() => st.value?.changes.length ?? 0)
 // what changed, file by file, and the branches: the Files tab

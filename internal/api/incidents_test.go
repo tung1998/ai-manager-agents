@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -92,6 +93,62 @@ func TestIncidentActions(t *testing.T) {
 	e.st.Jobs().Create(ctx, storage.Job{ProjectID: pid, Kind: "task", Origin: "user", Status: "failed", Error: "y", Title: "Sửa lỗi 2", FinishedAt: &later, CreatedAt: later})
 	if _, ok := list()["jobs"]; !ok {
 		t.Fatal("a new failure after the dismissal is not shown")
+	}
+}
+
+// A dismissed AI-usage-limit incident stays hidden for the rest of that
+// window (it.Key already carries provider/window/ResetsAt, limitalert.go),
+// even as later runs keep bumping UpdatedAt — but reappears once the window
+// itself resets (a new ResetsAt, so a new key).
+func TestLimitIncidentDismissHoldsUntilWindowResets(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	p, _ := e.st.Providers().Create(ctx, storage.Provider{Name: "Claude", Kind: storage.ProviderClaudeCLI, Enabled: true})
+	resetsAt := time.Now().UTC().Add(time.Hour)
+	t1 := time.Now().UTC()
+	e.st.Settings().Set(ctx, chat.LimitsKey(p.ID), chat.Limits{
+		Windows:   map[string]chat.LimitWindow{"five_hour": {Utilization: 0.9, ResetsAt: resetsAt}},
+		UpdatedAt: t1,
+	})
+	list := func() map[string]map[string]any {
+		_, b := do(t, admin, "GET", e.srv.URL+"/api/incidents", nil, nil)
+		out := map[string]map[string]any{}
+		for _, x := range b["incidents"].([]any) {
+			it := x.(map[string]any)
+			out[it["kind"].(string)] = it
+		}
+		return out
+	}
+	got := list()
+	key, _ := got["limit"]["key"].(string)
+	if key == "" {
+		t.Fatalf("no limit incident: %v", got)
+	}
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/incidents/dismiss", map[string]any{"keys": []string{key}}, nil); resp.StatusCode != 204 {
+		t.Fatalf("dismiss = %d", resp.StatusCode)
+	}
+	if _, ok := list()["limit"]; ok {
+		t.Fatal("a dismissed limit incident is back before its window resets")
+	}
+	// a later run reports the same still-open window again (UpdatedAt moves,
+	// ResetsAt and so the key do not) — must stay dismissed.
+	e.st.Settings().Set(ctx, chat.LimitsKey(p.ID), chat.Limits{
+		Windows:   map[string]chat.LimitWindow{"five_hour": {Utilization: 0.96, ResetsAt: resetsAt}},
+		UpdatedAt: t1.Add(time.Minute),
+	})
+	if _, ok := list()["limit"]; ok {
+		t.Fatal("a dismissed limit incident reappeared from a newer report in the same window")
+	}
+	// the window resets: a new ResetsAt (new key) — must reappear.
+	newResetsAt := resetsAt.Add(5 * time.Hour)
+	e.st.Settings().Set(ctx, chat.LimitsKey(p.ID), chat.Limits{
+		Windows:   map[string]chat.LimitWindow{"five_hour": {Utilization: 0.9, ResetsAt: newResetsAt}},
+		UpdatedAt: t1.Add(6 * time.Hour),
+	})
+	if _, ok := list()["limit"]; !ok {
+		t.Fatal("a limit incident did not reappear after its window reset")
 	}
 }
 

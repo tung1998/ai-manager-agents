@@ -332,10 +332,12 @@ func (s *server) mcpImport(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		_, movable := automation.MovableTypes[it.Location.Type]
+		takeOutFailed := false
 		if in.TakeOut && movable {
 			backup, terr := s.cfg.Automation.TakeOutMCP(ctx, it)
 			if terr != nil {
 				res.Error = "đã chép vào office nhưng chưa gỡ được khỏi " + it.Location.Label + ": " + terr.Error()
+				takeOutFailed = true
 			} else {
 				res.TakenOut = true
 				origin.Backup = backup
@@ -348,7 +350,7 @@ func (s *server) mcpImport(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		res.OK = true
+		res.OK = !takeOutFailed
 		s.audit(r, audit.Change{Action: "mcp_server.import", ResourceID: m.ID, After: s.auditMCP(m),
 			Detail: map[string]any{"from": it.Location.Label, "source_name": it.Name, "taken_out": res.TakenOut}})
 		d := s.mcpServerDTO(m)

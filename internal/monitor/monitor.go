@@ -97,10 +97,11 @@ func (s *Service) Run(ctx context.Context) {
 					continue
 				}
 				sem <- struct{}{}
-				go func(m storage.Monitor) {
+				m := m
+				safeGo("CheckNow", func() {
 					defer func() { <-sem; s.release(m.ID) }()
 					s.CheckNow(ctx, m.ID)
-				}(m)
+				})
 			}
 		}
 	}

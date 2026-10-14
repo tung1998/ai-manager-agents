@@ -219,3 +219,36 @@ func TestRunCommandRisky(t *testing.T) {
 		t.Fatalf("a non-risky allowed command still runs on its own: %v %+v", err, a)
 	}
 }
+
+type fakeSender struct{}
+
+func (fakeSender) Relay(ctx context.Context, a storage.Action) (string, error) { return "", nil }
+func (fakeSender) Relayed(ctx context.Context, conversationID string) bool     { return false }
+
+// TestCheckSendCrossProject: checkSend must reject a target chat that belongs
+// to a different project than the one the run is in, even when the target is
+// otherwise a valid, un-cleaned conversation (IDOR: a run in project A could
+// otherwise inject a message into a chat of project B).
+func TestCheckSendCrossProject(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	p1, _ := st.Repos().Create(ctx, storage.Repo{Name: "p1", Path: t.TempDir()})
+	p2, _ := st.Repos().Create(ctx, storage.Repo{Name: "p2", Path: t.TempDir()})
+
+	own, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p1.ID, Title: "own"})
+	other, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p2.ID, Title: "other"})
+	job, err := st.Jobs().Create(ctx, storage.Job{ProjectID: p1.ID, Kind: "chat_turn", Origin: "user", Status: "done", CreatedBy: "human:u1", ConversationID: own.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc := New(st, nil)
+	svc.SetSender(fakeSender{})
+	sc := Scope{ProjectID: p1.ID, ConversationID: own.ID, JobID: job.ID}
+	a := &storage.Action{ProjectID: p1.ID, Target: other.ID, Args: storage.ActionArgs{Message: "xin chào"}}
+	if err := svc.checkSend(ctx, sc, a); err == nil {
+		t.Fatalf("send_message must not reach a chat of another project, got nil error, action=%+v", a)
+	}
+}

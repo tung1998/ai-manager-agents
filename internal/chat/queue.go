@@ -41,7 +41,7 @@ func (e *Engine) Queue(ctx context.Context, conversationID, text, pageContext st
 	if err != nil {
 		return q, err
 	}
-	go e.SendQueued(conv.ID) // the answer may have ended meanwhile
+	safeGo("SendQueued", func() { e.SendQueued(conv.ID) }) // the answer may have ended meanwhile
 	return q, nil
 }
 
@@ -111,7 +111,7 @@ func (e *Engine) SendAllQueued(ctx context.Context) {
 		return
 	}
 	for _, id := range convs {
-		go e.SendQueued(id)
+		safeGo("SendQueued", func() { e.SendQueued(id) })
 	}
 }
 

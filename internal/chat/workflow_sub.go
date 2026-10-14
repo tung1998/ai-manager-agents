@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"time"
@@ -191,13 +193,39 @@ func (e *Engine) startChild(run *wfRun, conv storage.Conversation, project stora
 	e.wf.mu.Unlock()
 	e.saveRun(run, rec, seq)
 	e.watchIdle(run, conv, a.role)
-	go e.awaitChild(run.rec.ID, conv, project, a.role, child)
+	safeGo("awaitChild", func() { e.awaitChild(run.rec.ID, conv, project, a.role, child) })
 	return true
 }
 
 // awaitChild gives a role its sub-workflow's output once that run ends: a
 // message of the run's chat, then the role's answer as any other role's.
 func (e *Engine) awaitChild(parentID string, conv storage.Conversation, project storage.Repo, role string, child *wfRun) {
+	defer func() {
+		// a panic here must still free the role's seat in the parent run,
+		// not leave it stuck "running" forever.
+		if r := recover(); r != nil {
+			slog.Error("chat: awaitChild panic", "panic", r, "stack", string(debug.Stack()))
+			e.wf.mu.Lock()
+			run := e.wf.byConv[conv.ID]
+			if run == nil || run.rec.ID != parentID {
+				e.wf.mu.Unlock()
+				return
+			}
+			if rr := run.role(role); rr != nil {
+				rr.Status = "failed"
+				run.notes = append(run.notes, fmt.Sprintf("Sub-workflow (role %s) panicked: %v", role, r))
+			}
+			delete(run.batch, role)
+			last := len(run.batch) == 0
+			id := run.rec.ID
+			saved, seq := run.snapshot()
+			e.wf.mu.Unlock()
+			e.saveRun(run, saved, seq)
+			if last {
+				e.wfCallBack(id, conv, project)
+			}
+		}
+	}()
 	<-child.done
 	bg := context.Background()
 	rec, err := e.store.WorkflowRuns().Get(bg, child.rec.ID)

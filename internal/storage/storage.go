@@ -17,6 +17,9 @@ var (
 	ErrNotFound = errors.New("storage: not found")
 	// ErrConflict is returned when a unique constraint would be violated.
 	ErrConflict = errors.New("storage: conflict")
+	// ErrStale is returned by a CAS-style Update when the row changed since
+	// it was read (a write landed between the caller's Get and Update).
+	ErrStale = errors.New("storage: stale write")
 )
 
 // Role is a coarse permission level for dashboard users.

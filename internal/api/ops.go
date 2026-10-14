@@ -49,6 +49,7 @@ type processDTO struct {
 	Autorestart bool              `json:"autorestart"`
 	Env         map[string]string `json:"env"`
 	State       ops.State         `json:"state"`
+	Version     string            `json:"version"`
 }
 
 func (s *server) toProcessDTO(p storage.Process) processDTO {
@@ -56,7 +57,7 @@ func (s *server) toProcessDTO(p storage.Process) processDTO {
 		p.Env = map[string]string{}
 	}
 	return processDTO{ID: p.ID, ProjectID: p.ProjectID, Name: p.Name, Command: p.Command, Cwd: p.Cwd, Kind: p.Kind, Source: p.Source,
-		Autostart: p.Autostart, Autorestart: p.Autorestart, Env: p.Env, State: s.cfg.Ops.State(p.ID)}
+		Autostart: p.Autostart, Autorestart: p.Autorestart, Env: p.Env, State: s.cfg.Ops.State(p.ID), Version: processVersion(p)}
 }
 
 func (s *server) opsError(w http.ResponseWriter, r *http.Request, err error) {
@@ -145,6 +146,9 @@ type processInput struct {
 	Autorestart *bool   `json:"autorestart"`
 	// replaces the whole set: PORT… over the office's environment
 	Env *map[string]string `json:"env"`
+	// Version is what the save was edited from (ADR-072); empty (a toggle, a
+	// tool) skips the check, since a single-field PATCH can't overwrite the rest.
+	Version string `json:"version"`
 }
 
 var envKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -241,12 +245,19 @@ func (s *server) updateProcess(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
+	if conflicted(w, in.Version, processVersion(p)) {
+		return
+	}
 	old := p
 	if err := in.apply(&p); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := s.cfg.Store.Processes().Update(r.Context(), p); err != nil {
+		if errors.Is(err, storage.ErrStale) {
+			writeSaveConflict(w)
+			return
+		}
 		s.opsError(w, r, err)
 		return
 	}

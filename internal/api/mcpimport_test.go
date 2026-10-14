@@ -293,3 +293,68 @@ func TestMCPImportAPI(t *testing.T) {
 		t.Fatal("still in office after put back with delete")
 	}
 }
+
+// When take_out fails partway (the server is copied into office, but office
+// could not remove it from .mcp.json), the result must say so: ok=false,
+// not a green "success" hiding the fact the server is now active in both
+// office and its original config (loaded twice, no policy on the original).
+func TestMCPImportTakeOutFailedAPI(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	dir := t.TempDir()
+	if _, err := e.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: dir}); err != nil {
+		t.Fatal(err)
+	}
+	mcpPath := filepath.Join(dir, ".mcp.json")
+	mcpJSON := `{"mcpServers":{"docs_src":{"type":"http","url":"https://docs.example/mcp"}}}`
+	if err := os.WriteFile(mcpPath, []byte(mcpJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, body := do(t, admin, "GET", e.srv.URL+"/api/mcp/import", nil, nil)
+	var docs map[string]any
+	for _, c := range body["candidates"].([]any) {
+		if c := c.(map[string]any); c["name"] == "docs_src" {
+			docs = c
+		}
+	}
+	if docs == nil {
+		t.Fatal("docs_src not a candidate")
+	}
+	// .mcp.json read-only: office can copy the server in, but cannot write
+	// the file back without the entry removed, so the take-out step fails.
+	if err := os.Chmod(mcpPath, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(mcpPath, 0o644)
+	resp, body := do(t, admin, "POST", e.srv.URL+"/api/mcp/import", map[string]any{"take_out": true,
+		"items": []any{map[string]any{"ref": docs["ref"], "name": "docs"}}}, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("import = %d %v", resp.StatusCode, body)
+	}
+	res := body["results"].([]any)[0].(map[string]any)
+	if res["ok"] == true {
+		t.Fatalf("take-out failure reported as ok: %v", res)
+	}
+	errMsg, _ := res["error"].(string)
+	if !strings.Contains(errMsg, "chưa gỡ được") {
+		t.Fatalf("error = %v", res)
+	}
+	if res["taken_out"] == true {
+		t.Fatalf("taken_out true despite failure: %v", res)
+	}
+	// the server was still created in office: an agent run would load it
+	// both from office and from the untouched .mcp.json.
+	srv, _ := res["server"].(map[string]any)
+	if srv == nil {
+		t.Fatalf("no server created despite the copy-in step: %v", res)
+	}
+	if list, _ := e.st.MCPServers().List(ctx); len(list) != 1 {
+		t.Fatalf("office servers = %v", list)
+	}
+	os.Chmod(mcpPath, 0o644)
+	if raw, _ := os.ReadFile(mcpPath); !strings.Contains(string(raw), "docs_src") {
+		t.Fatalf(".mcp.json lost its entry despite the failed take-out: %s", raw)
+	}
+}

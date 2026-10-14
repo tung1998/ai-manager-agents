@@ -710,6 +710,9 @@ func (s *Service) checkSend(ctx context.Context, sc Scope, a *storage.Action) er
 	if c.ID == sc.ConversationID {
 		return errors.New("đây là chính cuộc chat đang nói")
 	}
+	if c.ProjectID != a.ProjectID {
+		return errors.New("không có cuộc chat này trong project")
+	}
 	if c.Cleaned != "" {
 		return errors.New("cuộc chat đó đã được dọn, không gửi tiếp được")
 	}

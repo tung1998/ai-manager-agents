@@ -90,23 +90,33 @@ const projectTags = computed(() => (tagsData.value?.tags ?? []).map(x => x.tag))
 const current = ref<Conversation | null>(null)
 const threadsOpen = ref(false) // the chats drawer on a phone
 
-// a chat's tags, saved at each change; the pushed row updates the other pages
-async function saveTags(c: Conversation, tags: string[]) {
-  try {
-    const res = await $fetch<{ conversation: Conversation }>(`/api/conversations/${c.id}/tags`, { method: 'PUT', body: { tags } })
-    const saved = res.conversation.tags ?? []
-    if (current.value?.id === c.id) current.value = { ...current.value, tags: saved }
-    if (tagEdit.value?.id === c.id) tagEdit.value = { ...tagEdit.value, tags: saved }
-    const list = convData.value?.conversations
-    const i = list?.findIndex(x => x.id === c.id) ?? -1
-    if (list && i >= 0) {
-      if (hasTags(saved, tagFilter.value)) list[i] = { ...list[i]!, tags: saved }
-      else list.splice(i, 1) // no longer what the filter shows
+// one queued save per conversation (tagQueue.ts): each is built from the
+// previous one's confirmed result, not from a snapshot taken before it, so
+// two rapid edits (e.g. removing two different tags back to back) can't lose
+// one another
+const tagChains: TagChains = new Map()
+
+async function saveTags(c: Conversation, mutate: (tags: string[]) => string[]) {
+  await queueTagOp(tagChains, c.id, c.tags ?? [], async (base) => {
+    try {
+      const tags = mutate(base)
+      const res = await $fetch<{ conversation: Conversation }>(`/api/conversations/${c.id}/tags`, { method: 'PUT', body: { tags } })
+      const saved = res.conversation.tags ?? []
+      if (current.value?.id === c.id) current.value = { ...current.value, tags: saved }
+      if (tagEdit.value?.id === c.id) tagEdit.value = { ...tagEdit.value, tags: saved }
+      const list = convData.value?.conversations
+      const i = list?.findIndex(x => x.id === c.id) ?? -1
+      if (list && i >= 0) {
+        if (hasTags(saved, tagFilter.value)) list[i] = { ...list[i]!, tags: saved }
+        else list.splice(i, 1) // no longer what the filter shows
+      }
+      refreshTags()
+      return saved
+    } catch (e) {
+      toast.add({ title: apiError(e), color: 'error' })
+      return base
     }
-    refreshTags()
-  } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
-  }
+  })
 }
 // "Gắn tag" from a chat's menu in the list
 const tagEdit = ref<Conversation | null>(null)
@@ -893,12 +903,12 @@ onBeforeUnmount(() => {
       </div>
       <!-- this chat's tags: chips (✕ to take one off) and "Thêm tag" -->
       <div v-if="!single && current" class="flex flex-wrap items-center gap-1 border-b border-(--ui-border) px-3 py-1">
-        <ChatTags :tags="current.tags ?? []" removable @remove="(x) => saveTags(current!, (current!.tags ?? []).filter(y => y !== x))" />
+        <ChatTags :tags="current.tags ?? []" removable @remove="(x) => saveTags(current!, (tags) => tags.filter(y => y !== x))" />
         <UPopover :content="{ align: 'start' }">
           <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-tag" :label="current.tags?.length ? undefined : t('chatTag.add')" :aria-label="t('chatTag.add')" :title="t('chatTag.add')" />
           <template #content>
             <div class="w-64 p-2">
-              <TagPicker :model-value="current.tags ?? []" :suggestions="projectTags" @update:model-value="(v) => saveTags(current!, v)" />
+              <TagPicker :model-value="current.tags ?? []" :suggestions="projectTags" @update:model-value="(v) => { const c = current!; const before = c.tags ?? []; saveTags(c, (base) => applyTagDiff(base, before, v)) }" />
             </div>
           </template>
         </UPopover>
@@ -1118,7 +1128,7 @@ onBeforeUnmount(() => {
     <!-- "Gắn tag" from a chat's menu in the list -->
     <UModal :open="!!tagEdit" :title="t('chatTag.title')" :description="tagEdit?.title || t('chat.newThreadTitle')" @update:open="(o) => { if (!o) tagEdit = null }">
       <template #body>
-        <TagPicker v-if="tagEdit" :model-value="tagEdit.tags ?? []" :suggestions="projectTags" @update:model-value="(v) => saveTags(tagEdit!, v)" />
+        <TagPicker v-if="tagEdit" :model-value="tagEdit.tags ?? []" :suggestions="projectTags" @update:model-value="(v) => { const c = tagEdit!; const before = c.tags ?? []; saveTags(c, (base) => applyTagDiff(base, before, v)) }" />
       </template>
     </UModal>
   </div>

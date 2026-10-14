@@ -66,3 +66,37 @@ func TestMemory(t *testing.T) {
 		t.Fatal("auto not kept")
 	}
 }
+
+// A note being compacted can be edited by a person while the model call is
+// in flight; the edit must survive, not be overwritten by a summary built
+// from the note's pre-edit text (ADR-068 concurrency).
+func TestCompactTopicKeepsConcurrentEdit(t *testing.T) {
+	ctx := context.Background()
+	st, pid := open(t)
+	a, _ := st.Memories().Create(ctx, storage.Memory{ProjectID: pid, AgentID: "agt_1", Text: "note a", Topic: "t"})
+	st.Memories().Create(ctx, storage.Memory{ProjectID: pid, AgentID: "agt_1", Text: "note b", Topic: "t"})
+
+	svc := memory.New(st, func(_ context.Context, _, _ string, items []storage.Memory) ([]string, error) {
+		// Simulate a person editing note a mid-compaction, before the model returns.
+		cur, _ := st.Memories().Get(ctx, a.ID)
+		cur.Text = "note a EDITED"
+		if err := st.Memories().Update(ctx, cur); err != nil {
+			t.Fatalf("concurrent edit failed: %v", err)
+		}
+		return []string{"gộp " + items[0].Text + " " + items[1].Text}, nil
+	})
+
+	if err := svc.CompactTopic(ctx, pid, "agt_1", "t", "test"); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := st.Memories().List(ctx, pid, "agt_1")
+	var foundEdit bool
+	for _, m := range list {
+		if m.Text == "note a EDITED" && m.Source == "person" {
+			foundEdit = true
+		}
+	}
+	if !foundEdit {
+		t.Fatalf("concurrent edit lost or overwritten by stale compaction, list = %+v", list)
+	}
+}

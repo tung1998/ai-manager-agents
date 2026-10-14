@@ -183,9 +183,9 @@ func (s *Service) CompactTopic(ctx context.Context, projectID, agentID, topic, r
 		return errors.New("rút gọn ra rỗng: giữ nguyên")
 	}
 	items[len(items)-1].Summary = summary // the topic keeps its index line
-	compacted := map[string]bool{}
+	snapshot := map[string]time.Time{}
 	for _, m := range group {
-		compacted[m.ID] = true
+		snapshot[m.ID] = m.UpdatedAt
 	}
 	return s.store.InTx(ctx, func(tx storage.Store) error {
 		if _, err := tx.Memories().SaveRevision(ctx, storage.MemoryRevision{ProjectID: projectID, AgentID: agentID, Items: list, Reason: reason}); err != nil {
@@ -195,8 +195,12 @@ func (s *Service) CompactTopic(ctx context.Context, projectID, agentID, topic, r
 		if err != nil {
 			return err
 		}
-		for _, m := range now { // other topics, and what was written while the model compacted: kept
-			if !compacted[m.ID] {
+		for _, m := range now {
+			snapAt, inGroup := snapshot[m.ID]
+			// other topics, what was written while the model compacted, and
+			// notes edited mid-compaction (kept as-is, not overwritten by a
+			// summary generated from their pre-edit text): kept
+			if !inGroup || m.UpdatedAt.After(snapAt) {
 				items = append(items, m)
 			}
 		}

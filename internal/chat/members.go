@@ -229,7 +229,7 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 	}
 	t.setJobID(job.ID)
 	runCtx = usage.WithJob(runCtx, job.ID)
-	go e.run(runCtx, t, conv, project, s.agent, history, s.prompt, nil)
+	safeGo("run", func() { e.run(runCtx, t, conv, project, s.agent, history, s.prompt, nil) })
 	return t, ""
 }
 

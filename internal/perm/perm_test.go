@@ -62,6 +62,29 @@ func TestDefaultPolicyDeniesNestedEnv(t *testing.T) {
 	}
 }
 
+// A bare pattern with no "**/" prefix and no trailing "/" (as an admin may
+// type freeform into PolicyPanel) must still protect nested files, not just
+// a file at the repo root.
+func TestDeniedBarePatternMatchesNested(t *testing.T) {
+	p := Policy{DenyPaths: []string{".env", "secrets.yaml"}}
+	got := p.Denied([]string{"apps/api/.env", "a/b/secrets.yaml", "x.env"})
+	want := []string{"apps/api/.env", "a/b/secrets.yaml"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("expected %v, got: %v", want, got)
+	}
+}
+
+// Regression: the fix for bare patterns must not break the already-working
+// "**/" prefix form.
+func TestDeniedDoubleStarPrefixStillMatchesNested(t *testing.T) {
+	p := Policy{DenyPaths: []string{"**/.env"}}
+	got := p.Denied([]string{"apps/api/.env"})
+	want := []string{"apps/api/.env"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("expected %v, got: %v", want, got)
+	}
+}
+
 func TestLoadPolicyUpgradesOldEnvPattern(t *testing.T) {
 	st, err := sqlite.Open(filepath.Join(t.TempDir(), "office.db"))
 	if err != nil {

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/ids"
@@ -47,14 +48,33 @@ func (r processRepo) Create(ctx context.Context, p storage.Process) (storage.Pro
 	return p, err
 }
 
+// Update applies p, refusing with storage.ErrStale if the row changed since
+// p was read (CAS on updated_at) so a concurrent PATCH can't silently
+// overwrite another one's fields, storage.ErrNotFound if it was deleted
+// meanwhile, and storage.ErrConflict only for the name-uniqueness violation
+// (kept distinct so the handler can tell the two apart).
 func (r processRepo) Update(ctx context.Context, p storage.Process) error {
+	prevUpdatedAt := p.UpdatedAt
 	p.UpdatedAt = time.Now().UTC()
-	err := execOne(ctx, r.db, `UPDATE processes SET name=?, command=?, cwd=?, kind=?, autostart=?, autorestart=?, env=?, updated_at=? WHERE id=?`,
-		p.Name, p.Command, p.Cwd, p.Kind, boolInt(p.Autostart), boolInt(p.Autorestart), jsonMap(p.Env), fmtTime(p.UpdatedAt), p.ID)
+	res, err := r.db.ExecContext(ctx, `UPDATE processes SET name=?, command=?, cwd=?, kind=?, autostart=?, autorestart=?, env=?, updated_at=? WHERE id=? AND updated_at=?`,
+		p.Name, p.Command, p.Cwd, p.Kind, boolInt(p.Autostart), boolInt(p.Autorestart), jsonMap(p.Env), fmtTime(p.UpdatedAt), p.ID, fmtTime(prevUpdatedAt))
 	if isUnique(err) {
 		return storage.ErrConflict
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, getErr := r.Get(ctx, p.ID); errors.Is(getErr, storage.ErrNotFound) {
+			return storage.ErrNotFound
+		}
+		return storage.ErrStale
+	}
+	return nil
 }
 
 func (r processRepo) Get(ctx context.Context, id string) (storage.Process, error) {

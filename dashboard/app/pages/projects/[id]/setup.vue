@@ -423,7 +423,7 @@ const actionMeta = computed<Record<string, { label: string, color: 'info' | 'suc
               <UCheckbox v-model="skillsAccepted[i]" class="mt-0.5" />
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-2">
-                  <UBadge label="Skill" color="neutral" variant="outline" size="sm" />
+                  <UBadge :label="t('setup.docSkill')" color="neutral" variant="outline" size="sm" />
                   <span class="font-medium">{{ p.name }}</span>
                 </div>
                 <p class="text-sm text-(--ui-text-muted)">{{ p.reason }}</p>

@@ -207,6 +207,13 @@ var readRe = regexp.MustCompile(pathRe.String() + `|\.(?:png|jpe?g)\b`)
 // wrong item does not stay unchecked for good.
 var naRe = regexp.MustCompile(`(?i)không tồn tại|không áp dụng|trùng (?:với )?mục|does not exist|not applicable|duplicate of`)
 
+// dupRe is an item checked off as only repeating another, already-covered
+// one ("trùng mục …" / "duplicate of …"): once recorded, the line itself is
+// pure overhead (the area it names is accounted for elsewhere), unlike
+// "không tồn tại"/"does not exist" or "không áp dụng"/"not applicable",
+// which ARE the finding and must stay.
+var dupRe = regexp.MustCompile(`(?i)trùng (?:với )?mục|duplicate of`)
+
 // fitCoverage keeps plan within maxCoverage by shortening what its checked
 // items say came of them, step by step, never dropping an item: an item cut
 // off the end would be looked at again, and a scan whose new items were cut
@@ -216,7 +223,14 @@ func fitCoverage(plan string) (string, bool) {
 	if len([]rune(plan)) <= maxCoverage {
 		return plan, true
 	}
-	lines := strings.Split(plan, "\n")
+	lines := dedupeItems(strings.Split(plan, "\n"))
+	if plan = strings.Join(lines, "\n"); len([]rune(plan)) <= maxCoverage {
+		return plan, true
+	}
+	lines = dropDuplicateMarked(lines)
+	if plan = strings.Join(lines, "\n"); len([]rune(plan)) <= maxCoverage {
+		return plan, true
+	}
 	for _, keep := range resultCuts {
 		for i, line := range lines {
 			text, ok, checked := item(line)
@@ -240,6 +254,46 @@ func fitCoverage(plan string) (string, bool) {
 		}
 	}
 	return plan, false
+}
+
+// dedupeItems drops an item line that repeats one already kept, word for
+// word: over many scans the same area piles up with slightly different
+// scans' phrasing but sometimes the exact same line twice, pushing the plan
+// past maxCoverage with no new information (ADR-141). A line that differs at
+// all (even a word) is kept, since telling real near-duplicates apart needs
+// reading the code, not guessing from text alone.
+func dedupeItems(lines []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if _, ok, _ := item(line); ok {
+			key := strings.TrimSpace(line)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// dropDuplicateMarked removes a checked item whose result says it merely
+// repeats another, already-covered area (dupRe): a worker marking real
+// duplicates it found (maxChecks of them a scan, like any other check-off,
+// via planProblem) is the one way to actually shrink an over-cap plan,
+// since every other item must stay (ADR-147).
+func dropDuplicateMarked(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if text, ok, checked := item(line); ok && checked {
+			if _, result, has := strings.Cut(text, " — "); has && dupRe.MatchString(result) {
+				continue
+			}
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 // coverageCount reads a coverage plan: its items ("- [ ]" or "- [x]"
@@ -375,7 +429,17 @@ func (s *Service) scanDone(ctx context.Context, b storage.BurnSession, it storag
 		}
 		var fits bool
 		if plan, fits = fitCoverage(tagged(plan, templateOf(b))); !fits {
-			return "", fmt.Errorf("coverage chưa nhận: kế hoạch dài %d ký tự, tối đa %d, kể cả khi đã rút gọn kết quả các mục [x]: viết ngắn lại các mục [ ] rồi gọi lại burn_scan_done", len([]rune(plan)), maxCoverage)
+			// before (already saved) may itself be past maxCoverage, debt from
+			// earlier scans: a plan that does not grow it further is still
+			// accepted (ADR-141 would otherwise jam burn_scan_done with no way
+			// out once debt exists, since marking an existing item [x] never
+			// makes the plan shorter than before — "- [ ] " and "- [x] " are
+			// the same length). A plan that adds a new area, or reopens one, is
+			// still refused.
+			wasLen := len([]rune(tagged(before, templateOf(b))))
+			if len([]rune(plan)) > wasLen {
+				return "", fmt.Errorf("coverage chưa nhận: kế hoạch dài %d ký tự, tối đa %d (đã %d ký tự từ trước lượt này, nợ tích lũy không phải lỗi lượt này); kể cả khi đã rút gọn kết quả các mục [x]: đánh dấu \"- [x] vùng — trùng mục <vùng đã có>\" cho mục thật sự trùng để rút ngắn, hoặc đừng thêm mục mới, rồi gọi lại burn_scan_done", len([]rune(plan)), maxCoverage, wasLen)
+			}
 		}
 	}
 	s.keepScanned(ctx, b, in.Scanned)
@@ -461,19 +525,15 @@ func (s *Service) scansOver(b storage.BurnSession) bool {
 	return s.full[b.RunBranch] || s.nones[b.RunBranch] >= maxNones
 }
 
-// keepCoverage saves a scan's coverage plan, whole (ADR-141).
+// keepCoverage saves a scan's coverage plan, whole (ADR-141): scanDone is
+// the only caller, and it already decided the plan is acceptable (fits, or
+// does not grow past-cap debt further), so no item is dropped here.
 func (s *Service) keepCoverage(ctx context.Context, b storage.BurnSession, plan string) {
 	plan = strings.TrimSpace(plan)
 	if plan == "" {
 		return
 	}
 	plan, _ = fitCoverage(tagged(plan, templateOf(b)))
-	if r := []rune(plan); len(r) > maxCoverage { // last resort: whole lines off the end
-		plan = string(r[:maxCoverage])
-		if i := strings.LastIndex(plan, "\n"); i > 0 {
-			plan = plan[:i]
-		}
-	}
 	_ = s.store.Burn().SetCoverage(context.WithoutCancel(ctx), b.ID, plan)
 }
 

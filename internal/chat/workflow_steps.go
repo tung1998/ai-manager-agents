@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -50,7 +52,7 @@ func (e *Engine) launch(ctx context.Context, own storage.Conversation, run *wfRu
 	e.wf.mu.Lock()
 	run.stop = stop
 	e.wf.mu.Unlock()
-	go e.runSteps(sctx, own, run)
+	safeGo("runSteps", func() { e.runSteps(sctx, own, run) })
 	return nil
 }
 
@@ -102,6 +104,15 @@ func (e *Engine) runSteps(ctx context.Context, own storage.Conversation, run *wf
 			e.finishRun(own.ID, run.rec.ID, storage.RunFailed, "", why)
 		}
 	}
+	defer func() {
+		// a panic in the orchestration loop itself (not a step, those are
+		// caught below) must still end the run instead of leaving it
+		// "running" forever with nothing left to drive it forward.
+		if r := recover(); r != nil {
+			slog.Error("chat: runSteps panic", "panic", r, "stack", string(debug.Stack()))
+			fail(fmt.Sprintf("internal error: %v", r))
+		}
+	}()
 	type result struct {
 		s   workflow.Step
 		res workflow.StepResult
@@ -204,7 +215,23 @@ func (e *Engine) runSteps(ctx context.Context, own storage.Conversation, run *wf
 					running[id] = true
 					snap := workflow.Vars{Input: vars.Input, Steps: maps.Clone(vars.Steps)}
 					go func() {
-						res, err := e.runStep(ctx, own, run, s, snap)
+						var res workflow.StepResult
+						var err error
+						func() {
+							// a panic here must still reach results — a bare
+							// recover (e.g. via safeGo) would silently drop it
+							// and runSteps would wait on this step forever.
+							defer func() {
+								if r := recover(); r != nil {
+									slog.Error("chat: runStep panic", "where", "runStep:"+s.ID, "panic", r, "stack", string(debug.Stack()))
+									err = fmt.Errorf("internal error: %v", r)
+								}
+							}()
+							if e.testStepPanic != "" && e.testStepPanic == s.ID {
+								panic("test panic: " + s.ID)
+							}
+							res, err = e.runStep(ctx, own, run, s, snap)
+						}()
 						select {
 						case results <- result{s, res, err}:
 						case <-ctx.Done():

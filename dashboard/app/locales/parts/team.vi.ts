@@ -5,7 +5,7 @@ export default {
   'team.noAgents': 'Chưa có agent',
   'team.starterPack': 'Gói khởi đầu',
   'team.default': 'Mặc định',
-  'team.defaultHint': 'Agent này trả lời khi chat, bot hay tự động hóa không chỉ định agent nào',
+  'team.defaultHint': 'Agent này trả lời khi chat, tin nhắn bot (Discord/Telegram) hoặc một tự động hóa không chỉ rõ tên agent nào. Dùng khi project có nhiều agent nhưng muốn có một agent luôn trả lời trong các trường hợp chung chung. Đặt agent khác làm mặc định thì agent cũ thôi giữ vai trò này, chat cũ của nó vẫn giữ nguyên.',
   'team.defaultAgent': 'Agent mặc định',
   'team.defaultAgentLower': 'agent mặc định',
   'team.defaultSet': '{name} giờ là agent mặc định',
@@ -15,7 +15,7 @@ export default {
   'team.applyPack': 'Dùng gói này',
   'team.packApplied': 'Đã áp gói',
   'team.replacePack': 'Thay bằng gói khác',
-  'team.replaceWarn': 'Agent trong gói sẽ thay các agent hiện tại; agent nào cùng key với agent cũ thì giữ lại các chat cũ. Trạng thái hiện tại vẫn khôi phục được ở Lịch sử.',
+  'team.replaceWarn': 'Áp gói khác thay toàn bộ agent hiện tại của project bằng agent trong gói mới. Dùng khi muốn đổi hẳn sang một bộ agent khác thay vì sửa từng agent. Agent trùng tên định danh với gói mới được cập nhật tại chỗ và giữ nguyên chat cũ; agent không trùng tên bị xóa, nhưng trạng thái trước khi thay vẫn xem và khôi phục được ở Lịch sử.',
   'team.replaceBtn': 'Thay agent',
   'team.addAndConfigure': 'Thêm rồi cấu hình',
   'team.empty.title': 'Project chưa có agent',
@@ -24,7 +24,7 @@ export default {
   // PackPicker
   'team.pack.aiSuggest': 'AI đề xuất',
   'team.pack.aiRecommended': '· khuyên dùng',
-  'team.pack.aiDesc': 'Quét project, đọc CLAUDE.md, AGENTS.md, .claude/agents… rồi chọn gói và tinh chỉnh agent. Cần kết nối AI.',
+  'team.pack.aiDesc': 'Dùng AI để tự chọn gói khởi đầu phù hợp cho project, thay vì bạn tự chọn thủ công. Agent sẽ quét cấu trúc project, đọc các file hướng dẫn có sẵn như CLAUDE.md, AGENTS.md, .claude/agents…, rồi chọn một gói phù hợp và chỉnh tên, hướng dẫn, quyền của từng agent trong gói cho khớp với project. Cần có một kết nối AI đã kiểm tra hoạt động trước.',
   'team.pack.workflowCount': '{n} quy trình',
 
   // RevisionHistory

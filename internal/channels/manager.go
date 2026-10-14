@@ -39,6 +39,9 @@ type Manager struct {
 	engine  *chat.Engine
 	runner  Runner
 	factory Factory
+	// stopEngine: a test fakes stopping (stop.go) without touching engine,
+	// which every other method here still uses as the real *chat.Engine.
+	stopEngine stopEngine
 
 	mu       sync.Mutex
 	running  map[string]context.CancelFunc

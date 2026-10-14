@@ -3,6 +3,8 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -59,7 +61,17 @@ func (s *Service) maybeAnalyse(m storage.Monitor, ev storage.MonitorEvent) {
 	ev.AnalysisStatus = "running"
 	_ = s.store.Monitors().UpdateEvent(ctx, ev)
 
-	go func() {
+	safeGo("maybeAnalyse", func() {
+		// a panic here must still clear ev.AnalysisStatus — the outer
+		// safeGo's recover only logs, which would leave the event stuck on
+		// "running" forever (already saved above).
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("monitor: maybeAnalyse panic", "panic", r, "stack", string(debug.Stack()))
+				ev.AnalysisStatus, ev.Analysis = "failed", fmt.Sprintf("Phân tích lỗi: internal error: %v", r)
+				_ = s.store.Monitors().UpdateEvent(context.Background(), ev)
+			}
+		}()
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		res, err := s.engine.Invoke(ctx, project, *lead, s.prompt(ctx, m), nil, "monitor", nil)
@@ -72,7 +84,7 @@ func (s *Service) maybeAnalyse(m storage.Monitor, ev storage.MonitorEvent) {
 			ev.CostUSD = *res.CostUSD
 		}
 		_ = s.store.Monitors().UpdateEvent(context.Background(), ev)
-	}()
+	})
 }
 
 func (s *Service) prompt(ctx context.Context, m storage.Monitor) string {

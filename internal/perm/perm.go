@@ -213,8 +213,15 @@ func matchPath(pat, file string) bool {
 		}
 		return false
 	}
-	ok, _ := path.Match(pat, file)
-	return ok
+	if ok, _ := path.Match(pat, file); ok {
+		return true
+	}
+	if !strings.Contains(pat, "/") {
+		if ok, _ := path.Match(pat, path.Base(file)); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Effective is what an agent may do in one run.

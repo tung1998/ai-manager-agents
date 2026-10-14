@@ -42,21 +42,33 @@ func (a *Alerter) Run(ctx context.Context, r storage.Run) {
 		name = r.ProviderID
 	}
 
+	// Held for the whole read-send-commit sequence (like Check() in
+	// limitalert.go), so concurrent Run() calls for the same provider (usage.go
+	// records each result in its own goroutine) can't both see an unarmed
+	// streak/window and both send, and a success can't interleave with an
+	// in-flight failure send and wrongly commit a stale "told" afterwards.
 	a.errMu.Lock()
+	defer a.errMu.Unlock()
 	f := a.errs[r.ProviderID]
 	if f == nil {
 		f = &failures{}
 		a.errs[r.ProviderID] = f
 	}
 	var text string
-	if r.Status != "error" {
+	var window time.Duration
+	var matchedStreak bool
+	isError := r.Status == "error"
+	if !isError {
 		if f.told {
 			text = fmt.Sprintf("✅ %s gửi prompt được lại (%s).", name, orModel(r.Model)) // i18n-ignore
 		}
 		f.streak, f.toldStreak, f.told = 0, false, false
+		if text == "" {
+			return
+		}
 	} else {
 		f.streak++
-		window := time.Duration(rule.Window) * time.Minute
+		window = time.Duration(rule.Window) * time.Minute
 		keep := f.at[:0]
 		for _, t := range f.at {
 			if now.Sub(t) < window {
@@ -67,24 +79,28 @@ func (a *Alerter) Run(ctx context.Context, r storage.Run) {
 		reason := oneLine(r.Error, 300)
 		switch {
 		case rule.Streak > 0 && f.streak >= rule.Streak && !f.toldStreak:
-			f.toldStreak = true
+			matchedStreak = true
 			text = fmt.Sprintf("🚨 %s: %d lần gửi prompt lỗi liên tiếp (%s). Lỗi gần nhất: %s", name, f.streak, orModel(r.Model), reason) // i18n-ignore
 		case rule.Count > 0 && len(f.at) >= rule.Count && now.After(f.toldUntil):
 			text = fmt.Sprintf("🚨 %s: %d lần gửi prompt lỗi trong %d phút (%s). Lỗi gần nhất: %s", name, len(f.at), rule.Window, orModel(r.Model), reason) // i18n-ignore
 		}
-		if text != "" {
-			f.told = true
-			f.toldUntil = now.Add(window) // told: quiet for a window, not once per failure
+		if text == "" {
+			return
 		}
 	}
-	a.errMu.Unlock()
-	if text == "" {
+	nctx, cancel := context.WithTimeout(ctx, notifyTimeout)
+	err := a.notify(nctx, s.ChannelID, s.ChatID, text)
+	cancel()
+	if err != nil {
+		slog.Warn("limitalert: error alert failed", "provider", r.ProviderID, "err", err)
 		return
 	}
-	nctx, cancel := context.WithTimeout(ctx, notifyTimeout)
-	defer cancel()
-	if err := a.notify(nctx, s.ChannelID, s.ChatID, text); err != nil {
-		slog.Warn("limitalert: error alert failed", "provider", r.ProviderID, "err", err)
+	if isError {
+		if matchedStreak {
+			f.toldStreak = true
+		}
+		f.told = true
+		f.toldUntil = now.Add(window) // told: quiet for a window, not once per failure
 	}
 }
 

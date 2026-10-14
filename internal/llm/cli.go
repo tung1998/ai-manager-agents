@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // run executes bin with args, feeding stdin; stderr is kept for error messages.
@@ -85,7 +86,11 @@ func clip(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return "…" + s[len(s)-n:]
+	i := len(s) - n
+	for i < len(s) && !utf8.RuneStart(s[i]) {
+		i++
+	}
+	return "…" + s[i:]
 }
 
 // claudeLoggedIn reads `claude auth status --json`. ok is false only when the

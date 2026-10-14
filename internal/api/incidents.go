@@ -184,6 +184,9 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 		}
 	}
 	for _, it := range s.limitIncidents(ctx) { // an AI connection close to its limit
+		// it.Key already carries the occurrence (provider/window/ResetsAt, see
+		// limitalert.go), so dismiss holds until the window itself resets (a new
+		// key) — not until it.At, which UpdatedAt bumps on every run that reports.
 		var gone time.Time
 		if ok, _ := s.cfg.Store.Settings().Get(ctx, dismissKey(it.Key), &gone); ok {
 			continue

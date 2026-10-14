@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -222,6 +223,12 @@ type Engine struct {
 	wf        wfState         // workflows running in chats
 	acts      actionsProposer // the workflows' gates propose through it
 
+	// testStepPanic: a step id runSteps' per-step goroutine panics on
+	// instead of running, for a regression test to force that path
+	// deterministically (ADR: step panics must not hang runSteps forever).
+	// "" in production, never set outside tests.
+	testStepPanic string
+
 	mu     sync.Mutex
 	active map[string]*Turn        // conversation id → running turn (the one the person waits for)
 	bg     map[string]*Turn        // conversation id + "/" + agent id → a hand-off running in the background
@@ -401,7 +408,7 @@ func (e *Engine) SetOnRunning(fn func(conversationID string)) { e.onRunning = fn
 
 func (e *Engine) running(conversationID string) {
 	if e.onRunning != nil {
-		go e.onRunning(conversationID)
+		safeGo("onRunning", func() { e.onRunning(conversationID) })
 	}
 }
 
@@ -803,7 +810,7 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 			return nil, storage.Message{}, err
 		}
 	}
-	go e.run(runCtx, turn, conv, project, agent, history, prompt, files)
+	safeGo("run", func() { e.run(runCtx, turn, conv, project, agent, history, prompt, files) })
 	return turn, msg, nil
 }
 
@@ -892,7 +899,7 @@ func (e *Engine) offReply(ctx context.Context, conv storage.Conversation, text, 
 
 func (e *Engine) finish(t *Turn) {
 	if caller := e.rootCaller(t.ConversationID); caller != "" && e.onRunWait != nil {
-		go e.onRunWait(context.Background(), caller)
+		safeGo("onRunWait", func() { e.onRunWait(context.Background(), caller) })
 	}
 	e.mu.Lock()
 	freed := e.active[t.ConversationID] == t // the next agent's turn may already hold the chat
@@ -906,7 +913,7 @@ func (e *Engine) finish(t *Turn) {
 	e.mu.Unlock()
 	e.running(t.ConversationID)
 	if freed {
-		go e.SendQueued(t.ConversationID) // what the person wrote meanwhile goes now
+		safeGo("SendQueued", func() { e.SendQueued(t.ConversationID) }) // what the person wrote meanwhile goes now
 	}
 	// keep the turn for late subscribers, then forget it
 	time.AfterFunc(10*time.Minute, func() {
@@ -931,6 +938,16 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		dto := MessageDTO{ID: m.ID, Role: "error", Content: m.Content, CreatedAt: m.CreatedAt, Tools: []storage.ToolCall{}, Attachments: []storage.Attachment{}, Patches: []PatchDTO{}}
 		turn.emit(Event{Type: "error", Text: err.Error(), Message: &dto, NextTurnID: e.nextTurn(ctx, turn, conv, project, agent, "")})
 	}
+	defer func() {
+		// a panic anywhere below (choices/policy/tools/LLM response parsing)
+		// must still close the job and tell the chat, not just vanish:
+		// turn.cancel/e.finish (deferred above, so run after this) only free
+		// the chat slot, they don't end the job or post an error message.
+		if r := recover(); r != nil {
+			slog.Error("chat: run panic", "where", "run", "panic", r, "stack", string(debug.Stack()))
+			fail(fmt.Errorf("internal error: %v", r))
+		}
+	}()
 
 	cands, err := e.choices(ctx, withTier(ctx, agent))
 	if err != nil {

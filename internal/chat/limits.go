@@ -47,7 +47,7 @@ func (e *Engine) keepLimits(p storage.Provider, l *Limits) {
 	}
 	_ = e.store.Settings().Set(context.Background(), LimitsKey(p.ID), l)
 	if fn := e.onLimits; fn != nil { // the limit alerts
-		go fn(p, *l)
+		safeGo("onLimits", func() { fn(p, *l) })
 	}
 }
 

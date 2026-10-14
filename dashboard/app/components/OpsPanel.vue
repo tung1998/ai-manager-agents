@@ -14,7 +14,7 @@ interface ProcState {
   cpu: number
   mem_bytes: number
 }
-interface Proc { id: string, name: string, command: string, cwd: string, kind: 'service' | 'job', source: string, autostart: boolean, autorestart: boolean, env: Record<string, string>, state: ProcState }
+interface Proc { id: string, name: string, command: string, cwd: string, kind: 'service' | 'job', source: string, autostart: boolean, autorestart: boolean, env: Record<string, string>, state: ProcState, version: string }
 // what a command runs with, found without running it (PORT from its flag, its
 // script, the folder's .env or its framework's default)
 interface EnvHint { key: string, value: string, source: 'command' | 'script' | 'env-file' | 'default', file?: string, tool?: string, flag?: string, append?: string }
@@ -182,13 +182,13 @@ async function addPicked() {
 
 const formOpen = ref(false)
 const editing = ref<Proc | null>(null)
-const form = reactive({ name: '', command: '', cwd: '.', kind: 'service' as 'service' | 'job', autostart: false, autorestart: false })
+const form = reactive({ name: '', command: '', cwd: '.', kind: 'service' as 'service' | 'job', autostart: false, autorestart: false, version: '' })
 const envRows = ref<EnvRow[]>([])
 function openForm(p?: Proc) {
   editing.value = p ?? null
   Object.assign(form, p
-    ? { name: p.name, command: p.command, cwd: p.cwd, kind: p.kind, autostart: p.autostart, autorestart: p.autorestart }
-    : { name: '', command: '', cwd: '.', kind: 'service', autostart: false, autorestart: false })
+    ? { name: p.name, command: p.command, cwd: p.cwd, kind: p.kind, autostart: p.autostart, autorestart: p.autorestart, version: p.version }
+    : { name: '', command: '', cwd: '.', kind: 'service', autostart: false, autorestart: false, version: '' })
   envRows.value = Object.entries(p?.env ?? {}).map(([key, value]) => ({ key, value, saved: true }))
   formOpen.value = true
   detectEnv()
@@ -196,14 +196,18 @@ function openForm(p?: Proc) {
 
 // found again as the command or folder changes; what was set or typed stays
 const detectingEnv = ref(false)
+let detectEnvSeq = 0
 async function detectEnv() {
+  const seq = ++detectEnvSeq
   if (!form.command.trim()) {
     envRows.value = envRows.value.filter(r => !r.hint || r.saved || changed(r))
+    detectingEnv.value = false
     return
   }
   detectingEnv.value = true
   try {
     const { env } = await $fetch<{ env: EnvHint[] }>(`/api/projects/${props.projectId}/ops/env`, { query: { cwd: form.cwd || '.', command: form.command } })
+    if (seq !== detectEnvSeq) return
     const kept = envRows.value.filter(r => !r.hint || r.saved || changed(r))
     const rows: EnvRow[] = kept.map(r => ({ ...r, hint: env.find(h => h.key === r.key) }))
     for (const h of env) {
@@ -211,12 +215,13 @@ async function detectEnv() {
     }
     envRows.value = rows
   } catch { /* a hint, not needed to save */ } finally {
-    detectingEnv.value = false
+    if (seq === detectEnvSeq) detectingEnv.value = false
   }
 }
 let envTimer: ReturnType<typeof setTimeout> | undefined
 watch(() => [form.command, form.cwd], () => {
   if (!formOpen.value) return
+  detectEnvSeq++
   clearTimeout(envTimer)
   envTimer = setTimeout(detectEnv, 500)
 })

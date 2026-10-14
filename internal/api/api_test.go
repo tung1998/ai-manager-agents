@@ -28,6 +28,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
+	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
@@ -112,8 +113,8 @@ func setupWithStore(t *testing.T, proxies []netip.Prefix, wrap func(storage.Stor
 	h := api.New(api.Config{Store: st, Auth: svc, AllowedOrigins: []string{"http://localhost:3000"}, TrustedProxies: proxies,
 		Providers: provs, Team: org, Setup: officesetup.New(st, provs, org), Transfer: transfer.New(st, provs, org, wfs.Lib), Workflows: wfs, Usage: u, CLITools: cliManager(), Chat: chatEng,
 		Trigger: trigger.New(st, idleExec{}), Actions: acts, Office: office, MCP: mcp, Memory: mem, Events: bus, Automation: testAutomation(t, st),
-		Monitors: monitor.New(st, nil, chatEng),
-		Gateway:  &mcpgateway.Gateway{Store: st, Box: box, Auth: mcp.Authorized, Identify: testIdentify(mcp)}})
+		Monitors: monitor.New(st, nil, chatEng), Ops: ops.NewManager(st, t.TempDir(), []string{}),
+		Gateway: &mcpgateway.Gateway{Store: st, Box: box, Auth: mcp.Authorized, Identify: testIdentify(mcp)}})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	ctx := context.Background()

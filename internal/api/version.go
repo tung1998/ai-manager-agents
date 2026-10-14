@@ -98,6 +98,14 @@ func monitorVersion(m storage.Monitor) string {
 	}{m.Name, m.Type, m.Target, m.Config, m.IntervalS, m.AIEnabled, m.AIBudgetUSD})
 }
 
+func processVersion(p storage.Process) string {
+	return versionOf(struct {
+		Name, Command, Cwd, Kind, Source string
+		Autostart, Autorestart           bool
+		Env                              map[string]string
+	}{p.Name, p.Command, p.Cwd, p.Kind, p.Source, p.Autostart, p.Autorestart, p.Env})
+}
+
 func channelVersion(c storage.Channel) string {
 	return versionOf(struct {
 		Name, AgentID, Mode, Scope, Refusal, Approval, Header, ReplyMode, Defaults string

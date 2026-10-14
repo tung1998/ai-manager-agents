@@ -477,5 +477,10 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
+	// Back up to a rune boundary: a cut mid-rune leaves invalid UTF-8
+	// (Vietnamese text), which some CLIs refuse to read.
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
 	return s[:n]
 }
