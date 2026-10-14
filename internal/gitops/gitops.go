@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Change is one changed file from `git status`.
@@ -155,7 +156,7 @@ func Diff(ctx context.Context, root string, files []string, maxBytes int) (strin
 		return "", err
 	}
 	if maxBytes > 0 && len(out) > maxBytes {
-		out = out[:maxBytes] + "\n… (cắt bớt)"
+		out = cut(out, maxBytes) + "\n… (cắt bớt)"
 	}
 	return out, nil
 }
@@ -347,7 +348,19 @@ func BranchDiff(ctx context.Context, root, base string, heads []string, max int)
 	}
 	out := strings.TrimSpace(stat) + "\n\n" + diff
 	if len(out) > max {
-		out = out[:max] + "\n… (diff quá dài, đã cắt; xem thêm bằng git diff)"
+		out = cut(out, max) + "\n… (diff quá dài, đã cắt; xem thêm bằng git diff)"
 	}
 	return out, nil
+}
+
+// cut shortens s to at most n bytes without splitting a UTF-8 character: a
+// broken byte makes CLIs such as codex refuse the whole prompt.
+func cut(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }

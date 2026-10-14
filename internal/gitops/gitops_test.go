@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestIgnored(t *testing.T) {
@@ -167,5 +168,18 @@ func TestBranchDiffFromFork(t *testing.T) {
 	}
 	if _, err := BranchDiff(ctx, "", "main", []string{"fix/pay"}, 1<<20); err == nil {
 		t.Fatal("no folder: no error")
+	}
+}
+
+// A diff of Vietnamese text cut at its byte limit must stay valid UTF-8:
+// codex refuses a prompt with a broken character (Burn review "Góc nhìn B").
+func TestCutKeepsUTF8(t *testing.T) {
+	s := strings.Repeat("a", 9) + "đ" // "đ" is 2 bytes, at 9..10
+	got := cut(s, 10)
+	if !utf8.ValidString(got) || got != strings.Repeat("a", 9) {
+		t.Fatalf("cut = %q", got)
+	}
+	if cut("abc", 10) != "abc" {
+		t.Fatal("short string changed")
 	}
 }
