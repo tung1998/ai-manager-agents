@@ -113,7 +113,7 @@ export default {
   'patch.worktree': 'worktree',
   'patch.cut': 'Diff lớn ({size}): đang hiện phần đầu',
   'patch.loadFull': 'Xem thêm',
-  'patch.worktreeHint': 'Agent đã sửa và kiểm tra trong worktree riêng; gộp để đưa thay đổi vào thư mục project (chưa commit).',
+  'patch.worktreeHint': 'Agent đã sửa và kiểm tra trên một bản sao riêng của project. Bấm "Gộp vào repo" để đưa thay đổi vào thư mục project (chưa commit).',
   'patch.appliedToast': 'Đã áp dụng thay đổi',
   'patch.failedToast': 'Không áp được thay đổi',
   'action.pending': 'Chờ duyệt',

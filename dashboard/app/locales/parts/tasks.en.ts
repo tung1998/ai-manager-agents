@@ -114,7 +114,7 @@ const en: Record<keyof typeof vi, string> = {
   'patch.worktree': 'worktree',
   'patch.cut': 'Big diff ({size}): showing the start',
   'patch.loadFull': 'Show all',
-  'patch.worktreeHint': 'The agent edited and checked this in its own worktree; merge to bring the changes into the project folder (not committed).',
+  'patch.worktreeHint': 'The agent made and checked these changes in a separate copy of the project. Click "Merge into repo" to bring them into the project folder (not committed).',
   'patch.appliedToast': 'Change applied',
   'patch.failedToast': 'Could not apply the change',
   'action.pending': 'Pending',

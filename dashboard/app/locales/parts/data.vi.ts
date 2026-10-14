@@ -4,7 +4,7 @@ export default {
   'data.kind.burn': 'Burn',
   'data.kind.task': 'Việc đã xong',
   'data.level.content': 'Xóa nội dung',
-  'data.level.contentHint': 'Giữ tên chat, nội dung ghi là đã dọn; không nhắn thêm được.',
+  'data.level.contentHint': 'Giữ lại tên, xóa nội dung bên trong; không nhắn tiếp được nữa.',
   'data.level.summary': 'Tóm tắt',
   'data.level.summaryHint': 'Agent tóm tắt siêu ngắn thay cho nội dung; không nhắn thêm được.',
   'data.level.delete': 'Xóa toàn bộ',

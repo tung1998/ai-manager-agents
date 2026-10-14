@@ -5,7 +5,7 @@ const en: Record<keyof typeof vi, string> = {
   'data.kind.burn': 'Burn',
   'data.kind.task': 'Finished tasks',
   'data.level.content': 'Clear content',
-  'data.level.contentHint': 'Keeps the title, the content reads as cleared; takes no more messages.',
+  'data.level.contentHint': 'Keeps the title, removes the content inside; it takes no more messages.',
   'data.level.summary': 'Summarize',
   'data.level.summaryHint': 'An agent puts the content in a few lines; takes no more messages.',
   'data.level.delete': 'Delete all',
