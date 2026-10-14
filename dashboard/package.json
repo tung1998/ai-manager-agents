@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.0",
+    "@iconify-json/simple-icons": "^1.2.100",
     "@nuxt/ui": "^4.11.2",
     "@vue-flow/background": "^1.3.2",
     "@vue-flow/controls": "^1.1.3",
