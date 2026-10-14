@@ -456,6 +456,12 @@ func (r chatRepo) SubjectConversation(ctx context.Context, projectID, purpose, s
 		projectID, purpose, subject, createdBy, createdBy))
 }
 
+func (r chatRepo) EmptyConversation(ctx context.Context, projectID, createdBy string) (storage.Conversation, error) {
+	return scanConv(r.db.QueryRowContext(ctx, `SELECT `+convRead+` FROM conversations c WHERE project_id=? AND created_by=? AND purpose='' AND task_id IS NULL AND automation_id='' AND title='' AND cleaned=''
+		AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.id) AND NOT EXISTS (SELECT 1 FROM chat_queued q WHERE q.conversation_id=c.id) AND NOT EXISTS (SELECT 1 FROM conversation_tags t WHERE t.conversation_id=c.id)
+		ORDER BY updated_at DESC LIMIT 1`, projectID, createdBy))
+}
+
 func (r chatRepo) SetConversationSubject(ctx context.Context, conversationID, subject string) error {
 	err := execOne(ctx, r.db, `UPDATE conversations SET subject=? WHERE id=?`, subject, conversationID)
 	if err == nil {

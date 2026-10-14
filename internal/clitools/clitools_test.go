@@ -121,7 +121,7 @@ func TestInstallAndCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := waitState(t, j, "succeeded")
-	if v.Command != "brew install --cask codex" && !strings.HasSuffix(v.Command, "brew install --cask codex") {
+	if !strings.Contains(v.Command, "brew install --cask codex") {
 		t.Fatalf("command = %q", v.Command)
 	}
 	s, _ := m.Status(context.Background(), "codex")

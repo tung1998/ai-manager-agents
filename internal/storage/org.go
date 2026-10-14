@@ -549,6 +549,9 @@ type ChatRepo interface {
 	// SubjectConversation is the latest editor chat (skill, workflow) of a
 	// subject; createdBy not "": only that person's.
 	SubjectConversation(ctx context.Context, projectID, purpose, subject, createdBy string) (Conversation, error)
+	// EmptyConversation is createdBy's latest plain chat of the project with
+	// nothing in it yet (no message, nothing queued, no tag).
+	EmptyConversation(ctx context.Context, projectID, createdBy string) (Conversation, error)
 	// SetConversationSubject ties an editor chat to what it writes.
 	SetConversationSubject(ctx context.Context, conversationID, subject string) error
 	// LinkAutomation ties a building chat to the automation once it is saved.

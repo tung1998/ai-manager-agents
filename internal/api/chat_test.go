@@ -107,3 +107,33 @@ func TestChatAPIWithSSE(t *testing.T) {
 		t.Fatalf("member deletes own chat = %d", resp.StatusCode)
 	}
 }
+
+// "New chat" clicked again while the last one is still empty brings that one back.
+func TestNewChatReusesEmpty(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "pack": "solo"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+
+	create := func() string {
+		resp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{}, nil)
+		if resp.StatusCode != 201 {
+			t.Fatalf("create conversation = %d %v", resp.StatusCode, b)
+		}
+		return b["conversation"].(map[string]any)["id"].(string)
+	}
+	first := create()
+	if again := create(); again != first {
+		t.Fatalf("empty chat not reused: %s then %s", first, again)
+	}
+	if resp, b := do(t, admin, "POST", e.srv.URL+"/api/conversations/"+first+"/messages", map[string]any{"text": "hi"}, nil); resp.StatusCode != 202 {
+		t.Fatalf("send = %d %v", resp.StatusCode, b)
+	}
+	if next := create(); next == first {
+		t.Fatal("a chat with a message was reused")
+	}
+}

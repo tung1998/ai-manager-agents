@@ -23,17 +23,20 @@ func TestChatTags(t *testing.T) {
 		_, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{}, nil)
 		return b["conversation"].(map[string]any)["id"].(string)
 	}
-	a, b, c := newChat(), newChat(), newChat()
 	setTags := func(id string, tags ...string) (int, map[string]any) {
 		resp, out := do(t, admin, "PUT", e.srv.URL+"/api/conversations/"+id+"/tags", map[string]any{"tags": tags}, nil)
 		return resp.StatusCode, out
 	}
+	// each tagged before the next: an empty chat is given back as the new one
+	a := newChat()
 	code, out := setTags(a, " Bug ", "bug", "ui  fix")
 	got := fmt.Sprint(out["conversation"].(map[string]any)["tags"])
 	if code != 200 || got != "[Bug ui fix]" {
 		t.Fatalf("set a = %d %s", code, got)
 	}
+	b := newChat()
 	setTags(b, "bug")
+	c := newChat()
 	setTags(c, "ui fix")
 
 	ids := func(q string) map[string]bool {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -28,6 +29,32 @@ func (e *Engine) StartConversationFor(ctx context.Context, projectID, agentID st
 		}
 	}
 	return storage.Conversation{}, ErrNoAgent
+}
+
+var newChatMu sync.Mutex // one "new chat" at a time: clicks in a row get the same one
+
+// NewConversation is "new chat" from the dashboard: the person's latest chat
+// that is still empty is brought back to the top (with agentID) rather than
+// another empty one made.
+func (e *Engine) NewConversation(ctx context.Context, projectID, agentID string) (storage.Conversation, error) {
+	c, err := e.StartConversationFor(ctx, projectID, agentID)
+	if err != nil || !strings.HasPrefix(c.CreatedBy, "human:") {
+		return c, err
+	}
+	newChatMu.Lock()
+	defer newChatMu.Unlock()
+	old, err := e.store.Chat().EmptyConversation(ctx, projectID, c.CreatedBy)
+	if errors.Is(err, storage.ErrNotFound) {
+		return e.store.Chat().CreateConversation(ctx, c)
+	}
+	if err != nil {
+		return old, err
+	}
+	old.AgentID, old.AgentName = c.AgentID, c.AgentName
+	if err := e.store.Chat().UpdateConversation(ctx, old); err != nil { // updated_at: on top again
+		return old, err
+	}
+	return e.store.Chat().GetConversation(ctx, old.ID)
 }
 
 // StartConversationPurpose opens a thread for a purpose ("automation" = one

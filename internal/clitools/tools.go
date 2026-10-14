@@ -94,8 +94,10 @@ var tools = []Tool{
 		LoginCmd: "codex login --device-auth", loginArgv: []string{"codex", "login", "--device-auth"},
 		LogoutCmd: "codex logout", logoutArgv: []string{"codex", "logout"},
 		methods: []Method{
+			// like Antigravity: a quarantined cask binary hangs on a Gatekeeper
+			// check when the office (no window) runs it
 			{ID: "brew", Label: "Homebrew", Command: "brew install --cask codex", Requires: "brew", Recommended: true,
-				argv: []string{"brew", "install", "--cask", "codex"}},
+				argv: []string{"/bin/sh", "-c", `brew install --cask codex && { xattr -dr com.apple.quarantine "$(brew --prefix)/Caskroom/codex" 2>/dev/null || true; }`}},
 			{ID: "npm", Label: "npm (cần Node 22+)", Command: "npm install -g @openai/codex", Requires: "npm",
 				argv: []string{"npm", "install", "-g", "@openai/codex"}},
 		},

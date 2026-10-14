@@ -484,7 +484,13 @@ async function open(c: Conversation, messageId?: string) {
   else jumpToEnd()
 }
 
-async function newConversation(agentId = '') {
+// clicks in a row wait for the one on its way (office brings back an empty chat, not a new one)
+let making: Promise<void> | null = null
+function newConversation(agentId = '') {
+  making ??= makeConversation(agentId).finally(() => { making = null })
+  return making
+}
+async function makeConversation(agentId: string) {
   try {
     const res = await $fetch<{ conversation: Conversation }>(`/api/projects/${props.projectId}/conversations`, { method: 'POST', body: { agent_id: agentId, purpose: props.purpose ?? '', subject: props.subject ?? '' } })
     if (props.purpose) emit('conversation', res.conversation.id)

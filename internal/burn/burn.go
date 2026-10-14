@@ -923,6 +923,20 @@ func (s *Service) failedOrAgain(it storage.BurnItem, why string) (string, string
 	return "failed", why
 }
 
+// maxReviewRounds: how many times a piece is done before its result review
+// turning it down fails it. Each round goes back with the reviewer's notes;
+// the review of the next one judges first whether they were followed.
+const maxReviewRounds = 3
+
+// reviewAgain is failedOrAgain for a result the reviewer turned down: what
+// to fix is known, so it gets more rounds than a technical failure.
+func reviewAgain(it storage.BurnItem, why string) (string, string) {
+	if it.Attempts < maxReviewRounds {
+		return "queued", why
+	}
+	return "failed", why
+}
+
 func errText(err error) string {
 	if err == nil {
 		return ""

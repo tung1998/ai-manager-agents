@@ -54,3 +54,25 @@ func TestSummary(t *testing.T) {
 		t.Errorf("an earlier run's piece is in it:\n%s", s)
 	}
 }
+
+// A result turned down goes back while rounds are left, then fails; the next
+// review gets the whole earlier note and is told to judge against it.
+func TestReviewRounds(t *testing.T) {
+	for attempts, want := range map[int]string{1: "queued", 2: "queued", maxReviewRounds: "failed"} {
+		if got, _ := reviewAgain(storage.BurnItem{Attempts: attempts}, "x"); got != want {
+			t.Errorf("reviewAgain(attempts=%d) = %s, want %s", attempts, got, want)
+		}
+	}
+	note := "VERDICT: DISAGREE\n1. " + strings.Repeat("sửa a ", 200) + "\n2. TAIL-POINT"
+	b := storage.BurnSession{}
+	p := reviewPrompt(b, storage.BurnItem{ID: "bit_1", Attempts: 2, ReviewNote: note}, "result", "")
+	if !strings.Contains(p, "TAIL-POINT") || !strings.Contains(p, "round 2 of at most") {
+		t.Errorf("round-2 result prompt misses the earlier note's end or the round rule:\n%s", p)
+	}
+	if p := reviewPrompt(b, storage.BurnItem{ID: "bit_1", Attempts: 1}, "result", ""); strings.Contains(p, "round 1") {
+		t.Error("a first result review is not told about rounds")
+	}
+	if p := reviewPrompt(b, storage.BurnItem{ID: "bit_1"}, "plan", ""); !strings.Contains(p, "NOT a reason to disagree") {
+		t.Error("the plan review must agree with a corrected approach rather than turn a real problem down")
+	}
+}

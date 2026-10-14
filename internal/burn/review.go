@@ -147,7 +147,7 @@ func (s *Service) finish(ctx context.Context, b storage.BurnSession, it storage.
 			return false
 		}
 	} else {
-		it.Status, it.Summary = s.failedOrAgain(it, reviewLabel["result"]+": chưa đạt. "+oneLine(note, 400))
+		it.Status, it.Summary = reviewAgain(it, reviewLabel["result"]+": chưa đạt. "+oneLine(note, 400))
 		if err := s.store.Burn().UpdateItemFrom(ctx, it, from); err != nil {
 			return false
 		}
@@ -345,18 +345,30 @@ func reviewPrompt(b storage.BurnSession, it storage.BurnItem, stage, diff string
 		Stage, ID, Kind, Title, Detail, Focus, ReviewNote string
 		Summary, Worktree, Agree, Disagree, RunBranch     string
 		Diff                                              string
+		Round, Rounds                                     int
 		FocusChecks, Related                              []string
-	}{Stage: stage, ID: it.ID, Kind: it.Kind, Title: it.Title, Detail: it.Detail, Focus: b.Focus,
+	}{Round: it.Attempts, Rounds: maxReviewRounds, Stage: stage, ID: it.ID, Kind: it.Kind, Title: it.Title, Detail: it.Detail, Focus: b.Focus,
 		Worktree: it.Worktree, Agree: verdictAgree, Disagree: verdictDisagree, Diff: diff,
 		RunBranch: b.RunBranch, Related: related(b, it, items)}
 	if stage == "result" {
 		d.FocusChecks = checks(b)
-		if it.ReviewNote != "" {
-			d.ReviewNote = oneLine(it.ReviewNote, 600)
+		if it.ReviewNote != "" { // whole: the next round is judged against what it asked
+			d.ReviewNote = clip(strings.TrimSpace(it.ReviewNote), reviewNoteMax)
 		}
 		d.Summary = oneLine(it.Summary, 800)
 	}
 	return prompts.Render("burn/review", d)
+}
+
+// reviewNoteMax bounds the earlier review's notes handed to the next one.
+const reviewNoteMax = 6000
+
+// clip cuts s to n runes, keeping its lines.
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
 }
 
 // The first line of a reviewer's answer (verdictOf reads it).

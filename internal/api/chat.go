@@ -178,7 +178,7 @@ func (s *server) createConversation(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		c, err = s.cfg.Chat.StartConversation(r.Context(), r.PathValue("id"), in.AgentID)
+		c, err = s.cfg.Chat.NewConversation(r.Context(), r.PathValue("id"), in.AgentID)
 	}
 	if err != nil {
 		s.chatError(w, r, err)
