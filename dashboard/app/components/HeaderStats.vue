@@ -23,6 +23,7 @@ const items = computed(() => {
 
 <template>
   <div class="flex items-center gap-0.5">
+    <ProviderRings class="me-1" />
     <NuxtLink
       v-for="x in items" :key="x.key" :to="x.to" :title="x.title" :aria-label="x.title"
       class="items-center gap-1 rounded-md px-1.5 py-1 text-xs tabular-nums transition hover:bg-(--ui-bg-elevated)"
