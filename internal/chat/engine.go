@@ -1090,6 +1090,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		req.System += e.groupBrief(ctx, conv, agent)
 		if !e.isAssistant(ctx, project.ID) {
 			req.System += e.workflowsBrief(ctx, conv, level) // what it may run itself (run_workflow)
+			req.System += e.linkedBrief(ctx, project.ID)     // where it may hand work (send_to_chat)
 		}
 	}
 	if clash != "" {

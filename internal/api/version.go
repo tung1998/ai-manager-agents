@@ -63,12 +63,13 @@ func agentVersion(d agentDTO) string {
 
 func policyVersion(p perm.Policy) string {
 	return versionOf(struct {
-		Packs         []perm.Pack
-		DenyPaths     []string
-		WorktreeLinks []string
-		QuickCheck    bool
-		QuickChecks   string
-	}{p.Packs, p.DenyPaths, p.WorktreeLinks, p.QuickCheck, p.QuickChecks})
+		Packs          []perm.Pack
+		DenyPaths      []string
+		WorktreeLinks  []string
+		QuickCheck     bool
+		QuickChecks    string
+		LinkedProjects []string
+	}{p.Packs, p.DenyPaths, p.WorktreeLinks, p.QuickCheck, p.QuickChecks, p.LinkedProjects})
 }
 
 func workflowVersion(wf storage.Workflow) string {

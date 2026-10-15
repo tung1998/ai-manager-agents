@@ -817,6 +817,9 @@ type ActionArgs struct {
 	// remember: the topic the note goes under and its index line ("" = core, ADR-134)
 	Topic   string `json:"topic,omitempty"`
 	Summary string `json:"summary,omitempty"`
+	// send_message to a linked project: its id; with no target chat, a new
+	// chat is opened there
+	Project string `json:"project,omitempty"`
 }
 
 // MCPCallArgs is a tool call waiting for a person.

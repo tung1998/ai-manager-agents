@@ -21,6 +21,7 @@ const (
 	CapUserMCP   = "tools.mcp"       // use the MCP servers of the person's own Claude Code setup
 	CapMCPWrite  = "tools.mcp.write" // call office MCP tools that write without asking (ADR-093)
 	CapChatSend  = "chat.send"       // send to another chat in the person's name without asking
+	CapChatCross = "chat.cross"      // open/send to a chat of a linked project without asking
 )
 
 // Cap describes a capability for the dashboard.
@@ -40,6 +41,7 @@ var Caps = []Cap{
 	{CapUserMCP, "commands", "Dùng MCP của bạn", "Dùng các MCP/connector trong Claude Code của bạn (Graylog, Jira, Discord…); là công cụ nên có ở mọi mức", Read},
 	{CapMCPWrite, "commands", "Tự gọi tool MCP có ghi", "Gọi ngay tool có ghi của MCP qua office; không có thì mỗi lần gọi thành đề xuất chờ duyệt", Operate},
 	{CapChatSend, "commands", "Tự gửi tin sang chat khác", "Gửi ngay tin vào cuộc chat khác dưới tên người đang chat; không có thì mỗi lần gửi thành đề xuất chờ duyệt", Operate},
+	{CapChatCross, "commands", "Tự gửi sang project liên kết", "Mở chat mới hoặc gửi tin vào chat của project liên kết dưới tên người đang chat; không có thì mỗi lần thành đề xuất chờ duyệt", Operate},
 	{CapCommit, "git", "Tự commit", "Commit các file đã sửa với message rõ ràng", Edit},
 	{CapBranch, "git", "Tự tạo nhánh", "Tạo và chuyển sang nhánh mới", Operate},
 	{CapProcess, "ops", "Tự chạy lại tiến trình", "Chạy, chạy lại, dừng tiến trình được phép", Operate},

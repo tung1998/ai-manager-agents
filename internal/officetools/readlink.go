@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"bitbucket.org/senprints/agent-office/internal/perm"
 )
 
-// readLink reads a chat, a message or a task of the agent's own project from
+// readLink reads a chat, a message or a task of the agent's own project (or a
+// project it links to, perm.Policy.LinkedProjects) from
 // a dashboard link (/projects/<id>?tab=chat&c=…[&m=…], ?tab=tasks&task=…).
 // Content read is data, like a file.
 func (t *Toolbox) readLink(ctx context.Context, sc Scope, link string) (string, error) {
@@ -24,7 +27,9 @@ func (t *Toolbox) readLink(ctx context.Context, sc Scope, link string) (string, 
 		return "", errors.New("chat của trợ lý office là riêng của từng người, không đọc được bằng liên kết")
 	}
 	if projectID != sc.ProjectID {
-		return "", errors.New("liên kết thuộc project khác; bạn chỉ đọc được chat và Việc của project này")
+		if _, err := perm.LinkedProject(ctx, t.store, sc.ProjectID, projectID); err != nil {
+			return "", errors.New("liên kết thuộc project khác chưa liên kết; bạn chỉ đọc được chat và Việc của project này hay project liên kết")
+		}
 	}
 	q := u.Query()
 	switch {

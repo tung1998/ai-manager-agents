@@ -147,12 +147,13 @@ func (t *Toolbox) Tools() []Tool {
 				"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "git_commit: files to commit (empty = all changes)"},
 				"branch":  map[string]any{"type": "string", "description": "git_branch: new branch name"},
 			}, "action", "reason")})
-		list = append(list, Tool{Name: "send_to_chat", Description: "Send a message into ANOTHER office chat as the person you chat with, for its agent to carry on, when they ask to pass work there. Find the chat with search_history or a link they pasted.",
+		list = append(list, Tool{Name: "send_to_chat", Description: "Send a message into ANOTHER office chat as the person you chat with, for its agent to carry on, when they ask to pass work there. Find the chat with search_history or a link they pasted. To hand work to a linked project (one this project links to in its settings), give project and no chat: a new chat opens there; read its progress later with read_link on the link returned.",
 			Schema: obj(map[string]any{
-				"chat":   map[string]any{"type": "string", "description": "Target chat: dashboard link (…?tab=chat&c=…) or id cnv_…"},
-				"text":   map[string]any{"type": "string", "description": "Message text, clear enough for the agent there to act without asking back"},
-				"reason": map[string]any{"type": "string", "description": "Why it needs sending"},
-			}, "chat", "text", "reason")})
+				"chat":    map[string]any{"type": "string", "description": "Target chat: dashboard link (…?tab=chat&c=…) or id cnv_…; empty with project = a new chat there"},
+				"project": map[string]any{"type": "string", "description": "A linked project (id or name), for a chat of that project"},
+				"text":    map[string]any{"type": "string", "description": "Message text, clear enough for the agent there to act without asking back"},
+				"reason":  map[string]any{"type": "string", "description": "Why it needs sending"},
+			}, "text", "reason")})
 		list = append(list, Tool{Name: "remember", Description: "Save one short point worth keeping long term to your notes for this project: conventions, decisions, the person's preferences, fixes. Nothing one-off, no secrets. A durable rule for the whole project: no topic (core, in every later chat). Details about one area (a module, a flow, a service): give a topic and a one-line summary; only the summary is in every chat, the details are read with recall.",
 			Schema: obj(map[string]any{
 				"note":    map[string]any{"type": "string", "description": "What to remember, e.g. The repo uses pnpm; run pnpm test before reporting done"},
@@ -215,11 +216,12 @@ func (t *Toolbox) Tools() []Tool {
 	}
 	list = append(list, Tool{Name: "search_history", Description: "Search chat history (web, Discord, Telegram, automations) by keyword, ignoring accents. When the person refers to earlier work, search first, don't guess; read a result in full with read_link.",
 		Schema: obj(map[string]any{
-			"query":  map[string]any{"type": "string", "description": "Keywords, a few words are enough"},
-			"days":   map[string]any{"type": "integer", "description": "How many recent days to search (default 30, max 365)"},
-			"author": map[string]any{"type": "string", "description": "Only messages from this person/agent (optional)"},
+			"query":   map[string]any{"type": "string", "description": "Keywords, a few words are enough"},
+			"days":    map[string]any{"type": "integer", "description": "How many recent days to search (default 30, max 365)"},
+			"author":  map[string]any{"type": "string", "description": "Only messages from this person/agent (optional)"},
+			"project": map[string]any{"type": "string", "description": "Search a linked project's chats instead (id or name; optional)"},
 		}, "query"), ReadOnly: true})
-	list = append(list, Tool{Name: "read_link", Description: "Read an office link the person pasted: a chat (…?tab=chat&c=…), a message (&m=…) or a task (…?tab=tasks&task=…) of this project.",
+	list = append(list, Tool{Name: "read_link", Description: "Read an office link the person pasted: a chat (…?tab=chat&c=…), a message (&m=…) or a task (…?tab=tasks&task=…) of this project or a linked one.",
 		Schema: obj(map[string]any{"url": map[string]any{"type": "string", "description": "Office dashboard link"}}, "url"), ReadOnly: true})
 	if t.burn != nil {
 		item := map[string]any{"type": "string", "description": "Piece id (bit_…)"}
@@ -415,7 +417,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 			}
 			projectID, sc.ProjectID = p.ID, p.ID
 		}
-	} else if in.Project != "" && in.Project != projectID {
+	} else if in.Project != "" && in.Project != projectID && name != "send_to_chat" && name != "search_history" { // these two: a linked project
 		return "Bạn chỉ làm việc trong project của mình", true
 	}
 	if in.Lines <= 0 {
@@ -483,7 +485,7 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 	case "read_link":
 		out, err = t.readLink(ctx, sc, in.URL)
 	case "search_history":
-		out, err = t.searchHistory(ctx, sc, in.Query, in.Days, in.Author)
+		out, err = t.searchHistory(ctx, sc, in.Query, in.Days, in.Author, in.Project)
 	case "burn_add", "burn_pick", "burn_skip", "burn_done", "burn_fail", "burn_list", "burn_scan_done":
 		if t.burn == nil || !t.burnChat(sc) {
 			return "Các công cụ burn_* chỉ dùng trong hội thoại Burn", true
@@ -532,10 +534,14 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 			return "Bạn không có quyền gửi tin sang chat khác (gói hiện tại: " + perm.Label(sc.Level) + ")", true
 		}
 		var a storage.Action
-		if a, err = t.actions.Propose(ctx, sc, "send_message", in.Chat, in.Reason, storage.ActionArgs{Message: in.Text}); err == nil {
+		project := in.Project
+		if sc.Office || project == sc.ProjectID {
+			project = "" // the assistant's project is the one named; its own is no link
+		}
+		if a, err = t.actions.Propose(ctx, sc, "send_message", in.Chat, in.Reason, storage.ActionArgs{Message: in.Text, Project: project}); err == nil {
 			switch a.Status {
 			case "done":
-				out = fmt.Sprintf("Sent the message to chat %q under the person's name; the agent there will answer in that chat.", a.Target)
+				out = fmt.Sprintf("Sent the message to chat %q under the person's name (%s); the agent there will answer in that chat.", a.Target, a.Detail)
 			case "failed":
 				return "Gửi vào chat " + a.Target + " lỗi: " + a.Detail, true
 			default:
@@ -795,7 +801,7 @@ func (t *Toolbox) botChat(sc Scope) bool {
 // searchHistory finds what was said in the chats (ADR-086): the project's,
 // or every project's for the office assistant — never someone else's private
 // chat with the assistant.
-func (t *Toolbox) searchHistory(ctx context.Context, sc Scope, query string, days int, author string) (string, error) {
+func (t *Toolbox) searchHistory(ctx context.Context, sc Scope, query string, days int, author, project string) (string, error) {
 	if strings.TrimSpace(query) == "" {
 		return "", errors.New("hãy ghi từ khóa cần tìm")
 	}
@@ -815,6 +821,15 @@ func (t *Toolbox) searchHistory(ctx context.Context, sc Scope, query string, day
 		for _, r := range repos {
 			f.ProjectIDs = append(f.ProjectIDs, r.ID)
 		}
+	} else if project != "" && project != sc.ProjectID { // a linked project's
+		p, err := perm.LinkedProject(ctx, t.store, sc.ProjectID, project)
+		if err != nil {
+			return "", err
+		}
+		if p.ID == assistant {
+			return "", errors.New("chat của trợ lý office là riêng của từng người")
+		}
+		f.ProjectIDs = []string{p.ID}
 	} else {
 		f.ProjectIDs = []string{sc.ProjectID}
 	}

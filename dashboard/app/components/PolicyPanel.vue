@@ -2,7 +2,7 @@
 // What a project offers its agents and what none of them may do: the
 // commands it has (each agent picks from them in its own
 // permissions), files no agent may change.
-interface Policy { packs: CommandPack[], deny_paths: string[], worktree_links: string[], quick_check?: boolean, quick_checks?: string }
+interface Policy { packs: CommandPack[], deny_paths: string[], worktree_links: string[], quick_check?: boolean, quick_checks?: string, linked_projects?: string[] }
 
 const props = defineProps<{ projectId: string }>()
 const toast = useToast()
@@ -11,8 +11,10 @@ const { t } = useLang()
 
 const { data, refresh, error: loadError } = await useLiveFetch<{ policy: Policy, packs: CommandPack[], safe: string[] }>(() => `/api/projects/${props.projectId}/policy`)
 const safe = computed(() => new Set(data.value?.safe ?? []))
+const { data: projData } = useLiveFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
+const projectItems = computed(() => (projData.value?.projects ?? []).filter(p => p.id !== props.projectId).map(p => ({ label: p.name, value: p.id })))
 
-const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '', quickCheck: true, quickChecks: '' })
+const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '', quickCheck: true, quickChecks: '', linked: [] as string[] })
 const editedFrom = ref('') // the policy as the form was filled
 const saveError = useSaveError()
 const { stale, reset: resync } = useDraft(data, form, (d) => { // never over what is being edited
@@ -22,6 +24,7 @@ const { stale, reset: resync } = useDraft(data, form, (d) => { // never over wha
   form.links = (d.policy.worktree_links ?? []).join('\n')
   form.quickCheck = d.policy.quick_check ?? true
   form.quickChecks = d.policy.quick_checks ?? ''
+  form.linked = [...(d.policy.linked_projects ?? [])]
 })
 
 const newDeny = ref('')
@@ -37,7 +40,7 @@ async function save() {
   try {
     await $fetch(`/api/projects/${props.projectId}/policy`, {
       method: 'PUT',
-      body: { version: editedFrom.value, packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean), quick_check: form.quickCheck, quick_checks: form.quickChecks }
+      body: { version: editedFrom.value, packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean), quick_check: form.quickCheck, quick_checks: form.quickChecks, linked_projects: form.linked }
     })
     toast.add({ title: t('policy.saved'), color: 'success' })
     await refresh()
@@ -143,6 +146,17 @@ function removePack(p: CommandPack) {
           <UInput v-model="newDeny" size="xs" placeholder="migrations/" class="w-36 font-mono" />
           <UButton type="submit" size="xs" color="neutral" variant="ghost" icon="i-lucide-plus" />
         </form>
+      </div>
+    </UCard>
+
+    <!-- projects its agents may hand work to (send_to_chat, read_link) -->
+    <UCard :ui="{ body: 'sm:p-4' }">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <p class="flex items-center gap-1.5 text-sm font-medium">
+          {{ t('policy.linked') }}
+          <InfoTip :text="t('policy.linkedHelp')" icon-class="size-3.5 text-(--ui-text-dimmed)" />
+        </p>
+        <USelectMenu v-model="form.linked" :items="projectItems" value-key="value" multiple size="sm" :disabled="!isAdmin" :placeholder="t('policy.linkedPlaceholder')" class="w-full sm:w-72" />
       </div>
     </UCard>
 

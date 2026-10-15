@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path"
 	"strings"
 
@@ -111,6 +112,10 @@ type Policy struct {
 	// QuickChecks: the project's own quick checks by file ending, one a line
 	// (".ts .vue: npx eslint {file}"), after the built-in ones (ADR-135).
 	QuickChecks string `json:"quick_checks"`
+	// LinkedProjects: ids of the projects this project's agents may open a
+	// chat in, send to and read (send_to_chat, read_link, search_history).
+	// One way: the other project links back on its own.
+	LinkedProjects []string `json:"linked_projects"`
 
 	// Worked out when loaded, not stored:
 	Catalog []string `json:"-"` // every command of the project's packs
@@ -128,7 +133,7 @@ const (
 // DefaultPolicy keeps agents at "propose" and protects secrets.
 func DefaultPolicy() Policy {
 	return Policy{MaxLevel: Operate, Packs: []Pack{},
-		DenyPaths: []string{".env", "**/.env.*", "**/.env", "**/*.pem", "**/*.key"}, WorktreeLinks: []string{}, QuickCheck: true}
+		DenyPaths: []string{".env", "**/.env.*", "**/.env", "**/*.pem", "**/*.key"}, WorktreeLinks: []string{}, LinkedProjects: []string{}, QuickCheck: true}
 }
 
 func policyKey(projectID string) string { return "policy:" + projectID }
@@ -158,6 +163,9 @@ func LoadPolicyRaw(ctx context.Context, st storage.Store, projectID string) (Pol
 	if p.WorktreeLinks == nil {
 		p.WorktreeLinks = []string{}
 	}
+	if p.LinkedProjects == nil {
+		p.LinkedProjects = []string{}
+	}
 	for i, pat := range p.DenyPaths {
 		if pat == ".env.*" {
 			p.DenyPaths[i] = "**/.env.*"
@@ -182,6 +190,27 @@ func LoadPolicyRaw(ctx context.Context, st storage.Store, projectID string) (Pol
 // SavePolicy stores a project's policy.
 func SavePolicy(ctx context.Context, st storage.Store, projectID string, p Policy) error {
 	return st.Settings().Set(ctx, policyKey(projectID), p)
+}
+
+// LinkedProject is the project ref (id or name, any case) among those
+// projectID links to in its policy (Policy.LinkedProjects).
+func LinkedProject(ctx context.Context, st storage.Store, projectID, ref string) (storage.Repo, error) {
+	ref = strings.TrimSpace(ref)
+	var names []string
+	for _, id := range LoadPolicy(ctx, st, projectID).LinkedProjects {
+		p, err := st.Repos().Get(ctx, id)
+		if err != nil {
+			continue
+		}
+		if p.ID == ref || strings.EqualFold(p.Name, ref) {
+			return p, nil
+		}
+		names = append(names, p.Name)
+	}
+	if len(names) == 0 {
+		return storage.Repo{}, errors.New("project này chưa liên kết project nào (Cài đặt project → Quyền & lệnh → Project liên kết)")
+	}
+	return storage.Repo{}, fmt.Errorf("%q không phải project liên kết (có: %s)", ref, strings.Join(names, ", "))
 }
 
 // SavePolicyIf stores p only if the stored policy is still the raw JSON

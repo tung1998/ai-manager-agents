@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 )
@@ -45,5 +46,13 @@ func TestReadLink(t *testing.T) {
 	}
 	if _, isErr := call("https://evil.example/x"); !isErr {
 		t.Fatal("a foreign link was read")
+	}
+	// once the project links to the other one, its chats are readable
+	if err := perm.SavePolicyIf(ctx, st, p.ID, "", perm.Policy{LinkedProjects: []string{other.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	st.Chat().AddMessage(ctx, storage.Message{ConversationID: oc.ID, Role: "assistant", Content: "đã sửa trang admin", Author: "Admin"})
+	if out, isErr := call("http://localhost:2704/projects/" + other.ID + "?tab=chat&c=" + oc.ID); isErr || !strings.Contains(out, "đã sửa trang admin") {
+		t.Fatalf("linked project's chat = %v %s", isErr, out)
 	}
 }

@@ -61,9 +61,9 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		perm.Policy
 		Version string `json:"version"` // the policy as it was read (409 when changed since)
 	}
-	// a body without quick_check (an older client) keeps what is set
+	// a body without quick_check/linked_projects (an older client) keeps what is set
 	old, raw := perm.LoadPolicyRaw(r.Context(), s.cfg.Store, r.PathValue("id"))
-	body.QuickCheck, body.QuickChecks = old.QuickCheck, old.QuickChecks
+	body.QuickCheck, body.QuickChecks, body.LinkedProjects = old.QuickCheck, old.QuickChecks, old.LinkedProjects
 	if !decode(w, r, &body) {
 		return
 	}
@@ -102,6 +102,18 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		links = append(links, l)
 	}
 	in.WorktreeLinks = links
+	linked := []string{}
+	for _, id := range clean(in.LinkedProjects) {
+		if id == projectID || slices.Contains(linked, id) {
+			continue
+		}
+		if _, err := s.cfg.Store.Repos().Get(r.Context(), id); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("không có project %q để liên kết", id))
+			return
+		}
+		linked = append(linked, id)
+	}
+	in.LinkedProjects = linked
 	patterns := func(list []string) ([]string, error) {
 		out := []string{}
 		for _, x := range list {

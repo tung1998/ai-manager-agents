@@ -252,3 +252,57 @@ func TestCheckSendCrossProject(t *testing.T) {
 		t.Fatalf("send_message must not reach a chat of another project, got nil error, action=%+v", a)
 	}
 }
+
+// A project that links another (perm.Policy.LinkedProjects) may send to its
+// chats or open a new one there; one it does not link stays out of reach,
+// and sending there runs on its own only with chat.cross.
+func TestCheckSendLinkedProject(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	p1, _ := st.Repos().Create(ctx, storage.Repo{Name: "mockup", Path: t.TempDir()})
+	p2, _ := st.Repos().Create(ctx, storage.Repo{Name: "Admin v3", Path: t.TempDir()})
+	p3, _ := st.Repos().Create(ctx, storage.Repo{Name: "p3", Path: t.TempDir()})
+	if err := perm.SavePolicyIf(ctx, st, p1.ID, "", perm.Policy{LinkedProjects: []string{p2.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	own, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p1.ID, Title: "own"})
+	linked, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p2.ID, Title: "admin"})
+	unlinked, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p3.ID, Title: "p3"})
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p1.ID, Kind: "chat_turn", Origin: "user", Status: "done", CreatedBy: "human:u1", ConversationID: own.ID})
+	svc := New(st, nil)
+	svc.SetSender(fakeSender{})
+	sc := Scope{ProjectID: p1.ID, ConversationID: own.ID, JobID: job.ID}
+
+	a := &storage.Action{ProjectID: p1.ID, Target: linked.ID, Args: storage.ActionArgs{Message: "sửa trang admin"}}
+	if err := svc.checkSend(ctx, sc, a); err != nil || a.TargetID != linked.ID || a.Args.Project != p2.ID {
+		t.Fatalf("linked chat: %v %+v", err, a)
+	}
+	a = &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "sửa trang admin", Project: "admin V3"}}
+	if err := svc.checkSend(ctx, sc, a); err != nil || a.TargetID != "" || a.Args.Project != p2.ID || !strings.Contains(a.Target, "Admin v3") {
+		t.Fatalf("new chat by name: %v %+v", err, a)
+	}
+	a = &storage.Action{ProjectID: p1.ID, Target: unlinked.ID, Args: storage.ActionArgs{Message: "x"}}
+	if err := svc.checkSend(ctx, sc, a); err == nil {
+		t.Fatal("a chat of a project not linked was accepted")
+	}
+	a = &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "x", Project: p3.ID}}
+	if err := svc.checkSend(ctx, sc, a); err == nil {
+		t.Fatal("a new chat in a project not linked was accepted")
+	}
+	a = &storage.Action{ProjectID: p1.ID, Target: unlinked.ID, Args: storage.ActionArgs{Message: "x", Project: p2.ID}}
+	if err := svc.checkSend(ctx, sc, a); err == nil {
+		t.Fatal("a chat not of the project named was accepted")
+	}
+
+	cross := storage.Action{Kind: "send_message", ProjectID: p1.ID, Args: storage.ActionArgs{Project: p2.ID}}
+	same := storage.Action{Kind: "send_message", ProjectID: p1.ID}
+	sendOnly := perm.Access{Caps: []string{perm.CapChatSend}}
+	if svc.autoAllowed(ctx, cross, sendOnly) || !svc.autoAllowed(ctx, same, sendOnly) {
+		t.Fatal("chat.send alone: only the project's own chats run on their own")
+	}
+	if !svc.autoAllowed(ctx, cross, perm.Access{Caps: []string{perm.CapChatCross}}) {
+		t.Fatal("chat.cross: a linked project's chat runs on its own")
+	}
+}

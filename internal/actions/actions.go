@@ -353,7 +353,11 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 	case "workflow_gate":
 		return false // the point of the gate: a person decides
 	case "send_message": // never on and on: what a relayed message started asks a person
-		return acc.Can(perm.CapChatSend) && s.sender != nil && !s.sender.Relayed(ctx, a.ConversationID)
+		capID := perm.CapChatSend
+		if a.Args.Project != "" && a.Args.Project != a.ProjectID {
+			capID = perm.CapChatCross // another project's chat
+		}
+		return acc.Can(capID) && s.sender != nil && !s.sender.Relayed(ctx, a.ConversationID)
 	case "git_commit":
 		return acc.Can(perm.CapCommit)
 	case "git_branch":
@@ -448,6 +452,15 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 				text = string(r[:mcpResultMax]) + "\n… (đã cắt)"
 			}
 			a.Detail = text
+		}
+		return a, s.store.Actions().Update(ctx, a)
+	}
+	if a.Kind == "send_message" { // what it says back: where it went (a new chat's link)
+		a.Status, a.Detail = "done", ""
+		if s.sender == nil {
+			a.Status, a.Detail = "failed", "không gửi tin được ở đây"
+		} else if a.Detail, err = s.sender.Relay(ctx, a); err != nil {
+			a.Status, a.Detail = "failed", err.Error()
 		}
 		return a, s.store.Actions().Update(ctx, a)
 	}
@@ -624,13 +637,6 @@ func (s *Service) run(ctx context.Context, a storage.Action) error {
 			CreatedBy: a.ProposedBy, Topic: a.Args.Topic, Summary: a.Args.Summary})
 		return err
 	}
-	if a.Kind == "send_message" {
-		if s.sender == nil {
-			return errors.New("không gửi tin được ở đây")
-		}
-		_, err := s.sender.Relay(ctx, a)
-		return err
-	}
 	if a.Kind == "run_automation" {
 		if s.runner == nil {
 			return errors.New("không chạy tự động hóa được ở đây")
@@ -699,6 +705,17 @@ func (s *Service) checkSend(ctx context.Context, sc Scope, a *storage.Action) er
 	if strings.TrimSpace(a.Args.Message) == "" {
 		return errors.New("thiếu nội dung tin nhắn")
 	}
+	if a.Args.Project != "" { // a linked project's: id or name
+		p, err := perm.LinkedProject(ctx, s.store, a.ProjectID, a.Args.Project)
+		if err != nil {
+			return err
+		}
+		a.Args.Project = p.ID
+		if a.Target == "" { // a new chat there
+			a.Target, a.TargetID = p.Name+" · chat mới", ""
+			return nil
+		}
+	}
 	id := a.Target
 	if _, q, ok := strings.Cut(id, "c="); ok { // a link: …?tab=chat&c=<id>&m=…
 		id, _, _ = strings.Cut(q, "&")
@@ -710,8 +727,15 @@ func (s *Service) checkSend(ctx context.Context, sc Scope, a *storage.Action) er
 	if c.ID == sc.ConversationID {
 		return errors.New("đây là chính cuộc chat đang nói")
 	}
-	if c.ProjectID != a.ProjectID {
-		return errors.New("không có cuộc chat này trong project")
+	switch {
+	case a.Args.Project != "" && c.ProjectID != a.Args.Project:
+		return errors.New("cuộc chat đó không thuộc project đã ghi")
+	case c.ProjectID != a.ProjectID: // only a linked project's
+		p, err := perm.LinkedProject(ctx, s.store, a.ProjectID, c.ProjectID)
+		if err != nil {
+			return errors.New("không có cuộc chat này trong project hay project liên kết")
+		}
+		a.Args.Project = p.ID
 	}
 	if c.Cleaned != "" {
 		return errors.New("cuộc chat đó đã được dọn, không gửi tiếp được")
