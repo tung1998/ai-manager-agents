@@ -140,3 +140,35 @@ func TestOrderAndHeldDecisions(t *testing.T) {
 		t.Fatalf("the held decision went on %d times", n)
 	}
 }
+
+// "Cần xử lý" lists a chat's cards in the order they are decided, each with
+// its #number: going down the list approves them in turn.
+func TestIncidentsListCardsInOrder(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	c, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "x"})
+	m, _ := e.st.Chat().AddMessage(ctx, storage.Message{ConversationID: c.ID, Role: "assistant", Content: "xong"})
+	first, _ := e.st.Actions().Create(ctx, storage.Action{ProjectID: pid, ConversationID: c.ID, MessageID: m.ID, Kind: "run_command", Target: "pnpm lint", Status: "pending"})
+	time.Sleep(5 * time.Millisecond)
+	_, _ = e.st.Actions().Create(ctx, storage.Action{ProjectID: pid, ConversationID: c.ID, MessageID: m.ID, Kind: "run_command", Target: "pnpm build", Status: "pending"})
+	time.Sleep(5 * time.Millisecond)
+	_, _ = e.st.Chat().AddPatch(ctx, storage.Patch{ConversationID: c.ID, MessageID: m.ID, Diff: "x", Files: []string{"a.txt"}, Status: "pending"})
+	_, b := do(t, admin, "GET", e.srv.URL+"/api/incidents", nil, nil)
+	var titles []string
+	for _, x := range b["incidents"].([]any) {
+		it := x.(map[string]any)
+		if it["kind"] == "approval" || it["kind"] == "patch" {
+			titles = append(titles, it["title"].(string))
+		}
+	}
+	if len(titles) != 3 || titles[0] != "#1 pnpm lint" || titles[1] != "#2 pnpm build" || titles[2] != "#3 a.txt" {
+		t.Fatalf("titles = %q", titles)
+	}
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/actions/"+first.ID+"/reject", map[string]any{"skip": true}, nil); resp.StatusCode != 200 {
+		t.Fatal("reject")
+	}
+}

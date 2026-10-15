@@ -1,10 +1,12 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -31,6 +33,7 @@ type incident struct {
 	Key         string    `json:"key"` // for Bỏ qua: kind and what it is about
 	// Prompt: stalled — what Tiếp tục sends to the chat (to the agent that stopped)
 	Prompt string `json:"prompt,omitempty"`
+	conv   string // approval / patch: the chat it waits in (orderApprovals)
 }
 
 func dismissKey(key string) string { return "incident_dismissed/" + key }
@@ -139,7 +142,7 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 					link = "/assistant"
 				}
 				out = append(out, incident{Kind: "approval", Severity: "warning", ProjectID: a.ProjectID, ProjectName: name,
-					Title: firstNonEmptyStr(a.Target, a.Kind), Detail: a.Reason, At: a.CreatedAt, Link: link, ID: a.ID, Key: "approval:" + a.ID})
+					Title: firstNonEmptyStr(a.Target, a.Kind), Detail: a.Reason, At: a.CreatedAt, Link: link, ID: a.ID, Key: "approval:" + a.ID, conv: a.ConversationID})
 			}
 		}
 	}
@@ -158,7 +161,7 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 				}
 				out = append(out, incident{Kind: "patch", Severity: "warning", ProjectID: c.ProjectID, ProjectName: name,
 					Title: strings.Join(p.Files, ", "), Detail: c.Title, At: p.CreatedAt, Link: "/projects/" + c.ProjectID + "?tab=chat&c=" + c.ID + "&m=" + p.MessageID,
-					ID: p.ID, Key: "patch:" + p.ID})
+					ID: p.ID, Key: "patch:" + p.ID, conv: p.ConversationID})
 			}
 		}
 	}
@@ -199,7 +202,43 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 		}
 		return out[i].At.After(out[j].At)
 	})
+	s.orderApprovals(ctx, out)
 	return out, nil
+}
+
+// orderApprovals: a chat's cards are decided in their order (chat.CheckOrder),
+// so where its cards stand in the list they go oldest first, each with its
+// #number: going down the list approves them in turn.
+func (s *server) orderApprovals(ctx context.Context, out []incident) {
+	if s.cfg.Chat == nil {
+		return
+	}
+	slots := map[string][]int{} // by chat: where its cards stand
+	for i, x := range out {
+		if (x.Kind == "approval" || x.Kind == "patch") && x.conv != "" {
+			slots[x.conv] = append(slots[x.conv], i)
+		}
+	}
+	for conv, at := range slots {
+		order, seq := s.cfg.Chat.WaitingOrder(ctx, conv)
+		rank := func(id string) int {
+			if i := slices.Index(order, id); i >= 0 {
+				return i
+			}
+			return len(order)
+		}
+		items := make([]incident, len(at))
+		for i, j := range at {
+			items[i] = out[j]
+		}
+		slices.SortStableFunc(items, func(a, b incident) int { return cmp.Compare(rank(a.ID), rank(b.ID)) })
+		for i, j := range at {
+			if n := seq[items[i].ID]; n > 0 {
+				items[i].Title = fmt.Sprintf("#%d %s", n, items[i].Title)
+			}
+			out[j] = items[i]
+		}
+	}
 }
 
 // dismissIncident lets an incident go (Bỏ qua): it shows again only when it
