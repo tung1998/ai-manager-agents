@@ -48,9 +48,12 @@ var Kinds = map[string]string{
 // Sender sends a message to another chat in the name of the person whose
 // run proposed it (the chat engine, send_to_chat).
 type Sender interface {
-	Relay(ctx context.Context, a storage.Action) (string, error)
+	// Relay sends it; what happened and the chat it went to (a new one's id)
+	Relay(ctx context.Context, a storage.Action) (detail, conversationID string, err error)
 	// Relayed: the chat's last message from a person was itself relayed
 	Relayed(ctx context.Context, conversationID string) bool
+	// RelayLimit: a chain between linked projects' chats reached its cap
+	RelayLimit(ctx context.Context, conversationID string) bool
 }
 
 // SetSender turns on send_message proposals.
@@ -353,11 +356,13 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 	case "workflow_gate":
 		return false // the point of the gate: a person decides
 	case "send_message": // never on and on: what a relayed message started asks a person
-		capID := perm.CapChatSend
-		if a.Args.Project != "" && a.Args.Project != a.ProjectID {
-			capID = perm.CapChatCross // another project's chat
+		if s.sender == nil {
+			return false
 		}
-		return acc.Can(capID) && s.sender != nil && !s.sender.Relayed(ctx, a.ConversationID)
+		if a.Args.Project != "" && a.Args.Project != a.ProjectID { // a linked project's chat: within its chain's cap
+			return acc.Can(perm.CapChatCross) && !s.sender.RelayLimit(ctx, a.ConversationID)
+		}
+		return acc.Can(perm.CapChatSend) && !s.sender.Relayed(ctx, a.ConversationID)
 	case "git_commit":
 		return acc.Can(perm.CapCommit)
 	case "git_branch":
@@ -459,8 +464,10 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 		a.Status, a.Detail = "done", ""
 		if s.sender == nil {
 			a.Status, a.Detail = "failed", "không gửi tin được ở đây"
-		} else if a.Detail, err = s.sender.Relay(ctx, a); err != nil {
+		} else if detail, to, err := s.sender.Relay(ctx, a); err != nil {
 			a.Status, a.Detail = "failed", err.Error()
+		} else {
+			a.Detail, a.TargetID = detail, to // a new chat: now known
 		}
 		return a, s.store.Actions().Update(ctx, a)
 	}

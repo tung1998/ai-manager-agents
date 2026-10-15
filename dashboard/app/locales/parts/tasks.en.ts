@@ -87,6 +87,8 @@ const en: Record<keyof typeof vi, string> = {
   'chat.stop': 'Stop',
   'chat.queued': 'Sends when the agent has answered',
   'chat.unqueue': 'Drop the queued message',
+  'chat.linkedPending': 'Waiting for your approval in {project}',
+  'chat.linkedOpen': 'Open chat',
   'chat.sendNow': 'Send now',
   'chat.newMessages': 'New messages',
   'chat.toLatest': 'Jump to the latest',

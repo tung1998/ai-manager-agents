@@ -222,8 +222,11 @@ func TestRunCommandRisky(t *testing.T) {
 
 type fakeSender struct{}
 
-func (fakeSender) Relay(ctx context.Context, a storage.Action) (string, error) { return "", nil }
-func (fakeSender) Relayed(ctx context.Context, conversationID string) bool     { return false }
+func (fakeSender) Relay(ctx context.Context, a storage.Action) (string, string, error) {
+	return "", a.TargetID, nil
+}
+func (fakeSender) Relayed(ctx context.Context, conversationID string) bool    { return false }
+func (fakeSender) RelayLimit(ctx context.Context, conversationID string) bool { return false }
 
 // TestCheckSendCrossProject: checkSend must reject a target chat that belongs
 // to a different project than the one the run is in, even when the target is

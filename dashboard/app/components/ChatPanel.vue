@@ -24,6 +24,8 @@ interface ChatEvent { seq: number, type: 'text' | 'tool' | 'status' | 'patch' | 
 // the agents in a chat and the answers in progress (ADR-044)
 interface Member { agent_id: string, agent_name: string, level: string, context_tokens: number, context_window: number }
 interface RunningTurn { turn_id: string, agent_name: string, background: boolean }
+// what waits for a person in a linked project's chat this one handed work to
+interface LinkedPending { project_id: string, project: string, conversation_id: string, title: string, actions: ProposedAction[], patches: Patch[] }
 
 // purpose "automation": the chat that builds one automation (ADR-042), made on
 // first send or opened by automationId; its answers may fill the form.
@@ -299,8 +301,9 @@ onLiveChange(async (tables) => {
   const c = current.value
   if (!c || streaming.value || sending.value || loadingMsgs.value) return
   try {
-    const res = await $fetch<{ messages: Message[], members?: Member[], running?: RunningTurn[], conversation: Conversation }>(`/api/conversations/${c.id}?limit=${PAGE}`)
+    const res = await $fetch<{ messages: Message[], members?: Member[], running?: RunningTurn[], conversation: Conversation, linked_pending?: LinkedPending[] }>(`/api/conversations/${c.id}?limit=${PAGE}`)
     if (current.value?.id !== c.id || streaming.value || sending.value) return
+    linkedPending.value = res.linked_pending ?? [] // another chat's cards: no message of this one changes
     const known = new Set(messages.value.map(m => m.id))
     const fresh = res.messages.filter(m => !known.has(m.id))
     const changed = res.messages.some(m => { const x = messages.value.find(y => y.id === m.id); return x && JSON.stringify(x) !== JSON.stringify(m) })
@@ -359,8 +362,9 @@ async function afterTurn() {
   const id = current.value?.id
   if (!id) return
   try {
-    const res = await $fetch<{ conversation: Conversation, members?: Member[], running?: RunningTurn[] }>(`/api/conversations/${id}`)
+    const res = await $fetch<{ conversation: Conversation, members?: Member[], running?: RunningTurn[], linked_pending?: LinkedPending[] }>(`/api/conversations/${id}`)
     if (current.value?.id !== id) return
+    linkedPending.value = res.linked_pending ?? []
     current.value = { ...current.value, context_tokens: res.conversation.context_tokens, context_window: res.conversation.context_window }
     applyGroup(res.members, res.running)
   } catch { /* the next open shows it */ }
@@ -370,6 +374,7 @@ async function afterTurn() {
 // answers land in the thread when done; the one who asked then reports back
 const members = ref<Member[]>([])
 const running = ref<RunningTurn[]>([])
+const linkedPending = ref<LinkedPending[]>([])
 const background = computed(() => running.value.filter(r => r.background))
 const bgFollows = new Map<string, () => void>()
 function applyGroup(m?: Member[], r?: RunningTurn[]) {
@@ -478,7 +483,7 @@ async function open(c: Conversation, messageId?: string) {
   stopBackground()
   // the last page (a phone over a VPN); a link to one message loads it all to find it
   loadingMsgs.value = true
-  let res: { conversation: Conversation, messages: Message[], has_more?: boolean, members?: Member[], running?: RunningTurn[] }
+  let res: { conversation: Conversation, messages: Message[], has_more?: boolean, members?: Member[], running?: RunningTurn[], linked_pending?: LinkedPending[] }
   try {
     res = await $fetch(`/api/conversations/${c.id}${messageId ? '' : `?limit=${PAGE}`}`)
   } finally {
@@ -488,6 +493,7 @@ async function open(c: Conversation, messageId?: string) {
   messages.value = res.messages
   hasOlder.value = !!res.has_more
   current.value = res.conversation
+  linkedPending.value = res.linked_pending ?? []
   applyGroup(res.members, res.running)
   if (res.conversation.active_turn && !streaming.value) follow(res.conversation.active_turn)
   if (messageId) showMessage(messageId)
@@ -1050,6 +1056,19 @@ onBeforeUnmount(() => {
           </div>
         </template>
         <WorkflowRunCard v-for="r in runsAt.after" :key="r.id" :run="r" @updated="onRunUpdated" />
+        <!-- a linked project's chat this one handed work to waits for a person: decided here -->
+        <div v-for="lp in linkedPending" :key="lp.conversation_id" class="space-y-2 rounded-lg border border-(--ui-warning)/40 bg-(--ui-warning)/5 p-3">
+          <p class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
+            <UIcon name="i-lucide-waypoints" class="size-3.5 text-(--ui-warning)" />
+            {{ t('chat.linkedPending', { project: lp.project }) }}
+            <NuxtLink :to="`/projects/${lp.project_id}?tab=chat&c=${lp.conversation_id}`" class="ms-auto truncate text-primary hover:underline">{{ lp.title || t('chat.linkedOpen') }}</NuxtLink>
+          </p>
+          <PatchCard v-for="p in lp.patches" :key="p.id" :patch="p" @updated="(np: Patch) => lp.patches = lp.patches.map(x => x.id === np.id ? np : x)" />
+          <ActionCard
+            v-for="a in lp.actions" :key="a.id" :action="a" :project-id="lp.project_id"
+            @updated="(na: ProposedAction) => lp.actions = lp.actions.map(x => x.id === na.id ? na : x)"
+          />
+        </div>
 
         <div v-if="streaming && !runs.some(r => r.status === 'running' && r.caller_conversation_id === current?.id)" class="space-y-2">
           <div class="flex items-center gap-2 text-xs text-(--ui-text-muted)">

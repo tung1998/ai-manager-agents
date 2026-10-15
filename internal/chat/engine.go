@@ -205,23 +205,24 @@ func (t *Turn) Cancel() { t.cancel() }
 
 // Engine runs conversations.
 type Engine struct {
-	store     storage.Store
-	providers *provider.Service
-	usage     *usage.Service
-	files     attach.Store
-	onRunning func(conversationID string)                // an answer started or ended there (the dashboard's live data)
-	onRunWait func(ctx context.Context, callerID string) // a workflow's turn ended: what it waits on a person for goes to the chat that called it (a bot's)
-	decided   decisions                                  // proposals a person decided on the dashboard: the agent goes on (ADR-084)
-	deciding  sync.Map                                   // patches being decided now: one decision applies a patch
-	onLimits  func(p storage.Provider, l Limits)
-	office    *officetools.Toolbox
-	mcp       *mcpserver.Server
-	mcpURL    string
-	gateway   GatewayFor // the gateway's MCP servers a run gets (ADR-091, ADR-093)
-	trees     *worktree.Manager
-	assistant func(ctx context.Context) string
-	wf        wfState         // workflows running in chats
-	acts      actionsProposer // the workflows' gates propose through it
+	reportEvery time.Duration // how often a report back retries a busy chat (0 = 5s; tests)
+	store       storage.Store
+	providers   *provider.Service
+	usage       *usage.Service
+	files       attach.Store
+	onRunning   func(conversationID string)                // an answer started or ended there (the dashboard's live data)
+	onRunWait   func(ctx context.Context, callerID string) // a workflow's turn ended: what it waits on a person for goes to the chat that called it (a bot's)
+	decided     decisions                                  // proposals a person decided on the dashboard: the agent goes on (ADR-084)
+	deciding    sync.Map                                   // patches being decided now: one decision applies a patch
+	onLimits    func(p storage.Provider, l Limits)
+	office      *officetools.Toolbox
+	mcp         *mcpserver.Server
+	mcpURL      string
+	gateway     GatewayFor // the gateway's MCP servers a run gets (ADR-091, ADR-093)
+	trees       *worktree.Manager
+	assistant   func(ctx context.Context) string
+	wf          wfState         // workflows running in chats
+	acts        actionsProposer // the workflows' gates propose through it
 
 	// testStepPanic: a step id runSteps' per-step goroutine panics on
 	// instead of running, for a regression test to force that path

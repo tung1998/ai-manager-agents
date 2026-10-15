@@ -86,6 +86,8 @@ export default {
   'chat.stop': 'Dừng',
   'chat.queued': 'Chờ gửi khi agent trả lời xong',
   'chat.unqueue': 'Bỏ tin chờ gửi',
+  'chat.linkedPending': 'Đang chờ bạn duyệt ở {project}',
+  'chat.linkedOpen': 'Mở chat',
   'chat.sendNow': 'Gửi ngay',
   'chat.newMessages': 'Tin mới',
   'chat.toLatest': 'Cuộn xuống tin mới nhất',

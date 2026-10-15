@@ -27,7 +27,7 @@ func TestRelayToAnotherChat(t *testing.T) {
 	job, _ := f.st.Jobs().Create(ctx, storage.Job{ProjectID: f.project.ID, Kind: "chat_turn", Origin: "user", CreatedBy: "human:a@b.c", ConversationID: from.ID, Status: "running", StartedAt: &now})
 	a := storage.Action{ProjectID: f.project.ID, ConversationID: from.ID, JobID: job.ID, Kind: "send_message", TargetID: to.ID, ProposedBy: "Trợ lý",
 		Args: storage.ActionArgs{Message: "Sửa giúp lỗi giỏ hàng"}}
-	if _, err := f.engine.Relay(ctx, a); err != nil {
+	if _, _, err := f.engine.Relay(ctx, a); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(10 * time.Second)
@@ -46,7 +46,7 @@ func TestRelayToAnotherChat(t *testing.T) {
 	// a bot's or an automation's run cannot speak for a person
 	bot, _ := f.st.Jobs().Create(ctx, storage.Job{ProjectID: f.project.ID, Kind: "chat_turn", Origin: "automation", CreatedBy: "discord:1", ConversationID: from.ID, Status: "running", StartedAt: &now})
 	a.JobID = bot.ID
-	if _, err := f.engine.Relay(ctx, a); err == nil {
+	if _, _, err := f.engine.Relay(ctx, a); err == nil {
 		t.Fatal("a bot's run relayed in a person's name")
 	}
 }
@@ -68,21 +68,70 @@ func TestRelayNewChatInLinkedProject(t *testing.T) {
 	job, _ := f.st.Jobs().Create(ctx, storage.Job{ProjectID: f.project.ID, Kind: "chat_turn", Origin: "user", CreatedBy: "human:a@b.c", ConversationID: from.ID, Status: "running", StartedAt: &now})
 	a := storage.Action{ProjectID: f.project.ID, ConversationID: from.ID, JobID: job.ID, Kind: "send_message", ProposedBy: "Lead",
 		Args: storage.ActionArgs{Message: "Sửa trang admin như đã bàn", Project: admin.ID}}
-	detail, err := f.engine.Relay(ctx, a)
+	detail, to, err := f.engine.Relay(ctx, a)
 	if err != nil {
 		t.Fatal(err)
 	}
 	convs, _ := f.st.Chat().ListConversations(ctx, admin.ID, 10)
-	if len(convs) != 1 || convs[0].CreatedBy != "human:a@b.c" || !strings.Contains(detail, "/projects/"+admin.ID+"?tab=chat&c="+convs[0].ID) {
+	if len(convs) != 1 || convs[0].ID != to || convs[0].CreatedBy != "human:a@b.c" || !strings.Contains(detail, "/projects/"+admin.ID+"?tab=chat&c="+to) {
 		t.Fatalf("detail %q, chats %+v", detail, convs)
 	}
-	to := convs[0].ID
 	deadline := time.Now().Add(10 * time.Second)
 	for len(f.engine.Running(to)) > 0 && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	msgs, _ := f.st.Chat().ListMessages(ctx, to)
-	if len(msgs) < 1 || msgs[0].Content != "Sửa trang admin như đã bàn" || !strings.Contains(msgs[0].Context, `"relayed_from_project":"demo"`) {
+	if len(msgs) < 2 || msgs[0].Content != "Sửa trang admin như đã bàn" || !strings.Contains(msgs[0].Context, `"relayed_from_project":"demo"`) ||
+		!strings.Contains(msgs[0].Context, `"relay_hops":1`) {
 		t.Fatalf("messages = %+v", msgs)
+	}
+
+	// its answer comes back to the chat that asked, as a report in the chain
+	var back []storage.Message
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		back, _ = f.st.Chat().ListMessages(ctx, from.ID)
+		if len(back) > 0 {
+			break
+		}
+	}
+	if len(back) < 1 || back[0].Role != "user" || !strings.HasPrefix(back[0].Content, "↩ Báo lại từ **admin v3**") ||
+		!strings.Contains(back[0].Content, msgs[1].Content) || !strings.Contains(back[0].Context, `"relay_hops":2`) || !strings.Contains(back[0].Context, `"relay_report":true`) {
+		t.Fatalf("report back = %+v", back)
+	}
+	if f.engine.RelayLimit(ctx, from.ID) {
+		t.Fatal("2 hops is within the chain's cap")
+	}
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if back, _ = f.st.Chat().ListMessages(ctx, from.ID); len(back) >= 2 && len(f.engine.Running(from.ID)) == 0 {
+			break
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
+	// the asking agent's answer to the report does not bounce back by itself
+	if again, _ := f.st.Chat().ListMessages(ctx, to); len(again) != len(msgs) {
+		t.Fatalf("a report's answer was sent back: %+v", again)
+	}
+}
+
+// What a linked chat this one handed work to waits on shows here; its own
+// project's chats and decided cards do not.
+func TestLinkedPending(t *testing.T) {
+	f := setup(t, func(provs *provider.Service) storage.Provider { return storage.Provider{} })
+	ctx := context.Background()
+	admin, _ := f.st.Repos().Create(ctx, storage.Repo{Name: "admin v3", Path: t.TempDir()})
+	from, _ := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: f.project.ID})
+	there, _ := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: admin.ID, Title: "Sửa trang admin"})
+	same, _ := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: f.project.ID})
+	f.st.Actions().Create(ctx, storage.Action{ProjectID: f.project.ID, ConversationID: from.ID, Kind: "send_message", Status: "done", TargetID: there.ID, Args: storage.ActionArgs{Project: admin.ID}})
+	f.st.Actions().Create(ctx, storage.Action{ProjectID: f.project.ID, ConversationID: from.ID, Kind: "send_message", Status: "done", TargetID: same.ID})
+	f.st.Actions().Create(ctx, storage.Action{ProjectID: f.project.ID, ConversationID: same.ID, Kind: "run_command", Status: "pending", Target: "ls"})
+	if got := f.engine.LinkedPending(ctx, from.ID); len(got) != 0 {
+		t.Fatalf("nothing waits there yet: %+v", got)
+	}
+	f.st.Actions().Create(ctx, storage.Action{ProjectID: admin.ID, ConversationID: there.ID, Kind: "run_command", Status: "pending", Target: "git fetch"})
+	f.st.Actions().Create(ctx, storage.Action{ProjectID: admin.ID, ConversationID: there.ID, Kind: "run_command", Status: "done", Target: "git status"})
+	got := f.engine.LinkedPending(ctx, from.ID)
+	if len(got) != 1 || got[0].Project != "admin v3" || got[0].ConversationID != there.ID || len(got[0].Actions) != 1 || got[0].Actions[0].Target != "git fetch" {
+		t.Fatalf("linked pending = %+v", got)
 	}
 }

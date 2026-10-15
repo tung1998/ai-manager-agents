@@ -306,6 +306,9 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 		}
 		e.note(conv, why)
 	}
+	if teamChat(conv) && len(given) == 0 { // the chat's work is over: a linked project's hand-off hears back
+		e.reportBack(conv, project, agent, reply)
+	}
 	return ""
 }
 

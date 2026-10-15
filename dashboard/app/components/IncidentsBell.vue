@@ -1,0 +1,68 @@
+<script setup lang="ts">
+// The header's "cần xử lý": its count opens the list, where a card waiting
+// for approval is decided right there (Duyệt / Bỏ qua); the rest open where
+// they are. Browser notifications are turned on from here (plugins/notify.client.ts).
+import { decideApproval, isApproval, useBrowserNotify, type Incident } from '~/composables/useApprovals'
+
+const { t } = useLang()
+const toast = useToast()
+const { data, error, refresh } = useLiveFetch<{ incidents: Incident[], count: number }>('/api/incidents', { key: 'incidents', lazy: true })
+const { supported, permission, enable } = useBrowserNotify()
+const open = ref(false)
+const n = computed(() => data.value?.count ?? 0)
+// approvals first: what can be done from here
+const list = computed(() => [...(data.value?.incidents ?? [])].sort((a, b) => Number(isApproval(b)) - Number(isApproval(a))).slice(0, 12))
+const busy = reactive(new Set<string>())
+async function decide(x: Incident, what: 'approve' | 'reject') {
+  busy.add(x.key)
+  try {
+    await decideApproval(x, what)
+    toast.add({ title: what === 'approve' ? t('bell.approved') : t('bell.skipped'), color: 'success' })
+    await refresh()
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    busy.delete(x.key)
+  }
+}
+function go(link: string) {
+  open.value = false
+  navigateTo(link || '/')
+}
+</script>
+
+<template>
+  <UPopover v-model:open="open" :content="{ align: 'end' }">
+    <button
+      type="button" :title="error ? t('hdr.incidentsError') : t('hdr.incidents', { n })" :aria-label="t('hdr.incidents', { n })"
+      class="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs tabular-nums transition hover:bg-(--ui-bg-elevated)"
+      :class="error ? 'text-(--ui-warning)' : n ? 'text-(--ui-error)' : 'text-(--ui-text-muted) hover:text-(--ui-text)'"
+    >
+      <UIcon :name="error ? 'i-lucide-triangle-alert' : n ? 'i-lucide-bell-ring' : 'i-lucide-bell'" class="size-3.5" />{{ error ? '?' : n }}
+    </button>
+    <template #content>
+      <div class="w-[min(24rem,calc(100vw-1rem))]">
+        <div class="max-h-[60vh] divide-y divide-(--ui-border) overflow-y-auto">
+          <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-triangle-alert" class="m-2" :title="t('common.loadError')" :actions="[{ label: t('common.refresh'), onClick: () => { refresh() } }]" />
+          <LoadingRows v-else-if="!data" class="p-2" />
+          <p v-else-if="!list.length" class="p-3 text-sm text-(--ui-text-muted)">{{ t('bell.empty') }}</p>
+          <div v-for="x in list" :key="x.key" class="space-y-1.5 p-2.5">
+            <button type="button" class="block w-full rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-primary" @click="go(x.link)">
+              <p class="line-clamp-2 text-sm" :class="x.severity === 'error' ? 'text-(--ui-error)' : ''">{{ x.title }}</p>
+              <p class="truncate text-xs text-(--ui-text-muted)">{{ [x.project_name, x.detail].filter(Boolean).join(' · ') }}</p>
+            </button>
+            <div v-if="isApproval(x)" class="flex gap-1.5">
+              <UButton size="xs" icon="i-lucide-check" :label="t('bell.approve')" :loading="busy.has(x.key)" @click="decide(x, 'approve')" />
+              <UButton size="xs" color="neutral" variant="outline" :label="t('bell.skip')" :disabled="busy.has(x.key)" @click="decide(x, 'reject')" />
+            </div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 border-t border-(--ui-border) p-2">
+          <UButton v-if="supported && permission === 'default'" size="xs" color="neutral" variant="ghost" icon="i-lucide-bell-plus" :label="t('bell.enable')" @click="enable" />
+          <span v-else-if="supported && permission === 'denied'" class="text-xs text-(--ui-text-muted)">{{ t('bell.denied') }}</span>
+          <UButton size="xs" color="neutral" variant="link" :label="t('bell.all')" class="ms-auto" @click="go('/')" />
+        </div>
+      </div>
+    </template>
+  </UPopover>
+</template>
