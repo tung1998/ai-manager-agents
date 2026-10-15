@@ -32,8 +32,9 @@ const icon = (c: LibraryCategory) => ({ code: 'i-lucide-code', design: 'i-lucide
 // the instructions are read on open; the last click wins
 const opening = ref('')
 async function open(e: LibraryEntry, use = false) {
-  if (selected.value?.id === e.id) {
+  if (selected.value?.id === e.id) { // the open one: a click closes it, a double click uses it
     if (use) emit('pick', selected.value)
+    else selected.value = undefined
     return
   }
   opening.value = e.id
@@ -97,6 +98,7 @@ async function open(e: LibraryEntry, use = false) {
         <p class="me-auto font-medium">{{ selected.emoji }} {{ selected.name }}</p>
         <UBadge :label="modelTierLabel[selected.model_tier]" color="neutral" variant="subtle" size="sm" />
         <UBadge :label="permOf(agentLevel(selected.permissions)).label" :icon="permOf(agentLevel(selected.permissions)).icon" color="neutral" variant="subtle" size="sm" />
+        <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('common.close')" :title="t('common.close')" @click="selected = undefined" />
       </div>
       <p class="text-sm text-(--ui-text-toned)">{{ selected.description }}</p>
       <pre class="max-h-56 overflow-y-auto whitespace-pre-wrap rounded bg-(--ui-bg-elevated) p-2 text-xs">{{ selected.instructions }}</pre>
