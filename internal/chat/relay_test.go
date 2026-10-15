@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/team"
@@ -98,6 +99,12 @@ func TestRelayNewChatInLinkedProject(t *testing.T) {
 		!strings.Contains(back[0].Content, msgs[1].Content) || !strings.Contains(back[0].Context, `"relay_hops":2`) || !strings.Contains(back[0].Context, `"relay_report":true`) {
 		t.Fatalf("report back = %+v", back)
 	}
+	if r := chat.ReportOf(back[0]); r == nil || r.Project != "admin v3" || r.ProjectID != admin.ID || r.ConversationID != to || r.Agent == "" {
+		t.Fatalf("report = %+v", r)
+	}
+	if chat.ReportOf(msgs[0]) != nil { // the hand-off itself is no report
+		t.Fatal("a hand-off marked as a report")
+	}
 	if f.engine.RelayLimit(ctx, from.ID) {
 		t.Fatal("2 hops is within the chain's cap")
 	}
@@ -133,5 +140,13 @@ func TestLinkedPending(t *testing.T) {
 	got := f.engine.LinkedPending(ctx, from.ID)
 	if len(got) != 1 || got[0].Project != "admin v3" || got[0].ConversationID != there.ID || len(got[0].Actions) != 1 || got[0].Actions[0].Target != "git fetch" {
 		t.Fatalf("linked pending = %+v", got)
+	}
+	// a chat known only from its report back here (its target never kept)
+	old, _ := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: admin.ID, Title: "Trang mockup"})
+	f.st.Chat().AddMessage(ctx, storage.Message{ConversationID: from.ID, Role: "user", Content: "↩ Báo lại",
+		Context: `{"relayed_from":"` + old.ID + `","relayed_from_project":"admin v3","relay_hops":2,"relay_report":true}`})
+	f.st.Actions().Create(ctx, storage.Action{ProjectID: admin.ID, ConversationID: old.ID, Kind: "run_command", Status: "pending", Target: "pnpm test"})
+	if got = f.engine.LinkedPending(ctx, from.ID); len(got) != 2 || got[1].ConversationID != old.ID {
+		t.Fatalf("a chat that reported back = %+v", got)
 	}
 }

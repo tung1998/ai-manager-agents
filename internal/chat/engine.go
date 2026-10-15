@@ -73,6 +73,7 @@ type MessageDTO struct {
 	Patches     []PatchDTO           `json:"patches"`
 	Actions     []ActionDTO          `json:"actions"`
 	CostUSD     *float64             `json:"cost_usd,omitempty"`
+	Report      *Report              `json:"report,omitempty"` // a linked project's report back: shown folded
 }
 
 // PatchDTO is a proposed change.
@@ -1090,8 +1091,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	case teamChat(conv): // the team and how to give it work
 		req.System += e.groupBrief(ctx, conv, agent)
 		if !e.isAssistant(ctx, project.ID) {
-			req.System += e.workflowsBrief(ctx, conv, level) // what it may run itself (run_workflow)
-			req.System += e.linkedBrief(ctx, project.ID)     // where it may hand work (send_to_chat)
+			req.System += e.workflowsBrief(ctx, conv, level)      // what it may run itself (run_workflow)
+			req.System += e.linkedBrief(ctx, project.ID, conv.ID) // where it may hand work (send_to_chat)
 		}
 	}
 	if clash != "" {
@@ -1559,7 +1560,7 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 	}
 	out := make([]MessageDTO, 0, len(msgs))
 	for _, m := range msgs {
-		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID]}
+		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID], Report: ReportOf(m)}
 		if d.Patches == nil {
 			d.Patches = []PatchDTO{}
 		}

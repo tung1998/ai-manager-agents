@@ -309,3 +309,41 @@ func TestCheckSendLinkedProject(t *testing.T) {
 		t.Fatal("chat.cross: a linked project's chat runs on its own")
 	}
 }
+
+// newChatSender opens a new chat for a send with no target (Engine.Relay).
+type newChatSender struct{ fakeSender }
+
+func (newChatSender) Relay(ctx context.Context, a storage.Action) (string, string, error) {
+	return "đã gửi", "cnv_opened", nil
+}
+
+// A new chat opened in a linked project is kept on the action (its target),
+// so the chat that sent it finds it again (LinkedPending, report back).
+func TestSendNewChatKeepsTarget(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	p1, _ := st.Repos().Create(ctx, storage.Repo{Name: "mockup", Path: t.TempDir()})
+	p2, _ := st.Repos().Create(ctx, storage.Repo{Name: "admin", Path: t.TempDir()})
+	perm.SavePolicyIf(ctx, st, p1.ID, "", perm.Policy{LinkedProjects: []string{p2.ID}})
+	own, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p1.ID})
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p1.ID, Kind: "chat_turn", Origin: "user", Status: "running", CreatedBy: "human:u1", ConversationID: own.ID})
+	svc := New(st, nil)
+	svc.SetSender(newChatSender{})
+	sc := Scope{ProjectID: p1.ID, ConversationID: own.ID, JobID: job.ID, Agent: "Lead", Level: perm.Operate, Access: perm.Access{Level: perm.Operate, Caps: []string{perm.CapChatCross}}}
+	a, err := svc.Propose(ctx, sc, "send_message", "", "giao việc", storage.ActionArgs{Message: "làm trang mockup", Project: "admin"})
+	if err != nil || a.Status != "done" || a.TargetID != "cnv_opened" {
+		t.Fatalf("propose = %v %+v", err, a)
+	}
+	if got, _ := st.Actions().Get(ctx, a.ID); got.TargetID != "cnv_opened" {
+		t.Fatalf("stored target = %q", got.TargetID)
+	}
+	// a copy read before the chat was known never clears it
+	stale := a
+	stale.TargetID = ""
+	st.Actions().Update(ctx, stale)
+	if got, _ := st.Actions().Get(ctx, a.ID); got.TargetID != "cnv_opened" {
+		t.Fatalf("target cleared by a stale copy: %q", got.TargetID)
+	}
+}

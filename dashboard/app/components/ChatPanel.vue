@@ -17,6 +17,8 @@ interface Message {
   patches: Patch[]
   actions?: ProposedAction[]
   cost_usd?: number
+  // a linked project's agent reporting back: shown folded
+  report?: { project: string, agent: string, project_id?: string, conversation_id: string }
 }
 interface Queued { id: string, text: string, attachments: Attachment[], created_at: string }
 interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', effort?: string, cleaned?: string, context_tokens?: number, context_window?: number, tags?: string[], queued?: Queued[] }
@@ -374,6 +376,8 @@ async function afterTurn() {
 // answers land in the thread when done; the one who asked then reports back
 const members = ref<Member[]>([])
 const running = ref<RunningTurn[]>([])
+// a report back's text without its first line (who and where, shown above it)
+const reportBody = (text: string) => text.split('\n\n').slice(1).join('\n\n').trim() || text
 const linkedPending = ref<LinkedPending[]>([])
 const background = computed(() => running.value.filter(r => r.background))
 const bgFollows = new Map<string, () => void>()
@@ -1013,7 +1017,22 @@ onBeforeUnmount(() => {
                   <UIcon name="i-lucide-ellipsis" class="size-4" />
                 </button>
               </UDropdownMenu>
-              <div v-if="m.content" class="min-w-0 whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--ui-primary) px-3.5 py-2 text-sm text-white"><template v-for="(p, i) in tagged(m.content)" :key="i"><span v-if="p.tag" class="rounded bg-white/20 px-0.5 font-medium">{{ p.text }}</span><template v-else>{{ p.text }}</template></template></div>
+              <!-- a linked project's report back: who and where, its text folded -->
+              <div v-if="m.report" class="min-w-0 rounded-2xl rounded-br-sm border border-(--ui-border) bg-(--ui-bg-elevated)/60 px-3.5 py-2 text-sm">
+                <p class="flex flex-wrap items-center gap-x-1.5 text-xs text-(--ui-text-muted)">
+                  <UIcon name="i-lucide-corner-down-left" class="size-3.5 text-primary" />
+                  <span>{{ t('chat.reportFrom', { project: m.report.project, agent: m.report.agent }) }}</span>
+                  <NuxtLink v-if="m.report.project_id" :to="`/projects/${m.report.project_id}?tab=chat&c=${m.report.conversation_id}`" class="text-primary hover:underline">{{ t('chat.reportOpen') }}</NuxtLink>
+                </p>
+                <details class="group/rep mt-1">
+                  <summary class="flex cursor-pointer list-none items-center gap-1 text-xs font-medium hover:text-primary">
+                    <UIcon name="i-lucide-chevron-right" class="size-3.5 transition group-open/rep:rotate-90" />{{ t('chat.reportShow') }}
+                  </summary>
+                  <!-- eslint-disable-next-line vue/no-v-html -->
+                  <div class="markdown mt-1.5 min-w-0" @click="onMarkdownClick" v-html="renderMarkdown(reportBody(m.content))" />
+                </details>
+              </div>
+              <div v-else-if="m.content" class="min-w-0 whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--ui-primary) px-3.5 py-2 text-sm text-white"><template v-for="(p, i) in tagged(m.content)" :key="i"><span v-if="p.tag" class="rounded bg-white/20 px-0.5 font-medium">{{ p.text }}</span><template v-else>{{ p.text }}</template></template></div>
             </div>
           </div>
           <div v-else-if="m.role === 'error'" class="flex items-start gap-2 text-sm text-(--ui-error)">

@@ -30,8 +30,27 @@ type relayInfo struct {
 	Project        string `json:"relayed_from_project,omitempty"` // another project's chat: its name
 	// Hops: relays so far in a chain between linked projects (hand-off,
 	// report back, answer…): past maxRelayHops nothing goes on its own
-	Hops   int  `json:"relay_hops,omitempty"`
-	Report bool `json:"relay_report,omitempty"` // the linked chat's agent reporting back
+	Hops      int    `json:"relay_hops,omitempty"`
+	Report    bool   `json:"relay_report,omitempty"`            // the linked chat's agent reporting back
+	ProjectID string `json:"relayed_from_project_id,omitempty"` // its project's id (a link to its chat)
+}
+
+// Report marks a message that is a linked project's agent reporting back
+// (reportBack): the chat shows who and where, its text folded.
+type Report struct {
+	Project        string `json:"project"`
+	Agent          string `json:"agent"`
+	ProjectID      string `json:"project_id"`
+	ConversationID string `json:"conversation_id"`
+}
+
+// ReportOf is m's report back, or nil when it is not one.
+func ReportOf(m storage.Message) *Report {
+	var info relayInfo
+	if m.Role != "user" || m.Context == "" || json.Unmarshal([]byte(m.Context), &info) != nil || !info.Report {
+		return nil
+	}
+	return &Report{Project: info.Project, Agent: info.Agent, ProjectID: info.ProjectID, ConversationID: info.ConversationID}
 }
 
 // maxRelayHops caps a chain between linked projects' chats, like a group
@@ -173,7 +192,7 @@ func (e *Engine) reportBack(conv storage.Conversation, project storage.Repo, age
 		e.note(conv, fmt.Sprintf("Không tự báo lại chat %q nữa: đã quá %d lượt qua lại giữa hai project. Hãy xem và trả lời trực tiếp.", cmp.Or(src.Title, src.ID), maxRelayHops))
 		return
 	}
-	info := relayInfo{ConversationID: conv.ID, Title: conv.Title, Agent: agent.Name, Project: project.Name, Hops: origin.Hops + 1, Report: true}
+	info := relayInfo{ConversationID: conv.ID, Title: conv.Title, Agent: agent.Name, Project: project.Name, ProjectID: project.ID, Hops: origin.Hops + 1, Report: true}
 	raw, _ := json.Marshal(info)
 	text := prompts.Render("chat/linked-report", map[string]any{"Project": project.Name, "Agent": agent.Name,
 		"Link": "/projects/" + conv.ProjectID + "?tab=chat&c=" + conv.ID, "Reply": truncate(reply, 8000)})
@@ -201,7 +220,7 @@ func (e *Engine) reportWait() time.Duration {
 
 // linkedBrief tells an agent the projects its own links to (send_to_chat
 // with project opens a chat there).
-func (e *Engine) linkedBrief(ctx context.Context, projectID string) string {
+func (e *Engine) linkedBrief(ctx context.Context, projectID, conversationID string) string {
 	type item struct{ Name, Description string }
 	var items []item
 	for _, id := range perm.LoadPolicy(ctx, e.store, projectID).LinkedProjects {
@@ -212,7 +231,57 @@ func (e *Engine) linkedBrief(ctx context.Context, projectID string) string {
 	if len(items) == 0 {
 		return ""
 	}
-	return "\n" + prompts.Render("chat/linked", map[string]any{"Projects": items}) + "\n"
+	type open struct{ Project, Title, Link string }
+	var chats []open // the work already handed over from this chat: carried on there
+	for _, c := range e.linkedChats(ctx, conversationID) {
+		chats = append(chats, open{c.project, cmp.Or(c.conv.Title, "(chưa có tiêu đề)"), "/projects/" + c.conv.ProjectID + "?tab=chat&c=" + c.conv.ID}) // i18n-ignore
+	}
+	return "\n" + prompts.Render("chat/linked", map[string]any{"Projects": items, "Chats": chats}) + "\n"
+}
+
+type linkedChat struct {
+	conv    storage.Conversation
+	project string
+}
+
+// linkedChats are the chats of other projects this chat handed work to: the
+// ones send_to_chat went to, and those that reported back here (a chat
+// opened before its target was kept on the action is found that way).
+func (e *Engine) linkedChats(ctx context.Context, conversationID string) []linkedChat {
+	var ids []string
+	if sent, err := e.store.Actions().List(ctx, conversationID, "", ""); err == nil {
+		for _, a := range sent {
+			if a.Kind == "send_message" && a.Status == "done" && a.Args.Project != "" && a.TargetID != "" {
+				ids = append(ids, a.TargetID)
+			}
+		}
+	}
+	if msgs, err := e.store.Chat().ListMessages(ctx, conversationID); err == nil {
+		for _, m := range msgs {
+			var info relayInfo
+			if m.Role == "user" && json.Unmarshal([]byte(m.Context), &info) == nil && info.Report && info.Project != "" {
+				ids = append(ids, info.ConversationID)
+			}
+		}
+	}
+	var out []linkedChat
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		c, err := e.store.Chat().GetConversation(ctx, id)
+		if err != nil || c.Cleaned != "" {
+			continue
+		}
+		lc := linkedChat{conv: c}
+		if p, err := e.store.Repos().Get(ctx, c.ProjectID); err == nil {
+			lc.project = p.Name
+		}
+		out = append(out, lc)
+	}
+	return out
 }
 
 // LinkedPending is what waits for a person in a linked project's chat this
@@ -231,21 +300,9 @@ type LinkedPending struct {
 // proposals and diffs (only chats with some).
 func (e *Engine) LinkedPending(ctx context.Context, conversationID string) []LinkedPending {
 	out := []LinkedPending{}
-	sent, err := e.store.Actions().List(ctx, conversationID, "", "")
-	if err != nil {
-		return out
-	}
-	seen := map[string]bool{}
-	for _, a := range sent {
-		if a.Kind != "send_message" || a.Status != "done" || a.Args.Project == "" || a.TargetID == "" || seen[a.TargetID] {
-			continue
-		}
-		seen[a.TargetID] = true
-		c, err := e.store.Chat().GetConversation(ctx, a.TargetID)
-		if err != nil || c.Cleaned != "" {
-			continue
-		}
-		lp := LinkedPending{ProjectID: c.ProjectID, ConversationID: c.ID, Title: c.Title, Actions: []ActionDTO{}, Patches: []PatchDTO{}}
+	for _, lc := range e.linkedChats(ctx, conversationID) {
+		c := lc.conv
+		lp := LinkedPending{ProjectID: c.ProjectID, Project: lc.project, ConversationID: c.ID, Title: c.Title, Actions: []ActionDTO{}, Patches: []PatchDTO{}}
 		if acts, err := e.store.Actions().List(ctx, c.ID, "", ""); err == nil {
 			for _, x := range acts {
 				if x.Status == "pending" {
@@ -260,13 +317,9 @@ func (e *Engine) LinkedPending(ctx context.Context, conversationID string) []Lin
 				}
 			}
 		}
-		if len(lp.Actions)+len(lp.Patches) == 0 {
-			continue
+		if len(lp.Actions)+len(lp.Patches) > 0 {
+			out = append(out, lp)
 		}
-		if p, err := e.store.Repos().Get(ctx, c.ProjectID); err == nil {
-			lp.Project = p.Name
-		}
-		out = append(out, lp)
 	}
 	return out
 }

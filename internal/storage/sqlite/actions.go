@@ -52,8 +52,10 @@ func (r actionRepo) Create(ctx context.Context, a storage.Action) (storage.Actio
 }
 
 func (r actionRepo) Update(ctx context.Context, a storage.Action) error {
-	return execOne(ctx, r.db, `UPDATE actions SET message_id=?, status=?, detail=?, decided_by=?, decided_at=? WHERE id=?`,
-		nullStr(a.MessageID), a.Status, a.Detail, a.DecidedBy, optTime(a.DecidedAt), a.ID)
+	// target_id: set once known (a new chat send_to_chat opened), never
+	// cleared by a copy read before it was
+	return execOne(ctx, r.db, `UPDATE actions SET message_id=?, status=?, detail=?, decided_by=?, decided_at=?, target_id=COALESCE(NULLIF(?, ''), target_id) WHERE id=?`,
+		nullStr(a.MessageID), a.Status, a.Detail, a.DecidedBy, optTime(a.DecidedAt), a.TargetID, a.ID)
 }
 
 func (r actionRepo) Get(ctx context.Context, id string) (storage.Action, error) {
