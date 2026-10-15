@@ -26,6 +26,11 @@ func (d chatDecider) Decide(ctx context.Context, kind, id string, approve bool, 
 		if err != nil {
 			return "", err
 		}
+		if approve && p.Status == "pending" { // in the order its agent proposed them
+			if err := d.chat.CheckOrder(ctx, p.ConversationID, p.ID); err != nil {
+				return "", err
+			}
+		}
 		project, agent := d.placeOf(ctx, p.ConversationID)
 		who := audit.Who{Kind: "agent", Name: agent, ApprovedBy: by, Via: via, ConversationID: p.ConversationID}
 		if !approve {
@@ -53,6 +58,11 @@ func (d chatDecider) Decide(ctx context.Context, kind, id string, approve bool, 
 	cur, err := d.store.Actions().Get(ctx, id)
 	if err != nil {
 		return "", err
+	}
+	if approve && cur.Status == "pending" {
+		if err := d.chat.CheckOrder(ctx, cur.ConversationID, cur.ID); err != nil {
+			return "", err
+		}
 	}
 	who := audit.Who{Kind: "agent", Name: cur.ProposedBy, ApprovedBy: by, Via: via, ConversationID: cur.ConversationID, JobID: cur.JobID, TaskID: cur.TaskID, ActionID: cur.ID}
 	if !approve {
@@ -85,6 +95,11 @@ func (d chatDecider) DecideAlways(ctx context.Context, id, by string) (string, e
 	cur, err := d.store.Actions().Get(ctx, id)
 	if err != nil {
 		return "", err
+	}
+	if cur.Status == "pending" {
+		if err := d.chat.CheckOrder(ctx, cur.ConversationID, cur.ID); err != nil {
+			return "", err
+		}
 	}
 	via, _, _ := strings.Cut(by, ":")
 	ctx = audit.With(ctx, audit.Who{Kind: "agent", Name: cur.ProposedBy, ApprovedBy: by, Via: via, ConversationID: cur.ConversationID, JobID: cur.JobID, TaskID: cur.TaskID, ActionID: cur.ID})

@@ -86,7 +86,8 @@ type PatchDTO struct {
 	Detail    string     `json:"detail"`
 	DecidedBy string     `json:"decided_by"`
 	DecidedAt *time.Time `json:"decided_at"`
-	Origin    string     `json:"origin"` // "" = written by the agent, "worktree" = from its worktree
+	Origin    string     `json:"origin"`        // "" = written by the agent, "worktree" = from its worktree
+	Seq       int        `json:"seq,omitempty"` // its number among the chat's proposals (numberCards)
 	// a big diff comes cut to its first PatchPreview bytes (Truncated); the
 	// whole of it from GET /api/patches/{id}. Size, Add, Del are of the whole.
 	Truncated bool `json:"truncated,omitempty"`
@@ -389,6 +390,7 @@ type ActionDTO struct {
 	DecidedAt *time.Time            `json:"decided_at"`
 	// Always: run_command, the pattern "luôn cho phép" would add ("" = it can't)
 	Always string `json:"always,omitempty"`
+	Seq    int    `json:"seq,omitempty"` // its number among the chat's proposals (numberCards)
 }
 
 // ToActionDTO converts a stored action.
@@ -1217,11 +1219,14 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	dto := MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Tools: msg.Tools, Attachments: []storage.Attachment{}, Author: msg.Author, CreatedAt: msg.CreatedAt, CostUSD: cost, Patches: []PatchDTO{}, Actions: []ActionDTO{}}
 	// operations the agent proposed during this run belong to its answer
+	seq := e.cardsBefore(context.Background(), conv.ID, msg.ID)
 	if acts, err := e.store.Actions().List(context.Background(), "", "", turn.ID); err == nil {
 		for _, a := range acts {
 			a.MessageID = msg.ID
 			_ = e.store.Actions().Update(context.Background(), a)
 			ad := ToActionDTO(a)
+			seq++
+			ad.Seq = seq
 			dto.Actions = append(dto.Actions, ad)
 			turn.emit(Event{Type: "action", Action: &ad})
 		}
@@ -1238,6 +1243,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			}
 			if err == nil {
 				pd := toPatchDTO(saved)
+				seq++
+				pd.Seq = seq
 				dto.Patches = append(dto.Patches, pd)
 				turn.emit(Event{Type: "patch", Patch: &pd})
 			}
@@ -1267,6 +1274,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			}
 			if err == nil {
 				pd := toPatchDTO(saved)
+				seq++
+				pd.Seq = seq
 				dto.Patches = append(dto.Patches, pd)
 				turn.emit(Event{Type: "patch", Patch: &pd})
 			}
@@ -1574,6 +1583,7 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 		}
 		out = append(out, d)
 	}
+	numberCards(out)
 	return out, nil
 }
 

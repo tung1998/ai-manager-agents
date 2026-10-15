@@ -475,6 +475,12 @@ func (s *server) decidePatch(w http.ResponseWriter, r *http.Request, approve boo
 	skip := !approve && in.Skip
 	projectID := ""
 	if cur, err := s.cfg.Store.Chat().GetPatch(r.Context(), r.PathValue("id")); err == nil {
+		if approve && cur.Status == "pending" { // in the order its agent proposed them
+			if err := s.cfg.Chat.CheckOrder(r.Context(), cur.ConversationID, cur.ID); err != nil {
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
+		}
 		r, projectID = s.patchWho(r, cur, approve)
 	}
 	p, err := s.cfg.Chat.DecidePatch(r.Context(), r.PathValue("id"), approve)
@@ -504,6 +510,8 @@ func (s *server) decidePatch(w http.ResponseWriter, r *http.Request, approve boo
 			line = "✅ Diff " + strings.Join(p.Files, ", ") + ": " + firstNonEmptyStr(p.Detail, p.Status)
 		}
 		s.cfg.Chat.Decided(cur.ConversationID, userFrom(r).Email, line)
+	} else if err == nil {
+		s.cfg.Chat.Settled(cur.ConversationID)
 	}
 	if err == nil {
 		s.redrawBot(r.Context(), cur.ConversationID)

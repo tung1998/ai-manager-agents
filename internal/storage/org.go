@@ -595,6 +595,8 @@ type ChatRepo interface {
 	ListPatches(ctx context.Context, conversationID string) ([]Patch, error)
 	// PendingPatches lists chats' diffs waiting for a person, newest first.
 	PendingPatches(ctx context.Context, limit int) ([]Patch, error)
+	// PatchRefs lists one chat's diffs, oldest first, without their diff text.
+	PatchRefs(ctx context.Context, conversationID string) ([]Patch, error)
 	DecidePatch(ctx context.Context, id, status, detail, by string, at time.Time) error
 }
 

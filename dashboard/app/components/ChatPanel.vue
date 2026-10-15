@@ -706,9 +706,21 @@ async function remove(c: Conversation) {
   refreshConvs()
 }
 
+// a proposal waiting from an older answer of its agent is "cũ": the agent
+// may have changed course since
+const staleCards = computed(() => {
+  const last: Record<string, string> = {}
+  for (const m of messages.value) if (m.role === 'assistant') last[m.author] = m.id
+  const stale: Record<string, boolean> = {}
+  for (const m of messages.value) {
+    for (const c of [...(m.actions ?? []), ...m.patches]) stale[c.id] = last[m.author] !== m.id
+  }
+  return stale
+})
+
 function onPatchUpdated(msg: Message, p: Patch) {
   const i = msg.patches.findIndex(x => x.id === p.id)
-  if (i >= 0) msg.patches[i] = p
+  if (i >= 0) msg.patches[i] = { ...p, seq: msg.patches[i]!.seq }
 }
 
 
@@ -1080,11 +1092,11 @@ onBeforeUnmount(() => {
               icon="i-lucide-sparkles" size="sm" color="neutral" variant="outline" :label="t('chat.openSkillEditor', { name: String(d.name) })"
               @click="openSkillDraft(d)"
             />
-            <PatchCard v-for="p in m.patches" :key="p.id" :patch="p" @updated="(np: Patch) => onPatchUpdated(m, np)" />
             <ActionCard
-              v-for="a in m.actions ?? []" :key="a.id" :action="a" :project-id="projectId"
-              @updated="(na: ProposedAction) => m.actions = (m.actions ?? []).map(x => x.id === na.id ? na : x)"
+              v-for="a in m.actions ?? []" :key="a.id" :action="a" :project-id="projectId" :stale="staleCards[a.id]"
+              @updated="(na: ProposedAction) => m.actions = (m.actions ?? []).map(x => x.id === na.id ? { ...na, seq: x.seq } : x)"
             />
+            <PatchCard v-for="p in m.patches" :key="p.id" :patch="p" :stale="staleCards[p.id]" @updated="(np: Patch) => onPatchUpdated(m, np)" />
           </div>
         </template>
         <WorkflowRunCard v-for="r in runsAt.after" :key="r.id" :run="r" @updated="onRunUpdated" />
@@ -1095,11 +1107,11 @@ onBeforeUnmount(() => {
             {{ t('chat.linkedPending', { project: lp.project }) }}
             <NuxtLink :to="`/projects/${lp.project_id}?tab=chat&c=${lp.conversation_id}`" class="ms-auto truncate text-primary hover:underline">{{ lp.title || t('chat.linkedOpen') }}</NuxtLink>
           </p>
-          <PatchCard v-for="p in lp.patches" :key="p.id" :patch="p" @updated="(np: Patch) => lp.patches = lp.patches.map(x => x.id === np.id ? np : x)" />
           <ActionCard
-            v-for="a in lp.actions" :key="a.id" :action="a" :project-id="lp.project_id"
+            v-for="(a, i) in lp.actions" :key="a.id" :action="a" :project-id="lp.project_id" :n="i + 1"
             @updated="(na: ProposedAction) => lp.actions = lp.actions.map(x => x.id === na.id ? na : x)"
           />
+          <PatchCard v-for="(p, i) in lp.patches" :key="p.id" :patch="p" :n="lp.actions.length + i + 1" @updated="(np: Patch) => lp.patches = lp.patches.map(x => x.id === np.id ? np : x)" />
         </div>
 
         <div v-if="streaming && !runs.some(r => r.status === 'running' && r.caller_conversation_id === current?.id)" class="space-y-2">

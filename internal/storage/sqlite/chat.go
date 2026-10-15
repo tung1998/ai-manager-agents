@@ -426,6 +426,24 @@ func (r chatRepo) SetPatchDiff(ctx context.Context, id, diff string, files []str
 	return execOne(ctx, r.db, `UPDATE patches SET diff=?, files=? WHERE id=?`, diff, toJSON(files), id)
 }
 
+func (r chatRepo) PatchRefs(ctx context.Context, conversationID string) ([]storage.Patch, error) {
+	cols := strings.Replace(patchCols, "diff,", "'',", 1)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+cols+` FROM patches WHERE conversation_id=? ORDER BY created_at, id`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storage.Patch
+	for rows.Next() {
+		p, err := scanPatch(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func (r chatRepo) PendingPatches(ctx context.Context, limit int) ([]storage.Patch, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT `+patchCols+` FROM patches WHERE status='pending' AND conversation_id<>'' ORDER BY created_at DESC, id DESC LIMIT ?`, limit)
 	if err != nil {

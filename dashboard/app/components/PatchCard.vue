@@ -12,9 +12,12 @@ export interface Patch {
   size?: number
   add?: number
   del?: number
+  // its number among the chat's proposals: they are approved in that order
+  seq?: number
 }
 
-const props = defineProps<{ patch: Patch }>()
+// n: a number shown instead of seq; stale: from an older answer of its agent
+const props = defineProps<{ patch: Patch, n?: number, stale?: boolean }>()
 const emit = defineEmits<{ updated: [Patch] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
@@ -54,8 +57,16 @@ const statusMeta = computed<Record<Patch['status'], { label: string, color: 'war
   failed: { label: t('patch.failed'), color: 'error', icon: 'i-lucide-triangle-alert' }
 }))
 
+// a diff this big is rarely what was meant (a whole branch copied in): it warns, and asks once more
+const BIG_FILES = 100
+const BIG_SIZE = 1 << 20
+const big = computed(() => props.patch.files.length > BIG_FILES || (props.patch.size ?? props.patch.diff.length) > BIG_SIZE)
+const num = computed(() => props.n ?? props.patch.seq)
+
 // skip: rejected, and its agent is not run again about it
 async function decide(approve: boolean, skip = false) {
+  if (approve && big.value && !confirm(t('patch.bigConfirm', { n: props.patch.files.length, size: sizeLabel(props.patch.size ?? props.patch.diff.length) }))) return
+  if (approve && props.stale && !confirm(t('card.staleConfirm'))) return
   busy.value = approve ? 'approve' : skip ? 'skip' : 'reject'
   try {
     const res = await $fetch<{ patch: Patch }>(`/api/patches/${props.patch.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: skip ? { skip: true } : {} })
@@ -76,11 +87,13 @@ async function decide(approve: boolean, skip = false) {
     <div class="flex flex-wrap items-center gap-2 bg-(--ui-bg-muted) px-3 py-2 text-sm">
       <button type="button" class="flex min-w-0 flex-1 basis-48 items-center gap-2 text-left" @click="open = !open">
         <UIcon :name="open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4 shrink-0" />
+        <span v-if="num" class="shrink-0 font-mono text-xs text-(--ui-text-muted)">#{{ num }}</span>
         <UIcon name="i-lucide-file-diff" class="size-4 shrink-0 text-primary" />
         <span class="truncate font-mono text-xs">{{ patch.files.join(', ') }}</span>
         <span class="shrink-0 text-xs"><span class="text-(--ui-success)">+{{ stats.add }}</span> <span class="text-(--ui-error)">−{{ stats.del }}</span></span>
       </button>
       <UBadge :label="statusMeta[patch.status].label" :color="statusMeta[patch.status].color" :icon="statusMeta[patch.status].icon" variant="subtle" size="sm" />
+      <UBadge v-if="stale && patch.status === 'pending'" color="warning" variant="outline" size="sm" icon="i-lucide-history" :label="t('card.stale')" :title="t('card.staleHint')" />
       <UBadge v-if="patch.origin === 'worktree'" color="neutral" variant="outline" size="sm" icon="i-lucide-git-branch" :label="t('patch.worktree')" :title="t('patch.worktreeHint')" />
       <UBadge v-if="patch.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('patch.auto')" :title="patch.decided_by.slice(5)" />
       <template v-if="patch.status === 'pending' && isAdmin">
@@ -91,6 +104,9 @@ async function decide(approve: boolean, skip = false) {
         <UButton size="xs" icon="i-lucide-check" :label="patch.origin === 'worktree' ? t('patch.merge') : t('patch.approveApply')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
       </template>
     </div>
+    <p v-if="big && patch.status === 'pending'" class="flex items-center gap-1.5 border-t border-(--ui-border) bg-(--ui-error)/10 px-3 py-1.5 text-xs font-medium text-(--ui-error)">
+      <UIcon name="i-lucide-triangle-alert" class="size-4 shrink-0" />{{ t('patch.big', { n: patch.files.length, size: sizeLabel(patch.size ?? patch.diff.length) }) }}
+    </p>
     <p v-if="patch.detail && patch.status !== 'applied'" class="border-t border-(--ui-border) px-3 py-1.5 text-xs text-(--ui-error)">{{ patch.detail }}</p>
     <DiffView v-if="open" :diff="diffText" class="max-h-96 border-t border-(--ui-border)" />
     <div v-if="open && cut" class="flex items-center gap-2 border-t border-(--ui-border) px-3 py-1.5 text-xs text-(--ui-text-muted)">

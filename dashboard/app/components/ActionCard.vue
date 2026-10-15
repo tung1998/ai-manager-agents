@@ -22,9 +22,13 @@ export interface ProposedAction {
   // create_automation / update_automation: the proposed automation
   automation?: { name: string, source: string, every_minutes?: number, cron?: string, timezone?: string, action: string, workflow?: string, prompt?: string,
     script?: { lang: string, body: string, timeout_s?: number }, escalate?: { when?: string, action?: string, agent_id?: string, prompt?: string } }
+  // its number among the chat's proposals: they are approved in that order
+  seq?: number
 }
 
-const props = defineProps<{ action: ProposedAction, projectId?: string }>()
+// n: a number shown instead of seq; stale: from an older answer of its agent
+const props = defineProps<{ action: ProposedAction, projectId?: string, n?: number, stale?: boolean }>()
+const num = computed(() => props.n ?? props.action.seq)
 const emit = defineEmits<{ updated: [ProposedAction] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
@@ -114,6 +118,7 @@ const hasLog = computed(() => props.action.status !== 'pending' && (props.action
 
 // skip: rejected, and its agent is not run again about it
 async function decide(approve: boolean, always = false, skip = false) {
+  if (approve && props.stale && !confirm(t('card.staleConfirm'))) return
   busy.value = always ? 'always' : approve ? 'approve' : skip ? 'skip' : 'reject'
   try {
     const body = always ? { always: true } : skip ? { skip: true } : approve && apiKey.value ? { api_key: apiKey.value } : {}
@@ -140,7 +145,9 @@ async function decide(approve: boolean, always = false, skip = false) {
       <UIcon :name="icon" class="size-4 text-primary" />
     </span>
     <div class="min-w-0 flex-1 basis-[calc(100%-2.75rem)] sm:basis-0">
-      <p class="text-sm font-medium">{{ kindLabel }}</p>
+      <p class="text-sm font-medium">
+        <span v-if="num" class="me-1 font-mono text-xs text-(--ui-text-muted)">#{{ num }}</span>{{ kindLabel }}
+      </p>
       <code v-if="action.target" class="mt-0.5 block break-all rounded bg-(--ui-bg-elevated) px-1.5 py-0.5 font-mono text-xs">{{ action.target }}</code>
       <pre v-if="action.message" class="mt-1 whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1 font-mono text-xs">{{ action.message }}</pre>
       <p v-if="action.files?.length" class="mt-1 truncate font-mono text-xs text-(--ui-text-muted)" :title="action.files.join('\n')">{{ t('action.fileCount', { n: action.files.length, files: action.files.join(', ') }) }}</p>
@@ -178,6 +185,7 @@ async function decide(approve: boolean, always = false, skip = false) {
       <p v-if="action.status !== 'pending' && action.detail" class="line-clamp-2 text-xs" :title="action.detail" :class="action.status === 'failed' ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">{{ action.detail }}</p>
     </div>
     <UBadge :color="statusMeta[action.status].color" variant="subtle" size="sm" :label="statusMeta[action.status].label" />
+    <UBadge v-if="stale && action.status === 'pending'" color="warning" variant="outline" size="sm" icon="i-lucide-history" :label="t('card.stale')" :title="t('card.staleHint')" />
     <UBadge v-if="action.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('action.auto')" :title="action.decided_by.slice(5)" />
     <template v-if="action.status === 'pending' && isAdmin">
       <UButton size="xs" icon="i-lucide-check" :label="t('action.approve')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"cmp"
 	"context"
 	"sync"
 	"time"
@@ -65,6 +66,17 @@ func (e *Engine) Decided(conversationID, who, line string) {
 	b.lines = append(b.lines, line)
 }
 
+// Settled: a proposal of conversationID was decided with no word for its
+// agent (skipped): decisions gathered before it now go on if nothing else waits.
+func (e *Engine) Settled(conversationID string) {
+	d := &e.decided
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if b := d.pending[conversationID]; b != nil {
+		b.timer.Reset(cmp.Or(d.wait, decidedWait))
+	}
+}
+
 func (e *Engine) goOn(conversationID string) {
 	ctx := context.Background()
 	d := &e.decided
@@ -102,6 +114,9 @@ func (e *Engine) goOn(conversationID string) {
 		}
 		d.mu.Unlock()
 		e.dropDecided(conversationID)
+		return
+	}
+	if e.Waiting(ctx, conversationID) { // it goes on once all of the chat's proposals are decided (Settled)
 		return
 	}
 	who, lines := e.takeDecided(conversationID)

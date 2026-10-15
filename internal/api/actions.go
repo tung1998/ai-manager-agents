@@ -29,6 +29,12 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 			r = r.WithContext(context.WithValue(r.Context(), cfgSecretKey{}, strings.TrimSpace(in.APIKey)))
 		}
 		if cur, err := s.cfg.Store.Actions().Get(r.Context(), r.PathValue("id")); err == nil {
+			if approve && s.cfg.Chat != nil && cur.Status == "pending" { // in the order its agent proposed them
+				if err := s.cfg.Chat.CheckOrder(r.Context(), cur.ConversationID, cur.ID); err != nil {
+					writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "action": chat.ToActionDTO(cur)})
+					return
+				}
+			}
 			who := proposerWho(cur, u)
 			if !approve { // the person's decision
 				who = audit.Who{Kind: "human", ID: u.ID, Name: u.Email, Via: "ui", ConversationID: cur.ConversationID, JobID: cur.JobID, TaskID: cur.TaskID, ActionID: cur.ID}
@@ -85,6 +91,8 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 				line += "\n" + actions.AlwaysNote(*allowed)
 			}
 			s.cfg.Chat.Decided(a.ConversationID, u.Email, line)
+		} else if s.cfg.Chat != nil {
+			s.cfg.Chat.Settled(a.ConversationID)
 		}
 		s.redrawBot(r.Context(), a.ConversationID)
 		out := map[string]any{"action": chat.ToActionDTO(a)}

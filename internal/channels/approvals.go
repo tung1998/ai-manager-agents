@@ -450,6 +450,9 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 		if skip {
 			if err == nil {
 				lines = append(lines, "⏭️ Đã bỏ qua "+numbered(p))
+				if p.Conv != "" && m.engine != nil { // what was decided before it goes on, once nothing waits
+					m.engine.Settled(p.Conv)
+				}
 			} else {
 				lines = append(lines, outcome(p, false, detail, err))
 			}
