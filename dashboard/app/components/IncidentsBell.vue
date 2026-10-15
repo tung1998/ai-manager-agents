@@ -2,7 +2,7 @@
 // The header's "cần xử lý": its count opens the list, each item with its
 // buttons right there (a card: Duyệt / Bỏ qua; a chat answered: Đã xem…) or
 // opened where it is. Browser notifications are turned on from here (plugins/notify.client.ts).
-import { actOnIncident, incidentActs, isApproval, useBrowserNotify, type Incident, type IncidentAct } from '~/composables/useApprovals'
+import { actOnIncident, incidentActs, incidentText, isApproval, useBrowserNotify, type Incident, type IncidentAct } from '~/composables/useApprovals'
 
 const { t } = useLang()
 const toast = useToast()
@@ -47,7 +47,7 @@ function go(link: string) {
           <p v-else-if="!list.length" class="p-3 text-sm text-(--ui-text-muted)">{{ t('bell.empty') }}</p>
           <div v-for="x in list" :key="x.key" class="space-y-1.5 p-2.5">
             <button type="button" class="block w-full rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-primary" @click="go(x.link)">
-              <p class="line-clamp-2 text-sm" :class="x.severity === 'error' ? 'text-(--ui-error)' : ''">{{ x.title }}</p>
+              <p class="line-clamp-2 break-words text-sm" :class="x.severity === 'error' ? 'text-(--ui-error)' : ''" :title="x.title">{{ incidentText(x, (n, l) => t('bell.files', { n, list: l })) }}</p>
               <p class="truncate text-xs text-(--ui-text-muted)">{{ [x.project_name, x.detail].filter(Boolean).join(' · ') }}</p>
             </button>
             <div class="flex flex-wrap gap-1.5">

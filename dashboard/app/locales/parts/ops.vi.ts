@@ -299,6 +299,7 @@ export default {
   'bell.act.continue': 'Tiếp tục',
   'bell.act.dismiss': 'Ẩn',
   'bell.act.open': 'Mở',
+  'bell.files': '{n} file: {list}…',
   'bell.more': 'Thêm {n} việc mới cần xử lý',
   'bell.empty': 'Không có gì cần xử lý',
   'bell.enable': 'Bật thông báo trình duyệt',

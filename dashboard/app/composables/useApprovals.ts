@@ -4,6 +4,15 @@ export interface Incident { kind: string, severity: 'error' | 'warning' | 'info'
 
 export const isApproval = (x: Incident) => x.kind === 'approval' || x.kind === 'patch'
 
+// an item's text, short enough for a toast or a notification: a diff of many
+// files says how many and the first few; anything else is cut at max
+export function incidentText(x: Incident, files: (n: number, list: string) => string, max = 140): string {
+  let text = x.title
+  const list = x.kind === 'patch' ? text.split(', ') : []
+  if (list.length > 3) text = files(list.length, list.slice(0, 3).map(f => f.split('/').pop()).join(', '))
+  return text.length > max ? text.slice(0, max - 1).trimEnd() + '…' : text
+}
+
 // what can be done to an item right from a notification, besides opening it
 export type IncidentAct = 'approve' | 'reject' | 'seen' | 'continue' | 'dismiss'
 export function incidentActs(x: Incident): IncidentAct[] {

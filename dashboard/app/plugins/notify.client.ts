@@ -5,7 +5,7 @@
 // or gone elsewhere, both close. The list is the 'incidents' data office
 // pushes live (useDataSync); what was there when the page opened is not
 // announced again.
-import { actOnIncident, incidentActs, isApproval, useBrowserNotify, type Incident, type IncidentAct } from '~/composables/useApprovals'
+import { actOnIncident, incidentActs, incidentText, isApproval, useBrowserNotify, type Incident, type IncidentAct } from '~/composables/useApprovals'
 
 const maxAtOnce = 3 // more at once: one toast saying how many
 
@@ -54,6 +54,9 @@ export default defineNuxtPlugin(() => {
     void sw?.getNotifications({ tag: key }).then(ns => ns.forEach(n => n.close()))
   }
 
+  // a diff of hundreds of files: how many and the first few, never the whole list
+  const short = (x: Incident) => incidentText(x, (n, list) => t('bell.files', { n, list }))
+
   function announce(x: Incident) {
     const title = titleOf(x)
     const acts = incidentActs(x)
@@ -62,7 +65,7 @@ export default defineNuxtPlugin(() => {
     if (!here) {
       const id = `inc-${x.key}`
       toast.add({
-        id, title, description: x.title, icon: isApproval(x) ? 'i-lucide-bell-ring' : 'i-lucide-bell',
+        id, title, description: short(x), ui: { description: 'line-clamp-2 break-words' }, icon: isApproval(x) ? 'i-lucide-bell-ring' : 'i-lucide-bell',
         color: x.severity === 'error' ? 'error' : isApproval(x) ? 'warning' : 'info',
         duration: isApproval(x) ? 0 : 30_000, // a card to decide stays until it is
         actions: [
@@ -74,7 +77,7 @@ export default defineNuxtPlugin(() => {
     }
     if (!sw || permission.value !== 'granted') return
     void sw.showNotification(title, {
-      body: x.title, tag: x.key, requireInteraction: isApproval(x),
+      body: short(x), tag: x.key, requireInteraction: isApproval(x),
       data: { incident: x },
       // @ts-expect-error notification buttons (Chrome/Edge; not in the DOM lib's options type)
       actions: [...acts.map(a => ({ action: a, title: label(a) })), { action: 'open', title: label('open') }].slice(0, 2)
