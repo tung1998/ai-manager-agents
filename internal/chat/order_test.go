@@ -151,7 +151,7 @@ func TestOrderFollowsTheChat(t *testing.T) {
 	if seq[early.ID] != 1 || seq[late.ID] != 2 {
 		t.Fatalf("numbers = %v", seq)
 	}
-	if got := g.engine.WaitingOrder(ctx, g.conv.ID); len(got) != 2 || got[0] != early.ID {
-		t.Fatalf("order = %v", got)
+	if got, n := g.engine.WaitingOrder(ctx, g.conv.ID); len(got) != 2 || got[0] != early.ID || n[late.ID] != 2 {
+		t.Fatalf("order = %v %v", got, n)
 	}
 }

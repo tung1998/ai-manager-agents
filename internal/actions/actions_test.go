@@ -347,3 +347,37 @@ func TestSendNewChatKeepsTarget(t *testing.T) {
 		t.Fatalf("target cleared by a stale copy: %q", got.TargetID)
 	}
 }
+
+// What may run on its own waits as a card while an earlier proposal of its
+// chat still waits (proposals are decided in order); a workflow's gate does
+// not hold the rest.
+func TestAutoWaitsBehindEarlierProposal(t *testing.T) {
+	ctx := context.Background()
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
+	test, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "test", Kind: "job", Command: "echo ok"})
+	m := ops.NewManager(st, t.TempDir(), nil)
+	defer m.Shutdown()
+	svc := New(st, m)
+	allProcs = []string{test.ID}
+	conv, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: proj.ID})
+	sc := Scope{ProjectID: proj.ID, ConversationID: conv.ID, RunRef: "r1", Agent: "a", Level: perm.Check, Access: at(perm.Check)}
+	gate, _ := st.Actions().Create(ctx, storage.Action{ProjectID: proj.ID, ConversationID: conv.ID, Kind: "workflow_gate", Target: "duyệt"})
+	if a, _ := svc.Propose(ctx, sc, "run_process", "test", "kiểm tra"); a.Status != "done" {
+		t.Fatalf("a gate does not hold it: %s", a.Status)
+	}
+	gate.Status = "done"
+	_ = st.Actions().Update(ctx, gate)
+	_, _ = st.Chat().AddPatch(ctx, storage.Patch{ConversationID: conv.ID, Diff: "x", Files: []string{"a.go"}})
+	sc.RunRef = "r2"
+	if a, _ := svc.Propose(ctx, sc, "run_process", "test", "lại"); a.Status != "pending" {
+		t.Fatalf("a diff waits before it: %s", a.Status)
+	}
+}

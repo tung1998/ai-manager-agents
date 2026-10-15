@@ -56,6 +56,7 @@ type proposal struct {
 	Target string `json:"target,omitempty"`
 	Conv   string `json:"conv,omitempty"` // the conversation it waits in: its agent goes on once decided
 	Big    bool   `json:"big,omitempty"`  // a diff too big to approve with the rest (bigDiff)
+	Seq    int    `json:"seq,omitempty"`  // its #number in the conversation on the dashboard
 }
 
 // bigDiff: a diff this big is rarely what was meant (a whole branch copied
@@ -174,7 +175,10 @@ func (m *Manager) ownProposals(ctx context.Context, conversationID string) []pro
 		}
 	}
 	if m.engine != nil { // in the order they must be decided (chat.CheckOrder)
-		order := m.engine.WaitingOrder(ctx, conversationID)
+		order, seq := m.engine.WaitingOrder(ctx, conversationID)
+		for i := range out {
+			out[i].Seq = seq[out[i].ID]
+		}
 		at := func(id string) int {
 			if i := slices.Index(order, id); i >= 0 {
 				return i
@@ -361,7 +365,11 @@ func (m *Manager) pendingText(ctx context.Context, ch storage.Channel, list []pr
 	var lines []string
 	for _, p := range list {
 		if m.still(ctx, p) {
-			lines = append(lines, fmt.Sprintf("%d. %s", p.N, p.Label))
+			line := fmt.Sprintf("%d. %s", p.N, p.Label)
+			if p.Seq > 0 { // the card's number on the dashboard, where it may be decided too
+				line += fmt.Sprintf(" (#%d trên dashboard)", p.Seq)
+			}
+			lines = append(lines, line)
 		}
 	}
 	if len(lines) == 0 {

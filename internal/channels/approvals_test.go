@@ -257,7 +257,7 @@ func TestApproveAllStopsAtBigDiff(t *testing.T) {
 	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "42", ConversationID: conv.ID})
 	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Đã xem xong", nil, true)
 	got := bot.wait(t, "42", 2)
-	if i, j := strings.Index(got[1], "pnpm lint"), strings.Index(got[1], "Diff rất lớn"); i < 0 || j < 0 || i > j {
+	if i, j := strings.Index(got[1], "pnpm lint"), strings.Index(got[1], "Diff rất lớn"); i < 0 || j < 0 || i > j || !strings.Contains(got[1], "(#1 trên dashboard)") {
 		t.Fatalf("pending list (the action first, the big diff flagged) = %q", got[1])
 	}
 	resumedWith := func() string {

@@ -180,12 +180,14 @@ func (e *Engine) numberPending(ctx context.Context, conversationID string, acts 
 }
 
 // WaitingOrder lists the ids of a chat's waiting proposals in the order they
-// must be decided.
-func (e *Engine) WaitingOrder(ctx context.Context, conversationID string) []string {
+// must be decided, with the number each has in the chat (0: not shown yet).
+func (e *Engine) WaitingOrder(ctx context.Context, conversationID string) ([]string, map[string]int) {
 	list, _ := e.waiting(ctx, conversationID)
 	ids := make([]string, len(list))
+	seq := map[string]int{}
 	for i, c := range list {
 		ids[i] = c.id
+		seq[c.id] = c.seq
 	}
-	return ids
+	return ids, seq
 }
