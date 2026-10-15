@@ -51,6 +51,16 @@ func TestPacksReposAgentsAPI(t *testing.T) {
 	if packs := body["packs"].([]any); resp.StatusCode != 200 || len(packs) != 3 {
 		t.Fatalf("packs = %d %v", resp.StatusCode, body)
 	}
+	resp, body = do(t, admin, "GET", e.srv.URL+"/api/agent-library", nil, nil)
+	if lib := body["agents"].([]any); resp.StatusCode != 200 || len(lib) < 100 || lib[0].(map[string]any)["instructions"] != nil {
+		t.Fatalf("library = %d %v", resp.StatusCode, body)
+	}
+	if resp, body = do(t, admin, "GET", e.srv.URL+"/api/agent-library/agency/frontend-developer", nil, nil); resp.StatusCode != 200 || body["agent"].(map[string]any)["instructions"] == "" {
+		t.Fatalf("library item = %d %v", resp.StatusCode, body)
+	}
+	if resp, _ = do(t, admin, "GET", e.srv.URL+"/api/agent-library/office/nope", nil, nil); resp.StatusCode != 404 {
+		t.Fatalf("missing library item = %d", resp.StatusCode)
+	}
 
 	dir := t.TempDir()
 	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "name": "shop", "pack": "team"}, nil)

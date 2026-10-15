@@ -21,6 +21,27 @@ const en: Record<keyof typeof vi, string> = {
   'team.empty.title': 'This project has no agents yet',
   'team.empty.desc': 'Pick a starter pack (agents and workflows), or let AI propose one for the project.',
 
+  // AgentLibrary (ADR-153)
+  'team.lib.tab': 'From the library',
+  'team.lib.blankTab': 'From scratch',
+  'team.lib.addOne': 'Add one agent from the library',
+  'team.lib.all': 'All',
+  'team.lib.featured': 'Featured',
+  'team.lib.cat.design': 'Design',
+  'team.lib.count': '{n} agents',
+  'team.lib.words': '{n} words',
+  'team.lib.agencyNote': 'Original English text, fairly long: trim it after adding to save tokens',
+  'team.lib.cat.code': 'Code',
+  'team.lib.cat.plan': 'Planning',
+  'team.lib.cat.customer': 'Customers',
+  'team.lib.cat.content': 'Content',
+  'team.lib.search': 'Search agents…',
+  'team.lib.none': 'No agent matches',
+  'team.lib.source': 'Original',
+  'team.lib.use': 'Use this one',
+  'team.lib.from': 'Based on {name}: with its description, instructions and permissions',
+  'team.lib.clear': 'Drop the template',
+
   // PackPicker
   'team.pack.aiSuggest': 'AI suggestion',
   'team.pack.aiRecommended': '· recommended',

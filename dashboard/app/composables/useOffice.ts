@@ -155,6 +155,29 @@ export interface Pack {
   agents: { key: string, name: string, role: string, model_tier: ModelTier }[]
 }
 
+// The agent library (ADR-153, ADR-154): the list has no instructions; one is
+// read in full (LibraryAgent) when opened, then added or used as a model.
+export type LibraryCategory = 'code' | 'design' | 'plan' | 'customer' | 'content'
+export interface LibraryEntry {
+  id: string // "<set>/<key>"
+  set: 'office' | 'agency'
+  key: string
+  name: string
+  role: string
+  description: string
+  category: LibraryCategory
+  emoji?: string
+  model_tier: ModelTier
+  level: PermLevel
+  featured?: boolean
+  source?: string
+  words: number
+}
+export interface LibraryAgent extends LibraryEntry {
+  instructions: string
+  permissions: Permissions
+}
+
 export interface Project {
   id: string
   name: string

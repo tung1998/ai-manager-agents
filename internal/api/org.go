@@ -76,6 +76,8 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/limit-alert/test", admin(s.testLimitAlert))
 
 	mux.Handle("GET /api/packs", auth(s.listPacks))
+	mux.Handle("GET /api/agent-library", auth(s.agentLibrary))
+	mux.Handle("GET /api/agent-library/{set}/{key}", auth(s.agentLibraryItem))
 	mux.Handle("POST /api/projects/{id}/pack", admin(s.applyPack))
 	mux.Handle("POST /api/projects/{id}/agents", admin(s.createAgent))
 	mux.Handle("PUT /api/projects/{id}/default-agent", admin(s.setDefaultAgent))
@@ -592,6 +594,31 @@ func (s *server) listPacks(w http.ResponseWriter, r *http.Request) {
 		out = append(out, d)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"packs": out})
+}
+
+// agentLibrary lists the library agents (ADR-154): names and descriptions
+// only; the instructions are read when one is opened.
+func (s *server) agentLibrary(w http.ResponseWriter, r *http.Request) {
+	list, err := team.Library()
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"categories": team.LibraryCategories, "agents": list})
+}
+
+// agentLibraryItem is one library agent in full, to add or to read.
+func (s *server) agentLibraryItem(w http.ResponseWriter, r *http.Request) {
+	a, err := team.LibraryAgentByID(r.PathValue("set") + "/" + r.PathValue("key"))
+	if errors.Is(err, team.ErrNoLibraryAgent) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"agent": a})
 }
 
 // applyPack gives a project a starter pack ({key, replace}): replace puts its

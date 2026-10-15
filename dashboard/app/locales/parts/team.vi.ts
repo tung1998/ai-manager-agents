@@ -21,6 +21,27 @@ export default {
   'team.empty.title': 'Project chưa có agent',
   'team.empty.desc': 'Chọn một gói khởi đầu (agent và quy trình), hoặc để AI đề xuất theo project.',
 
+  // AgentLibrary (ADR-153)
+  'team.lib.tab': 'Từ thư viện',
+  'team.lib.blankTab': 'Tự tạo',
+  'team.lib.addOne': 'Thêm một agent từ thư viện',
+  'team.lib.all': 'Tất cả',
+  'team.lib.featured': 'Đề xuất',
+  'team.lib.cat.design': 'Thiết kế',
+  'team.lib.count': '{n} agent',
+  'team.lib.words': '{n} từ',
+  'team.lib.agencyNote': 'Bản gốc tiếng Anh, khá dài: nên rút gọn sau khi thêm để đỡ tốn token',
+  'team.lib.cat.code': 'Code',
+  'team.lib.cat.plan': 'Kế hoạch',
+  'team.lib.cat.customer': 'Khách hàng',
+  'team.lib.cat.content': 'Nội dung',
+  'team.lib.search': 'Tìm agent…',
+  'team.lib.none': 'Không có agent nào khớp',
+  'team.lib.source': 'Bản gốc',
+  'team.lib.use': 'Dùng mẫu này',
+  'team.lib.from': 'Theo mẫu {name}: kèm mô tả, hướng dẫn và quyền của mẫu',
+  'team.lib.clear': 'Bỏ mẫu',
+
   // PackPicker
   'team.pack.aiSuggest': 'AI đề xuất',
   'team.pack.aiRecommended': '· khuyên dùng',

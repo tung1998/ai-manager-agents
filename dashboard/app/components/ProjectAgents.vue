@@ -55,15 +55,38 @@ const historyOpen = ref(false)
 
 // ---- add an agent: the basics here, the rest on its own page ----
 const addOpen = ref(false)
+const addTab = ref<'library' | 'blank'>('library')
 const form = reactive({ name: '', key: '', role: '', model_tier: 'balanced' as ModelTier })
+// picked from the library (ADR-153): its description, instructions and permissions go along
+const fromLib = ref<LibraryAgent>()
+const libPick = ref<LibraryAgent>()
 const keyTouched = ref(false)
 const problems = ref<string[]>([])
 const adding = ref(false)
 function openAdd() {
   Object.assign(form, { name: '', key: '', role: '', model_tier: 'balanced' })
   keyTouched.value = false
+  fromLib.value = undefined
+  libPick.value = undefined
   problems.value = []
+  addTab.value = 'library'
   addOpen.value = true
+}
+// a free key: the library's own, or with -2, -3… when the project has it
+function freeKey(k: string) {
+  const used = new Set(agents.value.map(a => a.key))
+  let n = 1
+  let out = k
+  while (used.has(out)) out = `${k}-${++n}`
+  return out
+}
+function pickLib(a: LibraryAgent) {
+  fromLib.value = a
+  Object.assign(form, { name: a.name, role: a.role, model_tier: a.model_tier })
+  form.key = freeKey(a.key)
+  keyTouched.value = true
+  problems.value = []
+  addTab.value = 'blank'
 }
 // the key follows the name until typed by hand (lowercase, digits, dashes)
 const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\u0111/gi, 'd')
@@ -76,7 +99,11 @@ async function add() {
   try {
     const res = await $fetch<{ agent: Agent }>(`/api/projects/${props.project.id}/agents`, {
       method: 'POST',
-      body: { key: form.key, name: form.name, role: form.role, model_tier: form.model_tier, permissions: { level: 'read', read_only: true } }
+      body: {
+        key: form.key, name: form.name, role: form.role, model_tier: form.model_tier,
+        description: fromLib.value?.description ?? '', instructions: fromLib.value?.instructions ?? '',
+        permissions: fromLib.value?.permissions ?? { level: 'read', read_only: true }
+      }
     })
     addOpen.value = false
     toast.add({ title: t('org.editor.savedAgent', { name: res.agent.name }), color: 'success' })
@@ -123,6 +150,7 @@ async function applyPack() {
     <template v-if="isAdmin">
       <PackPicker v-model="packKey" />
       <div class="flex flex-wrap justify-end gap-2">
+        <UButton icon="i-lucide-library" color="neutral" variant="outline" :label="t('team.lib.addOne')" @click="openAdd" />
         <UButton :to="`${base}/setup`" icon="i-lucide-sparkles" color="neutral" variant="outline" :label="t('project.setupAi')" />
         <UButton icon="i-lucide-check" :label="t('team.applyPack')" :loading="applying" :disabled="!packKey" @click="applyPack" />
       </div>
@@ -206,9 +234,19 @@ async function applyPack() {
     </template>
   </UModal>
 
-  <UModal v-model:open="addOpen" :title="t('org.editor.newAgent')">
+  <UModal v-model:open="addOpen" :title="t('org.editor.newAgent')" :ui="{ content: 'max-w-2xl' }">
     <template #body>
-      <form id="agent-add" class="space-y-4" @submit.prevent="add">
+      <UTabs
+        v-model="addTab" :content="false" size="sm" class="mb-4"
+        :items="[{ label: t('team.lib.tab'), value: 'library', icon: 'i-lucide-library' }, { label: t('team.lib.blankTab'), value: 'blank', icon: 'i-lucide-pencil' }]"
+      />
+      <AgentLibrary v-if="addTab === 'library'" v-model:selected="libPick" @pick="pickLib" />
+      <form v-else id="agent-add" class="space-y-4" @submit.prevent="add">
+        <div v-if="fromLib" class="flex items-center gap-2 rounded-lg bg-(--ui-bg-elevated) px-3 py-2 text-sm">
+          <UIcon name="i-lucide-library" class="size-4 shrink-0 text-primary" />
+          <span class="me-auto min-w-0 truncate">{{ t('team.lib.from', { name: fromLib.name }) }}</span>
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('team.lib.clear')" @click="fromLib = undefined" />
+        </div>
         <div class="grid gap-3 sm:grid-cols-2">
           <UFormField :label="t('org.form.name')" required>
             <UInput v-model="form.name" class="w-full" autofocus />
@@ -238,7 +276,8 @@ async function applyPack() {
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="addOpen = false" />
-        <UButton type="submit" form="agent-add" :loading="adding" :disabled="!form.name.trim() || !form.key.trim()" :label="t('team.addAndConfigure')" />
+        <UButton v-if="addTab === 'library'" icon="i-lucide-check" :disabled="!libPick" :label="t('team.lib.use')" @click="libPick && pickLib(libPick)" />
+        <UButton v-else type="submit" form="agent-add" :loading="adding" :disabled="!form.name.trim() || !form.key.trim()" :label="t('team.addAndConfigure')" />
       </div>
     </template>
   </UModal>

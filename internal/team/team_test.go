@@ -217,3 +217,45 @@ func TestMergeKeepsExistingAddsNew(t *testing.T) {
 		t.Fatalf("after merge = %d agents, want %d", len(after), len(before)+added)
 	}
 }
+
+func TestLibraryIsValid(t *testing.T) {
+	list, err := team.Library()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) < 100 || !list[0].Featured || list[0].Set != "office" {
+		t.Fatalf("library: %d agents, first %+v", len(list), list[0])
+	}
+	ids := map[string]bool{}
+	for _, e := range list {
+		if ids[e.ID] {
+			t.Errorf("%s: duplicate id", e.ID)
+		}
+		ids[e.ID] = true
+		if !slices.Contains(team.LibraryCategories, e.Category) {
+			t.Errorf("%s: unknown category %q", e.ID, e.Category)
+		}
+		if e.Name == "" || e.Description == "" || e.Words == 0 {
+			t.Errorf("%s: name, description and instructions are required", e.ID)
+		}
+		if !slices.Contains([]string{"read", "propose", "check", "edit", "operate"}, e.Level) {
+			t.Errorf("%s: level %q", e.ID, e.Level)
+		}
+		a, err := team.LibraryAgentByID(e.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// ADR-074: nothing shipped turns on full access
+		if a.Permissions.FullAccess || len(a.Permissions.ExtraDirs) > 0 || a.Instructions == "" {
+			t.Errorf("%s: %+v", e.ID, a.Permissions)
+		}
+		if err := team.Validate([]team.AgentSpec{{Key: a.Key, Name: a.Name, ModelTier: a.ModelTier}}); err != nil {
+			t.Error(err)
+		}
+	}
+	for _, bad := range []string{"office/../office/devops", "office/nope", "devops", "x/devops"} {
+		if _, err := team.LibraryAgentByID(bad); !errors.Is(err, team.ErrNoLibraryAgent) {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}

@@ -2331,3 +2331,21 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - `Resume` nhận cả `blocked`: thử lại ngay. Dashboard: nhãn đỏ "tạm dừng: lỗi kỹ thuật", nút **Thử lại ngay**.
   - Lỗi review không thuộc loại kỹ thuật vẫn tính 3 lần như cũ, nhưng khi đánh thất bại thì gọi `watch`: 3 việc liền thất bại cùng một lý do thì Burn ngưng nhận việc mới.
   - Claude CLI: kết quả `is_error` không được dùng làm câu trả lời. Codex: regex đăng nhập khớp thêm `status 401`, `401 unauthorized`, `invalidated oauth token`, kể cả trong stderr khi tiến trình thoát lỗi.
+
+## ADR-153: Thư viện agent
+- **Bối cảnh (14/10):** thêm agent chỉ có form trống (tên, key, vai trò, hạng model); người dùng tự viết hướng dẫn từ đầu. Gói khởi tạo (ADR-099) thì thay cả bộ agent, không thêm lẻ được. Đã tham khảo [agency-agents](https://github.com/msitarzewski/agency-agents) (MIT, hơn 230 persona dạng Markdown): ý hay, nhưng mỗi file khoảng 2.400 từ (code mẫu, phần "trí nhớ" trùng với office) nên không nhập nguyên văn.
+- **Quyết định:**
+  - `templates/library/agents.json` (embed): nhóm theo mảng việc (ADR-090: `code`, `plan`, `customer`, `content`), mỗi agent là `AgentSpec` + `category` + `source`. Hướng dẫn viết lại ngắn bằng tiếng Việt (vai trò, nguyên tắc, cách làm, đầu ra); `source` trỏ file gốc khi phỏng theo agency-agents, ghi công trong `templates/library/README.md`.
+  - Quyền mặc định thấp: người review, tư vấn, nội dung là `read`; người viết code là `propose`; DevOps là `operate`. Không bao giờ `full_access`/`extra_dirs` (ADR-074); test `TestLibraryIsValid` kiểm.
+  - `team.LoadLibrary()`; API `GET /api/agent-library` trả cả hướng dẫn đầy đủ (để xem như mẫu tham khảo).
+  - Dashboard: hộp **Agent mới** có hai tab **Từ thư viện** (lọc theo mảng, tìm, xem đủ hướng dẫn, link bản gốc) và **Tự tạo**. Chọn **Dùng mẫu này** thì điền form và gửi kèm mô tả, hướng dẫn, quyền của mẫu; key trùng thì thêm `-2`, `-3`…. Project chưa có agent có thêm nút **Thêm một agent từ thư viện**.
+- **Không làm (lúc này):** tải thư viện từ GitHub lúc chạy (cần mạng, nội dung bên ngoài chưa soát); thư viện riêng của người dùng.
+
+## ADR-154: Thư viện agent dạng file, nhập agency-agents
+- **Bối cảnh (14/10):** ADR-153 chỉ có 16 mẫu trong một file JSON, API trả cả hướng dẫn. Người dùng muốn nhiều mẫu như agency-agents (khoảng 300 file); thư viện lưu dạng file, phần cài đặt chỉ là khung, cần agent nào thì mới đọc file đó để tạo.
+- **Quyết định:**
+  - Mỗi agent một file `templates/library/<set>/<key>.md` (embed): frontmatter YAML của office, thân là hướng dẫn. `office/` là 16 mẫu viết cho office (`featured`); `agency/` là 173 agent nhập từ agency-agents ở các mảng liên quan (engineering, testing, security → code; design; product, project-management, finance → plan; support, sales → customer; marketing, paid-media → content). Bỏ game, GIS, XR, specialized, học thuật, y tế và `strategy` (tài liệu, không phải agent).
+  - `scripts/sync-agency-library.mjs [sha]` nhập theo commit cố định, bỏ code mẫu (trung bình còn khoảng 1.400 từ), quyền `read`, hạng `balanced`; ghi đè cả thư mục `agency/`.
+  - `GET /api/agent-library` chỉ trả khung (tên, vai trò, mô tả, mảng, số từ; đọc một lần rồi giữ trong bộ nhớ). `GET /api/agent-library/{set}/{key}` đọc file đầy đủ khi mở; id sai hoặc có `..` trả 404.
+  - Dashboard: mặc định lọc **Đề xuất**; thêm **Tất cả** và mảng **Thiết kế**; tìm kiếm thì tìm trên toàn bộ. Mở agent mới tải hướng dẫn; agent của agency có ghi chú "bản tiếng Anh, khá dài, nên rút gọn sau khi thêm".
+- **Không làm (lúc này):** AI rút gọn hoặc dịch lúc thêm; thư mục thư viện riêng của người dùng trên máy.
