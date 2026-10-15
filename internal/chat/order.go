@@ -5,17 +5,21 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
+	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
-// A chat's proposals (actions and diffs) are decided in the order its agents
-// made them: approving one while an earlier one still waits would run the
-// steps out of order (a "git add" before the edit it stages, a diff from
-// before the agent changed course). Rejecting or skipping is never held back.
-// Its agent goes on only once nothing of the chat waits any more.
+// A chat's proposals (actions and diffs) run in the order its agents made
+// them: one approved while an earlier one still waits is queued ("queued")
+// and runs once those before it are decided (Drain), never out of order (a
+// "git add" before the edit it stages). Rejecting or skipping is never held
+// back. Its agent goes on only once nothing of the chat waits any more.
 
 // OrderError: an earlier proposal of the chat still waits for a person (or
 // still runs).
@@ -35,6 +39,9 @@ func (e *OrderError) Error() string {
 
 type waitingCard struct {
 	id, label string
+	kind      string // action | patch
+	queued    bool   // approved, waits for those before it
+	by        string // queued: who approved it
 	seq       int
 	at        time.Time
 }
@@ -79,13 +86,15 @@ func (e *Engine) waiting(ctx context.Context, conversationID string) ([]waitingC
 	}
 	var out []waitingCard
 	for _, a := range acts {
-		if a.Status == "pending" {
-			out = append(out, waitingCard{a.ID, cmp.Or(actions.Kinds[a.Kind], a.Kind) + ": " + truncate(a.Target, 80), seq[a.ID], a.CreatedAt})
+		if a.Status == "pending" || a.Status == "queued" {
+			out = append(out, waitingCard{id: a.ID, label: cmp.Or(actions.Kinds[a.Kind], a.Kind) + ": " + truncate(a.Target, 80), kind: "action",
+				queued: a.Status == "queued", by: a.DecidedBy, seq: seq[a.ID], at: a.CreatedAt})
 		}
 	}
 	for _, p := range ps {
-		if p.Status == "pending" {
-			out = append(out, waitingCard{p.ID, fmt.Sprintf("diff %d file", len(p.Files)), seq[p.ID], p.CreatedAt})
+		if p.Status == "pending" || p.Status == "queued" {
+			out = append(out, waitingCard{id: p.ID, label: fmt.Sprintf("diff %d file", len(p.Files)), kind: "patch",
+				queued: p.Status == "queued", by: p.DecidedBy, seq: seq[p.ID], at: p.CreatedAt})
 		}
 	}
 	unseen := func(n int) int { // not numbered yet: after every numbered one
@@ -100,8 +109,8 @@ func (e *Engine) waiting(ctx context.Context, conversationID string) ([]waitingC
 	return out, nil
 }
 
-// CheckOrder: approving the proposal id of a chat is refused (OrderError)
-// while one before it still waits.
+// CheckOrder: the proposal id of a chat can't run now (OrderError) while one
+// before it still waits or is queued: approved, it is queued instead.
 func (e *Engine) CheckOrder(ctx context.Context, conversationID, id string) error {
 	if conversationID == "" {
 		return nil
@@ -116,8 +125,9 @@ func (e *Engine) CheckOrder(ctx context.Context, conversationID, id string) erro
 	return nil
 }
 
-// Waiting: something of the chat still waits for a person; when that can't
-// be told, it is taken as waiting (the next decision looks again).
+// Waiting: something of the chat still waits for a person or in the queue;
+// when that can't be told, it is taken as waiting (the next decision looks
+// again).
 func (e *Engine) Waiting(ctx context.Context, conversationID string) bool {
 	list, err := e.waiting(ctx, conversationID)
 	return err != nil || len(list) > 0
@@ -190,4 +200,90 @@ func (e *Engine) WaitingOrder(ctx context.Context, conversationID string) ([]str
 		seq[c.id] = c.seq
 	}
 	return ids, seq
+}
+
+// QueueRunner carries out a queued proposal (kind action | patch) approved by
+// by, as an approval from the dashboard does (audited); the line its agent
+// gets about it ("" = none).
+type QueueRunner func(ctx context.Context, kind, id, by string) string
+
+// SetQueueRunner sets what carries out queued proposals.
+func (e *Engine) SetQueueRunner(fn QueueRunner) { e.queueRun = fn }
+
+// QueuePatch approves a pending diff that waits behind an earlier proposal of
+// its chat: it is applied once those are decided (Drain).
+func (e *Engine) QueuePatch(ctx context.Context, patchID string) (PatchDTO, error) {
+	if _, busy := e.deciding.LoadOrStore(patchID, struct{}{}); busy {
+		p, err := e.store.Chat().GetPatch(ctx, patchID)
+		if err != nil {
+			return PatchDTO{}, err
+		}
+		return toPatchDTO(p), ErrDecided
+	}
+	defer e.deciding.Delete(patchID)
+	p, err := e.store.Chat().GetPatch(ctx, patchID)
+	if err != nil {
+		return PatchDTO{}, err
+	}
+	if p.Status != "pending" {
+		return toPatchDTO(p), ErrDecided
+	}
+	who := actor.From(ctx)
+	if err := e.store.Chat().QueuePatch(ctx, p.ID, who); err != nil {
+		return PatchDTO{}, err
+	}
+	p.Status, p.DecidedBy = "queued", who
+	return toPatchDTO(p), nil
+}
+
+// Drain runs a chat's queued proposals that nothing waits before any more,
+// in order, until one waits for a person (or none is left). Each one's line
+// goes to its agent as a decision (Decided). Safe to call after any decision.
+func (e *Engine) Drain(conversationID string) {
+	if e.queueRun == nil || conversationID == "" {
+		return
+	}
+	mu, _ := e.draining.LoadOrStore(conversationID, &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
+	ctx := context.Background()
+	for range 100 {
+		list, err := e.waiting(ctx, conversationID)
+		if err != nil || len(list) == 0 || !list[0].queued {
+			return
+		}
+		c := list[0]
+		if line := e.queueRun(ctx, c.kind, c.id, c.by); line != "" {
+			e.Decided(conversationID, strings.TrimPrefix(c.by, "human:"), line)
+		}
+		if again, err := e.waiting(ctx, conversationID); err != nil || len(again) > 0 && again[0].id == c.id {
+			return // it could not be carried out: never loop on it
+		}
+	}
+}
+
+// GetPatchDTO is a diff as a card shows it.
+func (e *Engine) GetPatchDTO(ctx context.Context, id string) (PatchDTO, error) {
+	p, err := e.store.Chat().GetPatch(ctx, id)
+	if err != nil {
+		return PatchDTO{}, err
+	}
+	return toPatchDTO(p), nil
+}
+
+// autoApply applies a diff its agent may apply on its own (CapApply): now
+// when nothing of the chat waits before it, else queued in its turn (Drain).
+func (e *Engine) autoApply(conv storage.Conversation, jobID, agentName, level string, saved storage.Patch) storage.Patch {
+	ctx := actor.With(context.Background(), "auto:"+agentName+" ("+perm.Label(level)+")")
+	if e.CheckOrder(ctx, conv.ID, saved.ID) != nil {
+		if q, err := e.QueuePatch(ctx, saved.ID); err == nil {
+			saved.Status, saved.DecidedBy = q.Status, q.DecidedBy
+		}
+		return saved
+	}
+	if d, err := e.DecidePatch(ctx, saved.ID, true); err == nil {
+		saved.Status, saved.Detail, saved.DecidedBy, saved.DecidedAt = d.Status, d.Detail, d.DecidedBy, d.DecidedAt
+		e.auditAutoPatch(agentName, conv, jobID, saved)
+	}
+	return saved
 }

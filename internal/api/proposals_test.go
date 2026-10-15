@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -101,10 +102,9 @@ func TestSkipAllProposals(t *testing.T) {
 	}
 }
 
-// Proposals are approved in their order (409 naming the earlier one); a
-// decision made while another waits is held, and goes on once "Bỏ qua tất
-// cả" leaves nothing waiting.
-func TestOrderAndHeldDecisions(t *testing.T) {
+// A card approved while an earlier one waits is queued (not refused) and runs
+// once that is decided; its agent goes on once, with both results.
+func TestApprovedOutOfOrderIsQueued(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
@@ -112,32 +112,42 @@ func TestOrderAndHeldDecisions(t *testing.T) {
 	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	var resumed atomic.Int32
+	var lines atomic.Value
 	e.chat.SetDecidedWait(10 * time.Millisecond)
-	e.chat.SetOnBotDecided(func(context.Context, string, string, []string) { resumed.Add(1) })
+	e.chat.SetOnBotDecided(func(_ context.Context, _, _ string, l []string) { lines.Store(strings.Join(l, "|")); resumed.Add(1) })
+	e.chat.SetQueueRunner(func(ctx context.Context, kind, id, by string) string {
+		p, err := e.chat.DecidePatch(ctx, id, true)
+		if err != nil {
+			return "⚠️ " + err.Error()
+		}
+		return "✅ queued diff " + p.Status
+	})
 	c, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "bot", Purpose: "channel"})
 	m, _ := e.st.Chat().AddMessage(ctx, storage.Message{ConversationID: c.ID, Role: "assistant", Content: "xong"})
 	push, _ := e.st.Actions().Create(ctx, storage.Action{ProjectID: pid, ConversationID: c.ID, MessageID: m.ID, Kind: "git_push", Target: "main", ProposedBy: "Lead", Status: "pending"})
 	p, _ := e.st.Chat().AddPatch(ctx, storage.Patch{ConversationID: c.ID, MessageID: m.ID, Diff: "x", Files: []string{"a.txt"}, Status: "pending"})
 
 	resp, b := do(t, admin, "POST", e.srv.URL+"/api/patches/"+p.ID+"/approve", map[string]any{}, nil)
-	if msg, _ := b["error"].(string); resp.StatusCode != 409 || !strings.Contains(msg, "#1") {
+	if resp.StatusCode != 200 || b["patch"].(map[string]any)["status"] != "queued" || b["queued_after"] != float64(1) {
 		t.Fatalf("approve #2 before #1 = %d %v", resp.StatusCode, b)
 	}
-	if x, _ := e.st.Chat().GetPatch(ctx, p.ID); x.Status != "pending" {
-		t.Fatalf("refused, yet decided: %+v", x)
+	if _, b := do(t, admin, "GET", e.srv.URL+"/api/incidents", nil, nil); strings.Contains(fmt.Sprint(b), "a.txt") {
+		t.Fatalf("a queued diff no longer waits for a person: %v", b)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := resumed.Load(); n != 0 {
+		t.Fatalf("went on while #1 waits: %d", n)
 	}
 	do(t, admin, "POST", e.srv.URL+"/api/actions/"+push.ID+"/reject", map[string]any{}, nil)
-	time.Sleep(150 * time.Millisecond)
-	if n := resumed.Load(); n != 0 {
-		t.Fatalf("went on while the diff waits: %d", n)
-	}
-	do(t, admin, "POST", e.srv.URL+"/api/proposals/skip-all", map[string]any{}, nil)
 	deadline := time.Now().Add(2 * time.Second)
 	for resumed.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if n := resumed.Load(); n != 1 {
-		t.Fatalf("the held decision went on %d times", n)
+	if x, _ := e.st.Chat().GetPatch(ctx, p.ID); x.Status == "queued" || x.Status == "pending" {
+		t.Fatalf("the queued diff did not run: %+v", x)
+	}
+	if n, l := resumed.Load(), fmt.Sprint(lines.Load()); n != 1 || !strings.Contains(l, "main") || !strings.Contains(l, "queued diff") {
+		t.Fatalf("goes on once with both: %d %q", n, l)
 	}
 }
 

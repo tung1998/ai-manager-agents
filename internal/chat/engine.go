@@ -215,6 +215,8 @@ type Engine struct {
 	onRunning   func(conversationID string)                // an answer started or ended there (the dashboard's live data)
 	onRunWait   func(ctx context.Context, callerID string) // a workflow's turn ended: what it waits on a person for goes to the chat that called it (a bot's)
 	decided     decisions                                  // proposals a person decided on the dashboard: the agent goes on (ADR-084)
+	queueRun    QueueRunner                                // carries out a queued proposal (Drain)
+	draining    sync.Map                                   // conversation id → *sync.Mutex: one Drain at a time
 	deciding    sync.Map                                   // patches being decided now: one decision applies a patch
 	onLimits    func(p storage.Provider, l Limits)
 	office      *officetools.Toolbox
@@ -1235,12 +1237,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		// what the agent changed in its worktree, all pending changes in one diff
 		if pt, ok := e.treePatch(ctx, conv, msg.ID, pl.dir, pl.tree, policy); ok {
 			saved, err := e.store.Chat().AddPatch(context.Background(), pt)
-			// on its own only when nothing of the chat waits before it (CheckOrder)
-			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) && e.CheckOrder(context.Background(), conv.ID, saved.ID) == nil {
-				if d, derr := e.DecidePatch(actor.With(context.Background(), "auto:"+agent.Name+" ("+perm.Label(level)+")"), saved.ID, true); derr == nil {
-					saved.Status, saved.Detail, saved.DecidedBy, saved.DecidedAt = d.Status, d.Detail, d.DecidedBy, d.DecidedAt
-					e.auditAutoPatch(agent.Name, conv, turn.JobID, saved)
-				}
+			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) {
+				saved = e.autoApply(conv, turn.JobID, agent.Name, level, saved)
 			}
 			if err == nil {
 				pd := toPatchDTO(saved)
@@ -1266,13 +1264,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 				}
 			}
 			saved, err := e.store.Chat().AddPatch(context.Background(), pt)
-			// on its own only when nothing of the chat waits before it (CheckOrder)
-			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) && e.CheckOrder(context.Background(), conv.ID, saved.ID) == nil {
-				// the agent's package allows applying clean diffs on its own
-				if d, derr := e.DecidePatch(actor.With(context.Background(), "auto:"+agent.Name+" ("+perm.Label(level)+")"), saved.ID, true); derr == nil {
-					saved.Status, saved.Detail, saved.DecidedBy, saved.DecidedAt = d.Status, d.Detail, d.DecidedBy, d.DecidedAt
-					e.auditAutoPatch(agent.Name, conv, turn.JobID, saved)
-				}
+			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) { // the agent's package allows applying clean diffs on its own
+				saved = e.autoApply(conv, turn.JobID, agent.Name, level, saved)
 			}
 			if err == nil {
 				pd := toPatchDTO(saved)
@@ -1324,7 +1317,7 @@ func (e *Engine) treePatch(ctx context.Context, conv storage.Conversation, messa
 	now := time.Now().UTC()
 	if old, err := e.store.Chat().ListPatches(ctx, conv.ID); err == nil {
 		for _, p := range old {
-			if p.Origin != "worktree" || p.Status != "pending" || e.patchTree(p) != tree {
+			if p.Origin != "worktree" || (p.Status != "pending" && p.Status != "queued") || e.patchTree(p) != tree {
 				continue // another agent's worktree: its diff stays (ADR-044)
 			}
 			if p.Diff == diff {
@@ -1603,7 +1596,7 @@ func (e *Engine) DecidePatch(ctx context.Context, patchID string, approve bool) 
 	if err != nil {
 		return PatchDTO{}, err
 	}
-	if p.Status != "pending" {
+	if p.Status != "pending" && p.Status != "queued" { // queued: approved, applied once those before it are decided
 		return toPatchDTO(p), ErrDecided
 	}
 	projectID := ""
@@ -1760,7 +1753,7 @@ func (e *Engine) chatTreeActive(ctx context.Context, name string, maxAge time.Du
 		return false
 	}
 	for _, p := range patches {
-		if p.Origin == "worktree" && p.Status == "pending" && e.patchTree(p) == name {
+		if p.Origin == "worktree" && (p.Status == "pending" || p.Status == "queued") && e.patchTree(p) == name {
 			return true
 		}
 	}

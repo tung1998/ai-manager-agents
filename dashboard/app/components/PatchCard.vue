@@ -3,7 +3,7 @@ export interface Patch {
   id: string
   diff: string
   files: string[]
-  status: 'pending' | 'applied' | 'rejected' | 'failed'
+  status: 'pending' | 'queued' | 'applied' | 'rejected' | 'failed'
   detail: string
   decided_by: string
   origin?: '' | 'worktree'
@@ -52,6 +52,7 @@ const stats = computed(() => {
 
 const statusMeta = computed<Record<Patch['status'], { label: string, color: 'warning' | 'success' | 'neutral' | 'error', icon: string }>>(() => ({
   pending: { label: t('patch.pending'), color: 'warning', icon: 'i-lucide-clock' },
+  queued: { label: t('card.queued'), color: 'neutral', icon: 'i-lucide-list-ordered' },
   applied: { label: t('patch.applied'), color: 'success', icon: 'i-lucide-circle-check' },
   rejected: { label: t('patch.rejected'), color: 'neutral', icon: 'i-lucide-circle-x' },
   failed: { label: t('patch.failed'), color: 'error', icon: 'i-lucide-triangle-alert' }
@@ -63,14 +64,21 @@ const BIG_SIZE = 1 << 20
 const big = computed(() => props.patch.files.length > BIG_FILES || (props.patch.size ?? props.patch.diff.length) > BIG_SIZE)
 const num = computed(() => props.patch.seq)
 
+// a queued diff is applied once those before it are decided: watched until then
+useQueuedWatch(() => props.patch.status === 'queued', async () => {
+  const res = await $fetch<{ patch: Patch }>(`/api/patches/${props.patch.id}?brief=1`)
+  if (res.patch.status !== 'queued') emit('updated', res.patch)
+})
+
 // skip: rejected, and its agent is not run again about it
 async function decide(approve: boolean, skip = false) {
   if (approve && big.value && !confirm(t('patch.bigConfirm', { n: props.patch.files.length, size: sizeLabel(props.patch.size ?? props.patch.diff.length) }))) return
   if (approve && props.stale && !confirm(t('card.staleConfirm'))) return
   busy.value = approve ? 'approve' : skip ? 'skip' : 'reject'
   try {
-    const res = await $fetch<{ patch: Patch }>(`/api/patches/${props.patch.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: skip ? { skip: true } : {} })
+    const res = await $fetch<{ patch: Patch, queued_after?: number }>(`/api/patches/${props.patch.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: skip ? { skip: true } : {} })
     emit('updated', res.patch)
+    if (res.patch.status === 'queued') toast.add({ title: t('card.queuedToast', { n: res.queued_after ?? '' }), color: 'info' })
     if (res.patch.status === 'applied') toast.add({ title: t('patch.appliedToast'), description: res.patch.files.join(', '), color: 'success' })
     if (res.patch.status === 'failed') toast.add({ title: t('patch.failedToast'), description: res.patch.detail, color: 'error' })
     open.value = res.patch.status === 'failed'
@@ -96,6 +104,7 @@ async function decide(approve: boolean, skip = false) {
       <UBadge v-if="stale && patch.status === 'pending'" color="warning" variant="outline" size="sm" icon="i-lucide-history" :label="t('card.stale')" :title="t('card.staleHint')" />
       <UBadge v-if="patch.origin === 'worktree'" color="neutral" variant="outline" size="sm" icon="i-lucide-git-branch" :label="t('patch.worktree')" :title="t('patch.worktreeHint')" />
       <UBadge v-if="patch.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('patch.auto')" :title="patch.decided_by.slice(5)" />
+      <UButton v-if="patch.status === 'queued' && isAdmin" size="xs" color="neutral" variant="ghost" :label="t('card.unqueue')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
       <template v-if="patch.status === 'pending' && isAdmin">
         <UTooltip :text="t('action.skipInfo')">
           <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-skip-forward" :label="t('action.skip')" :loading="busy === 'skip'" :disabled="!!busy" @click="decide(false, true)" />

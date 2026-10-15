@@ -413,7 +413,7 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 	if err != nil {
 		return a, err
 	}
-	if a.Status != "pending" {
+	if a.Status != "pending" && a.Status != "queued" { // queued: approved, run once those before it are decided
 		return a, ErrDecided
 	}
 	now := time.Now().UTC()
@@ -482,6 +482,28 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 			a.Detail += " (docker compose chạy nền, xem mục Container)"
 		}
 	}
+	return a, s.store.Actions().Update(ctx, a)
+}
+
+// Queue approves a pending action that waits behind an earlier proposal of
+// its chat: it is "queued" and runs once those are decided (chat.Drain).
+func (s *Service) Queue(ctx context.Context, id, by string) (storage.Action, error) {
+	if _, busy := s.deciding.LoadOrStore(id, struct{}{}); busy {
+		a, err := s.store.Actions().Get(ctx, id)
+		if err != nil {
+			return a, err
+		}
+		return a, ErrDecided
+	}
+	defer s.deciding.Delete(id)
+	a, err := s.store.Actions().Get(ctx, id)
+	if err != nil {
+		return a, err
+	}
+	if a.Status != "pending" {
+		return a, ErrDecided
+	}
+	a.Status, a.DecidedBy, a.Detail = "queued", by, ""
 	return a, s.store.Actions().Update(ctx, a)
 }
 
@@ -772,7 +794,7 @@ func (s *Service) unmerged(ctx context.Context, conversationID string) bool {
 		return true
 	}
 	for _, p := range ps {
-		if p.Status == "pending" {
+		if p.Status == "pending" || p.Status == "queued" {
 			return true
 		}
 	}

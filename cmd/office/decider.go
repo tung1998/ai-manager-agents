@@ -1,11 +1,14 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
+	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -27,7 +30,14 @@ func (d chatDecider) Decide(ctx context.Context, kind, id string, approve bool, 
 			return "", err
 		}
 		if approve && p.Status == "pending" { // in the order its agent proposed them
-			if err := d.chat.CheckOrder(ctx, p.ConversationID, p.ID); err != nil {
+			var order *chat.OrderError
+			if err := d.chat.CheckOrder(ctx, p.ConversationID, p.ID); errors.As(err, &order) {
+				if _, err := d.chat.QueuePatch(actor.With(ctx, by), p.ID); err != nil {
+					return "", err
+				}
+				go d.chat.Drain(p.ConversationID)
+				return fmt.Sprintf("đã xếp hàng, chạy sau #%d", order.Seq), nil
+			} else if err != nil {
 				return "", err
 			}
 		}
@@ -60,7 +70,14 @@ func (d chatDecider) Decide(ctx context.Context, kind, id string, approve bool, 
 		return "", err
 	}
 	if approve && cur.Status == "pending" {
-		if err := d.chat.CheckOrder(ctx, cur.ConversationID, cur.ID); err != nil {
+		var order *chat.OrderError
+		if err := d.chat.CheckOrder(ctx, cur.ConversationID, cur.ID); errors.As(err, &order) {
+			if _, err := d.acts.Queue(ctx, cur.ID, by); err != nil {
+				return "", err
+			}
+			go d.chat.Drain(cur.ConversationID)
+			return fmt.Sprintf("đã xếp hàng, chạy sau #%d", order.Seq), nil
+		} else if err != nil {
 			return "", err
 		}
 	}
@@ -126,4 +143,23 @@ func (d chatDecider) placeOf(ctx context.Context, conversationID string) (string
 		return "", ""
 	}
 	return c.ProjectID, c.AgentName
+}
+
+// RunQueued carries out a queued card (chat.Drain) as approved by by, and
+// says how it went, for its agent.
+func (d chatDecider) RunQueued(ctx context.Context, kind, id, by string) string {
+	label := id
+	if kind == "patch" {
+		ctx = actor.With(ctx, by)
+		if p, err := d.store.Chat().GetPatch(ctx, id); err == nil {
+			label = "diff: " + strings.Join(p.Files, ", ")
+		}
+	} else if a, err := d.store.Actions().Get(ctx, id); err == nil {
+		label = cmp.Or(actions.Kinds[a.Kind], a.Kind) + ": " + a.Target
+	}
+	detail, err := d.Decide(ctx, kind, id, true, by)
+	if err != nil {
+		return "⚠️ Đã duyệt (xếp hàng) " + label + " — " + err.Error()
+	}
+	return "✅ Đã duyệt (xếp hàng) " + label + " — " + detail
 }

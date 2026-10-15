@@ -426,6 +426,10 @@ func (r chatRepo) SetPatchDiff(ctx context.Context, id, diff string, files []str
 	return execOne(ctx, r.db, `UPDATE patches SET diff=?, files=? WHERE id=?`, diff, toJSON(files), id)
 }
 
+func (r chatRepo) QueuePatch(ctx context.Context, id, by string) error {
+	return execOne(ctx, r.db, `UPDATE patches SET status='queued', decided_by=? WHERE id=? AND status='pending'`, by, id)
+}
+
 func (r chatRepo) PatchRefs(ctx context.Context, conversationID string) ([]storage.Patch, error) {
 	cols := strings.Replace(patchCols, "diff,", "'',", 1)
 	rows, err := r.db.QueryContext(ctx, `SELECT `+cols+` FROM patches WHERE conversation_id=? ORDER BY created_at, id`, conversationID)

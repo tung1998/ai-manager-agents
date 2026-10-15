@@ -548,7 +548,7 @@ func (e *Engine) stepDecide(ctx context.Context, own storage.Conversation, run *
 	if err != nil {
 		return workflow.StepResult{}, err
 	}
-	for a.Status == "pending" {
+	for a.Status == "pending" || a.Status == "queued" {
 		select {
 		case <-ctx.Done():
 			return workflow.StepResult{}, ctx.Err()

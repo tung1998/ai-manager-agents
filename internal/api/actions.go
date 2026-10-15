@@ -29,8 +29,25 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 			r = r.WithContext(context.WithValue(r.Context(), cfgSecretKey{}, strings.TrimSpace(in.APIKey)))
 		}
 		if cur, err := s.cfg.Store.Actions().Get(r.Context(), r.PathValue("id")); err == nil {
+			if approve && cur.Status == "queued" { // approved already: it runs in its turn
+				writeJSON(w, http.StatusOK, map[string]any{"action": chat.ToActionDTO(cur)})
+				return
+			}
 			if approve && s.cfg.Chat != nil && cur.Status == "pending" { // in the order its agent proposed them
-				if err := s.cfg.Chat.CheckOrder(r.Context(), cur.ConversationID, cur.ID); err != nil {
+				var order *chat.OrderError
+				if err := s.cfg.Chat.CheckOrder(r.Context(), cur.ConversationID, cur.ID); errors.As(err, &order) && in.APIKey == "" {
+					// an earlier one still waits: queued, it runs once that is decided
+					a, err := s.cfg.Actions.Queue(r.Context(), cur.ID, u.Email)
+					if err != nil {
+						s.writeDomainError(w, r, err)
+						return
+					}
+					s.audit(r, audit.Change{Action: "action.queue", Resource: "action", ResourceID: a.ID, ProjectID: a.ProjectID,
+						Detail: map[string]any{"kind": a.Kind, "target": a.Target, "after": order.Seq}})
+					s.redrawBot(r.Context(), a.ConversationID)
+					writeJSON(w, http.StatusOK, map[string]any{"action": chat.ToActionDTO(a), "queued_after": order.Seq})
+					return
+				} else if err != nil {
 					writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "action": chat.ToActionDTO(cur)})
 					return
 				}
@@ -94,6 +111,9 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 		} else if s.cfg.Chat != nil {
 			s.cfg.Chat.Settled(a.ConversationID)
 		}
+		if s.cfg.Chat != nil { // what was queued behind it runs now, in order
+			go s.cfg.Chat.Drain(a.ConversationID)
+		}
 		s.redrawBot(r.Context(), a.ConversationID)
 		out := map[string]any{"action": chat.ToActionDTO(a)}
 		if allowed != nil {
@@ -101,6 +121,16 @@ func (s *server) decideAction(approve bool) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, out)
 	}
+}
+
+// getAction is one card as it stands now (a queued one, watched until it runs).
+func (s *server) getAction(w http.ResponseWriter, r *http.Request) {
+	a, err := s.cfg.Store.Actions().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"action": chat.ToActionDTO(a)})
 }
 
 // alwaysPreview: what "luôn cho phép" would add for a proposed command, and

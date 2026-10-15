@@ -84,8 +84,11 @@ func (s *server) skipAllProposals(w http.ResponseWriter, r *http.Request) {
 			Detail: map[string]any{"count": n, "actions": actionsN, "patches": patchesN}})
 	}
 	for c := range convs {
-		if s.cfg.Chat != nil && c != "" { // decisions held for its agent go on, now nothing waits
-			s.cfg.Chat.Settled(c)
+		if s.cfg.Chat != nil && c != "" { // what was queued runs; decisions held for its agent go on
+			go func(c string) {
+				s.cfg.Chat.Drain(c)
+				s.cfg.Chat.Settled(c)
+			}(c)
 		}
 		s.redrawBot(ctx, c)
 	}

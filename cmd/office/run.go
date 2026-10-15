@@ -144,6 +144,8 @@ func serveCmd() *cobra.Command {
 			acts.SetMemory(mem)
 			acts.SetSender(chatEngine)  // send_to_chat: an agent writes to another chat in its person's name
 			chatEngine.SetActions(acts) // a workflow's gates: approval cards and check commands
+			// a card approved while an earlier one waited runs in its turn, as approved (audited)
+			chatEngine.SetQueueRunner(chatDecider{store: a.store, chat: chatEngine, acts: acts}.RunQueued)
 			office := officetools.New(a.store, procs, acts)
 			mcp := mcpserver.New(office, version)
 			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")

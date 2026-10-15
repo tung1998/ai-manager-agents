@@ -8,7 +8,7 @@ export interface ProposedAction {
   label: string
   target: string
   reason: string
-  status: 'pending' | 'done' | 'failed' | 'rejected'
+  status: 'pending' | 'queued' | 'done' | 'failed' | 'rejected'
   detail: string
   proposed_by: string
   decided_by: string
@@ -81,6 +81,7 @@ const kindLabel = computed(() => {
 })
 const statusMeta = computed<Record<ProposedAction['status'], { label: string, color: 'warning' | 'success' | 'neutral' | 'error' }>>(() => ({
   pending: { label: t('action.pending'), color: 'warning' },
+  queued: { label: t('card.queued'), color: 'neutral' },
   done: { label: t('action.done'), color: 'success' },
   failed: { label: t('action.failed'), color: 'error' },
   rejected: { label: t('action.rejected'), color: 'neutral' }
@@ -116,14 +117,21 @@ const logUrl = computed(() => {
 })
 const hasLog = computed(() => props.action.status !== 'pending' && (props.action.kind === 'run_command' ? !!props.action.detail : !!logUrl.value))
 
+// a queued card runs once those before it are decided: watched until then
+useQueuedWatch(() => props.action.status === 'queued', async () => {
+  const res = await $fetch<{ action: ProposedAction }>(`/api/actions/${props.action.id}`)
+  if (res.action.status !== 'queued') emit('updated', res.action)
+})
+
 // skip: rejected, and its agent is not run again about it
 async function decide(approve: boolean, always = false, skip = false) {
   if (approve && props.stale && !confirm(t('card.staleConfirm'))) return
   busy.value = always ? 'always' : approve ? 'approve' : skip ? 'skip' : 'reject'
   try {
     const body = always ? { always: true } : skip ? { skip: true } : approve && apiKey.value ? { api_key: apiKey.value } : {}
-    const res = await $fetch<{ action: ProposedAction, always?: Allowed }>(`/api/actions/${props.action.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body })
+    const res = await $fetch<{ action: ProposedAction, always?: Allowed, queued_after?: number }>(`/api/actions/${props.action.id}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body })
     emit('updated', res.action)
+    if (res.action.status === 'queued') toast.add({ title: t('card.queuedToast', { n: res.queued_after ?? '' }), color: 'info' })
     if (res.action.status === 'failed') toast.add({ title: t('action.failedToast'), description: res.action.detail, color: 'error' })
     const x = res.always
     if (x?.error) toast.add({ title: t('action.alwaysError'), description: x.error, color: 'error' })
@@ -187,6 +195,8 @@ async function decide(approve: boolean, always = false, skip = false) {
     <UBadge :color="statusMeta[action.status].color" variant="subtle" size="sm" :label="statusMeta[action.status].label" />
     <UBadge v-if="stale && action.status === 'pending'" color="warning" variant="outline" size="sm" icon="i-lucide-history" :label="t('card.stale')" :title="t('card.staleHint')" />
     <UBadge v-if="action.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('action.auto')" :title="action.decided_by.slice(5)" />
+    <!-- approved while an earlier card waited: it runs in its turn; it can still be called off -->
+    <UButton v-if="action.status === 'queued' && isAdmin" size="xs" color="neutral" variant="ghost" :label="t('card.unqueue')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
     <template v-if="action.status === 'pending' && isAdmin">
       <UButton size="xs" icon="i-lucide-check" :label="t('action.approve')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
       <span v-if="canAlways" class="inline-flex items-center gap-1">

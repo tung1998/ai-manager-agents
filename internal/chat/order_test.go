@@ -72,8 +72,8 @@ func TestDecidedWaitsForAllProposals(t *testing.T) {
 	}
 }
 
-// A diff the agent may apply on its own (CapApply) waits like the rest while
-// an earlier proposal of the chat still waits.
+// A diff the agent may apply on its own (CapApply) is queued while an
+// earlier proposal of the chat still waits, not applied before it.
 func TestAutoApplyWaitsForEarlierProposals(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
@@ -110,8 +110,8 @@ func TestAutoApplyWaitsForEarlierProposals(t *testing.T) {
 	msgs, _ := f.st.Chat().ListMessages(ctx, conv.ID)
 	_, _ = f.st.Actions().Create(ctx, storage.Action{ProjectID: f.project.ID, ConversationID: conv.ID, MessageID: msgs[len(msgs)-1].ID, Kind: "run_command", Target: "pnpm test"})
 	m := last("thêm file")
-	if len(m.Patches) != 1 || m.Patches[0].Status != "pending" || m.Patches[0].Seq != 3 {
-		t.Fatalf("an earlier proposal waits: the diff waits too (#3), got %+v", m.Patches)
+	if len(m.Patches) != 1 || m.Patches[0].Status != "queued" || m.Patches[0].Seq != 3 {
+		t.Fatalf("an earlier proposal waits: the diff is queued behind it (#3), got %+v", m.Patches)
 	}
 }
 
@@ -153,5 +153,53 @@ func TestOrderFollowsTheChat(t *testing.T) {
 	}
 	if got, n := g.engine.WaitingOrder(ctx, g.conv.ID); len(got) != 2 || got[0] != early.ID || n[late.ID] != 2 {
 		t.Fatalf("order = %v %v", got, n)
+	}
+}
+
+// Cards approved while an earlier one waits are queued, and run in order once
+// it is decided (Drain); one waiting for a person stops the queue.
+func TestDrainRunsQueuedInOrder(t *testing.T) {
+	g := newGroup(t)
+	ctx := g.context
+	g.sendAll(t, "một")
+	msgs, _ := g.f.st.Chat().ListMessages(ctx, g.conv.ID)
+	ans := msgs[len(msgs)-1].ID
+	mk := func(target string) storage.Action {
+		a, _ := g.f.st.Actions().Create(ctx, storage.Action{ProjectID: g.f.project.ID, ConversationID: g.conv.ID, MessageID: ans, Kind: "run_command", Target: target})
+		time.Sleep(2 * time.Millisecond)
+		return a
+	}
+	first, second, third, fourth := mk("a"), mk("b"), mk("c"), mk("d")
+	var ran []string
+	g.engine.SetQueueRunner(func(ctx context.Context, kind, id, by string) string {
+		a, _ := g.f.st.Actions().Get(ctx, id)
+		ran = append(ran, a.Target+"/"+by)
+		a.Status = "done"
+		_ = g.f.st.Actions().Update(ctx, a)
+		return "✅ " + a.Target
+	})
+	queue := func(a storage.Action) {
+		a.Status, a.DecidedBy = "queued", "admin@x.io"
+		_ = g.f.st.Actions().Update(ctx, a)
+	}
+	queue(second)
+	queue(fourth)
+	g.engine.Drain(g.conv.ID)
+	if len(ran) != 0 {
+		t.Fatalf("#1 still waits: nothing runs, got %v", ran)
+	}
+	first.Status = "rejected"
+	_ = g.f.st.Actions().Update(ctx, first)
+	g.engine.Drain(g.conv.ID)
+	if strings.Join(ran, ",") != "b/admin@x.io" {
+		t.Fatalf("#2 runs, then #3 waits for a person: %v", ran)
+	}
+	queue(third)
+	g.engine.Drain(g.conv.ID)
+	if strings.Join(ran, ",") != "b/admin@x.io,c/admin@x.io,d/admin@x.io" {
+		t.Fatalf("the rest in order: %v", ran)
+	}
+	if g.engine.Waiting(ctx, g.conv.ID) {
+		t.Fatal("nothing waits any more")
 	}
 }

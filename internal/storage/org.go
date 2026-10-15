@@ -598,6 +598,9 @@ type ChatRepo interface {
 	// PatchRefs lists one chat's diffs, oldest first, without their diff text.
 	PatchRefs(ctx context.Context, conversationID string) ([]Patch, error)
 	DecidePatch(ctx context.Context, id, status, detail, by string, at time.Time) error
+	// QueuePatch marks a pending diff approved by by, waiting for the chat's
+	// earlier proposals ("queued").
+	QueuePatch(ctx context.Context, id, by string) error
 }
 
 // Task is a goal given to a project's agents (old Việc data, ADR-057).

@@ -475,8 +475,25 @@ func (s *server) decidePatch(w http.ResponseWriter, r *http.Request, approve boo
 	skip := !approve && in.Skip
 	projectID := ""
 	if cur, err := s.cfg.Store.Chat().GetPatch(r.Context(), r.PathValue("id")); err == nil {
+		if approve && cur.Status == "queued" { // approved already: it is applied in its turn
+			p, _ := s.cfg.Chat.GetPatchDTO(r.Context(), cur.ID)
+			writeJSON(w, http.StatusOK, map[string]any{"patch": p})
+			return
+		}
 		if approve && cur.Status == "pending" { // in the order its agent proposed them
-			if err := s.cfg.Chat.CheckOrder(r.Context(), cur.ConversationID, cur.ID); err != nil {
+			var order *chat.OrderError
+			if err := s.cfg.Chat.CheckOrder(r.Context(), cur.ConversationID, cur.ID); errors.As(err, &order) {
+				// an earlier one still waits: queued, it is applied once that is decided
+				p, err := s.cfg.Chat.QueuePatch(actor.With(r.Context(), "human:"+userFrom(r).Email), cur.ID)
+				if err != nil {
+					s.chatError(w, r, err)
+					return
+				}
+				s.audit(r, audit.Change{Action: "patch.queue", ResourceID: p.ID, Detail: map[string]any{"files": p.Files, "after": order.Seq}})
+				s.redrawBot(r.Context(), cur.ConversationID)
+				writeJSON(w, http.StatusOK, map[string]any{"patch": p, "queued_after": order.Seq})
+				return
+			} else if err != nil {
 				writeError(w, http.StatusConflict, err.Error())
 				return
 			}
@@ -514,6 +531,7 @@ func (s *server) decidePatch(w http.ResponseWriter, r *http.Request, approve boo
 		s.cfg.Chat.Settled(cur.ConversationID)
 	}
 	if err == nil {
+		go s.cfg.Chat.Drain(cur.ConversationID) // what was queued behind it is applied now, in order
 		s.redrawBot(r.Context(), cur.ConversationID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"patch": p})
@@ -528,6 +546,11 @@ func (s *server) getPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.ConversationID != "" && !s.mayOpen(r, p.ConversationID) {
 		writeError(w, http.StatusNotFound, "không tìm thấy diff")
+		return
+	}
+	if r.URL.Query().Get("brief") != "" { // its state, the diff cut as a chat loads it
+		dto, _ := s.cfg.Chat.GetPatchDTO(r.Context(), p.ID)
+		writeJSON(w, http.StatusOK, map[string]any{"patch": dto})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"patch": chat.FullPatchDTO(p)})

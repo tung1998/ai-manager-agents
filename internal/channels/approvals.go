@@ -512,6 +512,9 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	// the agent's answer is over: it goes on with what was decided (it would
 	// otherwise stand still until someone wrote again)
 	for conv := range touched {
+		if m.engine != nil { // what was queued behind what was decided runs now, in order
+			go m.engine.Drain(conv)
+		}
 		done := decided[conv]
 		if c, err := m.store.Chat().GetConversation(ctx, conv); err == nil && c.Purpose == chat.RunPurpose {
 			for _, line := range done { // a workflow's own chat: its coordinator goes on there
