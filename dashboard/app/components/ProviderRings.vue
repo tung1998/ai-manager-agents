@@ -36,8 +36,9 @@ const logoColor: Record<string, string> = {
 }
 const palette = ['bg-violet-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500', 'bg-orange-500']
 const colorOf = (key: string) => palette[[...key].reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length]
-const R = 10.5 // outer ring: 5 hours
-const RI = 8 // inner ring: the week
+const R = 11 // outer ring: 5 hours
+const RI = 8.5 // inner ring: the week
+const W = 1.5 // every ring the same width
 const tone = (u: number) => u >= 0.9 ? 'stroke-(--ui-error)' : u >= 0.7 ? 'stroke-(--ui-warning)' : 'stroke-(--ui-primary)'
 
 const rings = computed(() => (data.value?.providers ?? []).filter(p => p.enabled).map((p) => {
@@ -47,10 +48,10 @@ const rings = computed(() => (data.value?.providers ?? []).filter(p => p.enabled
   const win = Object.fromEntries(ws)
   // error or no window: one full ring; else a ring per window, filled to its share
   const arcs = error || !ws.length
-    ? [{ r: R, w: 2, stroke: error ? 'stroke-(--ui-error)' : 'stroke-(--ui-success)', share: 1 }]
-    : ([['five_hour', R, 2], ['seven_day', RI, 1.5]] as const).filter(([k]) => win[k]).map(([k, r, w]) => {
+    ? [{ r: R, stroke: error ? 'stroke-(--ui-error)' : 'stroke-(--ui-success)', share: 1 }]
+    : ([['five_hour', R], ['seven_day', RI]] as const).filter(([k]) => win[k]).map(([k, r]) => {
         const u = win[k]!.utilization
-        return { r, w, stroke: tone(u), share: Math.min(1, u) }
+        return { r, stroke: tone(u), share: Math.min(1, u) }
       })
   const parts = [p.name]
   if (error) parts.push(p.status_detail || t('prov.statusError'))
@@ -76,15 +77,15 @@ const rings = computed(() => (data.value?.providers ?? []).filter(p => p.enabled
     >
       <svg viewBox="0 0 24 24" class="absolute inset-0 size-full -rotate-90">
         <template v-for="a in r.arcs" :key="a.r">
-          <circle cx="12" cy="12" :r="a.r" fill="none" :stroke-width="a.w" class="stroke-(--ui-bg-accented)" />
+          <circle cx="12" cy="12" :r="a.r" fill="none" :stroke-width="W" class="stroke-(--ui-bg-accented)" />
           <circle
-            cx="12" cy="12" :r="a.r" fill="none" :stroke-width="a.w" stroke-linecap="round" :class="a.stroke"
+            cx="12" cy="12" :r="a.r" fill="none" :stroke-width="W" stroke-linecap="round" :class="a.stroke"
             :stroke-dasharray="`${a.share * a.c} ${a.c}`" class="transition-all"
           />
         </template>
       </svg>
-      <UIcon v-if="r.logo" :name="r.logo" class="size-3.5" :class="r.logoColor" />
-      <span v-else class="grid size-4.5 place-items-center rounded-full text-[10px] font-semibold text-white" :class="r.bg">{{ r.letter }}</span>
+      <UIcon v-if="r.logo" :name="r.logo" class="size-3" :class="r.logoColor" />
+      <span v-else class="grid size-3.5 place-items-center rounded-full text-[8px] font-semibold text-white" :class="r.bg">{{ r.letter }}</span>
     </NuxtLink>
   </div>
 </template>
