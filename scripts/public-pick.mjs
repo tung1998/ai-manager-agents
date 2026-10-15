@@ -62,8 +62,10 @@ const commits = revs.flatMap(r => r.includes('..')
 const patches = []
 const hits = []
 for (const c of commits) {
-  // untrimmed: a patch ending in a blank context line (" ") breaks without it
-  const raw = run(PRIV, ['format-patch', '-1', '--stdout', '--no-encode-email-headers', '--no-signature', c, '--', '.', ...EXCLUDE.map(p => `:(exclude)${p}`)])
+  // untrimmed: a patch ending in a blank context line (" ") breaks without it.
+  // c~1..c, not -1 c: with a pathspec, -1 takes the latest commit that touches
+  // it, an older one when c only changes internal files
+  const raw = run(PRIV, ['format-patch', '--stdout', '--no-encode-email-headers', '--no-signature', `${c}~1..${c}`, '--', '.', ...EXCLUDE.map(p => `:(exclude)${p}`)])
   const subject = sh(PRIV, ['log', '-1', '--format=%h %s', c])
   if (!raw.includes('\ndiff --git ')) {
     console.log(`- ${subject}  (only internal files, skipped)`)
