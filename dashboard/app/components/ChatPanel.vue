@@ -518,6 +518,10 @@ async function makeConversation(agentId: string) {
     // the skill editor's chat is in the URL: back, reload or a link reopens it
     if (props.purpose === 'skill' || props.purpose === 'workflow') router.replace({ query: { ...route.query, c: res.conversation.id } })
     await open(res.conversation)
+    // a new chat is for writing: the box opens (phone) and takes the cursor
+    composeOpen.value = true
+    await nextTick()
+    prompt.value?.focus?.()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
