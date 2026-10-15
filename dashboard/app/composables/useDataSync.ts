@@ -251,8 +251,15 @@ async function askLog(key: string, f: FollowedLog) {
 }
 function onLog(d: { key: string, lines: LogLine[] }) {
   const f = logs.get(d.key)
-  if (!f) return
-  const fresh = (d.lines ?? []).filter(l => l.seq > f.last)
+  if (!f || !d.lines?.length) return
+  // office only sends lines after the last one seen: one at or before it
+  // means it restarted (its lines live in memory, numbered again) — what the
+  // console had is gone, show the new ones
+  if (d.lines[0]!.seq <= f.last) {
+    f.last = 0
+    f.reset()
+  }
+  const fresh = d.lines.filter(l => l.seq > f.last)
   if (!fresh.length) return
   f.last = fresh[fresh.length - 1]!.seq
   try { f.fn(fresh) } catch { /* its own */ }

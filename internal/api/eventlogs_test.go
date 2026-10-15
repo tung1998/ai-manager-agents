@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -106,6 +107,40 @@ func TestEventsFollowLog(t *testing.T) {
 	}
 	if got := strings.Join(texts, "|"); got != "một|hai|ba" {
 		t.Fatalf("lines = %q", got)
+	}
+
+	// a bad ask for the same console is refused and does not stop it
+	if r, _ := do(t, admin, "POST", e.srv.URL+"/api/events/logs", map[string]any{"sid": sid, "key": "c1", "source": "process", "id": "nope", "on": true}, nil); r.StatusCode != 404 {
+		t.Fatalf("bad replacement = %d", r.StatusCode)
+	}
+
+	// asked from a line past the last one (office restarted, numbered again):
+	// the lines come again from the start
+	r2, _ := do(t, admin, "POST", e.srv.URL+"/api/events/logs", map[string]any{"sid": sid, "key": "c2", "source": "process", "id": id, "from": 9999, "on": true}, nil)
+	if r2.StatusCode != 204 {
+		t.Fatalf("follow from past the end = %d", r2.StatusCode)
+	}
+	again := ""
+	for again == "" && sc.Scan() {
+		line := sc.Text()
+		if v, ok := strings.CutPrefix(line, "event: "); ok {
+			name = v
+		}
+		v, ok := strings.CutPrefix(line, "data: ")
+		if !ok || name != "log" {
+			continue
+		}
+		var d struct {
+			Key   string
+			Lines []struct{ Seq int }
+		}
+		json.Unmarshal([]byte(v), &d)
+		if d.Key == "c2" && len(d.Lines) > 0 {
+			again = fmt.Sprint(d.Lines[0].Seq)
+		}
+	}
+	if again != "1" {
+		t.Fatalf("first line again = %q, want 1", again)
 	}
 
 	// turned off: 204, and nothing more for it

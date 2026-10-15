@@ -39,13 +39,15 @@ func (s *server) eventLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	follow := fmt.Sprintf("%d:%s", in.SID, in.Key)
-	if old, ok := s.logFollows.LoadAndDelete(follow); ok {
-		close(old.(chan struct{}))
-	}
 	if !in.On {
+		if old, ok := s.logFollows.LoadAndDelete(follow); ok {
+			close(old.(chan struct{}))
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	// a bad ask (unknown source or console, another page's stream) leaves the
+	// follow it would replace running: it is only replaced below, once valid
 	if s.cfg.Ops == nil {
 		writeError(w, http.StatusNotImplemented, "chạy tiến trình đang tắt")
 		return
@@ -92,6 +94,11 @@ func (s *server) eventLog(w http.ResponseWriter, r *http.Request) {
 			id = ops.ActionKey(in.ID)
 		}
 		seq := in.From
+		// office restarted since the page saw line `from` (lines live in
+		// memory, numbered again from 1): send what there is from the start
+		if all, _, _ := s.cfg.Ops.Since(id, 0); len(all) == 0 || all[len(all)-1].Seq < seq {
+			seq = 0
+		}
 		for {
 			lines, wake, _ := s.cfg.Ops.Since(id, seq)
 			if len(lines) > 0 {
@@ -113,8 +120,8 @@ func (s *server) eventLog(w http.ResponseWriter, r *http.Request) {
 }
 
 // followComposeLogs runs `docker compose logs --follow` for one service until
-// the page stops following, its lines numbered from 1 (a new follow starts
-// over: the page clears what it had).
+// its logs end or the page stops following, its lines numbered from 1 (a new
+// follow starts over: the page clears what it had).
 func (s *server) followComposeLogs(sub *events.Sub, stop <-chan struct{}, projectID, file, service string, send func([]ops.Line) bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -122,6 +129,7 @@ func (s *server) followComposeLogs(sub *events.Sub, stop <-chan struct{}, projec
 		select {
 		case <-stop:
 		case <-sub.Gone():
+		case <-ctx.Done(): // the logs ended on their own (container gone, docker error)
 		}
 		cancel()
 	}()
@@ -135,8 +143,9 @@ func (s *server) followComposeLogs(sub *events.Sub, stop <-chan struct{}, projec
 			cancel()
 		}
 	}
+	// returns when the logs end or the follow stops: nothing is left waiting
+	// (the page keeps what it has; a new stream's hello asks again)
 	if err := s.cfg.Ops.ComposeLogs(ctx, projectID, file, service, func(l string) { emit("out", l) }); err != nil && ctx.Err() == nil {
 		emit("sys", err.Error())
 	}
-	<-ctx.Done()
 }
