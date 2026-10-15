@@ -317,6 +317,31 @@ diff --git a/dashboard/app/layouts/default.vue b/dashboard/app/layouts/default.v
   if (!shopWorkflow) throw new Error('seed: demo-shop has no workflow (pack=council should seed one) — 41-workflow-edit/44-workflow-run need it')
   sql([conv('cnv_demo_council', lead, T('Council: new return policy', 'Hội đồng: chính sách đổi trả mới'), 40)])
   sql([`INSERT INTO workflow_runs (id, project_id, conversation_id, workflow_id, workflow_key, workflow_name, input, status, turns, cost_usd, result, roles, gates, log, actor, started_at, finished_at) VALUES ('run_demo_council', ${q(shop.id)}, 'cnv_demo_council', ${q(shopWorkflow.id)}, ${q(shopWorkflow.key)}, ${q(shopWorkflow.name)}, ${q(T('Should we extend the return window to 30 days?', 'Có nên kéo dài thời hạn đổi trả lên 30 ngày?'))}, 'done', 3, 0.0412, ${q(T('Approved: extend to 30 days, with a 10% restocking fee over 14 days.', 'Đồng ý: kéo dài lên 30 ngày, phí nhập lại 10% nếu quá 14 ngày.'))}, '[]', '[]', '[]', ${q('human:' + EMAIL)}, ${q(ts(40))}, ${q(ts(35))})`])
+  // linked projects (ADR-155): agent-office hands work to demo-shop, hears back,
+  // and a card waiting over there shows in its own chat (45-linked-chat)
+  await soft('linked', async () => {
+    const pol = await api('GET', `/api/projects/${ao.id}/policy`)
+    await api('PUT', `/api/projects/${ao.id}/policy`, { ...pol.policy, version: pol.version, linked_projects: [shop.id] })
+    const shopAgent = (await api('GET', `/api/projects/${shop.id}`)).project.agents?.[0]
+    const there = 'cnv_demo_shop_req'
+    const req = T('Add a "mockups" admin page: a list (preview, template, status, AI-generated or uploaded) and a New button (upload or generate).', 'Làm trang quản trị "mockup": danh sách (ảnh, template, trạng thái, AI tạo hay tải lên) và nút Thêm mới (tải lên hoặc generate).')
+    const done = T('Done: `pages/mockups/index.vue` lists mockups with filters, and **New** opens upload or generate.\n\n- `pnpm test` passes in my worktree\n- Waiting for approval to run the e2e check', 'Xong: `pages/mockups/index.vue` liệt kê mockup có bộ lọc, nút **Thêm mới** mở tải lên hoặc generate.\n\n- `pnpm test` đạt trong worktree của mình\n- Đang chờ duyệt để chạy kiểm tra e2e')
+    const from = { relayed_from: 'cnv_demo_linked', relayed_from_title: T('Mockup admin page', 'Trang quản trị mockup'), relayed_by_agent: lead.name, relayed_from_project: 'agent-office', relay_hops: 1 }
+    const back = { relayed_from: there, relayed_from_title: T('Mockup admin page', 'Trang quản trị mockup'), relayed_by_agent: shopAgent.name, relayed_from_project: 'demo-shop', relayed_from_project_id: shop.id, relay_hops: 2, relay_report: true }
+    const ctxMsg = (id, cid, role, author, content, ctx, minutesAgo) => `INSERT INTO messages (id, conversation_id, role, content, tools, author, context, created_at) VALUES (${q(id)}, ${q(cid)}, ${q(role)}, ${q(content)}, '[]', ${q(author)}, ${q(ctx ? JSON.stringify(ctx) : '')}, ${q(ts(minutesAgo))})`
+    sql([
+      conv('cnv_demo_linked', lead, T('Mockup admin page', 'Trang quản trị mockup'), 6),
+      `INSERT INTO conversations (id, project_id, agent_id, agent_name, title, created_by, created_at, updated_at) VALUES (${q(there)}, ${q(shop.id)}, ${q(shopAgent.id)}, ${q(shopAgent.name)}, ${q(T('Mockup admin page', 'Trang quản trị mockup'))}, ${q('human:' + EMAIL)}, ${q(ts(9))}, ${q(ts(7))})`,
+      msg('msg_demo_l1', 'cnv_demo_linked', 'user', me.name || 'Alex', T('Have demo-shop build the mockup admin page we agreed on.', 'Nhờ bên demo-shop làm trang quản trị mockup như đã bàn.'), 10),
+      msg('msg_demo_l2', 'cnv_demo_linked', 'assistant', lead.name, T('I opened a chat in **demo-shop** with the full request; its answer will come back here.', 'Mình đã mở chat bên **demo-shop** kèm yêu cầu đầy đủ; câu trả lời sẽ tự về đây.'), 9),
+      `INSERT INTO actions (id, project_id, conversation_id, message_id, kind, target, target_id, reason, status, detail, proposed_by, created_at, args) VALUES ('act_demo_linked_send', ${q(ao.id)}, 'cnv_demo_linked', 'msg_demo_l2', 'send_message', ${q('demo-shop · ' + T('new chat', 'chat mới'))}, ${q(there)}, '', 'done', '', ${q(lead.name)}, ${q(ts(9))}, ${q(JSON.stringify({ message: req, project: shop.id }))})`,
+      ctxMsg('msg_demo_s1', there, 'user', 'human:' + EMAIL, req, from, 9),
+      ctxMsg('msg_demo_s2', there, 'assistant', shopAgent.name, done, null, 7),
+      `INSERT INTO actions (id, project_id, conversation_id, message_id, kind, target, reason, status, proposed_by, created_at) VALUES ('act_demo_shop_e2e', ${q(shop.id)}, ${q(there)}, 'msg_demo_s2', 'run_command', 'pnpm run e2e', ${q(T('Check the new page end to end', 'Kiểm tra trang mới từ đầu đến cuối'))}, 'pending', ${q(shopAgent.name)}, ${q(ts(7))})`,
+      ctxMsg('msg_demo_l3', 'cnv_demo_linked', 'user', 'human:' + EMAIL, T('↩ Report from **demo-shop** (', '↩ Báo lại từ **demo-shop** (') + shopAgent.name + T('), [its chat](', '), [chat bên đó](') + `/projects/${shop.id}?tab=chat&c=${there}):\n\n` + done, back, 6),
+      msg('msg_demo_l4', 'cnv_demo_linked', 'assistant', lead.name, T('demo-shop finished the page. One card waits for you below: the e2e check over there.', 'Bên demo-shop đã làm xong trang. Còn một thẻ chờ bạn duyệt bên dưới: chạy kiểm tra e2e bên đó.'), 5)
+    ])
+  })
   return { ao, shop, content, lead, dev }
 }
 
@@ -468,6 +493,18 @@ async function capture({ ao, shop, lead }) {
     ['04a-new-project-idea', '/projects', openIdeaModal],
     ['04-chat', `${P}?tab=chat&c=cnv_demo_theme`],
     ['05-chat-answer', `${P}?tab=chat&c=cnv_demo_build`],
+    // linked projects (ADR-155): a report back (opened) and the other side's card, decided here
+    ['45-linked-chat', `${P}?tab=chat&c=cnv_demo_linked`, async () => {
+      await page.eval(`(() => { document.querySelector('[id="m-msg_demo_l3"] summary')?.click(); return true })()`)
+      await sleep(400)
+    }],
+    // the header bell: what needs you, each with its buttons (ADR-156)
+    ['46-bell', '/', async () => {
+      // a headless tab runs no animation: the list would stay half faded in
+      const opened = await page.eval(`(() => { const st = document.createElement('style'); st.textContent = '*{animation:none!important;transition:none!important}'; document.head.append(st); const b = [...document.querySelectorAll('button[aria-label]')].find(e => /need you|cần xử lý/.test(e.getAttribute('aria-label'))); b?.click(); return !!b })()`)
+      if (!opened) throw new Error('bell not found')
+      await sleep(800)
+    }],
     // a phone: the box hides behind a button until asked for; open it to see its toolbar
     ...(MOBILE ? [['05b-chat-compose', `${P}?tab=chat&c=cnv_demo_build`, async () => {
       const opened = await page.eval(`(() => { const b = document.querySelector('button[aria-label="Viết tin nhắn"], button[aria-label="Write a message"]'); b?.click(); return !!b })()`)

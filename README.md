@@ -42,7 +42,7 @@ AI coding tools are great one chat at a time. Real work is more than that: sever
 | 🔌 **One MCP gateway** · the office holds MCP servers (HTTP, stdio, OAuth login) and forwards them to every AI with per-tool permissions and a call log | ![MCP](docs/guide/images/15-mcp.png) |
 | 💸 **Costs & limits** · every AI call logged with real or estimated cost, daily budgets per office/project/automation, fallback connections when one fails | ![Costs](docs/guide/images/27-stats.png) |
 
-More: long-term agent memory, office assistant across projects, multi-pane **Watch** screen, change log of who did what and who approved it, Files tab with an editor, users & roles, personal API tokens, export/import config, backup, self-update from source, light/dark, English/Vietnamese.
+More: **linked projects** (an agent hands work to another project's agent in a chat there, hears back on its own, and you approve the other side's cards from your chat), a notification bell and browser notifications with Approve / Skip buttons, long-term agent memory, office assistant across projects, multi-pane **Watch** screen, change log of who did what and who approved it, Files tab with an editor, users & roles, personal API tokens, export/import config, backup, self-update from source, light/dark, English/Vietnamese.
 
 ## An office that upgrades itself
 

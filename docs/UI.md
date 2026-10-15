@@ -10,7 +10,7 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 |---|---|---|---|
 | `/` | Tổng quan | 3 tab qua `?tab=`: **Việc** (mặc định — cần xử lý mọi project trừ Trợ lý office, việc gần đây, badge đếm trên sidebar), **Thống kê** (chi phí/lượt chạy theo ngày · project · model, 7/30/90 ngày — ADR-060), **Máy** (admin: trạng thái máy, kết nối AI, bước thiết lập ban đầu) | |
 | `/projects` | Danh sách project | Project đang quản lý (ADR-017: có thư mục, clone git, hoặc không thư mục — toàn máy) | Thêm project (chọn gói khởi tạo — ADR-099) |
-| `/projects/:id?tab=…` | Project | Thanh tiêu đề gọn (menu `⋯` sửa tên/mô tả, thiết lập AI), 1 dòng thông tin (đường dẫn · git · mô tả rút gọn). Tab: **Chat**, **Tự động hoá** (lịch/webhook/bot), **Vận hành** (Tiến trình · Container · Giám sát), **Agent** (danh sách agent, agent mặc định, tạm dừng, lịch sử, xuất, áp gói — ADR-099), **Quy trình** (cài từ thư viện, gán vai, bật/tắt, sửa — ADR-098; mục Lần chạy — ADR-101), **Quyền** (lệnh, file cấm sửa); chỉ admin thấy thêm: **Files**, **Skill**, **MCP**, **Burn**, **Nhật ký sửa**; và **Thông tin** (budget, git, mô tả) | tuỳ tab |
+| `/projects/:id?tab=…` | Project | Thanh tiêu đề gọn (menu `⋯` sửa tên/mô tả, thiết lập AI), 1 dòng thông tin (đường dẫn · git · mô tả rút gọn). Tab: **Chat**, **Tự động hoá** (lịch/webhook/bot), **Vận hành** (Tiến trình · Container · Giám sát), **Agent** (danh sách agent, agent mặc định, tạm dừng, lịch sử, xuất, áp gói — ADR-099), **Quy trình** (cài từ thư viện, gán vai, bật/tắt, sửa — ADR-098; mục Lần chạy — ADR-101), **Quyền** (lệnh, file cấm sửa, project liên kết — ADR-155); chỉ admin thấy thêm: **Files**, **Skill**, **MCP**, **Burn**, **Nhật ký sửa**; và **Thông tin** (budget, git, mô tả) | tuỳ tab |
 | `/projects/:id/setup` | Thiết lập AI | Quét project, đọc agent có sẵn, đề xuất gói khởi tạo + tinh chỉnh agent (ADR-018) | Tạo / Chỉnh / Hủy |
 | `/projects/:id/agents/:agentId` | Agent | Số liệu (lượt chạy, chi phí, tỉ lệ lỗi theo ngày/model), việc + chat gần đây, lịch sử sửa cấu hình (khôi phục được) | Sửa cấu hình, từng thẻ tự lưu |
 | `/projects/:id/automations/new`, `/automations/:aid`, `/automations/:aid/edit` | Tự động hoá | Tạo/sửa 1 automation (lịch, webhook, điều kiện, script hoặc chat); xem 1 cái: trạng thái, bật/tắt, Việc đã chạy | Chạy thử, sửa, xoá, copy URL webhook |
@@ -22,7 +22,7 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 | `/projects/:id/burn/reviews` | Hồ sơ review của Burn (admin) | Danh sách hồ sơ; mỗi hồ sơ: tên, từng bước (vấn đề, cách làm, kết quả) bật/tắt kèm agent và quy trình review riêng — ADR-113 | Tạo, lưu, xóa |
 | `/workflows/edit?key=`, `/projects/:id/workflows/edit?w=` | Soạn quy trình | Canvas kéo thả (bước, agent, quy trình con; form điền phần thiếu, Đầu vào/Đầu ra — ADR-108), văn bản, và chat (`purpose=workflow`, nút ở góc mở khung bên phải như chat hỗ trợ, không chặn thao tác trên canvas; tab văn bản trên desktop thì chat mở sẵn, chia đôi màn hình); ba cách cùng sửa một file | Lưu |
 | `/jobs` | Job | Mọi lượt chạy (chat, Việc, automation) của mọi project: trạng thái, lọc theo project, lỗi 24h, chi phí 24h | |
-| `/agents` | Thư viện agent | Duyệt mẫu agent (lọc mảng, tìm, xem hướng dẫn); admin chọn project rồi **Thêm vào project** (mở tab Agent với form điền sẵn) | Thêm vào project |
+| `/agents` | Thư viện agent | Duyệt mẫu agent (lọc mảng, tìm, xem hướng dẫn; ✕ hoặc bấm lại thẻ để đóng); admin chọn project rồi **Thêm vào project** (mở tab Agent với form điền sẵn) | Thêm vào project |
 | `/providers` | Kết nối AI | Danh sách kết nối (Anthropic, OpenAI, API tương thích, CLI…), gửi thử, thống kê theo kết nối | Thêm / Sửa / Xoá / Đặt mặc định |
 | `/watch` | Theo dõi | Nhiều khung chat của các project cạnh nhau, chia dọc/ngang, lưu trong trình duyệt (không đồng bộ máy khác) | Thêm/xoá khung |
 | `/assistant` | Trợ lý office | Chat với trợ lý office (project ảo, không gắn thư mục, dùng để quản lý chính office) | |
@@ -36,6 +36,8 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 `/costs` và `/incidents` đã bỏ, gộp vào Tổng quan (`/`): biểu đồ chi phí + danh sách cần xử lý (ADR-060, ADR-051); hai đường dẫn cũ chuyển hướng về `/`. Không có trang `/setup` (chỉ `/projects/:id/setup`), `/agents/:id` (thay bằng `/projects/:id/agents/:agentId`), `/blackboard`, hay `/ask` — đó là thiết kế sơ khai ban đầu, chưa từng lên app thật.
 
 Sidebar 4 nhóm (xem `dashboard/app/layouts/default.vue`): **Project** (5 project mở nhiều nhất gần đây — đếm trong localStorage, mỗi project mở rộng ra các tab con; "Tất cả project" mở `/projects`); **Làm việc** (Trợ lý office, Theo dõi, Tổng quan có badge đếm, Job, Kết nối AI); **Thư viện** (Agent `/agents` — xem mẫu và thêm vào project, ADR-153/154; Skills, MCP servers, Quy trình — chỉ admin); **Admin** (Người dùng, Nhật ký, Chuyển máy, Cập nhật).
+
+Header (admin): chuông "cần xử lý" mở danh sách, mỗi mục có nút theo loại (Duyệt/Bỏ qua, Đã xem, Tiếp tục, Ẩn, Mở) và nút bật thông báo trình duyệt; mục mới hiện toast góc trên phải và thông báo trình duyệt (service worker `public/sw.js`) với cùng nút (ADR-156). Kèm vòng kết nối AI, số agent, tiến trình, CPU/RAM.
 
 ## Luồng người dùng
 
@@ -84,7 +86,7 @@ Base `/api`. Auth bằng cookie phiên `office_session` sau khi đăng nhập t�
 | POST | `/api/revisions/:id/restore` | admin | Khôi phục (tạo snapshot hiện tại trước) |
 | GET | `/api/projects/:id/chat/agents` | đăng nhập | Agent trò chuyện được |
 | GET/POST | `/api/projects/:id/conversations` | đăng nhập | Danh sách / tạo cuộc trò chuyện `{agent_id?}` |
-| GET/DELETE | `/api/conversations/:id` | đăng nhập | Tin nhắn kèm đề xuất diff |
+| GET/DELETE | `/api/conversations/:id` | đăng nhập | Tin nhắn kèm đề xuất diff; `linked_pending`: thẻ đề xuất/diff đang chờ ở chat project liên kết mà chat này đã giao việc (ADR-155); tin báo lại có `report` |
 | POST | `/api/conversations/:id/messages` | đăng nhập | `{text}` → `turn_id`; 429 hết ngân sách, 409 đang bận |
 | GET | `/api/chat/turns/:id/stream` | đăng nhập | SSE: text, tool, status, patch, done, error |
 | POST | `/api/chat/turns/:id/cancel` | đăng nhập | Dừng |

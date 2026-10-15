@@ -225,6 +225,13 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
     <figure><img src="images/27-stats.png" alt="Stats tab" loading="lazy"><figcaption>Performance: spending and activity over time.</figcaption></figure>
     <figure><img src="images/37-machine.png" alt="Machine tab" loading="lazy"><figcaption>Machine: health and setup checklist.</figcaption></figure>
   </div>
+  <h3>Bell and notifications</h3>
+  <ul>
+    <li>The bell in the header counts what needs you. Click it for the list, each item with its buttons right there: <b>Approve / Skip</b> (a card waiting), <b>Mark seen</b> (a chat answered), <b>Continue</b> (a chat stopped for tokens), <b>Hide</b>, and <b>Open</b>.</li>
+    <li>Something new shows a toast in the top corner with the same buttons; a card to approve stays until you decide it.</li>
+    <li>Press <b>Turn on browser notifications</b> in the list to get notifications with Approve / Skip even from another tab (at least one dashboard tab must be open; Safari shows no buttons). On macOS, set Chrome's notification style to <b>Alerts</b> to see the buttons.</li>
+  </ul>
+  <figure><img src="images/46-bell.png" alt="The bell's list" loading="lazy"><figcaption>The bell: each thing that needs you, with its buttons in the list.</figcaption></figure>
   <div class="callout tip"><strong>Live updates</strong>The dashboard keeps one server-sent-events connection open. New messages, job results and status changes appear without refreshing.</div>
 </section>
 
@@ -324,6 +331,14 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
     <li>Attach images, PDFs, text files or logs (drag, paste, or the paperclip).</li>
     <li>Agents can <b>delegate</b>: work runs in the background like a sub-agent, and the result comes back into the chat.</li>
   </ul>
+  <h3>Handing work to another project</h3>
+  <ul>
+    <li>In <b>Permissions → Linked projects</b>, pick the projects this project's agents may hand work to (one way).</li>
+    <li>Say "have the admin project build the … page": the agent opens a chat there in your name with the full request. The agent there works in its own repo, with that project's permissions.</li>
+    <li>When it answers, the answer comes back to your chat as a <b>Report from …</b> card with its text folded. Your agent answers what it can on its own and asks you what needs your call. Follow-ups go into the same chat over there.</li>
+    <li>Cards waiting over there show right in your chat, to approve on the spot. Sending without asking needs the <b>Send to linked projects</b> permission.</li>
+  </ul>
+  <figure><img src="images/45-linked-chat.png" alt="Handing work to another project" loading="lazy"><figcaption>agent-office hands work to demo-shop: its report (opened) and demo-shop's waiting card, approved from this chat.</figcaption></figure>
   <h3>Organising chats</h3>
   <ul>
     <li><b>Tags</b>: add from the tag row or the <b>⋯</b> menu. Filter by several tags at once.</li>
@@ -358,18 +373,19 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
     <li><b>Reject</b>: the agent is told and can try another way.</li>
     <li><b>Skip</b>: dismiss without the agent running again. <b>Skip all</b> clears a project.</li>
   </ul>
-  <div class="callout tip"><strong>Approve from anywhere</strong>Cards also appear in Discord/Telegram with buttons, or use <code>/skip</code>. Deciding in one place updates the other.</div>
+  <div class="callout tip"><strong>Approve from anywhere</strong>From the header bell, a toast or a browser notification (see Overview). Cards also appear in Discord/Telegram with buttons, or use <code>/skip</code>. Deciding in one place updates the other.</div>
 </section>
 
 <!-- 11 -->
 <section id="permissions">
   <h2><span class="num">11</span>Permissions</h2>
   <p class="intro">Per action, per agent, with presets so you don't start from zero.</p>
-  <figure><img src="images/08-permissions.png" alt="Permissions" loading="lazy"><figcaption>The Permissions tab: the project's command packs and forbidden files.</figcaption></figure>
+  <figure><img src="images/08-permissions.png" alt="Permissions" loading="lazy"><figcaption>The Permissions tab: the project's command packs, forbidden files and linked projects.</figcaption></figure>
   <ul>
     <li><b>Command packs</b>: commands grouped by tool (Git, Go, Docker…), with read-only packs. Edit them or build your own.</li>
     <li><b>Command patterns</b>: <code>go test *</code>, <code>pnpm typecheck</code>… A trailing <code> *</code> allows any arguments, but dangerous flags (<code>-exec</code>, <code>--output</code>, <code>--no-index</code>, paths outside the project) are still blocked.</li>
     <li><b>Protected files</b>: secrets and files agents may never edit.</li>
+    <li><b>Linked projects</b>: projects whose chats the agents may open, send work to and read (see Chat → Handing work to another project).</li>
     <li><b>Administrator</b> is set on the agent. Automations inherit it or override it.</li>
   </ul>
 </section>

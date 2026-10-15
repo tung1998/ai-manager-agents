@@ -2349,3 +2349,21 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - `GET /api/agent-library` chỉ trả khung (tên, vai trò, mô tả, mảng, số từ; đọc một lần rồi giữ trong bộ nhớ). `GET /api/agent-library/{set}/{key}` đọc file đầy đủ khi mở; id sai hoặc có `..` trả 404.
   - Dashboard: mặc định lọc **Đề xuất**; thêm **Tất cả** và mảng **Thiết kế**; tìm kiếm thì tìm trên toàn bộ. Mở agent mới tải hướng dẫn; agent của agency có ghi chú "bản tiếng Anh, khá dài, nên rút gọn sau khi thêm".
 - **Không làm (lúc này):** AI rút gọn hoặc dịch lúc thêm; thư mục thư viện riêng của người dùng trên máy.
+
+## ADR-155: Project liên kết: agent giao việc cho project khác
+- **Bối cảnh (15/10):** mockup-generate cần nhờ admin-v3 làm trang admin theo yêu cầu đã bàn. Chat thuộc đúng một project; `delegate` chỉ gọi agent cùng project, `send_to_chat` không gửi sang project khác (chặn IDOR); trợ lý office (ADR-046) chỉ soạn sẵn tin (`handoff`). Đã cân nhắc "chat chung, agent khách", nhưng người dùng chỉ cần một bên mở chat, gửi việc và theo dõi bên kia.
+- **Quyết định:**
+  - `perm.Policy.LinkedProjects`: project này được với sang những project nào, **một chiều** (bên kia tự liên kết lại nếu cần). Sửa ở **Quyền & lệnh → Project liên kết** hoặc `propose_change` (policy). Lưu trong JSON policy nên không cần migration.
+  - `send_to_chat` có thêm `project`: không ghi `chat` thì mở **chat mới** ở project liên kết, dưới tên người đang chat; agent mặc định bên đó làm trong worktree và theo quyền của project đó. Ghi `chat` thì gửi tiếp vào chat đó (cùng project hoặc project liên kết). `read_link` và `search_history` (thêm `project`) đọc được chat của project liên kết. Project chưa liên kết và trợ lý office thì luôn bị chặn.
+  - Quyền mới `chat.cross` (gói Vận hành): gửi sang project liên kết không cần duyệt. Thiếu quyền này thì mỗi lần gửi là một thẻ chờ duyệt.
+  - **Báo lại:** agent bên kia trả lời xong một lượt bắt đầu từ tin được chuyển sang, thì câu trả lời tự về chat gốc ("↩ Báo lại từ …", context `relay_report`) và agent gốc chạy tiếp. Agent gốc tự cân nhắc: hỏi gì trả lời được từ những điều đã bàn thì tự gửi lại vào **đúng chat đó**, cần người quyết thì hỏi người. Tin báo lại không bao giờ tự dội ngược lại bên kia. Đếm lượt trong chuỗi (`relay_hops`), tối đa 10 (như `maxHopsPerson`); quá giới hạn thì dừng và ghi chú.
+  - Chat gốc giữ danh sách các chat đã giao việc bên kia (`target_id` của lệnh gửi, hoặc nhận ra qua tin báo lại). Prompt liệt kê các chat đó: việc nối tiếp gửi vào chat cũ, chỉ mở chat mới cho việc tách riêng. Prompt cũng nói rõ chat bên kia là bản chụp worktree, nên chỉ giao việc code, không giao pull/merge.
+  - Thẻ đề xuất và diff đang chờ ở các chat đó hiện ngay trong chat gốc (`linked_pending` của `GET /api/conversations/{id}`), duyệt tại chỗ. Tin báo lại hiện thành thẻ: nguồn, link chat bên kia, nội dung thu gọn.
+- **Không làm (lúc này):** một chat có agent của nhiều project; liên kết hai chiều tự động; giao việc chéo project từ bot hoặc tự động hóa (chỉ lượt do người gửi mới được nói thay người).
+
+## ADR-156: Thông báo duyệt nhanh: chuông, toast, thông báo trình duyệt
+- **Bối cảnh (15/10):** thẻ chờ duyệt nằm trong từng chat hoặc ở Tổng quan; header chỉ hiện một con số dẫn về `/`. Giao việc chéo project (ADR-155) sinh thẻ ở chat khác, người dùng muốn bấm duyệt ngay khi có thông báo.
+- **Quyết định:**
+  - Header: **chuông** thay con số "cần xử lý". Bấm vào mở danh sách (thẻ chờ duyệt lên đầu); mỗi mục có nút theo loại: chờ duyệt → **Duyệt / Bỏ qua**; tin chưa xem → **Đã xem**; chat dừng vì hết token → **Tiếp tục**; còn lại → **Ẩn**; luôn có **Mở**. Ở đó cũng có nút bật thông báo trình duyệt.
+  - Có mục mới (từ `incidents` office đẩy qua SSE): **toast ở góc trên phải** với cùng các nút (thẻ chờ duyệt thì toast ở lại tới khi xử lý, loại khác 30 giây; quá 3 mục cùng lúc thì gom thành một toast), cùng **thông báo trình duyệt** qua service worker `public/sw.js` (tối đa 2 nút; thẻ chờ duyệt thì `requireInteraction`). Nút trên thông báo gọi API bằng cookie phiên của dashboard. Mục được xử lý ở nơi khác thì toast và thông báo của nó tự đóng. Đang mở đúng chat đó thì không hiện toast.
+- **Không làm (lúc này):** Web Push (VAPID): thông báo chỉ có khi đang mở ít nhất một tab dashboard; Safari không hiện nút trên thông báo.
