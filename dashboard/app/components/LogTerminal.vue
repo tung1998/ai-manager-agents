@@ -1,6 +1,12 @@
 <script setup lang="ts">
-// Terminal-like log view fed by an SSE endpoint sending `lines` events.
-interface Line { seq: number, text: string, stream: 'out' | 'err' | 'sys', time: string }
+// Terminal-like log view of a console: a process's output, the compose
+// action's, a service's container logs. Followed on the tab's one event
+// stream (ADR-158), not an SSE of its own, so a board of consoles does not
+// take all the browser's connections to office; an address it does not know
+// still gets its own stream.
+import type { LogLine, LogSpec } from '~/composables/useDataSync'
+
+type Line = LogLine
 const { t, dateLocale } = useLang()
 
 // fill: takes its box's height (a watch box) instead of a fixed one
@@ -9,20 +15,44 @@ const lines = ref<Line[]>([])
 const el = ref<HTMLElement | null>(null)
 const follow = ref(true)
 let source: EventSource | null = null
+let stopLog: (() => void) | null = null
 
-watch(() => props.url, (url) => {
+// the console an address names (the addresses the panels have always used)
+function specOf(url: string): LogSpec | null {
+  const u = new URL(url, 'http://x')
+  let m = u.pathname.match(/^\/api\/processes\/([^/]+)\/stream$/)
+  if (m) return { source: 'process', id: decodeURIComponent(m[1]!) }
+  m = u.pathname.match(/^\/api\/projects\/([^/]+)\/compose\/action\/stream$/)
+  if (m) return { source: 'action', id: decodeURIComponent(m[1]!) }
+  m = u.pathname.match(/^\/api\/projects\/([^/]+)\/compose\/logs$/)
+  if (m) return { source: 'compose', id: decodeURIComponent(m[1]!), file: u.searchParams.get('file') ?? '', service: u.searchParams.get('service') ?? '' }
+  return null
+}
+
+function add(more: Line[]) {
+  lines.value = [...lines.value, ...more].slice(-3000)
+  if (follow.value) nextTick(() => el.value?.scrollTo({ top: el.value.scrollHeight }))
+}
+function close() {
   source?.close()
+  source = null
+  stopLog?.()
+  stopLog = null
+}
+watch(() => props.url, (url) => {
+  close()
   lines.value = []
   follow.value = true
-  if (!url) return
-  source = new EventSource(url)
-  source.addEventListener('lines', (ev) => {
-    const add = JSON.parse((ev as MessageEvent).data) as Line[]
-    lines.value = [...lines.value, ...add].slice(-3000)
-    if (follow.value) nextTick(() => el.value?.scrollTo({ top: el.value.scrollHeight }))
-  })
+  if (!url || !import.meta.client) return
+  const own = () => {
+    source = new EventSource(url)
+    source.addEventListener('lines', ev => add(JSON.parse((ev as MessageEvent).data) as Line[]))
+  }
+  const spec = specOf(url)
+  if (spec) stopLog = followLog(spec, add, () => { lines.value = [] }, () => { stopLog = null; own() })
+  else own()
 }, { immediate: true })
-onBeforeUnmount(() => source?.close())
+onBeforeUnmount(close)
 
 function onScroll() {
   const e = el.value

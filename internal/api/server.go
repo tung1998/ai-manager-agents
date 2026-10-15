@@ -111,6 +111,7 @@ type server struct {
 	build   buildInfo // what is running, read once at startup
 
 	turnFollows sync.Map // "sid:turn" → stop: answers a tab follows on its one stream (ADR-127)
+	logFollows  sync.Map // "sid:key" → stop: consoles a tab follows on its one stream (ADR-158)
 
 	automationMu    sync.Mutex             // guards automationLocks
 	automationLocks map[string]*sync.Mutex // one project's automation create/update/delete at a time (ADR-049 command dedupe)

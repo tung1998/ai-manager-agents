@@ -209,6 +209,55 @@ function onTurn(d: { turn: string, events: TurnEvent[] }) {
   }
 }
 
+// followLog follows a console (a process's output, the compose action's, a
+// service's container logs) on this tab's one stream too (ADR-158): a board
+// of consoles used to open an SSE each and took all the browser's
+// connections to office. fn gets new lines (after a reconnect: from the last
+// one seen; compose logs start over, reset says to clear). old: an office
+// from before this (no such route) — the console opens its own stream. Returns stop.
+export interface LogSpec { source: 'process' | 'action' | 'compose', id: string, file?: string, service?: string }
+export interface LogLine { seq: number, text: string, stream: 'out' | 'err' | 'sys', time: string }
+interface FollowedLog { spec: LogSpec, last: number, fn: (lines: LogLine[]) => void, reset: () => void, old?: () => void }
+const logs = new Map<string, FollowedLog>()
+let logSeq = 0
+export function followLog(spec: LogSpec, fn: (lines: LogLine[]) => void, reset: () => void, old?: () => void) {
+  const key = `l${++logSeq}`
+  const f: FollowedLog = { spec, last: 0, fn, reset, old }
+  logs.set(key, f)
+  void askLog(key, f)
+  return () => {
+    if (logs.get(key) !== f) return
+    logs.delete(key)
+    if (sid !== null) $fetch('/api/events/logs', { method: 'POST', body: { sid, key, on: false } }).catch(() => {})
+  }
+}
+async function askLog(key: string, f: FollowedLog) {
+  if (sid === null) return // the stream's hello asks
+  if (f.spec.source === 'compose' && f.last) { // docker's logs start over: so does the page
+    f.last = 0
+    f.reset()
+  }
+  try {
+    await $fetch('/api/events/logs', { method: 'POST', body: { sid, key, ...f.spec, from: f.last, on: true } })
+  } catch (e) {
+    // the router's own 404 (plain text): this office does not know the route
+    const err = e as { statusCode?: number, data?: unknown }
+    if ((err.statusCode === 404 || err.statusCode === 405) && typeof err.data === 'string' && logs.get(key) === f) {
+      logs.delete(key)
+      f.old?.()
+    }
+    /* otherwise gone, or the stream is reconnecting: its hello asks again */
+  }
+}
+function onLog(d: { key: string, lines: LogLine[] }) {
+  const f = logs.get(d.key)
+  if (!f) return
+  const fresh = (d.lines ?? []).filter(l => l.seq > f.last)
+  if (!fresh.length) return
+  f.last = fresh[fresh.length - 1]!.seq
+  try { f.fn(fresh) } catch { /* its own */ }
+}
+
 let retry: ReturnType<typeof setTimeout> | undefined
 let backoff = 1000
 export function startLive() {
@@ -234,6 +283,7 @@ export function startLive() {
   es.addEventListener('hello', (e) => {
     try { sid = JSON.parse((e as MessageEvent).data).sid } catch { sid = null }
     turns.forEach((f, id) => { void askTurn(id, f) }) // a new stream: follow them again from where they were
+    logs.forEach((f, key) => { void askLog(key, f) })
     onSysStream()
   })
   // "Cần xử lý", worked out by the server for this person: put in place
@@ -253,6 +303,9 @@ export function startLive() {
       eventListeners.get(name)?.forEach((fn) => { try { fn(data) } catch { /* its own */ } })
     })
   }
+  es.addEventListener('log', (e) => {
+    try { onLog(JSON.parse((e as MessageEvent).data)) } catch { /* a bad one */ }
+  })
   es.addEventListener('turn', (e) => {
     try { onTurn(JSON.parse((e as MessageEvent).data)) } catch { /* a bad one */ }
   })
