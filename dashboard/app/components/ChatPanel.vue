@@ -50,7 +50,7 @@ const composeOpen = ref(false)
 const iconOnPhone = { base: 'max-sm:!w-7 max-sm:!px-0', leading: 'max-sm:!ps-1.5', value: 'max-sm:hidden', trailing: 'max-sm:hidden' }
 const toast = useToast()
 const { t, when } = useLang()
-const { user: me } = useAuth()
+const { user: me, isAdmin } = useAuth()
 
 const _f1 = useLiveFetch<{ agents: Agent[], default_agent_id: string }>(() => `/api/projects/${props.projectId}/chat/agents`, { lazy: true })
 const { data: agentsData } = _f1
@@ -718,6 +718,40 @@ const staleCards = computed(() => {
   return stale
 })
 
+// "Duyệt tất cả": the chat's waiting cards, by their number. Approved last
+// first, all but the first are queued at once and run in order after it.
+// A very big diff is left to be approved on its own (PatchCard asks).
+const BIG_DIFF_FILES = 100
+const BIG_DIFF_SIZE = 1 << 20
+const bigDiff = (p: Patch) => p.files.length > BIG_DIFF_FILES || (p.size ?? p.diff.length) > BIG_DIFF_SIZE
+const waitingCards = computed(() => messages.value.flatMap(m => [
+  ...(m.actions ?? []).filter(a => a.status === 'pending').map(a => ({ m, kind: 'action' as const, id: a.id, seq: a.seq ?? 0, big: false })),
+  ...m.patches.filter(p => p.status === 'pending').map(p => ({ m, kind: 'patch' as const, id: p.id, seq: p.seq ?? 0, big: bigDiff(p) }))
+]).sort((a, b) => a.seq - b.seq))
+const approvingAll = ref(false)
+async function approveAll() {
+  const cards = waitingCards.value.filter(c => !c.big)
+  const left = waitingCards.value.length - cards.length
+  if (!cards.length || !confirm(t('chat.approveAllConfirm', { n: cards.length }))) return
+  approvingAll.value = true
+  try {
+    for (const c of [...cards].reverse()) {
+      if (c.kind === 'action') {
+        const res = await $fetch<{ action: ProposedAction }>(`/api/actions/${c.id}/approve`, { method: 'POST', body: {} })
+        c.m.actions = (c.m.actions ?? []).map(x => x.id === c.id ? { ...res.action, seq: x.seq } : x)
+      } else {
+        const res = await $fetch<{ patch: Patch }>(`/api/patches/${c.id}/approve`, { method: 'POST', body: {} })
+        onPatchUpdated(c.m, res.patch)
+      }
+    }
+    toast.add({ title: t('chat.approveAllDone', { n: cards.length }), description: left ? t('chat.approveAllBig', { n: left }) : undefined, color: 'success' })
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    approvingAll.value = false
+  }
+}
+
 function onPatchUpdated(msg: Message, p: Patch) {
   const i = msg.patches.findIndex(x => x.id === p.id)
   if (i >= 0) msg.patches[i] = { ...p, seq: msg.patches[i]!.seq }
@@ -913,6 +947,7 @@ onBeforeUnmount(() => {
       <div v-if="!single && !compact" class="flex items-center gap-1 border-b border-(--ui-border) p-2 md:hidden">
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-panel-left" :aria-label="t('chat.threads')" @click="threadsOpen = true" />
         <p class="min-w-0 flex-1 truncate text-sm font-medium">{{ current?.title || t('chat.newThreadTitle') }}</p>
+        <UButton v-if="isAdmin && waitingCards.length" size="sm" color="primary" variant="soft" icon="i-lucide-check-check" :label="t('chat.approveAll', { n: waitingCards.length })" :loading="approvingAll" :disabled="approvingAll" @click="approveAll" />
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-square-pen" :aria-label="t('chat.newThread')" @click="newConversation(pick)" />
       </div>
       <!-- compact (the corner chat): back, this chat's title (click to switch), a new one -->
@@ -925,6 +960,7 @@ onBeforeUnmount(() => {
             <UIcon name="i-lucide-chevron-down" class="size-4 shrink-0 text-(--ui-text-muted)" />
           </button>
         </UDropdownMenu>
+        <UButton v-if="isAdmin && waitingCards.length" size="sm" color="primary" variant="soft" icon="i-lucide-check-check" :label="t('chat.approveAll', { n: waitingCards.length })" :loading="approvingAll" :disabled="approvingAll" @click="approveAll" />
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" :aria-label="t('chat.newThread')" @click="newConversation()" />
         <slot v-if="pane" name="actions" />
       </div>
