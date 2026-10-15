@@ -1,5 +1,6 @@
 // Package mcpserver serves the office tools to Claude Code over MCP
-// (streamable HTTP, JSON responses, stateless). Each agent run gets its own
+// (streamable HTTP, JSON responses, stateless; both the 2026-07-28 protocol
+// and the legacy initialize one). Each agent run gets its own
 // bearer token bound to one project and revoked when the run ends, so an
 // agent can only read the project it works on.
 package mcpserver
@@ -7,10 +8,12 @@ package mcpserver
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +100,29 @@ func (s *Server) scope(r *http.Request) (officetools.Scope, bool) {
 	return officetools.Scope{}, false
 }
 
+// Protocol versions served (ADR-091): the modern one is stateless (per-request
+// _meta, server/discover); the legacy ones open with initialize.
+const modernVersion = "2026-07-28"
+
+var legacyVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26"}
+
+// supported lists every version served, newest first.
+func supported() []string { return append([]string{modernVersion}, legacyVersions...) }
+
+// _meta keys of the modern protocol
+const (
+	metaVersion    = "io.modelcontextprotocol/protocolVersion"
+	metaServerInfo = "io.modelcontextprotocol/serverInfo"
+)
+
+// MCP error codes of the modern protocol
+const (
+	codeHeaderMismatch     = -32020
+	codeUnsupportedVersion = -32022
+)
+
+const instructions = "Thông tin vận hành của project (tiến trình build/dev/test, docker compose, giám sát). Thao tác chỉ được đề xuất qua propose_action để người dùng duyệt."
+
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
@@ -114,6 +140,7 @@ type response struct {
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // ServeHTTP handles POST (JSON-RPC message or batch). GET (server stream) is
@@ -153,72 +180,164 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reqs = []request{one}
 	}
 	if err != nil {
-		writeJSON(w, response{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcError{Code: -32700, Message: "parse error"}})
+		writeJSON(w, http.StatusOK, response{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcError{Code: -32700, Message: "parse error"}})
 		return
 	}
-	var out []response
+	if batch && strings.Contains(string(body), metaVersion) { // the modern protocol has no batches
+		writeJSON(w, http.StatusBadRequest, response{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcError{Code: -32600, Message: "batch not supported in " + modernVersion}})
+		return
+	}
+	var (
+		out    []response
+		status = http.StatusOK
+	)
 	for _, q := range reqs {
 		if len(q.ID) == 0 { // notification: no reply
 			continue
 		}
-		out = append(out, s.handle(r, sc, q))
+		res, st := s.handle(r, sc, q)
+		out = append(out, res)
+		status = st
 	}
 	if len(out) == 0 {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	if batch {
-		writeJSON(w, out)
+	if batch { // legacy only: each answer carries its own error
+		writeJSON(w, http.StatusOK, out)
 		return
 	}
-	writeJSON(w, out[0])
+	writeJSON(w, status, out[0])
 }
 
-func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) response {
+// handle answers one request and says the HTTP status for it: a modern
+// request's protocol errors are 400 and an unknown method 404, so a client
+// that speaks both eras tells office from a legacy server.
+func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) (response, int) {
 	res := response{JSONRPC: "2.0", ID: q.ID}
+	var p struct {
+		Meta map[string]json.RawMessage `json:"_meta"`
+	}
+	_ = json.Unmarshal(q.Params, &p)
+	var version string
+	_ = json.Unmarshal(p.Meta[metaVersion], &version)
+	modern := version != ""
+	if modern {
+		if version != modernVersion {
+			res.Error = &rpcError{Code: codeUnsupportedVersion, Message: "Unsupported protocol version",
+				Data: map[string]any{"supported": []string{modernVersion}, "requested": version}}
+			return res, http.StatusBadRequest
+		}
+		if msg := mismatch(r, q); msg != "" {
+			res.Error = &rpcError{Code: codeHeaderMismatch, Message: msg}
+			return res, http.StatusBadRequest
+		}
+	}
+	var result map[string]any
 	switch q.Method {
 	case "initialize":
-		var p struct {
+		var ip struct {
 			ProtocolVersion string `json:"protocolVersion"`
 		}
-		_ = json.Unmarshal(q.Params, &p)
-		version := p.ProtocolVersion
-		if version == "" {
-			version = "2025-06-18"
+		_ = json.Unmarshal(q.Params, &ip)
+		v := ip.ProtocolVersion
+		if !slices.Contains(legacyVersions, v) { // one office does not speak: its newest legacy one
+			v = legacyVersions[0]
 		}
-		res.Result = map[string]any{
-			"protocolVersion": version,
+		result = map[string]any{
+			"protocolVersion": v,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "agent-office", "version": s.version},
-			"instructions":    "Thông tin vận hành của project (tiến trình build/dev/test, docker compose, giám sát). Thao tác chỉ được đề xuất qua propose_action để người dùng duyệt.",
+			"serverInfo":      s.info(),
+			"instructions":    instructions,
+		}
+	case "server/discover":
+		result = map[string]any{
+			"supportedVersions": supported(),
+			"capabilities":      map[string]any{"tools": map[string]any{}},
+			"instructions":      instructions,
+			"ttlMs":             3_600_000,
+			"cacheScope":        "private",
 		}
 	case "ping":
-		res.Result = map[string]any{}
+		result = map[string]any{}
 	case "tools/list":
 		list := []map[string]any{}
 		for _, t := range s.tools.ToolsFor(sc) {
 			list = append(list, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.Schema,
 				"annotations": map[string]any{"readOnlyHint": t.ReadOnly}})
 		}
-		res.Result = map[string]any{"tools": list}
+		result = map[string]any{"tools": list}
+		if modern { // tools depend on the token's scope: no shared cache
+			result["ttlMs"], result["cacheScope"] = 0, "private"
+		}
 	case "tools/call":
-		var p struct {
+		var cp struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
 		}
-		if err := json.Unmarshal(q.Params, &p); err != nil || !s.tools.Has(sc, p.Name) {
+		if err := json.Unmarshal(q.Params, &cp); err != nil || !s.tools.Has(sc, cp.Name) {
 			res.Error = &rpcError{Code: -32602, Message: "unknown tool"}
-			return res
+			return res, http.StatusOK
 		}
-		text, isErr := s.tools.Call(r.Context(), sc, p.Name, p.Arguments)
-		res.Result = map[string]any{"content": []map[string]any{{"type": "text", "text": text}}, "isError": isErr}
+		text, isErr := s.tools.Call(r.Context(), sc, cp.Name, cp.Arguments)
+		result = map[string]any{"content": []map[string]any{{"type": "text", "text": text}}, "isError": isErr}
 	default:
 		res.Error = &rpcError{Code: -32601, Message: "method not found: " + q.Method}
+		if modern {
+			return res, http.StatusNotFound
+		}
+		return res, http.StatusOK
 	}
-	return res
+	if modern || q.Method == "server/discover" {
+		result["resultType"] = "complete"
+		result["_meta"] = map[string]any{metaServerInfo: s.info()}
+	}
+	res.Result = result
+	return res, http.StatusOK
 }
 
-func writeJSON(w http.ResponseWriter, v any) {
+func (s *Server) info() map[string]any {
+	return map[string]any{"name": "agent-office", "version": s.version}
+}
+
+// mismatch checks the headers a modern request mirrors from its body
+// (MCP-Protocol-Version, Mcp-Method, Mcp-Name); a header that is there must
+// match. "" means fine.
+func mismatch(r *http.Request, q request) string {
+	if v := r.Header.Get("Mcp-Protocol-Version"); v != "" && v != modernVersion {
+		return "Header mismatch: MCP-Protocol-Version " + v + " does not match body " + modernVersion
+	}
+	if m := r.Header.Get("Mcp-Method"); m != "" && m != q.Method {
+		return "Header mismatch: Mcp-Method " + m + " does not match body " + q.Method
+	}
+	if n := r.Header.Get("Mcp-Name"); n != "" && q.Method == "tools/call" {
+		var p struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(q.Params, &p)
+		if dec, ok := decodeHeader(n); !ok || dec != p.Name {
+			return "Header mismatch: Mcp-Name does not match body name"
+		}
+	}
+	return ""
+}
+
+// decodeHeader undoes the =?base64?…?= form of a mirrored header value.
+func decodeHeader(v string) (string, bool) {
+	inner, ok := strings.CutPrefix(v, "=?base64?")
+	if !ok {
+		return v, true
+	}
+	inner, ok = strings.CutSuffix(inner, "?=")
+	if !ok {
+		return "", false
+	}
+	b, err := base64.StdEncoding.DecodeString(inner)
+	return string(b), err == nil
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }

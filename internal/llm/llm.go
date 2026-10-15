@@ -101,7 +101,7 @@ func DefaultTierModels(kind storage.ProviderKind) map[string]string {
 		return map[string]string{
 			storage.TierStrong:   "claude-opus-5-5",
 			storage.TierBalanced: "claude-sonnet-5",
-			storage.TierFast:     "claude-haiku-4-5",
+			storage.TierFast:     "claude-haiku-5-5",
 		}
 	case storage.ProviderGeminiCLI:
 		return map[string]string{

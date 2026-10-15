@@ -196,10 +196,7 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 		args = append(args, "--mcp-config", cfg)
 		for i := range args {
 			if args[i] == "--allowedTools" && i+1 < len(args) {
-				args[i+1] += " mcp__" + mcpserver.ServerName
-				for _, n := range req.Office.Gateway {
-					args[i+1] += " mcp__" + n
-				}
+				args[i+1] += officeAllow(req.Office)
 			}
 		}
 	}
@@ -518,6 +515,17 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
+// officeAllow is the allow rules for office's MCP servers, one per server
+// in the whole-name form mcp__<server>__*: since Claude Code 2.1.299 a bare
+// mcp__<server> no longer reaches every tool of a server.
+func officeAllow(o *OfficeAccess) string {
+	s := " mcp__" + mcpserver.ServerName + "__*"
+	for _, n := range o.Gateway {
+		s += " mcp__" + n + "__*"
+	}
+	return s
+}
+
 func writeMCPConfig(o *OfficeAccess) (string, error) {
 	auth := map[string]string{"Authorization": "Bearer " + o.Token}
 	servers := map[string]any{mcpserver.ServerName: map[string]any{"type": "http", "url": o.MCPURL, "headers": auth}}
@@ -603,11 +611,11 @@ func compactClaude(ctx context.Context, bin, dir, model, session string) (int, e
 	return post, nil
 }
 
-// windowOf is how many tokens a model holds: Haiku 200K, a "[1m]" model 1M,
-// else as its last run said (0: 200K, the safe guess).
+// windowOf is how many tokens a model holds: Haiku before 5 200K, a "[1m]"
+// model 1M, else as its last run said (0: 200K, the safe guess).
 func windowOf(model string, seen int) int {
 	switch {
-	case strings.Contains(model, "haiku"):
+	case strings.Contains(model, "haiku") && !strings.Contains(model, "haiku-5"):
 		return 200_000
 	case strings.Contains(model, "[1m]"):
 		return 1_000_000

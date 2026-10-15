@@ -142,7 +142,7 @@ func orPrefix(prefix, s, suffix string) string {
 }
 
 // DefaultModelsClaude are offered for CLI providers, which cannot list models.
-var DefaultModelsClaude = []string{"claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5", "claude-haiku-4-5"}
+var DefaultModelsClaude = []string{"claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"}
 
 func (c *claudeCLI) Complete(ctx context.Context, req Request) (Result, error) {
 	start := time.Now()

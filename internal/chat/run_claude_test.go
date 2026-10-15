@@ -186,3 +186,22 @@ func TestUserMCPSettingsHookRuns(t *testing.T) {
 		t.Fatalf("hook output %q: %v", out, err)
 	}
 }
+
+// Office's MCP servers are allowed in the whole-name form Claude Code 2.1.299
+// matches: mcp__<server>__*, one rule per server.
+func TestOfficeAllow(t *testing.T) {
+	got := officeAllow(&OfficeAccess{Gateway: []string{"github", "my-db"}})
+	if got != " mcp__office__* mcp__github__* mcp__my-db__*" {
+		t.Fatalf("allow rules: %q", got)
+	}
+}
+
+// Haiku before 5 holds 200K; Haiku 5.5 goes by what its last run said.
+func TestWindowOfHaiku(t *testing.T) {
+	if w := windowOf("claude-haiku-4-5", 0); w != 200_000 {
+		t.Fatalf("haiku 4.5: %d", w)
+	}
+	if w := windowOf("claude-haiku-5-5", 1_000_000); w != 1_000_000 {
+		t.Fatalf("haiku 5.5: %d", w)
+	}
+}

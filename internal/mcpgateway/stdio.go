@@ -655,7 +655,10 @@ func (g *Gateway) checkStdio(ctx context.Context, m storage.MCPServer) ([]storag
 // serveStdio answers a run's request from m's process: initialize from
 // office's cache, requests under office's own ids, notifications dropped
 // (office keeps the session with the process itself). Answers are plain
-// JSON; there is no server stream (GET is 405).
+// JSON; there is no server stream (GET is 405). Office opens the process
+// with the legacy initialize, so it answers as a legacy server: a modern
+// (2026-07-28) request gets a 400 without a modern error, and the client
+// falls back to initialize.
 func (g *Gateway) serveStdio(w http.ResponseWriter, r *http.Request, m storage.MCPServer, body []byte) (int, string) {
 	switch r.Method {
 	case http.MethodGet:
@@ -676,6 +679,10 @@ func (g *Gateway) serveStdio(w http.ResponseWriter, r *http.Request, m storage.M
 		}
 	} else {
 		msgs = []json.RawMessage{t}
+	}
+	if modernRequest(msgs) {
+		http.Error(w, "MCP "+m.Name+" (stdio qua office) chỉ nói MCP "+protocolVersion+": mở bằng initialize", http.StatusBadRequest)
+		return http.StatusBadRequest, ""
 	}
 	rpc, tool := describe(body)
 	start := time.Now()
@@ -742,6 +749,22 @@ func (g *Gateway) serveStdio(w http.ResponseWriter, r *http.Request, m storage.M
 	}
 	_, _ = w.Write(out[0])
 	return http.StatusOK, errMsg
+}
+
+// modernRequest says whether a message carries the MCP 2026-07-28 version in
+// its _meta (a client that skipped initialize).
+func modernRequest(msgs []json.RawMessage) bool {
+	for _, raw := range msgs {
+		var m struct {
+			Params struct {
+				Meta map[string]json.RawMessage `json:"_meta"`
+			} `json:"params"`
+		}
+		if json.Unmarshal(raw, &m) == nil && len(m.Params.Meta["io.modelcontextprotocol/protocolVersion"]) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // callErrMsg reports a tools/call result's own error: a JSON-RPC error, or a

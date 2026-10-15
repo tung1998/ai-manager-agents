@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -185,8 +186,10 @@ func (g *Gateway) checkHTTP(ctx context.Context, m *storage.MCPServer) ([]storag
 	return nil, ErrNeedsLogin
 }
 
-// request headers passed on to the server (never the run's Authorization)
-var passRequest = []string{"Accept", "Content-Type", "Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-Id"}
+// request headers passed on to the server (never the run's Authorization);
+// MCP 2026-07-28 mirrors the method, the name and marked tool arguments
+// (Mcp-Param-*) into headers a modern server checks against the body
+var passRequest = []string{"Accept", "Content-Type", "Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-Id", "Mcp-Method", "Mcp-Name"}
 
 // response headers passed back
 var passResponse = []string{"Content-Type", "Mcp-Session-Id", "Mcp-Protocol-Version"}
@@ -218,6 +221,14 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
+	}
+	// the policy goes by the body: mirrored headers that say otherwise do not
+	// reach a server that might route or authorize by them (MCP 2026-07-28)
+	if msg := headerMismatch(r.Header, body); msg != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write(rpcError(json.RawMessage("null"), codeHeaderMismatch, msg))
+		return
 	}
 	// the tool policy (ADR-093): a call that is not let through is answered here
 	callID, callTool, callArgs, isCall := callOf(body)
@@ -342,13 +353,59 @@ func (g *Gateway) send(ctx context.Context, r *http.Request, target string, body
 			up.Header.Set(h, v)
 		}
 	}
-	for k, v := range headers {
-		up.Header.Set(k, v)
+	for k, vs := range r.Header {
+		if strings.HasPrefix(k, "Mcp-Param-") {
+			up.Header[k] = vs
+		}
 	}
+	setHeaders(up.Header, headers)
 	if tok != "" {
 		up.Header.Set("Authorization", "Bearer "+tok)
 	}
 	return g.client().Do(up)
+}
+
+// setHeaders adds a server's stored headers, but never MCP's own (Mcp-*):
+// those mirror the body of each request.
+func setHeaders(h http.Header, headers map[string]string) {
+	for k, v := range headers {
+		if !strings.HasPrefix(http.CanonicalHeaderKey(k), "Mcp-") {
+			h.Set(k, v)
+		}
+	}
+}
+
+// headerMismatch checks the mirrored Mcp-Method and Mcp-Name headers, when
+// there, against the body; "" means they match.
+func headerMismatch(h http.Header, body []byte) string {
+	method, name := h.Get("Mcp-Method"), h.Get("Mcp-Name")
+	if method == "" && name == "" {
+		return ""
+	}
+	var one struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+			URI  string `json:"uri"`
+		} `json:"params"`
+	}
+	t := bytes.TrimSpace(body)
+	if len(t) == 0 || t[0] != '{' || json.Unmarshal(t, &one) != nil {
+		return "Header mismatch: Mcp-Method/Mcp-Name need a single JSON-RPC request"
+	}
+	if method != "" && method != one.Method {
+		return "Header mismatch: Mcp-Method does not match body method"
+	}
+	if name != "" {
+		want := one.Params.Name
+		if want == "" {
+			want = one.Params.URI
+		}
+		if dec, ok := decodeHeader(name); !ok || dec != want {
+			return "Header mismatch: Mcp-Name does not match body name"
+		}
+	}
+	return ""
 }
 
 // stream copies an SSE body, flushing as events arrive.

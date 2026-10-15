@@ -102,9 +102,10 @@ func denyText(m storage.MCPServer, tool string) string {
 	return fmt.Sprintf("Tool %s của MCP %s có ghi dữ liệu; lượt này chỉ được đọc nên không gọi được. Nhờ người dùng nâng quyền hoặc đánh dấu tool là tin cậy trên dashboard.", tool, m.Name)
 }
 
-// toolResult is an MCP tools/call result carrying text.
+// toolResult is an MCP tools/call result carrying text (resultType: MCP
+// 2026-07-28 wants it, earlier clients ignore it).
 func toolResult(text string, isErr bool) json.RawMessage {
-	b, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": text}}, "isError": isErr})
+	b, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": text}}, "isError": isErr, "resultType": "complete"})
 	return b
 }
 

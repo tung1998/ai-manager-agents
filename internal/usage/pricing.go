@@ -11,10 +11,15 @@ type Price struct {
 	Output     float64 `json:"output"`
 	CacheRead  float64 `json:"cache_read,omitempty"`  // 0: 10% of input
 	CacheWrite float64 `json:"cache_write,omitempty"` // 0: 125% of input
+	// a prompt over LongAbove tokens pays LongInput/LongOutput (Haiku 5.5:
+	// over 100K); 0: one price for any length
+	LongAbove  int     `json:"long_above,omitempty"`
+	LongInput  float64 `json:"long_input,omitempty"`
+	LongOutput float64 `json:"long_output,omitempty"`
 }
 
 // defaultPrices are Anthropic first-party list prices (claude-api reference,
-// cached 2026-09-25). Admins can override or add models (e.g. GPT) in settings.
+// cached 2026-09-25; Haiku 5.5 from the pricing page 2026-10-15). Admins can override or add models (e.g. GPT) in settings.
 var defaultPrices = map[string]Price{
 	"claude-fable-5-1":  {Input: 10, Output: 50, CacheRead: 0.25},
 	"claude-mythos-5-1": {Input: 10, Output: 50},
@@ -27,6 +32,7 @@ var defaultPrices = map[string]Price{
 	"claude-sonnet-5-5": {Input: 2, Output: 10, CacheRead: 0.20},
 	"claude-sonnet-5":   {Input: 2, Output: 10},
 	"claude-sonnet-4-6": {Input: 3, Output: 15},
+	"claude-haiku-5-5":  {Input: 0.10, Output: 0.50, CacheRead: 0.01, LongAbove: 100_000, LongInput: 0.50, LongOutput: 2.50},
 	"claude-haiku-4-5":  {Input: 1, Output: 5},
 }
 
@@ -66,5 +72,9 @@ func Estimate(model string, inputTokens, outputTokens int, overrides map[string]
 	if !ok {
 		return 0, false
 	}
-	return (float64(inputTokens)*p.Input + float64(outputTokens)*p.Output) / 1e6, true
+	in, out := p.Input, p.Output
+	if p.LongAbove > 0 && inputTokens > p.LongAbove {
+		in, out = p.LongInput, p.LongOutput
+	}
+	return (float64(inputTokens)*in + float64(outputTokens)*out) / 1e6, true
 }

@@ -129,3 +129,80 @@ func TestReadOnlyHint(t *testing.T) {
 		}
 	}
 }
+
+// A 2026-07-28 client opens with no initialize: version in each request's
+// _meta, server/discover for what office speaks; wrong versions, mirrored
+// headers that disagree and unknown methods answer with modern errors.
+func TestMCPModern(t *testing.T) {
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	ctx := context.Background()
+	st.Migrate(ctx)
+	p, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
+	s := New(officetools.New(st, nil, nil), "test")
+	srv := httptest.NewServer(s)
+	defer srv.Close()
+	tok, revoke := s.Grant(officetools.Scope{ProjectID: p.ID}, time.Minute)
+	defer revoke()
+
+	call := func(method, params string, headers map[string]string) (int, map[string]any) {
+		body := `{"jsonrpc":"2.0","id":1,"method":"` + method + `","params":` + params + `}`
+		req, _ := http.NewRequest("POST", srv.URL, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+tok)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	meta := func(v string) string {
+		return `{"_meta":{"io.modelcontextprotocol/protocolVersion":"` + v + `"}}`
+	}
+	h := func(method string) map[string]string {
+		return map[string]string{"Mcp-Protocol-Version": "2026-07-28", "Mcp-Method": method}
+	}
+
+	code, d := call("server/discover", meta("2026-07-28"), h("server/discover"))
+	res, _ := d["result"].(map[string]any)
+	if code != 200 || res["resultType"] != "complete" || res["supportedVersions"].([]any)[0] != "2026-07-28" {
+		t.Fatalf("discover: %d %v", code, d)
+	}
+	if res["_meta"].(map[string]any)["io.modelcontextprotocol/serverInfo"] == nil {
+		t.Fatalf("discover without serverInfo: %v", d)
+	}
+	code, l := call("tools/list", meta("2026-07-28"), h("tools/list"))
+	res, _ = l["result"].(map[string]any)
+	if code != 200 || res["resultType"] != "complete" || res["cacheScope"] != "private" || len(res["tools"].([]any)) == 0 {
+		t.Fatalf("tools/list: %d %v", code, l)
+	}
+	call1 := `{"name":"ops_overview","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}`
+	hc := h("tools/call")
+	hc["Mcp-Name"] = "=?base64?b3BzX292ZXJ2aWV3?=" // ops_overview, encoded
+	if code, c := call("tools/call", call1, hc); code != 200 || c["result"].(map[string]any)["resultType"] != "complete" {
+		t.Fatalf("tools/call: %d %v", code, c)
+	}
+
+	code, u := call("tools/list", meta("2099-01-01"), nil)
+	e, _ := u["error"].(map[string]any)
+	if code != 400 || e["code"] != float64(-32022) || e["data"].(map[string]any)["requested"] != "2099-01-01" {
+		t.Fatalf("unsupported version: %d %v", code, u)
+	}
+	hc["Mcp-Name"] = "monitor_detail"
+	if code, m := call("tools/call", call1, hc); code != 400 || m["error"].(map[string]any)["code"] != float64(-32020) {
+		t.Fatalf("header mismatch: %d %v", code, m)
+	}
+	if code, m := call("resources/list", meta("2026-07-28"), h("resources/list")); code != 404 || m["error"].(map[string]any)["code"] != float64(-32601) {
+		t.Fatalf("unknown method: %d %v", code, m)
+	}
+	// legacy initialize asking for a version office does not speak gets its newest legacy one
+	if _, i := call("initialize", `{"protocolVersion":"2026-07-28"}`, nil); i["result"].(map[string]any)["protocolVersion"] != "2025-11-25" {
+		t.Fatalf("initialize: %v", i)
+	}
+}
