@@ -3,6 +3,8 @@
 // instructions are read when it is opened. Picking one fills the new agent's
 // form (the parent's button, or a double click); it can also just be read as
 // a model for writing one's own.
+// tall: a page of its own (more rows than in a dialog)
+const props = defineProps<{ tall?: boolean }>()
 const emit = defineEmits<{ pick: [a: LibraryAgent] }>()
 const selected = defineModel<LibraryAgent>('selected')
 const { t } = useLang()
@@ -71,7 +73,7 @@ async function open(e: LibraryEntry, use = false) {
 
     <template v-else>
       <p class="text-xs text-(--ui-text-muted)">{{ t('team.lib.count', { n: shown.length }) }}</p>
-      <div class="grid gap-2 overflow-y-auto sm:grid-cols-2" :class="selected ? 'max-h-48' : 'max-h-96'">
+      <div class="grid gap-2 overflow-y-auto sm:grid-cols-2" :class="selected ? (props.tall ? 'max-h-72' : 'max-h-48') : (props.tall ? 'max-h-[65vh]' : 'max-h-96')">
         <button
           v-for="a in shown" :key="a.id" type="button"
           class="flex items-start gap-2.5 rounded-lg border p-2.5 text-left transition"
@@ -107,6 +109,7 @@ async function open(e: LibraryEntry, use = false) {
           <UIcon name="i-lucide-external-link" class="size-3.5" />{{ t('team.lib.source') }}
         </ULink>
       </div>
+      <slot name="actions" :agent="selected" />
     </div>
   </div>
 </template>

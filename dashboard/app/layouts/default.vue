@@ -96,11 +96,13 @@ const items = computed<NavigationMenuItem[][]>(() => {
     { label: t('assistant.title'), icon: 'i-lucide-sparkles', to: '/assistant' },
     { label: t('watch.title'), icon: 'i-lucide-layout-grid', to: '/watch' },
     { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/', badge: attention.value || undefined },
-    { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' }
+    { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' },
+    { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' }
   ]
-  const settings: NavigationMenuItem[] = [
-    { label: t('nav.settings'), type: 'label' },
-    { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' },
+  // what projects pick from: agents (ADR-153), skills, MCP servers, workflows
+  const library: NavigationMenuItem[] = [
+    { label: t('nav.library'), type: 'label' },
+    { label: t('nav.agents'), icon: 'i-lucide-bot', to: '/agents' },
     ...(isAdmin.value
       ? [
           { label: t('tools.skillsTab'), icon: 'i-lucide-sparkles', to: '/skills' },
@@ -134,7 +136,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
       ? { label: t('nav.allProjects'), icon: 'i-lucide-list', to: '/projects', exact: true }
       : { label: t('nav.addProject'), icon: 'i-lucide-plus', to: '/projects', exact: true }
   ]
-  return [projects, office, settings, admin]
+  return [projects, office, library, admin]
 })
 
 const userMenu = computed<DropdownMenuItem[][]>(() => [

@@ -117,6 +117,21 @@ async function add() {
   }
 }
 
+// from the agent library page (?add=<set>/<key>): the form opens filled
+const route = useRoute()
+onMounted(async () => {
+  const id = route.query.add
+  if (typeof id !== 'string' || !isAdmin.value) return
+  navigateTo({ query: { ...route.query, add: undefined } }, { replace: true })
+  try {
+    const res = await $fetch<{ agent: LibraryAgent }>(`/api/agent-library/${id}`)
+    openAdd()
+    pickLib(res.agent)
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  }
+})
+
 // ---- a starter pack: the first agents, or in place of these ----
 const packOpen = ref(false)
 const packKey = ref('')
