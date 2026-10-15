@@ -15,6 +15,7 @@ interface OldPane { kind: 'pane', widget?: WidgetKind, projectId: string, conver
 type OldNode = OldPane | { kind: 'split', children: OldNode[] }
 
 const KEY = 'office.watch.boards'
+export const MAX_BOARDS = 5
 const OLD_KEY = 'office.watch.layout' // one board, before dashboards
 const newId = () => Math.random().toString(36).slice(2, 10)
 const blank = (items: WatchItem[] = []): WatchBoard => ({ id: newId(), name: '', items, refresh: 30, projectId: '' })
@@ -125,14 +126,17 @@ export function useWatchLayout() {
   }
 
   // ---- dashboards ----
+  // listed under "Theo dõi" in the sidebar: a short list, so at most 5
+  const canAddBoard = computed(() => boards.value.length < MAX_BOARDS)
   function addBoard() {
+    if (!canAddBoard.value) return
     const b = blank()
     boards.value.push(b)
     activeId.value = b.id
   }
   function duplicateBoard(id: string) {
     const src = boards.value.find(b => b.id === id)
-    if (!src) return
+    if (!src || !canAddBoard.value) return
     const copy: WatchBoard = { ...JSON.parse(JSON.stringify(src)) as WatchBoard, id: newId(), name: src.name ? `${src.name} (2)` : '' }
     copy.items.forEach((i) => { i.id = newId() })
     boards.value.splice(boards.value.indexOf(src) + 1, 0, copy)
@@ -150,10 +154,10 @@ export function useWatchLayout() {
     if (b) Object.assign(b, patch)
   }
   function selectBoard(id: string) {
-    activeId.value = id
+    if (boards.value.some(b => b.id === id)) activeId.value = id
   }
 
   const count = computed(() => items.value.length)
 
-  return { boards, board, activeId, items, count, add, close, duplicate, setPane, setConfig, setSize, setLayout, clear, addBoard, duplicateBoard, removeBoard, updateBoard, selectBoard }
+  return { boards, board, activeId, items, count, canAddBoard, add, close, duplicate, setPane, setConfig, setSize, setLayout, clear, addBoard, duplicateBoard, removeBoard, updateBoard, selectBoard }
 }

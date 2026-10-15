@@ -52,6 +52,9 @@ onMounted(() => {
   watch(() => route.params.id as string | undefined, (id) => {
     if (id && !navOpen.value.includes(`project-${id}`)) navOpen.value = [...navOpen.value, `project-${id}`]
   }, { immediate: true })
+  watch(() => route.path === '/watch', (on) => {
+    if (on && !navOpen.value.includes('watch')) navOpen.value = [...navOpen.value, 'watch']
+  }, { immediate: true })
   watch(navOpen, (v) => {
     try {
       localStorage.setItem(OPEN_KEY, JSON.stringify(v))
@@ -106,13 +109,28 @@ let incTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => { incTimer = setInterval(() => refreshInc(), 60000) })
 onBeforeUnmount(() => clearInterval(incTimer))
 
+// the watch dashboards sit under "Theo dõi" (at most 5, ADR-159), + for a new one
+const watchLayout = useWatchLayout()
+const boardLabel = (b: { name: string }, i: number) => b.name || t('watchW.board.default', { n: i + 1 })
+const watchBoards = computed<NavigationMenuItem[]>(() => [
+  ...watchLayout.boards.value.map((b, i) => ({
+    label: boardLabel(b, i),
+    icon: 'i-lucide-layout-dashboard',
+    active: route.path === '/watch' && b.id === watchLayout.board.value?.id,
+    onSelect: () => { watchLayout.selectBoard(b.id); navigateTo('/watch') }
+  })),
+  ...(watchLayout.canAddBoard.value
+    ? [{ label: t('watchW.board.add'), icon: 'i-lucide-plus', onSelect: () => { watchLayout.addBoard(); navigateTo('/watch') } }]
+    : [])
+])
+
 const items = computed<NavigationMenuItem[][]>(() => {
   // office-wide pages: the day's work, then how office is set up
   const office: NavigationMenuItem[] = [
     { label: t('nav.work'), type: 'label' },
     // one place to follow the office: what needs a person is counted here
     { label: t('assistant.title'), icon: 'i-lucide-sparkles', to: '/assistant' },
-    { label: t('watch.title'), icon: 'i-lucide-layout-grid', to: '/watch' },
+    { value: 'watch', label: t('watch.title'), icon: 'i-lucide-layout-grid', to: '/watch', children: watchBoards.value },
     { label: t('nav.overview'), icon: 'i-lucide-layout-dashboard', to: '/', badge: attention.value || undefined },
     { label: t('nav.jobs'), icon: 'i-lucide-list-checks', to: '/jobs' },
     { label: t('nav.providers'), icon: 'i-lucide-plug', to: '/providers' }
