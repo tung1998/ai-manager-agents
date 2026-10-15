@@ -40,6 +40,24 @@ async function loadProjects() {
   } catch { /* signed out: the auth middleware redirects */ }
 }
 watch(() => route.path, loadProjects, { immediate: true })
+
+// which projects show their sections: opening one keeps the others open, only
+// a project's own arrow closes it (kept in this browser across reloads)
+const OPEN_KEY = 'office:nav-open'
+const navOpen = ref<string[]>([])
+onMounted(() => {
+  try {
+    navOpen.value = JSON.parse(localStorage.getItem(OPEN_KEY) ?? '[]')
+  } catch { /* broken or private mode: start closed */ }
+  watch(() => route.params.id as string | undefined, (id) => {
+    if (id && !navOpen.value.includes(`project-${id}`)) navOpen.value = [...navOpen.value, `project-${id}`]
+  }, { immediate: true })
+  watch(navOpen, (v) => {
+    try {
+      localStorage.setItem(OPEN_KEY, JSON.stringify(v))
+    } catch { /* private mode */ }
+  })
+})
 useLive(['repos', 'agents'], loadProjects) // added, renamed, removed: without leaving the page
 // what changes elsewhere shows up here (ADR-072): opened once signed in —
 // also right after the login page, where this layout stays mounted
@@ -129,7 +147,6 @@ const items = computed<NavigationMenuItem[][]>(() => {
       label: p.name,
       icon: p.scope === 'machine' ? 'i-lucide-monitor' : 'i-lucide-folder',
       to: { path: `/projects/${p.id}`, query: { tab: 'chat' } },
-      defaultOpen: route.params.id === p.id,
       children: projectSections(p.id)
     })),
     projectList.value.length
@@ -162,8 +179,7 @@ const userMenu = computed<DropdownMenuItem[][]>(() => [
       </template>
 
       <template #default="{ collapsed }">
-        <!-- remount when the open project or the list changes so its sections expand -->
-        <UNavigationMenu :key="`${route.params.id ?? ''}:${projectList.length}`" :collapsed="collapsed" :items="items" orientation="vertical" />
+        <UNavigationMenu v-model="navOpen" :collapsed="collapsed" :items="items" orientation="vertical" />
       </template>
 
       <template #footer="{ collapsed }">

@@ -3,7 +3,8 @@
 interface Line { seq: number, text: string, stream: 'out' | 'err' | 'sys', time: string }
 const { t, dateLocale } = useLang()
 
-const props = defineProps<{ url: string | null, title: string, subtitle?: string, empty?: string }>()
+// fill: takes its box's height (a watch box) instead of a fixed one
+const props = defineProps<{ url: string | null, title: string, subtitle?: string, empty?: string, fill?: boolean }>()
 const lines = ref<Line[]>([])
 const el = ref<HTMLElement | null>(null)
 const follow = ref(true)
@@ -35,7 +36,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString(dateLocale.value,
 </script>
 
 <template>
-  <div class="flex h-[26rem] max-h-[60vh] flex-col self-start overflow-hidden rounded-lg border border-(--ui-border) bg-neutral-950">
+  <div class="flex flex-col overflow-hidden rounded-lg border border-(--ui-border) bg-neutral-950" :class="fill ? 'h-full min-h-0' : 'h-[26rem] max-h-[60vh] self-start'">
     <div class="flex items-center gap-2 border-b border-white/10 px-3 py-2 text-xs text-neutral-400">
       <UIcon name="i-lucide-terminal" class="size-4 shrink-0" />
       <span class="truncate font-medium text-neutral-200">{{ title }}</span>
