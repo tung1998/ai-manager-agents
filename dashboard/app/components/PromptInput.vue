@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// Prompt box shared by Chat and Việc: "/" opens the project's skills, "#" its workflows, "@"
+// Prompt box shared by Chat and Việc: "/" opens the project's skills and commands, "#" its workflows, "@"
 // the agents to tag (Chat, ADR-044), files
 // can be attached (button, drag & drop, paste) and are uploaded right away.
 export interface Attachment { id: string, name: string, kind: 'image' | 'pdf' | 'text', mime: string, size: number }
-interface Skill { name: string, description: string, source: 'project' | 'user' | 'plugin' | 'workflow' }
+interface Skill { name: string, description: string, source: 'project' | 'user' | 'plugin' | 'workflow', kind?: 'skill' | 'command' }
 
 const props = withDefaults(defineProps<{
   projectId: string
@@ -67,7 +67,7 @@ const activeSkill = computed(() => {
   return workflows.value.find(s => s.name === m[2]) ?? (m[1] === '/' ? skills.value.find(s => s.name === m[2]) : undefined)
 })
 const sourceLabel = computed(() => ({ project: t('prompt.sourceProject'), user: t('prompt.sourceUser'), plugin: t('prompt.sourcePlugin'), workflow: t('wf.slashBadge') }))
-const skillIcon = (s: Skill) => s.source === 'workflow' ? 'i-lucide-workflow' : 'i-lucide-sparkles'
+const skillIcon = (s: Skill) => s.source === 'workflow' ? 'i-lucide-workflow' : s.kind === 'command' ? 'i-lucide-square-terminal' : 'i-lucide-sparkles'
 
 // The menu is teleported to <body> with fixed position so no scrolling or
 // overflow-hidden parent can clip it; it opens upward unless there is no room.

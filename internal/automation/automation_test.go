@@ -262,6 +262,33 @@ func TestSkillCall(t *testing.T) {
 	}
 }
 
+// Custom commands (.claude/commands/**/*.md) are called with "/" like skills;
+// a skill of the same name wins.
+func TestCommandCall(t *testing.T) {
+	home, proj := fixture(t)
+	write(t, filepath.Join(proj, ".claude/commands/fix.md"), "---\ndescription: Fix an issue\n---\nFix issue $1 then $ARGUMENTS")
+	write(t, filepath.Join(proj, ".claude/commands/fe/build.md"), "# Build the frontend\nrun it")
+	write(t, filepath.Join(home, ".claude/commands/review.md"), "shadowed by the skill")
+	write(t, filepath.Join(home, ".claude/plugins/cache/mk/plug/1.0/commands/go.md"), "go")
+	got := map[string]SkillRef{}
+	for _, s := range ProjectSkills(home, proj) {
+		got[s.Name] = s
+	}
+	if c := got["fix"]; c.Kind != "command" || c.Source != "project" || c.Description != "Fix an issue" {
+		t.Fatal(c)
+	}
+	if c := got["fe:build"]; c.Description != "Build the frontend" {
+		t.Fatal(c)
+	}
+	if got["review"].Kind != "skill" || got["plug:go"].Source != "plugin" {
+		t.Fatal(got)
+	}
+	p, s, err := ExpandSkillCall(home, proj, "/fix 42 fast")
+	if err != nil || s.Kind != "command" || !strings.Contains(p, "Fix issue 42 then 42 fast") {
+		t.Fatal(p, err)
+	}
+}
+
 // A skill written in office's editor: its files come with the request; saving
 // it again (edit) replaces it, the old one kept in the trash.
 func TestInstallSkillFromFiles(t *testing.T) {
