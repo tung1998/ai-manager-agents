@@ -43,7 +43,10 @@ type Manager struct {
 	// which every other method here still uses as the real *chat.Engine.
 	stopEngine stopEngine
 
-	mu       sync.Mutex
+	mu sync.Mutex
+	// decisions held for a conversation while others still wait (hold)
+	heldMu   sync.Mutex
+	held     map[string][]string
 	running  map[string]context.CancelFunc
 	adapters map[string]Adapter // by channel id: where answers go
 	ready    map[string]bool    // by channel id: connected (false while it connects)

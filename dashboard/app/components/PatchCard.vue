@@ -16,8 +16,8 @@ export interface Patch {
   seq?: number
 }
 
-// n: a number shown instead of seq; stale: from an older answer of its agent
-const props = defineProps<{ patch: Patch, n?: number, stale?: boolean }>()
+// stale: from an older answer of its agent
+const props = defineProps<{ patch: Patch, stale?: boolean }>()
 const emit = defineEmits<{ updated: [Patch] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
@@ -61,7 +61,7 @@ const statusMeta = computed<Record<Patch['status'], { label: string, color: 'war
 const BIG_FILES = 100
 const BIG_SIZE = 1 << 20
 const big = computed(() => props.patch.files.length > BIG_FILES || (props.patch.size ?? props.patch.diff.length) > BIG_SIZE)
-const num = computed(() => props.n ?? props.patch.seq)
+const num = computed(() => props.patch.seq)
 
 // skip: rejected, and its agent is not run again about it
 async function decide(approve: boolean, skip = false) {

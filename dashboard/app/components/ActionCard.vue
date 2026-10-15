@@ -26,9 +26,9 @@ export interface ProposedAction {
   seq?: number
 }
 
-// n: a number shown instead of seq; stale: from an older answer of its agent
-const props = defineProps<{ action: ProposedAction, projectId?: string, n?: number, stale?: boolean }>()
-const num = computed(() => props.n ?? props.action.seq)
+// stale: from an older answer of its agent
+const props = defineProps<{ action: ProposedAction, projectId?: string, stale?: boolean }>()
+const num = computed(() => props.action.seq)
 const emit = defineEmits<{ updated: [ProposedAction] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()

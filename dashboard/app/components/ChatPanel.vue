@@ -1108,10 +1108,10 @@ onBeforeUnmount(() => {
             <NuxtLink :to="`/projects/${lp.project_id}?tab=chat&c=${lp.conversation_id}`" class="ms-auto truncate text-primary hover:underline">{{ lp.title || t('chat.linkedOpen') }}</NuxtLink>
           </p>
           <ActionCard
-            v-for="(a, i) in lp.actions" :key="a.id" :action="a" :project-id="lp.project_id" :n="i + 1"
+            v-for="a in lp.actions" :key="a.id" :action="a" :project-id="lp.project_id"
             @updated="(na: ProposedAction) => lp.actions = lp.actions.map(x => x.id === na.id ? na : x)"
           />
-          <PatchCard v-for="(p, i) in lp.patches" :key="p.id" :patch="p" :n="lp.actions.length + i + 1" @updated="(np: Patch) => lp.patches = lp.patches.map(x => x.id === np.id ? np : x)" />
+          <PatchCard v-for="p in lp.patches" :key="p.id" :patch="p" @updated="(np: Patch) => lp.patches = lp.patches.map(x => x.id === np.id ? np : x)" />
         </div>
 
         <div v-if="streaming && !runs.some(r => r.status === 'running' && r.caller_conversation_id === current?.id)" class="space-y-2">

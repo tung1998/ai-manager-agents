@@ -25,8 +25,9 @@ import (
 // fakeDecider records the decisions it is asked for.
 type fakeDecider struct {
 	mu   sync.Mutex
-	done []string // "approve:kind:id:by"
-	err  error    // what it answers from now on (nil: it decides)
+	done []string      // "approve:kind:id:by"
+	err  error         // what it answers from now on (nil: it decides)
+	st   storage.Store // set: a decision is recorded, as the real one does
 }
 
 func (d *fakeDecider) setErr(err error) {
@@ -46,6 +47,15 @@ func (d *fakeDecider) Decide(_ context.Context, kind, id string, approve bool, b
 		v = "approve"
 	}
 	d.done = append(d.done, v+":"+kind+":"+id+":"+by)
+	if d.st != nil {
+		ctx := context.Background()
+		if kind == "patch" {
+			_ = d.st.Chat().DecidePatch(ctx, id, map[bool]string{true: "applied", false: "rejected"}[approve], "", by, time.Now())
+		} else if a, err := d.st.Actions().Get(ctx, id); err == nil {
+			a.Status = map[bool]string{true: "done", false: "rejected"}[approve]
+			_ = d.st.Actions().Update(ctx, a)
+		}
+	}
 	return "Thành công", nil
 }
 
@@ -76,7 +86,7 @@ func TestApprovalsFromChat(t *testing.T) {
 	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true,
 		Allow: []string{"7", "8"}, Approvers: []string{"7"}})
 	m := channels.NewManager(st, engine, runner, func(storage.Channel) (channels.Adapter, error) { return bot, nil })
-	dec := &fakeDecider{}
+	dec := &fakeDecider{st: st}
 	m.SetDecider(dec)
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -198,4 +208,91 @@ func TestDecidedOnDashboard(t *testing.T) {
 		}
 	}
 	t.Fatal("the bot did not go on")
+}
+
+// "/approve all" goes in the order the proposals must be decided, stops at a
+// very big diff (approved alone, with "ok"), and the agent goes on only once
+// nothing of its conversation waits, with every decision made meanwhile.
+func TestApproveAllStopsAtBigDiff(t *testing.T) {
+	ctx := context.Background()
+	tmp := t.TempDir()
+	st, _ := sqlite.Open(filepath.Join(tmp, "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	box, _ := secrets.Load(filepath.Join(tmp, "k"))
+	provs := provider.NewService(st, box, llm.Options{})
+	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	solo, _ := team.PackByKey("solo")
+	team.NewService(st, nil).ApplyPack(ctx, project.ID, solo, false)
+	engine := chat.NewEngine(st, provs, usage.New(st, time.UTC))
+	runner := trigger.New(st, chatExec{engine})
+	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
+	ch, _ := st.Channels().Create(ctx, storage.Channel{ProjectID: project.ID, Kind: "discord", Name: "Dev", Enabled: true,
+		Allow: []string{"7"}, Approvers: []string{"7"}})
+	m := channels.NewManager(st, engine, runner, func(storage.Channel) (channels.Adapter, error) { return bot, nil })
+	dec := &fakeDecider{st: st}
+	m.SetDecider(dec)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.Start(runCtx)
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if c, _ := st.Channels().Get(ctx, ch.ID); c.BotName != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the bot did not start")
+		}
+	}
+	conv, _ := engine.StartConversationPurpose(ctx, project.ID, "", "channel")
+	rule, _ := st.Automations().Create(ctx, storage.Automation{ProjectID: project.ID, Name: "@bot", Source: "discord", Action: "chat", Enabled: true, Config: storage.AutomationConfig{ChannelID: ch.ID}})
+	st.Jobs().Create(ctx, storage.Job{ProjectID: project.ID, Kind: "chat_turn", Origin: "automation", OriginID: rule.ID, Trigger: "discord", ConversationID: conv.ID, Status: "done"})
+	msg, _ := st.Chat().AddMessage(ctx, storage.Message{ConversationID: conv.ID, Role: "assistant", Content: "xong"})
+	files := make([]string, 120)
+	for i := range files {
+		files[i] = "f" + strings.Repeat("x", i%5) + string(rune('a'+i%26)) + ".go"
+	}
+	// the diff is stored first, but the answer's action comes before it
+	big, _ := st.Chat().AddPatch(ctx, storage.Patch{ConversationID: conv.ID, MessageID: msg.ID, Diff: "x", Files: files})
+	act, _ := st.Actions().Create(ctx, storage.Action{ProjectID: project.ID, ConversationID: conv.ID, MessageID: msg.ID, Kind: "run_command", Target: "pnpm lint"})
+	payload, _ := json.Marshal(trigger.ChannelPayload{ChannelID: ch.ID, ChatID: "42", ConversationID: conv.ID})
+	m.Reply(ctx, storage.Job{ID: "job_1", Payload: string(payload)}, "Đã xem xong", nil, true)
+	got := bot.wait(t, "42", 2)
+	if i, j := strings.Index(got[1], "pnpm lint"), strings.Index(got[1], "Diff rất lớn"); i < 0 || j < 0 || i > j {
+		t.Fatalf("pending list (the action first, the big diff flagged) = %q", got[1])
+	}
+	resumedWith := func() string {
+		jobs, _ := st.Jobs().List(ctx, storage.JobFilter{OriginID: rule.ID})
+		for _, j := range jobs {
+			var p trigger.ChannelPayload
+			if json.Unmarshal([]byte(j.Payload), &p) == nil && p.ConversationID == conv.ID && strings.Contains(p.Message, "Go on with") {
+				return p.Message
+			}
+		}
+		return ""
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve all", Addressed: true}
+	got = bot.wait(t, "42", 3)
+	if d := dec.list(); len(d) != 1 || d[0] != "approve:action:"+act.ID+":discord:an" || !strings.Contains(got[2], "/approve 2 ok") {
+		t.Fatalf("approve all = %v %q", d, got[2])
+	}
+	time.Sleep(200 * time.Millisecond)
+	if resumedWith() != "" {
+		t.Fatal("the agent went on while the big diff waits")
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve 2", Addressed: true}
+	if got = bot.wait(t, "42", 4); len(dec.list()) != 1 || !strings.Contains(got[3], "/approve 2 ok") {
+		t.Fatalf("a big diff alone needs ok: %v %q", dec.list(), got[3])
+	}
+	bot.in <- channels.Incoming{ChatID: "42", UserID: "7", UserName: "an", Text: "/approve 2 ok", Addressed: true}
+	bot.wait(t, "42", 5)
+	if d := dec.list(); len(d) != 2 || d[1] != "approve:patch:"+big.ID+":discord:an" {
+		t.Fatalf("confirmed = %v", d)
+	}
+	var text string
+	for deadline := time.Now().Add(3 * time.Second); text == "" && time.Now().Before(deadline); time.Sleep(30 * time.Millisecond) {
+		text = resumedWith()
+	}
+	if !strings.Contains(text, "pnpm lint") || !strings.Contains(text, "Diff rất lớn") {
+		t.Fatalf("goes on with both decisions: %q", text)
+	}
 }

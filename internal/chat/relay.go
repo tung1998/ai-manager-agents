@@ -345,6 +345,7 @@ func (e *Engine) LinkedPending(ctx context.Context, conversationID string) []Lin
 			}
 		}
 		if len(lp.Actions)+len(lp.Patches) > 0 {
+			e.numberPending(ctx, c.ID, lp.Actions, lp.Patches)
 			out = append(out, lp)
 		}
 	}

@@ -88,6 +88,9 @@ func (e *Engine) goOn(conversationID string) {
 	}
 	conv, err := e.store.Chat().GetConversation(ctx, conversationID)
 	if err == nil && conv.Purpose == "channel" { // a bot's: it answers in its chat
+		if e.Waiting(ctx, conversationID) { // once all of its proposals are decided (the bot's own decisions take these too)
+			return
+		}
 		who, lines := e.takeDecided(conversationID)
 		d.mu.Lock()
 		onBot := d.onBot
@@ -128,6 +131,14 @@ func (e *Engine) goOn(conversationID string) {
 // proposals (lines: what and how it went), in a chat or a bot's (ADR-084).
 func DecidedPrompt(who string, lines []string) string {
 	return prompts.Render("chat/decided", map[string]any{"Who": who, "Lines": lines})
+}
+
+// TakeDecided hands over the decisions a chat holds for its agent (made on
+// the dashboard while others still waited): a bot that goes on from its own
+// decisions takes them along.
+func (e *Engine) TakeDecided(conversationID string) []string {
+	_, lines := e.takeDecided(conversationID)
+	return lines
 }
 
 // takeDecided snapshots and removes a chat's pending decisions atomically, so

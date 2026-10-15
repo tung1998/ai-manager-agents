@@ -84,6 +84,9 @@ func (s *server) skipAllProposals(w http.ResponseWriter, r *http.Request) {
 			Detail: map[string]any{"count": n, "actions": actionsN, "patches": patchesN}})
 	}
 	for c := range convs {
+		if s.cfg.Chat != nil && c != "" { // decisions held for its agent go on, now nothing waits
+			s.cfg.Chat.Settled(c)
+		}
 		s.redrawBot(ctx, c)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"skipped": n, "actions": actionsN, "patches": patchesN})

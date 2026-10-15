@@ -1235,7 +1235,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		// what the agent changed in its worktree, all pending changes in one diff
 		if pt, ok := e.treePatch(ctx, conv, msg.ID, pl.dir, pl.tree, policy); ok {
 			saved, err := e.store.Chat().AddPatch(context.Background(), pt)
-			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) {
+			// on its own only when nothing of the chat waits before it (CheckOrder)
+			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) && e.CheckOrder(context.Background(), conv.ID, saved.ID) == nil {
 				if d, derr := e.DecidePatch(actor.With(context.Background(), "auto:"+agent.Name+" ("+perm.Label(level)+")"), saved.ID, true); derr == nil {
 					saved.Status, saved.Detail, saved.DecidedBy, saved.DecidedAt = d.Status, d.Detail, d.DecidedBy, d.DecidedAt
 					e.auditAutoPatch(agent.Name, conv, turn.JobID, saved)
@@ -1265,7 +1266,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 				}
 			}
 			saved, err := e.store.Chat().AddPatch(context.Background(), pt)
-			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) {
+			// on its own only when nothing of the chat waits before it (CheckOrder)
+			if err == nil && saved.Status == "pending" && acc.Can(perm.CapApply) && e.CheckOrder(context.Background(), conv.ID, saved.ID) == nil {
 				// the agent's package allows applying clean diffs on its own
 				if d, derr := e.DecidePatch(actor.With(context.Background(), "auto:"+agent.Name+" ("+perm.Label(level)+")"), saved.ID, true); derr == nil {
 					saved.Status, saved.Detail, saved.DecidedBy, saved.DecidedAt = d.Status, d.Detail, d.DecidedBy, d.DecidedAt

@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -97,5 +98,45 @@ func TestSkipAllProposals(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	if n := resumed.Load(); n != 0 {
 		t.Fatalf("skip-all resumed an agent %d times", n)
+	}
+}
+
+// Proposals are approved in their order (409 naming the earlier one); a
+// decision made while another waits is held, and goes on once "Bỏ qua tất
+// cả" leaves nothing waiting.
+func TestOrderAndHeldDecisions(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	ctx := context.Background()
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	var resumed atomic.Int32
+	e.chat.SetDecidedWait(10 * time.Millisecond)
+	e.chat.SetOnBotDecided(func(context.Context, string, string, []string) { resumed.Add(1) })
+	c, _ := e.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: pid, Title: "bot", Purpose: "channel"})
+	m, _ := e.st.Chat().AddMessage(ctx, storage.Message{ConversationID: c.ID, Role: "assistant", Content: "xong"})
+	push, _ := e.st.Actions().Create(ctx, storage.Action{ProjectID: pid, ConversationID: c.ID, MessageID: m.ID, Kind: "git_push", Target: "main", ProposedBy: "Lead", Status: "pending"})
+	p, _ := e.st.Chat().AddPatch(ctx, storage.Patch{ConversationID: c.ID, MessageID: m.ID, Diff: "x", Files: []string{"a.txt"}, Status: "pending"})
+
+	resp, b := do(t, admin, "POST", e.srv.URL+"/api/patches/"+p.ID+"/approve", map[string]any{}, nil)
+	if msg, _ := b["error"].(string); resp.StatusCode != 409 || !strings.Contains(msg, "#1") {
+		t.Fatalf("approve #2 before #1 = %d %v", resp.StatusCode, b)
+	}
+	if x, _ := e.st.Chat().GetPatch(ctx, p.ID); x.Status != "pending" {
+		t.Fatalf("refused, yet decided: %+v", x)
+	}
+	do(t, admin, "POST", e.srv.URL+"/api/actions/"+push.ID+"/reject", map[string]any{}, nil)
+	time.Sleep(150 * time.Millisecond)
+	if n := resumed.Load(); n != 0 {
+		t.Fatalf("went on while the diff waits: %d", n)
+	}
+	do(t, admin, "POST", e.srv.URL+"/api/proposals/skip-all", map[string]any{}, nil)
+	deadline := time.Now().Add(2 * time.Second)
+	for resumed.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := resumed.Load(); n != 1 {
+		t.Fatalf("the held decision went on %d times", n)
 	}
 }

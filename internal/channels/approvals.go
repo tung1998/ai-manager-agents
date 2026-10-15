@@ -1,6 +1,7 @@
 package channels
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -54,7 +55,12 @@ type proposal struct {
 	Action string `json:"action,omitempty"` // the action's kind (git_push, run_command…)
 	Target string `json:"target,omitempty"`
 	Conv   string `json:"conv,omitempty"` // the conversation it waits in: its agent goes on once decided
+	Big    bool   `json:"big,omitempty"`  // a diff too big to approve with the rest (bigDiff)
 }
+
+// bigDiff: a diff this big is rarely what was meant (a whole branch copied
+// in): never approved with "all", and alone only once confirmed ("ok").
+func bigDiff(p storage.Patch) bool { return len(p.Files) > 100 || len(p.Diff) > 1<<20 }
 
 func pendingKey(channelID, chatID string) string {
 	return "channel_pending/" + channelID + "/" + chatID
@@ -152,7 +158,11 @@ func (m *Manager) ownProposals(ctx context.Context, conversationID string) []pro
 	if ps, err := m.store.Chat().ListPatches(ctx, conversationID); err == nil {
 		for _, p := range ps {
 			if p.Status == "pending" {
-				out = append(out, proposal{Kind: "patch", ID: p.ID, Label: "Sửa " + truncate(strings.Join(p.Files, ", "), 160)})
+				label := "Sửa " + truncate(strings.Join(p.Files, ", "), 160)
+				if bigDiff(p) {
+					label = fmt.Sprintf("⚠️ Diff rất lớn (%d file): %s", len(p.Files), label)
+				}
+				out = append(out, proposal{Kind: "patch", ID: p.ID, Label: label, Big: bigDiff(p)})
 			}
 		}
 	}
@@ -162,6 +172,16 @@ func (m *Manager) ownProposals(ctx context.Context, conversationID string) []pro
 				out = append(out, proposal{Kind: "action", ID: a.ID, Label: firstNonEmpty(actions.Kinds[a.Kind], a.Kind) + ": " + truncate(a.Target, 160), Action: a.Kind, Target: a.Target})
 			}
 		}
+	}
+	if m.engine != nil { // in the order they must be decided (chat.CheckOrder)
+		order := m.engine.WaitingOrder(ctx, conversationID)
+		at := func(id string) int {
+			if i := slices.Index(order, id); i >= 0 {
+				return i
+			}
+			return len(order)
+		}
+		slices.SortStableFunc(out, func(a, b proposal) int { return cmp.Compare(at(a.ID), at(b.ID)) })
 	}
 	return out
 }
@@ -400,8 +420,13 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	if always {
 		all = false // one by one: each adds a permission
 	}
-	stale := 0 // a button of a proposal no longer listed: decided before
+	stale := 0         // a button of a proposal no longer listed: decided before
+	confirmed := false // "ok": a big diff is approved all the same
 	for _, f := range strings.FieldsFunc(arg, func(r rune) bool { return r == ',' || r == ' ' }) {
+		if strings.EqualFold(f, "ok") {
+			confirmed = true
+			continue
+		}
 		n, err := strconv.Atoi(f)
 		i := slices.IndexFunc(list, func(p proposal) bool { return err == nil && p.N == n || p.ID == f })
 		switch {
@@ -422,7 +447,15 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	}
 	var lines []string
 	decided := map[string][]string{} // by conversation
+	touched := map[string]bool{}     // conversations something was decided in
 	for _, p := range picked {
+		if approve && p.Big && (all || !confirmed) {
+			lines = append(lines, fmt.Sprintf("%d. %s: diff rất lớn, kiểm tra kỹ rồi duyệt riêng bằng /approve %d ok", p.N, p.Label, p.N))
+			if all {
+				break // what comes after it waits for it
+			}
+			continue
+		}
 		if !m.still(ctx, p) {
 			if !all {
 				lines = append(lines, fmt.Sprintf("%d. %s: đã được quyết trước đó.", p.N, p.Label))
@@ -447,12 +480,17 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 			lines = append(lines, fmt.Sprintf("%d. %s: đã được quyết trước đó.", p.N, p.Label))
 			continue
 		}
+		var order *chat.OrderError
+		if errors.As(err, &order) { // an earlier one waits: so does all that comes after
+			lines = append(lines, outcome(p, approve, detail, err))
+			break
+		}
+		if p.Conv != "" {
+			touched[p.Conv] = true
+		}
 		if skip {
 			if err == nil {
 				lines = append(lines, "⏭️ Đã bỏ qua "+numbered(p))
-				if p.Conv != "" && m.engine != nil { // what was decided before it goes on, once nothing waits
-					m.engine.Settled(p.Conv)
-				}
 			} else {
 				lines = append(lines, outcome(p, false, detail, err))
 			}
@@ -465,14 +503,33 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 	}
 	// the agent's answer is over: it goes on with what was decided (it would
 	// otherwise stand still until someone wrote again)
-	for conv, done := range decided {
+	for conv := range touched {
+		done := decided[conv]
 		if c, err := m.store.Chat().GetConversation(ctx, conv); err == nil && c.Purpose == chat.RunPurpose {
 			for _, line := range done { // a workflow's own chat: its coordinator goes on there
 				m.engine.Decided(conv, by, line)
 			}
+			m.engine.Settled(conv)
 			continue
 		}
-		m.resume(ctx, ch, in, conv, done, MayDecide(ch, in.UserID))
+		// its agent goes on once all of its proposals are decided, with
+		// every decision made meanwhile (here and on the dashboard)
+		if m.engine == nil {
+			if len(done) > 0 {
+				m.resume(ctx, ch, in, conv, done, MayDecide(ch, in.UserID))
+			}
+			continue
+		}
+		if m.engine.Waiting(ctx, conv) {
+			m.hold(conv, done)
+			if len(done) > 0 {
+				lines = append(lines, "Agent chạy tiếp khi mọi đề xuất của nó đã được quyết.")
+			}
+			continue
+		}
+		if done = append(append(m.engine.TakeDecided(conv), m.takeHeld(conv)...), done...); len(done) > 0 {
+			m.resume(ctx, ch, in, conv, done, MayDecide(ch, in.UserID))
+		}
 	}
 	// all decided: numbers start again (re-read fresh under lock: list was
 	// captured before deciding, a concurrent announce() may have added since)
@@ -608,5 +665,27 @@ func (m *Manager) DecidedOnDashboard(ctx context.Context, conversationID, who st
 	if err != nil || !ch.Enabled {
 		return
 	}
-	m.resume(ctx, ch, Incoming{ChatID: chatID, UserName: who}, conversationID, done, true)
+	m.resume(ctx, ch, Incoming{ChatID: chatID, UserName: who}, conversationID, append(m.takeHeld(conversationID), done...), true)
+}
+
+// hold keeps decisions made in a bot's chat while others of the
+// conversation still wait: its agent goes on with all of them at once.
+func (m *Manager) hold(conv string, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	m.heldMu.Lock()
+	defer m.heldMu.Unlock()
+	if m.held == nil {
+		m.held = map[string][]string{}
+	}
+	m.held[conv] = append(m.held[conv], lines...)
+}
+
+func (m *Manager) takeHeld(conv string) []string {
+	m.heldMu.Lock()
+	defer m.heldMu.Unlock()
+	lines := m.held[conv]
+	delete(m.held, conv)
+	return lines
 }
