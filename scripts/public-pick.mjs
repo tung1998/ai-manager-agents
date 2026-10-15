@@ -25,7 +25,8 @@ if (!revs.length) {
   process.exit(1)
 }
 
-const sh = (cwd, args, input) => execFileSync('git', args, { cwd, input, stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'], maxBuffer: 1 << 30 }).toString().trim()
+const run = (cwd, args, input) => execFileSync('git', args, { cwd, input, stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'], maxBuffer: 1 << 30 }).toString()
+const sh = (cwd, args, input) => run(cwd, args, input).trim()
 const here = dirname(fileURLToPath(import.meta.url))
 const PRIV = dirname(sh(here, ['rev-parse', '--path-format=absolute', '--git-common-dir']))
 const PUB = resolve(to ?? join(dirname(PRIV), 'agent-office'))
@@ -61,7 +62,8 @@ const commits = revs.flatMap(r => r.includes('..')
 const patches = []
 const hits = []
 for (const c of commits) {
-  const raw = sh(PRIV, ['format-patch', '-1', '--stdout', '--no-encode-email-headers', '--no-signature', c, '--', '.', ...EXCLUDE.map(p => `:(exclude)${p}`)])
+  // untrimmed: a patch ending in a blank context line (" ") breaks without it
+  const raw = run(PRIV, ['format-patch', '-1', '--stdout', '--no-encode-email-headers', '--no-signature', c, '--', '.', ...EXCLUDE.map(p => `:(exclude)${p}`)])
   const subject = sh(PRIV, ['log', '-1', '--format=%h %s', c])
   if (!raw.includes('\ndiff --git ')) {
     console.log(`- ${subject}  (only internal files, skipped)`)
@@ -74,7 +76,7 @@ for (const c of commits) {
     if (line.startsWith('From ') || line.startsWith('-') || line.startsWith(' ')) return
     for (const [re, what] of FORBIDDEN) if (re.test(line)) hits.push(`${subject.slice(0, 7)}  [${what}]  ${line.trim().slice(0, 120)}`)
   })
-  patches.push({ subject, patch: patch + '\n' })
+  patches.push({ subject, patch })
 }
 if (hits.length) {
   console.error(`✗ ${hits.length} line(s) must not go public:\n  ` + hits.join('\n  '))
