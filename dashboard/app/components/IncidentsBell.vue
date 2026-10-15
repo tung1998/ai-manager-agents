@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// The header's "cần xử lý": its count opens the list, where a card waiting
-// for approval is decided right there (Duyệt / Bỏ qua); the rest open where
-// they are. Browser notifications are turned on from here (plugins/notify.client.ts).
-import { decideApproval, isApproval, useBrowserNotify, type Incident } from '~/composables/useApprovals'
+// The header's "cần xử lý": its count opens the list, each item with its
+// buttons right there (a card: Duyệt / Bỏ qua; a chat answered: Đã xem…) or
+// opened where it is. Browser notifications are turned on from here (plugins/notify.client.ts).
+import { actOnIncident, incidentActs, isApproval, useBrowserNotify, type Incident, type IncidentAct } from '~/composables/useApprovals'
 
 const { t } = useLang()
 const toast = useToast()
@@ -13,11 +13,11 @@ const n = computed(() => data.value?.count ?? 0)
 // approvals first: what can be done from here
 const list = computed(() => [...(data.value?.incidents ?? [])].sort((a, b) => Number(isApproval(b)) - Number(isApproval(a))).slice(0, 12))
 const busy = reactive(new Set<string>())
-async function decide(x: Incident, what: 'approve' | 'reject') {
+async function act(x: Incident, what: IncidentAct) {
   busy.add(x.key)
   try {
-    await decideApproval(x, what)
-    toast.add({ title: what === 'approve' ? t('bell.approved') : t('bell.skipped'), color: 'success' })
+    await actOnIncident(x, what)
+    toast.add({ title: t('bell.done'), description: x.title, color: 'success' })
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
@@ -51,9 +51,12 @@ function go(link: string) {
               <p class="line-clamp-2 text-sm" :class="x.severity === 'error' ? 'text-(--ui-error)' : ''">{{ x.title }}</p>
               <p class="truncate text-xs text-(--ui-text-muted)">{{ [x.project_name, x.detail].filter(Boolean).join(' · ') }}</p>
             </button>
-            <div v-if="isApproval(x)" class="flex gap-1.5">
-              <UButton size="xs" icon="i-lucide-check" :label="t('bell.approve')" :loading="busy.has(x.key)" @click="decide(x, 'approve')" />
-              <UButton size="xs" color="neutral" variant="outline" :label="t('bell.skip')" :disabled="busy.has(x.key)" @click="decide(x, 'reject')" />
+            <div class="flex flex-wrap gap-1.5">
+              <UButton
+                v-for="(a, i) in incidentActs(x)" :key="a" size="xs" :color="i ? 'neutral' : 'primary'" :variant="i ? 'outline' : 'solid'"
+                :icon="a === 'approve' ? 'i-lucide-check' : undefined" :label="t(`bell.act.${a}`)" :loading="busy.has(x.key) && !i" :disabled="busy.has(x.key)" @click="act(x, a)"
+              />
+              <UButton size="xs" color="neutral" variant="ghost" :label="t('bell.act.open')" @click="go(x.link)" />
             </div>
           </div>
         </div>

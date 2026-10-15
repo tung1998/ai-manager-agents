@@ -1,9 +1,13 @@
-// A new card waiting for approval (a proposal, a diff) is announced at once:
-// a toast with Duyệt/Bỏ qua when the tab is in view, a browser notification
-// with the same buttons (public/sw.js) when it is not. The list is the
-// 'incidents' data office pushes live (useDataSync); what was there when the
-// page opened is not announced again.
-import { decideApproval, isApproval, useBrowserNotify, type Incident } from '~/composables/useApprovals'
+// Something new that needs a person (a card to approve, a chat answered, a
+// run that failed…) is announced at once, both ways, each with its buttons:
+// a toast in the top corner (an approval's stays until it is decided) and a
+// browser notification (public/sw.js), when the person allowed them. Decided
+// or gone elsewhere, both close. The list is the 'incidents' data office
+// pushes live (useDataSync); what was there when the page opened is not
+// announced again.
+import { actOnIncident, incidentActs, isApproval, useBrowserNotify, type Incident, type IncidentAct } from '~/composables/useApprovals'
+
+const maxAtOnce = 3 // more at once: one toast saying how many
 
 export default defineNuxtPlugin(() => {
   const { supported, permission } = useBrowserNotify()
@@ -18,47 +22,65 @@ export default defineNuxtPlugin(() => {
     })
   }
 
+  const label = (a: IncidentAct | 'open') => t(`bell.act.${a}`)
+  const titleOf = (x: Incident) => isApproval(x) ? t('bell.waiting', { project: x.project_name }) : `${x.project_name || 'office'}: ${t(`incidents.kind.${x.kind}` as 'incidents.kind.monitor')}`
+
   const seen = new Set<string>()
+  const toasts = new Map<string, string | number>() // incident key → its toast
   let primed = false
   const { data } = useNuxtData<{ incidents?: Incident[] }>('incidents')
   watch(() => data.value?.incidents, (list) => {
     if (!list) return
-    const fresh = list.filter(x => isApproval(x) && !seen.has(x.key))
+    const now = new Set(list.map(x => x.key))
+    for (const [key, id] of toasts) { // decided or gone meanwhile: its toast and notification go too
+      if (now.has(key)) continue
+      toast.remove(id)
+      toasts.delete(key)
+      void sw?.getNotifications({ tag: key }).then(ns => ns.forEach(n => n.close()))
+    }
+    const fresh = list.filter(x => !seen.has(x.key))
     for (const x of fresh) seen.add(x.key)
-    if (!primed) { // the cards there when the page opened: the header lists them
+    if (!primed) { // what was there when the page opened: the header lists it
       primed = true
       return
     }
-    for (const x of fresh.slice(0, 3)) announce(x)
+    for (const x of fresh.slice(0, maxAtOnce)) announce(x)
+    if (fresh.length > maxAtOnce) {
+      toast.add({ title: t('bell.more', { n: fresh.length - maxAtOnce }), color: 'warning', icon: 'i-lucide-bell-ring', actions: [{ label: t('bell.all'), onClick: () => { navigateTo('/') } }] })
+    }
   }, { immediate: true })
 
   function announce(x: Incident) {
-    const title = t('bell.waiting', { project: x.project_name })
-    if (document.visibilityState === 'visible') {
-      if (x.link && route.fullPath.includes(x.link.split('?')[1] ?? '\0')) return // that chat is open: its card is right there
+    const title = titleOf(x)
+    const acts = incidentActs(x)
+    // the chat it is about is open and in view: its card is right there
+    const here = document.visibilityState === 'visible' && !!x.link && route.fullPath.includes(x.link.split('?')[1] ?? '\0')
+    if (!here) {
+      const id = `inc-${x.key}`
       toast.add({
-        title, description: x.title, color: 'warning', icon: 'i-lucide-bell-ring', duration: 20_000,
+        id, title, description: x.title, icon: isApproval(x) ? 'i-lucide-bell-ring' : 'i-lucide-bell',
+        color: x.severity === 'error' ? 'error' : isApproval(x) ? 'warning' : 'info',
+        duration: isApproval(x) ? 0 : 30_000, // a card to decide stays until it is
         actions: [
-          { label: t('bell.approve'), color: 'primary', onClick: () => { void decide(x, 'approve') } },
-          { label: t('bell.skip'), color: 'neutral', variant: 'outline', onClick: () => { void decide(x, 'reject') } },
-          { label: t('bell.open'), color: 'neutral', variant: 'ghost', onClick: () => { navigateTo(x.link) } }
+          ...acts.map((a, i) => ({ label: label(a), color: (i === 0 ? 'primary' : 'neutral') as 'primary' | 'neutral', variant: (i === 0 ? 'solid' : 'outline') as 'solid' | 'outline', onClick: () => { void act(x, a) } })),
+          { label: label('open'), color: 'neutral' as const, variant: 'ghost' as const, onClick: () => { navigateTo(x.link || '/') } }
         ]
       })
-      return
+      toasts.set(x.key, id)
     }
     if (!sw || permission.value !== 'granted') return
     void sw.showNotification(title, {
-      body: x.title, tag: x.key,
-      data: { kind: x.kind, id: x.id, link: x.link, approved: t('bell.approved'), rejected: t('bell.skipped') },
-      // @ts-expect-error notification buttons: Chrome/Edge show them (not in the DOM lib's options type)
-      actions: [{ action: 'approve', title: t('bell.approve') }, { action: 'reject', title: t('bell.skip') }]
+      body: x.title, tag: x.key, requireInteraction: isApproval(x),
+      data: { incident: x, done: t('bell.done') },
+      // @ts-expect-error notification buttons (Chrome/Edge; not in the DOM lib's options type)
+      actions: [...acts.map(a => ({ action: a, title: label(a) })), { action: 'open', title: label('open') }].slice(0, 2)
     })
   }
 
-  async function decide(x: Incident, what: 'approve' | 'reject') {
+  async function act(x: Incident, what: IncidentAct) {
     try {
-      await decideApproval(x, what)
-      toast.add({ title: what === 'approve' ? t('bell.approved') : t('bell.skipped'), color: 'success' })
+      await actOnIncident(x, what)
+      toast.add({ title: t('bell.done'), description: x.title, color: 'success' })
     } catch (e) {
       toast.add({ title: apiError(e), color: 'error' })
     }
