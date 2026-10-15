@@ -32,11 +32,8 @@ export default defineNuxtPlugin(() => {
   watch(() => data.value?.incidents, (list) => {
     if (!list) return
     const now = new Set(list.map(x => x.key))
-    for (const [key, id] of toasts) { // decided or gone meanwhile: its toast and notification go too
-      if (now.has(key)) continue
-      toast.remove(id)
-      toasts.delete(key)
-      void sw?.getNotifications({ tag: key }).then(ns => ns.forEach(n => n.close()))
+    for (const key of toasts.keys()) { // decided or gone meanwhile: its toast and notification go too
+      if (!now.has(key)) dismiss(key)
     }
     const fresh = list.filter(x => !seen.has(x.key))
     for (const x of fresh) seen.add(x.key)
@@ -49,6 +46,13 @@ export default defineNuxtPlugin(() => {
       toast.add({ title: t('bell.more', { n: fresh.length - maxAtOnce }), color: 'warning', icon: 'i-lucide-bell-ring', actions: [{ label: t('bell.all'), onClick: () => { navigateTo('/') } }] })
     }
   }, { immediate: true })
+
+  function dismiss(key: string) {
+    const id = toasts.get(key)
+    if (id !== undefined) toast.remove(id)
+    toasts.delete(key)
+    void sw?.getNotifications({ tag: key }).then(ns => ns.forEach(n => n.close()))
+  }
 
   function announce(x: Incident) {
     const title = titleOf(x)
@@ -71,16 +75,17 @@ export default defineNuxtPlugin(() => {
     if (!sw || permission.value !== 'granted') return
     void sw.showNotification(title, {
       body: x.title, tag: x.key, requireInteraction: isApproval(x),
-      data: { incident: x, done: t('bell.done') },
+      data: { incident: x },
       // @ts-expect-error notification buttons (Chrome/Edge; not in the DOM lib's options type)
       actions: [...acts.map(a => ({ action: a, title: label(a) })), { action: 'open', title: label('open') }].slice(0, 2)
     })
   }
 
+  // done: its toast and notification just go, no other notice
   async function act(x: Incident, what: IncidentAct) {
     try {
       await actOnIncident(x, what)
-      toast.add({ title: t('bell.done'), description: x.title, color: 'success' })
+      dismiss(x.key)
     } catch (e) {
       toast.add({ title: apiError(e), color: 'error' })
     }

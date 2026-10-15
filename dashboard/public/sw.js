@@ -32,10 +32,7 @@ self.addEventListener('notificationclick', (event) => {
         const res = await fetch(req[0], {
           method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req[1])
         })
-        if (res.ok) {
-          await self.registration.showNotification(d.done || 'OK', { body: x.title || n.body, tag: n.tag, silent: true })
-          return
-        }
+        if (res.ok) return // done: the notification is gone, nothing more to show
       } catch { /* offline: open it instead */ }
     }
     const link = x.link || '/'

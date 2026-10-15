@@ -16,8 +16,7 @@ const busy = reactive(new Set<string>())
 async function act(x: Incident, what: IncidentAct) {
   busy.add(x.key)
   try {
-    await actOnIncident(x, what)
-    toast.add({ title: t('bell.done'), description: x.title, color: 'success' })
+    await actOnIncident(x, what) // done: it leaves the list, nothing more to say
     await refresh()
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })

@@ -300,7 +300,6 @@ const en: Record<keyof typeof vi, string> = {
   'bell.act.continue': 'Continue',
   'bell.act.dismiss': 'Hide',
   'bell.act.open': 'Open',
-  'bell.done': 'Done',
   'bell.more': '{n} more new things need you',
   'bell.empty': 'Nothing needs you',
   'bell.enable': 'Turn on browser notifications',
