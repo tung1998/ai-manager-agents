@@ -544,23 +544,30 @@ async function capture({ ao, shop, lead }) {
     ['19-bot', `${P}/bots/new`],
     ['20-council', `/projects/${shop.id}?tab=workflows`],
     ['21-assistant', '/assistant'],
-    // a grid dashboard of widgets (kept in the browser): figures, a chat, a chart, what waits for you
+    // a grid dashboard of widgets (kept with the account): figures, an AI connection, a chat, a chart, what waits for you
     ['22-watch', '/watch', async () => {
       const box = (widget, x, y, w, h, extra = {}) => ({ id: `w${x}_${y}`, widget, projectId: ao.id, x, y, w, h, ...extra })
-      const board = { id: 'demo', name: T('On call', 'Ca trực'), refresh: 30, projectId: ao.id, items: [
+      const board = { id: 'demo', name: T('On call', 'Ca trực'), projectId: ao.id, items: [
+        // one widget, several sizes: a badge, a strip, a card
         box('stat', 0, 0, 2, 2, { config: { metric: 'running' } }),
-        box('stat', 2, 0, 2, 2, { config: { metric: 'pending' } }),
-        box('stat', 4, 0, 2, 2, { config: { metric: 'cost_24h' } }),
-        box('budget', 6, 0, 2, 2),
+        box('agent', 2, 0, 2, 2),
+        box('provider', 4, 0, 2, 2, { projectId: '' }),
+        box('approvals', 6, 0, 1, 1, { projectId: '' }),
+        box('automations', 7, 0, 1, 1),
+        box('agent', 6, 1, 1, 1),
+        box('stat', 7, 1, 1, 1, { config: { metric: 'pending' } }),
         box('note', 8, 0, 4, 2, { projectId: '', config: { text: T('Release Friday: watch the nightly build and the shop API.', 'Phát hành thứ Sáu: để mắt build đêm và API của shop.') } }),
         box('chat', 0, 2, 4, 6, { conversationId: 'cnv_demo_build' }),
-        box('chart', 4, 2, 4, 3),
-        box('approvals', 8, 2, 4, 3, { projectId: '' }),
-        box('jobs', 4, 5, 4, 3),
-        box('git', 8, 5, 2, 3),
-        box('breakdown', 10, 5, 2, 3, { projectId: '' })
+        box('agent', 4, 2, 4, 1),
+        box('provider', 8, 2, 4, 1, { projectId: '' }),
+        box('chart', 4, 3, 4, 3),
+        box('approvals', 8, 3, 4, 3, { projectId: '' }),
+        box('agent', 4, 6, 4, 3),
+        box('automations', 8, 6, 4, 1),
+        box('git', 8, 7, 2, 2),
+        box('breakdown', 10, 7, 2, 2, { projectId: '' })
       ] }
-      await page.eval(`localStorage.setItem('office.watch.boards', ${JSON.stringify(JSON.stringify({ active: 'demo', boards: [board] }))}); true`)
+      await api('PUT', '/api/me/prefs/watch', { value: { active: 'demo', boards: [board] } })
       await page.go('/watch', 3500)
     }],
     // proposals are numbered and approved in order; a card from an older answer is marked "old"

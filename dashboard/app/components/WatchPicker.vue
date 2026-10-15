@@ -12,11 +12,8 @@ const { isAdmin } = useAuth()
 interface RecentChat { id: string, project_id: string, title: string, agent_name: string, source?: Source, updated_at: string, active_turn?: string }
 const { data: recentData, error: recentError } = useLiveFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 20 }, lazy: true, server: false })
 const recent = computed(() => recentData.value?.conversations ?? [])
-// grouped by the room they start with
-const gallery = computed(() => (['sm', 'md', 'lg'] as const).map(size => ({
-  size,
-  list: widgetDefs.filter(w => widgetGroup(w) === size && w.kind !== 'chat' && (!w.admin || isAdmin.value))
-})).filter(g => g.list.length))
+// grouped by what they are about, small first
+const gallery = computed(() => widgetGroups.map(group => ({ group, list: groupWidgets(group, isAdmin.value) })).filter(g => g.list.length))
 </script>
 
 <template>
@@ -35,10 +32,10 @@ const gallery = computed(() => (['sm', 'md', 'lg'] as const).map(size => ({
       <slot name="actions" />
     </div>
     <div class="min-h-0 flex-1 overflow-y-auto p-2">
-      <template v-for="g in gallery" :key="g.size">
+      <template v-for="g in gallery" :key="g.group">
         <p class="flex items-center gap-1.5 px-2 pb-1 text-xs font-medium text-(--ui-text-dimmed)">
-          <UIcon :name="g.size === 'sm' ? 'i-lucide-square' : g.size === 'md' ? 'i-lucide-rectangle-horizontal' : 'i-lucide-panel-top'" class="size-3.5" />
-          {{ t(`watchW.group.${g.size}`) }}
+          <UIcon :name="groupIcon[g.group]" class="size-3.5" />
+          {{ t(`watchW.group.${g.group}`) }}
         </p>
         <div class="grid gap-1.5 pb-3 [grid-template-columns:repeat(auto-fill,minmax(10rem,1fr))]">
           <button

@@ -10,10 +10,10 @@ const { boards, board, add } = useWatchLayout()
 const settingsOpen = ref(false)
 const index = computed(() => Math.max(0, boards.value.findIndex(b => b.id === board.value?.id)))
 
-// grouped by size, a title over each group
-const addMenu = computed(() => (['sm', 'md', 'lg'] as const).map(size => [
-  { label: t(`watchW.group.${size}`), type: 'label' as const },
-  ...widgetDefs.filter(w => widgetGroup(w) === size && (!w.admin || isAdmin.value)).map(w => ({
+// grouped by what they are about, a title over each group; the chat first
+const addMenu = computed(() => widgetGroups.map(group => [
+  { label: t(`watchW.group.${group}`), type: 'label' as const },
+  ...(group === 'agents' ? [widgetDef('chat')] : []).concat(groupWidgets(group, isAdmin.value)).map(w => ({
     label: t(`watchW.kind.${w.kind}` as 'watchW.kind.chat'),
     icon: w.icon,
     onSelect: () => addBox(w.kind)

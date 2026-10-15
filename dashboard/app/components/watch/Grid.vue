@@ -103,7 +103,7 @@ const style = (r: { x: number, y: number, w: number, h: number }) => ({
         <WatchBox :item="it" :projects="projects" :movable="editable" class="size-full" @grip="(e: PointerEvent) => start(it, 'move', e)" />
         <!-- the corner that resizes -->
         <button
-          v-if="editable" type="button" :aria-label="t('watchW.resize')" :title="t('watchW.resize')"
+          v-if="editable && !fixedSize(widgetDef(it.widget).grid)" type="button" :aria-label="t('watchW.resize')" :title="t('watchW.resize')"
           class="absolute -end-0.5 -bottom-0.5 z-10 flex size-5 cursor-se-resize touch-none items-end justify-end p-1 opacity-0 transition group-hover/box:opacity-100"
           :class="active?.id === it.id && 'opacity-100'"
           @pointerdown="start(it, 'resize', $event)"

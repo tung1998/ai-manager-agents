@@ -42,7 +42,7 @@ const moreMenu = computed(() => [
   [
     ...(props.tight ? [{ label: t('watchW.changeWidget'), icon: def.value.icon, children: widgetMenu.value }] : []),
     ...(props.tight && def.value.project !== 'none' ? [{ label: projectLabel.value, icon: 'i-lucide-folder', children: [projectItems.value] }] : []),
-    { label: t('watchW.sizeNow', { w: props.item.w, h: props.item.h }), icon: 'i-lucide-scaling', children: [sizeItems.value] }
+    ...(fixedSize(def.value.grid) ? [] : [{ label: t('watchW.sizeNow', { w: props.item.w, h: props.item.h }), icon: 'i-lucide-scaling', children: [sizeItems.value] }])
   ],
   [
     { label: t('watchW.duplicate'), icon: 'i-lucide-copy', onSelect: () => duplicate(props.item.id) },

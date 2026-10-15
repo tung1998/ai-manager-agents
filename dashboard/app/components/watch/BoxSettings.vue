@@ -15,10 +15,14 @@ const cfg = computed(() => widgetConfig(kind.value, props.item.config))
 const lists = ref<Record<string, { label: string, value: string }[]>>({})
 watch(() => [props.item.projectId, kind.value] as const, async ([pid]) => {
   lists.value = {}
-  if (!pid) return
   for (const f of def.value.fields) {
     try {
-      if (f.source === 'processes') {
+      if (f.source === 'providers') {
+        const r = await $fetch<{ providers: { id: string, name: string, enabled: boolean }[] }>('/api/providers')
+        lists.value = { ...lists.value, providers: [{ label: t('watchW.provider.default'), value: '' }, ...r.providers.filter(p => p.enabled).map(p => ({ label: p.name, value: p.id }))] }
+      } else if (!pid) {
+        continue
+      } else if (f.source === 'processes') {
         const r = await $fetch<{ processes: { id: string, name: string }[] }>(`/api/projects/${pid}/processes`)
         // a page preview may also take an address alone
         const none = kind.value === 'preview' ? [{ label: t('watchW.preview.byUrl'), value: '' }] : []
@@ -26,6 +30,9 @@ watch(() => [props.item.projectId, kind.value] as const, async ([pid]) => {
       } else if (f.source === 'services') {
         const r = await $fetch<{ services: { name: string }[] }>(`/api/projects/${pid}/compose`)
         lists.value = { ...lists.value, services: r.services.map(s => ({ label: s.name, value: s.name })) }
+      } else if (f.source === 'agents') {
+        const r = await $fetch<{ agents: { id: string, name: string }[] }>(`/api/projects/${pid}/chat/agents`)
+        lists.value = { ...lists.value, agents: [{ label: t('watchW.agent.default'), value: '' }, ...r.agents.map(a => ({ label: a.name, value: a.id }))] }
       } else if (f.source === 'monitors') {
         const r = await $fetch<{ monitors: { id: string, name: string }[] }>('/api/monitors', { query: { project: pid } })
         lists.value = { ...lists.value, monitors: [{ label: t('watchW.monitor.all'), value: '' }, ...r.monitors.map(m => ({ label: m.name, value: m.id }))] }
@@ -63,7 +70,7 @@ const setField = (f: WidgetField, v: unknown) => setConfig(props.item.id, f.key,
       <UInput :model-value="item.title ?? ''" :placeholder="t(`watchW.kind.${kind}` as 'watchW.kind.chat')" class="w-full" @update:model-value="(v) => setPane(item.id, { title: String(v) || undefined })" />
     </UFormField>
     <!-- cells wide × high, within the widget's limits -->
-    <UFormField :label="t('watchW.size.label')" :hint="t('watchW.size.range', { min: `${def.grid.minW}×${def.grid.minH}`, max: `${def.grid.maxW}×${def.grid.maxH}` })">
+    <UFormField v-if="!fixedSize(def.grid)" :label="t('watchW.size.label')" :hint="t('watchW.size.range', { min: `${def.grid.minW}×${def.grid.minH}`, max: `${def.grid.maxW}×${def.grid.maxH}` })">
       <div class="flex items-center gap-2">
         <UInputNumber :model-value="item.w" :min="def.grid.minW" :max="def.grid.maxW" size="sm" class="w-24" :aria-label="t('watchW.size.w')" @update:model-value="(v) => setSize(item.id, Number(v), item.h)" />
         <span class="text-(--ui-text-dimmed)">×</span>
@@ -80,8 +87,8 @@ const setField = (f: WidgetField, v: unknown) => setConfig(props.item.id, f.key,
       </UFormField>
       <UFormField v-else :label="t(`watchW.field.${f.key}` as 'watchW.field.console')">
         <USelect
-          :model-value="(fieldValue(f) as string)" :items="items(f)" class="w-full" :disabled="!!f.source && !item.projectId"
-          :placeholder="f.source && !item.projectId ? t('watchW.pickProjectFirst') : undefined"
+          :model-value="(fieldValue(f) as string)" :items="items(f)" class="w-full" :disabled="!!f.source && f.source !== 'providers' && !item.projectId"
+          :placeholder="f.source && f.source !== 'providers' && !item.projectId ? t('watchW.pickProjectFirst') : undefined"
           @update:model-value="(v) => setField(f, v)"
         />
       </UFormField>

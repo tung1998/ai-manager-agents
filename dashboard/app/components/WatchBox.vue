@@ -39,6 +39,7 @@ provide(watchBoxKey, {
   widget: kind,
   projectId: computed(() => props.item.projectId),
   size,
+  cells: computed(() => ({ w: props.item.w, h: props.item.h })),
   config: computed(() => widgetConfig(kind.value, props.item.config)),
   set: (key, value) => setConfig(props.item.id, key, value)
 })
@@ -62,7 +63,9 @@ const widgets: Record<Exclude<WidgetKind, 'chat'>, ReturnType<typeof resolveComp
   breakdown: resolveComponent('WatchWidgetBreakdown'),
   limits: resolveComponent('WatchWidgetLimits'),
   preview: resolveComponent('WatchWidgetPreview'),
-  consoles: resolveComponent('WatchWidgetConsoles')
+  consoles: resolveComponent('WatchWidgetConsoles'),
+  provider: resolveComponent('WatchWidgetProvider'),
+  agent: resolveComponent('WatchWidgetAgent')
 }
 const title = computed(() => props.item.title || t(`watchW.kind.${kind.value}` as 'watchW.kind.chat'))
 </script>
