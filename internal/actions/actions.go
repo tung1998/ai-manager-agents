@@ -149,32 +149,6 @@ type Service struct {
 	deciding sync.Map
 }
 
-// othersWait: another proposal of a's chat waits for a person.
-func (s *Service) othersWait(ctx context.Context, a storage.Action) bool {
-	if a.ConversationID == "" {
-		return false
-	}
-	acts, err := s.store.Actions().List(ctx, a.ConversationID, "", "")
-	if err != nil {
-		return true
-	}
-	for _, x := range acts {
-		if x.Status == "pending" && x.ID != a.ID && x.Kind != "workflow_gate" { // a gate holds its own run's steps, not the rest
-			return true
-		}
-	}
-	ps, err := s.store.Chat().PatchRefs(ctx, a.ConversationID)
-	if err != nil {
-		return true
-	}
-	for _, p := range ps {
-		if p.Status == "pending" {
-			return true
-		}
-	}
-	return false
-}
-
 // AutoApprover says whether the chat an action comes from approves it at once
 // (a bot's chat in direct mode), and in whose name.
 type AutoApprover func(ctx context.Context, a storage.Action) (by string, ok bool)
@@ -325,11 +299,6 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 	a, err := s.store.Actions().Create(ctx, a)
 	if err != nil {
 		return a, err
-	}
-	// an earlier proposal of the chat still waits: this one waits after it,
-	// whatever may run on its own (proposals are decided in order, chat.CheckOrder)
-	if s.othersWait(ctx, a) {
-		return a, nil
 	}
 	// within the agent's permission package and the project's allow lists,
 	// office carries it out right away
