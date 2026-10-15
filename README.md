@@ -35,14 +35,14 @@ AI coding tools are great one chat at a time. Real work is more than that: sever
 |---|---|
 | 💬 **Chat with your team** · stream, `@mention` agents into a group chat, `/skills`, attach images/PDF/logs, tags, search history | ![Chat](docs/guide/images/04-chat.png) |
 | 🧑‍🤝‍🧑 **Workflows** · type `/handoff`, `/advisor`, `/council`, `/feature`… to have several agents work together under rules (roles, access, a different model family, approval gates, votes); write your own by chat | ![Team model](docs/guide/images/06-team-model.png) |
-| ✅ **Review before merge** · each chat has a git worktree; diffs, actions and setting changes wait for *Approve / Reject / Skip* (or "approve & always allow") | ![Diff card](docs/guide/images/34-dark-chat.png) |
+| ✅ **Review before merge** · each chat has a git worktree; diffs, actions and setting changes wait for *Approve / Reject / Skip* (or "approve & always allow"), numbered and approved in order; the agent goes on once every card is decided | ![Diff card](docs/guide/images/34-dark-chat.png) |
 | ⚙️ **Operations** · detect project commands, run/stop/auto-restart like pm2, live logs, CPU/RAM/ports, docker compose, "ask the agent about this log" | ![Operations](docs/guide/images/11-operations.png) |
 | 🤖 **Automations** · schedule (cron + timezone), webhook, Discord/Telegram message; run a script for free and call an AI only on failure or `@@agent:` | ![Automations](docs/guide/images/09-automations.png) |
 | 🔥 **Burn** · an agent that works on its own in a project, one worktree per task, pause/resume, stop timer | ![Burn](docs/guide/images/13-burn.png) |
 | 🔌 **One MCP gateway** · the office holds MCP servers (HTTP, stdio, OAuth login) and forwards them to every AI with per-tool permissions and a call log | ![MCP](docs/guide/images/15-mcp.png) |
 | 💸 **Costs & limits** · every AI call logged with real or estimated cost, daily budgets per office/project/automation, fallback connections when one fails | ![Costs](docs/guide/images/27-stats.png) |
 
-More: **linked projects** (an agent hands work to another project's agent in a chat there, hears back on its own, and you approve the other side's cards from your chat), a notification bell and browser notifications with Approve / Skip buttons, long-term agent memory, office assistant across projects, multi-pane **Watch** screen, change log of who did what and who approved it, Files tab with an editor, users & roles, personal API tokens, export/import config, backup, self-update from source, light/dark, English/Vietnamese.
+More: **linked projects** (an agent hands work to another project's agent in a chat there, hears back on its own, and you approve the other side's cards from your chat), a notification bell and browser notifications with Approve / Skip buttons, long-term agent memory, office assistant across projects, **Watch** dashboards (a grid of 20 widgets: chats, consoles, figures, charts, approvals…), change log of who did what and who approved it, Files tab with an editor, users & roles, personal API tokens, export/import config, backup, self-update from source, light/dark, English/Vietnamese.
 
 ## An office that upgrades itself
 

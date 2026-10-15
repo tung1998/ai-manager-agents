@@ -24,7 +24,7 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 | `/jobs` | Job | Mọi lượt chạy (chat, Việc, automation) của mọi project: trạng thái, lọc theo project, lỗi 24h, chi phí 24h | |
 | `/agents` | Thư viện agent | Duyệt mẫu agent (lọc mảng, tìm, xem hướng dẫn; ✕ hoặc bấm lại thẻ để đóng); admin chọn project rồi **Thêm vào project** (mở tab Agent với form điền sẵn) | Thêm vào project |
 | `/providers` | Kết nối AI | Danh sách kết nối (Anthropic, OpenAI, API tương thích, CLI…), gửi thử, thống kê theo kết nối | Thêm / Sửa / Xoá / Đặt mặc định |
-| `/watch` | Theo dõi | Nhiều khung chat của các project cạnh nhau, chia dọc/ngang, lưu trong trình duyệt (không đồng bộ máy khác) | Thêm/xoá khung |
+| `/watch` | Theo dõi | Nhiều dashboard (tab: tên, tự làm mới, project mặc định); mỗi dashboard là lưới 12 cột (8/4 cột khi hẹp) các box: kéo tay nắm để di chuyển, kéo góc đổi cỡ trong giới hạn của widget; 20 widget (chat, tiến trình, container, nhiều console, giám sát, con số, job, biểu đồ, sự cố, chờ duyệt, máy, ngân sách AI, hạn mức AI, chi phí theo nhóm, bảng đèn, git, bảng điều khiển, lịch tự động, xem trang web, ghi chú). Lưu trong trình duyệt, không đồng bộ máy khác (ADR-159) | Thêm box, ⚙ cài đặt box, nhân bản, đổi cỡ |
 | `/assistant` | Trợ lý office | Chat với trợ lý office (project ảo, không gắn thư mục, dùng để quản lý chính office) | |
 | `/account` | Tài khoản | Đổi tên/mật khẩu, ngôn ngữ, giao diện sáng/tối, cài CLI | |
 | `/admin/users` (admin) | Người dùng | Danh sách tài khoản, tạo, đặt lại mật khẩu, gắn Discord/Telegram ID (tin gửi bot từ ID đó hiện tên tài khoản; chỉ nhận diện, không cấp quyền), bật/tắt (tắt thu hồi session) | |

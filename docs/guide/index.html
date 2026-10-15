@@ -373,6 +373,8 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
     <li><b>Reject</b>: the agent is told and can try another way.</li>
     <li><b>Skip</b>: dismiss without the agent running again. <b>Skip all</b> clears a project.</li>
   </ul>
+  <figure><img src="images/47-approval-order.png" alt="Cards approved in order" loading="lazy"><figcaption>Cards are numbered in the order the agent made them. #1 is from an older answer, so it is marked <b>Old</b>.</figcaption></figure>
+  <p><b>In order.</b> A card can only be approved once the cards before it are decided; the agent continues only when every card of the chat is decided. This holds on the dashboard, in bots (<code>/approve all</code> stops at the first card out of turn) and for diffs merged automatically. A card from an older answer asks you to confirm, and a very large diff (over 100 files or 1 MB, usually a whole branch copied by mistake) shows a red warning before it is merged.</p>
   <div class="callout tip"><strong>Approve from anywhere</strong>From the header bell, a toast or a browser notification (see Overview). Cards also appear in Discord/Telegram with buttons, or use <code>/skip</code>. Deciding in one place updates the other.</div>
 </section>
 
@@ -510,8 +512,14 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <!-- 19 -->
 <section id="watch">
   <h2><span class="num">19</span>Watch</h2>
-  <p class="intro">Several chats from different projects side by side, like iTerm panes.</p>
-  <figure><img src="images/22-watch.png" alt="Watch" loading="lazy"><figcaption>Split horizontally or vertically, resize by dragging. The layout is saved in this browser.</figcaption></figure>
+  <p class="intro">Your own dashboards: a grid of boxes, each showing a chat, a console, a figure or a list, from any project.</p>
+  <figure><img src="images/22-watch.png" alt="Watch" loading="lazy"><figcaption>An "On call" board: figures, a note, a chat, a chart of jobs, the cards waiting for you, recent jobs, git and cost.</figcaption></figure>
+  <ul>
+    <li><b>Several dashboards</b> as tabs, each with a name, a refresh interval and a default project.</li>
+    <li><b>A 12-column grid</b> like a phone's home screen: drag a box by its grip, resize it by its corner; the others make room. Narrow screens get a packed copy (8 or 4 columns).</li>
+    <li><b>20 widgets</b> in <b>Add box</b>: chat, process and container (console, controls, CPU/RAM), several consoles, monitor, figure, jobs, chart, incidents, approvals, machine, AI budget, AI limits, cost breakdown, status lights, git, controls, automations, web page preview, note. Each box has its own settings (⚙).</li>
+  </ul>
+  <p>Boards are kept in this browser. Consoles share the tab's one event stream, so a board full of logs does not use up the browser's connections.</p>
 </section>
 
 <!-- 20 -->

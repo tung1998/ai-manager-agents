@@ -15,7 +15,10 @@ const width = ref(0)
 let ro: ResizeObserver | undefined
 onMounted(() => {
   ro = new ResizeObserver(([e]) => { if (e) width.value = e.contentRect.width })
-  if (el.value) ro.observe(el.value)
+  if (!el.value) return
+  // measured now: the observer reports on the next frame (never, in a tab not painting), the first frame packed to 4 columns
+  width.value = el.value.clientWidth
+  ro.observe(el.value)
 })
 onBeforeUnmount(() => ro?.disconnect())
 

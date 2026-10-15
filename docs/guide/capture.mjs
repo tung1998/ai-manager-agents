@@ -140,6 +140,8 @@ async function build() {
   // leftovers of a run that was killed: demo server, dashboard, docs server, browser
   killPorts([18787, 12704, 18900, 9339])
   await sleep(1000)
+  // go's module cache (an agent ran go under this HOME) is read-only: rmSync fails with EACCES
+  if (existsSync(HOME)) execFileSync('chmod', ['-R', 'u+w', HOME])
   rmSync(HOME, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
   mkdirSync(HOME, { recursive: true })
   log('demo office in', HOME)
@@ -342,6 +344,20 @@ diff --git a/dashboard/app/layouts/default.vue b/dashboard/app/layouts/default.v
       msg('msg_demo_l4', 'cnv_demo_linked', 'assistant', lead.name, T('demo-shop finished the page. One card waits for you below: the e2e check over there.', 'Bên demo-shop đã làm xong trang. Còn một thẻ chờ bạn duyệt bên dưới: chạy kiểm tra e2e bên đó.'), 5)
     ])
   })
+  // proposals approved in order (47-approval-order): #1 from an older answer ("old"), #2 and #3 from the last one
+  await soft('order', () => {
+    const act = (id, mid, kind, target, reason, minutesAgo) => `INSERT INTO actions (id, project_id, conversation_id, message_id, kind, target, reason, status, proposed_by, created_at) VALUES (${q(id)}, ${q(ao.id)}, 'cnv_demo_order', ${q(mid)}, ${q(kind)}, ${q(target)}, ${q(reason)}, 'pending', ${q(lead.name)}, ${q(ts(minutesAgo))})`
+    sql([
+      conv('cnv_demo_order', lead, T('Release notes for v0.9', 'Ghi chú phát hành v0.9'), 3),
+      msg('msg_demo_o1', 'cnv_demo_order', 'user', me.name || 'Alex', T('Write the v0.9 release notes and check the dashboard still builds.', 'Viết ghi chú phát hành v0.9 và kiểm dashboard vẫn build được.'), 8),
+      msg('msg_demo_o2', 'cnv_demo_order', 'assistant', lead.name, T('Notes drafted in `CHANGELOG.md`. To be sure the dashboard builds, I need to run the build:', 'Đã soạn ghi chú trong `CHANGELOG.md`. Để chắc dashboard build được, mình cần chạy build:'), 7),
+      act('act_demo_o1', 'msg_demo_o2', 'run_command', 'pnpm --dir dashboard build', T('Check the dashboard builds', 'Kiểm dashboard build được'), 7),
+      msg('msg_demo_o3', 'cnv_demo_order', 'user', me.name || 'Alex', T('Also commit it and restart the dev server.', 'Commit luôn và chạy lại dev server.'), 5),
+      msg('msg_demo_o4', 'cnv_demo_order', 'assistant', lead.name, T('Two more cards, in this order. They go after #1: approve the build first.', 'Thêm hai thẻ, theo đúng thứ tự. Chúng đứng sau #1: duyệt build trước.'), 4),
+      act('act_demo_o2', 'msg_demo_o4', 'git_commit', 'docs: release notes v0.9', T('Commit the notes', 'Commit ghi chú'), 4),
+      act('act_demo_o3', 'msg_demo_o4', 'restart_process', 'dev', T('Pick up the new build', 'Nhận bản build mới'), 4)
+    ])
+  })
   return { ao, shop, content, lead, dev }
 }
 
@@ -528,7 +544,27 @@ async function capture({ ao, shop, lead }) {
     ['19-bot', `${P}/bots/new`],
     ['20-council', `/projects/${shop.id}?tab=workflows`],
     ['21-assistant', '/assistant'],
-    ['22-watch', '/watch'],
+    // a grid dashboard of widgets (kept in the browser): figures, a chat, a chart, what waits for you
+    ['22-watch', '/watch', async () => {
+      const box = (widget, x, y, w, h, extra = {}) => ({ id: `w${x}_${y}`, widget, projectId: ao.id, x, y, w, h, ...extra })
+      const board = { id: 'demo', name: T('On call', 'Ca trực'), refresh: 30, projectId: ao.id, items: [
+        box('stat', 0, 0, 2, 2, { config: { metric: 'running' } }),
+        box('stat', 2, 0, 2, 2, { config: { metric: 'pending' } }),
+        box('stat', 4, 0, 2, 2, { config: { metric: 'cost_24h' } }),
+        box('budget', 6, 0, 2, 2),
+        box('note', 8, 0, 4, 2, { projectId: '', config: { text: T('Release Friday: watch the nightly build and the shop API.', 'Phát hành thứ Sáu: để mắt build đêm và API của shop.') } }),
+        box('chat', 0, 2, 4, 6, { conversationId: 'cnv_demo_build' }),
+        box('chart', 4, 2, 4, 3),
+        box('approvals', 8, 2, 4, 3, { projectId: '' }),
+        box('jobs', 4, 5, 4, 3),
+        box('git', 8, 5, 2, 3),
+        box('breakdown', 10, 5, 2, 3, { projectId: '' })
+      ] }
+      await page.eval(`localStorage.setItem('office.watch.boards', ${JSON.stringify(JSON.stringify({ active: 'demo', boards: [board] }))}); true`)
+      await page.go('/watch', 3500)
+    }],
+    // proposals are numbered and approved in order; a card from an older answer is marked "old"
+    ['47-approval-order', `${P}?tab=chat&c=cnv_demo_order`],
     ['23-providers', '/providers'],
     ['24-templates', '/workflows'],
     ['25-library', '/skills'],

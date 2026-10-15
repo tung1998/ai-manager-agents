@@ -2386,3 +2386,22 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Office khởi động lại thì số dòng đếm lại từ 1 (log nằm trong bộ nhớ): `from` lớn hơn dòng cuối hiện có thì office gửi lại từ đầu, tab thấy dòng có số không lớn hơn dòng cuối đã nhận thì xoá console cũ.
   - Sự kiện `state` (CPU/RAM mỗi 3 giây) của SSE riêng không chuyển sang: `LogTerminal` không dùng; trạng thái lấy từ danh sách tiến trình.
 - **Không làm (lúc này):** HTTP/2 cho office (đỡ giới hạn kết nối nhưng cần TLS); gộp nhiều dòng compose vào một sự kiện; dọn follow khi `on:false` tới trước `on:true` đang bay (follow thừa sống tới khi đóng tab, tab bỏ qua dòng của nó).
+
+## ADR-159: Theo dõi thành dashboard dạng lưới với widget
+- **Bối cảnh (15/10):** Theo dõi (`/watch`) chỉ đặt được các khung chat cạnh nhau, chia dọc/ngang như iTerm. Người dùng muốn một màn hình trực: vài con số, console của dev server, thẻ chờ duyệt, chi phí, cùng lúc, như dashboard của Graylog.
+- **Quyết định:**
+  - **Nhiều dashboard** dạng tab, mỗi cái có tên, chu kỳ tự làm mới (giây, 0 = chỉ khi có thay đổi) và project mặc định cho box mới. Lưu trong `localStorage` (`office.watch.boards`), không đồng bộ máy khác; bố cục chia ô cũ (`office.watch.layout`) tự chuyển sang lưới theo thứ tự đọc.
+  - **Lưới ô vuông 12 cột** như màn hình chính điện thoại: box chiếm trọn ô, không chồng nhau, tự nổi lên lấp chỗ trống. Kéo tay nắm để di chuyển, kéo góc để đổi cỡ, trong giới hạn min/max của widget. Màn hẹp (<900px: 8 cột, <600px: 4 cột) hiện bản xếp gọn, chỉ xem. Hàm lưới thuần (`utils/watchGrid.ts`), test riêng `scripts/test-watch-grid.ts`.
+  - **20 widget** khai báo trong `utils/watchWidgets.ts` (icon, cần project hay không, chỉ admin, cỡ, các trường cài đặt): chat, tiến trình, container, nhiều console, giám sát, con số, job, biểu đồ, sự cố, chờ duyệt, máy, ngân sách AI, hạn mức AI, chi phí theo nhóm, bảng đèn, git, bảng điều khiển, lịch tự động, xem trang web, ghi chú. Form ⚙ của box sinh từ các trường đó. Widget tự bố trí theo cỡ box; box 1 ô không có thanh tiêu đề.
+  - Console của các widget đi chung luồng sự kiện của tab (ADR-158).
+- **Không làm (lúc này):** lưu dashboard trên server hay chia sẻ cho người khác; sửa bố cục trên màn hẹp.
+
+## ADR-160: Đề xuất duyệt theo thứ tự
+- **Bối cảnh (15/10):** một câu trả lời của agent thường đề xuất nhiều việc nối nhau (build → commit → restart). Duyệt lệch thứ tự chạy restart trước khi có build; duyệt một thẻ thì agent chạy tiếp ngay dù còn thẻ khác đang chờ, và thẻ của câu trả lời cũ vẫn duyệt được dù agent đã đổi hướng. Có lần agent chép cả nhánh khác vào worktree, sinh diff hàng trăm file.
+- **Quyết định:**
+  - Thẻ đề xuất và diff của một chat được **đánh số #n** theo thứ tự agent tạo (cả chat nhiều agent; thẻ của chat liên kết dùng số thật của chat đó). Duyệt một thẻ khi thẻ trước còn chờ trả 409 kèm #n của thẻ đó. Áp cho dashboard, bot và diff tự gộp (`CapApply` chờ đến lượt).
+  - Agent chỉ **chạy tiếp khi mọi thẻ của chat đã quyết** (kiểm fail-closed); quyết định được giữ lại đến lúc đó, kể cả quyết trên dashboard khi chat đến từ bot. **Bỏ qua tất cả** cũng tính là đã quyết.
+  - Thẻ của câu trả lời trước của agent có nhãn **Cũ**; duyệt phải xác nhận.
+  - Diff trên 100 file hoặc 1 MB: cảnh báo đỏ, gộp phải xác nhận. Bot: `/approve all` dừng ở thẻ sai thứ tự và diff rất lớn (duyệt riêng bằng `/approve N ok`).
+  - Prompt: không chép file của nhánh khác vào worktree; đề xuất đúng thứ tự cần chạy.
+- **Không làm (lúc này):** cho đề xuất khai báo phụ thuộc riêng (thẻ không liên quan vẫn phải theo thứ tự).

@@ -374,6 +374,8 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
     <li><b>Từ chối</b>: agent được báo và có thể thử cách khác.</li>
     <li><b>Bỏ qua</b>: gạt đi mà agent không chạy lại. <b>Bỏ qua tất cả</b> dọn sạch một project.</li>
   </ul>
+  <figure><img src="images/vi/47-approval-order.png" alt="Thẻ duyệt theo thứ tự" loading="lazy"><figcaption>Thẻ đánh số theo thứ tự agent tạo. #1 thuộc câu trả lời trước nên có nhãn <b>Cũ</b>.</figcaption></figure>
+  <p><b>Theo thứ tự.</b> Chỉ duyệt được một thẻ khi các thẻ trước nó đã được quyết; agent chỉ chạy tiếp khi mọi thẻ của chat đã quyết xong. Áp dụng trên dashboard, trên bot (<code>/approve all</code> dừng ở thẻ đầu tiên sai thứ tự) và cả khi diff được tự gộp. Thẻ của câu trả lời cũ phải xác nhận mới duyệt; diff rất lớn (trên 100 file hoặc 1 MB, thường do chép nhầm cả nhánh) có cảnh báo đỏ trước khi gộp.</p>
   <div class="callout tip"><strong>Duyệt ở đâu cũng được</strong>Từ chuông trên header, toast và thông báo trình duyệt (xem Tổng quan). Thẻ đề xuất cũng hiện trên Discord/Telegram có nút bấm, hoặc dùng <code>/skip</code>, <code>/bo-qua</code>. Quyết ở một nơi thì nơi kia tự cập nhật.</div>
 </section>
 
@@ -511,8 +513,14 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <!-- 19 -->
 <section id="watch">
   <h2><span class="num">19</span>Theo dõi</h2>
-  <p class="intro">Nhiều chat của nhiều project đặt cạnh nhau, như các khung trong iTerm.</p>
-  <figure><img src="images/vi/22-watch.png" alt="Theo dõi" loading="lazy"><figcaption>Chia ngang hoặc dọc, kéo để đổi kích thước. Bố cục được lưu trong trình duyệt này.</figcaption></figure>
+  <p class="intro">Dashboard của riêng bạn: lưới các box, mỗi box là một chat, console, con số hay danh sách, của project nào cũng được.</p>
+  <figure><img src="images/vi/22-watch.png" alt="Theo dõi" loading="lazy"><figcaption>Dashboard "Ca trực": con số, ghi chú, một chat, biểu đồ job, thẻ chờ duyệt, job gần đây, git và chi phí.</figcaption></figure>
+  <ul>
+    <li><b>Nhiều dashboard</b> dạng tab, mỗi cái có tên, chu kỳ tự làm mới và project mặc định.</li>
+    <li><b>Lưới 12 cột</b> như màn hình chính điện thoại: kéo tay nắm để di chuyển, kéo góc để đổi cỡ, các box khác tự dời chỗ. Màn hẹp hiện bản xếp gọn (8 hoặc 4 cột).</li>
+    <li><b>20 widget</b> trong <b>Thêm box</b>: chat, tiến trình và container (console, nút điều khiển, CPU/RAM), nhiều console, giám sát, con số, job, biểu đồ, sự cố, chờ duyệt, máy, ngân sách AI, hạn mức AI, chi phí theo nhóm, bảng đèn, git, bảng điều khiển, lịch tự động, xem trang web, ghi chú. Mỗi box có cài đặt riêng (⚙).</li>
+  </ul>
+  <p>Dashboard lưu trong trình duyệt này. Các console đi chung một luồng sự kiện của tab, nên board nhiều log không chiếm hết kết nối của trình duyệt.</p>
 </section>
 
 <!-- 20 -->
