@@ -3,7 +3,7 @@
 // the agents to tag (Chat, ADR-044), files
 // can be attached (button, drag & drop, paste) and are uploaded right away.
 export interface Attachment { id: string, name: string, kind: 'image' | 'pdf' | 'text', mime: string, size: number }
-interface Skill { name: string, description: string, source: 'project' | 'user' | 'plugin' | 'workflow', kind?: 'skill' | 'command' }
+interface Skill { name: string, description: string, source: 'project' | 'user' | 'plugin' | 'workflow', kind?: 'skill' | 'command', tool?: string }
 
 const props = withDefaults(defineProps<{
   projectId: string
@@ -67,6 +67,9 @@ const activeSkill = computed(() => {
   return workflows.value.find(s => s.name === m[2]) ?? (m[1] === '/' ? skills.value.find(s => s.name === m[2]) : undefined)
 })
 const sourceLabel = computed(() => ({ project: t('prompt.sourceProject'), user: t('prompt.sourceUser'), plugin: t('prompt.sourcePlugin'), workflow: t('wf.slashBadge') }))
+// whose folder a skill is in, when not Claude Code's: "Codex · máy"
+const toolName: Record<string, string> = { codex: 'Codex', gemini: 'Gemini', antigravity: 'Antigravity' }
+const badge = (s: Skill) => [toolName[s.tool ?? ''], sourceLabel.value[s.source]].filter(Boolean).join(' · ')
 const skillIcon = (s: Skill) => s.source === 'workflow' ? 'i-lucide-workflow' : s.kind === 'command' ? 'i-lucide-square-terminal' : 'i-lucide-sparkles'
 
 // The menu is teleported to <body> with fixed position so no scrolling or
@@ -252,7 +255,7 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
           <span class="font-mono text-sm">{{ s.source === 'workflow' ? '#' : '/' }}{{ s.name }}</span>
           <span class="line-clamp-1 text-xs text-(--ui-text-muted)">{{ s.description }}</span>
         </span>
-        <UBadge color="neutral" variant="subtle" size="sm" :label="sourceLabel[s.source]" />
+        <UBadge color="neutral" variant="subtle" size="sm" :label="badge(s)" />
       </button>
       </template>
       </div>

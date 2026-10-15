@@ -280,11 +280,56 @@ func TestCommandCall(t *testing.T) {
 	if c := got["fe:build"]; c.Description != "Build the frontend" {
 		t.Fatal(c)
 	}
+	write(t, filepath.Join(home, ".claude/skills/synced/bucket/pdf/SKILL.md"), "---\ndescription: org skill\n---\n")
+	write(t, filepath.Join(home, ".claude/plugins/synced/bucket/cowork~g2/skills/make/SKILL.md"), "---\ndescription: synced plugin\n---\n")
+	got = map[string]SkillRef{}
+	for _, s := range ProjectSkills(home, proj) {
+		got[s.Name] = s
+	}
+	if got["anthropic-skills:pdf"].Description != "org skill" || got["cowork:make"].Source != "plugin" {
+		t.Fatal(got)
+	}
 	if got["review"].Kind != "skill" || got["plug:go"].Source != "plugin" {
 		t.Fatal(got)
 	}
 	p, s, err := ExpandSkillCall(home, proj, "/fix 42 fast")
-	if err != nil || s.Kind != "command" || !strings.Contains(p, "Fix issue 42 then 42 fast") {
+	if err != nil || s.Kind != "command" || s.Tool != "claude" || !strings.Contains(p, "Fix issue 42 then 42 fast") {
+		t.Fatal(p, err)
+	}
+}
+
+// Skills and commands of the other CLIs office runs: Codex, Gemini CLI,
+// Antigravity.
+func TestOtherToolsSkills(t *testing.T) {
+	home, proj := fixture(t)
+	write(t, filepath.Join(home, ".codex/skills/cx/SKILL.md"), "---\ndescription: codex skill\n---\n")
+	write(t, filepath.Join(home, ".codex/skills/.system/imagegen/SKILL.md"), "---\ndescription: sys\n---\n")
+	write(t, filepath.Join(home, ".codex/prompts/draft.md"), "Draft $1")
+	write(t, filepath.Join(home, ".codex/plugins/cache/oa/sites/1.0/skills/site/SKILL.md"), "---\ndescription: p\n---\n")
+	write(t, filepath.Join(proj, ".agents/skills/shared/SKILL.md"), "---\ndescription: agents\n---\n")
+	write(t, filepath.Join(proj, ".gemini/commands/git/msg.toml"), "description = \"Write a \\\"commit\\\" message\"\nprompt = \"\"\"\nWrite one for {{args}}\n\"\"\"\n")
+	write(t, filepath.Join(home, ".gemini/extensions/ext/commands/hi.toml"), "prompt = 'Say hi'")
+	write(t, filepath.Join(proj, ".agent/workflows/ship.md"), "---\ndescription: ship it\n---\nShip")
+	got := map[string]SkillRef{}
+	for _, s := range ProjectSkills(home, proj) {
+		got[s.Name] = s
+	}
+	for name, want := range map[string]string{
+		"cx": "codex/user/skill", "imagegen": "codex/user/skill", "prompts:draft": "codex/user/command", "sites:site": "codex/plugin/skill",
+		"shared": "codex/project/skill", "git:msg": "gemini/project/command", "hi": "gemini/plugin/command", "ship": "antigravity/project/command",
+	} {
+		if g := got[name]; g.Tool+"/"+g.Source+"/"+g.Kind != want {
+			t.Errorf("%s: %+v, want %s", name, g, want)
+		}
+	}
+	if d := got["git:msg"].Description; d != `Write a "commit" message` {
+		t.Errorf("toml description %q", d)
+	}
+	if d := got["hi"].Description; d != "Say hi" {
+		t.Errorf("toml prompt as description %q", d)
+	}
+	p, _, err := ExpandSkillCall(home, proj, "/git:msg the fix")
+	if err != nil || !strings.Contains(p, "Write one for the fix") {
 		t.Fatal(p, err)
 	}
 }
