@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // One mark per enabled AI connection in the header (desktop): its vendor's logo
-// (else its initial) in a ring. The ring fills to the most-used usage window
-// (5 hours, the week); red when the connection is in error, a plain green ring
+// (else its initial) in two rings: the outer fills to the 5-hour window, the
+// inner to the week. Red when the connection is in error, a plain green ring
 // when it reports no window.
 import type { MessageKey } from '~/locales/vi'
 
@@ -36,15 +36,22 @@ const logoColor: Record<string, string> = {
 }
 const palette = ['bg-violet-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500', 'bg-orange-500']
 const colorOf = (key: string) => palette[[...key].reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length]
-const R = 10
-const C = 2 * Math.PI * R
+const R = 10.5 // outer ring: 5 hours
+const RI = 8 // inner ring: the week
+const tone = (u: number) => u >= 0.9 ? 'stroke-(--ui-error)' : u >= 0.7 ? 'stroke-(--ui-warning)' : 'stroke-(--ui-primary)'
 
 const rings = computed(() => (data.value?.providers ?? []).filter(p => p.enabled).map((p) => {
   const ws = Object.entries(limits.value.find(l => l.provider_id === p.id)?.windows ?? {})
     .filter(([k]) => k === 'five_hour' || k === 'seven_day')
-  const used = ws.length ? Math.max(...ws.map(([, w]) => w.utilization)) : null
   const error = p.status === 'error'
-  const stroke = error ? 'stroke-(--ui-error)' : used === null ? 'stroke-(--ui-success)' : used >= 0.9 ? 'stroke-(--ui-error)' : used >= 0.7 ? 'stroke-(--ui-warning)' : 'stroke-(--ui-primary)'
+  const win = Object.fromEntries(ws)
+  // error or no window: one full ring; else a ring per window, filled to its share
+  const arcs = error || !ws.length
+    ? [{ r: R, w: 2, stroke: error ? 'stroke-(--ui-error)' : 'stroke-(--ui-success)', share: 1 }]
+    : ([['five_hour', R, 2], ['seven_day', RI, 1.5]] as const).filter(([k]) => win[k]).map(([k, r, w]) => {
+        const u = win[k]!.utilization
+        return { r, w, stroke: tone(u), share: Math.min(1, u) }
+      })
   const parts = [p.name]
   if (error) parts.push(p.status_detail || t('prov.statusError'))
   for (const [k, w] of ws) parts.push(`${t(`limits.window.${k}` as MessageKey)} ${Math.round(w.utilization * 100)}%`)
@@ -55,9 +62,7 @@ const rings = computed(() => (data.value?.providers ?? []).filter(p => p.enabled
     logoColor: logoColor[logo] ?? 'text-(--ui-text)',
     letter: p.name.slice(0, 1).toUpperCase(),
     bg: colorOf(p.kind),
-    stroke,
-    // error or no window: a full ring; else the used share of it
-    dash: error || used === null ? C : Math.min(1, used) * C,
+    arcs: arcs.map(a => ({ ...a, c: 2 * Math.PI * a.r })),
     title: parts.join(' · ')
   }
 }))
@@ -70,11 +75,13 @@ const rings = computed(() => (data.value?.providers ?? []).filter(p => p.enabled
       class="relative grid size-7 place-items-center rounded-full transition hover:bg-(--ui-bg-elevated)"
     >
       <svg viewBox="0 0 24 24" class="absolute inset-0 size-full -rotate-90">
-        <circle cx="12" cy="12" :r="R" fill="none" stroke-width="2" class="stroke-(--ui-bg-accented)" />
-        <circle
-          cx="12" cy="12" :r="R" fill="none" stroke-width="2" stroke-linecap="round" :class="r.stroke"
-          :stroke-dasharray="`${r.dash} ${C}`" class="transition-all"
-        />
+        <template v-for="a in r.arcs" :key="a.r">
+          <circle cx="12" cy="12" :r="a.r" fill="none" :stroke-width="a.w" class="stroke-(--ui-bg-accented)" />
+          <circle
+            cx="12" cy="12" :r="a.r" fill="none" :stroke-width="a.w" stroke-linecap="round" :class="a.stroke"
+            :stroke-dasharray="`${a.share * a.c} ${a.c}`" class="transition-all"
+          />
+        </template>
       </svg>
       <UIcon v-if="r.logo" :name="r.logo" class="size-3.5" :class="r.logoColor" />
       <span v-else class="grid size-4.5 place-items-center rounded-full text-[10px] font-semibold text-white" :class="r.bg">{{ r.letter }}</span>
