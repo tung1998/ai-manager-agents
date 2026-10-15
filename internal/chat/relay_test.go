@@ -43,6 +43,13 @@ func TestRelayToAnotherChat(t *testing.T) {
 	if !f.engine.Relayed(ctx, to.ID) || f.engine.Relayed(ctx, from.ID) {
 		t.Fatal("relayed mark wrong")
 	}
+	// shown with the message: the agent, its project and the chat it came from
+	if r := chat.RelayOf(msgs[0]); r == nil || r.Agent != "Trợ lý" || r.Project != "demo" || r.ProjectID != f.project.ID || r.ConversationID != from.ID || r.Report {
+		t.Fatalf("relay = %+v", r)
+	}
+	if hist, _ := f.engine.History(ctx, to.ID); len(hist) < 1 || hist[0].Relay == nil || hist[0].Relay.Agent != "Trợ lý" {
+		t.Fatalf("history relay = %+v", hist)
+	}
 
 	// a bot's or an automation's run cannot speak for a person
 	bot, _ := f.st.Jobs().Create(ctx, storage.Job{ProjectID: f.project.ID, Kind: "chat_turn", Origin: "automation", CreatedBy: "discord:1", ConversationID: from.ID, Status: "running", StartedAt: &now})
@@ -99,11 +106,12 @@ func TestRelayNewChatInLinkedProject(t *testing.T) {
 		!strings.Contains(back[0].Content, msgs[1].Content) || !strings.Contains(back[0].Context, `"relay_hops":2`) || !strings.Contains(back[0].Context, `"relay_report":true`) {
 		t.Fatalf("report back = %+v", back)
 	}
-	if r := chat.ReportOf(back[0]); r == nil || r.Project != "admin v3" || r.ProjectID != admin.ID || r.ConversationID != to || r.Agent == "" {
+	if r := chat.RelayOf(back[0]); r == nil || !r.Report || r.Project != "admin v3" || r.ProjectID != admin.ID || r.ConversationID != to || r.Agent == "" {
 		t.Fatalf("report = %+v", r)
 	}
-	if chat.ReportOf(msgs[0]) != nil { // the hand-off itself is no report
-		t.Fatal("a hand-off marked as a report")
+	// the hand-off: no report, but who sent it, from which project and chat
+	if r := chat.RelayOf(msgs[0]); r == nil || r.Report || r.Agent != "Lead" || r.Project != "demo" || r.ProjectID != f.project.ID || r.ConversationID != from.ID {
+		t.Fatalf("hand-off relay = %+v", r)
 	}
 	if f.engine.RelayLimit(ctx, from.ID) {
 		t.Fatal("2 hops is within the chain's cap")
@@ -148,5 +156,23 @@ func TestLinkedPending(t *testing.T) {
 	f.st.Actions().Create(ctx, storage.Action{ProjectID: admin.ID, ConversationID: old.ID, Kind: "run_command", Status: "pending", Target: "pnpm test"})
 	if got = f.engine.LinkedPending(ctx, from.ID); len(got) != 2 || got[1].ConversationID != old.ID {
 		t.Fatalf("a chat that reported back = %+v", got)
+	}
+}
+
+// A message relayed before its project was kept still shows where it came
+// from: office looks up the chat it names.
+func TestHistoryFillsOlderRelay(t *testing.T) {
+	f := setup(t, func(provs *provider.Service) storage.Provider { return storage.Provider{} })
+	ctx := context.Background()
+	src, _ := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: f.project.ID, Title: "Trang mockup"})
+	dst, _ := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: f.project.ID})
+	f.st.Chat().AddMessage(ctx, storage.Message{ConversationID: dst.ID, Role: "user", Content: "làm giúp",
+		Context: `{"relayed_from":"` + src.ID + `","relayed_by_agent":"Lead"}`})
+	hist, err := f.engine.History(ctx, dst.ID)
+	if err != nil || len(hist) != 1 {
+		t.Fatal(err, hist)
+	}
+	if r := hist[0].Relay; r == nil || r.Project != "demo" || r.ProjectID != f.project.ID || r.Title != "Trang mockup" || r.Agent != "Lead" {
+		t.Fatalf("relay = %+v", r)
 	}
 }

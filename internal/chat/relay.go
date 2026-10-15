@@ -33,24 +33,50 @@ type relayInfo struct {
 	Hops      int    `json:"relay_hops,omitempty"`
 	Report    bool   `json:"relay_report,omitempty"`            // the linked chat's agent reporting back
 	ProjectID string `json:"relayed_from_project_id,omitempty"` // its project's id (a link to its chat)
+	// Name: the sending chat's project, whichever (Project is only set for
+	// another project's: it marks a chain between linked projects)
+	Name string `json:"relayed_from_project_name,omitempty"`
 }
 
-// Report marks a message that is a linked project's agent reporting back
-// (reportBack): the chat shows who and where, its text folded.
-type Report struct {
-	Project        string `json:"project"`
+// Relay says where a message an agent sent into this chat came from
+// (send_to_chat, a linked project's report back): the agent, its project and
+// its chat, shown with the message.
+type Relay struct {
 	Agent          string `json:"agent"`
+	Project        string `json:"project"`
 	ProjectID      string `json:"project_id"`
 	ConversationID string `json:"conversation_id"`
+	Title          string `json:"title"`
+	Report         bool   `json:"report"` // a linked project's report back: its text shown folded
 }
 
-// ReportOf is m's report back, or nil when it is not one.
-func ReportOf(m storage.Message) *Report {
+// RelayOf is where m was relayed from, or nil when a person wrote it.
+func RelayOf(m storage.Message) *Relay {
 	var info relayInfo
-	if m.Role != "user" || m.Context == "" || json.Unmarshal([]byte(m.Context), &info) != nil || !info.Report {
+	if m.Role != "user" || m.Context == "" || json.Unmarshal([]byte(m.Context), &info) != nil || info.ConversationID == "" {
 		return nil
 	}
-	return &Report{Project: info.Project, Agent: info.Agent, ProjectID: info.ProjectID, ConversationID: info.ConversationID}
+	return &Relay{Agent: info.Agent, Project: cmp.Or(info.Name, info.Project), ProjectID: info.ProjectID,
+		ConversationID: info.ConversationID, Title: info.Title, Report: info.Report}
+}
+
+// fillRelay completes what an older relayed message did not keep (its
+// project), from the chat it came from.
+func (e *Engine) fillRelay(ctx context.Context, r *Relay, names map[string]string) {
+	if r == nil || (r.ProjectID != "" && r.Project != "") {
+		return
+	}
+	c, err := e.store.Chat().GetConversation(ctx, r.ConversationID)
+	if err != nil {
+		return
+	}
+	r.ProjectID, r.Title = c.ProjectID, cmp.Or(r.Title, c.Title)
+	if _, ok := names[c.ProjectID]; !ok {
+		if p, err := e.store.Repos().Get(ctx, c.ProjectID); err == nil {
+			names[c.ProjectID] = p.Name
+		}
+	}
+	r.Project = cmp.Or(r.Project, names[c.ProjectID])
 }
 
 // maxRelayHops caps a chain between linked projects' chats, like a group
@@ -111,7 +137,10 @@ func (e *Engine) Relay(ctx context.Context, a storage.Action) (string, string, e
 	if e.isAssistant(ctx, target.ProjectID) && target.CreatedBy != as {
 		return "", "", errors.New("cuộc chat trợ lý office của người khác: không gửi được")
 	}
-	from := relayInfo{ConversationID: a.ConversationID, Agent: a.ProposedBy}
+	from := relayInfo{ConversationID: a.ConversationID, Agent: a.ProposedBy, ProjectID: a.ProjectID}
+	if p, err := e.store.Repos().Get(ctx, a.ProjectID); err == nil {
+		from.Name = p.Name
+	}
 	if target.ProjectID != a.ProjectID { // a chain between linked projects: counted
 		from.Hops = 1
 		if msgs, err := e.store.Chat().ListMessages(ctx, a.ConversationID); err == nil {
@@ -119,9 +148,7 @@ func (e *Engine) Relay(ctx context.Context, a storage.Action) (string, string, e
 				from.Hops = o.Hops + 1
 			}
 		}
-		if p, err := e.store.Repos().Get(ctx, a.ProjectID); err == nil {
-			from.Project = p.Name
-		}
+		from.Project = from.Name
 	}
 	if c, err := e.store.Chat().GetConversation(ctx, a.ConversationID); err == nil {
 		from.Title = c.Title
@@ -192,7 +219,7 @@ func (e *Engine) reportBack(conv storage.Conversation, project storage.Repo, age
 		e.note(conv, fmt.Sprintf("Không tự báo lại chat %q nữa: đã quá %d lượt qua lại giữa hai project. Hãy xem và trả lời trực tiếp.", cmp.Or(src.Title, src.ID), maxRelayHops))
 		return
 	}
-	info := relayInfo{ConversationID: conv.ID, Title: conv.Title, Agent: agent.Name, Project: project.Name, ProjectID: project.ID, Hops: origin.Hops + 1, Report: true}
+	info := relayInfo{ConversationID: conv.ID, Title: conv.Title, Agent: agent.Name, Project: project.Name, Name: project.Name, ProjectID: project.ID, Hops: origin.Hops + 1, Report: true}
 	raw, _ := json.Marshal(info)
 	text := prompts.Render("chat/linked-report", map[string]any{"Project": project.Name, "Agent": agent.Name,
 		"Link": "/projects/" + conv.ProjectID + "?tab=chat&c=" + conv.ID, "Reply": truncate(reply, 8000)})

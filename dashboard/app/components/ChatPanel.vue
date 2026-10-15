@@ -17,8 +17,9 @@ interface Message {
   patches: Patch[]
   actions?: ProposedAction[]
   cost_usd?: number
-  // a linked project's agent reporting back: shown folded
-  report?: { project: string, agent: string, project_id?: string, conversation_id: string }
+  // sent by an agent from another chat (send_to_chat, a linked project's
+  // report back): who, from which project and chat; a report's text folded
+  relay?: { agent: string, project: string, project_id: string, conversation_id: string, title: string, report: boolean }
 }
 interface Queued { id: string, text: string, attachments: Attachment[], created_at: string }
 interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', effort?: string, cleaned?: string, context_tokens?: number, context_window?: number, tags?: string[], queued?: Queued[] }
@@ -1014,6 +1015,19 @@ onBeforeUnmount(() => {
               <span>· {{ when(m.created_at) }}</span>
               <a v-if="senderOf(m)!.link" :href="senderOf(m)!.link" target="_blank" rel="noopener" class="hover:text-(--ui-text)" :aria-label="t('chat.senderOpen')" :title="t('chat.senderOpen')"><UIcon name="i-lucide-external-link" class="size-3.5" /></a>
             </div>
+            <!-- an agent sent it from another chat: who, which project, which chat -->
+            <div v-if="m.relay" class="flex max-w-[80%] flex-wrap items-center justify-end gap-x-1.5 text-xs text-(--ui-text-muted)">
+              <UIcon :name="m.relay.report ? 'i-lucide-corner-down-left' : 'i-lucide-bot'" class="size-3.5 shrink-0 text-primary" />
+              <span>{{ t(m.relay.report ? 'chat.relayReport' : 'chat.relaySent') }}</span>
+              <span class="font-medium text-(--ui-text)">{{ m.relay.agent }}</span>
+              <span v-if="m.relay.project">· {{ m.relay.project }}</span>
+              <span>· {{ t('chat.relayFrom') }}</span>
+              <NuxtLink v-if="m.relay.project_id" :to="`/projects/${m.relay.project_id}?tab=chat&c=${m.relay.conversation_id}`" class="max-w-60 truncate text-primary hover:underline" :title="m.relay.title">
+                {{ m.relay.title || t('chat.relayUntitled') }}
+              </NuxtLink>
+              <span v-else class="max-w-60 truncate">{{ m.relay.title || t('chat.relayUntitled') }}</span>
+              <span>· {{ when(m.created_at) }}</span>
+            </div>
             <AttachmentList :items="m.attachments ?? []" align="end" />
             <div class="flex max-w-[80%] items-start gap-1">
               <UDropdownMenu :items="messageMenu(m)" :content="{ align: 'end' }">
@@ -1021,14 +1035,9 @@ onBeforeUnmount(() => {
                   <UIcon name="i-lucide-ellipsis" class="size-4" />
                 </button>
               </UDropdownMenu>
-              <!-- a linked project's report back: who and where, its text folded -->
-              <div v-if="m.report" class="min-w-0 rounded-2xl rounded-br-sm border border-(--ui-border) bg-(--ui-bg-elevated)/60 px-3.5 py-2 text-sm">
-                <p class="flex flex-wrap items-center gap-x-1.5 text-xs text-(--ui-text-muted)">
-                  <UIcon name="i-lucide-corner-down-left" class="size-3.5 text-primary" />
-                  <span>{{ t('chat.reportFrom', { project: m.report.project, agent: m.report.agent }) }}</span>
-                  <NuxtLink v-if="m.report.project_id" :to="`/projects/${m.report.project_id}?tab=chat&c=${m.report.conversation_id}`" class="text-primary hover:underline">{{ t('chat.reportOpen') }}</NuxtLink>
-                </p>
-                <details class="group/rep mt-1">
+              <!-- a linked project's report back: its text folded (who and where above) -->
+              <div v-if="m.relay?.report" class="min-w-0 rounded-2xl rounded-br-sm border border-(--ui-border) bg-(--ui-bg-elevated)/60 px-3.5 py-2 text-sm">
+                <details class="group/rep">
                   <summary class="flex cursor-pointer list-none items-center gap-1 text-xs font-medium hover:text-primary">
                     <UIcon name="i-lucide-chevron-right" class="size-3.5 transition group-open/rep:rotate-90" />{{ t('chat.reportShow') }}
                   </summary>

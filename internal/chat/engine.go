@@ -73,7 +73,7 @@ type MessageDTO struct {
 	Patches     []PatchDTO           `json:"patches"`
 	Actions     []ActionDTO          `json:"actions"`
 	CostUSD     *float64             `json:"cost_usd,omitempty"`
-	Report      *Report              `json:"report,omitempty"` // a linked project's report back: shown folded
+	Relay       *Relay               `json:"relay,omitempty"` // sent by an agent from another chat: who, from which project and chat
 }
 
 // PatchDTO is a proposed change.
@@ -1559,8 +1559,10 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 		actByMsg[a.MessageID] = append(actByMsg[a.MessageID], ToActionDTO(a))
 	}
 	out := make([]MessageDTO, 0, len(msgs))
+	names := map[string]string{} // project names, for older relayed messages
 	for _, m := range msgs {
-		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID], Report: ReportOf(m)}
+		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID], Relay: RelayOf(m)}
+		e.fillRelay(ctx, d.Relay, names)
 		if d.Patches == nil {
 			d.Patches = []PatchDTO{}
 		}
