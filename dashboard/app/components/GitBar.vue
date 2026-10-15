@@ -120,17 +120,16 @@ function toggle(path: string, on: boolean) {
   commit.picked = on ? [...commit.picked, path] : commit.picked.filter(p => p !== path)
 }
 
-// status is local and cheap: follow it; ask the remote once when opening
-let timer: ReturnType<typeof setInterval> | undefined
+// status follows what office changes (a diff merged, a card run) and the git
+// events; an edit made elsewhere shows on coming back. The remote: once when opening
+useLive(['patches', 'actions'], () => load())
 onMounted(async () => {
   await load()
   if (repo.value && st.value?.upstream) fetchRemote(true)
-  timer = setInterval(load, 30000)
   window.addEventListener('focus', load)
 })
 onBeforeUnmount(() => {
   gen++
-  clearInterval(timer)
   clearTimeout(stuck)
   window.removeEventListener('focus', load)
 })

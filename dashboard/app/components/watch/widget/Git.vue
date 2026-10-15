@@ -5,7 +5,11 @@ interface GitStatus { branch: string, upstream?: string, ahead: number, behind: 
 const { t } = useLang()
 const { projectId, config, short, tiny } = useWatchBox()
 const { data, error, refresh } = useLiveFetch<{ repo: boolean, error?: string, status?: GitStatus }>(() => `/api/projects/${projectId.value}/git`, { lazy: true, server: false })
-useWatchPoll(() => refresh())
+// office's own changes come as events; an edit made elsewhere shows on coming back
+onLiveEvent<{ project: string }>('git', (d) => { if (d.project === projectId.value) refresh() })
+const onFocus = () => refresh()
+onMounted(() => window.addEventListener('focus', onFocus))
+onBeforeUnmount(() => window.removeEventListener('focus', onFocus))
 const st = computed(() => data.value?.status)
 const statusClass: Record<string, string> = { 'M': 'text-(--ui-warning)', 'A': 'text-(--ui-success)', 'D': 'text-(--ui-error)', '??': 'text-(--ui-text-dimmed)' }
 </script>

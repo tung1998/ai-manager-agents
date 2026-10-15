@@ -19,6 +19,7 @@ const routes: [RegExp, string[]][] = [
   [/\/burn/, ['burn_sessions', 'burn_items']],
   [/\/audit/, ['audit_log']],
   [/\/stats\b/, ['runs', 'jobs']],
+  [/\/git\b/, ['patches', 'actions']], // a diff merged, a commit approved
   [/\/assistant/, ['conversations', 'messages', 'settings']],
   [/\/system/, ['*']],
   [/\/conversations|\/chat\//, ['conversations', 'messages', 'conversation_agents', 'patches', 'actions', 'agents']],

@@ -134,6 +134,8 @@ func serveCmd() *cobra.Command {
 			}()
 			procs := ops.NewManager(a.store, filepath.Join(h.Dir, "logs"), a.cli.Env())
 			defer procs.Shutdown() // project processes stop with the office
+			// a status lives in memory: told like a table write
+			procs.OnChange(func() { liveBus.Wrote("processes") })
 			go procs.RunSampler(ctx, 3*time.Second)
 			procs.SetResumeFile(filepath.Join(h.Dir, "resume-processes.json"))
 			procs.Autostart(ctx)

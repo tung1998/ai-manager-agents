@@ -10,7 +10,6 @@ const toast = useToast()
 const { projectId, config, narrow } = useWatchBox()
 const { data, error, refresh } = useLiveFetch<{ processes: Proc[] }>(() => `/api/projects/${projectId.value}/processes`, { lazy: true, server: false })
 const { data: cd, refresh: rc } = useLiveFetch<{ file: string, docker: { available: boolean }, services: Svc[] }>(() => `/api/projects/${projectId.value}/compose`, { lazy: true, server: false })
-useWatchPoll(() => { refresh(); if (config.value.services) rc() })
 
 const procTone: Record<string, WatchTone> = { running: 'ok', crashed: 'bad', restarting: 'busy', stopping: 'busy' }
 const rows = computed(() => [

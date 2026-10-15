@@ -93,6 +93,18 @@ type Manager struct {
 
 	resumeFile string      // running processes saved across a restart ("" = off)
 	resume     atomic.Bool // the coming restart should start them again
+
+	onChange atomic.Pointer[func()] // a process started, stopped or crashed
+}
+
+// OnChange tells fn when a process's status changes (kept in memory, not in
+// a table): the dashboard follows it as a "processes" change, not by polling.
+func (m *Manager) OnChange(fn func()) { m.onChange.Store(&fn) }
+
+func (m *Manager) changed() {
+	if fn := m.onChange.Load(); fn != nil {
+		(*fn)()
+	}
 }
 
 // NewManager builds a Manager; env is the environment commands run with.
@@ -265,6 +277,7 @@ func (m *Manager) launch(p *proc, dir string, startGen uint64) error {
 	}
 	pid, done := cmd.Process.Pid, p.done
 	p.mu.Unlock()
+	m.changed()
 	p.add("sys", fmt.Sprintf("$ %s  (trong %s)", p.def.Command, dir))
 	if stoppedMeanwhile {
 		// a Stop() landed in the window between cmd.Start() and this lock: honor it now
@@ -335,6 +348,7 @@ func (m *Manager) exited(p *proc, dir string, err error) {
 	}
 	done := p.done
 	p.mu.Unlock()
+	m.changed()
 	msg := fmt.Sprintf("kết thúc với mã %d", code)
 	if restart {
 		msg += fmt.Sprintf(", chạy lại sau %s", delay)
@@ -367,6 +381,7 @@ func (m *Manager) exited(p *proc, dir string, err error) {
 					p.mu.Lock()
 					p.state.Status = "crashed"
 					p.mu.Unlock()
+					m.changed()
 				}
 			}
 		})
@@ -381,6 +396,7 @@ func (m *Manager) Stop(id string) error {
 	if p.state.Status == "restarting" {
 		p.state.Status = "stopped"
 		p.mu.Unlock()
+		m.changed()
 		return nil
 	}
 	if p.state.Status != "running" || p.cmd == nil {
@@ -391,6 +407,7 @@ func (m *Manager) Stop(id string) error {
 	p.state.Status = "stopping"
 	pid, done := p.cmd.Process.Pid, p.done
 	p.mu.Unlock()
+	m.changed()
 	_ = syscall.Kill(-pid, syscall.SIGTERM)
 	select {
 	case <-done:

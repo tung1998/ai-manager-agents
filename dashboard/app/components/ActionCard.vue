@@ -147,75 +147,78 @@ async function decide(approve: boolean, always = false, skip = false) {
 </script>
 
 <template>
-  <!-- a phone: the text takes the width, the status and buttons go under it -->
-  <div class="flex flex-wrap items-start gap-x-3 gap-y-2 rounded-lg border border-(--ui-border) px-3 py-2.5 sm:items-center">
-    <span class="grid size-8 shrink-0 place-items-center rounded-md bg-(--ui-bg-elevated)">
-      <UIcon :name="icon" class="size-4 text-primary" />
-    </span>
-    <div class="min-w-0 flex-1 basis-[calc(100%-2.75rem)] sm:basis-0">
-      <p class="text-sm font-medium">
-        <span v-if="num" class="me-1 font-mono text-xs text-(--ui-text-muted)">#{{ num }}</span>{{ kindLabel }}
-      </p>
-      <code v-if="action.target" class="mt-0.5 block break-all rounded bg-(--ui-bg-elevated) px-1.5 py-0.5 font-mono text-xs">{{ action.target }}</code>
-      <pre v-if="action.message" class="mt-1 whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1 font-mono text-xs">{{ action.message }}</pre>
-      <p v-if="action.files?.length" class="mt-1 truncate font-mono text-xs text-(--ui-text-muted)" :title="action.files.join('\n')">{{ t('action.fileCount', { n: action.files.length, files: action.files.join(', ') }) }}</p>
-      <div v-if="spec" class="mt-1 space-y-1 text-xs">
-        <p class="text-(--ui-text-muted)">
-          <UIcon name="i-lucide-clock" class="me-1 inline size-3.5 align-[-2px]" />{{ when }}
-          · {{ spec.action === 'script' ? t('auto.actionScript') : spec.action === 'workflow' ? t('auto.toWorkflow', { key: spec.workflow ?? '' }) : t('auto.actionChat') }}
-          <template v-if="spec.action === 'script'"> · {{ t(`auto.escalate.${spec.escalate?.when || 'failure'}` as MessageKey) }}</template>
-        </p>
-        <pre v-if="spec.script?.body" class="max-h-64 overflow-auto rounded bg-(--ui-bg-elevated) px-2 py-1 font-mono">{{ spec.script.lang }} ·
-{{ spec.script.body }}</pre>
-        <p v-else-if="spec.prompt" class="whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1">{{ spec.prompt }}</p>
-        <p v-if="spec.action === 'script' && spec.escalate?.when !== 'never' && (spec.escalate?.agent_id || spec.escalate?.prompt)" class="whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1">
-          {{ t('auto.escalateAgent') }}: {{ spec.escalate?.agent_id || t('auto.agentDefault') }}<template v-if="spec.escalate?.prompt">
-{{ spec.escalate.prompt }}</template>
-        </p>
-      </div>
-      <div v-if="action.change" class="mt-1 space-y-2 text-xs">
-        <p class="text-(--ui-text-muted)">{{ t(`action.op.${action.change.op}` as MessageKey) }} · <code>{{ action.change.resource }}</code></p>
-        <table v-if="changeRows.length" class="w-full">
-          <tbody>
-            <tr v-for="d in changeRows" :key="d.key" class="align-top">
-              <td class="w-40 py-0.5 pr-2 font-mono">{{ d.key }}</td>
-              <td v-if="action.change.op !== 'create'" class="max-w-64 break-all py-0.5 pr-2 text-(--ui-error) line-through decoration-(--ui-error)/40">{{ show(d.before) }}</td>
-              <td class="max-w-64 break-all py-0.5 text-(--ui-success)">{{ show(d.after) }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <UInput
-          v-if="needsKey && action.status === 'pending' && isAdmin" v-model="apiKey" type="password" size="sm" class="w-full max-w-sm"
-          :placeholder="t('action.pasteKey')" icon="i-lucide-key-round"
-        />
-      </div>
-      <p v-if="action.reason" class="text-xs text-(--ui-text-muted)">{{ action.reason }}</p>
-      <p v-if="action.status !== 'pending' && action.detail" class="line-clamp-2 text-xs" :title="action.detail" :class="action.status === 'failed' ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">{{ action.detail }}</p>
-    </div>
-    <UBadge :color="statusMeta[action.status].color" variant="subtle" size="sm" :label="statusMeta[action.status].label" />
-    <UBadge v-if="stale && action.status === 'pending'" color="warning" variant="outline" size="sm" icon="i-lucide-history" :label="t('card.stale')" :title="t('card.staleHint')" />
-    <UBadge v-if="action.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('action.auto')" :title="action.decided_by.slice(5)" />
-    <!-- approved while an earlier card waited: it runs in its turn; it can still be called off -->
-    <UButton v-if="action.status === 'queued' && isAdmin" size="xs" color="neutral" variant="ghost" :label="t('card.unqueue')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
-    <template v-if="action.status === 'pending' && isAdmin">
-      <UButton size="xs" icon="i-lucide-check" :label="t('action.approve')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
-      <span v-if="canAlways" class="inline-flex items-center gap-1">
-        <UButton size="xs" variant="soft" icon="i-lucide-infinity" :label="t('action.approveAlways')" :loading="busy === 'always'" :disabled="!!busy" @click="decide(true, true)" />
-        <InfoTip :text="alwaysInfo" icon-class="size-4 text-(--ui-text-muted)" />
+  <!-- by the card's own width (a chat beside others, a watch box, a phone):
+       narrow, the text takes the width and the status and buttons go under it -->
+  <div class="@container">
+    <div class="flex flex-wrap items-start gap-x-3 gap-y-2 rounded-lg border border-(--ui-border) px-3 py-2.5 @3xl:items-center">
+      <span class="grid size-8 shrink-0 place-items-center rounded-md bg-(--ui-bg-elevated)">
+        <UIcon :name="icon" class="size-4 text-primary" />
       </span>
-      <UButton size="xs" color="neutral" variant="ghost" :label="t('action.reject')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
-      <UTooltip :text="t('action.skipInfo')">
-        <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-skip-forward" :label="t('action.skip')" :loading="busy === 'skip'" :disabled="!!busy" @click="decide(false, false, true)" />
-      </UTooltip>
-    </template>
-    <UButton
-      v-else-if="hasLog" size="xs" color="neutral" variant="ghost" icon="i-lucide-terminal"
-      :trailing-icon="logOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" :label="t('action.seeLog')" @click="logOpen = !logOpen"
-    />
-    <div v-if="logOpen" class="basis-full">
-      <pre v-if="action.kind === 'run_command'" class="max-h-96 overflow-auto rounded-md bg-(--ui-bg-elevated) p-2 font-mono text-xs whitespace-pre-wrap">{{ action.detail }}</pre>
-      <div v-else class="h-80 overflow-hidden rounded-md border border-(--ui-border)">
-        <LogTerminal :url="logUrl" :title="action.target" :empty="t('ops.emptyLog')" />
+      <div class="min-w-0 flex-1 basis-[calc(100%-2.75rem)] @3xl:basis-0">
+        <p class="text-sm font-medium">
+          <span v-if="num" class="me-1 font-mono text-xs text-(--ui-text-muted)">#{{ num }}</span>{{ kindLabel }}
+        </p>
+        <code v-if="action.target" class="mt-0.5 block break-all rounded bg-(--ui-bg-elevated) px-1.5 py-0.5 font-mono text-xs">{{ action.target }}</code>
+        <pre v-if="action.message" class="mt-1 whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1 font-mono text-xs">{{ action.message }}</pre>
+        <p v-if="action.files?.length" class="mt-1 truncate font-mono text-xs text-(--ui-text-muted)" :title="action.files.join('\n')">{{ t('action.fileCount', { n: action.files.length, files: action.files.join(', ') }) }}</p>
+        <div v-if="spec" class="mt-1 space-y-1 text-xs">
+          <p class="text-(--ui-text-muted)">
+            <UIcon name="i-lucide-clock" class="me-1 inline size-3.5 align-[-2px]" />{{ when }}
+            · {{ spec.action === 'script' ? t('auto.actionScript') : spec.action === 'workflow' ? t('auto.toWorkflow', { key: spec.workflow ?? '' }) : t('auto.actionChat') }}
+            <template v-if="spec.action === 'script'"> · {{ t(`auto.escalate.${spec.escalate?.when || 'failure'}` as MessageKey) }}</template>
+          </p>
+          <pre v-if="spec.script?.body" class="max-h-64 overflow-auto rounded bg-(--ui-bg-elevated) px-2 py-1 font-mono">{{ spec.script.lang }} ·
+  {{ spec.script.body }}</pre>
+          <p v-else-if="spec.prompt" class="whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1">{{ spec.prompt }}</p>
+          <p v-if="spec.action === 'script' && spec.escalate?.when !== 'never' && (spec.escalate?.agent_id || spec.escalate?.prompt)" class="whitespace-pre-wrap rounded bg-(--ui-bg-elevated) px-2 py-1">
+            {{ t('auto.escalateAgent') }}: {{ spec.escalate?.agent_id || t('auto.agentDefault') }}<template v-if="spec.escalate?.prompt">
+  {{ spec.escalate.prompt }}</template>
+          </p>
+        </div>
+        <div v-if="action.change" class="mt-1 space-y-2 text-xs">
+          <p class="text-(--ui-text-muted)">{{ t(`action.op.${action.change.op}` as MessageKey) }} · <code>{{ action.change.resource }}</code></p>
+          <table v-if="changeRows.length" class="w-full">
+            <tbody>
+              <tr v-for="d in changeRows" :key="d.key" class="align-top">
+                <td class="w-40 py-0.5 pr-2 font-mono">{{ d.key }}</td>
+                <td v-if="action.change.op !== 'create'" class="max-w-64 break-all py-0.5 pr-2 text-(--ui-error) line-through decoration-(--ui-error)/40">{{ show(d.before) }}</td>
+                <td class="max-w-64 break-all py-0.5 text-(--ui-success)">{{ show(d.after) }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <UInput
+            v-if="needsKey && action.status === 'pending' && isAdmin" v-model="apiKey" type="password" size="sm" class="w-full max-w-sm"
+            :placeholder="t('action.pasteKey')" icon="i-lucide-key-round"
+          />
+        </div>
+        <p v-if="action.reason" class="text-xs text-(--ui-text-muted)">{{ action.reason }}</p>
+        <p v-if="action.status !== 'pending' && action.detail" class="line-clamp-2 text-xs" :title="action.detail" :class="action.status === 'failed' ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">{{ action.detail }}</p>
+      </div>
+      <UBadge :color="statusMeta[action.status].color" variant="subtle" size="sm" :label="statusMeta[action.status].label" />
+      <UBadge v-if="stale && action.status === 'pending'" color="warning" variant="outline" size="sm" icon="i-lucide-history" :label="t('card.stale')" :title="t('card.staleHint')" />
+      <UBadge v-if="action.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('action.auto')" :title="action.decided_by.slice(5)" />
+      <!-- approved while an earlier card waited: it runs in its turn; it can still be called off -->
+      <UButton v-if="action.status === 'queued' && isAdmin" size="xs" color="neutral" variant="ghost" :label="t('card.unqueue')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
+      <template v-if="action.status === 'pending' && isAdmin">
+        <UButton size="xs" icon="i-lucide-check" :label="t('action.approve')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
+        <span v-if="canAlways" class="inline-flex items-center gap-1">
+          <UButton size="xs" variant="soft" icon="i-lucide-infinity" :label="t('action.approveAlways')" :loading="busy === 'always'" :disabled="!!busy" @click="decide(true, true)" />
+          <InfoTip :text="alwaysInfo" icon-class="size-4 text-(--ui-text-muted)" />
+        </span>
+        <UButton size="xs" color="neutral" variant="ghost" :label="t('action.reject')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
+        <UTooltip :text="t('action.skipInfo')">
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-skip-forward" :label="t('action.skip')" :loading="busy === 'skip'" :disabled="!!busy" @click="decide(false, false, true)" />
+        </UTooltip>
+      </template>
+      <UButton
+        v-else-if="hasLog" size="xs" color="neutral" variant="ghost" icon="i-lucide-terminal"
+        :trailing-icon="logOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" :label="t('action.seeLog')" @click="logOpen = !logOpen"
+      />
+      <div v-if="logOpen" class="basis-full">
+        <pre v-if="action.kind === 'run_command'" class="max-h-96 overflow-auto rounded-md bg-(--ui-bg-elevated) p-2 font-mono text-xs whitespace-pre-wrap">{{ action.detail }}</pre>
+        <div v-else class="h-80 overflow-hidden rounded-md border border-(--ui-border)">
+          <LogTerminal :url="logUrl" :title="action.target" :empty="t('ops.emptyLog')" />
+        </div>
       </div>
     </div>
   </div>

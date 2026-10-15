@@ -10,7 +10,6 @@ const { projectId, config, size } = useWatchBox()
 const days = computed(() => Number(config.value.days) || 14)
 const query = computed(() => ({ days: days.value, ...(projectId.value ? { project: projectId.value } : {}) }))
 const { data, error, refresh } = useLiveFetch<{ rows: Row[] }>('/api/jobs/stats', { query, lazy: true, server: false })
-useWatchPoll(() => refresh())
 
 const cost = computed(() => config.value.measure === 'cost')
 // every day of the range, one without work too (the columns keep their place)

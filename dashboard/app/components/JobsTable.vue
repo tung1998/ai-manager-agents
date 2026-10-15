@@ -55,14 +55,10 @@ async function load(more = false) {
 }
 watch([kind, origin, searchQ, status, project, since, () => props.filter?.origin_id], () => load(), { immediate: true })
 
-// follow running and waiting jobs
-let timer: ReturnType<typeof setInterval> | undefined
-onMounted(() => {
-  timer = setInterval(() => {
-    if (jobs.value.some(j => j.status === 'pending' || j.status === 'running')) load()
-  }, 5000)
+// follow running jobs: their runs (tokens, cost) as they are written
+useLive(['runs'], () => {
+  if (jobs.value.some(j => j.status === 'pending' || j.status === 'running')) load()
 })
-onBeforeUnmount(() => clearInterval(timer))
 
 const selectItems = computed(() => ({
   kind: [{ label: t('job.kindAll'), value: '' }, ...(['chat_turn', 'script'] as const).map(v => ({ label: t(`job.kind.${v}`), value: v }))],

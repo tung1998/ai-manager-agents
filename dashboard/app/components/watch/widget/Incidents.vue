@@ -5,8 +5,7 @@ const { t, when } = useLang()
 const toast = useToast()
 const { projectId, config, narrow } = useWatchBox()
 
-const { data, error, refresh } = useLiveFetch<{ incidents: Incident[] }>('/api/incidents', { lazy: true, server: false })
-useWatchPoll(() => refresh())
+const { data, error, refresh } = useLiveFetch<{ incidents: Incident[] }>('/api/incidents', { key: 'incidents', lazy: true }) // pushed as it changes
 const list = computed(() => (data.value?.incidents ?? [])
   .filter(x => !isApproval(x) && (!projectId.value || x.project_id === projectId.value) && (!config.value.severity || x.severity === config.value.severity))
   .sort((a, b) => (a.severity === 'error' ? 0 : 1) - (b.severity === 'error' ? 0 : 1)))

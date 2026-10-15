@@ -1,24 +1,25 @@
 // The watch screen (like Graylog's dashboards, laid out like a phone's home
 // screen): several dashboards, each a grid of boxes taking whole cells (1×1,
-// 2×2, 4×4…), each box a widget (a chat, a process, a monitor…). Kept in this
-// browser (localStorage).
+// 2×2, 4×4…), each box a widget (a chat, a process, a monitor…). Kept with
+// the account (/api/me/prefs/watch), so they follow it to any browser.
 import type { WidgetKind } from '~/utils/watchWidgets'
 
 // a box: what it shows and where (x, y, w, h in cells of the 12-column grid)
 export interface WatchItem { id: string, widget: WidgetKind, projectId: string, conversationId?: string, config?: Record<string, unknown>, title?: string, x: number, y: number, w: number, h: number }
-// refresh: seconds between reloads of the widgets that poll (0: only on change);
 // projectId: the project a new box starts on
-export interface WatchBoard { id: string, name: string, items: WatchItem[], refresh: number, projectId: string }
+export interface WatchBoard { id: string, name: string, items: WatchItem[], projectId: string }
 
 // boards saved before the grid: a tree of splits whose leaves were boxes
 interface OldPane { kind: 'pane', widget?: WidgetKind, projectId: string, conversationId?: string, config?: Record<string, unknown>, title?: string }
 type OldNode = OldPane | { kind: 'split', children: OldNode[] }
 
-const KEY = 'office.watch.boards'
+const PREF_URL = '/api/me/prefs/watch'
 export const MAX_BOARDS = 5
+// kept in the browser before the account: moved to it once, then dropped
+const KEY = 'office.watch.boards'
 const OLD_KEY = 'office.watch.layout' // one board, before dashboards
 const newId = () => Math.random().toString(36).slice(2, 10)
-const blank = (items: WatchItem[] = []): WatchBoard => ({ id: newId(), name: '', items, refresh: 30, projectId: '' })
+const blank = (items: WatchItem[] = []): WatchBoard => ({ id: newId(), name: '', items, projectId: '' })
 
 // the old tree's boxes, in reading order, each at its widget's size, packed
 function fromTree(root: OldNode | null): WatchItem[] {
@@ -33,6 +34,8 @@ function fromTree(root: OldNode | null): WatchItem[] {
   }
   return items
 }
+interface Saved { active: string, boards: WatchBoard[] }
+
 function upgrade(b: WatchBoard & { root?: OldNode | null }): WatchBoard {
   if (Array.isArray(b.items)) return b
   const { root, ...rest } = b
@@ -46,29 +49,74 @@ export function useWatchLayout() {
 
   if (import.meta.client && !loaded.value) {
     loaded.value = true
-    try {
-      const raw = localStorage.getItem(KEY)
-      if (raw) {
-        const saved = JSON.parse(raw) as { active: string, boards: WatchBoard[] }
-        boards.value = saved.boards.map(upgrade)
-        activeId.value = saved.active
-      } else {
+    const { user } = useAuth()
+    let saved = '' // what the account holds, so loading it is not saved back
+    let ready = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    // what this browser kept before the account (the first to sign in takes it)
+    const fromBrowser = (): Saved | null => {
+      try {
+        const raw = localStorage.getItem(KEY)
+        if (raw) return JSON.parse(raw) as Saved
         const old = localStorage.getItem(OLD_KEY)
-        boards.value = [blank(fromTree(old ? JSON.parse(old) as OldNode : null))]
+        if (old) return { active: '', boards: [blank(fromTree(JSON.parse(old) as OldNode))] }
+      } catch { /* broken or private mode */ }
+      return null
+    }
+    const apply = (s: Saved | null) => {
+      boards.value = (s?.boards ?? []).map(upgrade)
+      activeId.value = s?.active ?? ''
+      if (!boards.value.length) boards.value = [blank()]
+      if (!boards.value.some(b => b.id === activeId.value)) activeId.value = boards.value[0]!.id
+    }
+    const save = (value: Saved) => $fetch(PREF_URL, { method: 'PUT', body: { value } })
+      .then(() => {
+        try {
+          localStorage.removeItem(KEY)
+          localStorage.removeItem(OLD_KEY)
+        } catch { /* private mode */ }
+      })
+      .catch(() => { saved = '' }) // tried again on the next change
+
+    async function load() {
+      ready = false
+      clearTimeout(timer)
+      let s: Saved | null = null
+      try {
+        s = (await $fetch<{ value: Saved | null }>(PREF_URL)).value
+      } catch { /* offline: start empty, nothing saved until it loads */
+        apply(null)
+        return
       }
-    } catch { /* broken or private mode: start empty */ }
-    if (!boards.value.length) boards.value = [blank()]
-    if (!boards.value.some(b => b.id === activeId.value)) activeId.value = boards.value[0]!.id
+      const local = s ? null : fromBrowser()
+      apply(s ?? local)
+      saved = JSON.stringify({ active: activeId.value, boards: boards.value })
+      ready = true
+      if (local) void save(JSON.parse(saved) as Saved)
+    }
+
     // saved for the app's whole life: made in the first caller's scope, it
     // stopped when that page was left and was never made again (changes then
     // lived only in memory, lost on reload)
-    effectScope(true).run(() => watch([boards, activeId], ([list, active]) => {
-      try {
-        localStorage.setItem(KEY, JSON.stringify({ active, boards: list }))
-        localStorage.removeItem(OLD_KEY)
-      } catch { /* private mode */ }
-    }, { deep: true }))
+    effectScope(true).run(() => {
+      // each account its own: loaded again when another signs in
+      watch(() => user.value?.id, (id) => {
+        if (id) void load()
+        else ready = false
+      }, { immediate: true })
+      watch([boards, activeId], ([list, active]) => {
+        if (!ready) return
+        const next = JSON.stringify({ active, boards: list })
+        if (next === saved) return
+        saved = next
+        clearTimeout(timer)
+        timer = setTimeout(() => void save(JSON.parse(next) as Saved), 600)
+      }, { deep: true })
+    })
   }
+  if (!boards.value.length) boards.value = [blank()]
+  if (!activeId.value) activeId.value = boards.value[0]!.id
 
   const board = computed(() => boards.value.find(b => b.id === activeId.value) ?? boards.value[0] ?? null)
   const items = computed(() => board.value?.items ?? [])

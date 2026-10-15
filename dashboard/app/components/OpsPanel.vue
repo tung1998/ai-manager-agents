@@ -75,9 +75,10 @@ const mainProcs = computed(() => {
 })
 const otherProcs = computed(() => procs.value.filter(p => !mainProcs.value.includes(p)))
 
-// states refresh while the tab is open (logs of the selected one stream via SSE)
+// states and monitors come as events (useLiveFetch); only the CPU/RAM of what
+// runs is asked for, while the tab is open (logs stream via SSE)
 let poll: ReturnType<typeof setInterval> | undefined
-const startPoll = () => { clearInterval(poll); poll = setInterval(() => { refresh(); refreshMon() }, 3000) }
+const startPoll = () => { clearInterval(poll); poll = setInterval(() => { if (procs.value.some(p => p.state.status === 'running')) refresh() }, 5000) }
 onMounted(startPoll)
 onActivated(() => { refresh(); refreshMon(); startPoll() }) // another tab: no polling
 onDeactivated(() => clearInterval(poll))

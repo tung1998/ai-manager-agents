@@ -102,12 +102,9 @@ function withParent(parent: string | undefined, items: NavigationMenuItem[]): Na
   return items.map(x => (x.to as { query?: { tab?: string } })?.query?.tab === parent ? { ...x, active: true } : x)
 }
 
-// what needs a person across the office: its count on "Sự cố"
-const { data: incData, refresh: refreshInc } = useLiveFetch<{ count: number }>('/api/incidents', { lazy: true })
+// what needs a person across the office: its count on "Sự cố" (pushed as it changes)
+const { data: incData } = useLiveFetch<{ count: number }>('/api/incidents', { key: 'incidents', lazy: true })
 const attention = computed(() => incData.value?.count ?? 0)
-let incTimer: ReturnType<typeof setInterval> | undefined
-onMounted(() => { incTimer = setInterval(() => refreshInc(), 60000) })
-onBeforeUnmount(() => clearInterval(incTimer))
 
 // the watch dashboards sit under "Theo dõi" (at most 5, ADR-159), + for a new one
 const watchLayout = useWatchLayout()

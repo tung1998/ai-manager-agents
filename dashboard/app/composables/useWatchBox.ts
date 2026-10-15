@@ -1,6 +1,6 @@
 // What a watch box hands its widget: its size (widgets lay out by the box,
-// not the window, so a drag of the divider reflows them), its settings and the
-// dashboard's refresh period.
+// not the window, so a drag of the divider reflows them) and its settings.
+// Widgets reload on their own when their data changes (useLiveFetch).
 import type { InjectionKey, Ref } from 'vue'
 import type { WidgetKind } from '~/utils/watchWidgets'
 
@@ -11,7 +11,6 @@ export interface WatchBoxCtx {
   size: Ref<{ w: number, h: number }>
   config: Ref<Record<string, unknown>>
   set: (key: string, value: unknown) => void
-  refresh: Ref<number> // seconds, 0: only on change
 }
 
 export const watchBoxKey: InjectionKey<WatchBoxCtx> = Symbol('watch-box')
@@ -27,15 +26,15 @@ export function useWatchBox() {
   return { ...ctx, narrow, tiny, short }
 }
 
-// runs fn every `seconds` (or the dashboard's period), while the box is shown
-export function useWatchPoll(fn: () => unknown, seconds?: MaybeRefOrGetter<number>) {
-  const { refresh } = useWatchBox()
+// runs fn every `seconds` (0: never), while the box is shown: for what the
+// live stream does not tell (git, machine metrics…)
+export function useWatchPoll(fn: () => unknown, seconds: MaybeRefOrGetter<number>) {
   let timer: ReturnType<typeof setInterval> | undefined
   const start = () => {
     clearInterval(timer)
-    const s = toValue(seconds) || refresh.value
+    const s = toValue(seconds)
     if (s > 0) timer = setInterval(fn, s * 1000)
   }
-  onMounted(() => watch([() => toValue(seconds), refresh], start, { immediate: true }))
+  onMounted(() => watch(() => toValue(seconds), start, { immediate: true }))
   onBeforeUnmount(() => clearInterval(timer))
 }

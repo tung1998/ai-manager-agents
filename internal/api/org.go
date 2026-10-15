@@ -57,6 +57,8 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/me/tokens", auth(s.listTokens))
 	mux.Handle("POST /api/me/tokens", auth(s.createToken))
 	mux.Handle("DELETE /api/me/tokens/{id}", auth(s.revokeToken))
+	mux.Handle("GET /api/me/prefs/{key}", auth(s.getPref))
+	mux.Handle("PUT /api/me/prefs/{key}", auth(s.setPref))
 	mux.Handle("GET /api/actions/pending", admin(s.pendingActions))
 	mux.Handle("GET /api/bots", admin(s.listAllBots)) // every project's, to borrow one for a notice
 	mux.Handle("GET /api/projects/{id}/channels", admin(s.listChannels))

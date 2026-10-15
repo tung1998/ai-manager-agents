@@ -10,7 +10,6 @@ const query = computed(() => ({
   ...(config.value.status ? { status: config.value.status } : {})
 }))
 const { data, error, refresh } = useLiveFetch<{ jobs: Job[] }>('/api/jobs', { query, lazy: true, server: false })
-useWatchPoll(() => refresh())
 const jobs = computed(() => data.value?.jobs ?? [])
 const detail = ref<string | null>(null)
 const toneClass: Record<string, string> = { info: 'text-(--ui-info)', neutral: 'text-(--ui-text-dimmed)', success: 'text-(--ui-success)', error: 'text-(--ui-error)', warning: 'text-(--ui-warning)' }

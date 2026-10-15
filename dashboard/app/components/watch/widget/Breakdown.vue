@@ -6,7 +6,6 @@ const { t } = useLang()
 const { config, size } = useWatchBox()
 const days = computed(() => Number(config.value.days) || 7)
 const { data, error, refresh } = useLiveFetch<{ by_project: Row[], by_model: Row[] }>('/api/usage/summary', { query: { days }, lazy: true, server: false })
-useWatchPoll(() => refresh())
 const rows = computed(() => {
   const all = [...(config.value.by === 'model' ? data.value?.by_model ?? [] : data.value?.by_project ?? [])].sort((a, b) => b.cost_usd - a.cost_usd)
   const n = Math.max(3, Math.floor((size.value.h - 40) / 34))

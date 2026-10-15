@@ -10,7 +10,7 @@ const props = defineProps<{ item: WatchItem, projects: Project[], movable?: bool
 const emit = defineEmits<{ grip: [e: PointerEvent] }>()
 const { t } = useLang()
 const { isAdmin } = useAuth()
-const { setPane, setConfig, board } = useWatchLayout()
+const { setPane, setConfig } = useWatchLayout()
 
 const kind = computed(() => props.item.widget)
 const def = computed(() => widgetDef(kind.value))
@@ -40,8 +40,7 @@ provide(watchBoxKey, {
   projectId: computed(() => props.item.projectId),
   size,
   config: computed(() => widgetConfig(kind.value, props.item.config)),
-  set: (key, value) => setConfig(props.item.id, key, value),
-  refresh: computed(() => board.value?.refresh ?? 0)
+  set: (key, value) => setConfig(props.item.id, key, value)
 })
 
 const widgets: Record<Exclude<WidgetKind, 'chat'>, ReturnType<typeof resolveComponent>> = {

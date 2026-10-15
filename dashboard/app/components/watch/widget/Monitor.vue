@@ -10,7 +10,6 @@ const { t, when } = useLang()
 const { projectId, config, size, narrow, tiny, short } = useWatchBox()
 
 const { data, error, refresh } = useLiveFetch<{ monitors: Monitor[], summary: Record<string, number> }>('/api/monitors', { query: { project: projectId }, lazy: true, server: false })
-useWatchPoll(() => refresh())
 const monitors = computed(() => data.value?.monitors ?? [])
 const one = computed(() => monitors.value.find(m => m.id === config.value.monitorId) ?? null)
 

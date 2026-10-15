@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -146,4 +147,17 @@ func TestResumeAfterRestart(t *testing.T) {
 	if s := next.State(def.ID).Status; s != "stopped" {
 		t.Fatalf("resumed twice: %s", s)
 	}
+}
+
+// A status kept in memory is told as it changes (started, ended), so the
+// dashboard follows it without asking.
+func TestOnChange(t *testing.T) {
+	m, st, proj := setup(t)
+	ctx := context.Background()
+	var n atomic.Int32
+	m.OnChange(func() { n.Add(1) })
+	def, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "build", Kind: "job", Command: "echo built"})
+	_ = m.Start(ctx, def.ID)
+	waitFor(t, "job exit", func() bool { return m.State(def.ID).Status == "exited" })
+	waitFor(t, "start and end told", func() bool { return n.Load() >= 2 })
 }

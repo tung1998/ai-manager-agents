@@ -4,7 +4,6 @@
 const { t, when } = useLang()
 const { projectId, config, narrow } = useWatchBox()
 const { data, error, refresh } = useLiveFetch<{ automations: Automation[] }>(() => `/api/projects/${projectId.value}/automations`, { lazy: true, server: false })
-useWatchPoll(() => refresh())
 const list = computed(() => (data.value?.automations ?? [])
   .filter(a => a.enabled || config.value.disabled)
   .sort((a, b) => Number(b.enabled) - Number(a.enabled) || (a.next_run_at ?? '9').localeCompare(b.next_run_at ?? '9')))

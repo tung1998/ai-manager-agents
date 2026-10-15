@@ -9,9 +9,8 @@ const { t } = useLang()
 const { projectId, config, size, tiny } = useWatchBox()
 
 const query = computed(() => ({ days: 14, ...(projectId.value ? { project: projectId.value } : {}) }))
-const { data, error, refresh } = useLiveFetch<Stats>('/api/jobs/stats', { query, lazy: true, server: false })
-const { data: inc } = useLiveFetch<{ incidents: { project_id: string }[] }>('/api/incidents', { lazy: true, server: false })
-useWatchPoll(() => refresh())
+const { data, error } = useLiveFetch<Stats>('/api/jobs/stats', { query, lazy: true, server: false })
+const { data: inc } = useLiveFetch<{ incidents: { project_id: string }[] }>('/api/incidents', { key: 'incidents', lazy: true })
 
 const metric = computed(() => config.value.metric as string)
 const value = computed(() => {

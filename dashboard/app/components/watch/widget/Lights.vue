@@ -9,7 +9,6 @@ const { t } = useLang()
 const { projectId, config, size } = useWatchBox()
 const { data: pd, error: pe, refresh: rp } = useLiveFetch<{ processes: Proc[] }>(() => `/api/projects/${projectId.value}/processes`, { lazy: true, server: false })
 const { data: md, refresh: rm } = useLiveFetch<{ monitors: Mon[] }>('/api/monitors', { query: { project: projectId }, lazy: true, server: false })
-useWatchPoll(() => { rp(); rm() })
 
 const procTone: Record<string, WatchTone> = { running: 'ok', crashed: 'bad', restarting: 'busy', stopping: 'busy' }
 const monTone: Record<string, WatchTone> = { up: 'ok', down: 'bad', pending: 'busy' }

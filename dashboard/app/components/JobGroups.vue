@@ -85,14 +85,10 @@ async function refresh() {
 watch([origin, searchQ, status, project, since], () => load(), { immediate: true })
 useLive(['jobs', 'conversations'], () => refresh()) // retried, dismissed, removed: the table follows
 
-// follow what is still running
-let timer: ReturnType<typeof setInterval> | undefined
-onMounted(() => {
-  timer = setInterval(() => {
-    if (groups.value.some(g => g.active > 0)) refresh()
-  }, 5000)
+// follow what is still running: its runs as they are written
+useLive(['runs'], () => {
+  if (groups.value.some(g => g.active > 0)) refresh()
 })
-onBeforeUnmount(() => clearInterval(timer))
 
 const ALL = '__all'
 const bind = (r: Ref<string>) => computed({ get: () => r.value || ALL, set: (v: string) => { r.value = v === ALL ? '' : v } })

@@ -5,7 +5,6 @@ interface Usage { today: number, daily_limit: number, project_today: Record<stri
 const { t } = useLang()
 const { projectId, size, tiny } = useWatchBox()
 const { data, error, refresh } = useLiveFetch<Usage>('/api/usage/summary', { query: { days: 1 }, lazy: true, server: false })
-useWatchPoll(() => refresh())
 const spent = computed(() => projectId.value ? data.value?.project_today[projectId.value] ?? 0 : data.value?.today ?? 0)
 const limit = computed(() => projectId.value ? data.value?.settings.project_limits?.[projectId.value] ?? 0 : data.value?.daily_limit ?? 0)
 const pct = computed(() => limit.value ? spent.value / limit.value * 100 : 0)

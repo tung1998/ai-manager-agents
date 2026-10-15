@@ -53,16 +53,9 @@ const avgUptime = computed(() => {
   return list.length ? list.reduce((a, m) => a + (m.uptime_24h ?? 0), 0) / list.length : null
 })
 
-// poll only while visible (kept alive when switching sections)
-let poll: ReturnType<typeof setInterval> | undefined
-function startPoll() {
-  clearInterval(poll)
-  poll = setInterval(() => { refresh(); refreshEvents() }, 5000)
-}
-onMounted(startPoll)
-onActivated(() => { refresh(); refreshEvents(); startPoll() })
-onDeactivated(() => clearInterval(poll))
-onBeforeUnmount(() => clearInterval(poll))
+// each check writes the monitor: its change comes as an event (useLiveFetch);
+// back to the section, look again in case one was missed while away
+onActivated(() => { refresh(); refreshEvents() })
 
 // ---- display ----
 const statusMeta = computed(() => ({
