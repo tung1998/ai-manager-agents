@@ -6,7 +6,7 @@ export interface SysSummary { cpu_percent: number, mem_used: number, mem_total: 
 export interface SysProc { pid: number, ppid: number, name: string, cmd: string, cpu: number, mem: number, started_at: string, depth: number }
 export interface SysGroup {
   kind: 'agent' | 'automation' | 'project' | 'other', label: string, sub?: string, pid: number, turn_id?: string, conversation_id?: string,
-  project_id?: string, process_id?: string, cpu: number, mem: number, started_at: string, procs: SysProc[]
+  project_id?: string, project_name?: string, process_id?: string, cpu: number, mem: number, started_at: string, procs: SysProc[]
 }
 export interface SysStats {
   machine: { cpu_percent: number, cores: number[], mem_total: number, mem_used: number, disk_path: string, disk_total: number, disk_used: number, load?: number[], uptime_s: number, net_rx: number, net_tx: number, host: string, os: string }

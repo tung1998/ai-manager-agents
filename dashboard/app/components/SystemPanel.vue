@@ -91,8 +91,9 @@ async function act(p: { pid: number, name: string }, force: boolean) {
                 <span class="flex items-center gap-2">
                   <span class="truncate text-sm font-medium">{{ g.label }}</span>
                   <UBadge :label="t(`sys.kind.${g.kind}`)" color="neutral" variant="subtle" size="sm" />
+                  <UBadge v-if="g.project_name" :label="g.project_name" icon="i-lucide-folder" color="primary" variant="subtle" size="sm" class="min-w-0 truncate" />
                 </span>
-                <span class="block truncate text-xs text-(--ui-text-muted)">{{ g.sub || `PID ${g.pid}` }} · {{ t('sys.procs', { n: g.procs.length }) }} · {{ since(g.started_at) }}</span>
+                <span class="block truncate text-xs text-(--ui-text-muted)">{{ (g.sub !== g.project_name && g.sub) || `PID ${g.pid}` }} · {{ t('sys.procs', { n: g.procs.length }) }} · {{ since(g.started_at) }}</span>
               </span>
             </button>
             <span class="w-14 text-right text-xs tabular-nums">{{ g.cpu.toFixed(0) }}%</span>

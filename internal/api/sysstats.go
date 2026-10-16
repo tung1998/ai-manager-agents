@@ -26,7 +26,8 @@ type procGroup struct {
 	TurnID         string         `json:"turn_id,omitempty"`
 	ConversationID string         `json:"conversation_id,omitempty"`
 	ProjectID      string         `json:"project_id,omitempty"`
-	ProcessID      string         `json:"process_id,omitempty"`
+	ProjectName    string         `json:"project_name,omitempty"`
+	ProcessID     string         `json:"process_id,omitempty"`
 	AutomationID   string         `json:"automation_id,omitempty"`
 	CPU            float64        `json:"cpu"`
 	Mem            uint64         `json:"mem"`
@@ -108,8 +109,9 @@ func (s *server) officeGroups(ctx context.Context) (sysinfo.Proc, []procGroup, e
 		} else if op, ok := running[p.PID]; ok {
 			g.Kind, g.Label, g.ProcessID, g.ProjectID = "project", op.Name, op.ID, op.ProjectID
 		}
+		g.ProjectName = projects[g.ProjectID]
 		if g.Sub == "" {
-			g.Sub = projects[g.ProjectID]
+			g.Sub = g.ProjectName
 		}
 		groups = append(groups, g)
 	}
