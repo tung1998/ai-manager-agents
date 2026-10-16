@@ -26,7 +26,9 @@ onBeforeUnmount(() => ro?.disconnect())
 const cols = computed(() => width.value >= 900 ? GRID_COLS : width.value >= 600 ? 8 : 4)
 const editable = computed(() => cols.value === GRID_COLS)
 const cell = computed(() => Math.max(48, (width.value - GAP * (cols.value - 1)) / cols.value))
-const rowH = computed(() => Math.min(cell.value, 110))
+// Keep the desktop board a little denser so several chat panes fit without
+// making each card feel oversized. Small screens keep the roomier cell height.
+const rowH = computed(() => width.value >= 900 ? Math.min(cell.value, 96) : Math.min(cell.value, 110))
 
 // what is shown: the drag's live layout, the saved one, or its packed copy
 const live = ref<WatchItem[] | null>(null)

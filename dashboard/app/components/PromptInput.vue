@@ -219,7 +219,7 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
 <template>
   <div
     ref="root"
-    class="@container relative rounded-lg border bg-(--ui-bg) transition"
+    class="@container relative rounded-lg border bg-(--ui-bg) transition @max-[420px]:rounded-md"
     :class="dragging ? 'border-(--ui-primary) ring-2 ring-(--ui-primary)/20' : 'border-(--ui-border)'"
     @dragover.prevent="dragging = true" @dragleave.self="dragging = false" @drop.prevent="onDrop"
   >
@@ -279,12 +279,12 @@ defineExpose({ busy: computed(() => uploading.value > 0), focus: () => box.value
 
     <!-- a phone: two lines tall at least, so the placeholder never scrolls inside it -->
     <UTextarea
-      ref="box" v-model="text" :rows="rows" autoresize :maxrows="maxrows" variant="none" class="w-full @max-sm:[&_textarea]:!text-sm @max-sm:[&_textarea]:min-h-13"
+      ref="box" v-model="text" :rows="rows" autoresize :maxrows="maxrows" variant="none" class="w-full @max-sm:[&_textarea]:!text-sm @max-sm:[&_textarea]:min-h-13 @max-[420px]:[&_textarea]:!text-xs @max-[420px]:[&_textarea]:min-h-10"
       :placeholder="placeholder" @keydown="onKey" @paste="onPaste" @keyup="syncCaret" @click="syncCaret" @input="syncCaret"
     />
 
     <!-- a phone: a size smaller (icons, labels), tighter, all the same height -->
-    <div class="flex items-center gap-2 px-2 pb-2 @max-sm:gap-0.5 @max-sm:[&_.iconify]:!size-4 @max-sm:[&_button]:!text-xs @max-sm:[&_button]:!py-1">
+    <div class="flex items-center gap-2 px-2 pb-2 @max-sm:gap-0.5 @max-sm:[&_.iconify]:!size-4 @max-sm:[&_button]:!text-xs @max-sm:[&_button]:!py-1 @max-[420px]:gap-0 @max-[420px]:px-1 @max-[420px]:pb-1 @max-[420px]:[&_.iconify]:!size-3.5 @max-[420px]:[&_button]:!py-0.5">
       <!-- a phone: attach, skills and workflows behind one ⋯, the row keeps room for the actions -->
       <UDropdownMenu :items="extras" :content="{ side: 'top', align: 'start' }" class="@sm:hidden">
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-ellipsis" class="@sm:hidden" :aria-label="t('common.actions')" />

@@ -36,7 +36,7 @@ export interface WidgetDef {
 }
 
 export const widgetDefs: WidgetDef[] = [
-  { kind: 'chat', group: 'agents', grid: { w: 4, h: 6, minW: 4, minH: 5, maxW: 12, maxH: 12 }, icon: 'i-lucide-messages-square', project: 'required', fields: [], defaults: {} },
+  { kind: 'chat', group: 'agents', grid: { w: 3, h: 5, minW: 3, minH: 4, maxW: 12, maxH: 12 }, icon: 'i-lucide-messages-square', project: 'required', fields: [], defaults: {} },
   {
     kind: 'process', feature: 'ops', group: 'run', grid: { w: 6, h: 5, minW: 2, minH: 1, maxW: 12, maxH: 10 }, icon: 'i-lucide-square-terminal', project: 'required',
     fields: [{ key: 'processId', type: 'select', source: 'processes' }, { key: 'console', type: 'switch' }, { key: 'controls', type: 'switch' }, { key: 'metrics', type: 'switch' }],

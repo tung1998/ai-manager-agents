@@ -37,7 +37,14 @@ function fromTree(root: OldNode | null): WatchItem[] {
 interface Saved { active: string, boards: WatchBoard[] }
 
 function upgrade(b: WatchBoard & { root?: OldNode | null }): WatchBoard {
-  if (Array.isArray(b.items)) return b
+  if (Array.isArray(b.items)) {
+    // The original chat default was 4×6. Keep intentional custom sizes, but
+    // migrate untouched defaults so existing boards benefit from the denser 3×5 layout.
+    return {
+      ...b,
+      items: b.items.map(i => i.widget === 'chat' && i.w === 4 && i.h === 6 ? { ...i, w: 3, h: 5 } : i)
+    }
+  }
   const { root, ...rest } = b
   return { ...rest, items: fromTree(root ?? null) }
 }
@@ -90,10 +97,11 @@ export function useWatchLayout() {
         return
       }
       const local = s ? null : fromBrowser()
+      const before = s ? JSON.stringify(s) : ''
       apply(s ?? local)
       saved = JSON.stringify({ active: activeId.value, boards: boards.value })
       ready = true
-      if (local) void save(JSON.parse(saved) as Saved)
+      if (local || (before && before !== saved)) void save(JSON.parse(saved) as Saved)
     }
 
     // saved for the app's whole life: made in the first caller's scope, it
