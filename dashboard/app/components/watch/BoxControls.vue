@@ -8,17 +8,13 @@ import type { WidgetKind } from '~/utils/watchWidgets'
 const props = defineProps<{ item: WatchItem, projects: Project[], tight?: boolean, movable?: boolean, part: 'lead' | 'actions' }>()
 const emit = defineEmits<{ grip: [e: PointerEvent] }>()
 const { t } = useLang()
-const { isAdmin } = useAuth()
 const { close, duplicate, setPane, setSize, board } = useWatchLayout()
 const def = computed(() => widgetDef(props.item.widget))
 const project = computed(() => props.projects.find(p => p.id === props.item.projectId))
 const btn = computed(() => props.tight ? 'xs' : 'sm')
 
-const widgetMenu = computed(() => [widgetDefs.filter(w => !w.admin || isAdmin.value).map(w => ({
-  label: t(`watchW.kind.${w.kind}` as 'watchW.kind.chat'),
-  icon: w.kind === props.item.widget ? 'i-lucide-check' : w.icon,
-  onSelect: () => change(w.kind)
-}))])
+// what it shows is picked in the same catalog as a box added (with its samples)
+const catalogOpen = ref(false)
 // another widget: its own settings start over, the project stays (or the board's)
 function change(k: WidgetKind) {
   if (k === props.item.widget) return
@@ -40,7 +36,7 @@ const sizeItems = computed(() => sizePresets(def.value.grid).map(([w, h]) => ({
 })))
 const moreMenu = computed(() => [
   [
-    ...(props.tight ? [{ label: t('watchW.changeWidget'), icon: def.value.icon, children: widgetMenu.value }] : []),
+    ...(props.tight ? [{ label: t('watchW.changeWidget'), icon: def.value.icon, onSelect: () => { catalogOpen.value = true } }] : []),
     ...(props.tight && def.value.project !== 'none' ? [{ label: projectLabel.value, icon: 'i-lucide-folder', children: [projectItems.value] }] : []),
     ...(fixedSize(def.value.grid) ? [] : [{ label: t('watchW.sizeNow', { w: props.item.w, h: props.item.h }), icon: 'i-lucide-scaling', children: [sizeItems.value] }])
   ],
@@ -59,9 +55,7 @@ const moreMenu = computed(() => [
     >
       <UIcon name="i-lucide-grip-vertical" class="size-4" />
     </span>
-    <UDropdownMenu v-if="!tight" :items="widgetMenu" :content="{ align: 'start' }" :ui="{ content: 'w-52 max-h-[70vh]' }">
-      <UButton :size="btn" color="neutral" variant="ghost" :icon="def.icon" :aria-label="t('watchW.changeWidget')" :title="t('watchW.changeWidget')" />
-    </UDropdownMenu>
+    <UButton v-if="!tight" :size="btn" color="neutral" variant="ghost" :icon="def.icon" :aria-label="t('watchW.changeWidget')" :title="t('watchW.changeWidget')" @click="catalogOpen = true" />
     <UIcon v-else :name="def.icon" class="mx-0.5 size-3.5 shrink-0 text-(--ui-text-muted)" />
     <UDropdownMenu v-if="def.project !== 'none' && !tight" :items="[projectItems]" :content="{ align: 'start' }" :ui="{ content: 'max-h-80 w-60' }">
       <UButton
@@ -69,6 +63,7 @@ const moreMenu = computed(() => [
         :label="projectLabel" :title="t('watch.project')" class="max-w-36" :ui="{ label: 'truncate' }"
       />
     </UDropdownMenu>
+    <WatchWidgetCatalog v-if="catalogOpen" v-model:open="catalogOpen" :projects="projects" :current="item.widget" @select="change" />
   </div>
   <div v-else class="flex shrink-0 items-center">
     <UPopover :content="{ align: 'end' }">
@@ -78,5 +73,6 @@ const moreMenu = computed(() => [
     <UDropdownMenu :items="moreMenu" :content="{ align: 'end' }" :ui="{ content: 'w-52' }">
       <UButton :size="btn" color="neutral" variant="ghost" icon="i-lucide-ellipsis-vertical" :aria-label="t('watchW.more')" :title="t('watchW.more')" />
     </UDropdownMenu>
+    <WatchWidgetCatalog v-if="catalogOpen" v-model:open="catalogOpen" :projects="projects" :current="item.widget" @select="change" />
   </div>
 </template>

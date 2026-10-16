@@ -67,7 +67,9 @@ const widgets: Record<Exclude<WidgetKind, 'chat'>, ReturnType<typeof resolveComp
   preview: resolveComponent('WatchWidgetPreview'),
   consoles: resolveComponent('WatchWidgetConsoles'),
   provider: resolveComponent('WatchWidgetProvider'),
-  agent: resolveComponent('WatchWidgetAgent')
+  agent: resolveComponent('WatchWidgetAgent'),
+  burn: resolveComponent('WatchWidgetBurn'),
+  burnwork: resolveComponent('WatchWidgetBurnWork')
 }
 const title = computed(() => props.item.title || t(`watchW.kind.${kind.value}` as 'watchW.kind.chat'))
 </script>

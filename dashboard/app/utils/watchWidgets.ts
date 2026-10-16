@@ -3,6 +3,7 @@
 // from these, the widget reads them with their defaults.
 export type WidgetKind = 'chat' | 'process' | 'container' | 'monitor' | 'stat' | 'jobs' | 'chart' | 'incidents' | 'approvals' | 'system'
   | 'budget' | 'lights' | 'note' | 'git' | 'controls' | 'automations' | 'breakdown' | 'limits' | 'preview' | 'consoles' | 'provider' | 'agent'
+  | 'burn' | 'burnwork'
 import type { SizeRule } from './watchGrid'
 
 // a box's room in grid cells (a cell is about 90px square): the size it starts
@@ -106,6 +107,12 @@ export const widgetDefs: WidgetDef[] = [
     kind: 'agent', group: 'agents', grid: { w: 2, h: 2, minW: 1, minH: 1, maxW: 6, maxH: 6 }, icon: 'i-lucide-bot', project: 'required',
     fields: [{ key: 'agentId', type: 'select', source: 'agents' }],
     defaults: { agentId: '' }
+  },
+  // a project's Burn (admins: it runs with the machine): its state, and its work to manage
+  { kind: 'burn', group: 'agents', grid: { w: 3, h: 3, minW: 1, minH: 1, maxW: 6, maxH: 6 }, icon: 'i-lucide-flame', project: 'required', admin: true, fields: [], defaults: {} },
+  {
+    kind: 'burnwork', group: 'agents', grid: { w: 4, h: 4, minW: 3, minH: 2, maxW: 8, maxH: 10 }, icon: 'i-lucide-list-todo', project: 'required', admin: true,
+    fields: [{ key: 'done', type: 'switch' }], defaults: { done: false }
   },
   {
     kind: 'consoles', feature: 'ops', group: 'run', grid: { w: 8, h: 5, minW: 4, minH: 3, maxW: 12, maxH: 12 }, icon: 'i-lucide-panels-top-left', project: 'required',

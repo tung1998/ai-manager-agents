@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { WidgetKind } from '~/utils/watchWidgets'
 
-const props = defineProps<{ projects: Project[] }>()
+// current: the box's widget, when it is changed (not a box added)
+const props = defineProps<{ projects: Project[], current?: WidgetKind }>()
 const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{ select: [kind: WidgetKind] }>()
 const { t } = useLang()
@@ -29,7 +30,7 @@ function choose(kind: WidgetKind) {
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="t('watchW.catalog.title')" :description="t('watchW.catalog.hint')" :ui="{ content: 'sm:max-w-6xl', body: 'max-h-[min(78dvh,54rem)] overflow-y-auto p-3 sm:p-5' }">
+  <UModal v-model:open="open" :title="current ? t('watchW.catalog.changeTitle') : t('watchW.catalog.title')" :description="current ? t('watchW.catalog.changeHint') : t('watchW.catalog.hint')" :ui="{ content: 'sm:max-w-6xl', body: 'max-h-[min(78dvh,54rem)] overflow-y-auto p-3 sm:p-5' }">
     <template #body>
       <div class="sticky -top-3 z-10 -mx-3 -mt-3 border-b border-(--ui-border) bg-(--ui-bg)/95 p-3 backdrop-blur sm:-top-5 sm:-mx-5 sm:-mt-5 sm:p-5">
         <UInput v-model="query" icon="i-lucide-search" :placeholder="t('watchW.catalog.search')" class="w-full sm:max-w-sm" />
@@ -44,8 +45,9 @@ function choose(kind: WidgetKind) {
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <button
               v-for="widget in group.widgets" :key="widget.kind" type="button"
-              class="group flex min-w-0 flex-col overflow-hidden rounded-xl border border-(--ui-border) bg-(--ui-bg) text-start transition hover:border-(--ui-primary)/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ui-primary)"
-              :aria-label="`${t('watchW.catalog.add')} ${t(`watchW.kind.${widget.kind}` as 'watchW.kind.chat')}`"
+              class="group flex min-w-0 flex-col overflow-hidden rounded-xl border bg-(--ui-bg) text-start transition hover:border-(--ui-primary)/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ui-primary)"
+              :class="widget.kind === current ? 'border-(--ui-primary) ring-1 ring-(--ui-primary)' : 'border-(--ui-border)'"
+              :aria-label="`${current ? t('watchW.catalog.use') : t('watchW.catalog.add')} ${t(`watchW.kind.${widget.kind}` as 'watchW.kind.chat')}`"
               @click="choose(widget.kind)"
             >
               <WatchWidgetSample :kind="widget.kind" />
@@ -56,8 +58,11 @@ function choose(kind: WidgetKind) {
                   <span class="shrink-0 rounded-md bg-(--ui-bg-elevated) px-1.5 py-0.5 text-[10px] tabular-nums text-(--ui-text-muted)">{{ widget.grid.w }}×{{ widget.grid.h }}</span>
                 </span>
                 <span class="mt-1.5 line-clamp-2 min-h-9 text-xs leading-4 text-(--ui-text-muted)">{{ t(`watchW.desc.${widget.kind}` as 'watchW.desc.chat') }}</span>
-                <span class="mt-3 flex items-center gap-1 text-xs font-medium text-(--ui-primary) opacity-80 transition group-hover:opacity-100">
-                  <UIcon name="i-lucide-plus" class="size-3.5" />{{ t('watchW.catalog.add') }}
+                <span v-if="widget.kind === current" class="mt-3 flex items-center gap-1 text-xs font-medium text-(--ui-text-muted)">
+                  <UIcon name="i-lucide-check" class="size-3.5" />{{ t('watchW.catalog.inUse') }}
+                </span>
+                <span v-else class="mt-3 flex items-center gap-1 text-xs font-medium text-(--ui-primary) opacity-80 transition group-hover:opacity-100">
+                  <UIcon :name="current ? 'i-lucide-replace' : 'i-lucide-plus'" class="size-3.5" />{{ current ? t('watchW.catalog.use') : t('watchW.catalog.add') }}
                 </span>
               </span>
             </button>

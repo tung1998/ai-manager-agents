@@ -14,7 +14,7 @@ const rows = [0, 1, 2]
         <div class="mb-2 flex items-center gap-1.5 border-b border-(--ui-border) pb-1.5"><span class="size-2 rounded-full bg-(--ui-primary)" /><span class="h-1.5 w-16 rounded bg-(--ui-text-muted)/35" /><span class="ms-auto h-1.5 w-7 rounded bg-(--ui-border)" /></div>
         <div class="space-y-1.5"><div class="flex gap-1.5"><span class="size-3 shrink-0 rounded-full bg-(--ui-primary)/30" /><span class="h-5 w-3/5 rounded-md bg-(--ui-bg-elevated)" /></div><div class="ms-auto h-5 w-2/3 rounded-md bg-(--ui-primary)/15" /><div class="flex gap-1.5"><span class="size-3 shrink-0 rounded-full bg-(--ui-success)/30" /><span class="h-5 w-1/2 rounded-md bg-(--ui-bg-elevated)" /></div></div>
       </template>
-      <template v-else-if="['agent', 'jobs', 'incidents', 'approvals', 'automations'].includes(kind)">
+      <template v-else-if="['agent', 'jobs', 'incidents', 'approvals', 'automations', 'burnwork'].includes(kind)">
         <div v-if="kind === 'agent'" class="mb-2 flex items-center gap-2"><span class="relative size-7 rounded-full bg-(--ui-primary)/15 ring-2 ring-(--ui-primary)/50"><span class="absolute bottom-0 end-0 size-2 rounded-full bg-(--ui-success)" /></span><span class="flex-1"><span class="block h-1.5 w-20 rounded bg-(--ui-text-muted)/45" /><span class="mt-1.5 block h-1 w-28 rounded bg-(--ui-border)" /></span><span class="h-4 w-9 rounded bg-(--ui-bg-elevated)" /></div>
         <div v-for="row in rows" :key="row" class="flex items-center gap-2 border-t border-(--ui-border)/70 py-1.5">
           <span class="size-1.5 shrink-0 rounded-full" :class="kind === 'incidents' && row === 0 ? 'bg-(--ui-error)' : kind === 'approvals' ? 'bg-(--ui-warning)' : 'bg-(--ui-success)'" />
