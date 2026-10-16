@@ -88,6 +88,27 @@ echo '{"event":"result","result":{"conversation_id":"","status":"ERROR","respons
 	}
 }
 
+// A command agy denied (read-only, no one to approve) ends the turn with no
+// answer: the model was told there is no shell, the retry says so again, and
+// the error names the command and why instead of a bare "tool lỗi".
+func TestAntigravityDeniedCommand(t *testing.T) {
+	tmp := t.TempDir()
+	bin, log := filepath.Join(tmp, "agy"), filepath.Join(tmp, "log")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+cat >> `+log+`
+echo '{"event":"step_update","step_update":{"conversation_id":"c1","step_index":2,"state":"ERROR","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","parameters":{"CommandLine":"git status"},"error":{"type":"TOOL_ERROR","message":"permission check failed"}}}}'
+echo '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":""}}'
+`), 0o755)
+	_, err := antigravityRunner{}.Run(context.Background(), RunRequest{Bin: bin, System: "S", Prompt: "x", WorkDir: tmp}, func(Event) {})
+	if err == nil || !strings.Contains(err.Error(), `run_command "git status": permission check failed`) {
+		t.Fatalf("err = %v", err)
+	}
+	raw, _ := os.ReadFile(log)
+	if got := string(raw); strings.Count(got, agyNoShell) != 2 {
+		t.Fatalf("both calls must say there is no shell:\n%s", got)
+	}
+}
+
 // A JSON line over the scanner's 16MB cap must fail the run instead of
 // silently returning an empty "success" (the "result" event never gets read).
 func TestAntigravityFailsOnOversizedLine(t *testing.T) {

@@ -70,6 +70,9 @@ func (r antigravityRunner) Run(ctx context.Context, req RunRequest, emit func(Ev
 		more := req
 		more.SessionID, more.Attachments = res.SessionID, nil
 		more.Prompt = "You have not answered yet. Write your final answer to the request above with what you have; do not retry the step that just failed."
+		if !req.FullAccess {
+			more.Prompt += " " + agyNoShell
+		}
 		if stepErr != "" {
 			more.Prompt = "The last step failed: " + truncate(stepErr, 300) + "\n" + more.Prompt
 		}
@@ -151,7 +154,7 @@ func (antigravityRunner) run(ctx context.Context, req RunRequest, emit func(Even
 			st := ev.StepUpdate
 			res.SessionID = cmp.Or(st.ConversationID, res.SessionID)
 			if st.State == "ERROR" {
-				stepErr = cmp.Or(st.Error, st.StepType+" lỗi")
+				stepErr = cmp.Or(st.Error, agyStepFailure(st.StepType, st.ToolName, st.ToolInfo))
 			}
 			switch {
 			case st.StepType == "agent_response" && st.TextDelta != "":
@@ -216,7 +219,39 @@ func agyPrompt(req RunRequest) (string, []string) {
 		}
 	}
 	if req.SessionID == "" {
-		prompt = req.System + "\n\n" + transcript(req.History, prompt)
+		system := req.System
+		if !req.FullAccess {
+			system += "\n\n" + agyNoShell
+		}
+		prompt = system + "\n\n" + transcript(req.History, prompt)
 	}
 	return prompt, dirs
+}
+
+// agyNoShell: without full access agy soft-denies every command in print
+// mode (no one to approve it) and then ends the turn with no answer, so the
+// model is told up front to read with its file tools only.
+const agyNoShell = "Shell commands (run_command) are not available in this run and are always denied: do not call them. Read with view_file, grep_search, list_dir and find_by_name, then write your answer."
+
+// agyStepFailure names a failed step when the step carries no error text:
+// agy puts a tool's error under tool_info, e.g. `run_command "git status":
+// permission check failed…` instead of a bare "tool lỗi".
+func agyStepFailure(stepType, tool string, info json.RawMessage) string {
+	if tool == "" {
+		return stepType + " lỗi"
+	}
+	var ti struct {
+		Parameters map[string]any `json:"parameters"`
+		Error      struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(info, &ti)
+	why := cmp.Or(strings.TrimSpace(ti.Error.Message), "lỗi")
+	for _, k := range []string{"CommandLine", "AbsolutePath", "Query", "SearchPath"} {
+		if v, ok := ti.Parameters[k].(string); ok && v != "" {
+			return fmt.Sprintf("%s %q: %s", tool, truncate(v, 120), why)
+		}
+	}
+	return tool + ": " + why
 }
