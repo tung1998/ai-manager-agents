@@ -432,7 +432,7 @@ type geminiCLI struct{ bin string }
 
 // DefaultModelsGemini are Gemini CLI's model aliases (they follow its newest
 // models) and a few pinned names; the CLI cannot list models.
-var DefaultModelsGemini = []string{"auto", "pro", "flash", "flash-lite", "gemini-3.1-pro-preview", "gemini-3.5-flash", "gemini-2.5-pro", "gemini-2.5-flash"}
+var DefaultModelsGemini = []string{"auto", "pro", "flash", "flash-lite", "gemini-3.1-pro-preview", "gemini-3.8-flash","gemini-2.5-pro", "gemini-2.5-flash"}
 
 // GeminiSignedIn reports whether Gemini CLI has credentials: a Google sign-in
 // cached in ~/.gemini, or an API key / Vertex / Code Assist setup in the

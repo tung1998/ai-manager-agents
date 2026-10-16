@@ -943,10 +943,13 @@ onBeforeUnmount(() => {
 
     <!-- thread -->
     <section class="relative flex min-w-0 flex-1 flex-col">
-      <!-- a phone: which chat this is, the drawer of chats, a new one -->
+      <!-- a phone: which chat this is (tap: the drawer of chats), a new one -->
       <div v-if="!single && !compact" class="flex items-center gap-1 border-b border-(--ui-border) p-2 md:hidden">
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-panel-left" :aria-label="t('chat.threads')" @click="threadsOpen = true" />
-        <p class="min-w-0 flex-1 truncate text-sm font-medium">{{ current?.title || t('chat.newThreadTitle') }}</p>
+        <button type="button" class="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-1 text-left text-sm font-medium hover:bg-(--ui-bg-elevated)" :aria-label="t('chat.threads')" @click="threadsOpen = true">
+          <span class="truncate">{{ current?.title || t('chat.newThreadTitle') }}</span>
+          <UIcon name="i-lucide-chevron-down" class="size-4 shrink-0 text-(--ui-text-muted)" />
+        </button>
         <UButton v-if="isAdmin && waitingCards.length" size="sm" color="primary" variant="soft" icon="i-lucide-check-check" :label="t('chat.approveAll', { n: waitingCards.length })" :loading="approvingAll" :disabled="approvingAll" @click="approveAll" />
         <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-square-pen" :aria-label="t('chat.newThread')" @click="newConversation(pick)" />
       </div>

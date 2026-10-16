@@ -37,6 +37,14 @@ func limitsFor(who string) (hops, answers int) {
 	return maxHops, maxAnswers
 }
 
+// overAnswers: a message of who already had its replies (maxAnswers). The
+// report of a hand-off that is done never is: it only brings back work the
+// hops cap already allowed, and dropping it loses that work.
+func overAnswers(who string, total int32, report bool) (int, bool) {
+	_, most := limitsFor(who)
+	return most, !report && total >= int32(most)
+}
+
 // delegation is a task an agent gave another with the delegate tool.
 type delegation struct {
 	agent storage.Agent
@@ -153,6 +161,7 @@ type turnSpec struct {
 	ceiling    string        // the most the person's message may have run (ADR-081)
 	tree       treeOpt       // the worktree it runs in ("" = the chat's)
 	limit      time.Duration // how long it may take (0: none; <0: a chat's default, none) — the message's, ADR-082
+	report     bool          // the delegator hearing back from a hand-off: not held to maxAnswers
 	// a workflow's turn: its run, the role ("" = the coordinator), a ballot
 	wfRun, wfRole string
 	wfVote        bool
@@ -164,8 +173,10 @@ type turnSpec struct {
 // is already working in this chat, the chat is busy, the message had its
 // replies (maxAnswers), or the budget is spent.
 func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s turnSpec) (*Turn, string) {
-	if _, most := limitsFor(s.actor); s.total != nil && s.total.Load() >= int32(most) {
-		return nil, fmt.Sprintf("Đã đủ %d lượt trả lời cho một tin nhắn nên %s không trả lời tiếp. Hãy nhắn lại nếu cần.", most, s.agent.Name)
+	if s.total != nil {
+		if most, over := overAnswers(s.actor, s.total.Load(), s.report); over {
+			return nil, fmt.Sprintf("Đã đủ %d lượt trả lời cho một tin nhắn nên %s không trả lời tiếp. Hãy nhắn lại nếu cần.", most, s.agent.Name)
+		}
 	}
 	if e.usage != nil {
 		if err := e.usage.Check(context.Background(), project.ID); err != nil {
@@ -290,7 +301,7 @@ func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversa
 			if tier == "" && agents[i].ModelTier == storage.TierStrong && agents[i].LLMModel == "" {
 				tier = storage.TierBalanced
 			}
-			_, why := e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, total: prev.total, tier: tier, ceiling: prev.ceiling, tree: prev.tree, limit: prev.limit, title: agent.Name + " → " + agents[i].Name,
+			_, why := e.startTurn(conv, project, turnSpec{agent: agents[i], hops: hops, actor: prev.actor, total: prev.total, tier: tier, ceiling: prev.ceiling, tree: prev.tree, limit: prev.limit, report: true, title: agent.Name + " → " + agents[i].Name,
 				prompt: prompts.Handoff{Kind: "report", From: agent.Name}.String()})
 			e.note(conv, why)
 		}
