@@ -27,6 +27,7 @@ const en: Record<keyof typeof vi, string> = {
   'wf.overwrite': 'The library already has #{key}. Overwrite it?',
   'wf.lastRun': 'Last run',
   'wf.builtin': 'Built-in',
+  'wf.featured': 'Featured for current demand',
   'wf.modified': 'Modified',
   'wf.reset': 'Reset to default',
   'wf.resetConfirm': 'Reset {name} to the built-in version? Your changes are lost.',

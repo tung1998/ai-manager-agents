@@ -146,6 +146,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
       ? [
           { label: t('tools.skillsTab'), icon: 'i-lucide-sparkles', to: '/skills' },
           { label: t('tools.mcpTab'), icon: 'i-lucide-plug-zap', to: '/mcp' },
+          { label: t('nav.automationTemplates'), icon: 'i-lucide-zap', to: '/automations/templates' },
           { label: t('wf.section'), icon: 'i-lucide-workflow', to: '/workflows' }
         ]
       : [])

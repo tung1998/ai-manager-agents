@@ -4,7 +4,11 @@
 const toast = useToast()
 const { t } = useLang()
 const { data, refresh, pending } = useLiveFetch<{ workflows: LibraryWorkflow[] }>('/api/workflow-library', { lazy: true })
-const list = computed(() => [...(data.value?.workflows ?? [])].sort((a, b) => Number(b.builtin) - Number(a.builtin) || a.def.key.localeCompare(b.def.key)))
+const featuredWorkflowKeys = new Set(['review-pr', 'bugfix', 'incident-response', 'product-discovery', 'security-assessment', 'launch-readiness', 'write-content'])
+const list = computed(() => [...(data.value?.workflows ?? [])].sort((a, b) =>
+  Number(featuredWorkflowKeys.has(b.def.key)) - Number(featuredWorkflowKeys.has(a.def.key))
+  || Number(b.builtin) - Number(a.builtin)
+  || a.def.key.localeCompare(b.def.key)))
 
 const editTo = (key?: string) => ({ path: '/workflows/edit', query: key ? { key } : {} })
 async function reset(w: LibraryWorkflow) {
@@ -44,6 +48,7 @@ async function remove(w: LibraryWorkflow) {
         <UIcon name="i-lucide-workflow" class="size-4 shrink-0 text-primary" />
         <div class="min-w-0 flex-1">
           <p class="flex flex-wrap items-center gap-2">
+            <UIcon v-if="featuredWorkflowKeys.has(w.def.key)" name="i-lucide-star" class="size-3.5 text-(--ui-warning)" :title="t('wf.featured')" />
             <NuxtLink :to="editTo(w.def.key)" class="text-sm font-medium hover:text-primary">{{ w.def.name || w.def.key }}</NuxtLink>
             <span class="font-mono text-xs text-(--ui-text-muted)">/{{ w.def.key }}</span>
             <UBadge v-if="w.builtin" color="neutral" variant="outline" size="sm" :label="t('wf.builtin')" />

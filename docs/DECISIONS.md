@@ -1843,7 +1843,7 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Gán theo agent:** `agents` rỗng = mọi agent; có danh sách thì chỉ các agent đó (và trợ lý office qua id `assistant`) thấy và gọi được server; agent khác nhận 404. Người dùng tự gọi bằng token cá nhân luôn được.
 - **Quyền theo tool:** tool có `readOnlyHint`, tool trong `trusted_tools`, hoặc agent có quyền `tools.mcp.write` (từ mức Vận hành) thì chạy ngay. Còn lại, agent có quyền đề xuất thì mỗi lần gọi thành đề xuất `mcp_call` (người duyệt thì office gọi và trả kết quả vào đề xuất); không thì bị chặn. Agent không được gọi tool theo lô (batch).
 - **Nhật ký gọi:** mỗi lần `tools/call` qua cổng ghi `mcp_calls` (tool, ai gọi, AI nào qua header `X-Office-Client`, trạng thái ok/error/proposed/denied, thời gian); giữ 30 ngày. Danh sách server có số lượt 24 giờ; mỗi server xem 50 lượt gần nhất.
-- **Codex và AI qua API:** lượt Codex nhận server bằng `-c mcp_servers.<tên>.url=…`, token qua biến môi trường `OFFICE_MCP_TOKEN`. Lượt AI qua API thấy tool `mcp__<server>__<tool>` theo schema đã lưu khi kiểm tra; office tự gọi qua cổng, cùng chính sách trên.
+- **Codex và AI qua API:** lượt Codex nhận server bằng `-c mcp_servers.<tên>.url=…`, token qua biến môi trường `OFFICE_MCP_TOKEN`, kèm `default_tools_approval_mode="approve"`: office quyết tool nào được chạy, còn `codex exec` (chính sách duyệt `never`) từ chối mọi tool không read-only mà Codex đòi duyệt, như `propose_action`. Lượt AI qua API thấy tool `mcp__<server>__<tool>` theo schema đã lưu khi kiểm tra; office tự gọi qua cổng, cùng chính sách trên.
 
 ## ADR-094: Làm cứng bảo mật và các luồng dễ vỡ
 - Không thêm tính năng. Đợt này sửa chỗ hở quyền và các lỗi tranh chấp tìm được khi rà lại.

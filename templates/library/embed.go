@@ -7,7 +7,7 @@ package library
 
 import "embed"
 
-// FS holds office/*.md and agency/*.md.
+// FS holds the shipped agent and skill library.
 //
-//go:embed office/*.md agency/*.md
+//go:embed office/*.md agency/*.md skills/*/SKILL.md
 var FS embed.FS

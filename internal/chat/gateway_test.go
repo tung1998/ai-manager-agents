@@ -44,12 +44,14 @@ func TestMCPConfigGateway(t *testing.T) {
 }
 
 // Codex gets office's server and the gateway's through -c, never the token
-// in argv (ADR-093).
+// in argv (ADR-093), their tools approved: `codex exec` asks nobody and
+// refuses a write tool (propose_action) Codex would ask about.
 func TestCodexMCPArgs(t *testing.T) {
 	o := &OfficeAccess{MCPURL: "http://127.0.0.1:1/mcp", Token: "secret-tok", Gateway: []string{"context7"}}
 	args := strings.Join(codexMCPArgs(RunRequest{Office: o}), " ")
 	for _, want := range []string{`mcp_servers.office.url="http://127.0.0.1:1/mcp"`, `mcp_servers.context7.url="http://127.0.0.1:1/mcp/s/context7"`,
-		`mcp_servers.context7.bearer_token_env_var="OFFICE_MCP_TOKEN"`, `mcp_servers.context7.http_headers={"X-Office-Client"="codex"}`} {
+		`mcp_servers.context7.bearer_token_env_var="OFFICE_MCP_TOKEN"`, `mcp_servers.context7.http_headers={"X-Office-Client"="codex"}`,
+		`mcp_servers.office.default_tools_approval_mode="approve"`, `mcp_servers.context7.default_tools_approval_mode="approve"`} {
 		if !strings.Contains(args, want) {
 			t.Errorf("codex args lack %s: %s", want, args)
 		}

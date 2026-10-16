@@ -26,6 +26,7 @@ export default {
   'wf.overwrite': 'Thư viện đã có #{key}. Ghi đè?',
   'wf.lastRun': 'Lần chạy gần nhất',
   'wf.builtin': 'Có sẵn',
+  'wf.featured': 'Mẫu nổi bật theo nhu cầu hiện nay',
   'wf.modified': 'Đã sửa',
   'wf.reset': 'Khôi phục mặc định',
   'wf.resetConfirm': 'Khôi phục {name} về bản có sẵn? Chỗ đã sửa sẽ mất.',

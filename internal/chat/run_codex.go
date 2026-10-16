@@ -29,7 +29,9 @@ type codexRunner struct{}
 const codexTokenEnv = "OFFICE_MCP_TOKEN"
 
 // codexMCPArgs gives Codex the office MCP server and the gateway's servers
-// (streamable HTTP, the run's token from codexTokenEnv; ADR-093).
+// (streamable HTTP, the run's token from codexTokenEnv; ADR-093), their tools
+// approved: office decides what may run, and `codex exec` (approval policy
+// never) refuses a tool that is not read-only, such as propose_action.
 func codexMCPArgs(req RunRequest) []string {
 	if req.Office == nil || req.NoTools || req.Office.MCPURL == "" {
 		return nil
@@ -38,7 +40,8 @@ func codexMCPArgs(req RunRequest) []string {
 	out := []string{"-c", "experimental_use_rmcp_client=true"}
 	add := func(name, url string, client bool) {
 		key := "mcp_servers." + name
-		out = append(out, "-c", key+".url="+q(url), "-c", key+".bearer_token_env_var="+q(codexTokenEnv))
+		out = append(out, "-c", key+".url="+q(url), "-c", key+".bearer_token_env_var="+q(codexTokenEnv),
+			"-c", key+".default_tools_approval_mode="+q("approve"))
 		if client {
 			out = append(out, "-c", key+".http_headers={"+q(ClientHeader)+"="+q("codex")+"}")
 		}

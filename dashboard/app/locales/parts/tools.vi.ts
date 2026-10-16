@@ -31,6 +31,7 @@ export default {
   'tools.libraryEmptyHint': 'Ở tab Đã cài, chọn "Lưu vào thư viện", hoặc bấm Tạo mới.',
   'tools.install': 'Cài',
   'tools.installedBadge': 'đã cài',
+  'tools.featured': 'Mục nổi bật theo nhu cầu hiện nay',
   'tools.homepageAria': 'Trang chủ',
   'tools.registrySearchPlaceholder': 'Tìm trong MCP Registry, ví dụ: postgres, slack, figma',
   'tools.registrySearchBtn': 'Tìm',

@@ -2,6 +2,7 @@ import type vi from './auto.vi'
 
 const en: Record<keyof typeof vi, string> = {
   'nav.automations': 'Automations',
+  'nav.automationTemplates': 'Automation templates',
   'nav.jobs': 'Jobs',
   'auto.title': 'Automations',
   'auto.new': 'New automation',
@@ -102,6 +103,13 @@ const en: Record<keyof typeof vi, string> = {
   'auto.off': 'Off',
   'auto.history': 'Run history',
   'auto.templates': 'Templates:',
+  'auto.useTemplate': 'Use template',
+  'auto.templateHint': 'Choose a project to use a template. It only fills the form and is not saved automatically.',
+  'auto.projectPick': 'Choose a project',
+  'auto.templateSearch': 'Search templates…',
+  'auto.templateAllCategories': 'All categories',
+  'auto.templateNoResults': 'No matching templates.',
+  'auto.featuredTemplate': 'Featured from current demand signals',
   'auto.prName': 'Review Pull Request',
   'auto.prPrompt': 'Review Pull Request #{{payload.number}} "{{payload.title}}" by {{payload.author}} ({{payload.source}} → {{payload.target}}), {{payload.url}}.\nRead the diff below, opening related files in the repo when you need context. Point out bugs, security risks, missing tests and hard-to-read parts; for each give file:line, a level (critical / should fix / suggestion) and how to fix. Be brief and start with one sentence of verdict (ready to merge or needs changes).\n\n{{diff}}',
   'auto.notifyNone': 'Nowhere (only in office)',

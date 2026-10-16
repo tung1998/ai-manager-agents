@@ -199,6 +199,33 @@ func TestRender(t *testing.T) {
 	}
 }
 
+func TestSeedBuiltinSkillsDoesNotOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	l := Library{Dir: dir, Trash: filepath.Join(dir, "trash")}
+	n, err := l.SeedBuiltinSkills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 5 {
+		t.Fatalf("seeded %d skills, want 5", n)
+	}
+	items, err := l.List("skill")
+	if err != nil || len(items) != 5 {
+		t.Fatalf("library skills: %d, %v", len(items), err)
+	}
+	custom := filepath.Join(dir, "skills", "research-brief", "SKILL.md")
+	if err := os.WriteFile(custom, []byte("custom\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := l.SeedBuiltinSkills(); err != nil || n != 0 {
+		t.Fatalf("second seed: n=%d err=%v", n, err)
+	}
+	raw, err := os.ReadFile(custom)
+	if err != nil || string(raw) != "custom\n" {
+		t.Fatalf("custom skill overwritten: %q, %v", raw, err)
+	}
+}
+
 func TestRegistrySearch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("search") != "git" {

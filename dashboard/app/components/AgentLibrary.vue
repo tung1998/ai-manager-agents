@@ -85,7 +85,10 @@ async function open(e: LibraryEntry, use = false) {
           <span v-else-if="a.emoji" class="mt-px w-4 shrink-0 text-center text-sm leading-5">{{ a.emoji }}</span>
           <UIcon v-else :name="icon(a.category)" class="mt-0.5 size-4 shrink-0 text-primary" />
           <div class="min-w-0">
-            <p class="truncate text-sm font-medium">{{ a.name }}</p>
+            <p class="flex items-center gap-1 truncate text-sm font-medium">
+              <UIcon v-if="a.featured" name="i-lucide-star" class="size-3.5 shrink-0 text-(--ui-warning)" :title="t('team.lib.featured')" />
+              <span class="truncate">{{ a.name }}</span>
+            </p>
             <p class="line-clamp-2 text-xs text-(--ui-text-muted)">{{ a.role || a.description }}</p>
           </div>
         </button>

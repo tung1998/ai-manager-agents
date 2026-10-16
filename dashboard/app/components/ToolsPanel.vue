@@ -371,6 +371,9 @@ const installedNames = computed(() => new Set(items.value.map(i => i.name)))
 const canCopy = (i: AutoItem) => i.location.type !== 'codex' && !(scoped.value && i.location.type !== 'user')
 const { data: catalogData } = useLiveFetch<{ items: MCPTemplate[] }>('/api/automation/mcp/catalog', { immediate: props.kind === 'mcp' })
 const catalog = computed(() => catalogData.value?.items ?? [])
+const featuredMcpNames = new Set(['context7', 'playwright', 'github', 'sentry', 'linear', 'notion', 'git', 'memory', 'sequential-thinking', 'time', 'brave-search'])
+const featuredSkillNames = new Set(['research-brief', 'data-quality', 'security-triage', 'meeting-actions', 'content-repurpose'])
+const isFeaturedLibraryItem = (name: string) => (props.kind === 'mcp' && featuredMcpNames.has(name)) || (props.kind === 'skill' && featuredSkillNames.has(name))
 const regQ = ref('')
 const regItems = ref<MCPTemplate[]>([])
 const regBusy = ref(false)
@@ -539,7 +542,10 @@ const summary = (tpl: MCPTemplate) => {
           <div v-for="l in library" :key="l.name" class="flex items-center gap-3 px-4 py-2.5">
             <UIcon :name="meta.icon" class="size-4 shrink-0 text-primary" />
             <div class="min-w-0 flex-1">
-              <p class="truncate font-mono text-sm font-medium">{{ l.name }}</p>
+              <p class="flex items-center gap-1 truncate font-mono text-sm font-medium">
+                <UIcon v-if="isFeaturedLibraryItem(l.name)" name="i-lucide-star" class="size-3.5 shrink-0 text-(--ui-warning)" :title="t('tools.featured')" />
+                <span class="truncate">{{ l.name }}</span>
+              </p>
               <p v-if="l.description" class="line-clamp-1 text-xs text-(--ui-text-muted)">{{ l.description }}</p>
             </div>
             <UButton size="sm" icon="i-lucide-download" :label="t('tools.install')" @click="installLib(l)" />
@@ -556,6 +562,7 @@ const summary = (tpl: MCPTemplate) => {
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <div v-for="tpl in catalog" :key="tpl.id" class="flex flex-col gap-2 rounded-lg border border-(--ui-border) p-4">
             <div class="flex items-center gap-2">
+              <UIcon v-if="featuredMcpNames.has(tpl.name)" name="i-lucide-star" class="size-4 text-(--ui-warning)" :title="t('tools.featured')" />
               <p class="font-medium">{{ tpl.title }}</p>
               <UBadge v-if="tpl.category" color="neutral" variant="subtle" size="sm" :label="tpl.category" />
               <UBadge v-if="installedNames.has(tpl.name)" color="success" variant="subtle" size="sm" icon="i-lucide-check" :label="t('tools.installedBadge')" class="ms-auto" />

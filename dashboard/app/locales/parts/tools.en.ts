@@ -32,6 +32,7 @@ const en: Record<keyof typeof vi, string> = {
   'tools.libraryEmptyHint': 'In the Installed tab, choose "Save to library", or click Create new.',
   'tools.install': 'Install',
   'tools.installedBadge': 'installed',
+  'tools.featured': 'Featured for current demand',
   'tools.homepageAria': 'Homepage',
   'tools.registrySearchPlaceholder': 'Search the MCP Registry, e.g. postgres, slack, figma',
   'tools.registrySearchBtn': 'Search',

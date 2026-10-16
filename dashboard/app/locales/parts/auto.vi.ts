@@ -1,6 +1,7 @@
 // Vietnamese strings for automations and jobs (source of truth for keys).
 export default {
   'nav.automations': 'Tự động',
+  'nav.automationTemplates': 'Mẫu tự động hóa',
   'nav.jobs': 'Job',
   'auto.title': 'Tự động',
   'auto.new': 'Tạo tự động',
@@ -101,6 +102,13 @@ export default {
   'auto.off': 'Đang tắt',
   'auto.history': 'Lịch sử chạy',
   'auto.templates': 'Mẫu:',
+  'auto.useTemplate': 'Dùng mẫu',
+  'auto.templateHint': 'Chọn project để dùng mẫu. Mẫu chỉ điền vào form, chưa tự động lưu.',
+  'auto.projectPick': 'Chọn project',
+  'auto.templateSearch': 'Tìm mẫu…',
+  'auto.templateAllCategories': 'Tất cả ngành',
+  'auto.templateNoResults': 'Không tìm thấy mẫu phù hợp.',
+  'auto.featuredTemplate': 'Mẫu nổi bật theo nhu cầu hiện nay',
   'auto.prName': 'Review Pull Request',
   'auto.prPrompt': 'Review Pull Request #{{payload.number}} "{{payload.title}}" của {{payload.author}} ({{payload.source}} → {{payload.target}}), {{payload.url}}.\nĐọc diff dưới đây, mở file liên quan trong repo khi cần ngữ cảnh. Chỉ ra lỗi, rủi ro bảo mật, chỗ thiếu test, chỗ khó đọc; mỗi ý ghi file:dòng, mức (nghiêm trọng / nên sửa / gợi ý) và cách sửa. Ngắn gọn, bắt đầu bằng một câu kết luận (ổn để merge hay cần sửa).\n\n{{diff}}',
   'auto.notifyNone': 'Không gửi (chỉ xem trong office)',

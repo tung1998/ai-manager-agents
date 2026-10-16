@@ -356,10 +356,14 @@ func newAutomation(a *app, h home.Home) *automation.Service {
 	}
 	trash := filepath.Join(h.Dir, "trash")
 	claude := func() string { return a.cli.LookPath("claude") }
+	lib := automation.Library{Dir: filepath.Join(h.Dir, "library"), Trash: trash}
+	if _, err := lib.SeedBuiltinSkills(); err != nil {
+		fmt.Fprintf(os.Stderr, "office: không chép được skill có sẵn vào thư viện: %v\n", err)
+	}
 	return &automation.Service{
 		Health:    &automation.MCPHealth{Home: userHome, Claude: claude},
 		Home:      userHome,
-		Library:   automation.Library{Dir: filepath.Join(h.Dir, "library"), Trash: trash},
+		Library:   lib,
 		Installer: automation.Installer{Home: userHome, Trash: trash, Claude: claude},
 		Projects: func(ctx context.Context) map[string]string {
 			out := map[string]string{}

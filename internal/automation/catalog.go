@@ -58,6 +58,8 @@ func Catalog() []MCPTemplate {
 	gh := httpMCP("https://api.githubcopilot.com/mcp/")
 	gh["headers"] = map[string]any{"Authorization": "Bearer {{GITHUB_TOKEN}}"}
 	fsCfg := stdio("npx", "-y", "@modelcontextprotocol/server-filesystem", "{{DIR}}")
+	braveCfg := stdio("npx", "-y", "@brave/brave-search-mcp-server")
+	braveCfg["env"] = map[string]any{"BRAVE_API_KEY": "{{BRAVE_API_KEY}}"}
 	list := []MCPTemplate{
 		{ID: "context7", Name: "context7", Title: "Context7", Category: "Tài liệu", Description: "Tài liệu thư viện/framework mới nhất cho agent.", Homepage: "https://github.com/upstash/context7", Config: stdio("npx", "-y", "@upstash/context7-mcp")},
 		{ID: "playwright", Name: "playwright", Title: "Playwright", Category: "Trình duyệt", Description: "Điều khiển trình duyệt: mở trang, click, chụp ảnh, kiểm thử UI.", Homepage: "https://github.com/microsoft/playwright-mcp", Config: stdio("npx", "@playwright/mcp@latest")},
@@ -72,6 +74,12 @@ func Catalog() []MCPTemplate {
 		{ID: "filesystem", Name: "filesystem", Title: "Filesystem", Category: "Hệ thống", Description: "Đọc/ghi file trong một thư mục được phép.", Homepage: "https://github.com/modelcontextprotocol/servers", Config: fsCfg,
 			Inputs: []Input{{Key: "DIR", Label: "Thư mục cho phép", Kind: "arg", Required: true}}},
 		{ID: "fetch", Name: "fetch", Title: "Fetch", Category: "Hệ thống", Description: "Tải trang web và chuyển sang Markdown (cần uv).", Homepage: "https://github.com/modelcontextprotocol/servers", Config: stdio("uvx", "mcp-server-fetch")},
+		{ID: "git", Name: "git", Title: "Git", Category: "Code", Description: "Đọc repository, branch, diff, log và history để agent phân tích code có ngữ cảnh.", Homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/git", Config: stdio("uvx", "mcp-server-git")},
+		{ID: "memory", Name: "memory", Title: "Memory", Category: "Tri thức", Description: "Lưu và truy vấn knowledge graph nhẹ cho context dài hạn của agent.", Homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/memory", Config: stdio("npx", "-y", "@modelcontextprotocol/server-memory")},
+		{ID: "sequential-thinking", Name: "sequential-thinking", Title: "Sequential Thinking", Category: "Lập luận", Description: "Chia bài toán phức tạp thành các bước suy luận có thể chỉnh sửa và kiểm tra.", Homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking", Config: stdio("npx", "-y", "@modelcontextprotocol/server-sequential-thinking")},
+		{ID: "time", Name: "time", Title: "Time", Category: "Tiện ích", Description: "Tra múi giờ và chuyển đổi thời gian để lịch, webhook và báo cáo không lệch timezone.", Homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/time", Config: stdio("npx", "-y", "@modelcontextprotocol/server-time")},
+		{ID: "brave-search", Name: "brave-search", Title: "Brave Search", Category: "Tìm kiếm", Description: "Tìm kiếm web và tin tức qua Brave Search cho research, monitoring và knowledge work.", Homepage: "https://github.com/brave/brave-search-mcp-server", Config: braveCfg,
+			Inputs: []Input{{Key: "BRAVE_API_KEY", Label: "Brave Search API key", Kind: "env", Secret: true, Required: true}}},
 	}
 	for i := range list {
 		list[i].Source = "catalog"
