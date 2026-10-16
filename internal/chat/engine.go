@@ -35,6 +35,7 @@ import (
 	"unicode/utf8"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/deciding"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/usage"
@@ -94,6 +95,8 @@ type PatchDTO struct {
 	Size      int  `json:"size"`
 	Add       int  `json:"add"`
 	Del       int  `json:"del"`
+	// Deciding: who is deciding it right now (it says pending until done)
+	Deciding string `json:"deciding,omitempty"`
 }
 
 // PatchPreview is how much of a diff a chat loads with its messages.
@@ -114,6 +117,7 @@ func toPatchDTO(p storage.Patch) PatchDTO {
 // FullPatchDTO is a diff with all of its text.
 func FullPatchDTO(p storage.Patch) PatchDTO {
 	d := PatchDTO{ID: p.ID, MessageID: p.MessageID, Diff: p.Diff, Files: p.Files, Status: p.Status, Detail: p.Detail, DecidedBy: p.DecidedBy, DecidedAt: p.DecidedAt, Origin: p.Origin, Size: len(p.Diff)}
+	d.Deciding, _ = deciding.Is(p.ID)
 	for line := range strings.SplitSeq(p.Diff, "\n") {
 		switch {
 		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
@@ -217,7 +221,6 @@ type Engine struct {
 	decided     decisions                                  // proposals a person decided on the dashboard: the agent goes on (ADR-084)
 	queueRun    QueueRunner                                // carries out a queued proposal (Drain)
 	draining    sync.Map                                   // conversation id → *sync.Mutex: one Drain at a time
-	deciding    sync.Map                                   // patches being decided now: one decision applies a patch
 	onLimits    func(p storage.Provider, l Limits)
 	office      *officetools.Toolbox
 	mcp         *mcpserver.Server
@@ -393,6 +396,8 @@ type ActionDTO struct {
 	// Always: run_command, the pattern "luôn cho phép" would add ("" = it can't)
 	Always string `json:"always,omitempty"`
 	Seq    int    `json:"seq,omitempty"` // its number among the chat's proposals (numberCards)
+	// Deciding: who is deciding it right now (it says pending until done)
+	Deciding string `json:"deciding,omitempty"`
 }
 
 // ToActionDTO converts a stored action.
@@ -401,9 +406,10 @@ func ToActionDTO(a storage.Action) ActionDTO {
 	if a.Kind == "run_command" {
 		always, _ = perm.SuggestPattern(a.Target)
 	}
+	by, _ := deciding.Is(a.ID)
 	return ActionDTO{ID: a.ID, MessageID: a.MessageID, TaskID: a.TaskID, Kind: a.Kind, Label: actions.Kinds[a.Kind], Target: a.Target, TargetID: a.TargetID,
 		Reason: a.Reason, Message: a.Args.Message, Files: a.Args.Files, Automation: a.Args.Automation, Change: a.Args.Change, Status: a.Status, Detail: a.Detail, By: a.ProposedBy, DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt,
-		Always: always}
+		Always: always, Deciding: by}
 }
 
 // SetAttachments sets where attached files are stored.
@@ -1587,14 +1593,14 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 
 // DecidePatch applies (approve) or rejects a proposed change.
 func (e *Engine) DecidePatch(ctx context.Context, patchID string, approve bool) (PatchDTO, error) {
-	if _, busy := e.deciding.LoadOrStore(patchID, struct{}{}); busy { // the dashboard and a bot at once
+	if !deciding.Begin("patches", patchID, actor.From(ctx)) { // the dashboard and a bot at once
 		p, err := e.store.Chat().GetPatch(ctx, patchID)
 		if err != nil {
 			return PatchDTO{}, err
 		}
 		return toPatchDTO(p), ErrDecided
 	}
-	defer e.deciding.Delete(patchID)
+	defer deciding.End("patches", patchID)
 	p, err := e.store.Chat().GetPatch(ctx, patchID)
 	if err != nil {
 		return PatchDTO{}, err

@@ -13,10 +13,10 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/audit"
+	"bitbucket.org/senprints/agent-office/internal/deciding"
 	"bitbucket.org/senprints/agent-office/internal/gitops"
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/perm"
@@ -144,9 +144,6 @@ type Service struct {
 	direct AutoApprover
 	mcp    MCPCaller
 	sender Sender
-	// deciding holds the actions being decided now: the dashboard and a bot
-	// deciding one at once must not both run it
-	deciding sync.Map
 }
 
 // AutoApprover says whether the chat an action comes from approves it at once
@@ -397,14 +394,16 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 // Decide runs (approve) or rejects a pending action. Only one decision of an
 // action runs; one made meanwhile gets ErrDecided.
 func (s *Service) Decide(ctx context.Context, id string, approve bool, by string) (storage.Action, error) {
-	if _, busy := s.deciding.LoadOrStore(id, struct{}{}); busy {
+	// the dashboard and a bot deciding one at once must not both run it; while
+	// it runs, it is shown as being decided (not as waiting for someone)
+	if !deciding.Begin("actions", id, by) {
 		a, err := s.store.Actions().Get(ctx, id)
 		if err != nil {
 			return a, err
 		}
 		return a, ErrDecided
 	}
-	defer s.deciding.Delete(id)
+	defer deciding.End("actions", id)
 	// once decided it runs to the end and is recorded, even when whoever
 	// asked gave up waiting (an agent's tool call timing out on a long test):
 	// else the command is killed and the card stays pending, approved
@@ -488,14 +487,14 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 // Queue approves a pending action that waits behind an earlier proposal of
 // its chat: it is "queued" and runs once those are decided (chat.Drain).
 func (s *Service) Queue(ctx context.Context, id, by string) (storage.Action, error) {
-	if _, busy := s.deciding.LoadOrStore(id, struct{}{}); busy {
+	if !deciding.Begin("actions", id, by) {
 		a, err := s.store.Actions().Get(ctx, id)
 		if err != nil {
 			return a, err
 		}
 		return a, ErrDecided
 	}
-	defer s.deciding.Delete(id)
+	defer deciding.End("actions", id)
 	a, err := s.store.Actions().Get(ctx, id)
 	if err != nil {
 		return a, err

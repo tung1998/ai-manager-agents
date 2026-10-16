@@ -13,6 +13,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/chat"
+	"bitbucket.org/senprints/agent-office/internal/deciding"
 	"bitbucket.org/senprints/agent-office/internal/features"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
@@ -132,6 +133,9 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 	if u.Role == storage.RoleAdmin { // cards waiting for a person
 		if acts, err := s.cfg.Store.Actions().Pending(ctx, 100); err == nil {
 			for _, a := range acts {
+				if _, busy := deciding.Is(a.ID); busy { // approved (on its own, or elsewhere), running: nobody need act
+					continue
+				}
 				name := a.ProjectID
 				for _, p := range projects {
 					if p.ID == a.ProjectID {
@@ -152,6 +156,9 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 	if u.Role == storage.RoleAdmin { // chats' diffs waiting for a person
 		if ps, err := s.cfg.Store.Chat().PendingPatches(ctx, 100); err == nil {
 			for _, p := range ps {
+				if _, busy := deciding.Is(p.ID); busy {
+					continue
+				}
 				c, err := s.cfg.Store.Chat().GetConversation(ctx, p.ConversationID)
 				if err != nil || c.ProjectID == hidden {
 					continue

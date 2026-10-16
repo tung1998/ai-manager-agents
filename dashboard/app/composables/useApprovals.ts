@@ -22,6 +22,22 @@ export function incidentActs(x: Incident): IncidentAct[] {
   return ['dismiss']
 }
 
+// decided first by someone else, or by office on its own (an agent's
+// permission, a bot's direct mode): the 409 office answers, with the card as
+// it is now. deciding: who is deciding it right now ("" = it is decided)
+export interface AlreadyDecided { status: string, by: string, deciding: string }
+export function alreadyDecided(e: unknown): AlreadyDecided | null {
+  const r = e as { status?: number, statusCode?: number, data?: { action?: { status: string, decided_by?: string, deciding?: string }, patch?: { status: string, decided_by?: string, deciding?: string } } }
+  if ((r?.status ?? r?.statusCode) !== 409) return null
+  const x = r.data?.action ?? r.data?.patch
+  return x ? { status: x.status, by: x.decided_by ?? '', deciding: x.deciding ?? '' } : null
+}
+// what it says instead of an error: being decided, or decided already
+export function alreadyDecidedText(d: AlreadyDecided, t: ReturnType<typeof useLang>['t']) {
+  const who = (by: string) => by.startsWith('auto:') ? t('bell.byOffice') : by || '?'
+  return d.deciding ? t('bell.deciding', { by: who(d.deciding) }) : t('bell.decided', { by: who(d.by) })
+}
+
 // approve or reject (reject = skip: its agent is not run again about it)
 export async function decideApproval(x: Pick<Incident, 'kind' | 'id'>, what: 'approve' | 'reject') {
   const base = x.kind === 'patch' ? '/api/patches/' : '/api/actions/'

@@ -16,6 +16,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/chat"
+	"bitbucket.org/senprints/agent-office/internal/deciding"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
@@ -158,7 +159,7 @@ func (m *Manager) ownProposals(ctx context.Context, conversationID string) []pro
 	var out []proposal
 	if ps, err := m.store.Chat().ListPatches(ctx, conversationID); err == nil {
 		for _, p := range ps {
-			if p.Status == "pending" {
+			if _, busy := deciding.Is(p.ID); p.Status == "pending" && !busy {
 				label := "Sửa " + truncate(strings.Join(p.Files, ", "), 160)
 				if bigDiff(p) {
 					label = fmt.Sprintf("⚠️ Diff rất lớn (%d file): %s", len(p.Files), label)
@@ -169,7 +170,7 @@ func (m *Manager) ownProposals(ctx context.Context, conversationID string) []pro
 	}
 	if as, err := m.store.Actions().List(ctx, conversationID, "", ""); err == nil {
 		for _, a := range as {
-			if a.Status == "pending" {
+			if _, busy := deciding.Is(a.ID); a.Status == "pending" && !busy {
 				out = append(out, proposal{Kind: "action", ID: a.ID, Label: firstNonEmpty(actions.Kinds[a.Kind], a.Kind) + ": " + truncate(a.Target, 160), Action: a.Kind, Target: a.Target})
 			}
 		}
@@ -192,6 +193,9 @@ func (m *Manager) ownProposals(ctx context.Context, conversationID string) []pro
 
 // still reports whether a proposal waits for a decision yet.
 func (m *Manager) still(ctx context.Context, p proposal) bool {
+	if _, busy := deciding.Is(p.ID); busy { // being decided elsewhere: its buttons go
+		return false
+	}
 	if p.Kind == "patch" {
 		x, err := m.store.Chat().GetPatch(ctx, p.ID)
 		return err == nil && x.Status == "pending"
@@ -485,6 +489,10 @@ func (m *Manager) approvals(ctx context.Context, ch storage.Channel, in Incoming
 			detail, err = m.decider.Decide(ctx, p.Kind, p.ID, approve, by)
 		}
 		if errors.Is(err, actions.ErrDecided) { // decided meanwhile (on the dashboard): its agent goes on from there
+			if who, busy := deciding.Is(p.ID); busy {
+				lines = append(lines, fmt.Sprintf("%d. %s: đang được %s duyệt.", p.N, p.Label, who))
+				continue
+			}
 			lines = append(lines, fmt.Sprintf("%d. %s: đã được quyết trước đó.", p.N, p.Label))
 			continue
 		}

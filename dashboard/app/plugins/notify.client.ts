@@ -5,9 +5,13 @@
 // or gone elsewhere, both close. The list is the 'incidents' data office
 // pushes live (useDataSync); what was there when the page opened is not
 // announced again.
-import { actOnIncident, incidentActs, incidentText, isApproval, useBrowserNotify, type Incident, type IncidentAct } from '~/composables/useApprovals'
+import { actOnIncident, alreadyDecided, alreadyDecidedText, incidentActs, incidentText, isApproval, useBrowserNotify, type Incident, type IncidentAct } from '~/composables/useApprovals'
 
 const maxAtOnce = 3 // more at once: one toast saying how many
+// a card is announced only if it still waits a moment later: one office
+// approves on its own (an agent's permission, a bot's direct mode) or someone
+// decides elsewhere right away leaves the list first, so nobody is asked
+const approvalGrace = 2500
 
 export default defineNuxtPlugin(() => {
   const { supported, permission } = useBrowserNotify()
@@ -27,12 +31,14 @@ export default defineNuxtPlugin(() => {
 
   const seen = new Set<string>()
   const toasts = new Map<string, string | number>() // incident key → its toast
+  const waiting = new Map<string, ReturnType<typeof setTimeout>>() // approvals not announced yet (approvalGrace)
   let primed = false
   const { data } = useNuxtData<{ incidents?: Incident[] }>('incidents')
+  const stillThere = (key: string) => !!data.value?.incidents?.some(x => x.key === key)
   watch(() => data.value?.incidents, (list) => {
     if (!list) return
     const now = new Set(list.map(x => x.key))
-    for (const key of toasts.keys()) { // decided or gone meanwhile: its toast and notification go too
+    for (const key of [...toasts.keys(), ...waiting.keys()]) { // decided or gone meanwhile: its toast and notification go too
       if (!now.has(key)) dismiss(key)
     }
     const fresh = list.filter(x => !seen.has(x.key))
@@ -41,13 +47,24 @@ export default defineNuxtPlugin(() => {
       primed = true
       return
     }
-    for (const x of fresh.slice(0, maxAtOnce)) announce(x)
+    for (const x of fresh.slice(0, maxAtOnce)) {
+      if (!isApproval(x)) {
+        announce(x)
+        continue
+      }
+      waiting.set(x.key, setTimeout(() => {
+        waiting.delete(x.key)
+        if (stillThere(x.key)) announce(x)
+      }, approvalGrace))
+    }
     if (fresh.length > maxAtOnce) {
       toast.add({ title: t('bell.more', { n: fresh.length - maxAtOnce }), color: 'warning', icon: 'i-lucide-bell-ring', actions: [{ label: t('bell.all'), onClick: () => { navigateTo('/') } }] })
     }
   }, { immediate: true })
 
   function dismiss(key: string) {
+    clearTimeout(waiting.get(key))
+    waiting.delete(key)
     const id = toasts.get(key)
     if (id !== undefined) toast.remove(id)
     toasts.delete(key)
@@ -84,13 +101,16 @@ export default defineNuxtPlugin(() => {
     })
   }
 
-  // done: its toast and notification just go, no other notice
+  // done: its toast and notification just go, no other notice; decided
+  // elsewhere first: they go too, saying by whom
   async function act(x: Incident, what: IncidentAct) {
     try {
       await actOnIncident(x, what)
       dismiss(x.key)
     } catch (e) {
-      toast.add({ title: apiError(e), color: 'error' })
+      const d = alreadyDecided(e)
+      if (d) dismiss(x.key)
+      toast.add(d ? { title: alreadyDecidedText(d, t), color: 'info' } : { title: apiError(e), color: 'error' })
     }
   }
 })

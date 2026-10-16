@@ -11,6 +11,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/deciding"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
@@ -213,14 +214,14 @@ func (e *Engine) SetQueueRunner(fn QueueRunner) { e.queueRun = fn }
 // QueuePatch approves a pending diff that waits behind an earlier proposal of
 // its chat: it is applied once those are decided (Drain).
 func (e *Engine) QueuePatch(ctx context.Context, patchID string) (PatchDTO, error) {
-	if _, busy := e.deciding.LoadOrStore(patchID, struct{}{}); busy {
+	if !deciding.Begin("patches", patchID, actor.From(ctx)) {
 		p, err := e.store.Chat().GetPatch(ctx, patchID)
 		if err != nil {
 			return PatchDTO{}, err
 		}
 		return toPatchDTO(p), ErrDecided
 	}
-	defer e.deciding.Delete(patchID)
+	defer deciding.End("patches", patchID)
 	p, err := e.store.Chat().GetPatch(ctx, patchID)
 	if err != nil {
 		return PatchDTO{}, err

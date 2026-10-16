@@ -120,6 +120,7 @@ const en: Record<keyof typeof vi, string> = {
   'patch.merge': 'Merge into repo',
   'patch.worktree': 'worktree',
   'card.queued': 'Approved · queued',
+  'card.deciding': 'Being approved…',
   'card.queuedToast': 'Approved and queued: runs once #{n} and the cards before it are decided',
   'card.unqueue': 'Cancel',
   'chat.approveAll': 'Approve all ({n})',

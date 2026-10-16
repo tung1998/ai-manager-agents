@@ -2452,3 +2452,11 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Quyết định:**
   - Message của hai commit nội bộ đổi thành `agent-office snapshot (không phải commit của project): …`.
   - `chat/worktree.md` nói rõ: commit snapshot không phải lịch sử của project. Khi được nhờ commit, agent đọc `git -C <project> status --short` trước, liệt kê từng file, và chỉ báo xong khi `git -C <project> log -1` có commit mới và các file đó không còn trong status.
+
+## ADR-165: Thẻ đang được duyệt không còn hỏi người
+- **Bối cảnh (16/10):** người dùng hay bấm Duyệt trên thông báo thì thẻ đã được duyệt rồi. Lý do: thẻ tự duyệt (quyền của agent, bot ở chế độ trực tiếp, diff tự áp dụng) được lưu `pending` trước, rồi giữ `pending` suốt lúc chạy (test, merge). Lượt đẩy "Cần xử lý" sau 300ms thấy nó vẫn chờ, nên bắn toast và thông báo trình duyệt. Bấm Duyệt thì nhận 409 và một lỗi đỏ; thông báo trình duyệt còn mở tab.
+- **Quyết định:**
+  - `internal/deciding` là sổ chung các thẻ đang được quyết (action và diff), kèm người quyết. Nó thay cho khóa riêng của `actions.Service` và `chat.Engine`: vẫn chỉ một quyết định chạy. Bắt đầu và kết thúc đều báo bảng `actions`/`patches` thay đổi, nên dashboard cập nhật ngay.
+  - "Cần xử lý" bỏ qua thẻ đang được quyết; bot không liệt kê và gỡ nút của thẻ đó. ActionDTO/PatchDTO có `deciding` (người đang quyết): thẻ hiện "Đang duyệt…" và ẩn nút.
+  - Toast và thông báo trình duyệt cho thẻ duyệt chờ 2,5 giây và chỉ bắn khi thẻ còn chờ.
+  - 409 không còn là lỗi: thẻ, chuông, widget, toast và thông báo trình duyệt báo "Đang được X duyệt" hoặc "Đã được X xử lý trước đó" rồi đóng; thông báo trình duyệt không mở tab nữa.

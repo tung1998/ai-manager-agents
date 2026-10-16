@@ -2,7 +2,7 @@
 // The header's "cần xử lý": its count opens the list, each item with its
 // buttons right there (a card: Duyệt / Bỏ qua; a chat answered: Đã xem…) or
 // opened where it is. Browser notifications are turned on from here (plugins/notify.client.ts).
-import { actOnIncident, incidentActs, incidentText, isApproval, useBrowserNotify, type Incident, type IncidentAct } from '~/composables/useApprovals'
+import { actOnIncident, alreadyDecided, alreadyDecidedText, incidentActs, incidentText, isApproval, useBrowserNotify, type Incident, type IncidentAct } from '~/composables/useApprovals'
 
 const { t } = useLang()
 const toast = useToast()
@@ -19,7 +19,9 @@ async function act(x: Incident, what: IncidentAct) {
     await actOnIncident(x, what) // done: it leaves the list, nothing more to say
     await refresh()
   } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
+    const d = alreadyDecided(e) // decided elsewhere first: said so, and the list catches up
+    toast.add(d ? { title: alreadyDecidedText(d, t), color: 'info' } : { title: apiError(e), color: 'error' })
+    if (d) void refresh()
   } finally {
     busy.delete(x.key)
   }

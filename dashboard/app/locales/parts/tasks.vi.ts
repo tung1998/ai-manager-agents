@@ -119,6 +119,7 @@ export default {
   'patch.merge': 'Gộp vào repo',
   'patch.worktree': 'worktree',
   'card.queued': 'Đã duyệt · chờ lượt',
+  'card.deciding': 'Đang duyệt…',
   'card.queuedToast': 'Đã duyệt, xếp hàng: chạy ngay khi #{n} và các thẻ trước được xử lý',
   'card.unqueue': 'Huỷ',
   'chat.approveAll': 'Duyệt tất cả ({n})',

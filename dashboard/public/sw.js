@@ -33,6 +33,13 @@ self.addEventListener('notificationclick', (event) => {
           method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req[1])
         })
         if (res.ok) return // done: the notification is gone, nothing more to show
+        if (res.status === 409) { // decided first elsewhere (or by office on its own): said so, nothing to open
+          const d = await res.json().catch(() => ({}))
+          const card = d.action || d.patch || {}
+          const by = card.deciding || card.decided_by || ''
+          await self.registration.showNotification(n.title, { body: (card.deciding ? '⏳ ' : '✓ ') + (by.startsWith('auto:') ? 'auto' : by), tag: x.key + ':decided' })
+          return
+        }
       } catch { /* offline: open it instead */ }
     }
     const link = x.link || '/'

@@ -8,6 +8,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/burn"
 	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/cleanup"
+	"bitbucket.org/senprints/agent-office/internal/deciding"
 	"bitbucket.org/senprints/agent-office/internal/events"
 	"bitbucket.org/senprints/agent-office/internal/home"
 	"bitbucket.org/senprints/agent-office/internal/limitalert"
@@ -94,6 +95,8 @@ func serveCmd() *cobra.Command {
 				sq.OnWrite(liveBus.Wrote)
 				sq.OnChat(liveBus.Chat) // a message or chat, pushed with its data (ADR-078)
 			}
+			// a proposal starting or ending its decision: cards and "Cần xử lý" show it at once
+			deciding.OnChange(liveBus.Wrote)
 
 			proxies, err := parsePrefixes(trustedProxies)
 			if err != nil {

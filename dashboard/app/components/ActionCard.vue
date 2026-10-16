@@ -9,6 +9,7 @@ export interface ProposedAction {
   target: string
   reason: string
   status: 'pending' | 'queued' | 'done' | 'failed' | 'rejected'
+  deciding?: string // who is deciding it now (it says pending until done)
   detail: string
   proposed_by: string
   decided_by: string
@@ -139,7 +140,8 @@ async function decide(approve: boolean, always = false, skip = false) {
   } catch (e) {
     const a = (e as { data?: { action?: ProposedAction } }).data?.action
     if (a) emit('updated', a)
-    toast.add({ title: apiError(e), color: 'error' })
+    const d = alreadyDecided(e)
+    toast.add(d ? { title: alreadyDecidedText(d, t), color: 'info' } : { title: apiError(e), color: 'error' })
   } finally {
     busy.value = ''
   }
@@ -194,12 +196,13 @@ async function decide(approve: boolean, always = false, skip = false) {
         <p v-if="action.reason" class="text-xs text-(--ui-text-muted)">{{ action.reason }}</p>
         <p v-if="action.status !== 'pending' && action.detail" class="line-clamp-2 text-xs" :title="action.detail" :class="action.status === 'failed' ? 'text-(--ui-error)' : 'text-(--ui-text-muted)'">{{ action.detail }}</p>
       </div>
-      <UBadge :color="statusMeta[action.status].color" variant="subtle" size="sm" :label="statusMeta[action.status].label" />
+      <UBadge v-if="action.status === 'pending' && action.deciding" color="info" variant="subtle" size="sm" icon="i-lucide-loader-circle" :ui="{ leadingIcon: 'animate-spin' }" :label="t('card.deciding')" :title="action.deciding" />
+      <UBadge v-else :color="statusMeta[action.status].color" variant="subtle" size="sm" :label="statusMeta[action.status].label" />
       <UBadge v-if="stale && action.status === 'pending'" color="warning" variant="outline" size="sm" icon="i-lucide-history" :label="t('card.stale')" :title="t('card.staleHint')" />
       <UBadge v-if="action.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('action.auto')" :title="action.decided_by.slice(5)" />
       <!-- approved while an earlier card waited: it runs in its turn; it can still be called off -->
       <UButton v-if="action.status === 'queued' && isAdmin" size="xs" color="neutral" variant="ghost" :label="t('card.unqueue')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
-      <template v-if="action.status === 'pending' && isAdmin">
+      <template v-if="action.status === 'pending' && !action.deciding && isAdmin">
         <UButton size="xs" icon="i-lucide-check" :label="t('action.approve')" :loading="busy === 'approve'" :disabled="!!busy" @click="decide(true)" />
         <span v-if="canAlways" class="inline-flex items-center gap-1">
           <UButton size="xs" variant="soft" icon="i-lucide-infinity" :label="t('action.approveAlways')" :loading="busy === 'always'" :disabled="!!busy" @click="decide(true, true)" />

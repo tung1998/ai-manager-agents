@@ -4,6 +4,7 @@ export interface Patch {
   diff: string
   files: string[]
   status: 'pending' | 'queued' | 'applied' | 'rejected' | 'failed'
+  deciding?: string // who is deciding it now (it says pending until done)
   detail: string
   decided_by: string
   origin?: '' | 'worktree'
@@ -83,7 +84,10 @@ async function decide(approve: boolean, skip = false) {
     if (res.patch.status === 'failed') toast.add({ title: t('patch.failedToast'), description: res.patch.detail, color: 'error' })
     open.value = res.patch.status === 'failed'
   } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
+    const p = (e as { data?: { patch?: Patch } }).data?.patch
+    if (p) emit('updated', { ...props.patch, ...p, diff: props.patch.diff })
+    const d = alreadyDecided(e)
+    toast.add(d ? { title: alreadyDecidedText(d, t), color: 'info' } : { title: apiError(e), color: 'error' })
   } finally {
     busy.value = ''
   }
@@ -100,12 +104,13 @@ async function decide(approve: boolean, skip = false) {
         <span class="truncate font-mono text-xs">{{ patch.files.join(', ') }}</span>
         <span class="shrink-0 text-xs"><span class="text-(--ui-success)">+{{ stats.add }}</span> <span class="text-(--ui-error)">−{{ stats.del }}</span></span>
       </button>
-      <UBadge :label="statusMeta[patch.status].label" :color="statusMeta[patch.status].color" :icon="statusMeta[patch.status].icon" variant="subtle" size="sm" />
+      <UBadge v-if="patch.status === 'pending' && patch.deciding" color="info" variant="subtle" size="sm" icon="i-lucide-loader-circle" :ui="{ leadingIcon: 'animate-spin' }" :label="t('card.deciding')" :title="patch.deciding" />
+      <UBadge v-else :label="statusMeta[patch.status].label" :color="statusMeta[patch.status].color" :icon="statusMeta[patch.status].icon" variant="subtle" size="sm" />
       <UBadge v-if="stale && patch.status === 'pending'" color="warning" variant="outline" size="sm" icon="i-lucide-history" :label="t('card.stale')" :title="t('card.staleHint')" />
       <UBadge v-if="patch.origin === 'worktree'" color="neutral" variant="outline" size="sm" icon="i-lucide-git-branch" :label="t('patch.worktree')" :title="t('patch.worktreeHint')" />
       <UBadge v-if="patch.decided_by?.startsWith('auto:')" color="warning" variant="outline" size="sm" icon="i-lucide-zap" :label="t('patch.auto')" :title="patch.decided_by.slice(5)" />
       <UButton v-if="patch.status === 'queued' && isAdmin" size="xs" color="neutral" variant="ghost" :label="t('card.unqueue')" :loading="busy === 'reject'" :disabled="!!busy" @click="decide(false)" />
-      <template v-if="patch.status === 'pending' && isAdmin">
+      <template v-if="patch.status === 'pending' && !patch.deciding && isAdmin">
         <UTooltip :text="t('action.skipInfo')">
           <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-skip-forward" :label="t('action.skip')" :loading="busy === 'skip'" :disabled="!!busy" @click="decide(false, true)" />
         </UTooltip>

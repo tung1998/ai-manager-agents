@@ -16,7 +16,9 @@ async function decide(x: Incident, what: 'approve' | 'reject') {
     await decideApproval(x, what)
     await refresh()
   } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
+    const d = alreadyDecided(e) // decided elsewhere first: said so, and the list catches up
+    toast.add(d ? { title: alreadyDecidedText(d, t), color: 'info' } : { title: apiError(e), color: 'error' })
+    if (d) void refresh()
   } finally {
     busy.value = ''
   }
