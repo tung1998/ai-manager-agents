@@ -166,9 +166,12 @@ func (s *wfState) init() {
 	}
 }
 
-// accessLevel is the permission a role's access caps its turns at.
+// accessLevel is the permission a role's access caps its turns at ("" = no
+// cap: the agent's own permission).
 func accessLevel(access string) string {
 	switch access {
+	case workflow.AccessAgent:
+		return ""
 	case workflow.AccessEdit:
 		return perm.Edit
 	case workflow.AccessPropose:
@@ -179,6 +182,8 @@ func accessLevel(access string) string {
 
 func accessLabel(access string) string {
 	switch access {
+	case workflow.AccessAgent:
+		return "its agent's own permission"
 	case workflow.AccessEdit:
 		return "edits in its own worktree"
 	case workflow.AccessPropose:
@@ -1559,8 +1564,8 @@ func (e *Engine) wfAskNow(ctx context.Context, sc officetools.Scope, run *wfRun,
 	if !ok {
 		return "", fmt.Errorf("quy trình không có vai %q (có: %s)", role, roleKeys(run.def))
 	}
-	if d.Workflow != "" || d.Access != workflow.AccessAnalyze {
-		return "", fmt.Errorf("workflow_ask chỉ dùng cho vai chỉ phân tích (access analyze); vai %s dùng workflow_delegate / workflow_send", d.Name)
+	if d.Workflow != "" || (d.Access != workflow.AccessAgent && d.Access != workflow.AccessAnalyze) {
+		return "", fmt.Errorf("workflow_ask không dùng cho vai propose/edit hay quy trình con; vai %s dùng workflow_delegate / workflow_send", d.Name)
 	}
 	if strings.TrimSpace(question) == "" {
 		return "", errors.New("hãy ghi câu hỏi")

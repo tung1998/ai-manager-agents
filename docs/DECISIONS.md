@@ -2420,3 +2420,11 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Git chỉ ẩn phần giao diện; office vẫn dùng git ngầm cho worktree khi thư mục là repo.
 - **Không làm (lúc này):** cài đặt chung cho cả office, preset khi tạo project, gói Nội dung/Khách hàng, duyệt thay đổi cho thư mục không phải git.
 
+
+## ADR-162: Vai trong quy trình chạy theo quyền của agent
+- **Bối cảnh (15/10):** vai không ghi `access` bị hạ về `analyze` (`perm.Read`), kể cả khi agent có quyền Vận hành. Quy trình mẫu và quy trình tự tạo đều ghi `access: analyze`, nên vai phân tích không xem được git hay chạy lệnh kiểm tra; với agy, mọi lệnh bị từ chối và lượt kết thúc không có câu trả lời.
+- **Quyết định:**
+  - Bỏ `access` = chạy theo **quyền của agent** (mặc định, không trần). `analyze | propose | edit` vẫn dùng được để **ghi đè**, hạ lượt của vai xuống mức đó (như trước). Quy trình con không ghi `access` cũng không có trần.
+  - Lời dặn cuối việc giao (`workflow/access-note`) khi theo quyền agent: dùng công cụ được phép; việc công cụ không cho phép thì không tìm đường khác mà đề xuất để người duyệt (`propose_action`, diff). Vai `edit` cũng được nhắc như vậy.
+  - `workflow_ask` dùng cho vai không ghi `access` hoặc `analyze` (không cho `propose`/`edit`, quy trình con). Vai giám sát chỉ cần không phải quy trình con; lượt giám sát và biểu quyết vẫn luôn chỉ đọc.
+  - Quy trình mẫu bỏ `access: analyze`; vai `edit` giữ nguyên. Dashboard có lựa chọn "Theo quyền của agent" và vai mới mặc định như vậy.

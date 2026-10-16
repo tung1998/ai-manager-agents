@@ -54,7 +54,7 @@ async function remove(w: LibraryWorkflow) {
           <p v-else-if="w.def.description" class="line-clamp-1 text-xs text-(--ui-text-muted)">{{ w.def.description }}</p>
         </div>
         <span v-if="w.def.roles?.length" class="hidden shrink-0 items-center gap-1 text-xs text-(--ui-text-muted) sm:flex" :title="w.def.roles.map(r => r.name).join(', ')">
-          <UIcon v-for="r in w.def.roles" :key="r.key" :name="accessIcon[r.access] ?? 'i-lucide-eye'" class="size-3.5" />
+          <UIcon v-for="r in w.def.roles" :key="r.key" :name="accessIcon[accessKey(r.access)]" class="size-3.5" />
         </span>
         <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-pencil" :label="t('wf.edit')" :to="editTo(w.def.key)" />
         <UButton v-if="w.builtin && w.modified" size="xs" color="neutral" variant="ghost" icon="i-lucide-rotate-ccw" :aria-label="t('wf.reset')" :title="t('wf.reset')" @click="reset(w)" />

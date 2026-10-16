@@ -144,8 +144,8 @@ const runsOf = (w: ProjectWorkflow) => router.replace({ query: { ...route.query,
 
             <div v-if="w.roles.length" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
               <div v-for="r in w.roles" :key="r.key" class="flex items-center gap-2 text-sm">
-                <UTooltip :text="t(`wf.access.${r.access}` as MessageKey)">
-                  <UIcon :name="accessIcon[r.access] ?? 'i-lucide-eye'" class="size-4 shrink-0 text-(--ui-text-muted)" />
+                <UTooltip :text="t(`wf.access.${accessKey(r.access)}` as MessageKey)">
+                  <UIcon :name="accessIcon[accessKey(r.access)]" class="size-4 shrink-0 text-(--ui-text-muted)" />
                 </UTooltip>
                 <span class="min-w-0 flex-1 truncate" :title="r.hint">{{ r.name }}</span>
                 <UBadge

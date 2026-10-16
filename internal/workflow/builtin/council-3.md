@@ -13,7 +13,6 @@ roles:
   - key: lap-ke-hoach
     name: Lập kế hoạch
     hint: legislative; goals, rules, plans
-    access: analyze
     prefer: { tier: strong }
   - key: thuc-thi
     name: Thực thi
@@ -22,7 +21,6 @@ roles:
   - key: giam-sat
     name: Giám sát
     hint: judicial; checking evidence, veto
-    access: analyze
     differ_from: [thuc-thi]
     prefer: { tier: strong }
 vote:

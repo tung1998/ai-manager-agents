@@ -193,7 +193,7 @@ func TestParseSubWorkflowRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Roles[0].Access != AccessEdit || d.Roles[1].Access != AccessAnalyze || d.Limits.Depth != DefaultDepth {
+	if d.Roles[0].Access != AccessAgent || d.Roles[1].Access != AccessAgent || d.Limits.Depth != DefaultDepth {
 		t.Fatalf("defaults = %+v %+v", d.Roles, d.Limits)
 	}
 	if _, err := Parse("---\nkey: cha\nname: Cha\nroles:\n  - key: con\n    workflow: Bad Key\nlimits:\n  depth: 9\n---\nx\n"); err == nil || !strings.Contains(err.Error(), "workflow") || !strings.Contains(err.Error(), "depth") {

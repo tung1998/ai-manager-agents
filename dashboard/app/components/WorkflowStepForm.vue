@@ -90,9 +90,9 @@ function newRole() {
   let k = 'role'
   for (let i = 2; props.def.roles.some(r => r.key === k); i++) k = `role-${i}`
   const id = props.sel
-  setDef({ roles: [...props.def.roles, { key: k, name: k, access: 'analyze' }], steps: steps.value.map(s => s.id === id ? { ...s, role: k } : s) })
+  setDef({ roles: [...props.def.roles, { key: k, name: k }], steps: steps.value.map(s => s.id === id ? { ...s, role: k } : s) })
 }
-const accessItems = computed(() => (['analyze', 'propose', 'edit'] as const).map(a => ({ label: t(`wf.access.${a}` as MessageKey), value: a, icon: accessIcon[a] })))
+const accessItems = computed(() => (['agent', 'analyze', 'propose', 'edit'] as const).map(a => ({ label: t(`wf.access.${a}` as MessageKey), value: a, icon: accessIcon[a] })))
 const agentItems = computed(() => [{ label: t('wf.step.unbound'), value: NONE }, ...props.agents.map(a => ({ label: a.name, value: a.id }))])
 const boundAgent = computed(() => (role.value && props.bindings?.[role.value.key]) || NONE)
 function bind(v: string) {
@@ -109,7 +109,7 @@ function newCoordRole() {
   let k = 'role'
   for (let i = 2; props.def.roles.some(r => r.key === k); i++) k = `role-${i}`
   const id = props.sel
-  setDef({ roles: [...props.def.roles, { key: k, name: k, access: 'analyze' }], steps: steps.value.map(s => s.id === id ? { ...s, roles: [...(s.roles ?? []), k] } : s) })
+  setDef({ roles: [...props.def.roles, { key: k, name: k }], steps: steps.value.map(s => s.id === id ? { ...s, roles: [...(s.roles ?? []), k] } : s) })
 }
 
 // ---- workflow: which one, its inputs ----
@@ -168,7 +168,7 @@ const onErrorItems = computed(() => [{ label: t('wf.step.onErrorStop'), value: '
       <div v-if="role" class="space-y-2 rounded-md border border-(--ui-border) p-2">
         <div class="grid grid-cols-2 gap-2">
           <UInput :model-value="role.name" size="xs" :placeholder="t('wf.step.roleName')" @update:model-value="v => patchRole({ name: String(v) })" />
-          <USelect :model-value="role.access" :items="accessItems" size="xs" @update:model-value="v => patchRole({ access: v as WorkflowAccess })" />
+          <USelect :model-value="accessKey(role.access)" :items="accessItems" size="xs" @update:model-value="v => patchRole({ access: v === 'agent' ? undefined : v as WorkflowAccess })" />
         </div>
         <UFormField v-if="projectId" :label="t('wf.step.agent')" size="xs">
           <USelect :model-value="boundAgent" :items="agentItems" size="xs" class="w-full" @update:model-value="v => bind(String(v))" />

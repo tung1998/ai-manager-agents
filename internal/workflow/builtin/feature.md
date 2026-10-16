@@ -14,12 +14,10 @@ roles:
   - key: ke-hoach
     name: Lập kế hoạch
     hint: design, architecture
-    access: analyze
     prefer: { tier: strong }
   - key: phan-bien
     name: Phản biện
     hint: design review, finding risks
-    access: analyze
     differ_from: [ke-hoach]
   - key: thuc-thi
     name: Thực thi
@@ -28,7 +26,6 @@ roles:
   - key: review
     name: Review
     hint: code review
-    access: analyze
     differ_from: [thuc-thi]
     prefer: { tier: strong }
 gates:

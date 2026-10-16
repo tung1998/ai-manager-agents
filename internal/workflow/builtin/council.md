@@ -13,12 +13,10 @@ roles:
   - key: a
     name: Thành viên A
     hint: planning, root cause analysis
-    access: analyze
     prefer: { tier: strong }
   - key: b
     name: Thành viên B
     hint: critique, finding risks
-    access: analyze
     differ_from: [a]
     prefer: { tier: strong }
 parallel: [[a, b]]

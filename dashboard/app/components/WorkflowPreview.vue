@@ -43,8 +43,8 @@ const goes = (s: WorkflowStep) => (s.type === 'condition' ? [s.then, s.else] : s
       <p class="text-xs font-medium text-(--ui-text-muted)">{{ t('wf.roles', { n: def.roles.length }) }}</p>
       <ul class="divide-y divide-(--ui-border) rounded-md border border-(--ui-border)">
         <li v-for="r in def.roles" :key="r.key" class="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2.5 py-1.5 text-xs">
-          <UTooltip :text="t(`wf.access.${r.access}` as MessageKey)">
-            <UIcon :name="accessIcon[r.access] ?? 'i-lucide-eye'" class="size-4 text-primary" />
+          <UTooltip :text="t(`wf.access.${accessKey(r.access)}` as MessageKey)">
+            <UIcon :name="accessIcon[accessKey(r.access)]" class="size-4 text-primary" />
           </UTooltip>
           <span class="font-medium">{{ r.name }}</span>
           <span class="font-mono text-(--ui-text-muted)">{{ r.key }}</span>

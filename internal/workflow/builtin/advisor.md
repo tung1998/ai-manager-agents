@@ -12,7 +12,6 @@ roles:
   - key: co-van
     name: Cố vấn
     hint: design, review, risk analysis
-    access: analyze
     differ_from: [dieu-phoi]
     prefer: { tier: strong }
 limits: { rounds: 3, turns: 4, timeout: 1h }

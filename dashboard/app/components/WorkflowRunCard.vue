@@ -69,8 +69,8 @@ async function stop() {
       <li v-for="r in run.roles" :key="r.role" class="flex items-center gap-2 px-2.5 py-1.5 text-xs">
         <UIcon :name="roleIcon[r.status]" class="size-4 shrink-0" :class="roleColor[r.status]" :title="t(`wf.roleStatus.${r.status}` as MessageKey)" />
         <span class="font-medium">{{ r.name || r.role }}</span>
-        <UTooltip :text="t(`wf.access.${r.access}` as MessageKey)">
-          <UIcon :name="accessIcon[r.access] ?? 'i-lucide-eye'" class="size-3.5 text-(--ui-text-muted)" />
+        <UTooltip :text="t(`wf.access.${accessKey(r.access)}` as MessageKey)">
+          <UIcon :name="accessIcon[accessKey(r.access)]" class="size-3.5 text-(--ui-text-muted)" />
         </UTooltip>
         <NuxtLink v-if="r.workflow" :to="r.run_id ? `/projects/${run.project_id}/workflows/runs/${r.run_id}` : undefined" class="flex items-center gap-0.5 font-mono text-primary" :title="t('wf.subInfo')">
           <UIcon name="i-lucide-corner-down-right" class="size-3.5" />/{{ r.workflow }}

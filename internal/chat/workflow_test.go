@@ -164,7 +164,7 @@ func TestWorkflowCommitteeRunsInParallelAndCallsBack(t *testing.T) {
 			back = in
 		}
 	}
-	if !strings.Contains(devIn, "Vì sao test chập chờn?") || !strings.Contains(devIn, "Analyze only") {
+	if !strings.Contains(devIn, "Vì sao test chập chờn?") || !strings.Contains(devIn, "Work with your own permission") {
 		t.Fatalf("Dev's brief:\n%s", devIn)
 	}
 	if !strings.Contains(back, "Thành viên A") || !strings.Contains(back, "Thành viên B") {

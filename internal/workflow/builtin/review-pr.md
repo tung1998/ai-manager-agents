@@ -13,12 +13,10 @@ roles:
   - key: review-a
     name: Reviewer A
     hint: correctness, security
-    access: analyze
     prefer: { tier: strong }
   - key: review-b
     name: Reviewer B
     hint: design, maintainability
-    access: analyze
     differ_from: [review-a]
 parallel: [[review-a, review-b]]
 limits: { rounds: 2, turns: 6, timeout: 1h }

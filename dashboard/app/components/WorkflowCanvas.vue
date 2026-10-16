@@ -257,7 +257,7 @@ function addStep(p: Drop, position: { x: number, y: number }, link: boolean) {
     if (!key) {
       const taken = new Set([...props.def.roles.map(r => r.key), 'dieu-phoi'])
       key = uniqueKey(a.key || a.name, taken)
-      role = { key, name: a.name, access: 'analyze' }
+      role = { key, name: a.name }
       bindings = { ...(props.bindings ?? {}), [key]: a.id }
     }
     s = { id: uniqueKey(key, ids), type: 'agent', role: key, prompt: '' }

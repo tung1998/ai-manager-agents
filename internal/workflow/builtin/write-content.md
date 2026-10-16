@@ -13,11 +13,9 @@ roles:
   - key: viet
     name: Người viết
     hint: writing content
-    access: analyze
   - key: phan-bien
     name: Phản biện
     hint: editing, fact-checking
-    access: analyze
     differ_from: [viet]
 gates:
   - key: duyet

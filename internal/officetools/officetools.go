@@ -274,7 +274,7 @@ func (t *Toolbox) Tools() []Tool {
 				Schema: obj(map[string]any{"role": str("Role key"), "agent": str("Name of the agent taking the role (empty = the agent assigned to the role)"), "brief": brief}, "role", "brief")},
 			Tool{Name: "workflow_send", Description: "Workflow: send more to a role already given work (the role keeps its thread and remembers what it did). Each send is one round, and rounds are limited.",
 				Schema: obj(map[string]any{"role": str("Role key"), "message": str("What to send, e.g. another role's argument it should answer")}, "role", "message")},
-			Tool{Name: "workflow_ask", Description: "Workflow: ask an analyze-only role and WAIT for its answer this turn (up to wait_seconds), for short questions. On timeout it carries on in the background and you are called again.",
+			Tool{Name: "workflow_ask", Description: "Workflow: ask a role (not propose/edit, not a sub-workflow) and WAIT for its answer this turn (up to wait_seconds), for short questions. On timeout it carries on in the background and you are called again.",
 				Schema: obj(map[string]any{"role": str("Role key (access analyze)"), "question": str("The question, with the context needed"),
 					"wait_seconds": map[string]any{"type": "integer", "description": "Max seconds to wait (10–120, default 60)"}}, "role", "question")},
 			Tool{Name: "workflow_vote", Description: "Workflow: put a question to a vote among the workflow's roles (in parallel, analyze only). Office counts the votes by quorum/veto and calls you again with the result.",

@@ -25,8 +25,10 @@ import (
 // differ_from).
 const Coordinator = "dieu-phoi"
 
-// Access of a role: the most its turns may do.
+// Access of a role: none (AccessAgent) runs it with its agent's own
+// permission; a value overrides that, capping its turns.
 const (
+	AccessAgent   = ""        // its agent's own permission
 	AccessAnalyze = "analyze" // read and answer, no file changes
 	AccessPropose = "propose" // proposals and diffs a person decides
 	AccessEdit    = "edit"    // edits in its own worktree
@@ -242,12 +244,7 @@ func (d *Def) normalize() {
 	for i := range d.Roles {
 		r := &d.Roles[i]
 		r.Key, r.Name = strings.TrimSpace(r.Key), strings.TrimSpace(r.Name)
-		switch {
-		case r.Access == "" && r.Workflow != "":
-			r.Access = AccessEdit // a sub-workflow: its own roles' access, no lower cap unless asked
-		case r.Access == "":
-			r.Access = AccessAnalyze
-		}
+		r.Access = strings.TrimSpace(r.Access)
 		if r.Name == "" {
 			r.Name = r.Key
 		}
@@ -348,8 +345,8 @@ func (d Def) Validate() error {
 			add("vai %q bị trùng", r.Key)
 		}
 		roles[r.Key] = true
-		if r.Access != AccessAnalyze && r.Access != AccessPropose && r.Access != AccessEdit {
-			add("vai %q: access phải là analyze | propose | edit", r.Key)
+		if r.Access != AccessAgent && r.Access != AccessAnalyze && r.Access != AccessPropose && r.Access != AccessEdit {
+			add("vai %q: access phải bỏ trống (quyền của agent) hoặc là analyze | propose | edit", r.Key)
 		}
 		if r.Workflow != "" && !ValidKey(r.Workflow) {
 			add("vai %q: workflow %q không phải key quy trình", r.Key, r.Workflow)
@@ -458,8 +455,8 @@ func (d Def) Validate() error {
 		switch {
 		case !ok:
 			add("supervise.role: vai %q không có", sv.Role)
-		case r.Access != AccessAnalyze || r.Workflow != "":
-			add("supervise.role: vai %q phải là vai analyze (chỉ đọc), không phải quy trình con", sv.Role)
+		case r.Workflow != "":
+			add("supervise.role: vai %q là quy trình con, không giám sát được", sv.Role)
 		}
 		if sv.Every != "" {
 			if t, err := time.ParseDuration(sv.Every); err != nil || t < 2*time.Minute {
@@ -516,7 +513,7 @@ func (d Def) RenderBrief(role Role, parts map[string]string) (string, error) {
 
 // AccessNote is the line a role's prompt ends with (workflow/access-note.md).
 func AccessNote(access string) string {
-	return prompts.Render("workflow/access-note", struct{ Edit, Propose bool }{access == AccessEdit, access == AccessPropose})
+	return prompts.Render("workflow/access-note", struct{ Agent, Edit, Propose bool }{access == AccessAgent, access == AccessEdit, access == AccessPropose})
 }
 
 // IdleAfter is how long a role may work before it is noted (0 = never).

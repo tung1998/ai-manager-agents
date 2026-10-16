@@ -14,7 +14,6 @@ roles:
   - key: dieu-tra
     name: Điều tra
     hint: debugging, reading logs, finding the root cause
-    access: analyze
     prefer: { tier: strong }
   - key: sua
     name: Sửa
@@ -23,7 +22,6 @@ roles:
   - key: kiem-chung
     name: Kiểm chứng
     hint: review, testing
-    access: analyze
     differ_from: [sua]
 gates:
   - key: kiem-tra

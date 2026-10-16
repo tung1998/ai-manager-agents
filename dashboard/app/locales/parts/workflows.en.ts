@@ -54,6 +54,7 @@ const en: Record<keyof typeof vi, string> = {
   'wf.required': 'required',
   'wf.vote': 'Vote: {quorum} votes needed ({roles})',
   'wf.veto': 'veto: {roles}',
+  'wf.access.agent': "The agent's own permission",
   'wf.access.analyze': 'Read and analyze only',
   'wf.access.propose': 'Propose, a person approves',
   'wf.access.edit': 'Edit in its own worktree',

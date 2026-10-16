@@ -53,6 +53,7 @@ export default {
   'wf.required': 'bắt buộc',
   'wf.vote': 'Biểu quyết: cần {quorum} phiếu ({roles})',
   'wf.veto': 'phủ quyết: {roles}',
+  'wf.access.agent': 'Theo quyền của agent',
   'wf.access.analyze': 'Chỉ đọc, phân tích',
   'wf.access.propose': 'Đề xuất, người duyệt',
   'wf.access.edit': 'Sửa trong worktree riêng',
