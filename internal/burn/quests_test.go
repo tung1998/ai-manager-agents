@@ -2,9 +2,11 @@ package burn_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/actions"
 	"bitbucket.org/senprints/agent-office/internal/burn"
 )
 
@@ -61,5 +63,26 @@ func TestAddQuestsStartsTheBurn(t *testing.T) {
 	// running already: quests are added, nothing more starts
 	if _, started, _ := f.svc.AddQuests(ctx, f.project.ID, []burn.Quest{{Title: "Khác"}}, true, "auto:x"); started {
 		t.Fatal("started again")
+	}
+}
+
+// burn_quest from any chat of the project: added, and read back with burn_quests.
+func TestQuestTools(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	sc := actions.Scope{ProjectID: f.project.ID, Agent: "Thực thi"}
+	if _, err := f.svc.Tool(ctx, sc, "burn_quest", burn.ToolInput{Title: "Không mô tả"}); err == nil {
+		t.Fatal("a quest with no detail was added")
+	}
+	out, err := f.svc.Tool(ctx, sc, "burn_quest", burn.ToolInput{Title: "Viết test", Detail: "cho gói features"})
+	if err != nil || !strings.Contains(out, "added to the board") {
+		t.Fatalf("quest: %q, %v", out, err)
+	}
+	if _, err := f.svc.Tool(ctx, sc, "burn_quest", burn.ToolInput{Title: "viết  TEST", Detail: "lại"}); err == nil {
+		t.Fatal("the same open quest was added twice")
+	}
+	out, err = f.svc.Tool(ctx, sc, "burn_quests", burn.ToolInput{})
+	if err != nil || !strings.Contains(out, "[found] Viết test") {
+		t.Fatalf("quests: %q, %v", out, err)
 	}
 }

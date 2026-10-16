@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/actions"
@@ -15,6 +16,12 @@ import (
 // (ADR-116) for that piece only: a scan records pieces and ends with
 // burn_scan_done (ADR-130), a worker reports burn_done or burn_fail.
 func (s *Service) Tool(ctx context.Context, sc actions.Scope, name string, in ToolInput) (string, error) {
+	switch name { // from any chat of the project
+	case "burn_quest":
+		return s.giveQuest(ctx, sc, in)
+	case "burn_quests":
+		return s.quests(ctx, sc.ProjectID)
+	}
 	b, err := s.store.Burn().SessionByConversation(ctx, sc.ConversationID)
 	if err != nil || sc.ConversationID == "" {
 		return "", errors.New("các công cụ burn_* chỉ dùng trong hội thoại Burn")
@@ -88,6 +95,57 @@ func (s *Service) Tool(ctx context.Context, sc actions.Scope, name string, in To
 	}
 	return fmt.Sprintf("Đã ghi: %s → %s.", it.Title, it.Status), nil
 }
+
+// giveQuest is burn_quest: an agent of any chat puts a quest on the board,
+// as the person would on the dashboard.
+func (s *Service) giveQuest(ctx context.Context, sc actions.Scope, in ToolInput) (string, error) {
+	if strings.TrimSpace(in.Detail) == "" {
+		return "", errors.New("quest cần mô tả (detail) đủ để làm mà không phải hỏi lại")
+	}
+	added, _, err := s.AddQuests(ctx, sc.ProjectID, []Quest{{Title: in.Title, Detail: in.Detail}}, false, "agent:"+sc.Agent)
+	if err != nil {
+		return "", err
+	}
+	if added == 0 {
+		return "", fmt.Errorf("Burn đã có quest đang mở tên %q", strings.TrimSpace(in.Title))
+	}
+	if b, _ := s.Session(ctx, sc.ProjectID); b.Active() {
+		return "Quest added to the board; the running Burn takes it next (quests go one at a time, oldest first).", nil
+	}
+	return "Quest added to the board; it waits there for the person to give it to an agent (or for the Burn to be turned on).", nil
+}
+
+// quests is burn_quests: the Burn's state and its quests, latest last.
+func (s *Service) quests(ctx context.Context, projectID string) (string, error) {
+	b, err := s.Session(ctx, projectID)
+	if err != nil {
+		return "", err
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Burn: %s\n", b.State)
+	items := []storage.BurnItem{}
+	if b.ID != "" {
+		items, _ = s.store.Burn().Items(ctx, b.ID)
+	}
+	items = slices.DeleteFunc(items, func(it storage.BurnItem) bool { return it.Kind != KindQuest })
+	if len(items) > maxQuestList {
+		items = items[len(items)-maxQuestList:]
+	}
+	if len(items) == 0 {
+		return sb.String() + "No quests.", nil
+	}
+	for _, it := range items {
+		fmt.Fprintf(&sb, "- %s [%s] %s", it.ID, it.Status, it.Title)
+		if it.Summary != "" {
+			fmt.Fprintf(&sb, ": %s", it.Summary)
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String(), nil
+}
+
+// maxQuestList: the latest quests burn_quests shows.
+const maxQuestList = 30
 
 // workItem is the piece of session whose work chat conversationID is.
 func (s *Service) workItem(ctx context.Context, sessionID, conversationID string) (storage.BurnItem, error) {

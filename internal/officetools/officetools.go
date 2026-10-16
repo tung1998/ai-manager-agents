@@ -247,6 +247,11 @@ func (t *Toolbox) Tools() []Tool {
 				"what": map[string]any{"type": "string", "enum": []string{"open", "closed", "scanned", "map"}},
 			}, "what"), ReadOnly: true},
 			Tool{Name: "burn_fail", Description: "Burn: report the current piece could not be done.", Schema: obj(map[string]any{"item": item, "reason": map[string]any{"type": "string"}}, "item", "reason")},
+			Tool{Name: "burn_quest", Description: "Put a piece of work (a quest) on the project's work board (the Burn's), when the person asks to note work for later or hand it to the board. It waits there for the person to give it to an agent; a running Burn takes it next. One self-contained task per quest; several steps: several quests, in order.", Schema: obj(map[string]any{
+				"title":  map[string]any{"type": "string", "description": "Short title (an open quest with the same title is not added twice)"},
+				"detail": map[string]any{"type": "string", "description": "The brief, clear enough to do without asking back: goal, where (file:line), constraints, how to verify"},
+			}, "title", "detail")},
+			Tool{Name: "burn_quests", Description: "List the quests on the project's work board: each one's status and, once finished, its summary.", Schema: obj(map[string]any{}), ReadOnly: true},
 		)
 	}
 	if t.sendFile != nil {
@@ -302,7 +307,11 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 		if x.Name == "send_to_chat" && sc.ConversationID == "" {
 			continue
 		}
-		if strings.HasPrefix(x.Name, "burn_") && !t.burnChat(sc) {
+		if questTool(x.Name) {
+			if t.burnChat(sc) || (x.Name == "burn_quest" && !perm.AtLeast(sc.Level, perm.Propose)) {
+				continue // a Burn records its own work with burn_add
+			}
+		} else if strings.HasPrefix(x.Name, "burn_") && !t.burnChat(sc) {
 			continue // a Burn's conversation only
 		}
 		if x.Name == "send_file" && !t.botChat(sc) {
@@ -486,6 +495,15 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		out, err = t.readLink(ctx, sc, in.URL)
 	case "search_history":
 		out, err = t.searchHistory(ctx, sc, in.Query, in.Days, in.Author, in.Project)
+	case "burn_quest", "burn_quests":
+		if t.burn == nil {
+			return "Burn chưa bật trên office này", true
+		}
+		if name == "burn_quest" && !perm.AtLeast(sc.Level, perm.Propose) {
+			return "Bạn không có quyền giao việc cho Burn (gói hiện tại: " + perm.Label(sc.Level) + ")", true
+		}
+		sc.ProjectID = projectID
+		out, err = t.burn(ctx, sc, name, BurnInput{Title: in.Title, Detail: in.Detail})
 	case "burn_add", "burn_pick", "burn_skip", "burn_done", "burn_fail", "burn_list", "burn_scan_done":
 		if t.burn == nil || !t.burnChat(sc) {
 			return "Các công cụ burn_* chỉ dùng trong hội thoại Burn", true
@@ -872,6 +890,9 @@ func (t *Toolbox) agentID(ctx context.Context, projectID, name string) (string, 
 	}
 	return "", errors.New("không có sổ ghi nhớ ở đây")
 }
+
+// questTool: the Burn tools of any chat (giving the Burn work, reading it back).
+func questTool(name string) bool { return name == "burn_quest" || name == "burn_quests" }
 
 // burnChat: the run is a Burn's conversation or one of its pieces' work
 // chats, where the burn_* tools work.
