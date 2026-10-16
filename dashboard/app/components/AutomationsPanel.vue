@@ -119,7 +119,8 @@ async function runNow(a: Automation) {
 </script>
 
 <template>
-  <div class="max-w-5xl space-y-3">
+  <div class="lg:grid lg:grid-cols-2 lg:items-start lg:gap-4">
+    <div class="max-w-5xl space-y-3">
     <div class="flex items-center justify-between gap-2">
       <p class="text-sm text-(--ui-text-muted)">{{ list.length ? '' : t('auto.empty') }}</p>
       <UButton v-if="isAdmin" icon="i-lucide-plus" size="sm" :label="t('auto.new')" to="/automations/templates" />
@@ -170,6 +171,7 @@ async function runNow(a: Automation) {
         </UDropdownMenu>
       </div>
     </UCard>
-
+    </div>
+    <AutomationRuns :project-id="projectId" :automations="list" class="mt-4 lg:sticky lg:top-4 lg:mt-0" />
   </div>
 </template>
