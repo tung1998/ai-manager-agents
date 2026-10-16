@@ -19,6 +19,7 @@ const { data, error, pending, refresh } = useLiveFetch<{ jobs: Job[], next_befor
 const jobs = computed(() => data.value?.jobs ?? [])
 const more = computed(() => !!data.value?.next_before)
 const detail = ref<string | null>(null)
+const chatTo = (j: Job) => j.conversation_id ? `/projects/${j.project_id}?tab=chat&c=${j.conversation_id}${j.message_id ? `&m=${j.message_id}` : ''}` : undefined
 
 watch(pick, () => { limit.value = 20 })
 useLive(['jobs', 'runs'], () => refresh())
@@ -40,7 +41,8 @@ useLive(['jobs', 'runs'], () => refresh())
     </div>
     <ul v-else class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
       <li v-for="j in jobs" :key="j.id" class="relative px-3 py-2.5 hover:bg-(--ui-bg-elevated)/50">
-        <button type="button" class="absolute inset-0" :aria-label="t('job.detail')" @click="detail = j.id" />
+        <NuxtLink v-if="chatTo(j)" :to="chatTo(j) || ''" class="absolute inset-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-(--ui-primary)" :aria-label="t('job.openChat')" />
+        <button v-else type="button" class="absolute inset-0" :aria-label="t('job.detail')" @click="detail = j.id" />
         <div class="relative flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
           <JobStatusBadge :status="j.status" />
           <span class="min-w-0 flex-1 truncate font-medium">{{ j.automation_name || j.title || t('auto.title') }}</span>
