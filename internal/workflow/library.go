@@ -6,8 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -65,15 +63,22 @@ func BuiltinSource(key string) string {
 	return string(raw)
 }
 
-// Library keeps the office's workflows as files: <dir>/<key>.md.
+// Renamed maps legacy slash-command keys to their shipped workflow keys.
+// It remains for commands saved before the workflows were renamed.
+var Renamed = map[string]string{
+	"giao-lai": "handoff", "co-van": "advisor", "hoi-dong": "council", "hoi-dong-3-ben": "council-3",
+	"lam-tinh-nang": "feature", "sua-bug": "bugfix", "viet-noi-dung": "write-content",
+}
+
+// Library keeps user-created workflows as files: <dir>/<key>.md. Shipped
+// workflows are read directly from builtinFS and are never copied here.
 type Library struct{ Dir string }
 
 // Item is one workflow of the library.
 type Item struct {
 	Def       Def       `json:"def"`
 	Source    string    `json:"source,omitempty"`
-	Builtin   bool      `json:"builtin"`  // shipped with the office
-	Modified  bool      `json:"modified"` // a shipped one, changed here
+	Builtin   bool      `json:"builtin"` // shipped with the office
 	Error     string    `json:"error,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Version   string    `json:"version"` // ADR-072: a content hash; "" means the file is gone
@@ -82,142 +87,45 @@ type Item struct {
 // ErrNotFound: no workflow of that key.
 var ErrNotFound = errors.New("không có quy trình này trong thư viện")
 
+// ErrBuiltinImmutable means a shipped workflow can only be changed in source
+// and released as a new office version. A project gets its own editable copy.
+var ErrBuiltinImmutable = errors.New("quy trình có sẵn chỉ đọc; hãy thêm vào project để tùy chỉnh")
+
 // ErrConflict: a save over someone else's change (ADR-072); answered 409.
 var ErrConflict = errors.New("Đã có thay đổi mới ở nơi khác kể từ lúc bạn mở (người khác hoặc agent). Tải lại để xem bản mới rồi sửa lại.")
 
-// saveMu serializes every library write (Save, SaveIf, Delete, Reset) so a
+// saveMu serializes every library write (Save, SaveIf, Delete) so a
 // version check and the write that follows it see a consistent file, and no
 // write can land between another write's check and its write.
 var saveMu sync.Mutex
 
 func (l Library) path(key string) string { return filepath.Join(l.Dir, key+".md") }
 
-// shippedBefore are the hashes (Hash) of earlier shipped versions of each
-// workflow: a library file still exactly one of them was not changed here,
-// so Seed brings it up to date. Add the old hash whenever a builtin changes.
-var shippedBefore = map[string][]string{
-	"advisor":       {"10880d9f499cd790", "9b5e1be12baeb885"},
-	"bugfix":        {"b92f60681164b12a", "ea438e20774bd8ca"},
-	"council-3":     {"31d3dbe01a69c284", "edd17eb7f469ff87"},
-	"council":       {"64b2ae32e4a621fe", "26de2ee5b4654956"},
-	"feature":       {"b62577236d4c8b78", "69df9baffcc73fce"},
-	"handoff":       {"3b2e7a5fe034b4cc", "03ce10995e9f3dc6"},
-	"review-pr":     {"15be50acea4fd2dc", "c18598be6a962b0f"},
-	"fix-tests":     {"e01faaf5b3e87b24"},
-	"write-content": {"27ee98aa775be3b2", "311489f8454bd892"},
-}
-
-// Seed writes the shipped workflows that are not there yet, and updates the
-// ones still as an earlier version shipped them (one deleted on
-// purpose comes back only with Reset).
-func (l Library) Seed() (int, error) {
-	list, err := Builtins()
-	if err != nil {
-		return 0, err
-	}
-	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
-		return 0, err
-	}
-	seen := l.seen()
-	if err := l.renameOld(seen); err != nil {
-		return 0, err
-	}
-	n := 0
-	for _, b := range list {
-		if raw, err := os.ReadFile(l.path(b.Def.Key)); err == nil {
-			seen[b.Def.Key] = true
-			// an earlier shipped version nobody changed takes the new one
-			if h := Hash(string(raw)); h != Hash(b.Source) && slices.Contains(shippedBefore[b.Def.Key], h) {
-				if err := os.WriteFile(l.path(b.Def.Key), []byte(b.Source), 0o644); err != nil {
-					return n, err
-				}
-				n++
-			}
-			continue
-		}
-		if seen[b.Def.Key] {
-			continue // deleted on purpose
-		}
-		if err := os.WriteFile(l.path(b.Def.Key), []byte(b.Source), 0o644); err != nil {
-			return n, err
-		}
-		seen[b.Def.Key] = true
-		n++
-	}
-	return n, l.saveSeen(seen)
-}
-
-// Renamed are shipped workflows whose key changed (Vietnamese → English
-// commands); the key stays in each file's header.
-var Renamed = map[string]string{
-	"giao-lai": "handoff", "co-van": "advisor", "hoi-dong": "council", "hoi-dong-3-ben": "council-3",
-	"lam-tinh-nang": "feature", "sua-bug": "bugfix", "viet-noi-dung": "write-content",
-}
-
-// renameOld moves a shipped workflow written under its old key to the new
-// one, keeping what was changed in it; one already there under the new key
-// leaves the old file as the person's own.
-func (l Library) renameOld(seen map[string]bool) error {
-	for old, key := range Renamed {
-		if seen[old] {
-			delete(seen, old)
-			seen[key] = true
-		}
-		raw, err := os.ReadFile(l.path(old))
-		if err != nil {
-			continue
-		}
-		if _, err := os.Stat(l.path(key)); err == nil {
-			continue
-		}
-		src := regexp.MustCompile(`(?m)^key:\s*`+regexp.QuoteMeta(old)+`\s*$`).ReplaceAllString(string(raw), "key: "+key)
-		if err := os.WriteFile(l.path(key), []byte(src), 0o644); err != nil {
-			return err
-		}
-		if err := os.Remove(l.path(old)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// seen are the shipped workflows already written once (a deleted one stays deleted).
-func (l Library) seen() map[string]bool {
-	out := map[string]bool{}
-	raw, err := os.ReadFile(filepath.Join(l.Dir, ".seeded"))
-	if err != nil {
-		return out
-	}
-	for _, k := range strings.Fields(string(raw)) {
-		out[k] = true
-	}
-	return out
-}
-
-func (l Library) saveSeen(m map[string]bool) error {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return os.WriteFile(filepath.Join(l.Dir, ".seeded"), []byte(strings.Join(keys, "\n")+"\n"), 0o644)
-}
-
 // List returns every workflow of the library (one that does not parse is
 // listed with its error).
 func (l Library) List() ([]Item, error) {
+	builtins, err := Builtins()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Item, 0, len(builtins))
+	for _, b := range builtins {
+		out = append(out, Item{Def: b.Def, Builtin: true, Version: Hash(b.Source)})
+	}
 	entries, err := os.ReadDir(l.Dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return []Item{}, nil
+		return out, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	out := []Item{}
 	for _, e := range entries {
 		key, ok := strings.CutSuffix(e.Name(), ".md")
 		if e.IsDir() || !ok || !ValidKey(key) {
 			continue
+		}
+		if BuiltinSource(key) != "" {
+			continue // ignore legacy mutable copies of shipped workflows
 		}
 		it, err := l.Get(key)
 		if err != nil && it.Source == "" {
@@ -235,17 +143,23 @@ func (l Library) Get(key string) (Item, error) {
 	if !ValidKey(key) {
 		return Item{}, ErrNotFound
 	}
+	if src := BuiltinSource(key); src != "" {
+		d, err := Parse(src)
+		if err != nil {
+			return Item{}, err
+		}
+		return Item{Def: d, Source: src, Builtin: true, Version: Hash(src)}, nil
+	}
 	p := l.path(key)
 	raw, err := os.ReadFile(p)
 	if err != nil {
 		return Item{}, ErrNotFound
 	}
 	st, _ := os.Stat(p)
-	it := Item{Source: string(raw), Builtin: BuiltinSource(key) != "", Version: Hash(string(raw))}
+	it := Item{Source: string(raw), Version: Hash(string(raw))}
 	if st != nil {
 		it.UpdatedAt = st.ModTime().UTC()
 	}
-	it.Modified = it.Builtin && strings.TrimSpace(BuiltinSource(key)) != strings.TrimSpace(string(raw))
 	d, err := Parse(string(raw))
 	it.Def = d
 	if err != nil {
@@ -265,6 +179,9 @@ func (l Library) Save(key, source string) (Def, error) {
 
 // save is Save's write without the lock, for callers that already hold it.
 func (l Library) save(key, source string) (Def, error) {
+	if BuiltinSource(key) != "" {
+		return Def{}, ErrBuiltinImmutable
+	}
 	d, err := Parse(source)
 	if err != nil {
 		return d, err
@@ -280,7 +197,7 @@ func (l Library) save(key, source string) (Def, error) {
 
 // SaveIf writes a workflow like Save, but refuses with ErrConflict when want
 // is given and does not match the version read by a previous Get (want == ""
-// skips the check, for tool/agent saves and Reset). The check and the write
+// skips the check, for tool/agent saves). The check and the write
 // happen under one lock so two concurrent saves can't both pass it.
 func (l Library) SaveIf(key, source, want string) (Item, error) {
 	saveMu.Lock()
@@ -304,6 +221,9 @@ func (l Library) Delete(key string) error {
 	if !ValidKey(key) {
 		return ErrNotFound
 	}
+	if BuiltinSource(key) != "" {
+		return ErrBuiltinImmutable
+	}
 	if err := os.Remove(l.path(key)); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrNotFound
@@ -311,13 +231,4 @@ func (l Library) Delete(key string) error {
 		return err
 	}
 	return nil
-}
-
-// Reset puts a shipped workflow back as it shipped.
-func (l Library) Reset(key string) (Def, error) {
-	src := BuiltinSource(key)
-	if src == "" {
-		return Def{}, errors.New("chỉ khôi phục được quy trình có sẵn")
-	}
-	return l.Save(key, src)
 }

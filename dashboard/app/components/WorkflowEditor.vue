@@ -25,6 +25,11 @@ onMounted(async () => {
   try {
     if (library.value) {
       const w = (await $fetch<{ workflow: LibraryWorkflow }>(`/api/workflow-library/${props.libKey}`)).workflow
+      if (w.builtin) {
+        toast.add({ title: t('wf.builtinReadOnly'), color: 'info' })
+        await navigateTo('/workflows')
+        return
+      }
       source.value = w.source ?? ''
       version.value = w.version
     } else {
@@ -161,9 +166,10 @@ async function save() {
       }
       const key = res.def.key
       if (editing.value && key !== props.libKey) return toast.add({ title: t('wf.keyChanged', { key: props.libKey ?? '' }), color: 'error' })
-      if (!editing.value) { // a new one over one of the library's: asked first
-        const taken = await $fetch(`/api/workflow-library/${key}`).then(() => true, () => false)
-        if (taken && !confirm(t('wf.overwrite', { key }))) return
+      if (!editing.value) { // never overwrite a code-backed template from the editor
+        const existing = await $fetch<{ workflow: LibraryWorkflow }>(`/api/workflow-library/${key}`).then(r => r.workflow, () => null)
+        if (existing?.builtin) return toast.add({ title: t('wf.builtinReadOnly'), color: 'info' })
+        if (existing && !confirm(t('wf.overwrite', { key }))) return
       }
       const res2 = await $fetch<{ workflow: LibraryWorkflow }>(`/api/workflow-library/${key}`, { method: 'PUT', body: { source: source.value, version: version.value } })
       version.value = res2.workflow.version

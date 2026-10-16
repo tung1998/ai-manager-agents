@@ -93,7 +93,6 @@ func setupWithStore(t *testing.T, proxies []netip.Prefix, wrap func(storage.Stor
 		t.Fatal(err)
 	}
 	wfs := &workflow.Service{Store: st, Lib: workflow.Library{Dir: filepath.Join(t.TempDir(), "workflows")}}
-	wfs.Lib.Seed()
 	org := team.NewService(st, wfs)
 	provs := provider.NewService(st, box, llm.Options{})
 	u := usage.New(st, time.UTC)

@@ -192,9 +192,6 @@ func (s *Service) Install(ctx context.Context, projectID, key string, bindings m
 // so a workflow created disabled never passes through an enabled state.
 func (s *Service) InstallEnabled(ctx context.Context, projectID, key string, bindings map[string]string, enabled bool) (storage.Workflow, error) {
 	it, err := s.Lib.Get(key)
-	if errors.Is(err, ErrNotFound) && BuiltinSource(key) != "" {
-		it, err = Item{Source: BuiltinSource(key)}, nil // taken out of the library, still shipped
-	}
 	if err != nil {
 		return storage.Workflow{}, err
 	}

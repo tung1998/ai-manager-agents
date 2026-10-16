@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// The office's workflows (ADR-098): files a project copies when it installs
-// one. The shipped ones come back as they were with "reset".
+// Shipped workflows are immutable code templates; custom library workflows
+// remain editable files. Installing either creates a project-owned copy.
 const toast = useToast()
 const { t } = useLang()
 const { isAdmin } = useAuth()
@@ -54,15 +54,6 @@ async function install() {
     installing.value = false
   }
 }
-async function reset(w: LibraryWorkflow) {
-  if (!confirm(t('wf.resetConfirm', { name: w.def.name || w.def.key }))) return
-  try {
-    await $fetch(`/api/workflow-library/${w.def.key}/reset`, { method: 'POST', body: {} })
-    await refresh()
-  } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
-  }
-}
 async function remove(w: LibraryWorkflow) {
   if (!confirm(t('wf.deleteConfirm', { name: w.def.name || w.def.key }))) return
   try {
@@ -100,7 +91,8 @@ async function remove(w: LibraryWorkflow) {
           <div class="min-w-0 flex-1">
             <p class="flex flex-wrap items-center gap-1.5 font-medium">
               <UIcon v-if="featuredWorkflowKeys.has(w.def.key)" name="i-lucide-star" class="size-3.5 text-(--ui-warning)" :title="t('wf.featured')" />
-              <NuxtLink :to="editTo(w.def.key)" class="hover:text-primary">{{ w.def.name || w.def.key }}</NuxtLink>
+              <NuxtLink v-if="!w.builtin" :to="editTo(w.def.key)" class="hover:text-primary">{{ w.def.name || w.def.key }}</NuxtLink>
+              <span v-else>{{ w.def.name || w.def.key }}</span>
             </p>
             <p class="mt-1 truncate font-mono text-xs text-(--ui-text-muted)">/{{ w.def.key }}</p>
             <p class="mt-1 text-xs text-(--ui-text-muted)">{{ w.def.category?.trim() || t('wf.otherCategory') }}</p>
@@ -110,17 +102,15 @@ async function remove(w: LibraryWorkflow) {
         <p v-else class="mt-3 line-clamp-3 flex-1 text-sm text-(--ui-text-muted)">{{ w.def.description }}</p>
         <div class="mt-4 flex flex-wrap items-center gap-2">
           <UBadge v-if="w.builtin" color="neutral" variant="outline" size="sm" :label="t('wf.builtin')" />
-          <UBadge v-if="w.modified" color="warning" variant="subtle" size="sm" :label="t('wf.modified')" />
           <UBadge v-if="w.error" color="error" variant="subtle" size="sm" icon="i-lucide-circle-alert" :label="t('wf.invalid')" :title="w.error" />
           <span v-if="w.def.roles?.length" class="ms-auto flex items-center gap-1 text-xs text-(--ui-text-muted)" :title="w.def.roles.map(r => r.name).join(', ')">
             <UIcon v-for="r in w.def.roles" :key="r.key" :name="accessIcon[accessKey(r.access)]" class="size-3.5" />
           </span>
         </div>
         <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-(--ui-border) pt-3">
-          <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('wf.edit')" :to="editTo(w.def.key)" />
+          <UButton v-if="!w.builtin" size="sm" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('wf.edit')" :to="editTo(w.def.key)" />
           <UButton v-if="isAdmin" size="sm" color="primary" variant="soft" icon="i-lucide-plus" :label="t('wf.addToProject')" :disabled="!!w.error" @click="chooseProject(w)" />
-          <UButton v-if="w.builtin && w.modified" size="sm" color="neutral" variant="ghost" icon="i-lucide-rotate-ccw" :aria-label="t('wf.reset')" :title="t('wf.reset')" @click="reset(w)" />
-          <UButton v-else-if="!w.builtin" size="sm" color="error" variant="ghost" icon="i-lucide-trash-2" :aria-label="t('wf.delete')" :title="t('wf.delete')" @click="remove(w)" />
+          <UButton v-if="isAdmin && !w.builtin" size="sm" color="error" variant="ghost" icon="i-lucide-trash-2" :aria-label="t('wf.delete')" :title="t('wf.delete')" @click="remove(w)" />
         </div>
       </div>
     </div>

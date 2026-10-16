@@ -259,7 +259,6 @@ export interface LibraryWorkflow {
   def: WorkflowDef
   source?: string
   builtin: boolean // shipped with the office
-  modified: boolean // a shipped one, changed here
   error?: string
   updated_at: string
   version: string

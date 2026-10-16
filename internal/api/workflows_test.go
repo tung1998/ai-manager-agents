@@ -1,6 +1,56 @@
 package api_test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestBuiltinWorkflowTemplateIsImmutableAndProjectCopyIsIndependent(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+
+	resp, body := do(t, admin, "GET", e.srv.URL+"/api/workflow-library/advisor", nil, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("get builtin = %d %v", resp.StatusCode, body)
+	}
+	template := body["workflow"].(map[string]any)
+	if template["builtin"] != true {
+		t.Fatalf("advisor is not marked built-in: %v", template)
+	}
+	source := template["source"].(string)
+	changed := source + "\nEdited by an agent.\n"
+
+	resp, body = do(t, admin, "PUT", e.srv.URL+"/api/workflow-library/advisor", map[string]any{"source": changed, "version": template["version"]}, nil)
+	if resp.StatusCode != 403 {
+		t.Fatalf("edit builtin = %d %v, want 403", resp.StatusCode, body)
+	}
+	resp, body = do(t, admin, "DELETE", e.srv.URL+"/api/workflow-library/advisor", nil, nil)
+	if resp.StatusCode != 403 {
+		t.Fatalf("delete builtin = %d %v, want 403", resp.StatusCode, body)
+	}
+
+	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
+	pid := body["project"].(map[string]any)["id"].(string)
+	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/workflows", map[string]any{"key": "advisor", "bindings": map[string]string{}}, nil)
+	if resp.StatusCode != 201 {
+		t.Fatalf("add builtin to project = %d %v", resp.StatusCode, body)
+	}
+	projectWorkflow := body["workflow"].(map[string]any)
+	if projectWorkflow["source"] != source {
+		t.Fatal("project workflow was not copied from the code template")
+	}
+
+	projectCopy := strings.Replace(source, "Cố vấn", "Bản riêng của project", 1)
+	resp, body = do(t, admin, "PATCH", e.srv.URL+"/api/workflows/"+projectWorkflow["id"].(string), map[string]any{"source": projectCopy, "bindings": map[string]string{}, "version": projectWorkflow["version"]}, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("edit project copy = %d %v", resp.StatusCode, body)
+	}
+	resp, body = do(t, admin, "GET", e.srv.URL+"/api/workflow-library/advisor", nil, nil)
+	if resp.StatusCode != 200 || body["workflow"].(map[string]any)["source"] != source {
+		t.Fatalf("project edit changed builtin template: %d %v", resp.StatusCode, body)
+	}
+}
 
 // ADR-072: a workflow's PATCH checks the version it was read with so two
 // tabs editing the same project workflow don't silently overwrite each other.

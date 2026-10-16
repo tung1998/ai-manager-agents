@@ -35,7 +35,6 @@ func newOffice(t *testing.T) office {
 	st.Migrate(context.Background())
 	box, _ := secrets.Load(filepath.Join(dir, "k"))
 	lib := workflow.Library{Dir: filepath.Join(dir, "workflows")}
-	lib.Seed()
 	wf := &workflow.Service{Store: st, Lib: lib}
 	org := team.NewService(st, wf)
 	prov := provider.NewService(st, box, llm.Options{})

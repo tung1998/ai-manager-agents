@@ -115,7 +115,7 @@ func (s *Service) Export(ctx context.Context) (Bundle, error) {
 			return b, err
 		}
 		for _, it := range items {
-			if it.Error != "" || (it.Builtin && !it.Modified) {
+			if it.Error != "" || it.Builtin {
 				continue
 			}
 			full, err := s.lib.Get(it.Def.Key) // the list leaves the body out
@@ -304,6 +304,10 @@ func (s *Service) Import(ctx context.Context, b Bundle, dryRun bool) (Result, er
 		def, err := workflow.Parse(le.Source)
 		if err != nil || def.Key != le.Key {
 			add("workflow", le.Key, "skip", "quy trình không hợp lệ")
+			continue
+		}
+		if workflow.BuiltinSource(le.Key) != "" {
+			add("workflow", le.Key, "skip", "mẫu có sẵn chỉ đọc; quy trình trong project được nhập riêng")
 			continue
 		}
 		cur, err := s.lib.Get(le.Key)

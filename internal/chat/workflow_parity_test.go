@@ -102,9 +102,6 @@ func TestWorkflowToolsOverTheAPIAndMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	lib := workflow.Library{Dir: filepath.Join(t.TempDir(), "workflows")}
-	if _, err := lib.Seed(); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := (&workflow.Service{Store: f.st, Lib: lib}).Install(ctx, f.project.ID, "advisor", map[string]string{"co-van": dev.ID}); err != nil {
 		t.Fatal(err)
 	}

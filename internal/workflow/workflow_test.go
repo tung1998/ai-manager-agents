@@ -66,21 +66,52 @@ func TestParseErrors(t *testing.T) {
 
 func TestLibrary(t *testing.T) {
 	l := Library{Dir: filepath.Join(t.TempDir(), "workflows")}
-	n, err := l.Seed()
-	if err != nil || n < 3 {
-		t.Fatalf("Seed = %d, %v", n, err)
+	list, err := l.List()
+	if err != nil || len(list) < 3 {
+		t.Fatalf("List defaults = %d, %v", len(list), err)
 	}
-	if err := l.Delete("advisor"); err != nil {
+	if _, err := os.Stat(l.Dir); !os.IsNotExist(err) {
+		t.Fatalf("listing builtins created a mutable library directory: %v", err)
+	}
+	// A pre-existing runtime override is kept on disk but never shadows code.
+	legacy := strings.Replace(BuiltinSource("advisor"), "Cố vấn", "Agent override", 1)
+	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if n, _ := l.Seed(); n != 0 {
-		t.Fatalf("a deleted builtin came back: %d", n)
-	}
-	if _, err := l.Get("advisor"); err != ErrNotFound {
-		t.Fatalf("Get deleted = %v", err)
-	}
-	if _, err := l.Reset("advisor"); err != nil {
+	if err := os.WriteFile(l.path("advisor"), []byte(legacy), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	it, err := l.Get("advisor")
+	if err != nil || !it.Builtin || it.Source != BuiltinSource("advisor") {
+		t.Fatalf("Get builtin = %+v, %v", it, err)
+	}
+	items, err := l.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	advisorCount := 0
+	for _, item := range items {
+		if item.Def.Key == "advisor" {
+			advisorCount++
+			if !item.Builtin || item.Source != "" {
+				t.Fatalf("listed builtin should be code-backed without duplicating source: %+v", item)
+			}
+		}
+	}
+	if advisorCount != 1 {
+		t.Fatalf("legacy override created %d advisor entries", advisorCount)
+	}
+	if _, err := l.Save("advisor", legacy); err != ErrBuiltinImmutable {
+		t.Fatalf("Save builtin = %v, want immutable error", err)
+	}
+	if _, err := l.SaveIf("advisor", legacy, it.Version); err != ErrBuiltinImmutable {
+		t.Fatalf("SaveIf builtin = %v, want immutable error", err)
+	}
+	if err := l.Delete("advisor"); err != ErrBuiltinImmutable {
+		t.Fatalf("Delete builtin = %v, want immutable error", err)
+	}
+	if raw, err := os.ReadFile(l.path("advisor")); err != nil || string(raw) != legacy {
+		t.Fatalf("legacy override was changed: %v", err)
 	}
 	if _, err := l.Save("khac", good); err == nil {
 		t.Fatal("key mismatch accepted")
@@ -88,12 +119,14 @@ func TestLibrary(t *testing.T) {
 	if _, err := l.Save("thu", good); err != nil {
 		t.Fatal(err)
 	}
-	it, err := l.Get("handoff")
-	if err != nil || !it.Builtin || it.Modified {
-		t.Fatalf("handoff = %+v, %v", it, err)
+	builtin, err := l.Get("handoff")
+	if err != nil || !builtin.Builtin || builtin.Source != BuiltinSource("handoff") {
+		t.Fatalf("handoff = %+v, %v", builtin, err)
 	}
-	_ = os.WriteFile(filepath.Join(l.Dir, "hong.md"), []byte("---\nkey: hong\n---\n"), 0o644)
-	list, err := l.List()
+	if err := os.WriteFile(filepath.Join(l.Dir, "hong.md"), []byte("---\nkey: hong\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	list, err = l.List()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,37 +190,6 @@ func TestLibrarySaveIf(t *testing.T) {
 	}
 }
 
-// a library seeded under the old Vietnamese keys moves to the English ones,
-// keeping what was changed
-func TestSeedRenamesOldKeys(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "workflows")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	old := strings.Replace(BuiltinSource("advisor"), "key: advisor", "key: co-van", 1) + "\nghi chú riêng\n"
-	if err := os.WriteFile(filepath.Join(dir, "co-van.md"), []byte(old), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".seeded"), []byte("co-van\ngiao-lai\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	l := Library{Dir: dir}
-	if _, err := l.Seed(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "co-van.md")); !os.IsNotExist(err) {
-		t.Fatal("old file kept")
-	}
-	it, err := l.Get("advisor")
-	if err != nil || it.Error != "" || !strings.Contains(it.Source, "ghi chú riêng") || !it.Modified {
-		t.Fatalf("advisor = %+v, %v", it, err)
-	}
-	// giao-lai was seeded once and deleted on purpose: handoff stays deleted
-	if _, err := l.Get("handoff"); err != ErrNotFound {
-		t.Fatalf("handoff came back: %v", err)
-	}
-}
-
 func TestParseSubWorkflowRole(t *testing.T) {
 	d, err := Parse("---\nkey: cha\nname: Cha\nroles:\n  - key: con\n    workflow: advisor\n  - key: ban\n---\nx\n")
 	if err != nil {
@@ -237,31 +239,6 @@ func TestOutputTypes(t *testing.T) {
 	}
 	if _, err := Parse("---\nkey: a\nname: A\noutputs:\n  - { key: n, type: date }\nroles:\n  - key: x\n---\nx\n"); err == nil || !strings.Contains(err.Error(), "type") {
 		t.Fatalf("bad type: %v", err)
-	}
-}
-
-// a library file still as an earlier version shipped it takes the new one;
-// one changed here is kept
-func TestSeedUpdatesUntouchedBuiltins(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "workflows")
-	l := Library{Dir: dir}
-	if _, err := l.Seed(); err != nil {
-		t.Fatal(err)
-	}
-	old := strings.Replace(BuiltinSource("advisor"), "Cố vấn", "Cố vấn cũ", 1)
-	mine := strings.Replace(BuiltinSource("council"), "Hội đồng", "Hội đồng của tôi", 1)
-	os.WriteFile(filepath.Join(dir, "advisor.md"), []byte(old), 0o644)
-	os.WriteFile(filepath.Join(dir, "council.md"), []byte(mine), 0o644)
-	defer func(m map[string][]string) { shippedBefore = m }(shippedBefore)
-	shippedBefore = map[string][]string{"advisor": {Hash(old)}}
-	if n, err := l.Seed(); err != nil || n != 1 {
-		t.Fatalf("seed = %d, %v", n, err)
-	}
-	if raw, _ := os.ReadFile(filepath.Join(dir, "advisor.md")); string(raw) != BuiltinSource("advisor") {
-		t.Fatal("the untouched old version was not updated")
-	}
-	if raw, _ := os.ReadFile(filepath.Join(dir, "council.md")); string(raw) != mine {
-		t.Fatal("a changed one was overwritten")
 	}
 }
 

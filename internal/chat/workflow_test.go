@@ -35,9 +35,6 @@ func newWFGroup(t *testing.T) wfGroup {
 		t.Fatal(err)
 	}
 	lib := workflow.Library{Dir: filepath.Join(t.TempDir(), "workflows")}
-	if _, err := lib.Seed(); err != nil {
-		t.Fatal(err)
-	}
 	return wfGroup{group: g, qa: qa, svc: &workflow.Service{Store: g.f.st, Lib: lib}}
 }
 

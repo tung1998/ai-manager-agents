@@ -32,7 +32,6 @@ func (s *server) workflowRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/workflow-library/{key}", auth(s.getLibraryWorkflow))
 	mux.Handle("PUT /api/workflow-library/{key}", admin(s.saveLibraryWorkflow))
 	mux.Handle("DELETE /api/workflow-library/{key}", admin(s.deleteLibraryWorkflow))
-	mux.Handle("POST /api/workflow-library/{key}/reset", admin(s.resetLibraryWorkflow))
 	mux.Handle("GET /api/projects/{id}/workflow-runs", auth(s.listWorkflowRuns))
 	mux.Handle("GET /api/workflow-runs/{id}", auth(s.getWorkflowRun))
 	mux.Handle("POST /api/workflow-runs/{id}/stop", auth(s.stopWorkflowRun))
@@ -190,6 +189,8 @@ func (s *server) workflowError(w http.ResponseWriter, r *http.Request, err error
 	switch {
 	case errors.Is(err, workflow.ErrNotFound), errors.Is(err, storage.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, workflow.ErrBuiltinImmutable):
+		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, workflow.ErrConflict):
 		writeSaveConflict(w)
 	case errors.Is(err, storage.ErrConflict):
@@ -407,6 +408,10 @@ func (s *server) saveLibraryWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]any{"code": "conflict", "error": err.Error()})
 		return
 	}
+	if errors.Is(err, workflow.ErrBuiltinImmutable) {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -426,21 +431,6 @@ func (s *server) deleteLibraryWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *server) resetLibraryWorkflow(w http.ResponseWriter, r *http.Request) {
-	if !s.workflowsOn(w) {
-		return
-	}
-	key := r.PathValue("key")
-	_, err := s.cfg.Workflows.Lib.Reset(key)
-	s.audit(r, audit.Change{Action: "workflow_library.reset", Resource: "workflow_library", ResourceID: key, Err: err})
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	it, _ := s.cfg.Workflows.Lib.Get(key)
-	writeJSON(w, http.StatusOK, map[string]any{"workflow": it})
 }
 
 func (s *server) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {

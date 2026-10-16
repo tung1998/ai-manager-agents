@@ -75,9 +75,6 @@ func TestWorkflowBeginRunFailsCleanlyWhenCreateErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	lib := workflow.Library{Dir: filepath.Join(t.TempDir(), "workflows")}
-	if _, err := lib.Seed(); err != nil {
-		t.Fatal(err)
-	}
 	svc := &workflow.Service{Store: st, Lib: lib}
 	conv, _ := engine.StartConversation(ctx, project.ID, "")
 	if _, err := svc.Install(ctx, project.ID, "council", map[string]string{"a": dev.ID, "b": qa.ID}); err != nil {

@@ -87,7 +87,8 @@ type app struct {
 
 func (a *app) Close() { a.store.Close() }
 
-// openApp opens the store in h (migrated, shipped workflows in the library).
+// openApp opens the store in h. Shipped workflows are embedded in the binary;
+// only project copies and user-created library workflows are persisted.
 func openApp(ctx context.Context, h home.Home) (*app, error) {
 	st, err := sqlite.Open(h.DB())
 	if err != nil {
@@ -103,9 +104,6 @@ func openApp(ctx context.Context, h home.Home) (*app, error) {
 		return nil, err
 	}
 	lib := workflowLibrary(h)
-	if _, err := lib.Seed(); err != nil {
-		fmt.Fprintf(os.Stderr, "office: không chép được quy trình có sẵn vào thư viện: %v\n", err)
-	}
 	wf := &workflow.Service{Store: st, Lib: lib}
 	// a council project's org model became a workflow (ADR-099): its body now
 	if _, err := wf.FillMigrated(ctx); err != nil {
