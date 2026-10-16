@@ -79,7 +79,7 @@ const toneClass: Record<string, string> = { info: 'text-(--ui-info)', neutral: '
         <span class="block font-semibold text-(--ui-text)">{{ money(day.cost) }}</span>{{ t('watchW.agent.jobs', { n: day.n }) }}
       </span>
       <span v-if="shape !== 'badge'" class="shrink-0" @click.stop>
-        <AgentPicker :project-id="projectId" :model-value="String(config.agentId || '')" compact icon-only @update:model-value="v => set('agentId', v)" />
+        <AgentPicker :project-id="projectId" :model-value="String(config.agentId || '')" :selected-agent="agent" compact icon-only @update:model-value="v => set('agentId', v)" />
       </span>
     </div>
     <!-- its day, and its last jobs as beads (oldest left) -->
