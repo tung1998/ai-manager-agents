@@ -46,14 +46,27 @@ function start(it: WatchItem, mode: 'move' | 'resize', e: PointerEvent) {
   if (!editable.value || !el.value) return
   e.preventDefault()
   const box = el.value.getBoundingClientRect()
-  const base = items.value.map(i => ({ ...i }))
+  // not copied: place() never changes them, and a box it does not shift keeps
+  // its object, so only the boxes that move re-render
+  const base = items.value
   const rule = widgetDef(it.widget).grid
   // where in the box it was grabbed, so it does not jump under the pointer
   const grab = { x: e.clientX - box.left - it.x * (cell.value + GAP), y: e.clientY - box.top - it.y * (rowH.value + GAP) }
   active.value = { id: it.id, mode }
+  // one step per frame (the pointer fires faster), and only when the target cell changes
+  let last: PointerEvent | null = null
+  let frame = 0
+  let key = ''
   const move = (ev: PointerEvent) => {
+    last = ev
+    frame ||= requestAnimationFrame(step)
+  }
+  const step = () => {
+    frame = 0
+    const ev = last
+    if (!ev || !el.value) return
     // measured again: the page may have scrolled under the drag
-    const now = el.value!.getBoundingClientRect()
+    const now = el.value.getBoundingClientRect()
     const px = ev.clientX - now.left
     const py = ev.clientY - now.top
     let to: { x?: number, y?: number, w?: number, h?: number }
@@ -64,11 +77,15 @@ function start(it: WatchItem, mode: 'move' | 'resize', e: PointerEvent) {
       const c = cellAt(px, py)
       to = clampSize(c.x - it.x + 1, c.y - it.y + 1, rule)
     }
+    const k = `${to.x},${to.y},${to.w},${to.h}`
+    if (k === key) return
+    key = k
     live.value = place(base, it.id, to)
     const r = live.value.find(i => i.id === it.id)!
     ghost.value = { x: r.x, y: r.y, w: r.w, h: r.h }
   }
   const up = () => {
+    cancelAnimationFrame(frame)
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     if (live.value) setLayout(live.value)
@@ -80,9 +97,9 @@ function start(it: WatchItem, mode: 'move' | 'resize', e: PointerEvent) {
   window.addEventListener('pointerup', up)
 }
 
+// placed by transform, not left/top: moving a box then needs no layout
 const style = (r: { x: number, y: number, w: number, h: number }) => ({
-  left: `${r.x * (cell.value + GAP)}px`,
-  top: `${r.y * (rowH.value + GAP)}px`,
+  transform: `translate(${r.x * (cell.value + GAP)}px, ${r.y * (rowH.value + GAP)}px)`,
   width: `${r.w * cell.value + (r.w - 1) * GAP}px`,
   height: `${r.h * rowH.value + (r.h - 1) * GAP}px`
 })
@@ -96,10 +113,10 @@ const style = (r: { x: number, y: number, w: number, h: number }) => ({
         v-if="active" class="pointer-events-none absolute inset-0 opacity-60"
         :style="{ backgroundImage: `linear-gradient(to right, var(--ui-border) 1px, transparent 1px), linear-gradient(to bottom, var(--ui-border) 1px, transparent 1px)`, backgroundSize: `${cell + GAP}px ${rowH + GAP}px` }"
       />
-      <div v-if="ghost" class="pointer-events-none absolute rounded-lg border-2 border-dashed border-(--ui-primary) bg-(--ui-primary)/10 transition-all duration-100" :style="style(ghost)" />
+      <div v-if="ghost" class="pointer-events-none absolute left-0 top-0 rounded-lg border-2 border-dashed border-(--ui-primary) bg-(--ui-primary)/10 transition-all duration-100" :style="style(ghost)" />
       <div
-        v-for="it in shown" :key="it.id" class="group/box absolute"
-        :class="[active?.id === it.id ? 'z-20 opacity-80' : 'transition-all duration-200', active && active.id !== it.id && 'pointer-events-none']"
+        v-for="it in shown" :key="it.id" class="group/box absolute left-0 top-0"
+        :class="[active?.id === it.id ? 'z-20 opacity-80' : 'transition-transform duration-200', active && active.id !== it.id && 'pointer-events-none']"
         :style="style(it)"
       >
         <WatchBox :item="it" :projects="projects" :movable="editable" class="size-full" @grip="(e: PointerEvent) => start(it, 'move', e)" />

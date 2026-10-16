@@ -29,7 +29,9 @@ function drop(r: Rect, placed: Rect[]): Rect {
 }
 
 // every box floated up as far as it goes, in reading order; `fixed` stays
-// where it was put (the one being dragged), the others make room around it
+// where it was put (the one being dragged), the others make room around it.
+// A box that does not move is returned as is, so a drag re-renders only the
+// boxes it shifts
 export function compact<T extends Rect>(items: T[], fixed?: string): T[] {
   const placed: Rect[] = []
   const pinned = fixed ? items.find(i => i.id === fixed) : undefined
@@ -38,7 +40,8 @@ export function compact<T extends Rect>(items: T[], fixed?: string): T[] {
   if (pinned) out.set(pinned.id, pinned)
   const rest = items.filter(i => i !== pinned).sort((a, b) => a.y - b.y || a.x - b.x)
   for (const it of rest) {
-    const r = { ...it, ...drop(it, placed) }
+    const { y } = drop(it, placed)
+    const r = y === it.y ? it : { ...it, y }
     placed.push(r)
     out.set(it.id, r)
   }

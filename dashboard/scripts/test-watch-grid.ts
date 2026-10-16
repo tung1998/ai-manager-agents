@@ -90,4 +90,12 @@ const r = (id: string, x: number, y: number, w: number, h: number): Rect => ({ i
   noOverlap(compact(items))
 }
 
+// a box the move does not shift keeps its object (a drag re-renders only what moves)
+{
+  const items = compact([r('a', 0, 0, 2, 2), r('b', 2, 0, 2, 2), r('c', 0, 2, 2, 2)])
+  const out = place(items, 'b', { x: 6 })
+  assert.equal(out.find(i => i.id === 'a'), items[0])
+  assert.equal(out.find(i => i.id === 'c'), items[2])
+}
+
 console.log('watch grid: ok')
