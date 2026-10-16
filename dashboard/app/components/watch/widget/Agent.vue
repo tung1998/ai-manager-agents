@@ -5,7 +5,7 @@
 // cost, a string of beads for its last jobs) and a panel (and those jobs).
 // A click opens the chat it works in (or the last one).
 const { t, when } = useLang()
-const { projectId, config, shape } = useWatchBox()
+const { projectId, config, shape, set } = useWatchBox()
 
 const { data: agentsData } = useLiveFetch<{ agents: Agent[], default_agent_id: string }>(() => `/api/projects/${projectId.value}/chat/agents`, { lazy: true, server: false })
 const agent = computed(() => {
@@ -77,6 +77,9 @@ const toneClass: Record<string, string> = { info: 'text-(--ui-info)', neutral: '
       </span>
       <span v-if="shape === 'panel'" class="shrink-0 text-end text-xs text-(--ui-text-muted) tabular-nums">
         <span class="block font-semibold text-(--ui-text)">{{ money(day.cost) }}</span>{{ t('watchW.agent.jobs', { n: day.n }) }}
+      </span>
+      <span v-if="shape !== 'badge'" class="shrink-0" @click.stop>
+        <AgentPicker :project-id="projectId" :model-value="String(config.agentId || '')" compact icon-only @update:model-value="v => set('agentId', v)" />
       </span>
     </div>
     <!-- its day, and its last jobs as beads (oldest left) -->

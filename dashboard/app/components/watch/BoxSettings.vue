@@ -30,9 +30,6 @@ watch(() => [props.item.projectId, kind.value] as const, async ([pid]) => {
       } else if (f.source === 'services') {
         const r = await $fetch<{ services: { name: string }[] }>(`/api/projects/${pid}/compose`)
         lists.value = { ...lists.value, services: r.services.map(s => ({ label: s.name, value: s.name })) }
-      } else if (f.source === 'agents') {
-        const r = await $fetch<{ agents: { id: string, name: string }[] }>(`/api/projects/${pid}/chat/agents`)
-        lists.value = { ...lists.value, agents: [{ label: t('watchW.agent.default'), value: '' }, ...r.agents.map(a => ({ label: a.name, value: a.id }))] }
       } else if (f.source === 'monitors') {
         const r = await $fetch<{ monitors: { id: string, name: string }[] }>('/api/monitors', { query: { project: pid } })
         lists.value = { ...lists.value, monitors: [{ label: t('watchW.monitor.all'), value: '' }, ...r.monitors.map(m => ({ label: m.name, value: m.id }))] }
@@ -84,6 +81,9 @@ const setField = (f: WidgetField, v: unknown) => setConfig(props.item.id, f.key,
       />
       <UFormField v-else-if="f.type === 'text'" :label="t(`watchW.field.${f.key}` as 'watchW.field.console')">
         <UInput :model-value="String(cfg[f.key] ?? '')" class="w-full" :placeholder="t(`watchW.placeholder.${f.key}` as 'watchW.placeholder.url')" @change="(e: Event) => setConfig(item.id, f.key, (e.target as HTMLInputElement).value)" />
+      </UFormField>
+      <UFormField v-else-if="f.source === 'agents'" :label="t(`watchW.field.${f.key}` as 'watchW.field.console')">
+        <AgentPicker :project-id="item.projectId" :model-value="String(cfg[f.key] ?? '')" class="w-full" @update:model-value="v => setConfig(item.id, f.key, v)" />
       </UFormField>
       <UFormField v-else :label="t(`watchW.field.${f.key}` as 'watchW.field.console')">
         <USelect
