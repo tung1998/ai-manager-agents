@@ -3,7 +3,10 @@
 // one. The shipped ones come back as they were with "reset".
 const toast = useToast()
 const { t } = useLang()
+const { isAdmin } = useAuth()
 const { data, refresh, pending } = useLiveFetch<{ workflows: LibraryWorkflow[] }>('/api/workflow-library', { lazy: true })
+const { data: projectsData } = useLiveFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
+const projects = computed(() => projectsData.value?.projects ?? [])
 const featuredWorkflowKeys = new Set(['review-pr', 'bugfix', 'incident-response', 'product-discovery', 'security-assessment', 'launch-readiness', 'write-content'])
 const list = computed(() => [...(data.value?.workflows ?? [])].sort((a, b) =>
   Number(featuredWorkflowKeys.has(b.def.key)) - Number(featuredWorkflowKeys.has(a.def.key))
@@ -11,6 +14,29 @@ const list = computed(() => [...(data.value?.workflows ?? [])].sort((a, b) =>
   || a.def.key.localeCompare(b.def.key)))
 
 const editTo = (key?: string) => ({ path: '/workflows/edit', query: key ? { key } : {} })
+const installOpen = ref(false)
+const installWorkflow = ref<LibraryWorkflow | null>(null)
+const installProject = ref('')
+const installing = ref(false)
+const projectItems = computed(() => projects.value.map(p => ({ label: p.name, value: p.id })))
+function chooseProject(w: LibraryWorkflow) {
+  installWorkflow.value = w
+  installProject.value = ''
+  installOpen.value = true
+}
+async function install() {
+  if (!installWorkflow.value || !installProject.value) return
+  installing.value = true
+  try {
+    await $fetch(`/api/projects/${installProject.value}/workflows`, { method: 'POST', body: { key: installWorkflow.value.def.key } })
+    toast.add({ title: t('wf.installed'), color: 'success' })
+    installOpen.value = false
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    installing.value = false
+  }
+}
 async function reset(w: LibraryWorkflow) {
   if (!confirm(t('wf.resetConfirm', { name: w.def.name || w.def.key }))) return
   try {
@@ -62,9 +88,22 @@ async function remove(w: LibraryWorkflow) {
           <UIcon v-for="r in w.def.roles" :key="r.key" :name="accessIcon[accessKey(r.access)]" class="size-3.5" />
         </span>
         <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-pencil" :label="t('wf.edit')" :to="editTo(w.def.key)" />
+        <UButton v-if="isAdmin" size="xs" color="primary" variant="soft" icon="i-lucide-download" :label="t('wf.addToProject')" :disabled="!!w.error" @click="chooseProject(w)" />
         <UButton v-if="w.builtin && w.modified" size="xs" color="neutral" variant="ghost" icon="i-lucide-rotate-ccw" :aria-label="t('wf.reset')" :title="t('wf.reset')" @click="reset(w)" />
         <UButton v-else-if="!w.builtin" size="xs" color="error" variant="ghost" icon="i-lucide-trash-2" :aria-label="t('wf.delete')" :title="t('wf.delete')" @click="remove(w)" />
       </div>
     </div>
   </div>
+  <UModal v-model:open="installOpen" :title="t('wf.addToProjectTitle')" :description="installWorkflow?.def.name || installWorkflow?.def.key">
+    <template #body>
+      <UFormField :label="t('wf.pickProject')" required>
+        <USelectMenu v-model="installProject" :items="projectItems" value-key="value" :placeholder="t('wf.pickProject')" :aria-label="t('wf.pickProject')" class="w-full" />
+      </UFormField>
+      <p v-if="!projects.length" class="mt-3 text-sm text-(--ui-text-muted)">{{ t('wf.noProjects') }}</p>
+    </template>
+    <template #footer>
+      <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="installOpen = false" />
+      <UButton color="primary" :label="t('wf.addToProjectAction')" :loading="installing" :disabled="!installProject" @click="install" />
+    </template>
+  </UModal>
 </template>
