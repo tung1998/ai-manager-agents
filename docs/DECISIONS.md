@@ -2446,3 +2446,9 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Bỏ công tắc `checks`: gói Lập trình còn `git`, `ops`; Gói lệnh và Quick check trong tab Quyền luôn hiện. Bỏ `internal/chat/devtools.go` (ghép chuỗi trong Go).
   - Gói mới (Nội dung, Khách hàng) thêm từ khóa của nó và các dòng prompt tương ứng.
 
+
+## ADR-164: Agent phân biệt commit snapshot của worktree với commit của project
+- **Bối cảnh (16/10):** trong hai chat ngày 16/10, người dùng nhắn "commit" khoảng 15 lần cho @openAI (Codex). Ít nhất 7 lần agent báo "đã commit" bằng commit `agent-office: đã gộp vào project` / `trạng thái project khi tạo worktree` (`internal/worktree/worktree.go`). Đó là commit nội bộ của worktree, trong khi `main` vẫn còn file chưa commit. Agent chỉ đọc `git status` của worktree (luôn sạch sau khi gộp), nên kết luận sai.
+- **Quyết định:**
+  - Message của hai commit nội bộ đổi thành `agent-office snapshot (không phải commit của project): …`.
+  - `chat/worktree.md` nói rõ: commit snapshot không phải lịch sử của project. Khi được nhờ commit, agent đọc `git -C <project> status --short` trước, liệt kê từng file, và chỉ báo xong khi `git -C <project> log -1` có commit mới và các file đó không còn trong status.

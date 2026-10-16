@@ -129,7 +129,7 @@ func snapshot(ctx context.Context, repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	args := []string{"commit-tree", strings.TrimSpace(tree), "-m", "agent-office: trạng thái project khi tạo worktree"}
+	args := []string{"commit-tree", strings.TrimSpace(tree), "-m", "agent-office snapshot (không phải commit của project): trạng thái project khi tạo worktree"}
 	if head, err := git(ctx, repo, "rev-parse", "--verify", "-q", "HEAD"); err == nil {
 		args = append(args, "-p", strings.TrimSpace(head))
 	}
@@ -344,7 +344,7 @@ func Accept(ctx context.Context, dir, diff string) error {
 	if err != nil {
 		return err
 	}
-	c, err := gitEnv(ctx, dir, identity, "commit-tree", strings.TrimSpace(tree), "-p", "HEAD", "-m", "agent-office: đã gộp vào project")
+	c, err := gitEnv(ctx, dir, identity, "commit-tree", strings.TrimSpace(tree), "-p", "HEAD", "-m", "agent-office snapshot (không phải commit của project): đã gộp vào project")
 	if err != nil {
 		return err
 	}
