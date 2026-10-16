@@ -52,6 +52,7 @@ export interface WorkflowDef {
   key: string
   name: string
   description: string
+  category?: string
   input?: string
   roles: WorkflowRole[]
   parallel?: string[][]

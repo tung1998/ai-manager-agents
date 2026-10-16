@@ -22,12 +22,14 @@ const items = computed(() => {
   <div class="flex items-center gap-0.5">
     <ProviderRings class="me-1" />
     <IncidentsBell />
-    <NuxtLink
-      v-for="x in items" :key="x.key" :to="x.to" :title="x.title" :aria-label="x.title"
-      class="items-center gap-1 rounded-md px-1.5 py-1 text-xs tabular-nums transition hover:bg-(--ui-bg-elevated)"
-      :class="[x.mobile ? 'flex' : 'hidden sm:flex', x.cls || 'text-(--ui-text-muted) hover:text-(--ui-text)']"
-    >
-      <UIcon :name="x.icon" class="size-3.5" />{{ x.value }}
-    </NuxtLink>
+    <UTooltip v-for="x in items" :key="x.key" :text="x.title" :disabled="!x.title">
+      <NuxtLink
+        :to="x.to" :aria-label="x.title"
+        class="items-center gap-1 rounded-md px-1.5 py-1 text-xs tabular-nums transition hover:bg-(--ui-bg-elevated)"
+        :class="[x.mobile ? 'flex' : 'hidden sm:flex', x.cls || 'text-(--ui-text-muted) hover:text-(--ui-text)']"
+      >
+        <UIcon :name="x.icon" class="size-3.5" />{{ x.value }}
+      </NuxtLink>
+    </UTooltip>
   </div>
 </template>

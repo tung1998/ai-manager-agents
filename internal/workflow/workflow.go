@@ -45,6 +45,7 @@ type Def struct {
 	Key         string     `yaml:"key" json:"key"`
 	Name        string     `yaml:"name" json:"name"`
 	Description string     `yaml:"description" json:"description"`
+	Category    string     `yaml:"category,omitempty" json:"category,omitempty"`
 	Input       string     `yaml:"input,omitempty" json:"input,omitempty"`
 	Roles       []Role     `yaml:"roles" json:"roles"`
 	Parallel    [][]string `yaml:"parallel,omitempty" json:"parallel,omitempty"`
