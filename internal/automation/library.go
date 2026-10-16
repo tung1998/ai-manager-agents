@@ -8,9 +8,10 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
-// Library is the office's own collection of skills, agents and MCP templates,
+// Library is the office's own collection of skills, agents, MCP and automation templates,
 // kept as plain files under <office home>/library so it can be versioned,
 // copied or exported:
 //
@@ -28,14 +29,26 @@ type LibraryItem struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
 	UpdatedAt   time.Time         `json:"updated_at"`
-	Files       map[string]string `json:"files,omitempty"`    // skill files / agent: {"<name>.md": content}
-	Template    *MCPTemplate      `json:"template,omitempty"` // mcp
+	Files       map[string]string `json:"files,omitempty"`               // skill files / agent: {"<name>.md": content}
+	Template    *MCPTemplate      `json:"template,omitempty"`            // mcp
+	Automation  *AutomationPreset `json:"automation_template,omitempty"` // reusable automation prompt
+}
+
+// AutomationPreset is a reusable starter for a project automation. Agent IDs
+// and other project-specific settings are intentionally not part of it.
+type AutomationPreset struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Category    string `json:"category"`
+	Prompt      string `json:"prompt"`
+	Source      string `json:"source"`
 }
 
 var ErrNotFound = errors.New("không tìm thấy")
 
 func (l Library) sub(kind string) string {
-	return filepath.Join(l.Dir, map[string]string{"skill": "skills", "agent": "agents", "mcp": "mcp"}[kind])
+	return filepath.Join(l.Dir, map[string]string{"skill": "skills", "agent": "agents", "mcp": "mcp", "template": "automation-templates"}[kind])
 }
 
 func (l Library) path(kind, name string) string {
@@ -70,7 +83,7 @@ func (l Library) List(kind string) ([]LibraryItem, error) {
 				continue
 			}
 			name = strings.TrimSuffix(name, ".md")
-		case "mcp":
+		case "mcp", "template":
 			if e.IsDir() || !strings.HasSuffix(name, ".json") {
 				continue
 			}
@@ -80,7 +93,7 @@ func (l Library) List(kind string) ([]LibraryItem, error) {
 		if err != nil {
 			continue
 		}
-		if kind != "mcp" {
+		if kind != "mcp" && kind != "template" {
 			it.Files = nil
 		}
 		out = append(out, it)
@@ -129,6 +142,17 @@ func (l Library) Get(kind, name string) (LibraryItem, error) {
 			t.Inputs = []Input{}
 		}
 		it.Description, it.Template = t.Description, &t
+	case "template":
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return it, err
+		}
+		var t AutomationPreset
+		if err := json.Unmarshal(raw, &t); err != nil {
+			return it, err
+		}
+		t.Key = name
+		it.Description, it.Automation = t.Description, &t
 	}
 	return it, nil
 }
@@ -181,6 +205,36 @@ func (l Library) SaveMCP(t MCPTemplate) error {
 		return err
 	}
 	return os.WriteFile(l.path("mcp", t.Name), append(raw, '\n'), 0o644)
+}
+
+// SaveAutomationPreset writes a reusable prompt template. It stores only
+// project-independent data; the selected project supplies its own agent and
+// automation settings when the template is used.
+func (l Library) SaveAutomationPreset(key string, t AutomationPreset) error {
+	if !nameRe.MatchString(key) {
+		return ErrBadName
+	}
+	if strings.TrimSpace(t.Name) == "" || strings.TrimSpace(t.Description) == "" || strings.TrimSpace(t.Category) == "" || strings.TrimSpace(t.Prompt) == "" {
+		return errors.New("tên, mô tả, nhóm và nội dung mẫu là bắt buộc")
+	}
+	if utf8.RuneCountInString(t.Name) > 120 || utf8.RuneCountInString(t.Description) > 500 || utf8.RuneCountInString(t.Category) > 80 || len(t.Prompt) > 100_000 {
+		return errors.New("mẫu tự động hóa vượt quá giới hạn độ dài")
+	}
+	if t.Source != "schedule" && t.Source != "webhook" {
+		return errors.New("nguồn tự động hóa không hợp lệ")
+	}
+	t.Name = strings.TrimSpace(t.Name)
+	t.Description = strings.TrimSpace(t.Description)
+	t.Category = strings.TrimSpace(t.Category)
+	t.Key = key
+	raw, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(l.sub("template"), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(l.path("template", key), append(raw, '\n'), 0o644)
 }
 
 // Delete moves an entry to trash.

@@ -187,7 +187,17 @@ export interface AutomationTemplate {
   description: string
   category: string
   icon: string
+  custom?: boolean
   make: () => AutomationDraft
+}
+
+export interface SavedAutomationTemplate {
+  key: string
+  name: string
+  description: string
+  category: string
+  prompt: string
+  source: 'schedule' | 'webhook'
 }
 
 type TemplatePatch = Partial<Pick<AutomationDraft, 'name' | 'source' | 'action' | 'prompt' | 'keep_context'>> & {
@@ -316,6 +326,22 @@ export function emptyDraft(): AutomationDraft {
     limits: { max_parallel: 1, max_minutes: 0, max_runs_per_hour: 0, daily_cost_usd: 0, disable_after_failures: 5, debounce_seconds: 0, debounce_key: '', debounce_max_seconds: 0 },
     // ADR-074: "agent" follows the agent's own permissions; only "override" needs these
     permission_mode: 'agent', override_full_access: false, override_admin_by: '', override_extra_dirs: []
+  }
+}
+
+export function automationTemplateFromLibrary(template: SavedAutomationTemplate): AutomationTemplate {
+  return {
+    ...template,
+    icon: 'i-lucide-zap',
+    custom: true,
+    make: () => {
+      const draft = emptyDraft()
+      draft.name = template.name
+      draft.prompt = template.prompt
+      draft.source = template.source
+      draft.action = 'chat'
+      return draft
+    }
   }
 }
 

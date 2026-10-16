@@ -527,3 +527,37 @@ func TestRemoveMCPBacksUpClaudeJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestAutomationPresetLibrary(t *testing.T) {
+	dir := t.TempDir()
+	library := Library{Dir: filepath.Join(dir, "library"), Trash: filepath.Join(dir, "trash")}
+	preset := AutomationPreset{
+		Name: "Weekly report", Description: "Summarize project status", Category: "Operations",
+		Prompt: "Review {{payload}} and prepare a detailed report.", Source: "schedule",
+	}
+	if err := library.SaveAutomationPreset("weekly-report", preset); err != nil {
+		t.Fatal(err)
+	}
+	got, err := library.Get("template", "weekly-report")
+	if err != nil || got.Automation == nil || got.Automation.Key != "weekly-report" || got.Automation.Prompt != preset.Prompt {
+		t.Fatalf("Get = %#v, %v", got, err)
+	}
+	items, err := library.List("template")
+	if err != nil || len(items) != 1 || items[0].Automation == nil {
+		t.Fatalf("List = %#v, %v", items, err)
+	}
+	if err := library.SaveAutomationPreset("bad key", preset); !errors.Is(err, ErrBadName) {
+		t.Fatalf("invalid key error = %v", err)
+	}
+	invalid := preset
+	invalid.Prompt = "  "
+	if err := library.SaveAutomationPreset("empty-prompt", invalid); err == nil {
+		t.Fatal("empty prompt should be rejected")
+	}
+	if err := library.Delete("template", "weekly-report"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := library.Get("template", "weekly-report"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get after delete = %v", err)
+	}
+}

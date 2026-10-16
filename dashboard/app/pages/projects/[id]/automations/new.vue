@@ -2,16 +2,18 @@
 const route = useRoute()
 const { t } = useLang()
 const projectId = computed(() => route.params.id as string)
+const { data: savedData } = useLiveFetch<{ items: SavedAutomationTemplate[] }>('/api/automation/templates')
+const templates = computed(() => [...automationTemplates, ...(savedData.value?.items ?? []).map(automationTemplateFromLibrary)])
 // ?template=... selects a starter without saving it. Keep ?preset=pr for old
 // links and bookmarks.
 const selectedKey = computed(() => String(route.query.template ?? (route.query.preset === 'pr' ? 'pr-review' : '')))
-const selectedTemplate = computed(() => automationTemplates.find(x => x.key === selectedKey.value))
+const selectedTemplate = computed(() => templates.value.find(x => x.key === selectedKey.value))
 const preset = computed(() => selectedTemplate.value?.make() ?? undefined)
 const queryFor = (key: string) => ({ query: { template: key } })
 const search = ref('')
 const category = ref('all')
-const categories = computed(() => ['all', ...new Set(automationTemplates.map(x => x.category))])
-const visibleTemplates = computed(() => automationTemplates.filter(x => {
+const categories = computed(() => ['all', ...new Set(templates.value.map(x => x.category))])
+const visibleTemplates = computed(() => templates.value.filter(x => {
   const q = search.value.trim().toLowerCase()
   return (category.value === 'all' || x.category === category.value) && (!q || `${x.name} ${x.description} ${x.category}`.toLowerCase().includes(q))
 }).sort((a, b) => Number(featuredTemplateKeys.has(b.key)) - Number(featuredTemplateKeys.has(a.key)) || a.name.localeCompare(b.name)))
@@ -47,6 +49,6 @@ const visibleTemplates = computed(() => automationTemplates.filter(x => {
       </div>
       <p v-if="!visibleTemplates.length" class="mt-3 text-sm text-(--ui-text-muted)">{{ t('auto.templateNoResults') }}</p>
     </div>
-    <AutomationBuilder :key="selectedKey" :project-id="projectId" :preset="preset" />
+    <AutomationBuilder :key="`${selectedKey}:${!!preset}`" :project-id="projectId" :preset="preset" />
   </PageShell>
 </template>

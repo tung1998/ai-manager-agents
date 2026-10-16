@@ -7,11 +7,28 @@ const { isAdmin } = useAuth()
 const { data, refresh, pending } = useLiveFetch<{ workflows: LibraryWorkflow[] }>('/api/workflow-library', { lazy: true })
 const { data: projectsData } = useLiveFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
 const projects = computed(() => projectsData.value?.projects ?? [])
+const search = ref('')
+const category = ref('all')
 const featuredWorkflowKeys = new Set(['review-pr', 'bugfix', 'incident-response', 'product-discovery', 'security-assessment', 'launch-readiness', 'write-content'])
-const list = computed(() => [...(data.value?.workflows ?? [])].sort((a, b) =>
+const allWorkflows = computed(() => [...(data.value?.workflows ?? [])].sort((a, b) =>
   Number(featuredWorkflowKeys.has(b.def.key)) - Number(featuredWorkflowKeys.has(a.def.key))
   || Number(b.builtin) - Number(a.builtin)
   || a.def.key.localeCompare(b.def.key)))
+const categories = computed(() => ['all', ...new Set(allWorkflows.value.map(w => w.def.category?.trim() || t('wf.otherCategory')))])
+const categoryItems = computed(() => categories.value.map(value => ({
+  label: value === 'all' ? t('wf.allCategories') : value,
+  value
+})))
+const list = computed(() => {
+  const query = search.value.trim().toLocaleLowerCase()
+  return allWorkflows.value.filter((w) => {
+    const workflowCategory = w.def.category?.trim() || t('wf.otherCategory')
+    const matchesCategory = category.value === 'all' || workflowCategory === category.value
+    const searchable = [w.def.name, w.def.key, w.def.description, workflowCategory, ...(w.def.roles ?? []).flatMap(r => [r.name, r.key])].join(' ').toLocaleLowerCase()
+    return matchesCategory && (!query || searchable.includes(query))
+  })
+})
+const hasFilters = computed(() => !!search.value.trim() || category.value !== 'all')
 
 const editTo = (key?: string) => ({ path: '/workflows/edit', query: key ? { key } : {} })
 const installOpen = ref(false)
@@ -59,38 +76,52 @@ async function remove(w: LibraryWorkflow) {
 
 <template>
   <div class="space-y-4">
-    <div class="flex flex-wrap items-center gap-2">
-      <p class="text-sm text-(--ui-text-muted)">{{ t('wf.count', { n: list.length }) }}</p>
-      <InfoTip :text="t('wf.libraryInfo')" icon-class="size-4 text-(--ui-text-muted)" />
-      <UButton class="ms-auto" size="sm" icon="i-lucide-plus" :label="t('wf.new')" :to="editTo()" />
+    <div class="flex flex-wrap items-center gap-3 rounded-xl border border-(--ui-border) p-4">
+      <div class="me-auto min-w-48">
+        <p class="flex items-center gap-2 text-sm text-(--ui-text-muted)">
+          {{ t(hasFilters ? 'wf.countFiltered' : 'wf.count', hasFilters ? { shown: list.length, total: allWorkflows.length } : { n: allWorkflows.length }) }}
+          <InfoTip :text="t('wf.libraryInfo')" icon-class="size-4 text-(--ui-text-muted)" />
+        </p>
+      </div>
+      <UInput v-model="search" icon="i-lucide-search" :placeholder="t('wf.search')" class="w-full sm:w-60" />
+      <USelect v-model="category" :items="categoryItems" class="w-full sm:w-44" :aria-label="t('wf.allCategories')" />
+      <UButton class="sm:ms-auto" size="sm" icon="i-lucide-plus" :label="t('wf.new')" :to="editTo()" />
     </div>
     <LoadingRows v-if="pending && !data" />
     <div v-else-if="!list.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
       <UIcon name="i-lucide-workflow" class="mx-auto size-8 text-(--ui-text-dimmed)" />
-      <p class="mt-2 font-medium">{{ t('wf.libraryEmpty') }}</p>
+      <p class="mt-2 font-medium">{{ allWorkflows.length ? t('wf.searchEmpty') : t('wf.libraryEmpty') }}</p>
+      <UButton v-if="hasFilters" class="mt-3" size="sm" color="neutral" variant="ghost" :label="t('wf.clearSearch')" @click="search = ''; category = 'all'" />
     </div>
-    <div v-else class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
-      <div v-for="w in list" :key="w.def.key" class="flex items-center gap-3 px-4 py-2.5">
-        <UIcon name="i-lucide-workflow" class="size-4 shrink-0 text-primary" />
-        <div class="min-w-0 flex-1">
-          <p class="flex flex-wrap items-center gap-2">
-            <UIcon v-if="featuredWorkflowKeys.has(w.def.key)" name="i-lucide-star" class="size-3.5 text-(--ui-warning)" :title="t('wf.featured')" />
-            <NuxtLink :to="editTo(w.def.key)" class="text-sm font-medium hover:text-primary">{{ w.def.name || w.def.key }}</NuxtLink>
-            <span class="font-mono text-xs text-(--ui-text-muted)">/{{ w.def.key }}</span>
-            <UBadge v-if="w.builtin" color="neutral" variant="outline" size="sm" :label="t('wf.builtin')" />
-            <UBadge v-if="w.modified" color="warning" variant="subtle" size="sm" :label="t('wf.modified')" />
-            <UBadge v-if="w.error" color="error" variant="subtle" size="sm" icon="i-lucide-circle-alert" :label="t('wf.invalid')" :title="w.error" />
-          </p>
-          <p v-if="w.error" class="line-clamp-1 text-xs text-(--ui-error)">{{ w.error }}</p>
-          <p v-else-if="w.def.description" class="line-clamp-1 text-xs text-(--ui-text-muted)">{{ w.def.description }}</p>
+    <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div v-for="w in list" :key="w.def.key" class="flex min-w-0 flex-col rounded-xl border border-(--ui-border) p-4">
+        <div class="flex items-start gap-3">
+          <UIcon name="i-lucide-workflow" class="mt-0.5 size-5 shrink-0 text-primary" />
+          <div class="min-w-0 flex-1">
+            <p class="flex flex-wrap items-center gap-1.5 font-medium">
+              <UIcon v-if="featuredWorkflowKeys.has(w.def.key)" name="i-lucide-star" class="size-3.5 text-(--ui-warning)" :title="t('wf.featured')" />
+              <NuxtLink :to="editTo(w.def.key)" class="hover:text-primary">{{ w.def.name || w.def.key }}</NuxtLink>
+            </p>
+            <p class="mt-1 truncate font-mono text-xs text-(--ui-text-muted)">/{{ w.def.key }}</p>
+            <p class="mt-1 text-xs text-(--ui-text-muted)">{{ w.def.category?.trim() || t('wf.otherCategory') }}</p>
+          </div>
         </div>
-        <span v-if="w.def.roles?.length" class="hidden shrink-0 items-center gap-1 text-xs text-(--ui-text-muted) sm:flex" :title="w.def.roles.map(r => r.name).join(', ')">
-          <UIcon v-for="r in w.def.roles" :key="r.key" :name="accessIcon[accessKey(r.access)]" class="size-3.5" />
-        </span>
-        <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-pencil" :label="t('wf.edit')" :to="editTo(w.def.key)" />
-        <UButton v-if="isAdmin" size="xs" color="primary" variant="soft" icon="i-lucide-download" :label="t('wf.addToProject')" :disabled="!!w.error" @click="chooseProject(w)" />
-        <UButton v-if="w.builtin && w.modified" size="xs" color="neutral" variant="ghost" icon="i-lucide-rotate-ccw" :aria-label="t('wf.reset')" :title="t('wf.reset')" @click="reset(w)" />
-        <UButton v-else-if="!w.builtin" size="xs" color="error" variant="ghost" icon="i-lucide-trash-2" :aria-label="t('wf.delete')" :title="t('wf.delete')" @click="remove(w)" />
+        <p v-if="w.error" class="mt-3 line-clamp-2 text-sm text-(--ui-error)">{{ w.error }}</p>
+        <p v-else class="mt-3 line-clamp-3 flex-1 text-sm text-(--ui-text-muted)">{{ w.def.description }}</p>
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <UBadge v-if="w.builtin" color="neutral" variant="outline" size="sm" :label="t('wf.builtin')" />
+          <UBadge v-if="w.modified" color="warning" variant="subtle" size="sm" :label="t('wf.modified')" />
+          <UBadge v-if="w.error" color="error" variant="subtle" size="sm" icon="i-lucide-circle-alert" :label="t('wf.invalid')" :title="w.error" />
+          <span v-if="w.def.roles?.length" class="ms-auto flex items-center gap-1 text-xs text-(--ui-text-muted)" :title="w.def.roles.map(r => r.name).join(', ')">
+            <UIcon v-for="r in w.def.roles" :key="r.key" :name="accessIcon[accessKey(r.access)]" class="size-3.5" />
+          </span>
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-(--ui-border) pt-3">
+          <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-pencil" :label="t('wf.edit')" :to="editTo(w.def.key)" />
+          <UButton v-if="isAdmin" size="sm" color="primary" variant="soft" icon="i-lucide-plus" :label="t('wf.addToProject')" :disabled="!!w.error" @click="chooseProject(w)" />
+          <UButton v-if="w.builtin && w.modified" size="sm" color="neutral" variant="ghost" icon="i-lucide-rotate-ccw" :aria-label="t('wf.reset')" :title="t('wf.reset')" @click="reset(w)" />
+          <UButton v-else-if="!w.builtin" size="sm" color="error" variant="ghost" icon="i-lucide-trash-2" :aria-label="t('wf.delete')" :title="t('wf.delete')" @click="remove(w)" />
+        </div>
       </div>
     </div>
   </div>

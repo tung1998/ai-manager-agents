@@ -13,6 +13,40 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
+func TestAutomationTemplateLibrary(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	member := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	login(t, e, member, "member@x.io", "member-password")
+
+	preset := map[string]any{
+		"name": "Daily project review", "description": "Review project status", "category": "Operations",
+		"prompt": "Review {{payload}} carefully and return an evidence-based plan.", "source": "schedule",
+	}
+	if resp, body := do(t, member, "PUT", e.srv.URL+"/api/automation/templates/daily-project-review", preset, nil); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("member save = %d %v", resp.StatusCode, body)
+	}
+	if resp, body := do(t, admin, "PUT", e.srv.URL+"/api/automation/templates/daily-project-review", preset, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("admin save = %d %v", resp.StatusCode, body)
+	}
+	if resp, body := do(t, member, "GET", e.srv.URL+"/api/automation/templates", nil, nil); resp.StatusCode != http.StatusOK {
+		t.Fatalf("member list = %d %v", resp.StatusCode, body)
+	} else {
+		items := body["items"].([]any)
+		if len(items) != 1 || items[0].(map[string]any)["key"] != "daily-project-review" {
+			t.Fatalf("template list = %#v", items)
+		}
+	}
+	invalid := map[string]any{"name": "Invalid", "description": "Invalid", "category": "Operations", "prompt": "Prompt", "source": "channel"}
+	if resp, body := do(t, admin, "PUT", e.srv.URL+"/api/automation/templates/invalid", invalid, nil); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid source = %d %v", resp.StatusCode, body)
+	}
+	if resp, body := do(t, admin, "DELETE", e.srv.URL+"/api/automation/templates/daily-project-review", nil, nil); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("admin delete = %d %v", resp.StatusCode, body)
+	}
+}
+
 // ADR-074 security fix: only a scheduled automation may override to full
 // (administrator) access — a webhook's caller is whoever has the URL.
 func TestOverrideFullAccessRejectedUnlessScheduled(t *testing.T) {

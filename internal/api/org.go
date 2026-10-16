@@ -145,7 +145,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("POST /api/proposals/skip-all", admin(s.skipAllProposals))
 	}
 	if s.cfg.Automation != nil {
-		s.automationRoutes(mux, admin)
+		s.automationRoutes(mux, auth, admin)
 	}
 	if s.cfg.Ops != nil {
 		s.opsRoutes(mux, auth, admin)

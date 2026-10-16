@@ -6,19 +6,23 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"bitbucket.org/senprints/agent-office/internal/automation"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
-func (s *server) automationRoutes(mux *http.ServeMux, admin func(http.HandlerFunc) http.Handler) {
+func (s *server) automationRoutes(mux *http.ServeMux, auth, admin func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /api/automation/scan", admin(s.autoScan))
 	mux.Handle("POST /api/automation/content", admin(s.autoContent))
 	mux.Handle("POST /api/automation/install", admin(s.autoInstall))
 	mux.Handle("POST /api/automation/remove", admin(s.autoRemove))
 	mux.Handle("POST /api/automation/save-to-library", admin(s.autoSaveToLibrary))
 	mux.Handle("POST /api/automation/check", admin(s.autoCheck))
+	mux.Handle("GET /api/automation/templates", auth(s.automationTemplateList))
+	mux.Handle("PUT /api/automation/templates/{key}", admin(s.automationTemplateSave))
+	mux.Handle("DELETE /api/automation/templates/{key}", admin(s.automationTemplateDelete))
 	mux.Handle("GET /api/automation/library/{kind}", admin(s.libList))
 	mux.Handle("GET /api/automation/library/{kind}/{name}", admin(s.libGet))
 	mux.Handle("PUT /api/automation/library/{kind}/{name}", admin(s.libSave))
@@ -82,7 +86,7 @@ func (m mcpStash) Save(ctx context.Context, recs map[string]automation.DisabledM
 	return m.st.Settings().Set(ctx, mcpStashKey, sealed)
 }
 
-func validKind(k string) bool { return k == "skill" || k == "agent" || k == "mcp" }
+func validKind(k string) bool { return k == "skill" || k == "agent" || k == "mcp" || k == "template" }
 
 // autoError maps automation errors to HTTP statuses.
 func (s *server) autoError(w http.ResponseWriter, r *http.Request, err error) {
@@ -205,6 +209,57 @@ func (s *server) libList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": list})
 }
 
+func (s *server) automationTemplateList(w http.ResponseWriter, r *http.Request) {
+	list, err := s.cfg.Automation.Library.List("template")
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	items := make([]automation.AutomationPreset, 0, len(list))
+	for _, item := range list {
+		if item.Automation != nil {
+			items = append(items, *item.Automation)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *server) automationTemplateSave(w http.ResponseWriter, r *http.Request) {
+	var in automation.AutomationPreset
+	if !decode(w, r, &in) {
+		return
+	}
+	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.Description) == "" || strings.TrimSpace(in.Category) == "" || strings.TrimSpace(in.Prompt) == "" {
+		writeError(w, http.StatusBadRequest, "tên, mô tả, nhóm và nội dung mẫu là bắt buộc")
+		return
+	}
+	if in.Source != "schedule" && in.Source != "webhook" {
+		writeError(w, http.StatusBadRequest, "nguồn tự động hóa không hợp lệ")
+		return
+	}
+	if utf8.RuneCountInString(in.Name) > 120 || utf8.RuneCountInString(in.Description) > 500 || utf8.RuneCountInString(in.Category) > 80 || len(in.Prompt) > 100_000 {
+		writeError(w, http.StatusBadRequest, "mẫu tự động hóa vượt quá giới hạn độ dài")
+		return
+	}
+	key := r.PathValue("key")
+	if err := s.cfg.Automation.Library.SaveAutomationPreset(key, in); err != nil {
+		s.autoError(w, r, err)
+		return
+	}
+	s.auditAction(r, "automation.template.save", key, map[string]any{"name": in.Name, "category": in.Category})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) automationTemplateDelete(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	if err := s.cfg.Automation.Library.Delete("template", key); err != nil {
+		s.autoError(w, r, err)
+		return
+	}
+	s.auditAction(r, "automation.template.delete", key, nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *server) libGet(w http.ResponseWriter, r *http.Request) {
 	it, err := s.cfg.Automation.Library.Get(r.PathValue("kind"), r.PathValue("name"))
 	if err != nil {
@@ -217,8 +272,9 @@ func (s *server) libGet(w http.ResponseWriter, r *http.Request) {
 func (s *server) libSave(w http.ResponseWriter, r *http.Request) {
 	kind, name := r.PathValue("kind"), r.PathValue("name")
 	var in struct {
-		Files    map[string]string       `json:"files"`
-		Template *automation.MCPTemplate `json:"template"`
+		Files      map[string]string            `json:"files"`
+		Template   *automation.MCPTemplate      `json:"template"`
+		Automation *automation.AutomationPreset `json:"automation_template"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -256,6 +312,12 @@ func (s *server) libSave(w http.ResponseWriter, r *http.Request) {
 			t.Inputs = []automation.Input{}
 		}
 		err = s.cfg.Automation.Library.SaveMCP(t)
+	case "template":
+		if in.Automation == nil {
+			writeError(w, http.StatusBadRequest, "thiếu mẫu tự động hóa")
+			return
+		}
+		err = s.cfg.Automation.Library.SaveAutomationPreset(name, *in.Automation)
 	default:
 		writeError(w, http.StatusBadRequest, "loại không hợp lệ")
 		return
