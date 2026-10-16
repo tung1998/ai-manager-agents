@@ -23,7 +23,8 @@ interface EnvRow { key: string, value: string, hint?: EnvHint, saved: boolean }
 interface Suggestion { name: string, command: string, cwd: string, kind: 'service' | 'job', source: string, description: string, recommended: boolean }
 interface Detection { package_manager?: string, suggestions: Suggestion[], compose: { file: string }[] }
 
-const props = defineProps<{ projectId: string, hasFolder: boolean }>()
+// ops / monitor: the project's features on (feature packs): the sections of one turned off are hidden
+const props = withDefaults(defineProps<{ projectId: string, hasFolder: boolean, ops?: boolean, monitor?: boolean }>(), { ops: true, monitor: true })
 const emit = defineEmits<{ askAgent: [text: string, files: Attachment[], send?: boolean] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
@@ -32,12 +33,17 @@ type Section = 'processes' | 'containers' | 'env' | 'monitors'
 // counts for the switch; monitors are cheap to list (no checks run)
 const { data: monData, refresh: refreshMon } = await useLiveFetch<{ summary: Record<string, number>, monitors: unknown[] }>('/api/monitors', { query: { project: props.projectId } })
 const navItems = computed(() => [
-  { value: 'processes', label: t('ops.nav.processes'), icon: 'i-lucide-square-terminal', count: procs.value.length, alert: procs.value.some(p => p.state.status === 'crashed') },
-  { value: 'containers', label: t('ops.nav.containers'), icon: 'i-lucide-container' },
-  ...(isAdmin.value ? [{ value: 'env', label: t('ops.nav.env'), icon: 'i-lucide-file-key' }] : []),
-  { value: 'monitors', label: t('ops.nav.monitors'), icon: 'i-lucide-heart-pulse', count: monData.value?.monitors.length ?? 0, alert: !!monData.value?.summary.down }
+  ...(props.ops
+    ? [
+        { value: 'processes', label: t('ops.nav.processes'), icon: 'i-lucide-square-terminal', count: procs.value.length, alert: procs.value.some(p => p.state.status === 'crashed') },
+        { value: 'containers', label: t('ops.nav.containers'), icon: 'i-lucide-container' },
+        ...(isAdmin.value ? [{ value: 'env', label: t('ops.nav.env'), icon: 'i-lucide-file-key' }] : [])
+      ]
+    : []),
+  ...(props.monitor ? [{ value: 'monitors', label: t('ops.nav.monitors'), icon: 'i-lucide-heart-pulse', count: monData.value?.monitors.length ?? 0, alert: !!monData.value?.summary.down }] : [])
 ])
-const section = ref<Section>((['processes', 'containers', 'env', 'monitors'] as const).find(v => v === useRoute().query.section) ?? 'processes')
+const shown = (v: string) => navItems.value.some(i => i.value === v)
+const section = ref<Section>((['processes', 'containers', 'env', 'monitors'] as const).find(v => v === useRoute().query.section && shown(v)) ?? (props.ops ? 'processes' : 'monitors'))
 
 const { data, refresh } = await useLiveFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`)
 const procs = computed(() => data.value?.processes ?? [])

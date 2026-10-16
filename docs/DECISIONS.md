@@ -2410,3 +2410,13 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Diff trên 100 file hoặc 1 MB: cảnh báo đỏ, gộp phải xác nhận. Bot: `/approve all` dừng ở thẻ sai thứ tự và diff rất lớn (duyệt riêng bằng `/approve N ok`).
   - Prompt: không chép file của nhánh khác vào worktree; đề xuất đúng thứ tự cần chạy.
 - **Không làm (lúc này):** cho đề xuất khai báo phụ thuộc riêng (thẻ không liên quan vẫn phải theo thứ tự).
+
+## ADR-161: Gói tính năng theo project
+- **Bối cảnh (15/10):** office dùng cho cả việc không phải code (ADR-090). Với project như vậy, Vận hành, Giám sát, git và lệnh build/test chỉ làm rối menu, tab và widget.
+- **Quyết định:**
+  - **Gói tính năng** gom nhiều tính năng con, giống level quyền gom nhiều quyền con. Gói đầu tiên là **Lập trình** (`develop`): `git`, `ops`, `monitor`, `checks`. Registry tĩnh ở `internal/features`. Chat, agent, quy trình, tự động hóa, Burn, trí nhớ, Skills & MCP và duyệt thay đổi (worktree + diff) là phần lõi, luôn có.
+  - **Chỉ đặt theo project**, ở tab Thông tin; không có cài đặt chung. Key `features:<projectID>` trong `settings`: gói tắt và tính năng tắt lẻ. Thiếu key = bật hết, nên project cũ không đổi. Project không có thư mục tự tắt `git`; `checks` vẫn giữ vì helper toàn máy vẫn chạy lệnh trong home.
+  - **Chỉ ẩn giao diện:** menu, tab, mục trong Vận hành và Quyền, GitBar, menu nhánh, widget Theo dõi, sự cố trên badge. Agent giữ nguyên công cụ, quyền, `run_command` và đề xuất (vẫn chạy được tool có sẵn trong repo); API không bị chặn. Nhưng **prompt không nhắc** công cụ của tính năng đã tắt (git, Vận hành, Giám sát, chạy build/test trước khi xong), để agent không tự hỏi commit/push với người không làm code; khi người dùng yêu cầu thì vẫn dùng được. Không xóa dữ liệu, không dừng tiến trình hay monitor; lúc tắt `ops`/`monitor` mà còn thứ đang chạy, giao diện hỏi lại.
+  - Git chỉ ẩn phần giao diện; office vẫn dùng git ngầm cho worktree khi thư mục là repo.
+- **Không làm (lúc này):** cài đặt chung cho cả office, preset khi tạo project, gói Nội dung/Khách hàng, duyệt thay đổi cho thư mục không phải git.
+

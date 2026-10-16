@@ -27,6 +27,8 @@ export interface WidgetDef {
   // required: nothing to show without one; optional: '' = every project
   project: 'required' | 'optional' | 'none'
   admin?: boolean
+  // the project feature it shows (feature packs): hidden with it turned off
+  feature?: FeatureId
   group: WidgetGroup
   grid: SizeRule
   fields: WidgetField[]
@@ -36,17 +38,17 @@ export interface WidgetDef {
 export const widgetDefs: WidgetDef[] = [
   { kind: 'chat', group: 'agents', grid: { w: 4, h: 6, minW: 4, minH: 5, maxW: 12, maxH: 12 }, icon: 'i-lucide-messages-square', project: 'required', fields: [], defaults: {} },
   {
-    kind: 'process', group: 'run', grid: { w: 6, h: 5, minW: 2, minH: 1, maxW: 12, maxH: 10 }, icon: 'i-lucide-square-terminal', project: 'required',
+    kind: 'process', feature: 'ops', group: 'run', grid: { w: 6, h: 5, minW: 2, minH: 1, maxW: 12, maxH: 10 }, icon: 'i-lucide-square-terminal', project: 'required',
     fields: [{ key: 'processId', type: 'select', source: 'processes' }, { key: 'console', type: 'switch' }, { key: 'controls', type: 'switch' }, { key: 'metrics', type: 'switch' }],
     defaults: { processId: '', console: true, controls: true, metrics: true }
   },
   {
-    kind: 'container', group: 'run', grid: { w: 4, h: 4, minW: 2, minH: 1, maxW: 12, maxH: 10 }, icon: 'i-lucide-container', project: 'required',
+    kind: 'container', feature: 'ops', group: 'run', grid: { w: 4, h: 4, minW: 2, minH: 1, maxW: 12, maxH: 10 }, icon: 'i-lucide-container', project: 'required',
     fields: [{ key: 'service', type: 'select', source: 'services' }, { key: 'console', type: 'switch' }, { key: 'controls', type: 'switch' }, { key: 'metrics', type: 'switch' }],
     defaults: { service: '', console: true, controls: true, metrics: true }
   },
   {
-    kind: 'monitor', group: 'run', grid: { w: 3, h: 3, minW: 2, minH: 1, maxW: 6, maxH: 8 }, icon: 'i-lucide-heart-pulse', project: 'required',
+    kind: 'monitor', feature: 'monitor', group: 'run', grid: { w: 3, h: 3, minW: 2, minH: 1, maxW: 6, maxH: 8 }, icon: 'i-lucide-heart-pulse', project: 'required',
     fields: [{ key: 'monitorId', type: 'select', source: 'monitors' }, { key: 'trend', type: 'switch' }],
     defaults: { monitorId: '', trend: true }
   },
@@ -79,8 +81,8 @@ export const widgetDefs: WidgetDef[] = [
   { kind: 'budget', group: 'ai', grid: { w: 2, h: 2, minW: 1, minH: 1, maxW: 3, maxH: 3 }, icon: 'i-lucide-wallet', project: 'optional', fields: [], defaults: {} },
   { kind: 'lights', group: 'run', grid: { w: 2, h: 2, minW: 1, minH: 1, maxW: 6, maxH: 4 }, icon: 'i-lucide-lightbulb', project: 'required', fields: [{ key: 'labels', type: 'switch' }], defaults: { labels: true } },
   { kind: 'note', group: 'other', grid: { w: 2, h: 2, minW: 1, minH: 1, maxW: 6, maxH: 6 }, icon: 'i-lucide-sticky-note', project: 'none', fields: [], defaults: { text: '' } },
-  { kind: 'git', group: 'run', grid: { w: 2, h: 2, minW: 2, minH: 1, maxW: 4, maxH: 6 }, icon: 'i-lucide-git-branch', project: 'required', fields: [{ key: 'files', type: 'switch' }], defaults: { files: true } },
-  { kind: 'controls', group: 'run', grid: { w: 4, h: 3, minW: 3, minH: 2, maxW: 6, maxH: 8 }, icon: 'i-lucide-sliders-horizontal', project: 'required', admin: true, fields: [{ key: 'services', type: 'switch' }], defaults: { services: true } },
+  { kind: 'git', feature: 'git', group: 'run', grid: { w: 2, h: 2, minW: 2, minH: 1, maxW: 4, maxH: 6 }, icon: 'i-lucide-git-branch', project: 'required', fields: [{ key: 'files', type: 'switch' }], defaults: { files: true } },
+  { kind: 'controls', feature: 'ops', group: 'run', grid: { w: 4, h: 3, minW: 3, minH: 2, maxW: 6, maxH: 8 }, icon: 'i-lucide-sliders-horizontal', project: 'required', admin: true, fields: [{ key: 'services', type: 'switch' }], defaults: { services: true } },
   { kind: 'automations', group: 'agents', grid: { w: 4, h: 3, minW: 1, minH: 1, maxW: 6, maxH: 8 }, icon: 'i-lucide-alarm-clock', project: 'required', fields: [{ key: 'disabled', type: 'switch' }], defaults: { disabled: false } },
   {
     kind: 'breakdown', group: 'ai', grid: { w: 3, h: 3, minW: 2, minH: 2, maxW: 6, maxH: 6 }, icon: 'i-lucide-chart-bar', project: 'none',
@@ -106,15 +108,16 @@ export const widgetDefs: WidgetDef[] = [
     defaults: { agentId: '' }
   },
   {
-    kind: 'consoles', group: 'run', grid: { w: 8, h: 5, minW: 4, minH: 3, maxW: 12, maxH: 12 }, icon: 'i-lucide-panels-top-left', project: 'required',
+    kind: 'consoles', feature: 'ops', group: 'run', grid: { w: 8, h: 5, minW: 4, minH: 3, maxW: 12, maxH: 12 }, icon: 'i-lucide-panels-top-left', project: 'required',
     fields: [{ key: 'runningOnly', type: 'switch' }, { key: 'max', type: 'select', options: [2, 4, 6] }],
     defaults: { runningOnly: true, max: 4 }
   }
 ]
 
-// a group's widgets, small first (chat is offered on its own)
-export const groupWidgets = (g: WidgetGroup, admin: boolean) => widgetDefs
-  .filter(w => w.group === g && w.kind !== 'chat' && (!w.admin || admin))
+// a group's widgets, small first (chat is offered on its own); on: the
+// features some project has on (a widget of a feature none has is not offered)
+export const groupWidgets = (g: WidgetGroup, admin: boolean, on?: (f: FeatureId) => boolean) => widgetDefs
+  .filter(w => w.group === g && w.kind !== 'chat' && (!w.admin || admin) && (!w.feature || !on || on(w.feature)))
   .sort((a, b) => a.grid.w * a.grid.h - b.grid.w * b.grid.h)
 export const groupIcon: Record<WidgetGroup, string> = { agents: 'i-lucide-bot', run: 'i-lucide-square-terminal', ai: 'i-lucide-sparkles', other: 'i-lucide-layout-grid' }
 

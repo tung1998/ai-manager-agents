@@ -310,5 +310,22 @@ export default {
   'hdr.cpu': 'CPU của máy',
   'hdr.ram': 'RAM của máy',
   'hdr.tasks': '{n} tiến trình đang chạy: {names}',
-  'hdr.noTasks': 'Không có tiến trình nào đang chạy (dev, build, terminal)'
+  'hdr.noTasks': 'Không có tiến trình nào đang chạy (dev, build, terminal)',
+  'feat.title': 'Tính năng',
+  'feat.help': 'Ẩn khỏi giao diện những gì project không dùng (menu, tab, widget) cho đỡ rối. Agent vẫn dùng được mọi công cụ như cũ; không xóa dữ liệu, không dừng gì đang chạy.',
+  'feat.pack.develop': 'Lập trình',
+  'feat.packDesc.develop': 'Git, Vận hành, Giám sát, lệnh build/test',
+  'feat.f.git': 'Git',
+  'feat.fDesc.git': 'Thanh git, menu nhánh',
+  'feat.f.ops': 'Vận hành',
+  'feat.fDesc.ops': 'Tab tiến trình, container, env',
+  'feat.f.monitor': 'Giám sát',
+  'feat.fDesc.monitor': 'Tab giám sát, sự cố trên badge',
+  'feat.f.checks': 'Lệnh kiểm tra',
+  'feat.fDesc.checks': 'Gói lệnh và quick check trong tab Quyền',
+  'feat.noFolder': 'Project không có thư mục',
+  'feat.saved': 'Đã lưu tính năng',
+  'feat.stillRunning': 'Còn {n} mục đang chạy ({what}). Tắt chỉ ẩn, chúng vẫn chạy; muốn dừng thì dừng trước ở Vận hành. Vẫn tắt?',
+  'feat.runningProcs': '{n} tiến trình',
+  'feat.runningMonitors': '{n} monitor'
 } as const

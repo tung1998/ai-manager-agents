@@ -13,6 +13,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/chat"
+	"bitbucket.org/senprints/agent-office/internal/features"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
 )
@@ -61,6 +62,7 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 			continue
 		}
 		base := "/projects/" + p.ID
+		on, _ := features.Effective(features.LoadConfig(ctx, s.cfg.Store, p.ID), p.Path != "")
 		add := func(kind, sev, title, detail string, at *time.Time, link, id, key string) {
 			it := incident{Kind: kind, Severity: sev, ProjectID: p.ID, ProjectName: p.Name, Title: title, Detail: detail, Link: link, ID: id, Key: kind + ":" + key}
 			if at != nil {
@@ -73,14 +75,15 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 			}
 			out = append(out, it)
 		}
-		if ms, err := s.cfg.Store.Monitors().List(ctx, p.ID); err == nil {
+		if features.Has(on, features.Monitor) { // hidden: no badge either
+			ms, _ := s.cfg.Store.Monitors().List(ctx, p.ID)
 			for _, m := range ms {
 				if m.Enabled && m.Status == "down" {
 					add("monitor", "error", m.Name, m.LastMessage, m.LastChangeAt, base+"?tab=ops", m.ID, m.ID)
 				}
 			}
 		}
-		if s.cfg.Ops != nil {
+		if s.cfg.Ops != nil && features.Has(on, features.Ops) {
 			if ps, err := s.cfg.Store.Processes().List(ctx, p.ID); err == nil {
 				for _, x := range ps {
 					if st := s.cfg.Ops.State(x.ID); st.Status == "crashed" {

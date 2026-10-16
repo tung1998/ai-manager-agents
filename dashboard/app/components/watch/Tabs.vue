@@ -3,7 +3,9 @@
 // the sidebar); on the right, a box of any widget added to the open board.
 import type { WidgetKind } from '~/utils/watchWidgets'
 
-defineProps<{ projects: Project[] }>()
+const props = defineProps<{ projects: Project[] }>()
+// a widget of a feature no project has on is not offered
+const someHas = (f: FeatureId) => props.projects.some(p => hasFeature(p, f))
 const { t } = useLang()
 const { isAdmin } = useAuth()
 const { boards, board, add } = useWatchLayout()
@@ -13,7 +15,7 @@ const index = computed(() => Math.max(0, boards.value.findIndex(b => b.id === bo
 // grouped by what they are about, a title over each group; the chat first
 const addMenu = computed(() => widgetGroups.map(group => [
   { label: t(`watchW.group.${group}`), type: 'label' as const },
-  ...(group === 'agents' ? [widgetDef('chat')] : []).concat(groupWidgets(group, isAdmin.value)).map(w => ({
+  ...(group === 'agents' ? [widgetDef('chat')] : []).concat(groupWidgets(group, isAdmin.value, someHas)).map(w => ({
     label: t(`watchW.kind.${w.kind}` as 'watchW.kind.chat'),
     icon: w.icon,
     onSelect: () => addBox(w.kind)

@@ -311,6 +311,23 @@ const en: Record<keyof typeof vi, string> = {
   'hdr.cpu': 'Machine CPU',
   'hdr.ram': 'Machine memory',
   'hdr.tasks': '{n} processes running: {names}',
-  'hdr.noTasks': 'No processes running (dev, build, terminal)'
+  'hdr.noTasks': 'No processes running (dev, build, terminal)',
+  'feat.title': 'Features',
+  'feat.help': 'Hide from the dashboard what the project does not use (menus, tabs, widgets) to keep it tidy. Agents keep every tool as before; no data is removed, nothing running is stopped.',
+  'feat.pack.develop': 'Development',
+  'feat.packDesc.develop': 'Git, Operations, Monitoring, build/test commands',
+  'feat.f.git': 'Git',
+  'feat.fDesc.git': 'Git bar, branch menu',
+  'feat.f.ops': 'Operations',
+  'feat.fDesc.ops': 'Processes, containers, env tabs',
+  'feat.f.monitor': 'Monitoring',
+  'feat.fDesc.monitor': 'Monitors tab, incidents in the badge',
+  'feat.f.checks': 'Check commands',
+  'feat.fDesc.checks': 'Command packs and quick check in the Permissions tab',
+  'feat.noFolder': 'The project has no folder',
+  'feat.saved': 'Features saved',
+  'feat.stillRunning': '{n} still running ({what}). Turning off only hides them, they keep running; stop them in Operations first if you want. Turn off anyway?',
+  'feat.runningProcs': '{n} processes',
+  'feat.runningMonitors': '{n} monitors'
 }
 export default en

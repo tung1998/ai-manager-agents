@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/features"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/repos"
@@ -152,6 +153,7 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	if s.cfg.Monitors != nil {
 		s.monitorRoutes(mux, auth, admin)
 	}
+	s.featureRoutes(mux, auth, admin)
 	mux.Handle("GET /api/permission-levels", auth(s.permissionLevels))
 	mux.Handle("GET /api/projects/{id}/policy", auth(s.getPolicy))
 	mux.Handle("PUT /api/projects/{id}/policy", admin(s.putPolicy))
@@ -961,6 +963,7 @@ type repoDTO struct {
 	// AgentCount: 0 = the project has no agent yet (pick a starter pack)
 	AgentCount     int        `json:"agent_count"`
 	DefaultAgentID string     `json:"default_agent_id"` // the one answering when none is named
+	Features       []string   `json:"features"`         // features on (internal/features)
 	Agents         []agentDTO `json:"agents,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 }
@@ -972,6 +975,7 @@ func (s *server) repoDTO(r *http.Request, x storage.Repo, withAgents bool) (repo
 		_, statErr := os.Stat(x.Path)
 		d.Scope, d.Exists = "folder", statErr == nil
 	}
+	d.Features, _ = features.Effective(features.LoadConfig(r.Context(), s.cfg.Store, x.ID), x.Path != "")
 	agents, err := s.cfg.Store.Agents().List(r.Context(), x.ID)
 	if err != nil {
 		return d, err

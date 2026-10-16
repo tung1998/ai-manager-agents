@@ -4,7 +4,9 @@
 // (one click opens it here).
 import type { WidgetKind } from '~/utils/watchWidgets'
 
-defineProps<{ projects: Project[], hint: string }>()
+const props = defineProps<{ projects: Project[], hint: string }>()
+// a widget of a feature no project has on is not offered
+const someHas = (f: FeatureId) => props.projects.some(p => hasFeature(p, f))
 const emit = defineEmits<{ pick: [projectId: string, conversationId?: string], widget: [kind: WidgetKind] }>()
 const { t, when } = useLang()
 const { isAdmin } = useAuth()
@@ -13,7 +15,7 @@ interface RecentChat { id: string, project_id: string, title: string, agent_name
 const { data: recentData, error: recentError } = useLiveFetch<{ conversations: RecentChat[], projects: Record<string, string> }>('/api/conversations/recent', { query: { limit: 20 }, lazy: true, server: false })
 const recent = computed(() => recentData.value?.conversations ?? [])
 // grouped by what they are about, small first
-const gallery = computed(() => widgetGroups.map(group => ({ group, list: groupWidgets(group, isAdmin.value) })).filter(g => g.list.length))
+const gallery = computed(() => widgetGroups.map(group => ({ group, list: groupWidgets(group, isAdmin.value, someHas) })).filter(g => g.list.length))
 </script>
 
 <template>

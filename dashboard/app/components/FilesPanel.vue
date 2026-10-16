@@ -7,7 +7,8 @@ interface Entry extends Flags { name: string, path: string, dir: boolean, size: 
 interface Listing { entries: Entry[], hidden: number, more: number }
 interface OpenFile { path: string, size: number, flags: Flags, sha?: string, content?: string, binary?: boolean, too_large?: boolean, isNew?: boolean }
 
-const props = defineProps<{ projectId: string }>()
+// git: the project's git feature is on (feature packs): the branch menu shows
+const props = withDefaults(defineProps<{ projectId: string, git?: boolean }>(), { git: true })
 const toast = useToast()
 const { t } = useLang()
 const base = computed(() => `/api/projects/${props.projectId}`)
@@ -245,7 +246,7 @@ function badges(f: Flags) {
         {{ t('files.viewChanges') }}<UBadge v-if="changes?.length" :label="String(changes.length)" size="sm" color="neutral" variant="subtle" />
       </UButton>
     </div>
-    <BranchMenu :project-id="projectId" @changed="onBranch" />
+    <BranchMenu v-if="git" :project-id="projectId" @changed="onBranch" />
   </div>
 
   <!-- changes: the list, one file's diff -->

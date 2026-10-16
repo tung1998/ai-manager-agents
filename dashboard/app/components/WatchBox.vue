@@ -18,6 +18,8 @@ const project = computed(() => props.projects.find(p => p.id === props.item.proj
 // what it needs before it can show anything
 const needsProject = computed(() => def.value.project === 'required' && !project.value)
 const forbidden = computed(() => !!def.value.admin && !isAdmin.value)
+// the project turned off the feature the widget shows (feature packs)
+const featureOff = computed(() => !!def.value.feature && !!project.value && !hasFeature(project.value, def.value.feature))
 
 const el = ref<HTMLElement | null>(null)
 const size = ref({ w: 0, h: 0 })
@@ -88,6 +90,7 @@ const title = computed(() => props.item.title || t(`watchW.kind.${kind.value}` a
     </div>
     <div ref="el" class="min-h-0 flex-1">
       <WatchEmpty v-if="forbidden" icon="i-lucide-lock" :text="t('watchW.adminOnly')" />
+      <WatchEmpty v-else-if="featureOff" icon="i-lucide-eye-off" :text="t('watchW.featureOff')" />
       <WatchEmpty v-else-if="needsProject" :icon="def.icon" :text="t('watchW.needProject')">
         <USelect
           :items="projects.map(p => ({ label: p.name, value: p.id }))" :placeholder="t('watch.project')" class="w-full"

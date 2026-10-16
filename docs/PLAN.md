@@ -158,6 +158,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Làm cứng bảo mật và luồng dễ vỡ: token cá nhân theo role + hạn dùng; chặn cờ/đường dẫn ra ngoài project sau mẫu " *"; cổng MCP fail-closed; duyệt đồng thời chỉ chạy một lần; OAuth song song không đăng ký client hai lần; sweep giữ worktree Burn đang dở (ADR-094) | Xong |
 | Project liên kết: agent giao việc sang chat của project khác, tự báo lại, duyệt thẻ bên kia từ chat gốc (ADR-155); chuông, toast và thông báo trình duyệt có nút thao tác (ADR-156) | Xong |
 | Theo dõi thành dashboard dạng lưới với 20 widget, log console đi chung luồng sự kiện (ADR-158, ADR-159); đề xuất duyệt theo thứ tự #n, agent chạy tiếp khi đã quyết hết thẻ (ADR-160); MCP 2026-07-28 (ADR-157) | Xong |
+| Gói tính năng theo project: tắt gói Lập trình hoặc lẻ git/Vận hành/Giám sát/lệnh kiểm tra, chỉ ẩn khỏi menu, tab, widget; agent không bị giới hạn (ADR-161) | Xong |
 | Connector: gom MCP, bot và connector tự code (Messenger, Zalo OA, Slack, Email) | Ý tưởng, làm sau cổng MCP |
 | Cảnh báo, `doctor` | Chưa làm |
 

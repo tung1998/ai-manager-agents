@@ -30,6 +30,7 @@ const tab = computed<Tab>({
     const raw = String((route.query.tab === 'config' ? route.query.section ?? 'info' : route.query.tab) ?? '')
     const q = aliases[raw] ?? raw
     const found = tabs.find(t => t === q) ?? 'chat'
+    if (found === 'ops' && project.value && !hasOpsTab(project.value)) return 'chat' // Vận hành turned off
     return (found === 'log' || found === 'files') && !isAdmin.value ? 'chat' : found // the change log and files are for admins
   },
   set: t => navigateTo({ query: { tab: t } }, { replace: true })
@@ -75,7 +76,7 @@ async function removeRepo() {
 
 <template>
   <PageShell :title="project?.name ?? t('project.defaultTitle')">
-    <template v-if="project?.path" #subtitle>
+    <template v-if="project?.path && hasFeature(project, 'git')" #subtitle>
       <GitBar :project-id="project.id" />
     </template>
 
@@ -90,9 +91,9 @@ async function removeRepo() {
         <div class="contents">
           <AutomationsPanel v-if="tab === 'automations'" :project-id="project.id" />
           <BurnPanel v-else-if="tab === 'burn' && isAdmin" :project-id="project.id" />
-          <FilesPanel v-else-if="tab === 'files' && isAdmin && project.path" :project-id="project.id" />
+          <FilesPanel v-else-if="tab === 'files' && isAdmin && project.path" :project-id="project.id" :git="hasFeature(project, 'git')" />
           <AuditLog v-else-if="tab === 'log' && isAdmin" :key="project.id" class="max-w-6xl" :filter="{ project: project.id }" show-filters />
-          <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" @ask-agent="askAgent" />
+          <OpsPanel v-else-if="tab === 'ops'" :project-id="project.id" :has-folder="!!project.path" :ops="hasFeature(project, 'ops')" :monitor="hasFeature(project, 'monitor')" @ask-agent="askAgent" />
           <ProjectWorkflows v-else-if="tab === 'workflows'" :project-id="project.id" />
           <template v-else-if="['info', 'agents', 'perm', 'skill', 'mcp'].includes(tab)">
             <div v-if="tab === 'info'" class="space-y-4">
@@ -115,9 +116,10 @@ async function removeRepo() {
                 <UButton size="xs" color="error" variant="ghost" icon="i-lucide-folder-minus" :label="t('project.unmanage')" :loading="removing" class="ms-auto" @click="removeRepo" />
               </div>
             </UCard>
+              <FeaturePacks :project-id="project.id" @changed="refresh()" />
               <ProjectBudget :project-id="project.id" />
             </div>
-            <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" />
+            <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" :checks="hasFeature(project, 'checks')" />
             <ToolsPanel v-else-if="tab === 'skill' || tab === 'mcp'" :key="tab" :kind="tab" :project-path="project.path" :project-id="project.id" />
             <ProjectAgents v-else :project="project" @changed="refresh()" />
           </template>

@@ -71,6 +71,12 @@ onMounted(() => {
 // pages below a project (/projects/:id/<child>/…) belong to one of its sections
 const childSection: Record<string, string> = { agents: 'agents', automations: 'automations', workflows: 'workflows' }
 
+// Vận hành holds processes/containers (ops) and monitors: hidden with both off
+function hasOps(id: string) {
+  const p = projectList.value.find(x => x.id === id)
+  return hasOpsTab(p)
+}
+
 function projectSections(id: string): NavigationMenuItem[] {
   const to = (tab: string) => ({ path: `/projects/${id}`, query: { tab } })
   const child = route.path.match(new RegExp(`^/projects/${id}/([^/]+)/`))?.[1]
@@ -79,7 +85,7 @@ function projectSections(id: string): NavigationMenuItem[] {
     { label: t('nav.chat'), icon: 'i-lucide-messages-square', to: to('chat'), exactQuery: 'partial' },
     // Việc has no tab (ADR-056): the team works through the chat; a task's page stays for its links
     { label: t('nav.automations'), icon: 'i-lucide-alarm-clock', to: to('automations'), exactQuery: 'partial' },
-    { label: t('nav.ops'), icon: 'i-lucide-activity', to: to('ops'), exactQuery: 'partial' },
+    ...(hasOps(id) ? [{ label: t('nav.ops'), icon: 'i-lucide-activity', to: to('ops'), exactQuery: 'partial' as const }] : []),
     { label: t('project.sectionModel'), icon: 'i-lucide-users', to: to('agents'), exactQuery: 'partial' },
     { label: t('wf.section'), icon: 'i-lucide-workflow', to: to('workflows'), exactQuery: 'partial' },
     { label: t('project.sectionPerm'), icon: 'i-lucide-shield', to: to('perm'), exactQuery: 'partial' },

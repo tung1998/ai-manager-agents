@@ -11,6 +11,7 @@ const en: Record<keyof typeof vi, string> = {
   'watchW.gallery': 'Widgets',
   'watchW.addBox': 'Add box',
   'watchW.adminOnly': 'Only admins can see this widget',
+  'watchW.featureOff': 'The project turned this feature off (Info tab)',
   'watchW.allProjects': 'All projects',
   'watchW.needProject': 'Pick a project for this box',
   'watchW.pickProjectFirst': 'Pick a project first',

@@ -10,6 +10,7 @@ export default {
   'watchW.gallery': 'Widget',
   'watchW.addBox': 'Thêm box',
   'watchW.adminOnly': 'Chỉ admin xem được widget này',
+  'watchW.featureOff': 'Project đã tắt tính năng này (tab Thông tin)',
   'watchW.allProjects': 'Mọi project',
   'watchW.needProject': 'Chọn project cho box này',
   'watchW.pickProjectFirst': 'Chọn project trước',
