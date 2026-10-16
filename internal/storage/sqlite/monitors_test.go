@@ -16,7 +16,7 @@ func TestMonitorRecentAnalysis(t *testing.T) {
 	repo := st.Monitors()
 
 	mustMonitor := func(name string) string {
-		m, err := repo.Create(ctx, storage.Monitor{ProjectID: p.ID, Name: name, Type: "http", Target: "http://x"})
+		m, err := repo.Create(ctx, storage.Monitor{ProjectID: p.ID, Name: name, Type: "container", Target: name})
 		if err != nil {
 			t.Fatalf("create monitor: %v", err)
 		}

@@ -397,7 +397,7 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <section id="ops">
   <h2><span class="num">12</span>Vận hành &amp; giám sát</h2>
   <p class="intro">Chạy project như pm2, và agent đọc đúng log bạn đang xem.</p>
-  <figure><img src="images/vi/11-operations.png" alt="Vận hành" loading="lazy"><figcaption>Tiến trình kèm trạng thái, CPU/RAM và cổng; container; giám sát kèm uptime.</figcaption></figure>
+  <figure><img src="images/vi/11-operations.png" alt="Vận hành" loading="lazy"><figcaption>Tiến trình kèm trạng thái, CPU/RAM, cổng và giám sát; container.</figcaption></figure>
   <h3>Tiến trình</h3>
   <ol class="steps">
     <li>Bấm <b>Quét project</b>: office tìm lệnh trong <code>Makefile</code>, <code>package.json</code>, <code>docker-compose.yml</code>… Ghim lệnh hay dùng.</li>
@@ -407,14 +407,7 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
   <h3>Container</h3>
   <p>Stack docker compose: trạng thái, cổng, CPU/RAM/mạng, up/stop/restart/down/pull/build theo stack hoặc service, log trực tiếp.</p>
   <h3>Giám sát</h3>
-  <table>
-    <tr><th>Loại</th><th>Kiểm tra</th></tr>
-    <tr><td>HTTP</td><td>Mã trạng thái, từ khóa, timeout.</td></tr>
-    <tr><td>TCP</td><td>Một host:port còn trả lời.</td></tr>
-    <tr><td>Heartbeat</td><td>Cron job của bạn gọi một URL bí mật. Không thấy ping là Down.</td></tr>
-    <tr><td>Tiến trình / container</td><td>Một tiến trình của office hay một service compose đang chạy.</td></tr>
-  </table>
-  <p>Mỗi giám sát hiện uptime 24 giờ, độ trễ và xu hướng. Bật <b>AI phân tích</b> để agent điều tra khi Down, có ngân sách theo ngày và thời gian chờ giữa hai lần.</p>
+  <p>Mỗi tiến trình và mỗi service compose giám sát được: bấm <b>♥</b> trên dòng của nó để bật. Huy hiệu hiện uptime 24 giờ; mở ra để xem sự kiện Up/Down, kiểm tra ngay và bật <b>AI phân tích khi Down</b> (agent điều tra, có ngân sách theo ngày và thời gian chờ giữa hai lần).</p>
 </section>
 
 <!-- 13 -->

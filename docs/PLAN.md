@@ -118,7 +118,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Gọi skill bằng "/" và đính kèm ảnh, PDF, file chữ trong Chat và Việc (ADR-025) | Xong |
 | Vận hành: quét lệnh của project, chạy/dừng/tự chạy lại như pm2, log trực tiếp, CPU/RAM/cổng, hỏi agent từ log (ADR-026) | Xong |
 | Vận hành: container (docker compose): trạng thái, cổng, CPU/RAM/mạng, bật/dừng/chạy lại/gỡ theo stack hoặc service, log trực tiếp, hỏi agent (ADR-026) | Xong |
-| Giám sát: HTTP, TCP, heartbeat, tiến trình, container; uptime/độ trễ/xu hướng/sự kiện; AI phân tích khi Down (bật/tắt, trần 24h, cooldown) (ADR-027) | Xong |
+| Giám sát tiến trình và container, bật ngay trên dòng của nó; uptime/xu hướng/sự kiện; AI phân tích khi Down (bật/tắt, trần 24h, cooldown) (ADR-027, ADR-162; bỏ HTTP/TCP/heartbeat) | Xong |
 | Thông báo sự cố (Discord/Telegram) | Chưa làm |
 | Kết nối AI: 18 nhà cung cấp bên thứ 3 có sẵn (OpenRouter, Gemini, DeepSeek, GLM, Kimi, Ollama…), thống kê 7 ngày theo kết nối (ADR-028) | Xong |
 | Kết nối AI: tự chuyển kết nối dự phòng khi lỗi/chạm trần — mỗi agent có danh sách kết nối dự phòng theo thứ tự (trang agent → Model), lượt chat/Việc lỗi trước khi làm gì thì thử lần lượt từ trên xuống; kết nối đang hết hạn mức xếp cuối (migration 00055) | Xong |
@@ -158,7 +158,7 @@ Thứ tự theo prompt, có 3 điều chỉnh:
 | Làm cứng bảo mật và luồng dễ vỡ: token cá nhân theo role + hạn dùng; chặn cờ/đường dẫn ra ngoài project sau mẫu " *"; cổng MCP fail-closed; duyệt đồng thời chỉ chạy một lần; OAuth song song không đăng ký client hai lần; sweep giữ worktree Burn đang dở (ADR-094) | Xong |
 | Project liên kết: agent giao việc sang chat của project khác, tự báo lại, duyệt thẻ bên kia từ chat gốc (ADR-155); chuông, toast và thông báo trình duyệt có nút thao tác (ADR-156) | Xong |
 | Theo dõi thành dashboard dạng lưới với 20 widget, log console đi chung luồng sự kiện (ADR-158, ADR-159); đề xuất duyệt theo thứ tự #n, agent chạy tiếp khi đã quyết hết thẻ (ADR-160); MCP 2026-07-28 (ADR-157) | Xong |
-| Gói tính năng theo project: tắt gói Lập trình hoặc lẻ git/Vận hành/Giám sát/lệnh kiểm tra, chỉ ẩn khỏi menu, tab, widget; agent không bị giới hạn (ADR-161) | Xong |
+| Gói tính năng theo project: tắt gói Lập trình hoặc lẻ git/Vận hành/lệnh kiểm tra, chỉ ẩn khỏi menu, tab, widget; agent không bị giới hạn (ADR-161) | Xong |
 | Connector: gom MCP, bot và connector tự code (Messenger, Zalo OA, Slack, Email) | Ý tưởng, làm sau cổng MCP |
 | Cảnh báo, `doctor` | Chưa làm |
 

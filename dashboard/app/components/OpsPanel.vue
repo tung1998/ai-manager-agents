@@ -2,6 +2,7 @@
 // "Vận hành" tab: run and watch the project's commands (dev server, build,
 // test…) like pm2, with live logs.
 import type { Attachment } from './PromptInput.vue'
+import type { MonitorItem } from './MonitorChip.vue'
 
 interface ProcState {
   status: 'stopped' | 'running' | 'stopping' | 'exited' | 'crashed' | 'restarting'
@@ -23,27 +24,21 @@ interface EnvRow { key: string, value: string, hint?: EnvHint, saved: boolean }
 interface Suggestion { name: string, command: string, cwd: string, kind: 'service' | 'job', source: string, description: string, recommended: boolean }
 interface Detection { package_manager?: string, suggestions: Suggestion[], compose: { file: string }[] }
 
-// ops / monitor: the project's features on (feature packs): the sections of one turned off are hidden
-const props = withDefaults(defineProps<{ projectId: string, hasFolder: boolean, ops?: boolean, monitor?: boolean }>(), { ops: true, monitor: true })
+const props = defineProps<{ projectId: string, hasFolder: boolean }>()
 const emit = defineEmits<{ askAgent: [text: string, files: Attachment[], send?: boolean] }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
-type Section = 'processes' | 'containers' | 'env' | 'monitors'
-// counts for the switch; monitors are cheap to list (no checks run)
-const { data: monData, refresh: refreshMon } = await useLiveFetch<{ summary: Record<string, number>, monitors: unknown[] }>('/api/monitors', { query: { project: props.projectId } })
+type Section = 'processes' | 'containers' | 'env'
+// each process's monitor, on its row (cheap to list: no checks run)
+const { data: monData, refresh: refreshMon } = useLiveFetch<{ monitors: MonitorItem[] }>('/api/monitors', { query: { project: props.projectId }, lazy: true })
+const monitorOf = (p: Proc) => monData.value?.monitors.find(m => m.type === 'process' && m.target === p.id)
 const navItems = computed(() => [
-  ...(props.ops
-    ? [
-        { value: 'processes', label: t('ops.nav.processes'), icon: 'i-lucide-square-terminal', count: procs.value.length, alert: procs.value.some(p => p.state.status === 'crashed') },
-        { value: 'containers', label: t('ops.nav.containers'), icon: 'i-lucide-container' },
-        ...(isAdmin.value ? [{ value: 'env', label: t('ops.nav.env'), icon: 'i-lucide-file-key' }] : [])
-      ]
-    : []),
-  ...(props.monitor ? [{ value: 'monitors', label: t('ops.nav.monitors'), icon: 'i-lucide-heart-pulse', count: monData.value?.monitors.length ?? 0, alert: !!monData.value?.summary.down }] : [])
+  { value: 'processes', label: t('ops.nav.processes'), icon: 'i-lucide-square-terminal', count: procs.value.length, alert: procs.value.some(p => p.state.status === 'crashed') },
+  { value: 'containers', label: t('ops.nav.containers'), icon: 'i-lucide-container' },
+  ...(isAdmin.value ? [{ value: 'env', label: t('ops.nav.env'), icon: 'i-lucide-file-key' }] : [])
 ])
-const shown = (v: string) => navItems.value.some(i => i.value === v)
-const section = ref<Section>((['processes', 'containers', 'env', 'monitors'] as const).find(v => v === useRoute().query.section && shown(v)) ?? (props.ops ? 'processes' : 'monitors'))
+const section = ref<Section>((['processes', 'containers', 'env'] as const).find(v => v === useRoute().query.section) ?? 'processes')
 
 const { data, refresh } = await useLiveFetch<{ processes: Proc[] }>(() => `/api/projects/${props.projectId}/processes`)
 const procs = computed(() => data.value?.processes ?? [])
@@ -323,10 +318,7 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
     <template v-else>
       <!-- kept alive: switching back shows the last state instantly -->
       <KeepAlive>
-        <MonitorPanel v-if="section === 'monitors'" :project-id="projectId" @ask-agent="(t, f, send) => emit('askAgent', t, f, send)">
-          <template #nav><SegmentedNav v-model="section" :items="navItems" /></template>
-        </MonitorPanel>
-        <ComposePanel v-else-if="section === 'containers'" :project-id="projectId" @ask-agent="(t, f, send) => emit('askAgent', t, f, send)">
+        <ComposePanel v-if="section === 'containers'" :project-id="projectId" @ask-agent="(t, f, send) => emit('askAgent', t, f, send)">
           <template #nav><SegmentedNav v-model="section" :items="navItems" /></template>
         </ComposePanel>
         <EnvPanel v-else-if="section === 'env' && isAdmin" :project-id="projectId">
@@ -390,6 +382,8 @@ const mem = (b: number) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `
               </template>
               <UBadge v-if="p.autorestart" color="neutral" variant="outline" size="sm" :label="t('ops.autorestartBadge')" class="ms-1" />
               <UBadge v-if="p.autostart" color="neutral" variant="outline" size="sm" :label="t('ops.autostartBadge')" />
+              <!-- a job ends on its own: only a service is worth watching -->
+              <MonitorChip v-if="monData && (p.kind === 'service' || monitorOf(p))" :project-id="projectId" type="process" :target="p.id" :monitor="monitorOf(p)" @changed="refreshMon()" />
               <UButton
                 v-if="p.state.status === 'crashed'" size="xs" color="error" variant="soft" icon="i-lucide-wrench" :label="t('ops.fix')" class="ms-auto"
                 @click="askAgent(p, true)"

@@ -1,17 +1,14 @@
 package api
 
 import (
-	"bitbucket.org/senprints/agent-office/internal/audit"
 	"context"
 	"errors"
-	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"bitbucket.org/senprints/agent-office/internal/monitor"
+	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -22,9 +19,6 @@ func (s *server) monitorRoutes(mux *http.ServeMux, auth, admin func(http.Handler
 	mux.Handle("DELETE /api/monitors/{id}", admin(s.deleteMonitor))
 	mux.Handle("POST /api/monitors/{id}/check", admin(s.checkMonitor))
 	mux.Handle("GET /api/monitor-events", auth(s.monitorEvents))
-	// public: services push heartbeats without a session (the token is the secret)
-	mux.HandleFunc("GET /api/heartbeat/{token}", s.heartbeat)
-	mux.HandleFunc("POST /api/heartbeat/{token}", s.heartbeat)
 }
 
 type checkPoint struct {
@@ -45,7 +39,6 @@ type monitorDTO struct {
 	Enabled       bool                  `json:"enabled"`
 	AIEnabled     bool                  `json:"ai_enabled"`
 	AIBudgetUSD   float64               `json:"ai_budget_usd"`
-	HeartbeatPath string                `json:"heartbeat_path,omitempty"`
 	Status        string                `json:"status"`
 	LastCheckedAt *time.Time            `json:"last_checked_at"`
 	LastChangeAt  *time.Time            `json:"last_change_at"`
@@ -63,9 +56,6 @@ func (s *server) toMonitorDTO(r *http.Request, m storage.Monitor, withStats bool
 		LastChangeAt: m.LastChangeAt, LastLatencyMS: m.LastLatencyMS, LastMessage: m.LastMessage, Trend: []checkPoint{}, Version: monitorVersion(m)}
 	if !m.Enabled {
 		d.Status = "paused"
-	}
-	if m.Type == "heartbeat" && m.Token != "" {
-		d.HeartbeatPath = "/api/heartbeat/" + m.Token
 	}
 	if !withStats {
 		return d
@@ -123,6 +113,8 @@ type monitorInput struct {
 	Version     string                 `json:"version"`
 }
 
+var errMonitorTaken = errors.New("tiến trình hoặc service này đã được giám sát")
+
 func (s *server) applyMonitor(r *http.Request, in monitorInput, m *storage.Monitor) error {
 	if in.Name != nil {
 		m.Name = strings.TrimSpace(*in.Name)
@@ -148,6 +140,33 @@ func (s *server) applyMonitor(r *http.Request, in monitorInput, m *storage.Monit
 	if in.AIBudgetUSD != nil {
 		m.AIBudgetUSD = *in.AIBudgetUSD
 	}
+	switch m.Type {
+	case "process":
+		p, err := s.cfg.Store.Processes().Get(r.Context(), m.Target)
+		if err != nil || p.ProjectID != m.ProjectID {
+			return errors.New("tiến trình không thuộc project")
+		}
+		if m.Name == "" {
+			m.Name = p.Name
+		}
+	case "container":
+		if m.Target == "" {
+			return errors.New("cần tên service trong docker compose")
+		}
+		if m.Name == "" {
+			m.Name = m.Target
+		}
+	default:
+		return errors.New("loại giám sát phải là process hoặc container")
+	}
+	// one monitor per process or service: it is turned on from its row
+	if list, err := s.cfg.Store.Monitors().List(r.Context(), m.ProjectID); err == nil {
+		for _, x := range list {
+			if x.ID != m.ID && x.Type == m.Type && x.Target == m.Target && x.Config.File == m.Config.File {
+				return errMonitorTaken
+			}
+		}
+	}
 	if m.Name == "" || len(m.Name) > 120 {
 		return errors.New("tên từ 1 đến 120 ký tự")
 	}
@@ -156,34 +175,6 @@ func (s *server) applyMonitor(r *http.Request, in monitorInput, m *storage.Monit
 	}
 	if m.AIBudgetUSD < 0 {
 		return errors.New("trần AI không được âm")
-	}
-	switch m.Type {
-	case "http":
-		u, err := url.Parse(m.Target)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return errors.New("URL phải bắt đầu bằng http:// hoặc https://")
-		}
-	case "tcp":
-		host, port, err := net.SplitHostPort(m.Target)
-		if err != nil || host == "" || port == "" {
-			return errors.New("đích TCP dạng host:port, ví dụ localhost:6379")
-		}
-	case "heartbeat":
-		m.Target = ""
-		if m.Token == "" {
-			m.Token = monitor.NewToken()
-		}
-	case "process":
-		p, err := s.cfg.Store.Processes().Get(r.Context(), m.Target)
-		if err != nil || p.ProjectID != m.ProjectID {
-			return errors.New("tiến trình không thuộc project")
-		}
-	case "container":
-		if m.Target == "" {
-			return errors.New("cần tên service trong docker compose")
-		}
-	default:
-		return errors.New("loại giám sát phải là http, tcp, heartbeat, process hoặc container")
 	}
 	return nil
 }
@@ -213,9 +204,7 @@ func (s *server) createMonitor(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, audit.Change{Action: "monitor.create", ResourceID: m.ID, ProjectID: m.ProjectID, After: s.toMonitorDTO(r, m, false),
 		Detail: map[string]any{"type": m.Type, "target": m.Target}})
-	if m.Type != "heartbeat" {
-		go s.cfg.Monitors.CheckNow(context.Background(), m.ID) // first result right away
-	}
+	go s.cfg.Monitors.CheckNow(context.Background(), m.ID) // first result right away
 	writeJSON(w, http.StatusCreated, s.toMonitorDTO(r, m, false))
 }
 
@@ -306,16 +295,4 @@ func (s *server) monitorEvents(w http.ResponseWriter, r *http.Request) {
 			Message: e.Message, Analysis: e.Analysis, AnalysisStatus: e.AnalysisStatus, CostUSD: e.CostUSD, At: e.At})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": out})
-}
-
-func (s *server) heartbeat(w http.ResponseWriter, r *http.Request) {
-	if err := s.cfg.Monitors.Ping(r.Context(), r.PathValue("token")); err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "không có heartbeat này")
-			return
-		}
-		s.internal(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

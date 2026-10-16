@@ -75,7 +75,7 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 			}
 			out = append(out, it)
 		}
-		if features.Has(on, features.Monitor) { // hidden: no badge either
+		if features.Has(on, features.Ops) { // hidden: no badge either
 			ms, _ := s.cfg.Store.Monitors().List(ctx, p.ID)
 			for _, m := range ms {
 				if m.Enabled && m.Status == "down" {

@@ -23,8 +23,8 @@ func TestMCP(t *testing.T) {
 	st.Migrate(ctx)
 	p, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
 	other, _ := st.Repos().Create(ctx, storage.Repo{Name: "q", Path: t.TempDir()})
-	st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "web", Type: "http", Target: "http://x", IntervalS: 60, Enabled: true, Status: "down", LastMessage: "HTTP 500"})
-	st.Monitors().Create(ctx, storage.Monitor{ProjectID: other.ID, Name: "secret", Type: "http", Target: "http://y", IntervalS: 60, Enabled: true})
+	st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "web", Type: "container", Target: "web", IntervalS: 60, Enabled: true, Status: "down", LastMessage: "HTTP 500"})
+	st.Monitors().Create(ctx, storage.Monitor{ProjectID: other.ID, Name: "secret", Type: "container", Target: "secret", IntervalS: 60, Enabled: true})
 
 	s := New(officetools.New(st, nil, nil), "test")
 	srv := httptest.NewServer(s)

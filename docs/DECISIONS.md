@@ -2414,9 +2414,9 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 ## ADR-161: Gói tính năng theo project
 - **Bối cảnh (15/10):** office dùng cho cả việc không phải code (ADR-090). Với project như vậy, Vận hành, Giám sát, git và lệnh build/test chỉ làm rối menu, tab và widget.
 - **Quyết định:**
-  - **Gói tính năng** gom nhiều tính năng con, giống level quyền gom nhiều quyền con. Gói đầu tiên là **Lập trình** (`develop`): `git`, `ops`, `monitor`, `checks`. Registry tĩnh ở `internal/features`. Chat, agent, quy trình, tự động hóa, Burn, trí nhớ, Skills & MCP và duyệt thay đổi (worktree + diff) là phần lõi, luôn có.
+  - **Gói tính năng** gom nhiều tính năng con, giống level quyền gom nhiều quyền con. Gói đầu tiên là **Lập trình** (`develop`): `git`, `ops`, `checks` (giám sát thuộc `ops`, ADR-162). Registry tĩnh ở `internal/features`. Chat, agent, quy trình, tự động hóa, Burn, trí nhớ, Skills & MCP và duyệt thay đổi (worktree + diff) là phần lõi, luôn có.
   - **Chỉ đặt theo project**, ở tab Thông tin; không có cài đặt chung. Key `features:<projectID>` trong `settings`: gói tắt và tính năng tắt lẻ. Thiếu key = bật hết, nên project cũ không đổi. Project không có thư mục tự tắt `git`; `checks` vẫn giữ vì helper toàn máy vẫn chạy lệnh trong home.
-  - **Chỉ ẩn giao diện:** menu, tab, mục trong Vận hành và Quyền, GitBar, menu nhánh, widget Theo dõi, sự cố trên badge. Agent giữ nguyên công cụ, quyền, `run_command` và đề xuất (vẫn chạy được tool có sẵn trong repo); API không bị chặn. Nhưng **prompt không nhắc** công cụ của tính năng đã tắt (git, Vận hành, Giám sát, chạy build/test trước khi xong), để agent không tự hỏi commit/push với người không làm code; khi người dùng yêu cầu thì vẫn dùng được. Không xóa dữ liệu, không dừng tiến trình hay monitor; lúc tắt `ops`/`monitor` mà còn thứ đang chạy, giao diện hỏi lại.
+  - **Chỉ ẩn giao diện:** menu, tab, mục trong Vận hành và Quyền, GitBar, menu nhánh, widget Theo dõi, sự cố trên badge. Agent giữ nguyên công cụ, quyền, `run_command` và đề xuất (vẫn chạy được tool có sẵn trong repo); API không bị chặn. Nhưng **prompt không nhắc** công cụ của tính năng đã tắt (git, Vận hành, chạy build/test trước khi xong), để agent không tự hỏi commit/push với người không làm code; khi người dùng yêu cầu thì vẫn dùng được. Không xóa dữ liệu, không dừng tiến trình hay monitor; lúc tắt `ops` mà còn tiến trình/giám sát đang chạy, giao diện hỏi lại.
   - Git chỉ ẩn phần giao diện; office vẫn dùng git ngầm cho worktree khi thư mục là repo.
 - **Không làm (lúc này):** cài đặt chung cho cả office, preset khi tạo project, gói Nội dung/Khách hàng, duyệt thay đổi cho thư mục không phải git.
 
@@ -2428,3 +2428,13 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Lời dặn cuối việc giao (`workflow/access-note`) khi theo quyền agent: dùng công cụ được phép; việc công cụ không cho phép thì không tìm đường khác mà đề xuất để người duyệt (`propose_action`, diff). Vai `edit` cũng được nhắc như vậy.
   - `workflow_ask` dùng cho vai không ghi `access` hoặc `analyze` (không cho `propose`/`edit`, quy trình con). Vai giám sát chỉ cần không phải quy trình con; lượt giám sát và biểu quyết vẫn luôn chỉ đọc.
   - Quy trình mẫu bỏ `access: analyze`; vai `edit` giữ nguyên. Dashboard có lựa chọn "Theo quyền của agent" và vai mới mặc định như vậy.
+
+## ADR-162: Giám sát gắn vào tiến trình và container
+- **Bối cảnh (15/10):** mục Giám sát riêng trong Vận hành khó hiểu (người dùng quên nó để làm gì) và có công tắc tính năng riêng. Office thật chưa có monitor nào.
+- **Quyết định:**
+  - Chỉ giám sát **tiến trình của office** và **service docker compose**; **bỏ hẳn HTTP, TCP, heartbeat** (code kiểm tra, endpoint `/api/heartbeat/{token}`, form). Migration 00094 xóa monitor các loại đó, dựng lại bảng bỏ cột `token`, `last_ping_at` và CHECK type (Go kiểm).
+  - **Mỗi tiến trình/service tối đa một giám sát**, bật ngay trên dòng của nó (nút ♥, `MonitorChip`): huy hiệu uptime 24h; mở ra để bật/tắt, AI phân tích khi Down, kiểm tra ngay, xem sự kiện. Tên mặc định theo tiến trình/service. Bỏ mục Giám sát và `MonitorPanel`.
+  - Xóa tiến trình thì xóa giám sát của nó (trước đây để lại monitor mồ côi).
+  - Gộp tính năng `monitor` vào `ops` (ADR-161): gói Lập trình còn `git`, `ops`, `checks`.
+- **Không làm:** theo dõi web/API bên ngoài; nếu cần sẽ là gói khác.
+

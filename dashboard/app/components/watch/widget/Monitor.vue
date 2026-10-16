@@ -15,7 +15,8 @@ const one = computed(() => monitors.value.find(m => m.id === config.value.monito
 
 const toneOf = (s: Monitor['status']): WatchTone => ({ up: 'ok', down: 'bad', pending: 'busy', paused: 'idle' } as const)[s]
 const uptime = (m: Monitor) => m.uptime_24h == null ? '—' : `${m.uptime_24h.toFixed(m.uptime_24h >= 99.95 || m.uptime_24h < 10 ? 0 : 1)}%`
-const opsLink = computed(() => ({ path: `/projects/${projectId.value}`, query: { tab: 'ops', section: 'monitors' } }))
+// a monitor lives on its process's or service's row in Vận hành
+const opsLink = computed(() => ({ path: `/projects/${projectId.value}`, query: { tab: 'ops', section: one.value?.type === 'container' ? 'containers' : 'processes' } }))
 </script>
 
 <template>

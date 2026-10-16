@@ -396,7 +396,7 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <section id="ops">
   <h2><span class="num">12</span>Operations &amp; monitors</h2>
   <p class="intro">Run your project like pm2, and let the agents read the same logs you do.</p>
-  <figure><img src="images/11-operations.png" alt="Operations" loading="lazy"><figcaption>Processes with status, CPU/RAM and ports; containers; monitors with uptime.</figcaption></figure>
+  <figure><img src="images/11-operations.png" alt="Operations" loading="lazy"><figcaption>Processes with status, CPU/RAM, ports and their monitoring; containers.</figcaption></figure>
   <h3>Processes</h3>
   <ol class="steps">
     <li>Click <b>Scan</b>: the office finds commands in <code>Makefile</code>, <code>package.json</code>, <code>docker-compose.yml</code>… Pin the ones you use.</li>
@@ -405,15 +405,8 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
   </ol>
   <h3>Containers</h3>
   <p>Docker compose stacks: status, ports, CPU/RAM/network, up/stop/restart/down/pull/build per stack or service, live logs.</p>
-  <h3>Monitors</h3>
-  <table>
-    <tr><th>Type</th><th>Checks</th></tr>
-    <tr><td>HTTP</td><td>Status code, keyword, timeout.</td></tr>
-    <tr><td>TCP</td><td>A host:port answers.</td></tr>
-    <tr><td>Heartbeat</td><td>Your cron job calls a secret URL. Missing pings mean Down.</td></tr>
-    <tr><td>Process / container</td><td>One of the office's processes or a compose service is running.</td></tr>
-  </table>
-  <p>Each monitor shows 24h uptime, latency and a trend. Turn on <b>AI analysis</b> to have an agent investigate when it goes Down, with a daily budget and a cooldown.</p>
+  <h3>Monitoring</h3>
+  <p>Each process and each compose service can be monitored: tap the <b>♥</b> on its row to turn it on. Its badge shows the 24h uptime; open it for Up/Down events, check now, and <b>AI analysis when Down</b> (an agent investigates, with a daily budget and a cooldown).</p>
 </section>
 
 <!-- 13 -->
@@ -505,7 +498,7 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <section id="assistant">
   <h2><span class="num">18</span>Office assistant</h2>
   <p class="intro">A chat that manages the office itself, across all projects.</p>
-  <figure><img src="images/21-assistant.png" alt="Office assistant" loading="lazy"><figcaption>"Add a monitor for the shop API", "Which connection costs the most this week?"</figcaption></figure>
+  <figure><img src="images/21-assistant.png" alt="Office assistant" loading="lazy"><figcaption>"Monitor the shop API process", "Which connection costs the most this week?"</figcaption></figure>
   <p>Pick a project scope with the chip, and the assistant can read and propose changes to any setting: connections, budgets, agents, automations. Changes come as cards you approve. You can also give it fallback connections.</p>
 </section>
 

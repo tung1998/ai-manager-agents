@@ -73,7 +73,7 @@ func TestSaveConflicts(t *testing.T) {
 	}
 
 	// monitor
-	mresp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/monitors", map[string]any{"name": "Shop", "type": "http", "target": "http://localhost:1"}, nil)
+	mresp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/monitors", map[string]any{"name": "Shop", "type": "container", "target": "shop"}, nil)
 	if mresp.StatusCode != 201 {
 		t.Fatalf("monitor create = %d %v", mresp.StatusCode, b)
 	}
@@ -82,7 +82,7 @@ func TestSaveConflicts(t *testing.T) {
 		t.Fatal("no monitor version")
 	}
 	editMon := func(name, version string) int {
-		resp, _ := do(t, admin, "PATCH", e.srv.URL+"/api/monitors/"+mid, map[string]any{"name": name, "type": "http", "target": "http://localhost:1", "version": version}, nil)
+		resp, _ := do(t, admin, "PATCH", e.srv.URL+"/api/monitors/"+mid, map[string]any{"name": name, "type": "container", "target": "shop", "version": version}, nil)
 		return resp.StatusCode
 	}
 	if code := editMon("Shop2", mv); code != 200 { // first form save with the version it opened with

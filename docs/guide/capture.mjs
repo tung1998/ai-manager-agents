@@ -212,10 +212,9 @@ async function seed() {
   for (const p of [docs, gitlog]) if (p?.id) await soft('start', () => api('POST', `/api/processes/${p.id}/start`))
   await sleep(2500)
   const mon = body => api('POST', `/api/projects/${ao.id}/monitors`, body)
+  // one per process, turned on from its row (process and container monitors only)
   const mons = [
-    await soft('monitor', () => mon({ name: T('Docs site', 'Trang tài liệu'), type: 'http', target: 'http://127.0.0.1:18900/', interval_s: 60 })),
-    await soft('monitor', () => mon({ name: 'Office API', type: 'tcp', target: API, interval_s: 60 })),
-    await soft('monitor', () => mon({ name: T('Nightly backup', 'Sao lưu hằng đêm'), type: 'heartbeat', interval_s: 86400 }))
+    docs?.id && await soft('monitor', () => mon({ type: 'process', target: docs.id, interval_s: 60, ai_enabled: true }))
   ]
   for (let i = 0; i < 4; i++) {
     for (const m of mons) if (m?.id) await soft('check', () => api('POST', `/api/monitors/${m.id}/check`))

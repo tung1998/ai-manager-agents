@@ -20,7 +20,7 @@ func TestEffective(t *testing.T) {
 		t.Fatalf("pack off: %v %v", on, off)
 	}
 	on, _ = Effective(Config{Packs: map[string]bool{"develop": true}, Off: []string{Ops}}, true)
-	if Has(on, Ops) || !Has(on, Monitor) {
+	if Has(on, Ops) || !Has(on, Git) {
 		t.Fatalf("one feature off: %v", on)
 	}
 	on, off = Effective(Config{Packs: map[string]bool{"develop": false}}, false)
@@ -47,15 +47,15 @@ func TestLoadSaveFor(t *testing.T) {
 	if got := For(ctx, st, p.ID); !slices.Equal(got, All()) {
 		t.Fatalf("unset: everything on, got %v", got)
 	}
-	if err := Save(ctx, st, p.ID, Config{Packs: map[string]bool{"develop": true, "nope": false}, Off: []string{Monitor, "nope"}}); err != nil {
+	if err := Save(ctx, st, p.ID, Config{Packs: map[string]bool{"develop": true, "nope": false}, Off: []string{Checks, "nope"}}); err != nil {
 		t.Fatal(err)
 	}
 	c := LoadConfig(ctx, st, p.ID)
-	if _, ok := c.Packs["nope"]; ok || !slices.Equal(c.Off, []string{Monitor}) {
+	if _, ok := c.Packs["nope"]; ok || !slices.Equal(c.Off, []string{Checks}) {
 		t.Fatalf("unknown packs/features dropped: %+v", c)
 	}
-	if got := For(ctx, st, p.ID); Has(got, Monitor) || !Has(got, Ops) {
-		t.Fatalf("monitor off: %v", got)
+	if got := For(ctx, st, p.ID); Has(got, Checks) || !Has(got, Ops) {
+		t.Fatalf("checks off: %v", got)
 	}
 	// a setting that does not read: everything on
 	_ = st.Settings().Set(ctx, Key(p.ID), "broken")

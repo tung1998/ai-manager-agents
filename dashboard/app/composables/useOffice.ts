@@ -195,13 +195,11 @@ export interface Project {
 }
 
 // the features of the packs (internal/features): a typo in a gate fails typecheck
-export type FeatureId = 'git' | 'ops' | 'monitor' | 'checks'
+export type FeatureId = 'git' | 'ops' | 'checks'
 // hasFeature: a feature of the project's packs is on (unknown: on)
 export function hasFeature(p: Pick<Project, 'features'> | undefined, f: FeatureId): boolean {
   return !p?.features || p.features.includes(f)
 }
-// hasOpsTab: Vận hành holds processes/containers (ops) and monitors
-export const hasOpsTab = (p: Pick<Project, 'features'> | undefined) => hasFeature(p, 'ops') || hasFeature(p, 'monitor')
 
 // Getter-backed records re-evaluate the translation at every access.
 export const modelTierLabel: Record<ModelTier, string> = {

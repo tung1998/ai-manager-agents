@@ -2,7 +2,6 @@ package monitor
 
 import (
 	"context"
-	"net"
 	"path/filepath"
 	"testing"
 	"time"
@@ -44,14 +43,8 @@ func TestMaybeAnalysePanicDoesNotStickEventRunning(t *testing.T) {
 	engine := chat.NewEngine(st, nil, nil)
 	s := New(st, nil, engine)
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	ln.Close() // nothing listens: the monitor goes down
-
-	m, err := st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "redis", Type: "tcp", Target: addr, IntervalS: 30, Enabled: true, AIEnabled: true})
+	// no ops manager: the container check fails, the monitor goes down
+	m, err := st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "redis", Type: "container", Target: "redis", IntervalS: 30, Enabled: true, AIEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}

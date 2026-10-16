@@ -10,7 +10,7 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 |---|---|---|---|
 | `/` | Tổng quan | 3 tab qua `?tab=`: **Việc** (mặc định — cần xử lý mọi project trừ Trợ lý office, việc gần đây, badge đếm trên sidebar), **Thống kê** (chi phí/lượt chạy theo ngày · project · model, 7/30/90 ngày — ADR-060), **Máy** (admin: trạng thái máy, kết nối AI, bước thiết lập ban đầu) | |
 | `/projects` | Danh sách project | Project đang quản lý (ADR-017: có thư mục, clone git, hoặc không thư mục — toàn máy) | Thêm project (chọn gói khởi tạo — ADR-099) |
-| `/projects/:id?tab=…` | Project | Thanh tiêu đề gọn (menu `⋯` sửa tên/mô tả, thiết lập AI), 1 dòng thông tin (đường dẫn · git · mô tả rút gọn). Tab: **Chat**, **Tự động hoá** (lịch/webhook/bot), **Vận hành** (Tiến trình · Container · Giám sát), **Agent** (danh sách agent, agent mặc định, tạm dừng, lịch sử, xuất, áp gói — ADR-099), **Quy trình** (cài từ thư viện, gán vai, bật/tắt, sửa — ADR-098; mục Lần chạy — ADR-101), **Quyền** (lệnh, file cấm sửa, project liên kết — ADR-155); chỉ admin thấy thêm: **Files**, **Skill**, **MCP**, **Burn**, **Nhật ký sửa**; và **Thông tin** (budget, git, mô tả, **Tính năng**: gói Lập trình và tính năng con — ADR-161). Tính năng tắt thì ẩn tab/mục của nó (Vận hành khi tắt cả `ops` và `monitor`, GitBar khi tắt `git`, Gói lệnh và Quick check trong Quyền khi tắt `checks`) | tuỳ tab |
+| `/projects/:id?tab=…` | Project | Thanh tiêu đề gọn (menu `⋯` sửa tên/mô tả, thiết lập AI), 1 dòng thông tin (đường dẫn · git · mô tả rút gọn). Tab: **Chat**, **Tự động hoá** (lịch/webhook/bot), **Vận hành** (Tiến trình · Container, mỗi dòng có giám sát riêng — ADR-162), **Agent** (danh sách agent, agent mặc định, tạm dừng, lịch sử, xuất, áp gói — ADR-099), **Quy trình** (cài từ thư viện, gán vai, bật/tắt, sửa — ADR-098; mục Lần chạy — ADR-101), **Quyền** (lệnh, file cấm sửa, project liên kết — ADR-155); chỉ admin thấy thêm: **Files**, **Skill**, **MCP**, **Burn**, **Nhật ký sửa**; và **Thông tin** (budget, git, mô tả, **Tính năng**: gói Lập trình và tính năng con — ADR-161). Tính năng tắt thì ẩn tab/mục của nó (Vận hành khi tắt `ops`, GitBar khi tắt `git`, Gói lệnh và Quick check trong Quyền khi tắt `checks`) | tuỳ tab |
 | `/projects/:id/setup` | Thiết lập AI | Quét project, đọc agent có sẵn, đề xuất gói khởi tạo + tinh chỉnh agent (ADR-018) | Tạo / Chỉnh / Hủy |
 | `/projects/:id/agents/:agentId` | Agent | Số liệu (lượt chạy, chi phí, tỉ lệ lỗi theo ngày/model), việc + chat gần đây, lịch sử sửa cấu hình (khôi phục được) | Sửa cấu hình, từng thẻ tự lưu |
 | `/projects/:id/automations/new`, `/automations/:aid`, `/automations/:aid/edit` | Tự động hoá | Tạo/sửa 1 automation (lịch, webhook, điều kiện, script hoặc chat); xem 1 cái: trạng thái, bật/tắt, Việc đã chạy | Chạy thử, sửa, xoá, copy URL webhook |
@@ -163,16 +163,15 @@ Gửi tin nhắn `{text, attachments:[id]}`; tạo Việc `{goal, budget_usd, at
 | GET | `/api/projects/:id/compose/logs?file=&service=` | auth | SSE log container (`--follow --tail 300`) |
 | POST | `/api/projects/:id/compose/log-attachment` | auth | `{file, service}` → log container thành file đính kèm |
 
-### Giám sát (đã làm, ADR-027)
+### Giám sát (đã làm, ADR-027; gắn vào tiến trình/container — ADR-162)
 
 | Method | Path | Quyền | Mô tả |
 |---|---|---|---|
 | GET | `/api/monitors?project=` | auth | giám sát + uptime 24h, độ trễ TB, 30 lần kiểm tra gần nhất; `summary` |
-| POST | `/api/projects/:id/monitors` | admin | `{name, type, target, config, interval_s, ai_enabled, ai_budget_usd}` |
+| POST | `/api/projects/:id/monitors` | admin | `{type: process\|container, target, config.file, interval_s, ai_enabled, ai_budget_usd}`; tên mặc định theo tiến trình/service; mỗi tiến trình/service một giám sát |
 | PATCH/DELETE | `/api/monitors/:id` | admin | sửa (tạm dừng = `enabled:false`) / xóa |
 | POST | `/api/monitors/:id/check` | admin | kiểm tra ngay |
 | GET | `/api/monitor-events?project=&limit=` | auth | sự kiện Up/Down kèm phân tích AI |
-| GET/POST | `/api/heartbeat/:token` | công khai | service báo còn sống |
 
 Dashboard mặc định chạy ở cổng **2704** (`make dev-ui`, `make ui-start`), API ở 8787.
 

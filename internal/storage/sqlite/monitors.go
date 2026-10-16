@@ -12,8 +12,8 @@ import (
 
 type monitorRepo struct{ db dbtx }
 
-const monitorCols = `id, project_id, name, type, target, config, interval_s, enabled, ai_enabled, ai_budget_usd, token, status, fails,
-	last_checked_at, last_change_at, last_latency_ms, last_message, last_ping_at, created_at, updated_at`
+const monitorCols = `id, project_id, name, type, target, config, interval_s, enabled, ai_enabled, ai_budget_usd, status, fails,
+	last_checked_at, last_change_at, last_latency_ms, last_message, created_at, updated_at`
 
 func optParse(ns sql.NullString) (*time.Time, error) {
 	if !ns.Valid || ns.String == "" {
@@ -27,10 +27,10 @@ func scanMonitor(row scanner) (storage.Monitor, error) {
 	var (
 		m                     storage.Monitor
 		cfg, created, updated string
-		checked, change, ping sql.NullString
+		checked, change       sql.NullString
 	)
 	if err := row.Scan(&m.ID, &m.ProjectID, &m.Name, &m.Type, &m.Target, &cfg, &m.IntervalS, &m.Enabled, &m.AIEnabled, &m.AIBudgetUSD,
-		&m.Token, &m.Status, &m.Fails, &checked, &change, &m.LastLatencyMS, &m.LastMessage, &ping, &created, &updated); err != nil {
+		&m.Status, &m.Fails, &checked, &change, &m.LastLatencyMS, &m.LastMessage, &created, &updated); err != nil {
 		return m, notFound(err)
 	}
 	if err := json.Unmarshal([]byte(cfg), &m.Config); err != nil {
@@ -41,9 +41,6 @@ func scanMonitor(row scanner) (storage.Monitor, error) {
 		return m, err
 	}
 	if m.LastChangeAt, err = optParse(change); err != nil {
-		return m, err
-	}
-	if m.LastPingAt, err = optParse(ping); err != nil {
 		return m, err
 	}
 	if m.CreatedAt, err = parseTime(created); err != nil {
@@ -62,9 +59,9 @@ func (r monitorRepo) Create(ctx context.Context, m storage.Monitor) (storage.Mon
 	}
 	m.CreatedAt = time.Now().UTC()
 	m.UpdatedAt = m.CreatedAt
-	_, err := r.db.ExecContext(ctx, `INSERT INTO monitors (`+monitorCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO monitors (`+monitorCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		m.ID, m.ProjectID, m.Name, m.Type, m.Target, toJSON(m.Config), m.IntervalS, boolInt(m.Enabled), boolInt(m.AIEnabled), m.AIBudgetUSD,
-		m.Token, m.Status, m.Fails, optTime(m.LastCheckedAt), optTime(m.LastChangeAt), m.LastLatencyMS, m.LastMessage, optTime(m.LastPingAt),
+		m.Status, m.Fails, optTime(m.LastCheckedAt), optTime(m.LastChangeAt), m.LastLatencyMS, m.LastMessage,
 		fmtTime(m.CreatedAt), fmtTime(m.UpdatedAt))
 	if isUnique(err) {
 		return storage.Monitor{}, storage.ErrConflict
@@ -73,8 +70,8 @@ func (r monitorRepo) Create(ctx context.Context, m storage.Monitor) (storage.Mon
 }
 
 func (r monitorRepo) Update(ctx context.Context, m storage.Monitor) error {
-	err := execOne(ctx, r.db, `UPDATE monitors SET name=?, type=?, target=?, config=?, interval_s=?, enabled=?, ai_enabled=?, ai_budget_usd=?, token=?, updated_at=? WHERE id=?`,
-		m.Name, m.Type, m.Target, toJSON(m.Config), m.IntervalS, boolInt(m.Enabled), boolInt(m.AIEnabled), m.AIBudgetUSD, m.Token, fmtTime(time.Now()), m.ID)
+	err := execOne(ctx, r.db, `UPDATE monitors SET name=?, type=?, target=?, config=?, interval_s=?, enabled=?, ai_enabled=?, ai_budget_usd=?, updated_at=? WHERE id=?`,
+		m.Name, m.Type, m.Target, toJSON(m.Config), m.IntervalS, boolInt(m.Enabled), boolInt(m.AIEnabled), m.AIBudgetUSD, fmtTime(time.Now()), m.ID)
 	if isUnique(err) {
 		return storage.ErrConflict
 	}
@@ -96,22 +93,8 @@ func (r monitorRepo) SaveStatus(ctx context.Context, m storage.Monitor) error {
 		m.Status, m.Fails, optTime(m.LastCheckedAt), optTime(m.LastChangeAt), m.LastLatencyMS, m.LastMessage, m.ID)
 }
 
-// SavePing records only the heartbeat time, quietly (ADR-072): it must never
-// touch status/fails/last_checked_at, so a concurrent CheckNow's fresh
-// result can't be clobbered by a stale Ping (see Service.Ping).
-func (r monitorRepo) SavePing(ctx context.Context, id string, at time.Time) error {
-	return execOne(ctx, r.db, `/* quiet */ UPDATE monitors SET last_ping_at=? WHERE id=?`, fmtTime(at), id)
-}
-
 func (r monitorRepo) Get(ctx context.Context, id string) (storage.Monitor, error) {
 	return scanMonitor(r.db.QueryRowContext(ctx, `SELECT `+monitorCols+` FROM monitors WHERE id=?`, id))
-}
-
-func (r monitorRepo) GetByToken(ctx context.Context, token string) (storage.Monitor, error) {
-	if token == "" {
-		return storage.Monitor{}, storage.ErrNotFound
-	}
-	return scanMonitor(r.db.QueryRowContext(ctx, `SELECT `+monitorCols+` FROM monitors WHERE token=?`, token))
 }
 
 func (r monitorRepo) List(ctx context.Context, projectID string) ([]storage.Monitor, error) {

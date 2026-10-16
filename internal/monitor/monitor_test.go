@@ -2,19 +2,16 @@ package monitor
 
 import (
 	"context"
-	"net"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 )
 
-func setup(t *testing.T) (*Service, storage.Store, storage.Repo) {
+func setup(t *testing.T) (*Service, storage.Store, storage.Repo, *ops.Manager) {
 	t.Helper()
 	st, err := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
 	if err != nil {
@@ -25,86 +22,55 @@ func setup(t *testing.T) (*Service, storage.Store, storage.Repo) {
 		t.Fatal(err)
 	}
 	p, _ := st.Repos().Create(context.Background(), storage.Repo{Name: "p", Path: t.TempDir()})
-	return New(st, nil, nil), st, p
+	m := ops.NewManager(st, t.TempDir(), nil)
+	t.Cleanup(m.Shutdown)
+	return New(st, m, nil), st, p, m
 }
 
-func TestHTTPFlapGuardAndEvents(t *testing.T) {
-	s, st, p := setup(t)
+// A process monitor follows the process: up while it runs, down at once
+// when it stops (one failure is enough), with an event for each change.
+func TestProcessMonitor(t *testing.T) {
+	s, st, p, o := setup(t)
 	ctx := context.Background()
-	var fail atomic.Bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if fail.Load() {
-			w.WriteHeader(500)
-			return
-		}
-		w.Write([]byte("hello storefront"))
-	}))
-	defer srv.Close()
-	m, _ := st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "web", Type: "http", Target: srv.URL, IntervalS: 30, Enabled: true,
-		Config: storage.MonitorConfig{Keyword: "storefront"}})
-
-	m, _ = s.CheckNow(ctx, m.ID)
-	if m.Status != "up" {
-		t.Fatalf("first: %+v", m)
+	proc, _ := st.Processes().Create(ctx, storage.Process{ProjectID: p.ID, Name: "dev", Kind: "service", Command: "sleep 30"})
+	if err := o.Start(ctx, proc.ID); err != nil {
+		t.Fatal(err)
 	}
-	fail.Store(true)
-	m, _ = s.CheckNow(ctx, m.ID)
-	if m.Status != "up" || m.Fails != 1 {
+	m, _ := st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "dev", Type: "process", Target: proc.ID, IntervalS: 30, Enabled: true})
+	if m, _ = s.CheckNow(ctx, m.ID); m.Status != "up" {
+		t.Fatalf("running: %+v", m)
+	}
+	o.Stop(proc.ID)
+	deadline := time.Now().Add(5 * time.Second)
+	for o.State(proc.ID).Status == "running" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if m, _ = s.CheckNow(ctx, m.ID); m.Status != "down" {
+		t.Fatalf("stopped: %+v", m)
+	}
+	evs, _ := st.Monitors().Events(ctx, p.ID, 10)
+	if len(evs) != 1 || evs[0].Kind != "down" {
+		t.Fatalf("events: %+v", evs)
+	}
+	// the process deleted: its monitor goes with it
+	if err := st.Processes().Delete(ctx, proc.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Monitors().Get(ctx, m.ID); err != storage.ErrNotFound {
+		t.Fatalf("monitor of a deleted process: %v", err)
+	}
+}
+
+// A container monitor needs two failures in a row before it is down.
+func TestContainerFlapGuard(t *testing.T) {
+	s, st, p, _ := setup(t)
+	s.ops = nil // no compose: every check fails
+	ctx := context.Background()
+	m, _ := st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "db", Type: "container", Target: "db", IntervalS: 30, Enabled: true})
+	if m, _ = s.CheckNow(ctx, m.ID); m.Status == "down" || m.Fails != 1 {
 		t.Fatalf("one failure must not flip: %+v", m)
 	}
-	m, _ = s.CheckNow(ctx, m.ID)
-	if m.Status != "down" || m.LastMessage != "HTTP 500" {
-		t.Fatalf("two failures: %+v", m)
-	}
-	fail.Store(false)
-	m, _ = s.CheckNow(ctx, m.ID)
-	evs, _ := st.Monitors().Events(ctx, p.ID, 10)
-	if m.Status != "up" || len(evs) != 2 || evs[0].Kind != "up" || evs[1].Kind != "down" {
-		t.Fatalf("events: %+v %+v", m, evs)
-	}
-	checks, _ := st.Monitors().Checks(ctx, m.ID, time.Now().Add(-time.Hour))
-	if len(checks) != 4 {
-		t.Fatalf("checks: %d", len(checks))
-	}
-
-	kw, _ := st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "kw", Type: "http", Target: srv.URL, IntervalS: 30, Enabled: true,
-		Config: storage.MonitorConfig{Keyword: "nope"}})
-	kw, _ = s.CheckNow(ctx, kw.ID)
-	if kw.Fails != 1 {
-		t.Fatalf("keyword missing must fail: %+v", kw)
-	}
-}
-
-func TestTCPAndHeartbeat(t *testing.T) {
-	s, st, p := setup(t)
-	ctx := context.Background()
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := ln.Addr().String()
-	m, _ := st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "redis", Type: "tcp", Target: addr, IntervalS: 30, Enabled: true})
-	if m, _ = s.CheckNow(ctx, m.ID); m.Status != "up" {
-		t.Fatalf("tcp up: %+v", m)
-	}
-	ln.Close()
-	s.CheckNow(ctx, m.ID)
 	if m, _ = s.CheckNow(ctx, m.ID); m.Status != "down" {
-		t.Fatalf("tcp down: %+v", m)
-	}
-
-	hb, _ := st.Monitors().Create(ctx, storage.Monitor{ProjectID: p.ID, Name: "cron", Type: "heartbeat", Token: NewToken(), IntervalS: 60, Enabled: true})
-	if hb, _ = s.CheckNow(ctx, hb.ID); hb.Status != "pending" {
-		t.Fatalf("waiting for first ping: %+v", hb)
-	}
-	if err := s.Ping(ctx, hb.Token); err != nil {
-		t.Fatal(err)
-	}
-	if hb, _ = st.Monitors().Get(ctx, hb.ID); hb.Status != "up" {
-		t.Fatalf("after ping: %+v", hb)
-	}
-	s.now = func() time.Time { return time.Now().Add(5 * time.Minute) }
-	if hb, _ = s.CheckNow(ctx, hb.ID); hb.Status != "down" {
-		t.Fatalf("missed heartbeat: %+v", hb)
-	}
-	if err := s.Ping(ctx, "wrong"); err != storage.ErrNotFound {
-		t.Fatal(err)
+		t.Fatalf("two failures: %+v", m)
 	}
 }

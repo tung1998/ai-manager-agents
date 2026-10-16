@@ -1402,7 +1402,7 @@ func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool, o
 	b.WriteString(lang.Rule())
 	if officeTools {
 		b.WriteString(prompts.Render("chat/office-tools", map[string]any{"DevTools": devTools(on),
-			"Logs": features.OpsTab(on), "Checks": features.Has(on, features.Checks)}) + "\n")
+			"Logs": features.Has(on, features.Ops), "Checks": features.Has(on, features.Checks)}) + "\n")
 	}
 	fmt.Fprintf(&b, "- Your permission this turn: %s (%s).\n", perm.Label(level), perm.All[perm.Rank(level)].Description)
 	auto := acc.Can(perm.CapApply)

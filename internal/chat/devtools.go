@@ -7,18 +7,12 @@ import (
 )
 
 // devTools tells the agent the office tools of the project's features on
-// (git, Vận hành, Giám sát); "" when none is.
+// (git, Vận hành); "" when none is.
 func devTools(on []string) string {
 	has := func(f string) bool { return features.Has(on, f) }
 	var read []string
-	if features.OpsTab(on) {
-		read = append(read, "ops_overview (build/dev/test processes, docker compose, monitors, incidents)")
-	}
 	if has(features.Ops) {
-		read = append(read, "process_logs", "container_logs")
-	}
-	if has(features.Monitor) {
-		read = append(read, "monitor_detail")
+		read = append(read, "ops_overview (build/dev/test processes, docker compose, monitors, incidents)", "process_logs", "container_logs", "monitor_detail")
 	}
 	var parts []string
 	if len(read) > 0 {

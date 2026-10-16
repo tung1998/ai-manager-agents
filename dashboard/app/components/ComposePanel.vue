@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Docker Compose services of a project: state, ports, CPU/RAM, start/stop, logs.
 import type { Attachment } from './PromptInput.vue'
+import type { MonitorItem } from './MonitorChip.vue'
 
 interface Port { url: string, published: number, target: number, protocol: string }
 interface Stats { cpu: string, mem: string, mem_perc: string, net: string, block: string, pids: string }
@@ -16,6 +17,9 @@ const { isAdmin } = useAuth()
 const { t } = useLang()
 
 const file = ref('')
+// each service's monitor, on its row
+const { data: monData, refresh: refreshMon } = useLiveFetch<{ monitors: MonitorItem[] }>('/api/monitors', { query: { project: props.projectId }, lazy: true })
+const monitorOf = (s: Service) => monData.value?.monitors.find(m => m.type === 'container' && m.target === s.name && (m.config.file ?? '') === (data.value?.file ?? ''))
 // Render right away: first a fast load without stats, then keep polling with
 // CPU/RAM (docker stats samples for a moment, so it never blocks the view).
 const data = ref<View | null>(null)
@@ -206,6 +210,7 @@ const stackMenu = computed(() => [[
                   <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-rotate-cw" :aria-label="t('compose.restart')" :loading="busy === 'restart' + s.name" :disabled="actionRunning" @click="act('restart', s.name)" />
                 </template>
               </template>
+              <MonitorChip v-if="monData" :project-id="projectId" type="container" :target="s.name" :file="data.file" :monitor="monitorOf(s)" @changed="refreshMon()" />
               <UButton
                 v-if="stateOf(s).color === 'error'" size="xs" color="error" variant="soft"
                 icon="i-lucide-wrench" :label="t('compose.fix')" class="ms-auto" @click="askAgent(s, true)"

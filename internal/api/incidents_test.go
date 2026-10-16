@@ -18,7 +18,7 @@ func TestIncidents(t *testing.T) {
 	ctx := context.Background()
 	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
-	m, _ := e.st.Monitors().Create(ctx, storage.Monitor{ProjectID: pid, Name: "API", Type: "http", Target: "http://x", Enabled: true})
+	m, _ := e.st.Monitors().Create(ctx, storage.Monitor{ProjectID: pid, Name: "API", Type: "container", Target: "api", Enabled: true})
 	m.Status, m.LastMessage = "down", "HTTP 500"
 	e.st.Monitors().SaveStatus(ctx, m)
 	e.st.Automations().Create(ctx, storage.Automation{ProjectID: pid, Name: "Báo cáo", Source: "schedule", Action: "script", DisabledCode: "failures", DisabledReason: "script lỗi"})

@@ -48,7 +48,7 @@ export const widgetDefs: WidgetDef[] = [
     defaults: { service: '', console: true, controls: true, metrics: true }
   },
   {
-    kind: 'monitor', feature: 'monitor', group: 'run', grid: { w: 3, h: 3, minW: 2, minH: 1, maxW: 6, maxH: 8 }, icon: 'i-lucide-heart-pulse', project: 'required',
+    kind: 'monitor', feature: 'ops', group: 'run', grid: { w: 3, h: 3, minW: 2, minH: 1, maxW: 6, maxH: 8 }, icon: 'i-lucide-heart-pulse', project: 'required',
     fields: [{ key: 'monitorId', type: 'select', source: 'monitors' }, { key: 'trend', type: 'switch' }],
     defaults: { monitorId: '', trend: true }
   },

@@ -13,13 +13,13 @@ interface State { config: Config, on: string[], off: Record<string, 'project' | 
 const { data, error, refresh } = useLiveFetch<State>(() => `/api/projects/${props.projectId}/features`, { lazy: true })
 
 const packIcon: Record<string, string> = { develop: 'i-lucide-code-xml' }
-const featureIcon: Record<string, string> = { git: 'i-lucide-git-branch', ops: 'i-lucide-square-terminal', monitor: 'i-lucide-heart-pulse', checks: 'i-lucide-list-checks' }
+const featureIcon: Record<string, string> = { git: 'i-lucide-git-branch', ops: 'i-lucide-square-terminal', checks: 'i-lucide-list-checks' }
 
 const packOn = (id: string) => data.value?.config.packs?.[id] !== false
 const featureOn = (f: string) => !!data.value?.on.includes(f)
 const noFolder = (f: string) => data.value?.off[f] === 'no_folder'
 
-// what still runs under ops/monitor: turning them off only hides it
+// what still runs under Vận hành (processes, monitors): turning it off only hides it
 async function stillRunning(features: string[]): Promise<string> {
   const what: string[] = []
   let n = 0
@@ -29,7 +29,7 @@ async function stillRunning(features: string[]): Promise<string> {
       const k = r.processes.filter(p => p.state.status === 'running').length
       if (k) { n += k; what.push(t('feat.runningProcs', { n: k })) }
     }
-    if (features.includes('monitor') && featureOn('monitor')) {
+    if (features.includes('ops') && featureOn('ops')) {
       const r = await $fetch<{ monitors: { enabled: boolean }[] }>('/api/monitors', { query: { project: props.projectId } })
       const k = r.monitors.filter(m => m.enabled).length
       if (k) { n += k; what.push(t('feat.runningMonitors', { n: k })) }

@@ -71,10 +71,10 @@ onMounted(() => {
 // pages below a project (/projects/:id/<child>/…) belong to one of its sections
 const childSection: Record<string, string> = { agents: 'agents', automations: 'automations', workflows: 'workflows' }
 
-// Vận hành holds processes/containers (ops) and monitors: hidden with both off
+// Vận hành: hidden with the ops feature off
 function hasOps(id: string) {
   const p = projectList.value.find(x => x.id === id)
-  return hasOpsTab(p)
+  return hasFeature(p, 'ops')
 }
 
 function projectSections(id: string): NavigationMenuItem[] {

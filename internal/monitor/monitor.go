@@ -1,22 +1,14 @@
-// Package monitor runs a project's health checks on a schedule: HTTP, TCP,
-// heartbeat (pushed by the service), office processes and compose
-// containers. Checks are rule-based and free; a monitor with AI enabled asks
-// the project's lead agent to analyse when it goes down, within a daily cap.
+// Package monitor watches a project's office processes and compose
+// containers on a schedule, one monitor per process or service (turned on
+// from its row in Vận hành). Checks are rule-based and free; a monitor with
+// AI enabled asks the project's lead agent to analyse when it goes down,
+// within a daily cap.
 package monitor
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net"
-	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,13 +17,14 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
+// Types: what a monitor watches.
+var Types = []string{"process", "container"}
+
 const (
-	downAfter    = 2 // consecutive failures before a monitor is down (flap guard)
-	keepChecks   = 7 * 24 * time.Hour
-	aiCooldown   = 30 * time.Minute
-	maxParallel  = 8
-	defaultTOut  = 10 * time.Second
-	maxBodyBytes = 1 << 20
+	downAfter   = 2 // consecutive failures before a container is down (flap guard)
+	keepChecks  = 7 * 24 * time.Hour
+	aiCooldown  = 30 * time.Minute
+	maxParallel = 8
 )
 
 // Result is one check outcome.
@@ -39,7 +32,6 @@ type Result struct {
 	OK        bool
 	LatencyMS int
 	Message   string
-	Skip      bool // not enough data yet (heartbeat never pinged)
 }
 
 // Service schedules and runs monitors.
@@ -47,7 +39,6 @@ type Service struct {
 	store  storage.Store
 	ops    *ops.Manager
 	engine *chat.Engine
-	client *http.Client
 	now    func() time.Time
 
 	mu       sync.Mutex
@@ -56,22 +47,7 @@ type Service struct {
 
 // New builds a Service. engine may be nil (no AI analysis).
 func New(store storage.Store, o *ops.Manager, engine *chat.Engine) *Service {
-	return &Service{
-		store: store, ops: o, engine: engine, now: time.Now, inFlight: map[string]bool{},
-		client: &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return errors.New("quá nhiều redirect")
-			}
-			return nil
-		}},
-	}
-}
-
-// NewToken makes a heartbeat token.
-func NewToken() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	return &Service{store: store, ops: o, engine: engine, now: time.Now, inFlight: map[string]bool{}}
 }
 
 // Run checks due monitors until ctx ends.
@@ -137,17 +113,13 @@ func (s *Service) CheckNow(ctx context.Context, id string) (storage.Monitor, err
 	res := s.check(ctx, m)
 	now := s.now().UTC()
 	m.LastCheckedAt = &now
-	if res.Skip {
-		m.LastMessage = res.Message
-		return m, s.store.Monitors().SaveStatus(ctx, m)
-	}
 	if err := s.store.Monitors().AddCheck(ctx, storage.MonitorCheck{MonitorID: m.ID, At: now, OK: res.OK, LatencyMS: res.LatencyMS, Message: res.Message}); err != nil {
 		slog.Error("monitor: save check failed", "monitor_id", m.ID, "error", err)
 	}
 	m.LastLatencyMS, m.LastMessage = res.LatencyMS, res.Message
 	prev := m.Status
 	threshold := downAfter
-	if m.Type == "heartbeat" || m.Type == "process" {
+	if m.Type == "process" {
 		threshold = 1 // already a sustained signal
 	}
 	if res.OK {
@@ -173,33 +145,7 @@ func (s *Service) CheckNow(ctx context.Context, id string) (storage.Monitor, err
 }
 
 func (s *Service) check(ctx context.Context, m storage.Monitor) Result {
-	timeout := defaultTOut
-	if m.Config.TimeoutMS > 0 {
-		timeout = time.Duration(m.Config.TimeoutMS) * time.Millisecond
-	}
 	switch m.Type {
-	case "http":
-		return s.checkHTTP(ctx, m, timeout)
-	case "tcp":
-		start := s.now()
-		c, err := net.DialTimeout("tcp", m.Target, timeout)
-		ms := int(s.now().Sub(start).Milliseconds())
-		if err != nil {
-			return Result{LatencyMS: ms, Message: shortNetErr(err)}
-		}
-		c.Close()
-		return Result{OK: true, LatencyMS: ms, Message: "mở cổng được"}
-	case "heartbeat":
-		iv := time.Duration(max(m.IntervalS, 10)) * time.Second
-		if m.LastPingAt == nil {
-			if s.now().Sub(m.CreatedAt) < iv+iv/2 {
-				return Result{Skip: true, Message: "đang chờ heartbeat đầu tiên"}
-			}
-			return Result{Message: "chưa nhận heartbeat nào"}
-		}
-		ago := s.now().Sub(*m.LastPingAt)
-		msg := fmt.Sprintf("heartbeat %s trước", ago.Round(time.Second))
-		return Result{OK: ago <= iv+iv/2, Message: msg}
 	case "process":
 		if s.ops == nil {
 			return Result{Message: "không quản lý tiến trình"}
@@ -239,88 +185,4 @@ func (s *Service) check(ctx context.Context, m storage.Monitor) Result {
 		return Result{OK: true, LatencyMS: ms, Message: c.Status}
 	}
 	return Result{Message: "loại giám sát không hỗ trợ"}
-}
-
-func (s *Service) checkHTTP(ctx context.Context, m storage.Monitor, timeout time.Duration) Result {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.Target, nil)
-	if err != nil {
-		return Result{Message: "URL không hợp lệ"}
-	}
-	req.Header.Set("User-Agent", "agent-office-monitor/1")
-	start := s.now()
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return Result{LatencyMS: int(s.now().Sub(start).Milliseconds()), Message: shortNetErr(err)}
-	}
-	defer resp.Body.Close()
-	var body []byte
-	if m.Config.Keyword != "" {
-		body, _ = io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
-	} else {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBodyBytes))
-	}
-	ms := int(s.now().Sub(start).Milliseconds())
-	if !statusOK(resp.StatusCode, m.Config.ExpectStatus) {
-		return Result{LatencyMS: ms, Message: fmt.Sprintf("HTTP %d", resp.StatusCode)}
-	}
-	if m.Config.Keyword != "" && !strings.Contains(string(body), m.Config.Keyword) {
-		return Result{LatencyMS: ms, Message: fmt.Sprintf("HTTP %d, không thấy %q", resp.StatusCode, m.Config.Keyword)}
-	}
-	return Result{OK: true, LatencyMS: ms, Message: fmt.Sprintf("HTTP %d", resp.StatusCode)}
-}
-
-// statusOK matches "200-399" (default) or a list "200,204".
-func statusOK(code int, expect string) bool {
-	if expect == "" {
-		expect = "200-399"
-	}
-	for _, part := range strings.Split(expect, ",") {
-		part = strings.TrimSpace(part)
-		if lo, hi, ok := strings.Cut(part, "-"); ok {
-			l, e1 := strconv.Atoi(strings.TrimSpace(lo))
-			h, e2 := strconv.Atoi(strings.TrimSpace(hi))
-			if e1 == nil && e2 == nil && code >= l && code <= h {
-				return true
-			}
-		} else if n, err := strconv.Atoi(part); err == nil && n == code {
-			return true
-		}
-	}
-	return false
-}
-
-func shortNetErr(err error) string {
-	var ne net.Error
-	switch {
-	case errors.As(err, &ne) && ne.Timeout():
-		return "quá thời gian chờ"
-	case strings.Contains(err.Error(), "connection refused"):
-		return "bị từ chối kết nối (dịch vụ không chạy?)"
-	case strings.Contains(err.Error(), "no such host"):
-		return "không phân giải được tên miền"
-	}
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		return ue.Err.Error()
-	}
-	return err.Error()
-}
-
-// Ping records a heartbeat and checks right away.
-func (s *Service) Ping(ctx context.Context, token string) error {
-	m, err := s.store.Monitors().GetByToken(ctx, token)
-	if err != nil || m.Type != "heartbeat" {
-		return storage.ErrNotFound
-	}
-	now := s.now().UTC()
-	if err := s.store.Monitors().SavePing(ctx, m.ID, now); err != nil {
-		return err
-	}
-	if m.Enabled && s.claim(m.ID) {
-		defer s.release(m.ID)
-		_, err = s.CheckNow(ctx, m.ID)
-	}
-	return err
 }

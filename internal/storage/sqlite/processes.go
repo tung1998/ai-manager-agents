@@ -98,6 +98,11 @@ func (r processRepo) List(ctx context.Context, projectID string) ([]storage.Proc
 	return out, rows.Err()
 }
 
+// Delete removes a process and its monitor (a monitor watches one process).
 func (r processRepo) Delete(ctx context.Context, id string) error {
-	return execOne(ctx, r.db, `DELETE FROM processes WHERE id=?`, id)
+	if err := execOne(ctx, r.db, `DELETE FROM processes WHERE id=?`, id); err != nil {
+		return err
+	}
+	_, err := r.db.ExecContext(ctx, `DELETE FROM monitors WHERE type='process' AND target=?`, id)
+	return err
 }

@@ -707,36 +707,32 @@ type ProcessRepo interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// Monitor is a health check of a project.
+// Monitor watches an office process or a compose service of a project (one
+// per process/service).
 type Monitor struct {
 	ID            string
 	ProjectID     string
 	Name          string
-	Type          string // http | tcp | heartbeat | process | container
-	Target        string
+	Type          string // process | container
+	Target        string // process id | compose service
 	Config        MonitorConfig
 	IntervalS     int
 	Enabled       bool
 	AIEnabled     bool
 	AIBudgetUSD   float64
-	Token         string
 	Status        string // pending | up | down
 	Fails         int
 	LastCheckedAt *time.Time
 	LastChangeAt  *time.Time
 	LastLatencyMS int
 	LastMessage   string
-	LastPingAt    *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
 // MonitorConfig holds type-specific options.
 type MonitorConfig struct {
-	ExpectStatus string `json:"expect_status,omitempty"` // "200-399" (http)
-	Keyword      string `json:"keyword,omitempty"`       // must appear in the body (http)
-	TimeoutMS    int    `json:"timeout_ms,omitempty"`
-	File         string `json:"file,omitempty"` // compose file (container)
+	File string `json:"file,omitempty"` // compose file (container)
 }
 
 // MonitorCheck is one check result.
@@ -766,9 +762,7 @@ type MonitorRepo interface {
 	Create(ctx context.Context, m Monitor) (Monitor, error)
 	Update(ctx context.Context, m Monitor) error     // definition fields
 	SaveStatus(ctx context.Context, m Monitor) error // status fields
-	SavePing(ctx context.Context, id string, at time.Time) error
 	Get(ctx context.Context, id string) (Monitor, error)
-	GetByToken(ctx context.Context, token string) (Monitor, error)
 	List(ctx context.Context, projectID string) ([]Monitor, error) // "" = all
 	Delete(ctx context.Context, id string) error
 

@@ -10,7 +10,7 @@ import (
 
 func officeToolsText(on []string) string {
 	return prompts.Render("chat/office-tools", map[string]any{"DevTools": devTools(on),
-		"Logs": features.OpsTab(on), "Checks": features.Has(on, features.Checks)})
+		"Logs": features.Has(on, features.Ops), "Checks": features.Has(on, features.Checks)})
 }
 
 func TestOfficeToolsPromptFollowsFeatures(t *testing.T) {
@@ -28,8 +28,8 @@ func TestOfficeToolsPromptFollowsFeatures(t *testing.T) {
 	if !strings.HasPrefix(got, "- When the person pastes") {
 		t.Fatalf("develop off: %s", got)
 	}
-	got = officeToolsText([]string{features.Monitor})
-	if !strings.Contains(got, "ops_overview (") || !strings.Contains(got, "monitor_detail to read") || strings.Contains(got, "process_logs") || strings.Contains(got, "propose_action to PROPOSE") {
-		t.Fatalf("monitor only: %s", got)
+	got = officeToolsText([]string{features.Ops})
+	if !strings.Contains(got, "monitor_detail to read") || strings.Contains(got, "git_status") || strings.Contains(got, "a commit") {
+		t.Fatalf("ops only: %s", got)
 	}
 }
