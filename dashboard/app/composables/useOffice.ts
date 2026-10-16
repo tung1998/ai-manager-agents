@@ -195,7 +195,7 @@ export interface Project {
 }
 
 // the features of the packs (internal/features): a typo in a gate fails typecheck
-export type FeatureId = 'git' | 'ops' | 'checks'
+export type FeatureId = 'git' | 'ops'
 // hasFeature: a feature of the project's packs is on (unknown: on)
 export function hasFeature(p: Pick<Project, 'features'> | undefined, f: FeatureId): boolean {
   return !p?.features || p.features.includes(f)

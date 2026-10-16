@@ -121,6 +121,7 @@ type Policy struct {
 	Catalog []string `json:"-"` // every command of the project's packs
 	Safe    []string `json:"-"` // the check/read ones: an agent's default, run on their own from read
 	Jobs    []string `json:"-"` // ids of the project's check processes (kind job): an agent's default
+	Build   bool     `json:"-"` // the project has build/test commands (HasBuild): the prompt asks to run them
 }
 
 // Where a chat or task changes code: in its own git worktree, merged after a
@@ -175,7 +176,9 @@ func LoadPolicyRaw(ctx context.Context, st storage.Store, projectID string) (Pol
 	if r, err := st.Repos().Get(ctx, projectID); err == nil {
 		root = r.Path
 	}
-	p.Catalog, p.Safe = Catalog(ProjectPacks(root, p.Packs))
+	packs := ProjectPacks(root, p.Packs)
+	p.Catalog, p.Safe = Catalog(packs)
+	p.Build = HasBuild(packs)
 	p.Jobs = []string{}
 	if procs, err := st.Processes().List(ctx, projectID); err == nil {
 		for _, x := range procs {

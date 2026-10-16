@@ -119,7 +119,7 @@ async function removeRepo() {
               <FeaturePacks :project-id="project.id" @changed="refresh()" />
               <ProjectBudget :project-id="project.id" />
             </div>
-            <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" :checks="hasFeature(project, 'checks')" />
+            <PolicyPanel v-else-if="tab === 'perm'" :project-id="project.id" />
             <ToolsPanel v-else-if="tab === 'skill' || tab === 'mcp'" :key="tab" :kind="tab" :project-path="project.path" :project-id="project.id" />
             <ProjectAgents v-else :project="project" @changed="refresh()" />
           </template>

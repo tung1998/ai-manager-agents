@@ -267,6 +267,20 @@ func Catalog(packs []Pack) (all, safe []string) {
 	return all, safe
 }
 
+// readPacks only read (git log, docker ps): not a build or a test.
+var readPacks = map[string]bool{"git-read": true, "docker-read": true}
+
+// HasBuild reports packs with build/test commands (Go, Node, Python, Rust,
+// package.json scripts, the project's own): a docs repo with only git has none.
+func HasBuild(packs []Pack) bool {
+	for _, p := range packs {
+		if !readPacks[p.ID] && len(p.Commands) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // ProjectPacks: the built-in packs relevant to a project folder, with a
 // pack for its package.json scripts, then the project's own packs.
 func ProjectPacks(root string, custom []Pack) []Pack {

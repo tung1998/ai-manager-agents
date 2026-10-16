@@ -4,8 +4,7 @@
 // permissions), files no agent may change.
 interface Policy { packs: CommandPack[], deny_paths: string[], worktree_links: string[], quick_check?: boolean, quick_checks?: string, linked_projects?: string[] }
 
-// checks: the project's checks feature is on (feature packs): off hides the command packs and quick check (kept as saved)
-const props = withDefaults(defineProps<{ projectId: string, checks?: boolean }>(), { checks: true })
+const props = defineProps<{ projectId: string }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
@@ -91,7 +90,7 @@ function removePack(p: CommandPack) {
       <UButton icon="i-lucide-save" size="sm" :label="t('policy.save')" :loading="saving" @click="save" />
     </div>
     <!-- the commands agents can be given -->
-    <UCard v-if="checks" :ui="{ body: 'space-y-3 sm:p-4' }">
+    <UCard :ui="{ body: 'space-y-3 sm:p-4' }">
       <div class="flex items-center gap-2">
         <p class="flex items-center gap-1.5 text-sm font-medium">
           {{ t('policy.commandsTitle') }}
@@ -162,7 +161,7 @@ function removePack(p: CommandPack) {
     </UCard>
 
     <!-- each edited file checked at once (ADR-133) -->
-    <UCard v-if="checks" :ui="{ body: 'sm:p-4' }">
+    <UCard :ui="{ body: 'sm:p-4' }">
       <div class="flex items-center justify-between gap-3">
         <p class="flex items-center gap-1.5 text-sm font-medium">
           {{ t('policy.quickCheck') }}

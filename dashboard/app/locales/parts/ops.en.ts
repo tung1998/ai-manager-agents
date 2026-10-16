@@ -236,8 +236,6 @@ const en: Record<keyof typeof vi, string> = {
   'feat.fDesc.git': 'Git bar, branch menu',
   'feat.f.ops': 'Operations',
   'feat.fDesc.ops': 'Processes, containers, env tabs and their monitoring',
-  'feat.f.checks': 'Check commands',
-  'feat.fDesc.checks': 'Command packs and quick check in the Permissions tab',
   'feat.noFolder': 'The project has no folder',
   'feat.saved': 'Features saved',
   'feat.stillRunning': '{n} still running ({what}). Turning off only hides them, they keep running; stop them in Operations first if you want. Turn off anyway?',

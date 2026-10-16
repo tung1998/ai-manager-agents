@@ -1,5 +1,5 @@
 // Package features: packs of features a project turns off to hide what it
-// does not use (git, Vận hành, build/test commands) from its
+// does not use (git, Vận hành) from its
 // dashboard: menus, tabs, widgets, incident badges. Only the UI: agents keep
 // their tools and permissions, data stays and nothing running is stopped. A
 // project with no setting has every feature on.
@@ -14,9 +14,8 @@ import (
 
 // The features of the develop pack.
 const (
-	Git    = "git"    // the git bar and branch menu
-	Ops    = "ops"    // Vận hành: processes, containers (and their monitors), env
-	Checks = "checks" // the command packs and quick check settings
+	Git = "git" // the git bar and branch menu
+	Ops = "ops" // Vận hành: processes, containers (and their monitors), env
 )
 
 // Pack groups features turned on and off together. A feature belongs to one
@@ -29,10 +28,9 @@ type Pack struct {
 
 // Packs lists every pack. Everything else (chat, agents, automations, Burn,
 // memory, reviewing changes) is core: always there.
-var Packs = []Pack{{ID: "develop", Features: []string{Git, Ops, Checks}}}
+var Packs = []Pack{{ID: "develop", Features: []string{Git, Ops}}}
 
-// needFolder: features with nothing to work on without a project folder (a
-// machine-wide helper still runs commands, in the home folder).
+// needFolder: features with nothing to work on without a project folder.
 var needFolder = []string{Git}
 
 // Why a feature is off.

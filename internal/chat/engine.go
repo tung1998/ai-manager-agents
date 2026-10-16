@@ -13,7 +13,6 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/automation"
-	"bitbucket.org/senprints/agent-office/internal/features"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
 	"bitbucket.org/senprints/agent-office/internal/memory"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
@@ -1057,7 +1056,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	req := RunRequest{
 		WorkDir: pl.dir, Prompt: text,
-		System: systemPrompt(project, agent, e.office != nil, features.For(ctx, e.store, project.ID), acc, pl, LoadLanguage(ctx, e.store)), History: hist, Attachments: files,
+		System: systemPrompt(project, agent, e.office != nil, promptKeywords(ctx, e.store, project.ID, policy), acc, pl, LoadLanguage(ctx, e.store)), History: hist, Attachments: files,
 		Write: pl.write, DenyPaths: policy.DenyPaths, ExtraDirs: agentExtraDirs, UserMCP: acc.Can(perm.CapUserMCP), QuickCheck: policy.QuickCheck, QuickChecks: policy.QuickChecks,
 		Effort: cmp.Or(conv.Effort, agent.Effort), // the chat's own choice, else its agent's
 	}
@@ -1377,10 +1376,10 @@ func HistoryFor(msgs []storage.Message, self string) []HistoryItem {
 	return out
 }
 
-// on: the project's features (internal/features): the prompt leaves out the
-// office tools of those turned off, so the agent does not bring them up (a
-// docs project is not asked about commits); the tools stay for when asked.
-func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool, on []string, acc perm.Access, pl place, lang Language) string {
+// on: the prompt keywords (promptKeywords): lines about git, operations or
+// build/test are there only for a project that has them; the tools stay for
+// when the person asks.
+func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool, on map[string]bool, acc perm.Access, pl place, lang Language) string {
 	level := acc.Level
 	var b strings.Builder
 	b.WriteString(prompts.Render("chat/intro", map[string]any{"Name": agent.Name, "Role": agent.Role}) + "\n\n")
@@ -1401,14 +1400,13 @@ func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool, o
 	b.WriteString("\n" + prompts.Text("chat/rules") + "\n")
 	b.WriteString(lang.Rule())
 	if officeTools {
-		b.WriteString(prompts.Render("chat/office-tools", map[string]any{"DevTools": devTools(on),
-			"Logs": features.Has(on, features.Ops), "Checks": features.Has(on, features.Checks)}) + "\n")
+		b.WriteString(prompts.Render("chat/office-tools", map[string]any{"On": on}) + "\n")
 	}
 	fmt.Fprintf(&b, "- Your permission this turn: %s (%s).\n", perm.Label(level), perm.All[perm.Rank(level)].Description)
 	auto := acc.Can(perm.CapApply)
 	if pl.write {
 		if pl.tree != "" {
-			b.WriteString(prompts.Render("chat/edit-worktree", map[string]any{"AutoApply": auto, "OfficeTools": officeTools && features.Has(on, features.Checks), "Commands": acc.Commands}) + "\n")
+			b.WriteString(prompts.Render("chat/edit-worktree", map[string]any{"AutoApply": auto, "OfficeTools": officeTools, "On": on, "Commands": acc.Commands}) + "\n")
 		} else {
 			b.WriteString(prompts.Text("chat/edit-direct") + "\n")
 		}
@@ -1421,7 +1419,7 @@ func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool, o
 				may = append(may, c.Label)
 			}
 		}
-		b.WriteString(prompts.Render("chat/diff", map[string]any{"AutoApply": auto, "OfficeTools": officeTools, "Checks": features.Has(on, features.Checks), "Commands": acc.Commands, "May": may}) + "\n")
+		b.WriteString(prompts.Render("chat/diff", map[string]any{"AutoApply": auto, "OfficeTools": officeTools, "On": on, "Commands": acc.Commands, "May": may}) + "\n")
 	} else {
 		var safe []string
 		if officeTools {
@@ -1468,7 +1466,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	}
 	req := RunRequest{WorkDir: pl.dir, Prompt: prompt, Effort: agent.Effort,
 		Attachments: files, Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP), QuickCheck: policy.QuickCheck, QuickChecks: policy.QuickChecks}
-	req.System = systemPrompt(project, agent, e.office != nil, features.For(ctx, e.store, project.ID), acc, pl, LoadLanguage(ctx, e.store))
+	req.System = systemPrompt(project, agent, e.office != nil, promptKeywords(ctx, e.store, project.ID, policy), acc, pl, LoadLanguage(ctx, e.store))
 	if noTools(ctx) { // untrusted text (a channel's scope filter): a plain answer
 		req.NoTools, req.UserMCP, req.Write, req.Effort = true, false, false, "" // a YES/NO needs no deep thought
 	} else {

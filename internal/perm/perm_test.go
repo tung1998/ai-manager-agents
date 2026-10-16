@@ -2,6 +2,7 @@ package perm
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -228,5 +229,21 @@ func TestUserMCPAtEveryLevel(t *testing.T) { // MCP servers are tools, like Read
 	a := storage.Agent{Permissions: storage.Permissions{ReadOnly: true}}
 	if acc := Resolve(a, Operate, Policy{MaxLevel: Operate}); !acc.Can(CapUserMCP) || acc.Level != Read {
 		t.Fatalf("a read-only lead = %+v", acc)
+	}
+}
+
+// Only build/test commands count: a docs repo with git alone has none.
+func TestHasBuild(t *testing.T) {
+	dir := t.TempDir()
+	os.Mkdir(filepath.Join(dir, ".git"), 0o755)
+	if HasBuild(ProjectPacks(dir, nil)) {
+		t.Fatal("git only: no build")
+	}
+	if !HasBuild(ProjectPacks(dir, []Pack{{ID: "own", Commands: []string{"make docs"}}})) {
+		t.Fatal("the project's own pack counts")
+	}
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644)
+	if !HasBuild(ProjectPacks(dir, nil)) {
+		t.Fatal("go.mod: build")
 	}
 }

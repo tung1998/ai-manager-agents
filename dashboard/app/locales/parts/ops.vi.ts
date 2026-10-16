@@ -235,8 +235,6 @@ export default {
   'feat.fDesc.git': 'Thanh git, menu nhánh',
   'feat.f.ops': 'Vận hành',
   'feat.fDesc.ops': 'Tab tiến trình, container, env và giám sát của chúng',
-  'feat.f.checks': 'Lệnh kiểm tra',
-  'feat.fDesc.checks': 'Gói lệnh và quick check trong tab Quyền',
   'feat.noFolder': 'Project không có thư mục',
   'feat.saved': 'Đã lưu tính năng',
   'feat.stillRunning': 'Còn {n} mục đang chạy ({what}). Tắt chỉ ẩn, chúng vẫn chạy; muốn dừng thì dừng trước ở Vận hành. Vẫn tắt?',

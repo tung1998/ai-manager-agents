@@ -13,7 +13,7 @@ interface State { config: Config, on: string[], off: Record<string, 'project' | 
 const { data, error, refresh } = useLiveFetch<State>(() => `/api/projects/${props.projectId}/features`, { lazy: true })
 
 const packIcon: Record<string, string> = { develop: 'i-lucide-code-xml' }
-const featureIcon: Record<string, string> = { git: 'i-lucide-git-branch', ops: 'i-lucide-square-terminal', checks: 'i-lucide-list-checks' }
+const featureIcon: Record<string, string> = { git: 'i-lucide-git-branch', ops: 'i-lucide-square-terminal' }
 
 const packOn = (id: string) => data.value?.config.packs?.[id] !== false
 const featureOn = (f: string) => !!data.value?.on.includes(f)

@@ -2414,9 +2414,9 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 ## ADR-161: Gói tính năng theo project
 - **Bối cảnh (15/10):** office dùng cho cả việc không phải code (ADR-090). Với project như vậy, Vận hành, Giám sát, git và lệnh build/test chỉ làm rối menu, tab và widget.
 - **Quyết định:**
-  - **Gói tính năng** gom nhiều tính năng con, giống level quyền gom nhiều quyền con. Gói đầu tiên là **Lập trình** (`develop`): `git`, `ops`, `checks` (giám sát thuộc `ops`, ADR-162). Registry tĩnh ở `internal/features`. Chat, agent, quy trình, tự động hóa, Burn, trí nhớ, Skills & MCP và duyệt thay đổi (worktree + diff) là phần lõi, luôn có.
-  - **Chỉ đặt theo project**, ở tab Thông tin; không có cài đặt chung. Key `features:<projectID>` trong `settings`: gói tắt và tính năng tắt lẻ. Thiếu key = bật hết, nên project cũ không đổi. Project không có thư mục tự tắt `git`; `checks` vẫn giữ vì helper toàn máy vẫn chạy lệnh trong home.
-  - **Chỉ ẩn giao diện:** menu, tab, mục trong Vận hành và Quyền, GitBar, menu nhánh, widget Theo dõi, sự cố trên badge. Agent giữ nguyên công cụ, quyền, `run_command` và đề xuất (vẫn chạy được tool có sẵn trong repo); API không bị chặn. Nhưng **prompt không nhắc** công cụ của tính năng đã tắt (git, Vận hành, chạy build/test trước khi xong), để agent không tự hỏi commit/push với người không làm code; khi người dùng yêu cầu thì vẫn dùng được. Không xóa dữ liệu, không dừng tiến trình hay monitor; lúc tắt `ops` mà còn tiến trình/giám sát đang chạy, giao diện hỏi lại.
+  - **Gói tính năng** gom nhiều tính năng con, giống level quyền gom nhiều quyền con. Gói đầu tiên là **Lập trình** (`develop`): `git`, `ops` (giám sát thuộc `ops`, ADR-162; `checks` đã bỏ, ADR-163). Registry tĩnh ở `internal/features`. Chat, agent, quy trình, tự động hóa, Burn, trí nhớ, Skills & MCP và duyệt thay đổi (worktree + diff) là phần lõi, luôn có.
+  - **Chỉ đặt theo project**, ở tab Thông tin; không có cài đặt chung. Key `features:<projectID>` trong `settings`: gói tắt và tính năng tắt lẻ. Thiếu key = bật hết, nên project cũ không đổi. Project không có thư mục tự tắt `git`.
+  - **Chỉ ẩn giao diện:** menu, tab, mục trong Vận hành và Quyền, GitBar, menu nhánh, widget Theo dõi, sự cố trên badge. Agent giữ nguyên công cụ, quyền, `run_command` và đề xuất (vẫn chạy được tool có sẵn trong repo); API không bị chặn. Nhưng **prompt không nhắc** công cụ của tính năng đã tắt (git, Vận hành; xem ADR-163), để agent không tự hỏi commit/push với người không làm code; khi người dùng yêu cầu thì vẫn dùng được. Không xóa dữ liệu, không dừng tiến trình hay monitor; lúc tắt `ops` mà còn tiến trình/giám sát đang chạy, giao diện hỏi lại.
   - Git chỉ ẩn phần giao diện; office vẫn dùng git ngầm cho worktree khi thư mục là repo.
 - **Không làm (lúc này):** cài đặt chung cho cả office, preset khi tạo project, gói Nội dung/Khách hàng, duyệt thay đổi cho thư mục không phải git.
 
@@ -2435,6 +2435,14 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Chỉ giám sát **tiến trình của office** và **service docker compose**; **bỏ hẳn HTTP, TCP, heartbeat** (code kiểm tra, endpoint `/api/heartbeat/{token}`, form). Migration 00094 xóa monitor các loại đó, dựng lại bảng bỏ cột `token`, `last_ping_at` và CHECK type (Go kiểm).
   - **Mỗi tiến trình/service tối đa một giám sát**, bật ngay trên dòng của nó (nút ♥, `MonitorChip`): huy hiệu uptime 24h; mở ra để bật/tắt, AI phân tích khi Down, kiểm tra ngay, xem sự kiện. Tên mặc định theo tiến trình/service. Bỏ mục Giám sát và `MonitorPanel`.
   - Xóa tiến trình thì xóa giám sát của nó (trước đây để lại monitor mồ côi).
-  - Gộp tính năng `monitor` vào `ops` (ADR-161): gói Lập trình còn `git`, `ops`, `checks`.
+  - Gộp tính năng `monitor` vào `ops` (ADR-161): gói Lập trình còn `git`, `ops`.
 - **Không làm:** theo dõi web/API bên ngoài; nếu cần sẽ là gói khác.
+
+## ADR-163: Prompt theo từ khóa của project
+- **Bối cảnh (15/10):** prompt có câu cố định "chạy build/test trước khi xong", hiện cả với repo tài liệu (gói Git (đọc) làm danh sách lệnh không bao giờ rỗng). Công tắc `checks` (ADR-161) chỉ là chữa tay.
+- **Quyết định:**
+  - Template prompt (`internal/prompts/chat/*.md`) viết các dòng theo **từ khóa**: `[[if .On.git -]]…[[end -]]`. Từ khóa = tính năng đang bật (`git`, `ops`) + điều office tự phát hiện: `build` khi project có lệnh build/test (`perm.HasBuild`: gói Go, Node, Python, Rust, script `package.json`, gói tự thêm; Git/Docker (đọc) không tính).
+  - `chat.promptKeywords` luôn điền đủ mọi từ khóa; template chạy `missingkey=error` nên gõ sai tên từ khóa là test báo.
+  - Bỏ công tắc `checks`: gói Lập trình còn `git`, `ops`; Gói lệnh và Quick check trong tab Quyền luôn hiện. Bỏ `internal/chat/devtools.go` (ghép chuỗi trong Go).
+  - Gói mới (Nội dung, Khách hàng) thêm từ khóa của nó và các dòng prompt tương ứng.
 
