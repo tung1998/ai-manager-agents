@@ -10,7 +10,7 @@ Dữ liệu tham khảo:
 
 | Ngành / người dùng | Việc lặp lại AI làm được | Cần ra ngoài (duyệt) | Gói hợp |
 |---|---|---|---|
-| E-commerce / POD (vd SenPrints) | trả lời ticket, mô tả sản phẩm, theo dõi đơn lỗi | gửi tin cho khách, đăng bài | Chăm sóc khách hàng, Sáng tạo nội dung |
+| E-commerce / POD (vd shop Etsy) | trả lời ticket, mô tả sản phẩm, theo dõi đơn lỗi | gửi tin cho khách, đăng bài | Chăm sóc khách hàng, Sáng tạo nội dung |
 | Agency / marketer / creator | bài FB, blog, lịch đăng, tái chế nội dung | đăng bài | Sáng tạo nội dung |
 | Freelancer / tư vấn / sales | email follow-up, báo giá, ghi chú khách | gửi email | Chăm sóc khách hàng (sau: Bán hàng) |
 | Kế toán / tài chính | báo cáo định kỳ, đối soát | không (chỉ đọc) | Không làm gói: báo cáo là việc chung, lõi (tự động hóa + MCP) đã làm được |

@@ -8,6 +8,8 @@
 //   node scripts/public-pick.mjs <commit>...          # e.g. f5bea5a, or a range a1b2c3..HEAD
 //   … --push                                          # then push main
 //   … --to ../agent-office                            # the public repo (default: next to this one)
+//   … --replace 'old=new'                             # rewrite text in the patches (again for more): a commit
+//                                                     # already pushed with something that must not go public
 import { execFileSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,9 +21,14 @@ const value = (name) => {
 }
 const PUSH = argv.includes('--push')
 const to = value('to')
-const revs = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--to')
+const replaces = argv.flatMap((a, i) => argv[i - 1] === '--replace' ? [a.split('=')] : [])
+if (replaces.some(r => r.length !== 2 || !r[0])) {
+  console.error("--replace takes 'old=new'")
+  process.exit(1)
+}
+const revs = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--to' && argv[i - 1] !== '--replace')
 if (!revs.length) {
-  console.error('usage: node scripts/public-pick.mjs <commit|range>... [--push] [--to dir]')
+  console.error("usage: node scripts/public-pick.mjs <commit|range>... [--push] [--to dir] [--replace 'old=new']")
   process.exit(1)
 }
 
@@ -71,8 +78,8 @@ for (const c of commits) {
     console.log(`- ${subject}  (only internal files, skipped)`)
     continue
   }
-  const patch = raw.replace(/^From: .*$/m, `From: ${AUTHOR}`)
-    .split(PRIVATE_MODULE).join(MODULE).split(PRIVATE_PAGES).join(PAGES)
+  const patch = replaces.reduce((p, [a, b]) => p.split(a).join(b), raw.replace(/^From: .*$/m, `From: ${AUTHOR}`)
+    .split(PRIVATE_MODULE).join(MODULE).split(PRIVATE_PAGES).join(PAGES))
   // the message and the lines the commit adds; the context lines are already public
   patch.split('\n').forEach((line) => {
     if (line.startsWith('From ') || line.startsWith('-') || line.startsWith(' ')) return
