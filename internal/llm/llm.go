@@ -97,11 +97,18 @@ func New(p storage.Provider, apiKey string, opts Options) (Client, error) {
 // user picks after the first connection test lists the models.
 func DefaultTierModels(kind storage.ProviderKind) map[string]string {
 	switch kind {
-	case storage.ProviderAnthropic, storage.ProviderClaudeCLI:
+	case storage.ProviderAnthropic:
 		return map[string]string{
 			storage.TierStrong:   "claude-opus-5-5",
-			storage.TierBalanced: "claude-sonnet-5",
+			storage.TierBalanced: "claude-sonnet-5-5",
 			storage.TierFast:     "claude-haiku-5-5",
+		}
+	case storage.ProviderClaudeCLI:
+		// aliases follow the newest model of each family
+		return map[string]string{
+			storage.TierStrong:   "opus",
+			storage.TierBalanced: "sonnet",
+			storage.TierFast:     "haiku",
 		}
 	case storage.ProviderGeminiCLI:
 		return map[string]string{

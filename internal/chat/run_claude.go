@@ -336,7 +336,11 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 			res.Usage.InputTokens = ev.Usage.InputTokens + ev.Usage.CacheReadTokens + ev.Usage.CacheCreationTokens
 			res.Usage.OutputTokens = ev.Usage.OutputTokens
 			res.Usage.CostUSD = ev.TotalCostUSD
+			// the model the CLI really ran: an alias ("sonnet") names no model
 			res.Usage.Model = req.Model
+			if mainModel != "" {
+				res.Usage.Model = mainModel
+			}
 			if ev.IsError || ev.Subtype != "success" {
 				// the subtype alone ("error_during_execution") says nothing:
 				// keep whatever the CLI did explain, stderr included

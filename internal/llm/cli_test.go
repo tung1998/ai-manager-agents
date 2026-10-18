@@ -92,3 +92,21 @@ func TestCodexFailureReadsTurnFailed(t *testing.T) {
 		t.Fatalf("error only: %q", got)
 	}
 }
+
+func TestClaudeModelsReadTheHelpAliases(t *testing.T) {
+	help := `Options:
+  --model <model>                       Model for the current session. Provide
+                                        an alias for the latest model (e.g.
+                                        'fable', 'opus', or 'sonnet') or a
+                                        model's full name.
+  -n, --name <name>                     Set a display name ('ignored')
+`
+	got := mergeModels(helpAliases(help, "--model"), claudeAliases)
+	want := []string{"fable", "opus", "sonnet", "haiku"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("models = %v, want %v", got, want)
+	}
+	if got := mergeModels(helpAliases("no such flag", "--model"), claudeAliases); fmt.Sprint(got) != fmt.Sprint(claudeAliases) {
+		t.Fatalf("fallback = %v", got)
+	}
+}

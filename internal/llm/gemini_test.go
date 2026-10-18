@@ -1,6 +1,9 @@
 package llm
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -23,5 +26,30 @@ Error authenticating: IneligibleTierError: This client is no longer supported fo
 	}
 	if got := GeminiError("Please set an Auth method in your settings.json\n"); got != "Please set an Auth method in your settings.json" {
 		t.Fatalf("plain = %q", got)
+	}
+}
+
+func TestGeminiAPIModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-goog-api-key") != "k" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Write([]byte(`{"models":[
+			{"name":"models/gemini-3.8-flash","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemini-4-argon","supportedGenerationMethods":["generateContent","countTokens"]},
+			{"name":"models/gemini-embedding-001","supportedGenerationMethods":["embedContent"]},
+			{"name":"models/imagen-4","supportedGenerationMethods":["predict"]}]}`))
+	}))
+	defer srv.Close()
+	got := geminiAPIModels(context.Background(), srv.URL, "k")
+	if strings.Join(got, ",") != "gemini-4-argon,gemini-3.8-flash" {
+		t.Fatalf("models = %v", got)
+	}
+	if got := geminiAPIModels(context.Background(), srv.URL, ""); got != nil {
+		t.Fatalf("no key = %v", got)
+	}
+	if got := geminiAPIModels(context.Background(), srv.URL, "bad"); got != nil {
+		t.Fatalf("rejected key = %v", got)
 	}
 }

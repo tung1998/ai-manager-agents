@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,7 +132,7 @@ func (c *claudeCLI) Check(ctx context.Context) (CheckResult, error) {
 	if ok, account := claudeLoggedIn(ctx, c.bin); !ok {
 		return CheckResult{}, fmt.Errorf("%s · %w: hãy bấm Đăng nhập để ký lại phiên Claude Code%s", v, ErrNeedsLogin, orPrefix(" (tài khoản cũ: ", account, ")"))
 	}
-	return CheckResult{Version: v, Models: DefaultModelsClaude, Detail: v}, nil
+	return CheckResult{Version: v, Models: claudeModels(ctx, c.bin), Detail: v}, nil
 }
 
 func orPrefix(prefix, s, suffix string) string {
@@ -141,8 +142,50 @@ func orPrefix(prefix, s, suffix string) string {
 	return prefix + s + suffix
 }
 
-// DefaultModelsClaude are offered for CLI providers, which cannot list models.
-var DefaultModelsClaude = []string{"claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"}
+// claudeAliases is what Claude Code always accepts for --model; each alias
+// follows the newest model of its family, so the list never goes stale.
+var claudeAliases = []string{"opus", "sonnet", "haiku"}
+
+// claudeModels: Claude Code cannot list models, so offer the aliases its
+// `--help` names for --model (new families such as 'fable' show up there),
+// plus the aliases it always accepts.
+func claudeModels(ctx context.Context, bin string) []string {
+	help, _ := run(ctx, bin, "", "--help")
+	return mergeModels(helpAliases(help, "--model"), claudeAliases)
+}
+
+// helpAliases reads the 'quoted' examples in the help of one flag.
+func helpAliases(help, flag string) []string {
+	i := strings.Index(help, flag+" ")
+	if i < 0 {
+		return nil
+	}
+	block := help[i+len(flag):]
+	// the flag's text ends where the next flag starts
+	if j := regexp.MustCompile(`\n\s*-`).FindStringIndex(block); j != nil {
+		block = block[:j[0]]
+	}
+	var out []string
+	for _, m := range quotedAlias.FindAllStringSubmatch(block, -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+var quotedAlias = regexp.MustCompile(`'([a-z][a-z0-9.\-]*)'`)
+
+// mergeModels joins lists in order, without duplicates.
+func mergeModels(lists ...[]string) []string {
+	var out []string
+	for _, l := range lists {
+		for _, m := range l {
+			if m != "" && !slices.Contains(out, m) {
+				out = append(out, m)
+			}
+		}
+	}
+	return out
+}
 
 func (c *claudeCLI) Complete(ctx context.Context, req Request) (Result, error) {
 	start := time.Now()
@@ -430,9 +473,72 @@ func (c *codexCLI) Complete(ctx context.Context, req Request) (Result, error) {
 
 type geminiCLI struct{ bin string }
 
-// DefaultModelsGemini are Gemini CLI's model aliases (they follow its newest
-// models) and a few pinned names; the CLI cannot list models.
-var DefaultModelsGemini = []string{"auto", "pro", "flash", "flash-lite", "gemini-3.1-pro-preview", "gemini-3.8-flash","gemini-2.5-pro", "gemini-2.5-flash"}
+// geminiAliases are Gemini CLI's model aliases: they follow its newest models.
+var geminiAliases = []string{"auto", "pro", "flash", "flash-lite"}
+
+// geminiModels: Gemini CLI cannot list models. Its aliases always work; with
+// an API key the account's real models come from the Gemini API.
+func geminiModels(ctx context.Context) []string {
+	return mergeModels(geminiAliases, geminiAPIModels(ctx, geminiAPIBase, geminiAPIKey()))
+}
+
+var geminiAPIBase = "https://generativelanguage.googleapis.com"
+
+// geminiAPIModels lists the chat models an API key can use, newest first
+// (nil without a key or when the API does not answer).
+func geminiAPIModels(ctx context.Context, base, key string) []string {
+	if key == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var out struct {
+		Models []struct {
+			Name    string   `json:"name"`
+			Methods []string `json:"supportedGenerationMethods"`
+		} `json:"models"`
+	}
+	hc := &http.Client{}
+	if err := doJSON(ctx, hc, http.MethodGet, base+"/v1beta/models?pageSize=1000", map[string]string{"x-goog-api-key": key}, nil, &out); err != nil {
+		return nil
+	}
+	var ms []string
+	for _, m := range out.Models {
+		id := strings.TrimPrefix(m.Name, "models/")
+		if strings.HasPrefix(id, "gemini-") && slices.Contains(m.Methods, "generateContent") && !notChat.MatchString(id) {
+			ms = append(ms, id)
+		}
+	}
+	slices.Sort(ms)
+	slices.Reverse(ms)
+	return ms
+}
+
+// geminiAPIKey is the key Gemini CLI would use: the environment, then
+// ~/.gemini/.env.
+func geminiAPIKey() string {
+	for _, k := range []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"} {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	env, _ := os.ReadFile(filepath.Join(geminiDir(), ".env"))
+	if m := geminiEnvValue.FindSubmatch(env); m != nil {
+		return strings.Trim(string(m[3]), `"'`)
+	}
+	return ""
+}
+
+var geminiEnvValue = regexp.MustCompile(`(?m)^\s*(export\s+)?(GEMINI_API_KEY|GOOGLE_API_KEY)\s*=\s*(\S+)`)
+
+// geminiDir is Gemini CLI's config folder.
+func geminiDir() string {
+	home := os.Getenv("GEMINI_CLI_HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	return filepath.Join(home, ".gemini")
+}
 
 // GeminiSignedIn reports whether Gemini CLI has credentials: a Google sign-in
 // cached in ~/.gemini, or an API key / Vertex / Code Assist setup in the
@@ -450,11 +556,7 @@ func GeminiAccount() (bool, string) {
 			return true, ""
 		}
 	}
-	home := os.Getenv("GEMINI_CLI_HOME")
-	if home == "" {
-		home, _ = os.UserHomeDir()
-	}
-	dir := filepath.Join(home, ".gemini")
+	dir := geminiDir()
 	if _, err := os.Stat(filepath.Join(dir, "oauth_creds.json")); err == nil {
 		var acc struct {
 			Active string `json:"active"`
@@ -478,7 +580,7 @@ func (c *geminiCLI) Check(ctx context.Context) (CheckResult, error) {
 	if !GeminiSignedIn() {
 		return CheckResult{}, fmt.Errorf("%s · %w: hãy bấm Đăng nhập (tài khoản Google) hoặc đặt GEMINI_API_KEY", v, ErrNeedsLogin)
 	}
-	return CheckResult{Version: v, Models: DefaultModelsGemini, Detail: v}, nil
+	return CheckResult{Version: v, Models: geminiModels(ctx), Detail: v}, nil
 }
 
 func (c *geminiCLI) Complete(ctx context.Context, req Request) (Result, error) {
