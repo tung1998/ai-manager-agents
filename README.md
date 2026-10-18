@@ -4,7 +4,11 @@
 
 **Your own AI office. A team of AI agents that runs on your machine, takes work over chat, and asks you only when something needs approval.**
 
-[Guide with screenshots](https://tung1998.github.io/ai-manager-agents/guide/) · [Tiếng Việt](README.vi.md) ([hướng dẫn](https://tung1998.github.io/ai-manager-agents/guide/vi.html))
+[Guide with screenshots](https://tung1998.github.io/ai-manager-agents/guide/) · [Launch video (1:44, Vietnamese)](docs/media/agent-office-launch.mp4) · [Tiếng Việt](README.vi.md) ([hướng dẫn](https://tung1998.github.io/ai-manager-agents/guide/vi.html))
+
+[![Agent Office launch video: click to watch](docs/media/agent-office-launch.jpg)](docs/media/agent-office-launch.mp4)
+
+*Launch video (1:44, Vietnamese captions): setting up the office, workflows on the canvas, remote management over Tailscale and Discord/Telegram, the office upgrading itself, the dashboard.*
 
 ![Overview](docs/guide/images/02-overview.png)
 

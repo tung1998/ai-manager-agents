@@ -4,7 +4,11 @@
 
 **Văn phòng AI của riêng bạn. Một đội agent AI chạy trên máy bạn, nhận việc qua chat, và chỉ hỏi bạn khi cần duyệt.**
 
-[Hướng dẫn sử dụng có ảnh](https://tung1998.github.io/ai-manager-agents/guide/vi.html) · [English](README.md) ([guide](https://tung1998.github.io/ai-manager-agents/guide/))
+[Hướng dẫn sử dụng có ảnh](https://tung1998.github.io/ai-manager-agents/guide/vi.html) · [Video giới thiệu (1:44)](docs/media/agent-office-launch.mp4) · [English](README.md) ([guide](https://tung1998.github.io/ai-manager-agents/guide/))
+
+[![Video giới thiệu Agent Office: bấm để xem](docs/media/agent-office-launch.jpg)](docs/media/agent-office-launch.mp4)
+
+*Video giới thiệu (1:44): dựng văn phòng, quy trình trên canvas, quản lý từ xa qua Tailscale và Discord/Telegram, office tự nâng cấp, dashboard.*
 
 ![Tổng quan](docs/guide/images/vi/02-overview.png)
 
