@@ -161,6 +161,8 @@ async function build() {
   // a clone, not the real checkout: the library lists the git repos next to known projects
   const aoCopy = join(HOME, 'agent-office')
   execFileSync('git', ['clone', '-q', '--depth', '1', `file://${mainRoot}`, aoCopy])
+  // shots show "main" whatever branch the real checkout is on
+  execFileSync('git', ['checkout', '-q', '-B', 'main'], { cwd: aoCopy })
   office(['project', 'add', aoCopy, '--name', 'agent-office', '--pack', 'team'])
   office(['project', 'add', shop, '--name', 'demo-shop', '--pack', 'council'])
   office(['project', 'add', '--name', CONTENT, '--pack', 'solo'])
