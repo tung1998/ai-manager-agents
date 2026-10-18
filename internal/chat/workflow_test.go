@@ -745,10 +745,43 @@ func TestAgentStartsWorkflowItself(t *testing.T) {
 	if runs, _ := g.f.st.WorkflowRuns().List(g.context, g.f.project.ID, g.conv.ID, 1); len(runs) != 0 {
 		t.Fatal("the run started before the answer ended")
 	}
+	if !g.engine.QueuedWorkflow(g.context, g.conv.ID) { // an automation waits for it before it notifies
+		t.Fatal("the call does not wait in the chat")
+	}
 	os.Remove(filepath.Join(g.dir, "sleep-lead"))
 	g.own(t)
 	if r := g.run(t); r.WorkflowKey != "council" || r.Input != "vì sao test chập chờn" {
 		t.Fatalf("run = %+v", r)
 	}
 	g.engine.StopAll(g.conv.ID)
+}
+
+// A run that ends while a role still answers leaves no role "working".
+func TestWorkflowEndsItsWorkingRoles(t *testing.T) {
+	g := newWFGroup(t)
+	g.install(t, "feature", map[string]string{"ke-hoach": g.dev.ID, "phan-bien": g.qa.ID, "thuc-thi": g.dev.ID, "review": g.qa.ID})
+	os.WriteFile(filepath.Join(g.dir, "sleep-lead"), []byte("2"), 0o644)
+	os.WriteFile(filepath.Join(g.dir, "sleep-dev"), []byte("30"), 0o644)
+	call, _, err := g.engine.Send(g.context, g.conv.ID, "/feature đăng nhập bằng Google", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := map[string]string{"outcome": "Đăng nhập Google", "constraints": "giữ API cũ", "done_when": "test xanh"}
+	if _, err := g.during(t, "workflow_delegate", map[string]any{"role": "ke-hoach", "brief": full}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for !slices.ContainsFunc(g.run(t).Roles, func(r storage.RunRole) bool { return r.Status == "working" }) {
+		if time.Now().After(deadline) {
+			t.Fatal("the role never started")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	g.engine.StopAll(g.conv.ID)
+	collect(t, call)
+	for _, r := range g.run(t).Roles {
+		if r.Status == "working" {
+			t.Fatalf("role %s still working after the run ended", r.Name)
+		}
+	}
 }

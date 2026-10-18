@@ -93,6 +93,12 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 			}
 		}
 		if done {
+			// it started a workflow (run_workflow): the answer is the run's
+			// result, sent once it ends, not the line saying it started
+			if next := x.workflowTurn(ctx, conversationID, turn); next != nil {
+				turn, seq = next, 0
+				continue
+			}
 			// the agents tagged in the message answer after it, each on its own
 			// message, named so the chat sees who says what
 			names := map[string]bool{author: true}
@@ -115,6 +121,34 @@ func (x officeExecutor) RunChat(ctx context.Context, projectID, agentID, convers
 		case <-ctx.Done():
 			turn.Cancel()
 			return conversationID, "", ctx.Err()
+		}
+	}
+}
+
+// workflowTurn is the turn running the workflow a finished turn started with
+// run_workflow (nil: it started none, or the call never went).
+func (x officeExecutor) workflowTurn(ctx context.Context, conversationID string, prev *chat.Turn) *chat.Turn {
+	if !x.chat.QueuedWorkflow(ctx, conversationID) {
+		return nil
+	}
+	wait := time.NewTimer(time.Minute)
+	defer wait.Stop()
+	for {
+		if t, ok := x.chat.Active(conversationID); ok && t != prev {
+			return t
+		}
+		if !x.chat.QueuedWorkflow(ctx, conversationID) {
+			if t, ok := x.chat.Active(conversationID); ok && t != prev { // sent between the two looks
+				return t
+			}
+			return nil // it could not go: the chat says why
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-wait.C:
+			return nil
+		case <-time.After(200 * time.Millisecond):
 		}
 	}
 }

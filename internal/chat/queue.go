@@ -9,6 +9,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
 // Messages written while a chat answers wait in office (chat_queued), not in
@@ -49,6 +50,21 @@ func (e *Engine) Queue(ctx context.Context, conversationID, text, pageContext st
 func (e *Engine) HasQueued(ctx context.Context, conversationID string) bool {
 	list, err := e.store.Chat().QueuedMessages(ctx, conversationID)
 	return err == nil && len(list) > 0
+}
+
+// QueuedWorkflow: a workflow call waits in the chat (an agent's run_workflow
+// runs once its turn ends).
+func (e *Engine) QueuedWorkflow(ctx context.Context, conversationID string) bool {
+	list, err := e.store.Chat().QueuedMessages(ctx, conversationID)
+	if err != nil {
+		return false
+	}
+	for _, q := range list {
+		if _, _, ok := workflow.ParseCall(q.Text); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // SendQueued sends a free chat's waiting messages as one. One that cannot

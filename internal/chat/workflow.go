@@ -444,6 +444,16 @@ func (e *Engine) finishRun(conversationID, runID, status, result, errText string
 	now := time.Now().UTC()
 	run.rec.Status, run.rec.FinishedAt = status, &now
 	run.rec.Result, run.rec.Error = result, errText
+	// a role still answering (an ask gone on in the background) ends with
+	// the run: its earlier answer stands, else it did not finish
+	for i := range run.rec.Roles {
+		if r := &run.rec.Roles[i]; r.Status == "working" {
+			r.Status = "failed"
+			if r.Rounds > 0 {
+				r.Status = "done"
+			}
+		}
+	}
 	switch status {
 	case storage.RunDone:
 		run.logf("Xong")
@@ -463,6 +473,23 @@ func (e *Engine) finishRun(conversationID, runID, status, result, errText string
 	e.saveRun(run, rec, seq)
 	for _, c := range children {
 		e.StopAll(c)
+	}
+	e.cancelRoleTurns(runID)
+}
+
+// cancelRoleTurns stops the roles' turns of a run still answering (not the
+// coordinator's: it may be the one ending the run).
+func (e *Engine) cancelRoleTurns(runID string) {
+	e.mu.Lock()
+	var stop []*Turn
+	for _, t := range e.turns {
+		if t.wfRun == runID && t.wfRole != "" {
+			stop = append(stop, t)
+		}
+	}
+	e.mu.Unlock()
+	for _, t := range stop {
+		t.Cancel()
 	}
 }
 
