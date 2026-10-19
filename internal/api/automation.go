@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -206,7 +210,101 @@ func (s *server) libList(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": list})
+	// ?q=&area=&category=&tag=&risk=&offset=&limit=: one page of the
+	// matches, the office's own (no "source") first, with counts for the
+	// filters; without limit the whole list, as before
+	qv := r.URL.Query()
+	limit, _ := strconv.Atoi(qv.Get("limit"))
+	if limit <= 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"items": list})
+		return
+	}
+	page, facets := filterLibrary(list, qv)
+	offset, _ := strconv.Atoi(qv.Get("offset"))
+	offset = min(max(offset, 0), len(page))
+	writeJSON(w, http.StatusOK, map[string]any{"items": page[offset:min(offset+limit, len(page))], "total": len(page), "facets": facets})
+}
+
+// libraryFacets counts the values of each filter among the matches of the
+// other filters, so choosing one still shows how many the others hold.
+type libraryFacets struct {
+	Areas      map[string]int `json:"areas"`
+	Categories map[string]int `json:"categories"`
+	Risks      map[string]int `json:"risks"`
+	Tags       []tagCount     `json:"tags"` // the most used, at most 40
+}
+
+type tagCount struct {
+	Tag   string `json:"tag"`
+	Count int    `json:"count"`
+}
+
+func filterLibrary(list []automation.LibraryItem, qv url.Values) ([]automation.LibraryItem, libraryFacets) {
+	q := strings.ToLower(strings.TrimSpace(qv.Get("q")))
+	want := map[string]string{"area": qv.Get("area"), "category": qv.Get("category"), "tag": strings.ToLower(qv.Get("tag")), "risk": qv.Get("risk")}
+	value := func(it automation.LibraryItem, key string) string {
+		switch key {
+		case "area":
+			return it.Area
+		case "category":
+			return it.Category
+		case "risk":
+			return it.Risk
+		}
+		return ""
+	}
+	// matches reports whether it passes every filter but skip
+	matches := func(it automation.LibraryItem, skip string) bool {
+		if q != "" && !strings.Contains(strings.ToLower(it.Name), q) && !strings.Contains(strings.ToLower(it.Description), q) && !slices.Contains(it.Tags, q) {
+			return false
+		}
+		for key, v := range want {
+			if v == "" || key == skip {
+				continue
+			}
+			if key == "tag" {
+				if !slices.ContainsFunc(it.Tags, func(t string) bool { return strings.ToLower(t) == v }) {
+					return false
+				}
+			} else if value(it, key) != v {
+				return false
+			}
+		}
+		return true
+	}
+	f := libraryFacets{Areas: map[string]int{}, Categories: map[string]int{}, Risks: map[string]int{}, Tags: []tagCount{}}
+	tags := map[string]int{}
+	var out []automation.LibraryItem
+	for _, it := range list {
+		if matches(it, "") {
+			out = append(out, it)
+		}
+		for key, m := range map[string]map[string]int{"area": f.Areas, "category": f.Categories, "risk": f.Risks} {
+			if v := value(it, key); v != "" && matches(it, key) {
+				m[v]++
+			}
+		}
+		if matches(it, "tag") {
+			for _, t := range it.Tags {
+				tags[strings.ToLower(t)]++
+			}
+		}
+	}
+	for t, n := range tags {
+		f.Tags = append(f.Tags, tagCount{t, n})
+	}
+	sort.Slice(f.Tags, func(i, j int) bool {
+		if f.Tags[i].Count != f.Tags[j].Count {
+			return f.Tags[i].Count > f.Tags[j].Count
+		}
+		return f.Tags[i].Tag < f.Tags[j].Tag
+	})
+	f.Tags = f.Tags[:min(len(f.Tags), 40)]
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Source == "" && out[j].Source != "" })
+	if out == nil {
+		out = []automation.LibraryItem{}
+	}
+	return out, f
 }
 
 func (s *server) automationTemplateList(w http.ResponseWriter, r *http.Request) {

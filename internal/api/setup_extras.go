@@ -18,12 +18,17 @@ import (
 )
 
 // setupToolbox is what the setup may pick beyond the packs: the office
-// library's skills, and MCP servers from the catalog and the library.
+// library's own skills (not those of a catalog imported with a "source",
+// thousands of them would flood the prompt), and MCP servers from the
+// catalog and the library.
 func setupToolbox(a *automation.Service) func() setup.Toolbox {
 	return func() setup.Toolbox {
 		box := setup.Toolbox{Skills: []setup.Tool{}, MCP: []setup.Tool{}}
 		if list, err := a.Library.List("skill"); err == nil {
 			for _, it := range list {
+				if it.Source != "" {
+					continue
+				}
 				box.Skills = append(box.Skills, setup.Tool{Name: it.Name, Description: it.Description})
 			}
 		}

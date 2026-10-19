@@ -252,8 +252,52 @@ function startInstall(s: InstallSource) {
 // ---- library ----
 // no top-level await here or in OfficeMcpServers: nested async setup under the
 // library page's :key remount looped Suspense (Maximum call stack on the MCP tab)
-const { data: libData, refresh: refreshLib, error: libError } = useLiveFetch<{ items: LibraryItem[] }>(() => `/api/automation/library/${props.kind}`)
+// the library can hold thousands of imported skills: the server searches and
+// sends one page, the office's own skills first
+const libQ = ref('')
+const libSearch = ref('')
+let libTimer: ReturnType<typeof setTimeout> | undefined
+watch(libQ, (v) => {
+  clearTimeout(libTimer)
+  libTimer = setTimeout(() => { libSearch.value = v.trim(); libPage.value = 1 }, 300)
+})
+const libPage = ref(1)
+const libPageSize = 50
+// filters of an imported catalog: work area, category, tag, risk
+const libArea = ref('__all')
+const libCategory = ref('__all')
+const libRisk = ref('__all')
+const libTag = ref('')
+watch([libArea, libCategory, libRisk, libTag], () => { libPage.value = 1 })
+const libPick = (v: string) => (v === '__all' ? undefined : v)
+const { data: libData, refresh: refreshLib, error: libError } = useLiveFetch<{ items: LibraryItem[], total: number, facets?: LibraryFacets }>(() => `/api/automation/library/${props.kind}`, {
+  query: computed(() => ({ q: libSearch.value || undefined, area: libPick(libArea.value), category: libPick(libCategory.value), risk: libPick(libRisk.value), tag: libTag.value || undefined, offset: (libPage.value - 1) * libPageSize, limit: libPageSize }))
+})
 const library = computed(() => libData.value?.items ?? [])
+const libTotal = computed(() => libData.value?.total ?? 0)
+const libFacets = computed(() => libData.value?.facets)
+const libFiltered = computed(() => !!libSearch.value || libArea.value !== '__all' || libCategory.value !== '__all' || libRisk.value !== '__all' || !!libTag.value)
+const areaLabels = computed<Record<string, string>>(() => ({
+  code: t('team.lib.cat.code'), ops: t('tools.area.ops'), data: t('tools.area.data'), design: t('team.lib.cat.design'),
+  plan: t('team.lib.cat.plan'), customer: t('team.lib.cat.customer'), content: t('team.lib.cat.content'), other: t('tools.area.other')
+}))
+const areaLabel = (a: string) => areaLabels.value[a] ?? a
+const facetOptions = (counts: Record<string, number> | undefined, all: string, label: (k: string) => string, order?: string[]) => {
+  const keys = Object.keys(counts ?? {}).sort((a, b) => order ? order.indexOf(a) - order.indexOf(b) : (counts![b]! - counts![a]!) || a.localeCompare(b))
+  return [{ label: all, value: '__all' }, ...keys.map(k => ({ label: `${label(k)} (${counts![k]})`, value: k }))]
+}
+const areaOptions = computed(() => facetOptions(libFacets.value?.areas, t('tools.areaAll'), areaLabel, Object.keys(areaLabels.value)))
+const categoryOptions = computed(() => facetOptions(libFacets.value?.categories, t('tools.categoryAll'), k => k))
+const riskLabels = computed<Record<string, string>>(() => ({ safe: t('tools.risk.safe'), critical: t('tools.risk.critical'), offensive: t('tools.risk.offensive') }))
+const riskLabel = (r: string) => riskLabels.value[r] ?? r
+const riskOptions = computed(() => facetOptions(libFacets.value?.risks, t('tools.riskAll'), riskLabel))
+const hasFacets = computed(() => Object.keys(libFacets.value?.areas ?? {}).length > 0 || libFiltered.value)
+function clearLibFilters() {
+  libQ.value = ''
+  libSearch.value = ''
+  libArea.value = libCategory.value = libRisk.value = '__all'
+  libTag.value = ''
+}
 
 const editOpen = ref(false)
 const editing = ref<{ isNew: boolean, name: string, content: string, description: string, files: Record<string, string>, template?: MCPTemplate }>({ isNew: true, name: '', content: '', description: '', files: {} })
@@ -528,7 +572,7 @@ const summary = (tpl: MCPTemplate) => {
         </p>
         <UAlert v-if="libError" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="t('common.loadError')" :actions="[{ label: t('common.refresh'), onClick: () => refreshLib() }]" />
         <div v-else-if="!libData" class="rounded-lg border border-(--ui-border)"><LoadingRows :n="4" /></div>
-        <div v-else-if="!library.length" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
+        <div v-else-if="!library.length && !libFiltered" class="rounded-lg border border-dashed border-(--ui-border) p-10 text-center">
           <UIcon name="i-lucide-library" class="mx-auto size-8 text-(--ui-text-dimmed)" />
           <p class="mt-2 font-medium">{{ t('tools.libraryEmptyTitle') }}</p>
           <p class="text-sm text-(--ui-text-muted)">
@@ -538,7 +582,24 @@ const summary = (tpl: MCPTemplate) => {
             <template v-else>{{ t('tools.libraryEmptyHint') }}</template>
           </p>
         </div>
-        <div v-else class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
+        <div v-if="libData && (libTotal > libPageSize || libFiltered)" class="flex flex-wrap gap-2">
+          <UInput v-model="libQ" icon="i-lucide-search" :placeholder="t('tools.searchPlaceholder')" class="w-64" />
+          <template v-if="hasFacets">
+            <USelect v-model="libArea" :items="areaOptions" class="w-44" />
+            <USelectMenu v-model="libCategory" :items="categoryOptions" value-key="value" class="w-52" />
+            <USelect v-model="libRisk" :items="riskOptions" class="w-40" />
+          </template>
+          <span class="self-center text-sm text-(--ui-text-muted)">{{ t('tools.itemCount', { n: libTotal }) }}</span>
+          <UButton v-if="libFiltered" size="sm" color="neutral" variant="link" icon="i-lucide-x" :label="t('tools.clearFilters')" @click="clearLibFilters" />
+        </div>
+        <div v-if="libFacets?.tags.length || libTag" class="flex flex-wrap items-center gap-1.5">
+          <UIcon name="i-lucide-tag" class="size-4 text-(--ui-text-dimmed)" />
+          <UBadge v-if="libTag" color="primary" variant="solid" size="sm" class="cursor-pointer" :label="`#${libTag} ✕`" @click="libTag = ''" />
+          <template v-else>
+            <UBadge v-for="tg in libFacets?.tags.slice(0, 24)" :key="tg.tag" color="neutral" variant="soft" size="sm" class="cursor-pointer" :label="`#${tg.tag} ${tg.count}`" @click="libTag = tg.tag" />
+          </template>
+        </div>
+        <div v-if="libData && library.length" class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
           <div v-for="l in library" :key="l.name" class="flex items-center gap-3 px-4 py-2.5">
             <UIcon :name="meta.icon" class="size-4 shrink-0 text-primary" />
             <div class="min-w-0 flex-1">
@@ -547,6 +608,11 @@ const summary = (tpl: MCPTemplate) => {
                 <span class="truncate">{{ l.name }}</span>
               </p>
               <p v-if="l.description" class="line-clamp-1 text-xs text-(--ui-text-muted)">{{ l.description }}</p>
+              <p v-if="l.category || l.tags?.length || (l.risk && l.risk !== 'safe')" class="mt-1 flex flex-wrap items-center gap-1">
+                <UBadge v-if="l.risk === 'critical' || l.risk === 'offensive'" :color="l.risk === 'offensive' ? 'error' : 'warning'" variant="subtle" size="sm" :label="riskLabel(l.risk)" />
+                <UBadge v-if="l.category" color="neutral" variant="outline" size="sm" class="cursor-pointer" :label="l.category" @click="libCategory = l.category!" />
+                <UBadge v-for="tg in (l.tags ?? []).slice(0, 4)" :key="tg" color="neutral" variant="soft" size="sm" class="cursor-pointer" :label="`#${tg}`" @click="libTag = tg.toLowerCase()" />
+              </p>
             </div>
             <UButton size="sm" icon="i-lucide-download" :label="t('tools.install')" @click="installLib(l)" />
             <template v-if="!scoped">
@@ -555,6 +621,7 @@ const summary = (tpl: MCPTemplate) => {
             </template>
           </div>
         </div>
+        <UPagination v-if="libTotal > libPageSize" v-model:page="libPage" :total="libTotal" :items-per-page="libPageSize" size="sm" />
       </template>
 
       <!-- catalog -->

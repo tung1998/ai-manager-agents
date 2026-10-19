@@ -561,3 +561,30 @@ func TestAutomationPresetLibrary(t *testing.T) {
 		t.Fatalf("Get after delete = %v", err)
 	}
 }
+
+// Listing skills reads only SKILL.md and carries its "source".
+func TestLibraryListSkills(t *testing.T) {
+	dir := t.TempDir()
+	library := Library{Dir: filepath.Join(dir, "library"), Trash: filepath.Join(dir, "trash")}
+	if err := library.SaveSkill("own", map[string]string{"SKILL.md": "---\nname: own\ndescription: Mine\n---\nDo it."}); err != nil {
+		t.Fatal(err)
+	}
+	if err := library.SaveSkill("imported", map[string]string{"SKILL.md": "---\nname: imported\ndescription: Theirs\nsource: community\n---\nDo it."}); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.MkdirAll(filepath.Join(library.Dir, "skills", "no-skill-md"), 0o755)
+	items, err := library.List("skill")
+	if err != nil || len(items) != 2 {
+		t.Fatalf("List = %#v, %v", items, err)
+	}
+	if items[0].Name != "imported" || items[0].Source != "community" || items[0].Files != nil || items[1].Description != "Mine" || items[1].Source != "" {
+		t.Fatalf("List = %#v", items)
+	}
+	// an edited SKILL.md is read again, not served from the cache
+	if err := os.WriteFile(filepath.Join(library.Dir, "skills", "own", "SKILL.md"), []byte("---\nname: own\ndescription: Mine, edited\n---\nDo it."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ = library.List("skill"); items[1].Description != "Mine, edited" {
+		t.Fatalf("List after edit = %#v", items)
+	}
+}

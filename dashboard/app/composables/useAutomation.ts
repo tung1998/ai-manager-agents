@@ -51,6 +51,18 @@ export interface LibraryItem {
   updated_at?: string
   files?: Record<string, string>
   template?: MCPTemplate
+  // skills imported from a catalog
+  source?: string
+  category?: string
+  area?: string
+  tags?: string[]
+  risk?: string
+}
+export interface LibraryFacets {
+  areas: Record<string, number>
+  categories: Record<string, number>
+  risks: Record<string, number>
+  tags: { tag: string, count: number }[]
 }
 export interface Finding { rule: string, severity: 'refuse' | 'warn', message: string, line: number, excerpt: string }
 

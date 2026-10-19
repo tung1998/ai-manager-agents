@@ -359,3 +359,62 @@ type failChannelUpdate struct{ storage.ChannelRepo }
 func (failChannelUpdate) Update(ctx context.Context, c storage.Channel) error {
 	return fmt.Errorf("db unavailable")
 }
+
+// The library list pages with ?q=&offset=&limit=, the office's own skills first.
+func TestLibrarySkillPages(t *testing.T) {
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	for _, s := range []struct{ name, fm string }{
+		{"alpha", "source: community"}, {"beta-react", "source: community"}, {"gamma-react", "source: community"}, {"own-react", ""},
+	} {
+		md := "---\nname: " + s.name + "\ndescription: " + s.name + " skill\n" + s.fm + "\n---\nDo it."
+		if resp, body := do(t, admin, "PUT", e.srv.URL+"/api/automation/library/skill/"+s.name, map[string]any{"files": map[string]string{"SKILL.md": md}}, nil); resp.StatusCode >= 300 {
+			t.Fatalf("save %s = %d %v", s.name, resp.StatusCode, body)
+		}
+	}
+	names := func(body map[string]any) (out []string) {
+		for _, it := range body["items"].([]any) {
+			out = append(out, it.(map[string]any)["name"].(string))
+		}
+		return out
+	}
+	_, body := do(t, admin, "GET", e.srv.URL+"/api/automation/library/skill?q=REACT&limit=2", nil, nil)
+	if got := names(body); body["total"] != float64(3) || len(got) != 2 || got[0] != "own-react" || got[1] != "beta-react" {
+		t.Fatalf("page 1 = %v", body)
+	}
+	_, body = do(t, admin, "GET", e.srv.URL+"/api/automation/library/skill?q=react&limit=2&offset=2", nil, nil)
+	if got := names(body); len(got) != 1 || got[0] != "gamma-react" {
+		t.Fatalf("page 2 = %v", body)
+	}
+	if _, body = do(t, admin, "GET", e.srv.URL+"/api/automation/library/skill", nil, nil); len(names(body)) != 4 || body["total"] != nil {
+		t.Fatalf("whole list = %v", body)
+	}
+	// tags (inline or a block list), category → work area, risk; counts per filter
+	for name, fm := range map[string]string{
+		"css-grid": "source: community\ncategory: frontend\nrisk: safe\ntags: [css, ui]",
+		"pentest":  "source: community\ncategory: security\nrisk: offensive\ntags:\n- audit\n- ui",
+	} {
+		md := "---\nname: " + name + "\ndescription: d\n" + fm + "\n---\nDo it."
+		if resp, body := do(t, admin, "PUT", e.srv.URL+"/api/automation/library/skill/"+name, map[string]any{"files": map[string]string{"SKILL.md": md}}, nil); resp.StatusCode >= 300 {
+			t.Fatalf("save %s = %d %v", name, resp.StatusCode, body)
+		}
+	}
+	_, body = do(t, admin, "GET", e.srv.URL+"/api/automation/library/skill?tag=UI&limit=10", nil, nil)
+	facets, _ := body["facets"].(map[string]any)
+	if got := names(body); len(got) != 2 || facets["areas"].(map[string]any)["code"] != float64(1) || facets["areas"].(map[string]any)["ops"] != float64(1) {
+		t.Fatalf("tag=ui = %v", body)
+	}
+	_, body = do(t, admin, "GET", e.srv.URL+"/api/automation/library/skill?tag=ui&area=ops&limit=10", nil, nil)
+	if got := names(body); len(got) != 1 || got[0] != "pentest" {
+		t.Fatalf("tag=ui&area=ops = %v", body)
+	}
+	it := body["items"].([]any)[0].(map[string]any)
+	if it["category"] != "security" || it["risk"] != "offensive" || len(it["tags"].([]any)) != 2 {
+		t.Fatalf("item = %v", it)
+	}
+	// the area filter does not narrow its own counts
+	if areas := body["facets"].(map[string]any)["areas"].(map[string]any); areas["code"] != float64(1) {
+		t.Fatalf("areas = %v", areas)
+	}
+}
