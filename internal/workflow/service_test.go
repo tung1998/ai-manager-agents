@@ -116,3 +116,29 @@ func (r *contentWriteRaceRepo) UpdateContent(ctx context.Context, w storage.Work
 	}
 	return err
 }
+
+// A council's planner is the default agent: it still takes the seat named
+// as it is, and every seat goes to the agent named for it (ADR-166).
+func TestSuggestNamedSeats(t *testing.T) {
+	def, err := workflow.Parse(workflow.BuiltinSource("council-3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents := []storage.Agent{
+		{ID: "p", Name: "Lập kế hoạch", Role: "Lập pháp: mục tiêu, quy tắc, kế hoạch", ModelTier: "strong", Permissions: storage.Permissions{Level: "read", ReadOnly: true}},
+		{ID: "e", Name: "Thực thi", Role: "Hành pháp: điều phối worker thực hiện", ModelTier: "strong", Permissions: storage.Permissions{Level: "operate"}},
+		{ID: "a", Name: "Giám sát", Role: "Tư pháp: kiểm tra, đánh giá, phủ quyết", ModelTier: "strong", Permissions: storage.Permissions{Level: "read", ReadOnly: true}},
+		{ID: "d", Name: "DevOps", Role: "Build, CI/CD", ModelTier: "balanced", Permissions: storage.Permissions{Level: "operate"}},
+	}
+	got := workflow.Suggest(def, agents, "p", nil)
+	if got["lap-ke-hoach"] != "p" || got["thuc-thi"] != "e" || got["giam-sat"] != "a" {
+		t.Fatalf("bindings = %v", got)
+	}
+	// a default agent not named for a seat still only coordinates
+	def2, _ := workflow.Parse(workflow.BuiltinSource("handoff"))
+	for role, id := range workflow.Suggest(def2, agents, "p", nil) {
+		if id == "p" {
+			t.Fatalf("%s given to the default agent", role)
+		}
+	}
+}

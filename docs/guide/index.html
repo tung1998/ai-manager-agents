@@ -122,7 +122,7 @@
   </ol>
   <h4>Your team</h4>
   <ol>
-    <li><a href="#models">Organisation models</a></li>
+    <li><a href="#models">Agents from the library</a></li>
     <li><a href="#agents">Agents</a></li>
     <li><a href="#chat">Chat</a></li>
     <li><a href="#approvals">Approvals</a></li>
@@ -173,7 +173,7 @@
   <h2><span class="num">1</span>What is agent-office</h2>
   <p class="intro">Think of it as an office where the staff are AI agents and you are the manager.</p>
   <div class="cards">
-    <div class="card"><b>👥 A team per project</b><span>Lead, developers, QA, reviewer… organised as Solo, Team, Council or your own model.</span></div>
+    <div class="card"><b>👥 A team per project</b><span>Lead, developers, QA, reviewer… picked from the library, or by AI from the repo.</span></div>
     <div class="card"><b>🌳 Isolated edits</b><span>Each chat works in its own git worktree. You see a diff before anything reaches your repo.</span></div>
     <div class="card"><b>🔐 Permission per action</b><span>Read, edit, run a command, restart a container, commit, push: each one allowed, asked or blocked.</span></div>
     <div class="card"><b>⏰ Always on</b><span>Schedules, webhooks, chat bots, monitors and Burn keep work moving while you sleep.</span></div>
@@ -184,7 +184,7 @@
   <table>
     <tr><th>Word</th><th>Meaning</th></tr>
     <tr><td><b>Project</b></td><td>A folder (usually a git repo), a cloned URL, or a folder-less helper for non-code work.</td></tr>
-    <tr><td><b>Organisation model</b></td><td>The set of agents in a project and how they work together.</td></tr>
+    <tr><td><b>Library</b></td><td>Ready-made agents, workflows, automations, skills and MCP servers to add to a project and adjust.</td></tr>
     <tr><td><b>Agent</b></td><td>One AI staff member: role, instructions, AI connection, model tier, permissions, memory.</td></tr>
     <tr><td><b>Chat</b></td><td>A conversation with one or more agents. Each chat has its own worktree.</td></tr>
     <tr><td><b>Proposal</b></td><td>Something an agent wants to do that needs a person: a diff, a command, a restart, a settings change.</td></tr>
@@ -204,7 +204,7 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
   <ol class="steps">
     <li>Open <code>http://localhost:2704</code> (or the server's address) and sign in with <b><code>admin</code> / <code>admin</code></b>.</li>
     <li>Set your own email and password. The default account can do nothing else until you do.</li>
-    <li>Follow the checklist on <b>Overview → Machine</b>: AI connection → project → organisation model.</li>
+    <li>Follow the checklist on <b>Overview → Machine</b>: AI connection → project → agents.</li>
     <li>Optional: <code>./bin/office service install --now</code> starts the office every time you log in (LaunchAgent on macOS, systemd user unit on Linux).</li>
   </ol>
   <figure><img src="images/01-login.png" alt="Login page" loading="lazy"><figcaption>Sign in. Failed logins are rate-limited per IP.</figcaption></figure>
@@ -266,7 +266,7 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
     <li><b>Folder</b>: pick an existing folder with the folder tree.</li>
     <li><b>Clone</b>: paste a git URL (https, ssh or scp style). The office clones it next to its own folder by default.</li>
     <li><b>No folder</b>: a helper for planning, writing or anything machine-wide.</li>
-    <li>Choose an organisation model now, or later from the project's <b>Info</b> tab (<b>Set up with AI</b>).</li>
+    <li>A new project starts with the <b>Assistant</b> agent so it can chat at once, then opens <b>Set up with AI</b> to pick more from the library (run it again any time from the <b>Info</b> tab).</li>
   </ol>
   <p>Inside a project the tabs are: <b>Chat</b>, <b>Automations</b>, <b>Operations</b>, <b>Agents</b>, <b>Permissions</b>, and for admins also <b>Files</b>, <b>Skills</b>, <b>MCP</b>, <b>Burn</b>, <b>Change log</b>, <b>Info</b>. The header shows the git branch with fetch, commit and push buttons.</p>
 </section>
@@ -274,30 +274,30 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <!-- 6 -->
 <section id="setup">
   <h2><span class="num">6</span>Set up with AI</h2>
-  <p class="intro">Let an agent read the repo and propose the right team.</p>
+  <p class="intro">Let AI read the repo and pick what the project needs from the library.</p>
   <figure><img src="images/18-setup-ai.png" alt="Set up with AI" loading="lazy"><figcaption>Project → Info → Set up with AI.</figcaption></figure>
   <ol class="steps">
     <li><b>Scan</b> (free): manifests, frameworks, infra files, existing agent files such as <code>CLAUDE.md</code> or <code>.claude/agents</code>.</li>
-    <li><b>Propose</b>: the AI suggests a model and tunes each agent, with a reason for every choice and an estimated cost.</li>
-    <li>Change the template or options and the preview rebuilds. Nothing is written until you click <b>Create</b>.</li>
+    <li><b>Propose</b>: the AI picks agents, workflows, automations, skills and MCP servers from the library, with a reason for each; agents come with the project's own context.</li>
+    <li>Untick anything, or click <b>Edit</b> (name, permission, context), before <b>Apply setup</b>. It only adds: current agents stay as they are, and automations are created paused so you check their schedule or webhook first.</li>
   </ol>
 </section>
 
 <!-- 7 -->
 <section id="models">
-  <h2><span class="num">7</span>Organisation models</h2>
-  <p class="intro">How the agents of a project are arranged and how they decide.</p>
-  <figure><img src="images/06-team-model.png" alt="Team model" loading="lazy"><figcaption>The Agents tab: the org chart of a Team. Click an agent to open it.</figcaption></figure>
+  <h2><span class="num">7</span>Agents from the library</h2>
+  <p class="intro">A project's agents come from the library, adjusted to fit; how they work together is a workflow.</p>
+  <figure><img src="images/06-team-model.png" alt="A project's agents" loading="lazy"><figcaption>The Agents tab: the project's agents; the default one answers when nobody is named. Click an agent to open it.</figcaption></figure>
   <table>
-    <tr><th>Model</th><th>How work flows</th><th>Good for</th></tr>
-    <tr><td><b>Solo</b></td><td>One agent does everything.</td><td>Small repos, personal helpers.</td></tr>
-    <tr><td><b>Team</b></td><td>The lead plans, splits work (shared conventions, at most 3 files per task, no overlapping files, dependencies), members work in parallel, the lead merges and reports.</td><td>Most code projects.</td></tr>
-    <tr><td><b>Council</b></td><td>Legislative, executive and judicial roles: proposals are voted on, can be vetoed, and the result is checked.</td><td>Risky changes, payments, security.</td></tr>
-    <tr><td><b>Your own</b></td><td>Save any project's model as a template, or build one from scratch.</td><td>Reusing what works.</td></tr>
+    <tr><th>Team shape</th><th>Library agents</th><th>Good for</th></tr>
+    <tr><td><b>One agent</b></td><td>Assistant.</td><td>Small repos, personal helpers.</td></tr>
+    <tr><td><b>Team</b></td><td>A team lead coordinating specialists: frontend, backend, QA, review, DevOps… with the Handoff, Feature and Review PR workflows.</td><td>Most code projects.</td></tr>
+    <tr><td><b>Council</b></td><td>Planner, Executor and Auditor with the 3-party council workflow: proposals are voted on, can be vetoed, and the result is checked.</td><td>Risky changes, payments, security.</td></tr>
   </table>
+  <p><b>Add agent</b> opens the library: pick one, adjust its name, role and model tier, then add it; its instructions and permissions are edited on its own page. There is no whole-team swap any more: add, edit or remove agents one by one (History can still restore).</p>
   <div class="row">
-    <figure><img src="images/20-council.png" alt="Council model" loading="lazy"><figcaption>A Council model on the demo-shop project.</figcaption></figure>
-    <figure><img src="images/24-templates.png" alt="Templates" loading="lazy"><figcaption>Org models: built-in and saved templates, export/import.</figcaption></figure>
+    <figure><img src="images/20-council.png" alt="Council" loading="lazy"><figcaption>The three council agents and the 3-party council workflow on demo-shop.</figcaption></figure>
+    <figure><img src="images/24-templates.png" alt="Workflow library" loading="lazy"><figcaption>The workflow library: built-in and saved workflows.</figcaption></figure>
   </div>
   <div class="callout tip"><strong>Fix until it passes</strong>A task loops (edit → build/test → fix) until checks pass. It stops when it can't make progress, needs your answer, or runs out of budget.</div>
 </section>
@@ -582,11 +582,10 @@ office backup                            # database + encryption key</code></pre
     <tr><th>Command</th><th>What it does</th></tr>
     <tr><td><code>office run</code></td><td>Supervisor: API server + dashboard, restarts on crash, applies updates. Flags: <code>--ui-port</code>, <code>--no-ui</code>, <code>--api</code>, <code>--home</code>.</td></tr>
     <tr><td><code>office serve</code></td><td>API server only.</td></tr>
-    <tr><td><code>office init [path] [--local] [--template team]</code></td><td>Register a repo and choose a model.</td></tr>
-    <tr><td><code>office project add|list|rm</code></td><td>Manage projects. No path = machine-wide helper.</td></tr>
+    <tr><td><code>office init [path] [--local] [--agent office/team-lead]</code></td><td>Register a repo; it gets the Assistant agent, <code>--agent</code> adds library agents.</td></tr>
+    <tr><td><code>office project add|list|rm</code></td><td>Manage projects. No path = a machine-wide helper. <code>add --agent &lt;id&gt; --workflow &lt;key,…&gt;</code> adds library agents and workflows.</td></tr>
     <tr><td><code>office provider add|list|test</code></td><td>AI connections.</td></tr>
-    <tr><td><code>office template list</code></td><td>Organisation models.</td></tr>
-    <tr><td><code>office user create|list|passwd</code></td><td>The first admin (replaces <code>admin</code> / <code>admin</code>), list accounts, reset a password. Later accounts: on the dashboard, or <code>create --force</code>.</td></tr>
+        <tr><td><code>office user create|list|passwd</code></td><td>The first admin (replaces <code>admin</code> / <code>admin</code>), list accounts, reset a password. Later accounts: on the dashboard, or <code>create --force</code>.</td></tr>
     <tr><td><code>office export | import | backup</code></td><td>Move or back up configuration and data.</td></tr>
     <tr><td><code>office service install|status|uninstall</code></td><td>Start with your login session.</td></tr>
   </table>

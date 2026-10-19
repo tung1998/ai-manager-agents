@@ -116,18 +116,25 @@ func (s *Service) checkBindings(ctx context.Context, projectID string, def Def, 
 
 // Suggest fills the roles of def with agents of the project by what their
 // hints say and what they prefer (a model tier, a vendor family: families
-// maps agent id → family, may be nil), never the default agent (it
-// coordinates), and two roles that work at once never with the same agent.
+// maps agent id → family, may be nil), an agent named as the role first; the
+// default agent (it coordinates) only takes the role named as it is, and two
+// roles that work at once never with the same agent.
 func Suggest(def Def, agents []storage.Agent, defaultID string, families map[string]string) map[string]string {
 	out := map[string]string{}
 	var pool []storage.Agent
+	var coord *storage.Agent
 	for _, a := range storage.OnAgents(agents) {
 		if a.ID != defaultID {
 			pool = append(pool, a)
+		} else {
+			coord = &a
 		}
 	}
 	if len(pool) == 0 {
 		return out // only the coordinator: roles are picked when given out
+	}
+	named := func(a storage.Agent, r Role) bool {
+		return strings.EqualFold(strings.TrimSpace(a.Name), strings.TrimSpace(r.Name))
 	}
 	words := func(s string) []string {
 		return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
@@ -144,9 +151,16 @@ func Suggest(def Def, agents []storage.Agent, defaultID string, families map[str
 			n int
 		}
 		var best []scored
-		for _, a := range pool {
+		cands := pool
+		if coord != nil && named(*coord, r) { // the default agent made for this seat (Lập kế hoạch of a council)
+			cands = append([]storage.Agent{*coord}, pool...)
+		}
+		for _, a := range cands {
 			text := strings.ToLower(a.Name + " " + a.Role + " " + a.Description)
 			n := 0
+			if named(a, r) {
+				n += 10
+			}
 			for _, w := range hint {
 				if len([]rune(w)) > 2 && strings.Contains(text, w) {
 					n++

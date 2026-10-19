@@ -123,7 +123,7 @@
   </ol>
   <h4>Đội của bạn</h4>
   <ol>
-    <li><a href="#models">Mô hình tổ chức</a></li>
+    <li><a href="#models">Agent từ thư viện</a></li>
     <li><a href="#agents">Agent</a></li>
     <li><a href="#chat">Chat</a></li>
     <li><a href="#approvals">Duyệt đề xuất</a></li>
@@ -174,7 +174,7 @@
   <h2><span class="num">1</span>agent-office là gì</h2>
   <p class="intro">Hãy hình dung một văn phòng mà nhân viên là các agent AI, còn bạn là người quản lý.</p>
   <div class="cards">
-    <div class="card"><b>👥 Mỗi project một đội</b><span>Trưởng nhóm, kỹ sư, QA, reviewer… xếp theo Solo, Team, Tam quyền hoặc mô hình bạn tự tạo.</span></div>
+    <div class="card"><b>👥 Mỗi project một đội</b><span>Trưởng nhóm, kỹ sư, QA, reviewer… chọn từ thư viện, hoặc để AI chọn theo repo.</span></div>
     <div class="card"><b>🌳 Sửa trong bản sao riêng</b><span>Mỗi chat làm trong git worktree riêng. Bạn xem diff trước khi có gì vào repo.</span></div>
     <div class="card"><b>🔐 Quyền theo từng hành động</b><span>Đọc, sửa, chạy lệnh, khởi động lại container, commit, push: mỗi thứ được phép, phải hỏi, hoặc bị chặn.</span></div>
     <div class="card"><b>⏰ Luôn làm việc</b><span>Lịch chạy, webhook, bot chat, giám sát và Burn giữ công việc chạy cả khi bạn ngủ.</span></div>
@@ -185,7 +185,7 @@
   <table>
     <tr><th>Từ</th><th>Nghĩa</th></tr>
     <tr><td><b>Project</b></td><td>Một thư mục (thường là git repo), một link git để clone, hoặc trợ lý không thư mục cho việc ngoài code.</td></tr>
-    <tr><td><b>Mô hình tổ chức</b></td><td>Tập agent của một project và cách họ phối hợp.</td></tr>
+    <tr><td><b>Thư viện</b></td><td>Mẫu agent, quy trình, tự động hóa, skill và MCP để thêm vào project rồi chỉnh.</td></tr>
     <tr><td><b>Agent</b></td><td>Một nhân viên AI: vai trò, hướng dẫn, kết nối AI, hạng model, quyền, trí nhớ.</td></tr>
     <tr><td><b>Chat</b></td><td>Cuộc trò chuyện với một hoặc nhiều agent. Mỗi chat có worktree riêng.</td></tr>
     <tr><td><b>Đề xuất</b></td><td>Việc agent muốn làm nhưng cần người duyệt: một diff, một lệnh, khởi động lại, đổi cài đặt.</td></tr>
@@ -205,7 +205,7 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
   <ol class="steps">
     <li>Mở <code>http://localhost:2704</code> (hoặc địa chỉ server) và đăng nhập bằng <b><code>admin</code> / <code>admin</code></b>.</li>
     <li>Đặt email và mật khẩu của bạn. Trước khi đặt, tài khoản mặc định không làm được gì khác.</li>
-    <li>Làm theo checklist ở <b>Tổng quan → Máy</b>: kết nối AI → project → mô hình tổ chức.</li>
+    <li>Làm theo checklist ở <b>Tổng quan → Máy</b>: kết nối AI → project → agent.</li>
     <li>Tùy chọn: <code>./bin/office service install --now</code> để office tự bật mỗi khi đăng nhập máy (LaunchAgent trên macOS, systemd user unit trên Linux).</li>
   </ol>
   <figure><img src="images/vi/01-login.png" alt="Trang đăng nhập" loading="lazy"><figcaption>Đăng nhập. Đăng nhập sai bị giới hạn theo IP.</figcaption></figure>
@@ -262,12 +262,12 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <section id="projects">
   <h2><span class="num">5</span>Project</h2>
   <p class="intro">Mọi công việc đều nằm trong một project.</p>
-  <figure><img src="images/vi/03-projects.png" alt="Danh sách project" loading="lazy"><figcaption>Ba kiểu project: repo dùng mô hình Team, repo dùng Tam quyền, và trợ lý không thư mục.</figcaption></figure>
+  <figure><img src="images/vi/03-projects.png" alt="Danh sách project" loading="lazy"><figcaption>Ba kiểu project: repo có một đội agent, repo có ba agent Tam quyền, và trợ lý không thư mục.</figcaption></figure>
   <ol class="steps">
     <li><b>Thư mục</b>: chọn một thư mục có sẵn bằng cây thư mục.</li>
     <li><b>Clone</b>: dán link git (https, ssh hoặc dạng scp). Mặc định office clone vào cùng cấp với thư mục chứa office.</li>
     <li><b>Không thư mục</b>: trợ lý cho lập kế hoạch, viết bài hay việc chung của cả máy.</li>
-    <li>Chọn mô hình tổ chức ngay, hoặc để sau ở tab <b>Thông tin</b> của project (<b>Thiết lập bằng AI</b>).</li>
+    <li>Project mới có sẵn agent <b>Trợ lý</b> để chat ngay, rồi mở trang <b>Thiết lập bằng AI</b> để chọn thêm từ thư viện (làm lại được bất cứ lúc nào ở tab <b>Thông tin</b>).</li>
   </ol>
   <p>Trong một project có các tab: <b>Chat</b>, <b>Tự động</b>, <b>Vận hành</b>, <b>Agents</b>, <b>Quyền</b>; admin thấy thêm <b>Files</b>, <b>Skills</b>, <b>MCP</b>, <b>Burn</b>, <b>Nhật ký</b>, <b>Thông tin</b>. Thanh tiêu đề hiện nhánh git kèm nút fetch, commit và push.</p>
 </section>
@@ -275,30 +275,30 @@ make ui-install &amp;&amp; make ui-build  # → dashboard/.output
 <!-- 6 -->
 <section id="setup">
   <h2><span class="num">6</span>Thiết lập bằng AI</h2>
-  <p class="intro">Để một agent đọc repo và đề xuất đội phù hợp.</p>
+  <p class="intro">Để AI đọc repo và chọn từ thư viện những gì project cần.</p>
   <figure><img src="images/vi/18-setup-ai.png" alt="Thiết lập bằng AI" loading="lazy"><figcaption>Project → Thông tin → Thiết lập bằng AI.</figcaption></figure>
   <ol class="steps">
     <li><b>Quét</b> (miễn phí): manifest, framework, file hạ tầng, các file agent sẵn có như <code>CLAUDE.md</code> hay <code>.claude/agents</code>.</li>
-    <li><b>Đề xuất</b>: AI gợi ý mô hình và tinh chỉnh từng agent, có lý do cho mỗi lựa chọn và ước tính chi phí.</li>
-    <li>Đổi mẫu hoặc tùy chọn thì bản xem trước tự dựng lại. Chưa có gì được ghi cho tới khi bạn bấm <b>Tạo</b>.</li>
+    <li><b>Đề xuất</b>: AI chọn agent, quy trình, tự động hóa, skill và MCP từ thư viện, có lý do cho mỗi mục; agent kèm bối cảnh riêng của project.</li>
+    <li>Bỏ tick hoặc bấm <b>Chỉnh</b> (tên, quyền, bối cảnh) trước khi bấm <b>Áp dụng thiết lập</b>. Chỉ thêm: agent đang có giữ nguyên; tự động hóa được tạo ở trạng thái tạm dừng để bạn xem lại lịch/webhook rồi bật.</li>
   </ol>
 </section>
 
 <!-- 7 -->
 <section id="models">
-  <h2><span class="num">7</span>Mô hình tổ chức</h2>
-  <p class="intro">Cách các agent trong project được sắp xếp và ra quyết định.</p>
-  <figure><img src="images/vi/06-team-model.png" alt="Mô hình Team" loading="lazy"><figcaption>Tab Agents: sơ đồ tổ chức của một đội Team. Bấm vào agent để mở chi tiết.</figcaption></figure>
+  <h2><span class="num">7</span>Agent từ thư viện</h2>
+  <p class="intro">Agent của project lấy từ thư viện rồi chỉnh cho hợp; cách phối hợp nằm ở quy trình.</p>
+  <figure><img src="images/vi/06-team-model.png" alt="Agent của project" loading="lazy"><figcaption>Tab Agents: các agent của project, agent mặc định trả lời khi không ai được gọi tên. Bấm vào agent để mở chi tiết.</figcaption></figure>
   <table>
-    <tr><th>Mô hình</th><th>Cách làm việc</th><th>Hợp với</th></tr>
-    <tr><td><b>Solo</b></td><td>Một agent làm hết.</td><td>Repo nhỏ, trợ lý cá nhân.</td></tr>
-    <tr><td><b>Team</b></td><td>Trưởng nhóm lập kế hoạch, chia việc (quy ước chung, tối đa 3 file mỗi việc, không chồng file, có phụ thuộc), các thành viên làm song song, trưởng nhóm gộp và báo cáo.</td><td>Phần lớn project code.</td></tr>
-    <tr><td><b>Tam quyền</b></td><td>Lập pháp, hành pháp, tư pháp: đề xuất được biểu quyết, có thể bị phủ quyết, và kết quả được kiểm tra lại.</td><td>Thay đổi rủi ro, thanh toán, bảo mật.</td></tr>
-    <tr><td><b>Tự tạo</b></td><td>Lưu mô hình của một project làm mẫu, hoặc dựng từ đầu.</td><td>Dùng lại cách làm hiệu quả.</td></tr>
+    <tr><th>Cách dựng đội</th><th>Agent trong thư viện</th><th>Hợp với</th></tr>
+    <tr><td><b>Một agent</b></td><td>Trợ lý.</td><td>Repo nhỏ, trợ lý cá nhân.</td></tr>
+    <tr><td><b>Nhóm</b></td><td>Trưởng nhóm điều phối, cùng các chuyên môn: frontend, backend, QA, review, DevOps… và quy trình Giao lại, Làm tính năng, Review PR.</td><td>Phần lớn project code.</td></tr>
+    <tr><td><b>Tam quyền</b></td><td>Lập kế hoạch, Thực thi, Giám sát với quy trình Hội đồng 3 bên: đề xuất được biểu quyết, có thể bị phủ quyết, và kết quả được kiểm tra lại.</td><td>Thay đổi rủi ro, thanh toán, bảo mật.</td></tr>
   </table>
+  <p><b>Thêm agent</b> mở thư viện: chọn một mẫu, sửa tên, vai trò, hạng model rồi thêm; hướng dẫn và quyền chỉnh tiếp ở trang của agent. Không còn chọn hay thay cả bộ agent một lần: muốn đổi thì thêm, sửa hoặc xóa từng agent (Lịch sử vẫn khôi phục được).</p>
   <div class="row">
-    <figure><img src="images/vi/20-council.png" alt="Mô hình Tam quyền" loading="lazy"><figcaption>Mô hình Tam quyền trên project demo-shop.</figcaption></figure>
-    <figure><img src="images/vi/24-templates.png" alt="Mô hình mẫu" loading="lazy"><figcaption>Mô hình: mẫu có sẵn và mẫu đã lưu, xuất/nhập.</figcaption></figure>
+    <figure><img src="images/vi/20-council.png" alt="Tam quyền" loading="lazy"><figcaption>Ba agent Tam quyền và quy trình Hội đồng 3 bên trên project demo-shop.</figcaption></figure>
+    <figure><img src="images/vi/24-templates.png" alt="Thư viện quy trình" loading="lazy"><figcaption>Thư viện quy trình: mẫu có sẵn và mẫu đã lưu.</figcaption></figure>
   </div>
   <div class="callout tip"><strong>Sửa tới khi đạt</strong>Một việc chạy vòng lặp (sửa → build/test → sửa) cho tới khi kiểm tra đạt. Nó dừng khi không tiến triển được, cần bạn trả lời, hoặc hết ngân sách.</div>
 </section>
@@ -583,10 +583,9 @@ office backup                            # database + khóa mã hóa</code></pre
     <tr><th>Lệnh</th><th>Tác dụng</th></tr>
     <tr><td><code>office run</code></td><td>Supervisor: server API + dashboard, tự bật lại khi dừng, áp dụng bản cập nhật. Cờ: <code>--ui-port</code>, <code>--no-ui</code>, <code>--api</code>, <code>--home</code>.</td></tr>
     <tr><td><code>office serve</code></td><td>Chỉ chạy server API.</td></tr>
-    <tr><td><code>office init [path] [--local] [--template team]</code></td><td>Đăng ký repo và chọn mô hình.</td></tr>
-    <tr><td><code>office project add|list|rm</code></td><td>Quản lý project. Không có path = trợ lý toàn máy.</td></tr>
+    <tr><td><code>office init [path] [--local] [--agent office/team-lead]</code></td><td>Đăng ký repo; mặc định có agent Trợ lý, <code>--agent</code> thêm agent từ thư viện.</td></tr>
+    <tr><td><code>office project add|list|rm</code></td><td>Quản lý project. Không có path = trợ lý toàn máy. <code>add --agent &lt;id&gt; --workflow &lt;key,…&gt;</code> thêm agent và quy trình từ thư viện.</td></tr>
     <tr><td><code>office provider add|list|test</code></td><td>Kết nối AI.</td></tr>
-    <tr><td><code>office template list</code></td><td>Mô hình tổ chức.</td></tr>
     <tr><td><code>office user create|list|passwd</code></td><td>Admin đầu tiên (thay <code>admin</code> / <code>admin</code>), liệt kê tài khoản, đặt lại mật khẩu. Tài khoản sau: tạo trên dashboard, hoặc <code>create --force</code>.</td></tr>
     <tr><td><code>office export | import | backup</code></td><td>Chuyển hoặc sao lưu cài đặt và dữ liệu.</td></tr>
     <tr><td><code>office service install|status|uninstall</code></td><td>Tự bật cùng phiên đăng nhập máy.</td></tr>
