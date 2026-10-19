@@ -16,9 +16,8 @@ func TestMoreSaveConflicts(t *testing.T) {
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
 	ctx := context.Background()
-	solo := "solo"
 	dir := t.TempDir()
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "name": "shop", "pack": solo}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "name": "shop"}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	dir = body["project"].(map[string]any)["path"].(string) // as office keeps it
 

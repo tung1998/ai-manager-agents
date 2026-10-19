@@ -55,8 +55,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"- sá»­a lá
 	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
 	org := team.NewService(st, nil)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := team.PackByKey("solo")
-	org.ApplyPack(ctx, project.ID, solo, false)
+	org.AddFromLibrary(ctx, project.ID, team.StarterAgent)
 	engine := chat.NewEngine(st, provs, u)
 	attach := filepath.Join(tmp, "attachments")
 	return fx{st: st, svc: cleanup.New(st, engine, nil, attach, filepath.Join(tmp, "o.db")), engine: engine, project: project, attach: attach}

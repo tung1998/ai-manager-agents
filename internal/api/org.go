@@ -79,10 +79,8 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/limit-alert", admin(s.setLimitAlert))
 	mux.Handle("POST /api/limit-alert/test", admin(s.testLimitAlert))
 
-	mux.Handle("GET /api/packs", auth(s.listPacks))
 	mux.Handle("GET /api/agent-library", auth(s.agentLibrary))
 	mux.Handle("GET /api/agent-library/{set}/{key}", auth(s.agentLibraryItem))
-	mux.Handle("POST /api/projects/{id}/pack", admin(s.applyPack))
 	mux.Handle("POST /api/projects/{id}/agents", admin(s.createAgent))
 	mux.Handle("PUT /api/projects/{id}/default-agent", admin(s.setDefaultAgent))
 	mux.Handle("GET /api/projects/{id}/agents/export", auth(s.exportAgents))
@@ -219,11 +217,11 @@ func (s *server) writeDomainError(w http.ResponseWriter, r *http.Request, err er
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Agent không hợp lệ", "problems": ve.Problems})
 	case errors.Is(err, storage.ErrNotFound):
 		writeError(w, http.StatusNotFound, "Không tìm thấy")
-	case errors.Is(err, storage.ErrConflict), errors.Is(err, provider.ErrNameTaken), errors.Is(err, team.ErrHasAgents), errors.Is(err, provider.ErrIsDefault):
+	case errors.Is(err, storage.ErrConflict), errors.Is(err, provider.ErrNameTaken), errors.Is(err, provider.ErrIsDefault):
 		writeError(w, http.StatusConflict, conflictMsg(err))
 	case errors.Is(err, provider.ErrInvalidKind), errors.Is(err, provider.ErrNeedsKey), errors.Is(err, provider.ErrBadTier), errors.Is(err, provider.ErrBadCap),
 		errors.Is(err, provider.ErrKeyRequiredForNewURL),
-		errors.Is(err, team.ErrNoPack), errors.Is(err, errBadInput):
+		errors.Is(err, errBadInput):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
 		s.internal(w, r, err)
@@ -234,8 +232,6 @@ var errBadInput = errors.New("dữ liệu không hợp lệ")
 
 func conflictMsg(err error) string {
 	switch {
-	case errors.Is(err, team.ErrHasAgents):
-		return "Project đã có agent, chọn thay thế để dùng gói khởi tạo"
 	case errors.Is(err, provider.ErrNameTaken):
 		return err.Error()
 	case errors.Is(err, provider.ErrIsDefault):
@@ -564,44 +560,6 @@ func toAgentDTO(a storage.Agent) agentDTO {
 	return d
 }
 
-// ---- starter packs (ADR-099) ----
-
-type packDTO struct {
-	Key         string         `json:"key"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Default     string         `json:"default"`
-	Workflows   []string       `json:"workflows"`
-	Agents      []packAgentDTO `json:"agents"`
-}
-
-type packAgentDTO struct {
-	Key       string `json:"key"`
-	Name      string `json:"name"`
-	Role      string `json:"role"`
-	ModelTier string `json:"model_tier"`
-}
-
-func (s *server) listPacks(w http.ResponseWriter, r *http.Request) {
-	list, err := team.Packs()
-	if err != nil {
-		s.internal(w, r, err)
-		return
-	}
-	out := make([]packDTO, 0, len(list))
-	for _, p := range list {
-		d := packDTO{Key: p.Key, Name: p.Name, Description: p.Description, Default: p.Default, Workflows: p.Workflows, Agents: []packAgentDTO{}}
-		if d.Workflows == nil {
-			d.Workflows = []string{}
-		}
-		for _, a := range p.Agents {
-			d.Agents = append(d.Agents, packAgentDTO{Key: a.Key, Name: a.Name, Role: a.Role, ModelTier: a.ModelTier})
-		}
-		out = append(out, d)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"packs": out})
-}
-
 // agentLibrary lists the library agents (ADR-154): names and descriptions
 // only; the instructions are read when one is opened.
 func (s *server) agentLibrary(w http.ResponseWriter, r *http.Request) {
@@ -625,36 +583,6 @@ func (s *server) agentLibraryItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"agent": a})
-}
-
-// applyPack gives a project a starter pack ({key, replace}): replace puts its
-// agents in place of the project's (kept by key).
-func (s *server) applyPack(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Key     string `json:"key"`
-		Replace bool   `json:"replace"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	p, err := team.PackByKey(in.Key)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	id := r.PathValue("id")
-	if _, err := s.cfg.Store.Repos().Get(r.Context(), id); err != nil {
-		s.writeDomainError(w, r, err)
-		return
-	}
-	if err := s.cfg.Team.ApplyPack(r.Context(), id, p, in.Replace); err != nil {
-		s.writeDomainError(w, r, err)
-		return
-	}
-	s.auditAction(r, "project.apply_pack", id, map[string]any{"pack": p.Key, "replace": in.Replace})
-	x, _ := s.cfg.Store.Repos().Get(r.Context(), id)
-	d, _ := s.repoDTO(r, x, true)
-	writeJSON(w, http.StatusOK, map[string]any{"project": d})
 }
 
 // setDefaultAgent: {agent_id} answers the project's chats, bots and
@@ -960,7 +888,7 @@ type repoDTO struct {
 	Description string `json:"description"`
 	Scope       string `json:"scope"` // folder | machine (no path: helper for the whole machine)
 	Exists      bool   `json:"exists"`
-	// AgentCount: 0 = the project has no agent yet (pick a starter pack)
+	// AgentCount: 0 = the project has no agent yet (pick from the library)
 	AgentCount     int        `json:"agent_count"`
 	DefaultAgentID string     `json:"default_agent_id"` // the one answering when none is named
 	Features       []string   `json:"features"`         // features on (internal/features)
@@ -1020,7 +948,6 @@ func (s *server) createRepo(w http.ResponseWriter, r *http.Request) {
 		Path        string `json:"path"`
 		Name        string `json:"name"`
 		Description string `json:"description"`
-		Pack        string `json:"pack"` // starter pack key ("" = no agents yet)
 	}
 	if !decode(w, r, &in) {
 		return
@@ -1037,15 +964,15 @@ func (s *server) createRepo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Project không có thư mục cần đặt tên")
 		return
 	}
-	s.registerRepo(w, r, info, in.Name, in.Description, in.Pack, nil)
+	s.registerRepo(w, r, info, in.Name, in.Description, nil)
 }
 
-// registerRepo adds a detected folder as a project (with a starter pack's
-// agents and workflows, if one is picked). It reports false when it wrote an
-// error (nothing was registered).
+// registerRepo adds a detected folder as a project, with the library's
+// starter agent so it can chat at once (ADR-166). It reports false when it
+// wrote an error (nothing was registered).
 // then runs on the project made, before the reply (its errors are not the
 // request's).
-func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos.Info, name, desc, packKey string, extra map[string]any, then ...func(storage.Repo)) bool {
+func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos.Info, name, desc string, extra map[string]any, then ...func(storage.Repo)) bool {
 	if name = strings.TrimSpace(name); name != "" {
 		info.Name = name
 	}
@@ -1057,18 +984,12 @@ func (s *server) registerRepo(w http.ResponseWriter, r *http.Request, info repos
 		s.writeDomainError(w, r, err)
 		return false
 	}
-	if packKey != "" {
-		p, err := team.PackByKey(packKey)
-		if err == nil {
-			err = s.cfg.Team.ApplyPack(r.Context(), x.ID, p, false)
-		}
-		if err != nil {
-			_ = s.cfg.Store.Repos().Delete(r.Context(), x.ID)
-			s.writeDomainError(w, r, err)
-			return false
-		}
+	if err := s.cfg.Team.AddFromLibrary(r.Context(), x.ID, team.StarterAgent); err != nil {
+		_ = s.cfg.Store.Repos().Delete(r.Context(), x.ID)
+		s.writeDomainError(w, r, err)
+		return false
 	}
-	detail := map[string]any{"path": x.Path, "pack": packKey}
+	detail := map[string]any{"path": x.Path}
 	for k, v := range extra {
 		detail[k] = v
 	}
@@ -1089,7 +1010,6 @@ func (s *server) cloneRepo(w http.ResponseWriter, r *http.Request) {
 		Parent string `json:"parent"`
 		Dir    string `json:"dir"`
 		Name   string `json:"name"`
-		Pack   string `json:"pack"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -1124,7 +1044,7 @@ func (s *server) cloneRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := repos.Detect(dest)
-	if err == nil && s.registerRepo(w, r, info, in.Name, "", in.Pack, map[string]any{"cloned_from": repos.StripCredentials(strings.TrimSpace(in.URL))}) {
+	if err == nil && s.registerRepo(w, r, info, in.Name, "", map[string]any{"cloned_from": repos.StripCredentials(strings.TrimSpace(in.URL))}) {
 		return
 	}
 	_ = os.RemoveAll(dest) // not registered: the clone does not stay behind
@@ -1143,7 +1063,6 @@ func (s *server) newRepo(w http.ResponseWriter, r *http.Request) {
 		Parent string `json:"parent"`
 		Dir    string `json:"dir"`
 		Name   string `json:"name"`
-		Pack   string `json:"pack"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -1187,7 +1106,7 @@ func (s *server) newRepo(w http.ResponseWriter, r *http.Request) {
 		desc = strings.TrimSpace(desc + "\nStack: " + st) // the builder's scan reads the description
 	}
 	info, err := repos.Detect(dest)
-	if err == nil && s.registerRepo(w, r, info, in.Name, desc, in.Pack, map[string]any{"stack": strings.TrimSpace(in.Stack), "created_from": "idea"}, func(x storage.Repo) { s.builderBurn(r, x) }) {
+	if err == nil && s.registerRepo(w, r, info, in.Name, desc, map[string]any{"stack": strings.TrimSpace(in.Stack), "created_from": "idea"}, func(x storage.Repo) { s.builderBurn(r, x) }) {
 		return
 	}
 	_ = os.RemoveAll(dest) // not registered: the new repo does not stay behind

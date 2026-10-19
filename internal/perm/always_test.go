@@ -70,8 +70,7 @@ func alwaysStore(t *testing.T) (storage.Store, storage.Repo, storage.Agent) {
 	}
 	org := team.NewService(st, nil)
 	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p"}) // no folder: every built-in pack
-	solo, _ := team.PackByKey("solo")
-	if err := org.ApplyPack(ctx, proj.ID, solo, false); err != nil {
+	if err := org.AddFromLibrary(ctx, proj.ID, team.StarterAgent); err != nil {
 		t.Fatal(err)
 	}
 	agents, _ := st.Agents().List(ctx, proj.ID)

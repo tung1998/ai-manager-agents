@@ -127,7 +127,7 @@ async function removeRepo() {
             <!-- Việc is gone (ADR-057): an old link to it opens the chat -->
             <ChatPanel :project-id="project.id" />
           </template>
-          <!-- no agent yet: pick a starter pack first -->
+          <!-- no agent yet: pick from the library first -->
           <ProjectAgents v-else :project="project" @changed="refresh()" />
         </div>
         <template #fallback>

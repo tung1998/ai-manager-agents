@@ -11,6 +11,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/repos"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/team"
 )
 
 func repoCmd() *cobra.Command {
@@ -20,12 +21,16 @@ func repoCmd() *cobra.Command {
 		Short:   "Quản lý project (thư mục trên máy, hoặc helper toàn máy)",
 	}
 
-	var pack, name string
+	var (
+		name      string
+		agents    []string
+		workflows []string
+	)
 	add := &cobra.Command{
 		Use:   "add [đường-dẫn]",
 		Short: "Thêm project; bỏ trống đường dẫn để tạo helper cho toàn bộ máy",
-		Example: `  office project add ~/code/shop --pack team
-  office project add --name "Trợ lý máy" --pack solo   # không gắn thư mục`,
+		Example: `  office project add ~/code/shop --agent office/team-lead --agent office/frontend-dev --workflow review-pr
+  office project add --name "Trợ lý máy"   # không gắn thư mục`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var info repos.Info
@@ -40,6 +45,11 @@ func repoCmd() *cobra.Command {
 			if name != "" {
 				info.Name = name
 			}
+			for _, id := range agents { // checked first: a wrong id leaves no project behind
+				if _, err := team.LibraryAgentByID(id); err != nil {
+					return err
+				}
+			}
 			return withApp(cmd.Context(), func(a *app) error {
 				r, err := a.store.Repos().Create(cmd.Context(), storage.Repo{Name: info.Name, Path: info.Path, GitRemote: info.GitRemote, Description: info.Description})
 				if errors.Is(err, storage.ErrConflict) {
@@ -49,23 +59,26 @@ func repoCmd() *cobra.Command {
 					return err
 				}
 				fmt.Printf("✓ Đã thêm project %s · %s\n", r.Name, projectScope(r))
-				if pack != "" {
-					p, err := pickPack(pack)
-					if err != nil {
+				ids := agents
+				if len(ids) == 0 {
+					ids = []string{team.StarterAgent}
+				}
+				if err := a.team.AddFromLibrary(cmd.Context(), r.ID, ids...); err != nil {
+					return err
+				}
+				fmt.Printf("✓ Agent từ thư viện: %s\n", strings.Join(ids, ", "))
+				if len(workflows) > 0 {
+					if err := a.team.InstallWorkflows(cmd.Context(), r.ID, workflows); err != nil {
 						return err
 					}
-					if err := a.team.ApplyPack(cmd.Context(), r.ID, p, false); err != nil {
-						return err
-					}
-					fmt.Printf("✓ Dùng gói %s: %d agent\n", p.Name, len(p.Agents))
+					fmt.Printf("✓ Quy trình: %s\n", strings.Join(workflows, ", "))
 				}
 				return nil
 			})
 		},
 	}
-	add.Flags().StringVar(&pack, "pack", "", "dùng gói khởi tạo ngay: solo | team | council")
-	add.Flags().StringVar(&pack, "template", "", "tên cũ của --pack")
-	_ = add.Flags().MarkHidden("template")
+	add.Flags().StringArrayVar(&agents, "agent", nil, "agent từ thư viện theo id, vd office/devops (lặp lại được; mặc định office/assistant)")
+	add.Flags().StringSliceVar(&workflows, "workflow", nil, "cài quy trình từ thư viện theo key, vd review-pr,fix-tests")
 	add.Flags().StringVar(&name, "name", "", "tên project (bắt buộc khi không có đường dẫn)")
 
 	list := &cobra.Command{

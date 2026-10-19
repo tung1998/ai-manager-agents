@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -18,7 +19,7 @@ type WorkflowInstaller interface {
 // Service is the use-case layer for a project's agents.
 type Service struct {
 	store     storage.Store
-	workflows WorkflowInstaller // nil: packs install no workflows
+	workflows WorkflowInstaller // nil: no workflows are installed
 }
 
 // NewService builds a Service.
@@ -26,27 +27,25 @@ func NewService(store storage.Store, workflows WorkflowInstaller) *Service {
 	return &Service{store: store, workflows: workflows}
 }
 
-// ErrHasAgents: the project has agents already (apply a pack with replace).
-var ErrHasAgents = errors.New("project đã có agent")
+// StarterAgent is the library agent a new project begins with (ADR-166):
+// it can chat at once; the AI setup or the library adds more.
+const StarterAgent = "office/assistant"
 
-// ApplyPack gives a project a starter pack's agents and workflows. replace
-// puts the pack's agents in place of the project's (kept by key, so their
-// chats stay theirs); otherwise the project must have none yet.
-func (s *Service) ApplyPack(ctx context.Context, projectID string, p Pack, replace bool) error {
-	if !replace {
-		if list, err := s.store.Agents().List(ctx, projectID); err != nil {
+// AddFromLibrary adds library agents (by id, "office/assistant") a project
+// does not have yet; the first becomes the default if it has none.
+func (s *Service) AddFromLibrary(ctx context.Context, projectID string, ids ...string) error {
+	var snap Snapshot
+	for _, id := range ids {
+		a, err := LibraryAgentByID(id)
+		if err != nil {
 			return err
-		} else if len(list) > 0 {
-			return ErrHasAgents
 		}
+		if snap.Default == "" {
+			snap.Default = a.Key
+		}
+		snap.Agents = append(snap.Agents, a.Spec())
 	}
-	if err := s.Replace(ctx, projectID, Snapshot{Default: p.Default, Agents: p.Agents}, "pack:"+p.Key); err != nil {
-		return err
-	}
-	if s.workflows != nil && len(p.Workflows) > 0 {
-		return s.workflows.InstallDefaults(ctx, projectID, p.Workflows)
-	}
-	return nil
+	return s.Merge(ctx, projectID, snap, "library:"+strings.Join(ids, ","))
 }
 
 // Load is a project's agents as a snapshot.
@@ -228,7 +227,7 @@ func (s *Service) Replace(ctx context.Context, projectID string, snap Snapshot, 
 	})
 }
 
-// InstallWorkflows installs a pack's workflows into a project (keys already
+// InstallWorkflows installs library workflows into a project (keys already
 // installed are skipped by the workflow service).
 func (s *Service) InstallWorkflows(ctx context.Context, projectID string, keys []string) error {
 	if s.workflows == nil || len(keys) == 0 {
@@ -237,7 +236,7 @@ func (s *Service) InstallWorkflows(ctx context.Context, projectID string, keys [
 	return s.workflows.InstallDefaults(ctx, projectID, keys)
 }
 
-// Merge adds a pack's agents to a project without touching or removing the
+// Merge adds agents to a project without touching or removing the
 // ones it already has: an existing key is left exactly as the project has
 // it, a new key is created, and the default is set only if the project has
 // none yet. Used when a project already has agents an admin may have

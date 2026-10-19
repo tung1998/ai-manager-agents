@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // A project's agents (ADR-099): who answers when nobody is named (the
-// default), each one's switch, a starter pack to begin or start over, and the
-// history of changes. How they work together is a workflow, not set here.
+// default), each one's switch, more picked from the library (ADR-166), and
+// the history of changes. How they work together is a workflow, not set here.
 const props = defineProps<{ project: Project }>()
 const emit = defineEmits<{ changed: [] }>()
 
@@ -53,9 +53,9 @@ function exportAgents() {
 }
 const historyOpen = ref(false)
 
-// ---- add an agent: the basics here, the rest on its own page ----
+// ---- add an agent from the library: pick, adjust the basics here, the rest on its own page ----
 const addOpen = ref(false)
-const addTab = ref<'library' | 'blank'>('library')
+const addTab = ref<'library' | 'edit'>('library')
 const form = reactive({ name: '', key: '', role: '', model_tier: 'balanced' as ModelTier })
 // picked from the library (ADR-153): its description, instructions and permissions go along
 const fromLib = ref<LibraryAgent>()
@@ -86,14 +86,14 @@ function pickLib(a: LibraryAgent) {
   form.key = freeKey(a.key)
   keyTouched.value = true
   problems.value = []
-  addTab.value = 'blank'
+  addTab.value = 'edit'
 }
 // the key follows the name until typed by hand (lowercase, digits, dashes)
 const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\u0111/gi, 'd')
   .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 watch(() => form.name, (n) => { if (!keyTouched.value) form.key = slug(n) })
 async function add() {
-  if (adding.value) return
+  if (adding.value || !fromLib.value) return
   adding.value = true
   problems.value = []
   try {
@@ -101,8 +101,8 @@ async function add() {
       method: 'POST',
       body: {
         key: form.key, name: form.name, role: form.role, model_tier: form.model_tier,
-        description: fromLib.value?.description ?? '', instructions: fromLib.value?.instructions ?? '',
-        permissions: fromLib.value?.permissions ?? { level: 'read', read_only: true }
+        description: fromLib.value.description, instructions: fromLib.value.instructions,
+        permissions: fromLib.value.permissions
       }
     })
     addOpen.value = false
@@ -132,28 +132,10 @@ onMounted(async () => {
   }
 })
 
-// ---- a starter pack: the first agents, or in place of these ----
-const packOpen = ref(false)
-const packKey = ref('')
-const applying = ref(false)
-async function applyPack() {
-  if (applying.value || !packKey.value) return
-  applying.value = true
-  try {
-    await $fetch(`/api/projects/${props.project.id}/pack`, { method: 'POST', body: { key: packKey.value, replace: agents.value.length > 0 } })
-    packOpen.value = false
-    toast.add({ title: t('team.packApplied'), color: 'success' })
-    changed()
-  } catch (e) {
-    toast.add({ title: apiError(e), color: 'error' })
-  } finally {
-    applying.value = false
-  }
-}
 </script>
 
 <template>
-  <!-- no agent yet: pick a starter pack (or let AI set it up) -->
+  <!-- no agent yet: pick from the library (or let AI pick) -->
   <UCard v-if="!agents.length" class="max-w-3xl" :ui="{ body: 'space-y-4 sm:p-5' }">
     <div class="flex items-start gap-3">
       <UIcon name="i-lucide-bot" class="mt-0.5 size-6 shrink-0 text-(--ui-text-dimmed)" />
@@ -162,14 +144,10 @@ async function applyPack() {
         <p class="text-sm text-(--ui-text-muted)">{{ t('team.empty.desc') }}</p>
       </div>
     </div>
-    <template v-if="isAdmin">
-      <PackPicker v-model="packKey" />
-      <div class="flex flex-wrap justify-end gap-2">
-        <UButton icon="i-lucide-library" color="neutral" variant="outline" :label="t('team.lib.addOne')" @click="openAdd" />
-        <UButton :to="`${base}/setup`" icon="i-lucide-sparkles" color="neutral" variant="outline" :label="t('project.setupAi')" />
-        <UButton icon="i-lucide-check" :label="t('team.applyPack')" :loading="applying" :disabled="!packKey" @click="applyPack" />
-      </div>
-    </template>
+    <div v-if="isAdmin" class="flex flex-wrap justify-end gap-2">
+      <UButton :to="`${base}/setup`" icon="i-lucide-sparkles" color="neutral" variant="outline" :label="t('project.setupAi')" />
+      <UButton icon="i-lucide-library" :label="t('team.lib.addOne')" @click="openAdd" />
+    </div>
   </UCard>
 
   <div v-else class="space-y-4">
@@ -180,10 +158,7 @@ async function applyPack() {
         :content="{ align: 'end' }"
         :items="[[
           { label: t('team.export'), icon: 'i-lucide-download', onSelect: exportAgents },
-          ...(isAdmin ? [
-            { label: t('team.replacePack'), icon: 'i-lucide-package', onSelect: () => { packKey = ''; packOpen = true } },
-            { label: t('project.setupAi'), icon: 'i-lucide-sparkles', to: `${base}/setup` }
-          ] : [])
+          ...(isAdmin ? [{ label: t('project.setupAi'), icon: 'i-lucide-sparkles', to: `${base}/setup` }] : [])
         ]]"
       >
         <UButton icon="i-lucide-ellipsis" color="neutral" variant="outline" :aria-label="t('project.actionsAria')" />
@@ -233,34 +208,14 @@ async function applyPack() {
     <RevisionHistory v-model:open="historyOpen" :project-id="project.id" @restored="changed" />
   </div>
 
-  <!-- a pack in place of the current agents -->
-  <UModal v-model:open="packOpen" :title="t('team.replacePack')" :ui="{ content: 'max-w-xl' }">
-    <template #body>
-      <div class="space-y-4">
-        <UAlert color="warning" variant="subtle" icon="i-lucide-triangle-alert" :description="t('team.replaceWarn')" />
-        <PackPicker v-model="packKey" />
-      </div>
-    </template>
-    <template #footer>
-      <div class="flex w-full justify-end gap-2">
-        <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="packOpen = false" />
-        <UButton color="warning" :loading="applying" :disabled="!packKey" :label="t('team.replaceBtn')" @click="applyPack" />
-      </div>
-    </template>
-  </UModal>
-
   <UModal v-model:open="addOpen" :title="t('org.editor.newAgent')" :ui="{ content: 'max-w-2xl' }">
     <template #body>
-      <UTabs
-        v-model="addTab" :content="false" size="sm" class="mb-4"
-        :items="[{ label: t('team.lib.tab'), value: 'library', icon: 'i-lucide-library' }, { label: t('team.lib.blankTab'), value: 'blank', icon: 'i-lucide-pencil' }]"
-      />
       <AgentLibrary v-if="addTab === 'library'" v-model:selected="libPick" @pick="pickLib" />
       <form v-else id="agent-add" class="space-y-4" @submit.prevent="add">
         <div v-if="fromLib" class="flex items-center gap-2 rounded-lg bg-(--ui-bg-elevated) px-3 py-2 text-sm">
           <UIcon name="i-lucide-library" class="size-4 shrink-0 text-primary" />
           <span class="me-auto min-w-0 truncate">{{ t('team.lib.from', { name: fromLib.name }) }}</span>
-          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="t('team.lib.clear')" @click="fromLib = undefined" />
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-arrow-left" :label="t('team.lib.back')" @click="addTab = 'library'" />
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
           <UFormField :label="t('org.form.name')" required>
@@ -292,7 +247,7 @@ async function applyPack() {
       <div class="flex w-full justify-end gap-2">
         <UButton color="neutral" variant="ghost" :label="t('common.cancel')" @click="addOpen = false" />
         <UButton v-if="addTab === 'library'" icon="i-lucide-check" :disabled="!libPick" :label="t('team.lib.use')" @click="libPick && pickLib(libPick)" />
-        <UButton v-else type="submit" form="agent-add" :loading="adding" :disabled="!form.name.trim() || !form.key.trim()" :label="t('team.addAndConfigure')" />
+        <UButton v-else type="submit" form="agent-add" :loading="adding" :disabled="!fromLib || !form.name.trim() || !form.key.trim()" :label="t('team.addAndConfigure')" />
       </div>
     </template>
   </UModal>

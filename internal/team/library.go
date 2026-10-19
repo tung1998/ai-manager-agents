@@ -45,6 +45,12 @@ type LibraryAgent struct {
 	Permissions  storage.Permissions `json:"permissions"`
 }
 
+// Spec is the library agent as one of a project's agents.
+func (a LibraryAgent) Spec() AgentSpec {
+	return AgentSpec{Key: a.Key, Name: a.Name, Role: a.Role, Description: a.Description,
+		ModelTier: a.ModelTier, Instructions: a.Instructions, Permissions: a.Permissions}
+}
+
 // ErrNoLibraryAgent: no library agent has that id.
 var ErrNoLibraryAgent = errors.New("không có agent này trong thư viện")
 

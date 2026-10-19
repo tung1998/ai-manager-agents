@@ -22,8 +22,7 @@ func setup(t *testing.T) (storage.Store, *team.Service, storage.Repo, storage.Ag
 	st.Migrate(ctx)
 	org := team.NewService(st, nil)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "demo", Path: t.TempDir()})
-	solo, _ := team.PackByKey("solo")
-	if err := org.ApplyPack(ctx, project.ID, solo, false); err != nil {
+	if err := org.AddFromLibrary(ctx, project.ID, team.StarterAgent); err != nil {
 		t.Fatal(err)
 	}
 	agents, _ := st.Agents().List(ctx, project.ID)

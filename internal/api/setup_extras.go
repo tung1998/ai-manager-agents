@@ -15,15 +15,25 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/workflow"
 )
 
-// setupToolbox is what the setup may pick beyond the packs: the office
-// library's own skills (not those of a catalog imported with a "source",
-// thousands of them would flood the prompt), and MCP servers from the
-// catalog and the library.
-func setupToolbox(a *automation.Service) func() setup.Toolbox {
+// setupToolbox is what the setup may pick beyond the agent library: the
+// workflow library, the office library's own skills (not those of a catalog
+// imported with a "source", thousands of them would flood the prompt), and
+// MCP servers from the catalog and the library.
+func setupToolbox(a *automation.Service, wf *workflow.Service) func() setup.Toolbox {
 	return func() setup.Toolbox {
-		box := setup.Toolbox{Skills: []setup.Tool{}, MCP: []setup.Tool{}}
+		box := setup.Toolbox{Workflows: []setup.Tool{}, Skills: []setup.Tool{}, MCP: []setup.Tool{}}
+		if wf != nil {
+			if list, err := wf.Lib.List(); err == nil {
+				for _, it := range list {
+					if it.Error == "" {
+						box.Workflows = append(box.Workflows, setup.Tool{Name: it.Def.Key, Description: it.Def.Name + ": " + it.Def.Description})
+					}
+				}
+			}
+		}
 		if list, err := a.Library.List("skill"); err == nil {
 			for _, it := range list {
 				if it.Source != "" {

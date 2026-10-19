@@ -47,9 +47,11 @@ func TestExportImportRoundTrip(t *testing.T) {
 	key := "sk-ant-secret-key-9999"
 	claude, _ := src.prov.Create(ctx, provider.Input{Name: "Claude API", Kind: storage.ProviderAnthropic, APIKey: &key})
 	gpt, _ := src.prov.Create(ctx, provider.Input{Name: "GPT", Kind: storage.ProviderOpenAI, APIKeyEnv: "OPENAI_API_KEY"})
-	pack, _ := team.PackByKey("team")
 	repo, _ := src.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: "/code/shop", Description: "Shop"})
-	if err := src.org.ApplyPack(ctx, repo.ID, pack, false); err != nil {
+	if err := src.org.AddFromLibrary(ctx, repo.ID, "office/team-lead", "office/product-manager", "office/architect", "office/backend-dev", "office/frontend-dev", "office/qa-tester", "office/code-reviewer", "office/devops", "office/tech-writer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.org.InstallWorkflows(ctx, repo.ID, []string{"handoff", "council", "advisor", "feature", "bugfix", "review-pr", "fix-tests"}); err != nil {
 		t.Fatal(err)
 	}
 	agents, _ := src.st.Agents().List(ctx, repo.ID)

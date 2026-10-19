@@ -136,8 +136,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"'"$out"'",
 	provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
 	dir := t.TempDir()
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: dir})
-	solo, _ := team.PackByKey("solo")
-	org.ApplyPack(ctx, project.ID, solo, false)
+	org.AddFromLibrary(ctx, project.ID, team.StarterAgent)
 	engine := chat.NewEngine(st, provs, u)
 	runner := trigger.New(st, chatExec{engine})
 

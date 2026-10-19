@@ -62,8 +62,7 @@ func TestWorkflowBeginRunFailsCleanlyWhenCreateErrors(t *testing.T) {
 	p, _ := provs.Create(ctx, provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
 	_ = p
 	project, _ := real.Repos().Create(ctx, storage.Repo{Name: "demo", Path: dir})
-	solo, _ := team.PackByKey("solo")
-	org.ApplyPack(ctx, project.ID, solo, false)
+	org.AddFromLibrary(ctx, project.ID, team.StarterAgent)
 	engine := chat.NewEngine(st, provs, u)
 
 	dev, err := st.Agents().Create(ctx, storage.Agent{ProjectID: project.ID, Key: "dev", Name: "Dev", ModelTier: "fast"})

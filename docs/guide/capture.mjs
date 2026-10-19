@@ -163,9 +163,12 @@ async function build() {
   execFileSync('git', ['clone', '-q', '--depth', '1', `file://${mainRoot}`, aoCopy])
   // shots show "main" whatever branch the real checkout is on
   execFileSync('git', ['checkout', '-q', '-B', 'main'], { cwd: aoCopy })
-  office(['project', 'add', aoCopy, '--name', 'agent-office', '--pack', 'team'])
-  office(['project', 'add', shop, '--name', 'demo-shop', '--pack', 'council'])
-  office(['project', 'add', '--name', CONTENT, '--pack', 'solo'])
+  // agents and workflows picked from the library (ADR-166)
+  const lib = ids => ids.flatMap(id => ['--agent', `office/${id}`])
+  office(['project', 'add', aoCopy, '--name', 'agent-office', ...lib(['team-lead', 'product-manager', 'architect', 'project-coordinator', 'qa-tester', 'backend-dev', 'frontend-dev', 'code-reviewer', 'devops']),
+    '--workflow', 'handoff,council,advisor,feature,bugfix,review-pr,fix-tests'])
+  office(['project', 'add', shop, '--name', 'demo-shop', ...lib(['planner', 'executor', 'auditor', 'backend-dev', 'data-analyst', 'devops']), '--workflow', 'council-3,handoff,advisor,bugfix'])
+  office(['project', 'add', '--name', CONTENT])
 
   // the server scans ~/.claude for skills and MCP servers: give it a home of its own,
   // so the screenshots never show the real machine's
@@ -317,7 +320,7 @@ diff --git a/dashboard/app/layouts/default.vue b/dashboard/app/layouts/default.v
 
   // a finished run of the shop's first council workflow, for 44-workflow-run — not soft(): must exist
   const shopWorkflow = (await api('GET', `/api/projects/${shop.id}/workflows`)).workflows?.[0]
-  if (!shopWorkflow) throw new Error('seed: demo-shop has no workflow (pack=council should seed one) — 41-workflow-edit/44-workflow-run need it')
+  if (!shopWorkflow) throw new Error('seed: demo-shop has no workflow (its council-3 workflow should be installed) — 41-workflow-edit/44-workflow-run need it')
   sql([conv('cnv_demo_council', lead, T('Council: new return policy', 'Hội đồng: chính sách đổi trả mới'), 40)])
   sql([`INSERT INTO workflow_runs (id, project_id, conversation_id, workflow_id, workflow_key, workflow_name, input, status, turns, cost_usd, result, roles, gates, log, actor, started_at, finished_at) VALUES ('run_demo_council', ${q(shop.id)}, 'cnv_demo_council', ${q(shopWorkflow.id)}, ${q(shopWorkflow.key)}, ${q(shopWorkflow.name)}, ${q(T('Should we extend the return window to 30 days?', 'Có nên kéo dài thời hạn đổi trả lên 30 ngày?'))}, 'done', 3, 0.0412, ${q(T('Approved: extend to 30 days, with a 10% restocking fee over 14 days.', 'Đồng ý: kéo dài lên 30 ngày, phí nhập lại 10% nếu quá 14 ngày.'))}, '[]', '[]', '[]', ${q('human:' + EMAIL)}, ${q(ts(40))}, ${q(ts(35))})`])
   // linked projects (ADR-155): agent-office hands work to demo-shop, hears back,

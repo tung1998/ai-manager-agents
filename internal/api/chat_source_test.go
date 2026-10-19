@@ -57,8 +57,7 @@ func TestSkillChatPurpose(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	solo := "solo"
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	resp, b := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{"purpose": "skill", "subject": "skill:project:tra-don"}, nil)
 	if resp.StatusCode != 201 || b["conversation"].(map[string]any)["purpose"] != "skill" {

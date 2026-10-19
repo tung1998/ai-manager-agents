@@ -36,39 +36,20 @@ func setup(t *testing.T) (storage.Store, *team.Service, *installs, storage.Repo)
 	return st, team.NewService(st, wf), wf, r
 }
 
-func TestPacksAreValid(t *testing.T) {
-	list, err := team.Packs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(list) != 3 || list[0].Key != "solo" || list[2].Key != "council" {
-		t.Fatalf("packs = %+v", list)
-	}
-	for _, p := range list {
-		if err := team.Validate(p.Agents); err != nil {
-			t.Fatalf("%s: %v", p.Key, err)
-		}
-		if !slices.ContainsFunc(p.Agents, func(a team.AgentSpec) bool { return a.Key == p.Default }) {
-			t.Fatalf("%s: default %q is not one of its agents", p.Key, p.Default)
-		}
-	}
-}
+var council = []string{"office/planner", "office/executor", "office/auditor", "office/backend-dev", "office/data-analyst", "office/devops"}
 
-func TestApplyPackSaveDeleteRestore(t *testing.T) {
+func TestAddFromLibrarySaveDeleteRestore(t *testing.T) {
 	ctx := context.Background()
-	st, svc, wf, r := setup(t)
-	p, err := team.PackByKey("council")
-	if err != nil {
+	st, svc, _, r := setup(t)
+	if err := svc.AddFromLibrary(ctx, r.ID, council...); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.ApplyPack(ctx, r.ID, p, false); err != nil {
+	// adding them again changes nothing: the project has them
+	if err := svc.AddFromLibrary(ctx, r.ID, council...); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(wf.keys, "council-3") {
-		t.Fatalf("workflows installed = %v", wf.keys)
-	}
-	if err := svc.ApplyPack(ctx, r.ID, p, false); !errors.Is(err, team.ErrHasAgents) {
-		t.Fatalf("second pack without replace: %v", err)
+	if err := svc.AddFromLibrary(ctx, r.ID, "office/nope"); !errors.Is(err, team.ErrNoLibraryAgent) {
+		t.Fatalf("unknown library agent: %v", err)
 	}
 	agents, _ := st.Agents().List(ctx, r.ID)
 	r, _ = st.Repos().Get(ctx, r.ID)
@@ -150,13 +131,10 @@ func (r raceAgentRepo) List(ctx context.Context, projectID string) ([]storage.Ag
 func TestMergeKeepsExistingAddsNew(t *testing.T) {
 	ctx := context.Background()
 	st, svc, _, r := setup(t)
-	solo, err := team.PackByKey("solo")
-	if err != nil {
-		t.Fatal(err)
-	}
+	solo := library(t, team.StarterAgent)
 
-	// (a) an empty project gets the pack as-is
-	if err := svc.Merge(ctx, r.ID, team.Snapshot{Default: solo.Default, Agents: solo.Agents}, "pack:solo"); err != nil {
+	// (a) an empty project gets the agents as-is
+	if err := svc.Merge(ctx, r.ID, solo, "library"); err != nil {
 		t.Fatal(err)
 	}
 	agents, _ := st.Agents().List(ctx, r.ID)
@@ -164,7 +142,7 @@ func TestMergeKeepsExistingAddsNew(t *testing.T) {
 		t.Fatalf("empty project merge = %d agents, want %d", len(agents), len(solo.Agents))
 	}
 
-	// hand-edit the existing agent, and add one the pack doesn't know about
+	// hand-edit the existing agent, and add one the library doesn't know about
 	existing := agents[0]
 	old := existing
 	existing.Instructions = "custom instructions"
@@ -177,12 +155,9 @@ func TestMergeKeepsExistingAddsNew(t *testing.T) {
 	}
 	before, _ := st.Agents().List(ctx, r.ID)
 
-	// (b)(c)(d): apply a bigger pack; existing keys untouched, custom kept, new keys added
-	council, err := team.PackByKey("council")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Merge(ctx, r.ID, team.Snapshot{Default: council.Default, Agents: council.Agents}, "pack:council"); err != nil {
+	// (b)(c)(d): merge more agents (one the project has); existing keys untouched, custom kept, new keys added
+	council := library(t, append([]string{team.StarterAgent}, council...)...)
+	if err := svc.Merge(ctx, r.ID, council, "library"); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := st.Agents().List(ctx, r.ID)
@@ -210,7 +185,7 @@ func TestMergeKeepsExistingAddsNew(t *testing.T) {
 		}
 		added++
 		if _, ok := byKey[spec.Key]; !ok {
-			t.Fatalf("new pack agent %q not added by merge", spec.Key)
+			t.Fatalf("new agent %q not added by merge", spec.Key)
 		}
 	}
 	if len(after) != len(before)+added {
@@ -258,4 +233,21 @@ func TestLibraryIsValid(t *testing.T) {
 			t.Errorf("%q: %v", bad, err)
 		}
 	}
+}
+
+// library is library agents as a snapshot, the first the default.
+func library(t *testing.T, ids ...string) team.Snapshot {
+	t.Helper()
+	var snap team.Snapshot
+	for _, id := range ids {
+		a, err := team.LibraryAgentByID(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snap.Default == "" {
+			snap.Default = a.Key
+		}
+		snap.Agents = append(snap.Agents, a.Spec())
+	}
+	return snap
 }

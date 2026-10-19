@@ -89,8 +89,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","sessi
 	if err != nil {
 		t.Fatal(err)
 	}
-	solo, _ := team.PackByKey("solo")
-	org.ApplyPack(ctx, project.ID, solo, false)
+	org.AddFromLibrary(ctx, project.ID, team.StarterAgent)
 	engine := chat.NewEngine(st, provs, u)
 	agents, _ := engine.Agents(ctx, project.ID)
 	agent, err = st.Agents().Get(ctx, agents[0].ID)

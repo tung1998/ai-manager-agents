@@ -40,8 +40,7 @@ func TestDecideAlways(t *testing.T) {
 	}
 	org := team.NewService(st, nil)
 	proj, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: root})
-	solo, _ := team.PackByKey("solo")
-	org.ApplyPack(ctx, proj.ID, solo, false)
+	org.AddFromLibrary(ctx, proj.ID, team.StarterAgent)
 	agents, _ := st.Agents().List(ctx, proj.ID)
 	ag := agents[0]
 	ag.Permissions = storage.Permissions{Level: perm.Check}

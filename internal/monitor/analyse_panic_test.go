@@ -32,8 +32,7 @@ func TestMaybeAnalysePanicDoesNotStickEventRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	org := team.NewService(st, nil)
-	solo, _ := team.PackByKey("solo")
-	if err := org.ApplyPack(ctx, p.ID, solo, false); err != nil {
+	if err := org.AddFromLibrary(ctx, p.ID, team.StarterAgent); err != nil {
 		t.Fatal(err)
 	}
 

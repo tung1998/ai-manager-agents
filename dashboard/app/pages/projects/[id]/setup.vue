@@ -15,9 +15,10 @@ interface Summary {
   file_count: number
   env_vars: string[]
 }
-interface AgentChange {
-  action: 'update' | 'add' | 'remove'
-  key: string
+// a library agent the AI picked, as the person edits it (ADR-166)
+interface AgentPick {
+  id: string
+  key?: string
   name?: string
   role?: string
   model_tier?: ModelTier
@@ -25,21 +26,18 @@ interface AgentChange {
   level?: PermLevel
   caps?: string[]
   commands?: string[]
-  source?: string
   reason: string
 }
-interface PackSpec {
-  key: string
-  name: string
-  default?: string
-  agents: { key: string, name: string, role?: string, model_tier?: ModelTier, permissions: AgentPermissions }[]
-}
+interface PlanAgent { key: string, name: string, role?: string, model_tier?: ModelTier, permissions: AgentPermissions }
+interface Plan { default: string, agents: PlanAgent[] }
 interface Proposal {
   description: string
-  pack_key: string
   reason: string
   confidence: number
-  agent_changes: AgentChange[]
+  default_agent: string
+  agents: AgentPick[]
+  workflows: Pick[]
+  automations: Pick[]
   skills: Pick[]
   mcp: Pick[]
   quick_checks: string
@@ -49,13 +47,12 @@ interface Pick { name: string, reason: string, needs?: 'key' | 'login' }
 interface ReadyItem { kind: string, name: string, status: 'ok' | 'todo' | 'error', detail?: string }
 interface ProposeResult {
   proposal: Proposal
-  pack: PackSpec
+  plan: Plan
   problems: string[]
   warnings: string[]
   provider: string
   model: string
   usage: { input_tokens: number, output_tokens: number, cost_usd?: number, duration_ms: number }
-  suggested_workflows: string[]
 }
 
 const route = useRoute()
@@ -108,11 +105,12 @@ const docKind = computed<Record<string, string>>(() => ({ instructions: t('setup
 const proposing = ref(false)
 const result = ref<ProposeResult | null>(null)
 const description = ref('')
-const packKey = ref('')
+const picks = ref<AgentPick[]>([])
 const accepted = ref<boolean[]>([])
+const editing = ref<number | null>(null)
 const workflowsAccepted = ref<boolean[]>([])
-const workflowLabel = computed<Record<string, string>>(() => ({ 'fix-tests': t('setup.wfFixTests'), 'review-pr': t('setup.wfReviewPr') }))
-const preview = ref<{ pack: PackSpec, problems: string[], warnings: string[] } | null>(null)
+const automationsAccepted = ref<boolean[]>([])
+const preview = ref<{ plan: Plan, problems: string[], warnings: string[] } | null>(null)
 const skillsAccepted = ref<boolean[]>([])
 const mcpAccepted = ref<boolean[]>([])
 const quickChecks = ref('')
@@ -120,22 +118,31 @@ const useQuickChecks = ref(true)
 const ready = ref<ReadyItem[] | null>(null)
 let previewToken = 0
 
+// the workflow library's names; the automation templates live in the dashboard
+const { data: wfLib } = useLiveFetch<{ workflows: { def: { key: string, name: string } }[] }>('/api/workflow-library', { lazy: true })
+const workflowName = (key: string) => wfLib.value?.workflows.find(w => w.def.key === key)?.def.name ?? key
+const automationTemplate = (key: string) => automationTemplates.find(x => x.key === key)
+
 async function propose() {
   proposing.value = true
   try {
-    const res = await $fetch<{ result: ProposeResult }>(`/api/projects/${id.value}/setup/propose`, { method: 'POST', body: { goal: goal.value } })
+    const automations = automationTemplates.map(x => ({ name: x.key, description: `${x.name}: ${x.description}` }))
+    const res = await $fetch<{ result: ProposeResult }>(`/api/projects/${id.value}/setup/propose`, { method: 'POST', body: { goal: goal.value, automations } })
+    const p = res.result.proposal
     result.value = res.result
-    description.value = res.result.proposal.description
-    packKey.value = res.result.proposal.pack_key
-    accepted.value = res.result.proposal.agent_changes.map(() => true)
-    workflowsAccepted.value = res.result.suggested_workflows.map(() => true)
-    skillsAccepted.value = res.result.proposal.skills.map(() => true)
-    mcpAccepted.value = res.result.proposal.mcp.map(() => true)
-    quickChecks.value = res.result.proposal.quick_checks
+    description.value = p.description
+    picks.value = p.agents.map(a => ({ ...a }))
+    previewToken++
+    preview.value = { plan: res.result.plan, problems: res.result.problems, warnings: res.result.warnings }
+    accepted.value = p.agents.map(a => !!planned(a)) // one the project has (left out): unticked
+    editing.value = null
+    workflowsAccepted.value = p.workflows.map(() => true)
+    automationsAccepted.value = p.automations.map(() => true)
+    skillsAccepted.value = p.skills.map(() => true)
+    mcpAccepted.value = p.mcp.map(() => true)
+    quickChecks.value = p.quick_checks
     useQuickChecks.value = true
     ready.value = null
-    previewToken++
-    preview.value = { pack: res.result.pack, problems: res.result.problems, warnings: res.result.warnings }
   } catch (e) {
     const d = (e as { data?: { code?: string, error?: string } }).data
     if (d?.code === 'no_provider') return goConnect()
@@ -149,18 +156,20 @@ async function propose() {
   }
 }
 
-const chosenChanges = computed(() => (result.value?.proposal.agent_changes ?? []).filter((_, i) => accepted.value[i]))
-const chosenWorkflows = computed(() => (result.value?.suggested_workflows ?? []).filter((_, i) => workflowsAccepted.value[i]))
-const chosenSkills = computed(() => (result.value?.proposal.skills ?? []).filter((_, i) => skillsAccepted.value[i]).map(p => p.name))
-const chosenMCP = computed(() => (result.value?.proposal.mcp ?? []).filter((_, i) => mcpAccepted.value[i]).map(p => p.name))
+const chosenAgents = computed(() => picks.value.filter((_, i) => accepted.value[i]))
+const kept = <T,>(list: T[] | undefined, on: boolean[]) => (list ?? []).filter((_, i) => on[i])
+const chosenWorkflows = computed(() => kept(result.value?.proposal.workflows, workflowsAccepted.value).map(p => p.name))
+const chosenAutomations = computed(() => kept(result.value?.proposal.automations, automationsAccepted.value).map(p => p.name))
+const chosenSkills = computed(() => kept(result.value?.proposal.skills, skillsAccepted.value).map(p => p.name))
+const chosenMCP = computed(() => kept(result.value?.proposal.mcp, mcpAccepted.value).map(p => p.name))
 
-// Rebuild the preview whenever the pack or ticked changes move.
-watch([packKey, accepted, workflowsAccepted], async () => {
-  if (!result.value || !packKey.value) return
+// Rebuild the preview whenever the ticked or edited agents move.
+watch([picks, accepted], async () => {
+  if (!result.value) return
   const token = ++previewToken
   try {
-    const res = await $fetch(`/api/projects/${id.value}/setup/build`, {
-      method: 'POST', body: { pack_key: packKey.value, changes: chosenChanges.value, workflows: chosenWorkflows.value }
+    const res = await $fetch<{ plan: Plan, problems: string[], warnings: string[] }>(`/api/projects/${id.value}/setup/build`, {
+      method: 'POST', body: { agents: chosenAgents.value, default_agent: result.value.proposal.default_agent }
     })
     if (token !== previewToken) return
     preview.value = res
@@ -177,12 +186,12 @@ async function apply() {
     const res = await $fetch<{ ready: ReadyItem[] }>(`/api/projects/${id.value}/setup/apply`, {
       method: 'POST',
       body: {
-        pack_key: packKey.value, changes: chosenChanges.value, workflows: chosenWorkflows.value, description: description.value,
-        skills: chosenSkills.value, mcp: chosenMCP.value, quick_checks: useQuickChecks.value ? quickChecks.value : undefined
+        agents: chosenAgents.value, default_agent: result.value?.proposal.default_agent ?? '', workflows: chosenWorkflows.value,
+        description: description.value, skills: chosenSkills.value, mcp: chosenMCP.value, quick_checks: useQuickChecks.value ? quickChecks.value : undefined
       }
     })
+    ready.value = [...res.ready, ...await makeAutomations()]
     toast.add({ title: t('setup.applyDone'), color: 'success' })
-    ready.value = res.ready
   } catch (e) {
     const d = (e as { data?: { problems?: string[] } }).data
     toast.add({ title: t('setup.applyFailed'), description: d?.problems?.join('; ') ?? apiError(e), color: 'error' })
@@ -190,20 +199,27 @@ async function apply() {
     applying.value = false
   }
 }
+// the automations picked are made paused: their trigger (schedule, webhook) is the person's to check
+async function makeAutomations(): Promise<ReadyItem[]> {
+  const out: ReadyItem[] = []
+  for (const key of chosenAutomations.value) {
+    const tpl = automationTemplate(key)
+    if (!tpl) continue
+    try {
+      await $fetch(`/api/projects/${id.value}/automations`, { method: 'POST', body: automationBody({ ...tpl.make(), enabled: false }) })
+      out.push({ kind: 'automation', name: tpl.name, status: 'todo', detail: t('setup.automationPaused') })
+    } catch (e) {
+      out.push({ kind: 'automation', name: tpl.name, status: 'error', detail: apiError(e) })
+    }
+  }
+  return out
+}
 
-// The resolved permission level/caps after an agent change is applied: looked
-// up from the preview's pack (built server-side via internal/perm.Agent), not
-// the AI's raw proposal — an invalid level there is dropped and reported as a
-// warning, and caps can raise the real level above what was asked for.
-function changeAgent(key: string) { return preview.value?.pack.agents.find(a => a.key === key) }
-function changeLevel(key: string): PermLevel | null {
-  const a = changeAgent(key)
-  return a ? agentLevel(a.permissions) : null
-}
-function changeCaps(key: string): string[] {
-  const a = changeAgent(key)
-  return a ? agentCaps(a.permissions) : []
-}
+// A pick as it will be added: built server-side (the library's agent with
+// the edits, internal/perm.Agent for its level), not the AI's raw pick.
+const libKey = (p: AgentPick) => p.key || p.id.slice(p.id.indexOf('/') + 1)
+const planned = (p: AgentPick) => preview.value?.plan.agents.find(a => a.key === libKey(p))
+const levelItems = computed(() => permLevels.map(l => ({ label: l.label, value: l.level, icon: l.icon })))
 
 const readyMeta: Record<ReadyItem['status'], { icon: string, color: string }> = {
   ok: { icon: 'i-lucide-circle-check', color: 'text-(--ui-success)' },
@@ -211,16 +227,11 @@ const readyMeta: Record<ReadyItem['status'], { icon: string, color: string }> = 
   error: { icon: 'i-lucide-circle-x', color: 'text-(--ui-error)' }
 }
 const readyKind = computed<Record<string, string>>(() => ({
-  agents: t('setup.readyAgents'), workflows: t('setup.readyWorkflows'), skill: 'Skill', mcp: 'MCP',
+  agents: t('setup.readyAgents'), workflows: t('setup.readyWorkflows'), skill: 'Skill', mcp: 'MCP', automation: t('setup.readyAutomation'),
   quick_check: t('setup.readyQuickCheck'), command: t('setup.readyCommands')
 }))
 const needsLabel = computed<Record<string, string>>(() => ({ key: t('setup.needsKey'), login: t('setup.needsLogin') }))
 
-const actionMeta = computed<Record<string, { label: string, color: 'info' | 'success' | 'error' }>>(() => ({
-  update: { label: t('setup.actionUpdate'), color: 'info' },
-  add: { label: t('setup.actionAdd'), color: 'success' },
-  remove: { label: t('setup.actionRemove'), color: 'error' }
-}))
 </script>
 
 <template>
@@ -231,7 +242,7 @@ const actionMeta = computed<Record<string, { label: string, color: 'info' | 'suc
 
     <div v-if="project" class="mx-auto max-w-5xl space-y-6">
       <UAlert
-        v-if="project.agent_count" color="warning" variant="subtle" icon="i-lucide-triangle-alert"
+        v-if="project.agent_count" color="info" variant="subtle" icon="i-lucide-info"
         :description="t('team.setup.hasAgentsWarn', { n: project.agent_count })"
       />
 
@@ -335,82 +346,93 @@ const actionMeta = computed<Record<string, { label: string, color: 'info' | 'suc
             <UTextarea v-model="description" :rows="3" class="w-full" />
           </UFormField>
 
-          <div class="grid gap-6 lg:grid-cols-2">
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <p class="text-sm font-medium">{{ t('team.setup.pack') }}</p>
-                <UBadge :label="t('setup.confidence', { n: Math.round(result.proposal.confidence * 100) })" color="neutral" variant="soft" size="sm" />
-              </div>
-              <p class="text-sm text-(--ui-text-muted)">{{ result.proposal.reason }}</p>
-              <PackPicker v-model="packKey" />
+          <div class="space-y-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="me-auto text-sm font-medium">{{ t('setup.libAgents', { n: chosenAgents.length, total: picks.length }) }}</p>
+              <UBadge :label="t('setup.confidence', { n: Math.round(result.proposal.confidence * 100) })" color="neutral" variant="soft" size="sm" />
             </div>
-
-            <div class="space-y-2">
-              <p class="text-sm font-medium">{{ t('setup.preview') }}</p>
-              <ul class="divide-y divide-(--ui-border) rounded-lg border border-(--ui-border)">
-                <li v-for="a in preview?.pack.agents ?? []" :key="a.key" class="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-                  <span class="font-medium">{{ a.name }}</span>
-                  <UBadge v-if="a.key === preview?.pack.default" :label="t('team.default')" icon="i-lucide-star" variant="subtle" size="sm" />
-                  <UBadge v-if="a.model_tier" :label="modelTierLabel[a.model_tier]" color="neutral" variant="outline" size="sm" />
-                  <UBadge :label="permOf(agentLevel(a.permissions)).label" :icon="permOf(agentLevel(a.permissions)).icon" color="neutral" variant="soft" size="sm" />
-                  <span v-if="a.role" class="w-full truncate text-xs text-(--ui-text-muted)">{{ a.role }}</span>
-                </li>
-              </ul>
-              <UAlert v-if="preview?.problems.length" color="error" variant="subtle" :title="t('setup.invalidTitle')">
-                <template #description>
-                  <ul class="list-disc ps-4">
-                    <li v-for="p in preview.problems" :key="p">{{ p }}</li>
-                  </ul>
-                </template>
-              </UAlert>
-              <UAlert v-if="preview?.warnings.length" color="warning" variant="subtle" :title="t('setup.warningsTitle')">
-                <template #description>
-                  <ul class="list-disc ps-4">
-                    <li v-for="w in preview.warnings" :key="w">{{ w }}</li>
-                  </ul>
-                </template>
-              </UAlert>
-            </div>
-          </div>
-
-          <div v-if="result.proposal.agent_changes.length" class="space-y-2">
-            <p class="text-sm font-medium">{{ t('setup.refineAgents', { n: chosenChanges.length, total: result.proposal.agent_changes.length }) }}</p>
+            <p class="text-sm text-(--ui-text-muted)">{{ result.proposal.reason }}</p>
             <div
-              v-for="(c, i) in result.proposal.agent_changes" :key="i"
+              v-for="(p, i) in picks" :key="p.id + i"
               class="flex gap-3 rounded-lg border p-3"
               :class="accepted[i] ? 'border-(--ui-border)' : 'border-dashed border-(--ui-border) opacity-60'"
             >
               <UCheckbox v-model="accepted[i]" class="mt-0.5" />
               <div class="min-w-0 flex-1 space-y-1">
                 <div class="flex flex-wrap items-center gap-2">
-                  <UBadge :label="actionMeta[c.action]?.label ?? c.action" :color="actionMeta[c.action]?.color ?? 'neutral'" variant="subtle" size="sm" />
-                  <span class="font-medium">{{ c.name || c.key }}</span>
-                  <code class="text-xs text-(--ui-text-muted)">{{ c.key }}</code>
-                  <UBadge v-if="c.model_tier" :label="modelTierLabel[c.model_tier]" size="sm" color="neutral" variant="outline" />
-                  <UBadge v-if="changeLevel(c.key)" :label="permOf(changeLevel(c.key)!).label" :icon="permOf(changeLevel(c.key)!).icon" size="sm" color="neutral" variant="soft" />
-                  <UBadge v-for="cap in changeCaps(c.key)" :key="cap" :label="permCaps.find(p => p.id === cap)?.label ?? cap" size="sm" color="neutral" variant="outline" />
+                  <span class="font-medium">{{ planned(p)?.name ?? p.name ?? p.id }}</span>
+                  <code class="text-xs text-(--ui-text-muted)">{{ p.id }}</code>
+                  <UBadge v-if="accepted[i] && planned(p)?.key === preview?.plan.default" :label="t('team.default')" icon="i-lucide-star" variant="subtle" size="sm" />
+                  <UBadge v-if="planned(p)?.model_tier" :label="modelTierLabel[planned(p)!.model_tier!]" size="sm" color="neutral" variant="outline" />
+                  <UBadge v-if="planned(p)" :label="permOf(agentLevel(planned(p)!.permissions)).label" :icon="permOf(agentLevel(planned(p)!.permissions)).icon" size="sm" color="neutral" variant="soft" />
+                  <UButton
+                    v-if="accepted[i]" class="ms-auto" size="xs" color="neutral" variant="ghost" icon="i-lucide-pencil"
+                    :label="editing === i ? t('setup.editDone') : t('setup.editPick')" @click="editing = editing === i ? null : i"
+                  />
                 </div>
-                <p class="text-sm text-(--ui-text-muted)">{{ c.reason }}</p>
-                <p v-if="c.source" class="text-xs">{{ t('setup.fromFilePrefix') }} <code>{{ c.source }}</code></p>
-                <p v-if="c.commands?.length" class="flex flex-wrap items-center gap-1 text-xs text-(--ui-text-muted)">
-                  {{ t('setup.commandsPrefix') }}
-                  <code v-for="cmd in c.commands" :key="cmd" class="rounded bg-(--ui-bg-muted) px-1">{{ cmd }}</code>
-                </p>
-                <details v-if="c.instructions" class="text-sm">
-                  <summary class="cursor-pointer text-xs text-(--ui-text-muted)">
-                    {{ c.action === 'update' ? t('setup.instructionsAdded') : t('setup.instructions') }}
-                  </summary>
-                  <p class="mt-1 whitespace-pre-wrap rounded bg-(--ui-bg-muted) p-2 text-xs">{{ c.instructions }}</p>
+                <p v-if="planned(p)?.role" class="text-xs text-(--ui-text-muted)">{{ planned(p)!.role }}</p>
+                <p class="text-sm text-(--ui-text-muted)">{{ p.reason }}</p>
+                <div v-if="editing === i && accepted[i]" class="grid gap-3 pt-2 sm:grid-cols-2">
+                  <UFormField :label="t('org.form.name')">
+                    <UInput v-model="p.name" :placeholder="planned(p)?.name" class="w-full" />
+                  </UFormField>
+                  <UFormField :label="t('setup.pickLevel')">
+                    <USelect v-model="p.level" :items="levelItems" :placeholder="planned(p) ? permOf(agentLevel(planned(p)!.permissions)).label : ''" class="w-full" />
+                  </UFormField>
+                  <UFormField :label="t('setup.instructionsAdded')" class="sm:col-span-2">
+                    <UTextarea v-model="p.instructions" :rows="3" autoresize class="w-full" />
+                  </UFormField>
+                </div>
+                <details v-else-if="p.instructions" class="text-sm">
+                  <summary class="cursor-pointer text-xs text-(--ui-text-muted)">{{ t('setup.instructionsAdded') }}</summary>
+                  <p class="mt-1 whitespace-pre-wrap rounded bg-(--ui-bg-muted) p-2 text-xs">{{ p.instructions }}</p>
                 </details>
               </div>
             </div>
+            <UAlert v-if="preview?.problems.length" color="error" variant="subtle" :title="t('setup.invalidTitle')">
+              <template #description>
+                <ul class="list-disc ps-4">
+                  <li v-for="x in preview.problems" :key="x">{{ x }}</li>
+                </ul>
+              </template>
+            </UAlert>
+            <UAlert v-if="preview?.warnings.length" color="warning" variant="subtle" :title="t('setup.warningsTitle')">
+              <template #description>
+                <ul class="list-disc ps-4">
+                  <li v-for="w in preview.warnings" :key="w">{{ w }}</li>
+                </ul>
+              </template>
+            </UAlert>
           </div>
 
-          <div v-if="result.suggested_workflows.length" class="space-y-2">
-            <p class="text-sm font-medium">{{ t('setup.suggestedWorkflows', { n: chosenWorkflows.length, total: result.suggested_workflows.length }) }}</p>
-            <div v-for="(w, i) in result.suggested_workflows" :key="w" class="flex items-center gap-2 rounded-lg border p-3" :class="workflowsAccepted[i] ? 'border-(--ui-border)' : 'border-dashed border-(--ui-border) opacity-60'">
-              <UCheckbox v-model="workflowsAccepted[i]" />
-              <span class="font-medium">{{ workflowLabel[w] ?? w }}</span>
+          <div v-if="result.proposal.workflows.length || result.proposal.automations.length" class="space-y-2">
+            <p class="text-sm font-medium">{{ t('setup.libProcesses', { n: chosenWorkflows.length + chosenAutomations.length, total: result.proposal.workflows.length + result.proposal.automations.length }) }}</p>
+            <div
+              v-for="(w, i) in result.proposal.workflows" :key="`w-${w.name}`" class="flex gap-3 rounded-lg border p-3"
+              :class="workflowsAccepted[i] ? 'border-(--ui-border)' : 'border-dashed border-(--ui-border) opacity-60'"
+            >
+              <UCheckbox v-model="workflowsAccepted[i]" class="mt-0.5" />
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <UBadge :label="t('setup.kindWorkflow')" color="neutral" variant="outline" size="sm" />
+                  <span class="font-medium">{{ workflowName(w.name) }}</span>
+                </div>
+                <p class="text-sm text-(--ui-text-muted)">{{ w.reason }}</p>
+              </div>
+            </div>
+            <div
+              v-for="(a, i) in result.proposal.automations" :key="`a-${a.name}`" class="flex gap-3 rounded-lg border p-3"
+              :class="automationsAccepted[i] ? 'border-(--ui-border)' : 'border-dashed border-(--ui-border) opacity-60'"
+            >
+              <UCheckbox v-model="automationsAccepted[i]" class="mt-0.5" />
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <UBadge :label="t('setup.kindAutomation')" color="neutral" variant="outline" size="sm" />
+                  <span class="font-medium">{{ automationTemplate(a.name)?.name ?? a.name }}</span>
+                  <UBadge :label="t('setup.automationPausedBadge')" color="warning" variant="subtle" size="sm" />
+                </div>
+                <p class="text-sm text-(--ui-text-muted)">{{ a.reason }}</p>
+              </div>
             </div>
           </div>
 
@@ -469,7 +491,7 @@ const actionMeta = computed<Record<string, { label: string, color: 'info' | 'suc
             <ul class="space-y-1 text-sm">
               <li v-for="(r, i) in ready" :key="i" class="flex items-start gap-2">
                 <UIcon :name="readyMeta[r.status].icon" class="mt-0.5 size-4 shrink-0" :class="readyMeta[r.status].color" />
-                <span class="font-medium">{{ readyKind[r.kind] ?? r.kind }}<template v-if="r.kind === 'skill' || r.kind === 'mcp'"> {{ r.name }}</template></span>
+                <span class="font-medium">{{ readyKind[r.kind] ?? r.kind }}<template v-if="r.kind === 'skill' || r.kind === 'mcp' || r.kind === 'automation'">{{ ` ${r.name}` }}</template></span>
                 <span v-if="r.detail" class="min-w-0 break-words text-(--ui-text-muted)">{{ r.detail }}</span>
               </li>
             </ul>

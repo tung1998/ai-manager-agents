@@ -31,7 +31,7 @@ const routes: [RegExp, string[]][] = [
   [/\/providers|\/usage|\/budget/, ['providers', 'runs', 'jobs', 'settings']],
   [/\/workflow/, ['workflows', 'workflow_runs', 'agents']],
   [/\/revisions/, ['revisions', 'agents', 'repos']],
-  [/\/agents|\/packs/, ['agents', 'repos']],
+  [/\/agents/, ['agents', 'repos']],
   [/\/processes|\/compose|\/monitors|\/monitor-events/, ['processes', 'monitors', 'monitor_events']],
   [/\/users|\/me\//, ['users']],
   [/\/policy/, ['settings', 'repos']],

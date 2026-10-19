@@ -69,7 +69,8 @@ async function restore(r: Revision) {
 }
 
 // A revision is the state *before* the action it names
-// (agent.update:<key>, agent.create:<key>, agent.delete:<key>, pack:<key>, restore:<id>, import).
+// (agent.update:<key>, agent.create:<key>, agent.delete:<key>, library:<ids>, setup:<ids>,
+// pack:<key> from before ADR-166, restore:<id>, import).
 function describe(action: string) {
   const i = action.indexOf(':')
   const kind = i < 0 ? action : action.slice(0, i)
@@ -79,6 +80,8 @@ function describe(action: string) {
     'agent.create': t('rev.action.agentCreate', { arg }),
     'agent.delete': t('rev.action.agentDelete', { arg }),
     'pack': t('team.rev.pack', { arg }),
+    'library': t('team.rev.library', { arg }),
+    'setup': t('team.rev.setup', { arg }),
     'restore': t('rev.action.restore'),
     'import': t('rev.action.import')
   }

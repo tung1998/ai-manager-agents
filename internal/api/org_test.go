@@ -42,16 +42,12 @@ func TestProvidersAPI(t *testing.T) {
 	}
 }
 
-func TestPacksReposAgentsAPI(t *testing.T) {
+func TestReposAgentsAPI(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
 
-	resp, body := do(t, admin, "GET", e.srv.URL+"/api/packs", nil, nil)
-	if packs := body["packs"].([]any); resp.StatusCode != 200 || len(packs) != 3 {
-		t.Fatalf("packs = %d %v", resp.StatusCode, body)
-	}
-	resp, body = do(t, admin, "GET", e.srv.URL+"/api/agent-library", nil, nil)
+	resp, body := do(t, admin, "GET", e.srv.URL+"/api/agent-library", nil, nil)
 	if lib := body["agents"].([]any); resp.StatusCode != 200 || len(lib) < 100 || lib[0].(map[string]any)["instructions"] != nil {
 		t.Fatalf("library = %d %v", resp.StatusCode, body)
 	}
@@ -63,18 +59,19 @@ func TestPacksReposAgentsAPI(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "name": "shop", "pack": "team"}, nil)
+	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "name": "shop"}, nil)
 	if resp.StatusCode != 201 {
 		t.Fatalf("create repo = %d %v", resp.StatusCode, body)
 	}
+	// a new project begins with the library's starter agent (ADR-166)
 	repo := body["project"].(map[string]any)
 	agents := repo["agents"].([]any)
-	if len(agents) != 9 || repo["agent_count"].(float64) != 9 || repo["default_agent_id"] != agents[0].(map[string]any)["id"] {
+	if len(agents) != 1 || agents[0].(map[string]any)["key"] != "assistant" || repo["default_agent_id"] != agents[0].(map[string]any)["id"] {
 		t.Fatalf("repo agents = %v", repo)
 	}
 	pid := repo["id"].(string)
-	if _, body := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/workflows", nil, nil); len(body["workflows"].([]any)) == 0 {
-		t.Fatalf("the pack's workflows = %v", body)
+	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "pack": "team"}, nil); resp.StatusCode != 400 {
+		t.Fatalf("starter packs are gone, got %d", resp.StatusCode)
 	}
 	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir}, nil); resp.StatusCode != 409 {
 		t.Fatalf("duplicate repo = %d", resp.StatusCode)
@@ -84,12 +81,7 @@ func TestPacksReposAgentsAPI(t *testing.T) {
 	}
 
 	// edit an agent of the project
-	var engineer map[string]any
-	for _, a := range agents {
-		if a.(map[string]any)["key"] == "engineer" {
-			engineer = a.(map[string]any)
-		}
-	}
+	engineer := agents[0].(map[string]any)
 	engineer["name"] = "Kỹ sư backend"
 	engineer["llm_model"] = "claude-sonnet-5"
 	resp, body = do(t, admin, "PATCH", e.srv.URL+"/api/agents/"+engineer["id"].(string), stripID(engineer), nil)
@@ -115,15 +107,7 @@ func TestPacksReposAgentsAPI(t *testing.T) {
 	if _, body := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid, nil, nil); body["project"].(map[string]any)["default_agent_id"] != rid {
 		t.Fatalf("default = %v", body["project"])
 	}
-	// a pack again: refused unless replacing
-	if resp, _ := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/pack", map[string]any{"key": "council"}, nil); resp.StatusCode != 409 {
-		t.Fatalf("apply without replace = %d", resp.StatusCode)
-	}
-	resp, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/pack", map[string]any{"key": "council", "replace": true}, nil)
-	if resp.StatusCode != 200 || body["project"].(map[string]any)["agent_count"].(float64) != 6 {
-		t.Fatalf("replace = %d %v", resp.StatusCode, body)
-	}
-	if resp, body := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/agents/export", nil, nil); resp.StatusCode != 200 || len(body["agents"].([]any)) != 6 {
+	if resp, body := do(t, admin, "GET", e.srv.URL+"/api/projects/"+pid+"/agents/export", nil, nil); resp.StatusCode != 200 || len(body["agents"].([]any)) != 2 {
 		t.Fatalf("export = %d %v", resp.StatusCode, body)
 	}
 }
@@ -134,8 +118,7 @@ func TestAgentFullAccessPermissionAPI(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	solo := "solo"
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
 	agents := body["project"].(map[string]any)["agents"].([]any)
 	agentID := agents[0].(map[string]any)["id"].(string)
 
@@ -193,8 +176,7 @@ func TestAgentExtraDirRejectsSensitiveDir(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	solo := "solo"
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
 	agents := body["project"].(map[string]any)["agents"].([]any)
 	agentID := agents[0].(map[string]any)["id"].(string)
 	_, agentBody := do(t, admin, "GET", e.srv.URL+"/api/agents/"+agentID, nil, nil)
@@ -336,7 +318,7 @@ func TestRevisionsAPI(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": "solo"}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
 	project := body["project"].(map[string]any)
 	pid := project["id"].(string)
 	agent := project["agents"].([]any)[0].(map[string]any)

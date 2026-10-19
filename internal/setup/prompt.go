@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"encoding/json"
 	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/prompts"
@@ -14,22 +13,26 @@ var (
 	outputSchema = prompts.Text("setup/schema")
 )
 
-func userPrompt(name, projectText, goal string, library []libraryEntry, catalog []string, box Toolbox) string {
-	lib, _ := json.MarshalIndent(library, "", "  ")
-	var skills, mcp string
-	if len(box.Skills) > 0 {
-		b, _ := json.MarshalIndent(box.Skills, "", "  ")
-		skills = string(b)
+func userPrompt(name, projectText, goal string, agents []Tool, catalog []string, box Toolbox) string {
+	list := func(tools []Tool) string {
+		if len(tools) == 0 {
+			return ""
+		}
+		var b strings.Builder
+		for _, t := range tools {
+			b.WriteString("- " + t.Name)
+			if t.Description != "" {
+				b.WriteString(": " + strings.Join(strings.Fields(t.Description), " "))
+			}
+			if t.Needs != "" {
+				b.WriteString(" [needs " + t.Needs + "]")
+			}
+			b.WriteByte('\n')
+		}
+		return strings.TrimRight(b.String(), "\n")
 	}
-	if len(box.MCP) > 0 {
-		b, _ := json.MarshalIndent(box.MCP, "", "  ")
-		mcp = string(b)
-	}
-	text := projectText
-	if strings.TrimSpace(projectText) == "" {
-		text = ""
-	}
-	return prompts.Render("setup/project", map[string]any{"Packs": string(lib), "Name": name, "Text": text,
+	return prompts.Render("setup/project", map[string]any{"Name": name, "Text": strings.TrimSpace(projectText),
 		"Goal": strings.TrimSpace(goal), "Schema": outputSchema, "Commands": strings.Join(catalog, "\n"),
-		"Skills": skills, "MCP": mcp}) + "\n"
+		"Current": list(agents), "Agents": list(box.Agents), "Workflows": list(box.Workflows),
+		"Automations": list(box.Automations), "Skills": list(box.Skills), "MCP": list(box.MCP)}) + "\n"
 }

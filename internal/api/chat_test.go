@@ -29,8 +29,7 @@ func TestChatAPIWithSSE(t *testing.T) {
 
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644)
-	soloID := "solo"
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "pack": soloID}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 
 	resp, body := do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{}, nil)
@@ -116,7 +115,7 @@ func TestNewChatReusesEmpty(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "pack": "solo"}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir()}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 
 	create := func() string {

@@ -1,23 +1,19 @@
 // Package team manages a project's agents (ADR-099): the agents themselves,
-// the default one that answers when nobody is named, the starter packs a new
-// project begins with, and a snapshot before every change so it can be rolled
-// back. How agents work together is not here: that is a workflow
+// the default one that answers when nobody is named, the library agents a
+// project picks from (ADR-154; starter packs are gone, ADR-166), and a
+// snapshot before every change so it can be rolled back. How agents work together is not here: that is a workflow
 // (internal/workflow).
 package team
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"regexp"
-	"sort"
 	"strings"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
 	"bitbucket.org/senprints/agent-office/internal/storage"
-	"bitbucket.org/senprints/agent-office/templates/packs"
 )
 
 // KeepRevisions is how many snapshots are kept per project.
@@ -26,7 +22,7 @@ const KeepRevisions = 50
 // WithActor records who is making changes, for the revision history.
 func WithActor(ctx context.Context, who string) context.Context { return actor.With(ctx, who) }
 
-// AgentSpec is the portable form of an agent (packs, snapshots, export).
+// AgentSpec is the portable form of an agent (library picks, snapshots, export).
 type AgentSpec struct {
 	Key           string              `json:"key"`
 	Name          string              `json:"name"`
@@ -48,57 +44,6 @@ type AgentSpec struct {
 type Snapshot struct {
 	Default string      `json:"default,omitempty"` // the default agent's key
 	Agents  []AgentSpec `json:"agents"`
-}
-
-// Pack is a starter pack: the agents a new project begins with, which of
-// them is the default, and the workflows installed for it.
-type Pack struct {
-	Key         string      `json:"key"`
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Default     string      `json:"default,omitempty"`
-	Workflows   []string    `json:"workflows,omitempty"`
-	Agents      []AgentSpec `json:"agents"`
-}
-
-// Packs returns the shipped starter packs, smallest first.
-func Packs() ([]Pack, error) {
-	order := map[string]int{"solo": 0, "team": 1, "council": 2}
-	entries, err := fs.ReadDir(packs.FS, ".")
-	if err != nil {
-		return nil, err
-	}
-	var out []Pack
-	for _, e := range entries {
-		raw, err := fs.ReadFile(packs.FS, e.Name())
-		if err != nil {
-			return nil, err
-		}
-		var p Pack
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, fmt.Errorf("team: %s: %w", e.Name(), err)
-		}
-		out = append(out, p)
-	}
-	sort.SliceStable(out, func(i, j int) bool { return order[out[i].Key] < order[out[j].Key] })
-	return out, nil
-}
-
-// ErrNoPack: no starter pack has that key.
-var ErrNoPack = errors.New("không có gói khởi tạo này")
-
-// PackByKey finds a shipped starter pack.
-func PackByKey(key string) (Pack, error) {
-	list, err := Packs()
-	if err != nil {
-		return Pack{}, err
-	}
-	for _, p := range list {
-		if p.Key == key {
-			return p, nil
-		}
-	}
-	return Pack{}, fmt.Errorf("%w: %q", ErrNoPack, key)
 }
 
 var keyRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,40}$`)
@@ -150,7 +95,7 @@ func SpecOf(a storage.Agent) AgentSpec {
 
 // Agent is the spec as an agent of the project.
 func (s AgentSpec) Agent(projectID string, sort int) storage.Agent {
-	// ADR-074 security: FullAccess/ExtraDirs never come from a pack, an
+	// ADR-074 security: FullAccess/ExtraDirs never come from the library, an
 	// import or a restore: only the admin's agent edit may turn them on.
 	perms := s.Permissions
 	perms.FullAccess, perms.FullAccessBy, perms.ExtraDirs = false, "", nil

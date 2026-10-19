@@ -80,8 +80,7 @@ func TestOverrideWithoutFullAccessNotRequiredToSetBudget(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	solo := "solo"
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	agents := body["project"].(map[string]any)["agents"].([]any)
 	agentID := agents[0].(map[string]any)["id"].(string)
@@ -228,8 +227,7 @@ func TestAutomationPermissionAPI(t *testing.T) { // ADR-074
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	teamTpl := "team"
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": teamTpl}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	agents := body["project"].(map[string]any)["agents"].([]any)
 	agentID := agents[0].(map[string]any)["id"].(string)
@@ -286,8 +284,7 @@ func TestAutomationBuilderAPI(t *testing.T) { // ADR-042
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	solo := "solo"
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 
 	// test a script without saving

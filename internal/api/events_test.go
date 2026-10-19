@@ -154,7 +154,7 @@ func TestEventsFollowTurn(t *testing.T) {
 		`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"xong"}}}`+"\n"+
 		result+"\nJSON\n"), 0o755)
 	do(t, admin, "POST", e.srv.URL+"/api/providers", map[string]any{"name": "CC", "kind": "claude_cli", "base_url": bin}, nil)
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "pack": "solo"}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir()}, nil)
 	pid := body["project"].(map[string]any)["id"].(string)
 	_, body = do(t, admin, "POST", e.srv.URL+"/api/projects/"+pid+"/conversations", map[string]any{}, nil)
 	cid := body["conversation"].(map[string]any)["id"].(string)

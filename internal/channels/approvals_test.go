@@ -78,8 +78,7 @@ func TestApprovalsFromChat(t *testing.T) {
 	u := usage.New(st, time.UTC)
 	org := team.NewService(st, nil)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := team.PackByKey("solo")
-	org.ApplyPack(ctx, project.ID, solo, false)
+	org.AddFromLibrary(ctx, project.ID, team.StarterAgent)
 	engine := chat.NewEngine(st, provs, u)
 	runner := trigger.New(st, chatExec{engine})
 	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}
@@ -222,8 +221,7 @@ func TestApproveAllStopsAtBigDiff(t *testing.T) {
 	box, _ := secrets.Load(filepath.Join(tmp, "k"))
 	provs := provider.NewService(st, box, llm.Options{})
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
-	solo, _ := team.PackByKey("solo")
-	team.NewService(st, nil).ApplyPack(ctx, project.ID, solo, false)
+	team.NewService(st, nil).AddFromLibrary(ctx, project.ID, team.StarterAgent)
 	engine := chat.NewEngine(st, provs, usage.New(st, time.UTC))
 	runner := trigger.New(st, chatExec{engine})
 	bot := &fakeBot{in: make(chan channels.Incoming, 4), sent: map[string][]string{}}

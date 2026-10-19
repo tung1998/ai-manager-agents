@@ -7,8 +7,9 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/perm"
 )
 
-// Tool is a skill or MCP server the setup may pick for a project: the
-// office library's skills, the MCP catalog and library templates.
+// Tool is one thing of a library the setup may pick for a project: a
+// library agent (Name is its id), a workflow or automation template (its
+// key), a skill, an MCP server of the catalog or library.
 type Tool struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
@@ -17,13 +18,16 @@ type Tool struct {
 	Needs string `json:"needs,omitempty"`
 }
 
-// Toolbox is what the setup may pick from, beyond the packs.
+// Toolbox is what the setup may pick from.
 type Toolbox struct {
-	Skills []Tool `json:"skills"`
-	MCP    []Tool `json:"mcp"`
+	Agents      []Tool `json:"agents"`
+	Workflows   []Tool `json:"workflows"`
+	Automations []Tool `json:"automations"`
+	Skills      []Tool `json:"skills"`
+	MCP         []Tool `json:"mcp"`
 }
 
-// Pick is one skill/MCP the model chose, with why.
+// Pick is one workflow, automation, skill or MCP the model chose, with why.
 type Pick struct {
 	Name   string `json:"name"`
 	Reason string `json:"reason"`

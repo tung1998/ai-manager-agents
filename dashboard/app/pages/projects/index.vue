@@ -12,7 +12,7 @@ const addOpen = ref(false)
 type Scope = 'folder' | 'clone' | 'idea' | 'machine'
 // clone: a pasted git link, cloned into parent/dir (dir from the link when empty)
 // idea: a new, empty repo in parent/dir whose Burn builds it (ADR-139)
-const form = reactive({ scope: 'folder' as Scope, path: '', name: '', pack: '', url: '', dir: '', parent: '', idea: '', stack: '' })
+const form = reactive({ scope: 'folder' as Scope, path: '', name: '', url: '', dir: '', parent: '', idea: '', stack: '' })
 const error = ref('')
 const adding = ref(false)
 const urlDir = computed(() => form.url.trim().replace(/\/+$/, '').split(/[/:]/).pop()?.replace(/\.git$/, '') ?? '')
@@ -29,7 +29,7 @@ const canAdd = computed(() => ({
 })[form.scope])
 
 function openAdd(path = '', name = '') {
-  Object.assign(form, { scope: 'folder', path, name, pack: '__ai', url: '', dir: '', parent: sys.value?.clone_root ?? '', idea: '', stack: '' })
+  Object.assign(form, { scope: 'folder', path, name, url: '', dir: '', parent: sys.value?.clone_root ?? '', idea: '', stack: '' })
   error.value = ''
   addOpen.value = true
 }
@@ -71,24 +71,23 @@ async function add() {
   adding.value = true
   error.value = ''
   try {
-    const pack = form.pack === '__ai' ? '' : form.pack // AI: no agents yet, the setup page proposes them
     const res = form.scope === 'clone'
       ? await $fetch<{ project: Project }>('/api/projects/clone', {
           method: 'POST',
-          body: { url: form.url.trim(), parent: form.parent, dir: form.dir.trim(), name: form.name, pack }
+          body: { url: form.url.trim(), parent: form.parent, dir: form.dir.trim(), name: form.name }
         })
       : form.scope === 'idea'
         ? await $fetch<{ project: Project }>('/api/projects/new', {
             method: 'POST',
-            body: { idea: form.idea.trim(), stack: form.stack.trim(), parent: form.parent, dir: form.dir.trim(), name: form.name, pack }
+            body: { idea: form.idea.trim(), stack: form.stack.trim(), parent: form.parent, dir: form.dir.trim(), name: form.name }
           })
         : await $fetch<{ project: Project }>('/api/projects', {
           method: 'POST',
-            body: { path: form.scope === 'folder' ? form.path : '', name: form.name, pack }
+            body: { path: form.scope === 'folder' ? form.path : '', name: form.name }
           })
     addOpen.value = false
-    // from an idea: its Burn (builder template) is where it is built
-    await navigateTo(form.scope === 'idea' && form.pack !== '__ai' ? `/projects/${res.project.id}?tab=burn` : form.pack === '__ai' ? `/projects/${res.project.id}/setup` : `/projects/${res.project.id}`)
+    // it has the starter agent: the setup picks what else it needs from the library (ADR-166)
+    await navigateTo(`/projects/${res.project.id}/setup`)
   } catch (e) {
     error.value = apiError(e)
   } finally {
@@ -239,9 +238,6 @@ async function add() {
             <UInput v-model="form.name" class="w-full" :placeholder="form.scope === 'machine' ? t('projects.namePlaceholder') : ''" />
           </UFormField>
 
-          <UFormField :label="t('team.starterPack')">
-            <PackPicker v-model="form.pack" allow-ai />
-          </UFormField>
           <UAlert v-if="error" color="error" variant="subtle" :description="error" />
         </form>
       </template>

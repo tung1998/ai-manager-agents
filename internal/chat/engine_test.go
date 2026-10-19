@@ -57,8 +57,7 @@ func setup(t *testing.T, providerIn func(provs *provider.Service) storage.Provid
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello\nworld\n"), 0o644)
 	project, _ := st.Repos().Create(ctx, storage.Repo{Name: "demo", Path: dir})
-	solo, _ := team.PackByKey("solo")
-	org.ApplyPack(ctx, project.ID, solo, false)
+	org.AddFromLibrary(ctx, project.ID, team.StarterAgent)
 	return fixture{st: st, engine: chat.NewEngine(st, provs, u), provs: provs, project: project, dir: dir}
 }
 

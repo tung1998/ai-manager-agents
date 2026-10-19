@@ -45,6 +45,8 @@ func (s *server) setupScan(w http.ResponseWriter, r *http.Request) {
 func (s *server) setupPropose(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Goal string `json:"goal"`
+		// the automation templates the dashboard offers (they live there)
+		Automations []setup.Tool `json:"automations"`
 	}
 	if r.ContentLength != 0 && !decode(w, r, &in) {
 		return
@@ -64,7 +66,7 @@ func (s *server) setupPropose(w http.ResponseWriter, r *http.Request) {
 	if goal == "" { // a project made from an idea (ADR-139) has it there: the setup keeps it, never writes it over
 		goal = x.Description
 	}
-	res, err := s.cfg.Setup.Propose(r.Context(), x.ID, x.Name, text, sum, goal)
+	res, err := s.cfg.Setup.Propose(r.Context(), x.ID, x.Name, text, goal, in.Automations)
 	var be *usage.BudgetError
 	if errors.As(err, &be) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": be.Error(), "code": "budget"})
@@ -78,41 +80,44 @@ func (s *server) setupPropose(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	s.auditAction(r, "project.setup_propose", x.ID, map[string]any{"pack": res.Proposal.PackKey, "model": res.Model,
+	s.auditAction(r, "project.setup_propose", x.ID, map[string]any{"agents": len(res.Proposal.Agents), "model": res.Model,
 		"input_tokens": res.Usage.InputTokens, "output_tokens": res.Usage.OutputTokens})
 	writeJSON(w, http.StatusOK, map[string]any{"result": res, "summary": sum})
 }
 
 type setupChoice struct {
-	PackKey     string              `json:"pack_key"`
-	Changes     []setup.AgentChange `json:"changes"`
-	Description *string             `json:"description"`
-	Workflows   []string            `json:"workflows,omitempty"` // suggested keys the user kept
-	// what the person kept of the proposal's skills, MCP servers and quick
-	// checks (nil quick checks: leave the project's as they are)
+	Default     string            `json:"default_agent"`
+	Agents      []setup.AgentPick `json:"agents"` // the library agents the person kept, as they edited them
+	Description *string           `json:"description"`
+	// what the person kept of the proposal's workflows, skills, MCP servers
+	// and quick checks (nil quick checks: leave the project's as they are);
+	// the dashboard makes the automations (their templates live there)
+	Workflows   []string `json:"workflows,omitempty"`
 	Skills      []string `json:"skills,omitempty"`
 	MCP         []string `json:"mcp,omitempty"`
 	QuickChecks *string  `json:"quick_checks,omitempty"`
 }
 
+// setupBuild previews the agents a choice adds, with what blocks it.
 func (s *server) setupBuild(w http.ResponseWriter, r *http.Request) {
 	var in setupChoice
 	if !decode(w, r, &in) {
 		return
 	}
-	policy := perm.LoadPolicy(r.Context(), s.cfg.Store, r.PathValue("id"))
-	t, problems, warnings, err := setup.Build(in.PackKey, in.Changes, policy.Catalog, in.Workflows...)
+	existing, err := s.cfg.Store.Agents().List(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.internal(w, r, err)
 		return
 	}
+	policy := perm.LoadPolicy(r.Context(), s.cfg.Store, r.PathValue("id"))
+	plan, problems, warnings := setup.Build(in.Agents, in.Default, existing, policy.Catalog)
 	if problems == nil {
 		problems = []string{}
 	}
 	if warnings == nil {
 		warnings = []string{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"pack": t, "problems": problems, "warnings": warnings})
+	writeJSON(w, http.StatusOK, map[string]any{"plan": plan, "problems": problems, "warnings": warnings})
 }
 
 func (s *server) setupApply(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +130,7 @@ func (s *server) setupApply(w http.ResponseWriter, r *http.Request) {
 		s.writeDomainError(w, r, err)
 		return
 	}
-	if _, err := s.cfg.Setup.Accept(r.Context(), x.ID, in.PackKey, in.Changes, in.Workflows...); err != nil {
+	if _, err := s.cfg.Setup.Accept(r.Context(), x.ID, in.Agents, in.Default, in.Workflows); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}
@@ -138,7 +143,11 @@ func (s *server) setupApply(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ready := append(s.setupExtras(r, x, in), s.readiness(r.Context(), x.ID)...)
-	s.auditAction(r, "project.setup_apply", x.ID, map[string]any{"pack": in.PackKey, "changes": len(in.Changes),
+	ids := make([]string, 0, len(in.Agents))
+	for _, a := range in.Agents {
+		ids = append(ids, a.ID)
+	}
+	s.auditAction(r, "project.setup_apply", x.ID, map[string]any{"agents": ids, "workflows": in.Workflows,
 		"skills": in.Skills, "mcp": in.MCP})
 	d, _ := s.repoDTO(r, x, true)
 	writeJSON(w, http.StatusOK, map[string]any{"project": d, "ready": ready})

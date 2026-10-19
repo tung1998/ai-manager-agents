@@ -20,22 +20,21 @@ import (
 
 func initCmd() *cobra.Command {
 	var (
-		local   bool
-		pack    string
-		replace bool
-		yes     bool
+		local  bool
+		agents []string
+		yes    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "init [đường-dẫn]",
-		Short: "Thêm thư mục làm project và chọn mô hình tổ chức agent",
-		Long: `Thêm một thư mục làm project để office quản lý và áp một mô hình tổ chức (solo, team, council, hoặc mẫu tự tạo).
+		Short: "Thêm thư mục làm project, với agent lấy từ thư viện",
+		Long: `Thêm một thư mục làm project để office quản lý. Project mới có agent Trợ lý; thêm agent khác từ thư viện bằng --agent, hoặc để AI chọn ở trang Thiết lập của dashboard.
 
 Hai chế độ cài đặt:
   --local   dữ liệu nằm trong <project>/.office, office chỉ quản lý project này
   mặc định  dữ liệu ở ~/.agent-office (hoặc .office của project gần nhất), quản lý nhiều project ở bất kỳ đâu`,
-		Example: `  office init                       # thư mục hiện tại, chọn mô hình tương tác
-  office init --local --pack solo
-  office init ~/code/shop --pack team`,
+		Example: `  office init                       # thư mục hiện tại, agent Trợ lý
+  office init --local
+  office init ~/code/shop --agent office/team-lead --agent office/frontend-dev`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -46,6 +45,11 @@ Hai chế độ cài đặt:
 			info, err := repos.Detect(path)
 			if err != nil {
 				return fmt.Errorf("không đọc được thư mục %s: %w", path, err)
+			}
+			for _, id := range agents { // checked first: a wrong id leaves nothing behind
+				if _, err := team.LibraryAgentByID(id); err != nil {
+					return err
+				}
 			}
 
 			var h home.Home
@@ -84,26 +88,21 @@ Hai chế độ cài đặt:
 			if err != nil {
 				return err
 			}
-			if len(current) > 0 && !replace && pack == "" {
-				fmt.Fprintf(os.Stderr, "• Project đã có %d agent (dùng --pack ... --replace để thay)\n", len(current))
-			} else {
-				p, err := pickPack(pack)
-				if err != nil {
+			ids := agents
+			if len(ids) == 0 && len(current) == 0 {
+				ids = []string{team.StarterAgent}
+			}
+			if len(ids) > 0 {
+				if err := a.team.AddFromLibrary(ctx, repo.ID, ids...); err != nil {
 					return err
 				}
-				if len(current) > 0 && !replace {
-					if !interactive() || !confirm(fmt.Sprintf("Project đã có %d agent. Thay bằng gói %q?", len(current), p.Name), false) {
-						return errors.New("project đã có agent; thêm --replace để thay")
-					}
-				}
-				if err := a.team.ApplyPack(ctx, repo.ID, p, true); err != nil {
-					return err
-				}
-				agents, _ := a.store.Agents().List(ctx, repo.ID)
-				fmt.Fprintf(os.Stderr, "✓ Dùng gói %s: %d agent, quy trình %s\n", p.Name, len(agents), strings.Join(p.Workflows, ", "))
-				for _, ag := range agents {
+				added, _ := a.store.Agents().List(ctx, repo.ID)
+				fmt.Fprintf(os.Stderr, "✓ Project có %d agent\n", len(added))
+				for _, ag := range added {
 					fmt.Fprintf(os.Stderr, "    %-18s %s\n", ag.Key, ag.Role)
 				}
+			} else {
+				fmt.Fprintf(os.Stderr, "• Project đã có %d agent\n", len(current))
 			}
 
 			if err := detectProviders(cmd, a, yes); err != nil {
@@ -126,34 +125,9 @@ Hai chế độ cài đặt:
 		},
 	}
 	cmd.Flags().BoolVar(&local, "local", false, "lưu dữ liệu trong <project>/.office (chỉ quản lý project này)")
-	cmd.Flags().StringVar(&pack, "pack", "", "gói khởi tạo: solo | team | council")
-	cmd.Flags().StringVar(&pack, "template", "", "tên cũ của --pack")
-	_ = cmd.Flags().MarkHidden("template")
-	cmd.Flags().BoolVar(&replace, "replace", false, "thay agent hiện tại của project bằng gói")
+	cmd.Flags().StringArrayVar(&agents, "agent", nil, "thêm agent từ thư viện theo id, vd office/devops (lặp lại được)")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "tự đồng ý các bước (không hỏi)")
 	return cmd
-}
-
-func pickPack(key string) (team.Pack, error) {
-	if key != "" {
-		p, err := team.PackByKey(key)
-		if err != nil {
-			return p, fmt.Errorf("không có gói %q (xem: office pack list)", key)
-		}
-		return p, nil
-	}
-	list, err := team.Packs()
-	if err != nil || len(list) == 0 {
-		return team.Pack{}, fmt.Errorf("chưa có gói khởi tạo: %v", err)
-	}
-	if !interactive() {
-		return list[0], nil
-	}
-	opts := make([]string, len(list))
-	for i, p := range list {
-		opts[i] = fmt.Sprintf("%-20s %d agent · %s", p.Name, len(p.Agents), truncateRunes(p.Description, 70))
-	}
-	return list[choose("Chọn gói khởi tạo:", opts, 0)], nil
 }
 
 // detectProviders offers to create connections for CLIs and API keys found on this machine.

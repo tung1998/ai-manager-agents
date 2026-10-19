@@ -13,8 +13,7 @@ func TestAgentEnabledSwitch(t *testing.T) {
 	e := setup(t)
 	admin := e.client(t)
 	login(t, e, admin, "admin@x.io", "admin-password")
-	solo := "solo"
-	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop", "pack": solo}, nil)
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": t.TempDir(), "name": "shop"}, nil)
 	project := body["project"].(map[string]any)
 	pid := project["id"].(string)
 	agent := project["agents"].([]any)[0].(map[string]any)
