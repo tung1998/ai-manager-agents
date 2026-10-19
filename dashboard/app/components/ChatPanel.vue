@@ -140,7 +140,8 @@ watch([draft, draftFiles], ([text, files]) => drafts.save(draftKey.value, text, 
 const editMode = ref<'worktree' | 'direct'>('worktree')
 // how hard it thinks in this chat ('' = the agent's own level)
 const effort = ref('')
-// who answers: each agent's own rights decide what it may do (no separate mode)
+// who answers: the chat's agent (the project's default for a new chat; the first
+// message's @tag picks another, server-side); each agent's own rights decide what it may do
 const pick = ref('')
 const isOn = (id?: string) => !!id && onAgents.value.some(a => a.id === id)
 // the chat's agent is paused: the one that is on and answered here last, else the default (as the server)
@@ -152,15 +153,9 @@ watch([() => current.value?.id, () => current.value?.agent_id, agents, () => mes
   editMode.value = current.value?.edit_mode ?? 'worktree'
   if (!before || now[0] !== before[0]) effort.value = current.value?.effort ?? '' // another chat: its own level
   const own = current.value?.agent_id
-  if (isOn(own)) {
-    // a new message alone keeps what the person picked by hand
-    if (!before || now[0] !== before[0] || now[1] !== before[1] || now[2] !== before[2] || !isOn(pick.value)) pick.value = own!
-  } else {
-    pick.value = current.value || !isOn(pick.value) ? standIn() : pick.value
-  }
+  pick.value = isOn(own) ? own! : standIn()
 }, { immediate: true })
 const picked = computed(() => agents.value.find(a => a.id === pick.value))
-const agentItems = computed(() => onAgents.value.map(a => ({ label: `${a.name} · ${permOf(agentLevel(a.permissions)).label}`, value: a.id, icon: permOf(agentLevel(a.permissions)).icon })))
 // the levels the picked agent's model takes: none, no picker (Antigravity names it in the model)
 const { data: provData } = useLiveFetch<{ providers: Provider[] }>('/api/providers', { lazy: true })
 const pickedEfforts = computed(() => {
@@ -580,9 +575,8 @@ function send() {
 async function post(text: string, files: Attachment[]) {
   text = text.trim()
   if (!text && !files.length) return
-  if (!current.value) await newConversation(pick.value)
+  if (!current.value) await newConversation()
   if (!current.value) return restore(text, files)
-  const switching = !single.value && pick.value && pick.value !== current.value.agent_id ? pick.value : ''
   // shown at once: waiting under the answer when it answers, else as sent
   const shown = { id: `tmp-${++shownSeq}`, text, attachments: files, created_at: new Date().toISOString() }
   if (streaming.value || sending.value) shownQueued.value.push({ ...shown, convId: current.value.id })
@@ -592,14 +586,13 @@ async function post(text: string, files: Attachment[]) {
   try {
     // mode operate: the agent's own rights are the limit (members are capped server-side)
     const id = current.value.id
-    const res = await $fetch<{ turn_id: string, message: Message, notice?: Message, queued?: Queued }>(`/api/conversations/${id}/messages`, { method: 'POST', body: { text, attachments: files.map(a => a.id), mode: 'operate', edit_mode: editMode.value, effort: effort.value, agent_id: switching, context: props.pageContext?.() ?? '' } })
+    const res = await $fetch<{ turn_id: string, message: Message, notice?: Message, queued?: Queued }>(`/api/conversations/${id}/messages`, { method: 'POST', body: { text, attachments: files.map(a => a.id), mode: 'operate', edit_mode: editMode.value, effort: effort.value, context: props.pageContext?.() ?? '' } })
     if (current.value?.id !== id) return // switched chats while this was in flight: the reply belongs to the old one
     if (res.queued) { // it answers: sent once it is free (the live row may have it already)
       if (!queuedHere.value.some(q => q.id === res.queued!.id)) setQueued(id, [...queuedHere.value, res.queued])
       scrollDown(true) // theirs: in view
       return
     }
-    if (switching && picked.value && current.value) current.value = { ...current.value, agent_id: picked.value.id, agent_name: picked.value.name }
     const first = !messages.value.some(m => m.id !== res.message.id && !m.id.startsWith('tmp-'))
     // the server's push of this message may have come first (ADR-078): once only
     if (!messages.value.some(m => m.id === res.message.id)) messages.value.push(res.message)
@@ -929,14 +922,14 @@ onBeforeUnmount(() => {
   >
     <!-- threads -->
     <aside v-if="!single && !compact" class="hidden w-60 shrink-0 flex-col border-e border-(--ui-border) @md/chat:flex">
-      <ThreadList :loading="convsLoading" v-model:origin="origin" v-model:tag-filter="tagFilter" :tags="projectTags" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :has-more="moreConvs" :loading-more="loadingMore" :menu="threadMenu" @open="open" @new="newConversation(pick)" @more="loadMoreConvs" />
+      <ThreadList :loading="convsLoading" v-model:origin="origin" v-model:tag-filter="tagFilter" :tags="projectTags" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :has-more="moreConvs" :loading-more="loadingMore" :menu="threadMenu" @open="open" @new="newConversation()" @more="loadMoreConvs" />
     </aside>
     <!-- a phone: the chats in a drawer -->
     <USlideover v-if="!single && !compact" v-model:open="threadsOpen" side="left" :title="t('chat.threads')" :ui="{ content: 'max-w-xs', body: 'p-0 sm:p-0 flex flex-col' }">
       <template #body>
         <ThreadList
           :loading="convsLoading" v-model:origin="origin" v-model:tag-filter="tagFilter" :tags="projectTags" :conversations="conversations" :agents="agents" :current-id="current?.id" :unread="unread.ids.value" :has-more="moreConvs" :loading-more="loadingMore" :menu="threadMenu" @more="loadMoreConvs"
-          @open="(c) => { threadsOpen = false; open(c) }" @new="threadsOpen = false; newConversation(pick)"
+          @open="(c) => { threadsOpen = false; open(c) }" @new="threadsOpen = false; newConversation()"
         />
       </template>
     </USlideover>
@@ -951,7 +944,7 @@ onBeforeUnmount(() => {
           <UIcon name="i-lucide-chevron-down" class="size-4 shrink-0 text-(--ui-text-muted)" />
         </button>
         <UButton v-if="isAdmin && waitingCards.length" size="sm" color="primary" variant="soft" icon="i-lucide-check-check" :label="t('chat.approveAll', { n: waitingCards.length })" :loading="approvingAll" :disabled="approvingAll" @click="approveAll" />
-        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-square-pen" :aria-label="t('chat.newThread')" @click="newConversation(pick)" />
+        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-square-pen" :aria-label="t('chat.newThread')" @click="newConversation()" />
       </div>
       <!-- compact (the corner chat): back, this chat's title (click to switch), a new one -->
       <div v-if="compact && !single" class="flex items-center gap-1 border-b border-(--ui-border) p-2 @max-[420px]/chat:gap-0.5 @max-[420px]/chat:p-1">
@@ -1209,10 +1202,6 @@ onBeforeUnmount(() => {
         >
           <template #actions>
             <ContextMeter :tokens="current?.context_tokens" :window="current?.context_window" />
-            <USelect
-              v-if="!single && onAgents.length > 1" v-model="pick" :items="agentItems" size="sm" variant="ghost" class="min-w-0 max-w-56 shrink" :ui="iconOnPhone"
-              :icon="permOf(pickedLevel).icon" :title="permOf(pickedLevel).description" :aria-label="t('chat.pickAgent')"
-            />
             <EffortSelect v-if="pickedEfforts.length" v-model="effort" :options="pickedEfforts" :fallback="picked?.effort ?? ''" size="sm" variant="ghost" class="min-w-0 max-w-44 shrink" :ui="iconOnPhone" :title="t('chat.effort')" :aria-label="t('chat.effort')" />
             <EditModePicker v-if="permRank(pickedLevel) >= permRank('propose')" v-model="editMode" class="min-w-0 shrink" />
             <UButton v-if="streaming" size="sm" icon="i-lucide-square" color="neutral" variant="outline" :label="t('chat.stop')" @click="cancel" />

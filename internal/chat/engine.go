@@ -676,6 +676,18 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 					for _, a := range on[1:min(len(on), maxAnswers)] {
 						queue = append(queue, queued{agent: a, from: "Người dùng"}) // i18n-ignore
 					}
+					// a project chat's first message picks its agent: the first tagged
+					// answers it from now on (a bot's chat keeps its rule's agent)
+					if conv.Purpose == "" && conv.TaskID == "" && conv.AgentID != agent.ID {
+						if msgs, err := e.store.Chat().ListMessages(ctx, conv.ID); err == nil && len(msgs) == 0 {
+							if err := e.SetAgent(ctx, conv.ID, agent.ID); err != nil {
+								return nil, storage.Message{}, err
+							}
+							if conv, err = e.store.Chat().GetConversation(ctx, conv.ID); err != nil {
+								return nil, storage.Message{}, err
+							}
+						}
+					}
 				} else {
 					agent = paused[0]
 				}

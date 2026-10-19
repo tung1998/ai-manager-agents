@@ -417,15 +417,32 @@ func (g group) sendAll(t *testing.T, text string) (authors []string) {
 
 func TestMentionPullsAgentIn(t *testing.T) { // ADR-044
 	g := newGroup(t)
+	if got := g.sendAll(t, "chào"); len(got) != 1 || got[0] != g.leadNm {
+		t.Fatalf("authors = %v", got)
+	}
 	if got := g.sendAll(t, "@Dev xem lỗi này"); len(got) != 1 || got[0] != "Dev" {
 		t.Fatalf("authors = %v", got)
 	}
 	if got := g.sendAll(t, "cảm ơn"); len(got) != 1 || got[0] != g.leadNm {
-		t.Fatalf("no tag → the default agent, got %v", got)
+		t.Fatalf("no tag → the chat's agent, got %v", got)
 	}
 	members, _ := g.f.st.Chat().Members(g.context, g.conv.ID)
 	if len(members) != 2 {
 		t.Fatalf("members = %+v", members)
+	}
+}
+
+// The first message of a chat tagging an agent makes it the chat's agent.
+func TestFirstTagPicksChatAgent(t *testing.T) {
+	g := newGroup(t)
+	if got := g.sendAll(t, "@Dev xem lỗi này"); len(got) != 1 || got[0] != "Dev" {
+		t.Fatalf("authors = %v", got)
+	}
+	if got := g.sendAll(t, "cảm ơn"); len(got) != 1 || got[0] != "Dev" {
+		t.Fatalf("no tag after a first tag → Dev, got %v", got)
+	}
+	if conv, _ := g.f.st.Chat().GetConversation(g.context, g.conv.ID); conv.AgentName != "Dev" {
+		t.Fatalf("chat's agent = %q", conv.AgentName)
 	}
 }
 
