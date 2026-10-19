@@ -5,10 +5,12 @@ import type { WidgetKind } from '~/utils/watchWidgets'
 
 const props = defineProps<{ projects: Project[] }>()
 const { t } = useLang()
-const { boards, board, add } = useWatchLayout()
+const { boards, board, add, saveState, save } = useWatchLayout()
 const settingsOpen = ref(false)
 const catalogOpen = ref(false)
 const index = computed(() => Math.max(0, boards.value.findIndex(b => b.id === board.value?.id)))
+// changes save on their own too; the button saves now and shows whether it did
+const saveLabel = computed(() => t(`watchW.save.${saveState.value}`))
 // a new box starts on the board's project (none: it asks for one if it needs it)
 const addBox = (k: WidgetKind) => add(board.value?.projectId ?? '', undefined, k)
 </script>
@@ -23,6 +25,11 @@ const addBox = (k: WidgetKind) => add(board.value?.projectId ?? '', undefined, k
       </UPopover>
     </div>
     <UButton size="sm" color="neutral" variant="soft" icon="i-lucide-layout-panel-left" :label="t('watchW.addBox')" class="shrink-0" @click="catalogOpen = true" />
+    <UButton
+      size="sm" :color="saveState === 'error' ? 'error' : 'neutral'" :variant="saveState === 'saved' ? 'ghost' : 'soft'"
+      :icon="saveState === 'saved' ? 'i-lucide-check' : 'i-lucide-save'" :label="saveLabel" :title="saveLabel"
+      :loading="saveState === 'saving'" :disabled="saveState === 'saved'" class="shrink-0" @click="save()"
+    />
   </div>
   <WatchWidgetCatalog v-model:open="catalogOpen" :projects="projects" @select="addBox" />
 </template>

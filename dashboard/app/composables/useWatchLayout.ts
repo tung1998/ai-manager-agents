@@ -19,6 +19,9 @@ export const MAX_BOARDS = 5
 const KEY = 'office.watch.boards'
 const OLD_KEY = 'office.watch.layout' // one board, before dashboards
 const newId = () => Math.random().toString(36).slice(2, 10)
+// the Save button: whether the account holds the last change
+export type SaveState = 'saved' | 'dirty' | 'saving' | 'error'
+let saveNow: () => Promise<void> = async () => {}
 const blank = (items: WatchItem[] = []): WatchBoard => ({ id: newId(), name: '', items, projectId: '' })
 
 // the old tree's boxes, in reading order, each at its widget's size, packed
@@ -53,6 +56,7 @@ export function useWatchLayout() {
   const boards = useState<WatchBoard[]>('watch-boards', () => [])
   const activeId = useState('watch-active', () => '')
   const loaded = useState('watch-layout-loaded', () => false)
+  const saveState = useState<SaveState>('watch-save-state', () => 'saved')
 
   if (import.meta.client && !loaded.value) {
     loaded.value = true
@@ -77,14 +81,33 @@ export function useWatchLayout() {
       if (!boards.value.length) boards.value = [blank()]
       if (!boards.value.some(b => b.id === activeId.value)) activeId.value = boards.value[0]!.id
     }
-    const save = (value: Saved) => $fetch(PREF_URL, { method: 'PUT', body: { value } })
-      .then(() => {
-        try {
-          localStorage.removeItem(KEY)
-          localStorage.removeItem(OLD_KEY)
-        } catch { /* private mode */ }
-      })
-      .catch(() => { saved = '' }) // tried again on the next change
+    let pending = '' // changed but not yet sent
+    const save = (value: Saved) => {
+      const sent = JSON.stringify(value)
+      saveState.value = 'saving'
+      return $fetch(PREF_URL, { method: 'PUT', body: { value } })
+        .then(() => {
+          if (pending === sent) pending = ''
+          saveState.value = pending ? 'dirty' : 'saved'
+          try {
+            localStorage.removeItem(KEY)
+            localStorage.removeItem(OLD_KEY)
+          } catch { /* private mode */ }
+        })
+        .catch(() => { // tried again on the next change or the Save button
+          saved = ''
+          pending = sent
+          saveState.value = 'error'
+        })
+    }
+    saveNow = async () => {
+      if (!ready) return
+      clearTimeout(timer)
+      const next = JSON.stringify({ active: activeId.value, boards: boards.value })
+      saved = next
+      pending = next
+      await save(JSON.parse(next) as Saved)
+    }
 
     async function load() {
       ready = false
@@ -118,9 +141,17 @@ export function useWatchLayout() {
         const next = JSON.stringify({ active, boards: list })
         if (next === saved) return
         saved = next
+        pending = next
+        saveState.value = 'dirty'
         clearTimeout(timer)
         timer = setTimeout(() => void save(JSON.parse(next) as Saved), 600)
       }, { deep: true })
+    })
+    // a reload right after a change came before the delayed save: send it as the page goes
+    window.addEventListener('pagehide', () => {
+      if (!ready || !pending) return
+      clearTimeout(timer)
+      void fetch(PREF_URL, { method: 'PUT', keepalive: true, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: JSON.parse(pending) }) })
     })
   }
   if (!boards.value.length) boards.value = [blank()]
@@ -215,5 +246,5 @@ export function useWatchLayout() {
 
   const count = computed(() => items.value.length)
 
-  return { boards, board, activeId, items, count, canAddBoard, add, close, duplicate, setPane, setConfig, setSize, setLayout, clear, addBoard, duplicateBoard, removeBoard, updateBoard, selectBoard }
+  return { saveState, save: () => saveNow(), boards, board, activeId, items, count, canAddBoard, add, close, duplicate, setPane, setConfig, setSize, setLayout, clear, addBoard, duplicateBoard, removeBoard, updateBoard, selectBoard }
 }
