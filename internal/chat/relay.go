@@ -280,22 +280,17 @@ func (e *Engine) linkedBrief(ctx context.Context, projectID, conversationID stri
 			items = append(items, item{p.Name, truncate(oneLine(p.Description), 200)})
 		}
 	}
-	remote := 0
-	if e.peers != nil { // in other offices (ADR-167): named <office>/<project>
-		for _, l := range e.peers.LinksOf(ctx, projectID) {
-			items = append(items, item{l.Label(), truncate(oneLine(l.Project.Description), 200)})
-			remote++
-		}
-	}
-	if len(items) == 0 {
-		return ""
-	}
 	var chats []linkedOpen // the work already handed over from this chat: carried on there
 	for _, c := range e.linkedChats(ctx, conversationID) {
 		chats = append(chats, linkedOpen{c.project, cmp.Or(c.conv.Title, "(chưa có tiêu đề)"), "/projects/" + c.conv.ProjectID + "?tab=chat&c=" + c.conv.ID}) // i18n-ignore
 	}
-	chats = append(chats, e.peerChats(ctx, conversationID)...)
-	return "\n" + prompts.Render("chat/linked", map[string]any{"Projects": items, "Chats": chats, "Remote": remote > 0}) + "\n"
+	// other offices: only through the MCP other_office (ADR-169)
+	others := e.peerChats(ctx, conversationID)
+	other := e.peers != nil && len(e.peers.LinksOf(ctx, projectID)) > 0
+	if len(items) == 0 && len(chats) == 0 && !other && len(others) == 0 {
+		return ""
+	}
+	return "\n" + prompts.Render("chat/linked", map[string]any{"Projects": items, "Chats": chats, "Other": other, "OtherChats": others}) + "\n"
 }
 
 // linkedOpen is a chat of a linked project this chat handed work to.
@@ -313,7 +308,7 @@ func (e *Engine) linkedChats(ctx context.Context, conversationID string) []linke
 	var ids []string
 	if sent, err := e.store.Actions().List(ctx, conversationID, "", ""); err == nil {
 		for _, a := range sent {
-			if a.Kind == "send_message" && a.Status == "done" && a.Args.Project != "" && a.TargetID != "" {
+			if a.Kind == "send_message" && a.Status == "done" && a.Args.Project != "" && a.Args.Peer == "" && a.TargetID != "" {
 				ids = append(ids, a.TargetID)
 			}
 		}

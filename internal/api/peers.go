@@ -253,6 +253,9 @@ func (s *server) peerReadChat(w http.ResponseWriter, r *http.Request, p peer.Pee
 		return
 	}
 	c, err := s.cfg.Store.Chat().GetConversation(r.Context(), r.PathValue("id"))
+	if pid := r.URL.Query().Get("p"); err == nil && pid != "" && c.ProjectID != pid { // asked as a chat of that project (ADR-169)
+		err = storage.ErrNotFound
+	}
 	if err != nil || !s.cfg.Chat.PeerChat(r.Context(), c, p) {
 		writeError(w, http.StatusNotFound, "không có chat này giữa hai office")
 		return
@@ -262,7 +265,7 @@ func (s *server) peerReadChat(w http.ResponseWriter, r *http.Request, p peer.Pee
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"text": text})
+	writeJSON(w, http.StatusOK, map[string]string{"text": text, "project": c.ProjectID}) // its project: the caller checks it (ADR-169)
 }
 
 // peerSearch: the other office searches a project shared with it, only in

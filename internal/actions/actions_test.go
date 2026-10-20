@@ -375,9 +375,10 @@ func TestAutoRunsWhileAProposalWaits(t *testing.T) {
 	}
 }
 
-// A linked project in another office (ADR-167) is named <office>/<project>
-// or by a link to one of its chats; the send carries the office, and runs on
-// its own only with chat.cross.
+// A project in another office is reached from the MCP other_office
+// (ADR-169): the send carries the office; the project must be linked, or the
+// chat one this conversation handed work to (the assistant: any). The old
+// names in send_to_chat point there. It runs on its own only with chat.cross.
 func TestCheckSendPeerProject(t *testing.T) {
 	ctx := context.Background()
 	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
@@ -394,25 +395,76 @@ func TestCheckSendPeerProject(t *testing.T) {
 	svc.SetPeers(peer.New(st, nil))
 	sc := Scope{ProjectID: p1.ID, ConversationID: own.ID, JobID: job.ID}
 
-	a := &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "làm trang shop", Project: "office-b/shop"}}
-	if err := svc.checkSend(ctx, sc, a); err != nil || a.Args.Peer != "peer_b" || a.Args.Project != "rep_shop" || a.TargetID != "" {
+	a := &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "làm trang shop", Project: "rep_shop", Peer: "peer_b"}}
+	if err := svc.checkSend(ctx, sc, a); err != nil || a.TargetID != "" || a.Target != "office-b/shop · chat mới" {
 		t.Fatalf("new chat there: %v %+v", err, a)
 	}
-	a = &storage.Action{ProjectID: p1.ID, Target: "https://b.example/projects/rep_shop?tab=chat&c=cnv_9", Args: storage.ActionArgs{Message: "tiếp"}}
-	if err := svc.checkSend(ctx, sc, a); err != nil || a.Args.Peer != "peer_b" || a.TargetID != "cnv_9" {
-		t.Fatalf("its chat by link: %v %+v", err, a)
+	a = &storage.Action{ProjectID: p1.ID, Target: "cnv_9", Args: storage.ActionArgs{Message: "tiếp", Project: "rep_shop", Peer: "peer_b"}}
+	if err := svc.checkSend(ctx, sc, a); err != nil || a.TargetID != "cnv_9" {
+		t.Fatalf("its chat: %v %+v", err, a)
 	}
-	a = &storage.Action{ProjectID: p1.ID, Target: "https://b.example/projects/rep_shop?tab=chat", Args: storage.ActionArgs{Message: "x"}}
-	if err := svc.checkSend(ctx, sc, a); err != nil || a.Args.Peer != "peer_b" || a.TargetID != "" {
-		t.Fatalf("its project by link (a new chat): %v %+v", err, a)
-	}
-	a = &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "x", Project: "office-b/other"}}
+	a = &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "x", Project: "rep_other", Peer: "peer_b"}}
 	if err := svc.checkSend(ctx, sc, a); err == nil {
 		t.Fatal("a project of the office not linked was accepted")
 	}
-	a = &storage.Action{ProjectID: p1.ID, Target: "https://b.example/projects/rep_other?tab=chat&c=cnv_1", Args: storage.ActionArgs{Message: "x"}}
+	a = &storage.Action{ProjectID: p1.ID, Target: "cnv_1", Args: storage.ActionArgs{Message: "x", Project: "rep_other", Peer: "peer_b"}}
 	if err := svc.checkSend(ctx, sc, a); err == nil {
 		t.Fatal("a chat of a project not linked was accepted")
+	}
+	// a chat this conversation handed work to: on, even unlinked
+	st.Actions().Create(ctx, storage.Action{Kind: "send_message", ProjectID: p1.ID, ConversationID: own.ID, Status: "done", TargetID: "cnv_1", Args: storage.ActionArgs{Peer: "peer_b", Project: "rep_other"}})
+	a = &storage.Action{ProjectID: p1.ID, Target: "cnv_1", Args: storage.ActionArgs{Message: "x", Peer: "peer_b"}}
+	if err := svc.checkSend(ctx, sc, a); err != nil || a.TargetID != "cnv_1" || a.Args.Project != "rep_other" {
+		t.Fatalf("a chat handed work to before (its project kept): %v %+v", err, a)
+	}
+	// having handed work to one chat opens no new chat in an unlinked project
+	a = &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "x", Project: "rep_other", Peer: "peer_b"}}
+	if err := svc.checkSend(ctx, sc, a); err == nil {
+		t.Fatal("a new chat in an unlinked project was accepted after a hand-over")
+	}
+	// checked again when approved: a link removed meanwhile stops it
+	prop, err := svc.Propose(ctx, sc, "send_message", "", "r", storage.ActionArgs{Message: "x", Project: "rep_shop", Peer: "peer_b"})
+	if err != nil || prop.Status != "pending" {
+		t.Fatalf("propose: %v %+v", err, prop)
+	}
+	perm.SavePolicy(ctx, st, p1.ID, perm.Policy{})
+	if got, err := svc.Decide(ctx, prop.ID, true, "human:u1"); err != nil || got.Status != "failed" {
+		t.Fatalf("approved after the link was removed: %v %+v", err, got)
+	}
+	perm.SavePolicy(ctx, st, p1.ID, perm.Policy{LinkedProjects: []string{"peer:peer_b/rep_shop"}})
+	// the assistant: any project the office opens
+	a = &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "x", Project: "rep_other", Peer: "peer_b"}}
+	if err := svc.checkSend(ctx, Scope{ProjectID: p1.ID, ConversationID: own.ID, JobID: job.ID, Office: true}, a); err != nil {
+		t.Fatalf("assistant: %v", err)
+	}
+	a = &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "x", Project: "rep_shop", Peer: "peer_gone"}}
+	if err := svc.checkSend(ctx, sc, a); err == nil {
+		t.Fatal("an office no longer paired was accepted")
+	}
+	// the old ways point to other_office
+	for _, a := range []*storage.Action{
+		{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "x", Project: "office-b/shop"}},
+		{ProjectID: p1.ID, Target: "https://b.example/projects/rep_shop?tab=chat&c=cnv_9", Args: storage.ActionArgs{Message: "x"}},
+	} {
+		if err := svc.checkSend(ctx, sc, a); err == nil || !strings.Contains(err.Error(), "other_office") {
+			t.Fatalf("old way %+v: %v", a, err)
+		}
+	}
+	// the assistant's new chat: checked again when approved, against what the office still opens
+	st.Settings().Set(ctx, "office_assistant_project", p1.ID)
+	asc := Scope{ProjectID: p1.ID, ConversationID: own.ID, JobID: job.ID, Office: true}
+	prop2, err := svc.Propose(ctx, asc, "send_message", "", "r", storage.ActionArgs{Message: "x", Project: "rep_other", Peer: "peer_b"})
+	if err != nil || prop2.Status != "pending" {
+		t.Fatalf("assistant propose: %v %+v", err, prop2)
+	}
+	st.Settings().Set(ctx, "peers", []peer.Peer{{ID: "peer_b", Name: "office-b", URL: "https://b.example",
+		Remote: []peer.RemoteProject{{ID: "rep_shop", Name: "shop"}}}})
+	if got, err := svc.Decide(ctx, prop2.ID, true, "human:u1"); err != nil || got.Status != "failed" {
+		t.Fatalf("assistant's send to a project no longer open was approved: %v %+v", err, got)
+	}
+	byID := storage.Action{Kind: "send_message", ProjectID: p1.ID, Args: storage.ActionArgs{Peer: "peer_b"}}
+	if svc.autoAllowed(ctx, byID, perm.Access{Caps: []string{perm.CapChatSend}}) {
+		t.Fatal("another office's chat with no project ran on chat.send")
 	}
 	cross := storage.Action{Kind: "send_message", ProjectID: p1.ID, Args: storage.ActionArgs{Project: "rep_shop", Peer: "peer_b"}}
 	if svc.autoAllowed(ctx, cross, perm.Access{Caps: []string{perm.CapChatSend}}) || !svc.autoAllowed(ctx, cross, perm.Access{Caps: []string{perm.CapChatCross}}) {

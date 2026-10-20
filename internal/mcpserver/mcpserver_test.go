@@ -206,3 +206,49 @@ func TestMCPModern(t *testing.T) {
 		t.Fatalf("initialize: %v", i)
 	}
 }
+
+// The MCP other_office (ADR-169) is served next to /mcp with the same tokens:
+// its own tools (none when the run reaches no other office), and office's
+// tools are not callable there.
+func TestOtherOfficePath(t *testing.T) {
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	ctx := context.Background()
+	st.Migrate(ctx)
+	p, _ := st.Repos().Create(ctx, storage.Repo{Name: "p", Path: t.TempDir()})
+	s := New(officetools.New(st, nil, nil), "test")
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", s)
+	mux.Handle("/mcp"+OtherPath, s)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	tok, revoke := s.Grant(officetools.Scope{ProjectID: p.ID}, time.Minute)
+	defer revoke()
+	call := func(path, body string) map[string]any {
+		req, _ := http.NewRequest("POST", srv.URL+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return out
+	}
+	init := call("/mcp"+OtherPath, `{"jsonrpc":"2.0","id":9,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}`)["result"].(map[string]any)
+	if init["serverInfo"].(map[string]any)["name"] != "agent-office other_office" || !strings.Contains(init["instructions"].(string), "send") {
+		t.Fatalf("other_office introduces itself as office: %v", init)
+	}
+	list := call("/mcp"+OtherPath, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	if n := len(list["result"].(map[string]any)["tools"].([]any)); n != 0 {
+		t.Fatalf("other_office tools with no paired office: %d", n)
+	}
+	if out := call("/mcp"+OtherPath, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ops_overview","arguments":{}}}`); out["error"] == nil {
+		t.Fatalf("an office tool ran on other_office: %v", out)
+	}
+	if out := call("/mcp", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ops_overview","arguments":{}}}`); out["error"] != nil {
+		t.Fatalf("/mcp: %v", out)
+	}
+}

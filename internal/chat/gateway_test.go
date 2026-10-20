@@ -29,17 +29,47 @@ func TestMCPConfigGateway(t *testing.T) {
 		t.Fatal(err)
 	}
 	c7 := cfg.MCPServers["context7"]
+	if _, ok := cfg.MCPServers["other_office"]; ok {
+		t.Fatal("other_office given to a run that reaches no other office")
+	}
 	if len(cfg.MCPServers) != 2 || c7.Type != "http" || c7.URL != "http://127.0.0.1:1/mcp/s/context7" || c7.Headers["Authorization"] != "Bearer tok" ||
 		c7.Headers[ClientHeader] != "claude" {
 		t.Fatalf("config = %s", raw)
+	}
+
+	o.Other = true // reaches another office (ADR-169): its server, same token
+	p2, _ := writeMCPConfig(o)
+	defer os.Remove(p2)
+	raw, _ = os.ReadFile(p2)
+	cfg.MCPServers = nil
+	json.Unmarshal(raw, &cfg)
+	if oo := cfg.MCPServers["other_office"]; oo.URL != "http://127.0.0.1:1/mcp/other_office" || oo.Headers["Authorization"] != "Bearer tok" {
+		t.Fatalf("other_office config = %s", raw)
+	}
+	if !strings.Contains(officeAllow(o), "mcp__other_office__*") {
+		t.Fatal("other_office not allowed")
+	}
+	if a := strings.Join(codexMCPArgs(RunRequest{Office: o}), " "); !strings.Contains(a, `mcp_servers.other_office.url="http://127.0.0.1:1/mcp/other_office"`) {
+		t.Fatalf("codex: %s", a)
+	}
+	if g := geminiMCP(RunRequest{Office: o}); g["other_office"] == nil {
+		t.Fatal("gemini without other_office")
+	}
+	if s := guardSettings(false, []string{"other_office"}, false, ""); !strings.Contains(s, "--mcp other_office") {
+		t.Fatal("guard without other_office")
 	}
 
 	old := GuardCommand
 	defer func() { GuardCommand = old }()
 	GuardCommand = "'/x/office' hook guard"
 	a := claudeRunner{}.args(RunRequest{Write: true, Office: o}, false)
-	if s := a[slices.Index(a, "--settings")+1]; !strings.Contains(s, "--mcp context7") {
-		t.Fatalf("guard without the gateway's server: %s", s)
+	if s := a[slices.Index(a, "--settings")+1]; !strings.Contains(s, "--mcp context7") || !strings.Contains(s, "--mcp other_office") {
+		t.Fatalf("guard without the gateway's server or other_office: %s", s)
+	}
+	o.Other = false
+	a = claudeRunner{}.args(RunRequest{Write: true, Office: o}, false)
+	if s := a[slices.Index(a, "--settings")+1]; strings.Contains(s, "other_office") {
+		t.Fatalf("guard lets other_office through for a run without it: %s", s)
 	}
 }
 

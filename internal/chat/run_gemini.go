@@ -19,6 +19,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/attach"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
@@ -45,6 +46,9 @@ func geminiMCP(req RunRequest) map[string]any {
 		out[name] = map[string]any{"httpUrl": url, "headers": h, "trust": true}
 	}
 	add(mcpserver.ServerName, req.Office.MCPURL, false)
+	if req.Office.Other {
+		add(officetools.OtherServer, req.Office.MCPURL+mcpserver.OtherPath, false)
+	}
 	for _, n := range req.Office.Gateway {
 		add(n, req.Office.MCPURL+"/s/"+n, true)
 	}

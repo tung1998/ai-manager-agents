@@ -24,6 +24,10 @@ import (
 // ServerName is the MCP server name agents see (tools appear as mcp__office__*).
 const ServerName = "office"
 
+// OtherPath is where the MCP other_office is served, next to /mcp (ADR-169):
+// the other offices' tools, with the same run tokens.
+const OtherPath = "/" + officetools.OtherServer
+
 type grant struct {
 	scope   officetools.Scope
 	expires time.Time
@@ -121,6 +125,9 @@ const (
 	codeUnsupportedVersion = -32022
 )
 
+// otherInstructions introduce the MCP other_office (ADR-169).
+const otherInstructions = "Các office khác đã ghép nối: xem bằng offices, giao việc bằng send, đọc chat bằng read_chat, tìm bằng search. Chỉ gửi những gì người dùng đồng ý giao."
+
 const instructions = "Thông tin vận hành của project (tiến trình build/dev/test, docker compose, giám sát). Thao tác chỉ được đề xuất qua propose_action để người dùng duyệt."
 
 type request struct {
@@ -195,7 +202,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if len(q.ID) == 0 { // notification: no reply
 			continue
 		}
-		res, st := s.handle(r, sc, q)
+		res, st := s.handle(r, sc, q, strings.HasSuffix(r.URL.Path, OtherPath))
 		out = append(out, res)
 		status = st
 	}
@@ -213,7 +220,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // handle answers one request and says the HTTP status for it: a modern
 // request's protocol errors are 400 and an unknown method 404, so a client
 // that speaks both eras tells office from a legacy server.
-func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) (response, int) {
+func (s *Server) handle(r *http.Request, sc officetools.Scope, q request, other bool) (response, int) {
 	res := response{JSONRPC: "2.0", ID: q.ID}
 	var p struct {
 		Meta map[string]json.RawMessage `json:"_meta"`
@@ -234,6 +241,10 @@ func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) (respo
 		}
 	}
 	var result map[string]any
+	info, intro := s.info(), instructions
+	if other {
+		info["name"], intro = "agent-office "+officetools.OtherServer, otherInstructions
+	}
 	switch q.Method {
 	case "initialize":
 		var ip struct {
@@ -247,14 +258,14 @@ func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) (respo
 		result = map[string]any{
 			"protocolVersion": v,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      s.info(),
-			"instructions":    instructions,
+			"serverInfo":      info,
+			"instructions":    intro,
 		}
 	case "server/discover":
 		result = map[string]any{
 			"supportedVersions": supported(),
 			"capabilities":      map[string]any{"tools": map[string]any{}},
-			"instructions":      instructions,
+			"instructions":      intro,
 			"ttlMs":             3_600_000,
 			"cacheScope":        "private",
 		}
@@ -262,7 +273,11 @@ func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) (respo
 		result = map[string]any{}
 	case "tools/list":
 		list := []map[string]any{}
-		for _, t := range s.tools.ToolsFor(sc) {
+		tools := s.tools.ToolsFor(sc)
+		if other {
+			tools = s.tools.OtherTools(r.Context(), sc)
+		}
+		for _, t := range tools {
 			list = append(list, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.Schema,
 				"annotations": map[string]any{"readOnlyHint": t.ReadOnly}})
 		}
@@ -275,11 +290,17 @@ func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) (respo
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
 		}
-		if err := json.Unmarshal(q.Params, &cp); err != nil || !s.tools.Has(sc, cp.Name) {
+		err := json.Unmarshal(q.Params, &cp)
+		has, call := s.tools.Has, s.tools.Call
+		if other {
+			has = func(sc officetools.Scope, name string) bool { return s.tools.HasOther(r.Context(), sc, name) }
+			call = s.tools.CallOther
+		}
+		if err != nil || !has(sc, cp.Name) {
 			res.Error = &rpcError{Code: -32602, Message: "unknown tool"}
 			return res, http.StatusOK
 		}
-		text, isErr := s.tools.Call(r.Context(), sc, cp.Name, cp.Arguments)
+		text, isErr := call(r.Context(), sc, cp.Name, cp.Arguments)
 		result = map[string]any{"content": []map[string]any{{"type": "text", "text": text}}, "isError": isErr}
 	default:
 		res.Error = &rpcError{Code: -32601, Message: "method not found: " + q.Method}
@@ -290,7 +311,7 @@ func (s *Server) handle(r *http.Request, sc officetools.Scope, q request) (respo
 	}
 	if modern || q.Method == "server/discover" {
 		result["resultType"] = "complete"
-		result["_meta"] = map[string]any{metaServerInfo: s.info()}
+		result["_meta"] = map[string]any{metaServerInfo: info}
 	}
 	res.Result = result
 	return res, http.StatusOK

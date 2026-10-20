@@ -496,21 +496,33 @@ func (s *Service) SearchChats(ctx context.Context, id string, q Search) ([]Hit, 
 }
 
 // ReadChat reads a chat between the two offices in the paired office id
-// (around message, when given), as read_link shows it.
-func (s *Service) ReadChat(ctx context.Context, id, chat, message string) (string, error) {
+// (around message, when given), as read_link shows it; project, when given,
+// is the project there it must belong to (ADR-169).
+//
+// It returns the text and the chat's project there ("" from an office older
+// than ADR-169).
+func (s *Service) ReadChat(ctx context.Context, id, project, chat, message string) (string, string, error) {
 	p, err := s.Get(ctx, id)
 	if err != nil {
-		return "", errors.New("office liên kết không còn (đã gỡ ghép nối?)")
+		return "", "", errors.New("office liên kết không còn (đã gỡ ghép nối?)")
 	}
 	var out struct {
-		Text string `json:"text"`
+		Text    string `json:"text"`
+		Project string `json:"project"`
+	}
+	q := url.Values{}
+	if message != "" {
+		q.Set("m", message)
+	}
+	if project != "" {
+		q.Set("p", project)
 	}
 	path := "/api/peer/chats/" + url.PathEscape(chat)
-	if message != "" {
-		path += "?m=" + url.QueryEscape(message)
+	if len(q) > 0 {
+		path += "?" + q.Encode()
 	}
 	err = s.call(ctx, p, http.MethodGet, path, nil, &out)
-	return out.Text, err
+	return out.Text, out.Project, err
 }
 
 // LinkOf finds, among the projects in other offices projectID links to, the

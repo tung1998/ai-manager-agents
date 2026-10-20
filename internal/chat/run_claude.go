@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
@@ -127,7 +128,10 @@ func (claudeRunner) args(req RunRequest, resume bool) []string {
 		a[slices.Index(a, "dontAsk")] = "bypassPermissions"
 		var gw []string
 		if req.Office != nil {
-			gw = req.Office.Gateway
+			gw = slices.Clone(req.Office.Gateway)
+			if req.Office.Other { // other_office only when the run has it (ADR-169)
+				gw = append(gw, officetools.OtherServer)
+			}
 		}
 		a = append(a, "--settings", guardSettings(req.UserMCP, gw, req.QuickCheck, req.QuickChecks))
 	} else if req.UserMCP {
@@ -524,6 +528,9 @@ func truncate(s string, n int) string {
 // mcp__<server> no longer reaches every tool of a server.
 func officeAllow(o *OfficeAccess) string {
 	s := " mcp__" + mcpserver.ServerName + "__*"
+	if o.Other {
+		s += " mcp__" + officetools.OtherServer + "__*"
+	}
 	for _, n := range o.Gateway {
 		s += " mcp__" + n + "__*"
 	}
@@ -533,6 +540,9 @@ func officeAllow(o *OfficeAccess) string {
 func writeMCPConfig(o *OfficeAccess) (string, error) {
 	auth := map[string]string{"Authorization": "Bearer " + o.Token}
 	servers := map[string]any{mcpserver.ServerName: map[string]any{"type": "http", "url": o.MCPURL, "headers": auth}}
+	if o.Other {
+		servers[officetools.OtherServer] = map[string]any{"type": "http", "url": o.MCPURL + mcpserver.OtherPath, "headers": auth}
+	}
 	// which AI calls, for the call log (ADR-093)
 	gw := map[string]string{"Authorization": auth["Authorization"], ClientHeader: "claude"}
 	for _, n := range o.Gateway { // same token: the gateway adds each server's own secrets

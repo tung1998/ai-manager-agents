@@ -17,6 +17,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/mcpserver"
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/proctrack"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
@@ -47,6 +48,9 @@ func codexMCPArgs(req RunRequest) []string {
 		}
 	}
 	add(mcpserver.ServerName, req.Office.MCPURL, false)
+	if req.Office.Other {
+		add(officetools.OtherServer, req.Office.MCPURL+mcpserver.OtherPath, false)
+	}
 	for _, n := range req.Office.Gateway {
 		add(n, req.Office.MCPURL+"/s/"+n, true)
 	}

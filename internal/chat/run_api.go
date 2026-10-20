@@ -60,12 +60,20 @@ func fileTools(req RunRequest) []struct {
 	return append(slices.Clone(workspaceTools), writeTools...)
 }
 
-func officeTools(req RunRequest) []officetools.Tool {
+func officeTools(ctx context.Context, req RunRequest) []officetools.Tool {
 	if req.Office == nil || req.Office.Tools == nil || req.NoTools {
 		return nil
 	}
-	return req.Office.Tools.ToolsFor(req.Office.Scope)
+	list := req.Office.Tools.ToolsFor(req.Office.Scope)
+	for _, t := range req.Office.Tools.OtherTools(ctx, req.Office.Scope) { // named as over MCP (ADR-169)
+		t.Name = otherPrefix + t.Name
+		list = append(list, t)
+	}
+	return list
 }
+
+// otherPrefix names the MCP other_office's tools in an API run.
+const otherPrefix = "mcp__" + officetools.OtherServer + "__"
 
 // gatewayTools are the office MCP servers' tools the run's agent gets
 // (ADR-093); office calls them itself.
@@ -78,6 +86,9 @@ func gatewayTools(ctx context.Context, req RunRequest) []GatewayTool {
 
 // dispatchTool runs an office tool, a gateway MCP tool or a workspace tool.
 func dispatchTool(ctx context.Context, req RunRequest, w Workspace, name string, raw json.RawMessage) (string, bool) {
+	if other, ok := strings.CutPrefix(name, otherPrefix); ok && req.Office != nil && req.Office.Tools != nil && !req.NoTools {
+		return req.Office.Tools.CallOther(ctx, req.Office.Scope, other, raw)
+	}
 	if req.Office != nil && req.Office.Tools != nil && req.Office.Tools.Has(req.Office.Scope, name) {
 		return req.Office.Tools.Call(ctx, req.Office.Scope, name, raw)
 	}
@@ -176,7 +187,7 @@ func (anthropicRunner) Run(ctx context.Context, req RunRequest, emit func(Event)
 	for _, t := range fileTools(req) {
 		tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.Schema})
 	}
-	for _, t := range officeTools(req) {
+	for _, t := range officeTools(ctx, req) {
 		tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.Schema})
 	}
 	for _, t := range gatewayTools(ctx, req) {
@@ -284,7 +295,7 @@ func (r openAIRunner) Run(ctx context.Context, req RunRequest, emit func(Event))
 	for _, t := range fileTools(req) {
 		tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Schema}})
 	}
-	for _, t := range officeTools(req) {
+	for _, t := range officeTools(ctx, req) {
 		tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Schema}})
 	}
 	for _, t := range gatewayTools(ctx, req) {

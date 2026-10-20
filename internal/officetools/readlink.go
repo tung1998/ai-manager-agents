@@ -19,18 +19,8 @@ func (t *Toolbox) readLink(ctx context.Context, sc Scope, link string) (string, 
 	if err != nil {
 		return "", errors.New("liên kết không hợp lệ")
 	}
-	if u.Host != "" && t.peers != nil { // a chat in a linked project of another office (ADR-167)
-		if l, ok := t.peers.LinkOf(ctx, sc.ProjectID, strings.TrimSpace(link)); ok {
-			c := u.Query().Get("c")
-			if c == "" {
-				return "", errors.New("ở office khác chỉ đọc được liên kết chat (c=…)")
-			}
-			text, err := t.peers.ReadChat(ctx, l.Peer.ID, c, u.Query().Get("m"))
-			if err != nil {
-				return "", err
-			}
-			return "In office " + l.Peer.Name + ", project " + l.Project.Name + ":\n" + text, nil
-		}
+	if u.Host != "" && t.peers.IsOtherOffice(ctx, link) { // ADR-169
+		return "", errors.New("liên kết của " + OtherHint)
 	}
 	projectID, ok := strings.CutPrefix(strings.TrimSuffix(u.Path, "/"), "/projects/")
 	if !ok || projectID == "" || strings.Contains(projectID, "/") {

@@ -51,10 +51,7 @@ func (e *Engine) relayPeer(ctx context.Context, a storage.Action) (string, strin
 			from.Hops = o.Hops + 1
 		}
 	}
-	m := peer.Message{Chat: a.TargetID, Text: a.Args.Message, From: from}
-	if a.TargetID == "" {
-		m.Project = a.Args.Project
-	}
+	m := peer.Message{Chat: a.TargetID, Project: a.Args.Project, Text: a.Args.Message, From: from}
 	r, err := e.peers.Send(ctx, p.ID, m)
 	if err != nil {
 		return "", "", err
@@ -93,7 +90,8 @@ func (e *Engine) Receive(ctx context.Context, p peer.Peer, m peer.Message) (peer
 		c, err := e.store.Chat().GetConversation(ctx, m.Chat)
 		_, sent := e.peerChat(ctx, m.Chat, p.ID)
 		// one it may read, or one that handed it work (its answer comes back)
-		if err != nil || c.Cleaned != "" || !(sent || e.PeerChat(ctx, c, p)) {
+		// with its project (ADR-169): a chat of that project only
+		if err != nil || c.Cleaned != "" || !(sent || e.PeerChat(ctx, c, p)) || (m.Project != "" && c.ProjectID != m.Project) {
 			return peer.Reply{}, errors.New("không có chat này giữa hai office")
 		}
 		conv = c

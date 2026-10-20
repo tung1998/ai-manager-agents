@@ -169,7 +169,8 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		mux.Handle("GET /api/system/update/changes", admin(s.updateChanges))
 	}
 	if s.cfg.MCP != nil {
-		mux.Handle("/mcp", s.cfg.MCP) // authenticated by its own per-run token
+		mux.Handle("/mcp", s.cfg.MCP)              // authenticated by its own per-run token
+		mux.Handle("/mcp/other_office", s.cfg.MCP) // other offices (ADR-169), same tokens
 	}
 	if s.cfg.Gateway != nil {
 		s.mcpServerRoutes(mux, admin)

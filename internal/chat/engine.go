@@ -348,7 +348,7 @@ func (e *Engine) officeAccess(ctx context.Context, sc officetools.Scope) (*Offic
 		return nil, func() {}
 	}
 	token, revoke := e.mcp.Grant(sc, 30*time.Minute)
-	oa := &OfficeAccess{MCPURL: e.mcpURL, Token: token, Scope: sc, Tools: e.office}
+	oa := &OfficeAccess{MCPURL: e.mcpURL, Token: token, Scope: sc, Tools: e.office, Other: len(e.office.OtherTools(ctx, sc)) > 0}
 	if e.gateway != nil {
 		oa.Gateway, oa.GatewayTools = e.gateway(ctx, sc)
 	}

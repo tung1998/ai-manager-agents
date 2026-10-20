@@ -91,6 +91,9 @@ type OfficeAccess struct {
 	// config, API runs through GatewayTools (ADR-093).
 	Gateway      []string
 	GatewayTools GatewayTools
+	// Other: the run reaches projects in other offices, through the MCP
+	// other_office at MCPURL/other_office (ADR-169)
+	Other bool
 }
 
 // ClientHeader tells the gateway which AI calls (claude | codex | gemini).

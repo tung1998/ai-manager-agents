@@ -5,6 +5,7 @@
 package actions
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"context"
 	"encoding/json"
 	"errors"
@@ -361,7 +362,7 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 		if s.sender == nil {
 			return false
 		}
-		if a.Args.Project != "" && a.Args.Project != a.ProjectID { // a linked project's chat: within its chain's cap
+		if a.Args.Peer != "" || (a.Args.Project != "" && a.Args.Project != a.ProjectID) { // a linked project's chat (or another office's): within its chain's cap
 			return acc.Can(perm.CapChatCross) && !s.sender.RelayLimit(ctx, a.ConversationID)
 		}
 		return acc.Can(perm.CapChatSend) && !s.sender.Relayed(ctx, a.ConversationID)
@@ -468,6 +469,8 @@ func (s *Service) Decide(ctx context.Context, id string, approve bool, by string
 		a.Status, a.Detail = "done", ""
 		if s.sender == nil {
 			a.Status, a.Detail = "failed", "không gửi tin được ở đây"
+		} else if _, err := s.peerRecheck(ctx, &a); err != nil {
+			a.Status, a.Detail = "failed", err.Error()
 		} else if detail, to, err := s.sender.Relay(ctx, a); err != nil {
 			a.Status, a.Detail = "failed", err.Error()
 		} else {
@@ -738,17 +741,18 @@ func (s *Service) checkSend(ctx context.Context, sc Scope, a *storage.Action) er
 	if strings.TrimSpace(a.Args.Message) == "" {
 		return errors.New("thiếu nội dung tin nhắn")
 	}
-	if l, ok := s.peerLink(ctx, a); ok { // a linked project in another office (ADR-167): it checks the chat
-		a.Args.Peer, a.Args.Project = l.Peer.ID, l.Project.ID
-		id := chatRef(a.Target)
-		if strings.Contains(id, "/") { // a link to the project, not one of its chats: a new chat
-			id = ""
+	if a.Args.Peer != "" { // a project in another office, from the MCP other_office (ADR-169)
+		return s.checkPeerSend(ctx, sc, a)
+	}
+	if s.peers.IsOtherOffice(ctx, a.Target) {
+		return errors.New(otherHint)
+	}
+	if a.Args.Project != "" {
+		if _, err := perm.LinkedProject(ctx, s.store, a.ProjectID, a.Args.Project); err != nil && s.peers != nil {
+			if _, _, perr := peer.Resolve(ctx, s.store, s.peers, a.ProjectID, a.Args.Project); perr == nil {
+				return errors.New(otherHint)
+			}
 		}
-		a.Target, a.TargetID = l.Label()+" · chat mới", ""
-		if id != "" {
-			a.Target, a.TargetID = l.Label()+" · "+id, id
-		}
-		return nil
 	}
 	if a.Args.Project != "" { // a linked project's: id or name
 		p, err := perm.LinkedProject(ctx, s.store, a.ProjectID, a.Args.Project)
@@ -794,21 +798,63 @@ func chatRef(target string) string {
 	return strings.TrimSpace(target)
 }
 
-// peerLink: the send goes to a linked project in another office, named by
-// Project (when no project of this office matches) or by a link to one of
-// its chats in Target.
-func (s *Service) peerLink(ctx context.Context, a *storage.Action) (peer.Link, bool) {
+// otherHint points send_to_chat into another office to the MCP other_office.
+const otherHint = "office khác: dùng mcp__other_office__send"
+
+// peerRecheck checks again, as it is approved, a send to another office
+// (nothing to check for one within this office).
+func (s *Service) peerRecheck(ctx context.Context, a *storage.Action) (string, error) {
+	if a.Args.Peer == "" {
+		return "", nil
+	}
+	return s.peerAccess(ctx, a, a.TargetID, a.ConversationID, a.ProjectID == assistant.ID(ctx, s.store)) // Target is now its label
+}
+
+// checkPeerSend checks a send to a project in another office (peerAccess);
+// Target becomes "<office>/<project> · …".
+func (s *Service) checkPeerSend(ctx context.Context, sc Scope, a *storage.Action) error {
+	label, err := s.peerAccess(ctx, a, chatRef(a.Target), sc.ConversationID, sc.Office)
+	if err != nil {
+		return err
+	}
+	id := chatRef(a.Target)
+	a.Target, a.TargetID = label+" · chat mới", ""
+	if id != "" {
+		a.Target, a.TargetID = label+" · "+id, id
+	}
+	return nil
+}
+
+// peerAccess: a send to another office may go, when proposed and again when
+// approved (a link removed meanwhile stops it): the office is still paired; a
+// new chat goes to a project it opens to this one that the project links to
+// (the assistant: any), a chat on to one this conversation handed work to (or
+// of such a project). It fills the chat's project from that hand-over, and
+// returns "<office>/<project>" (or the office's name).
+func (s *Service) peerAccess(ctx context.Context, a *storage.Action, id, conversationID string, office bool) (string, error) {
 	if s.peers == nil {
-		return peer.Link{}, false
+		return "", errors.New("không có office liên kết")
 	}
-	if a.Args.Project != "" {
-		if _, err := perm.LinkedProject(ctx, s.store, a.ProjectID, a.Args.Project); err == nil {
-			return peer.Link{}, false
+	p, err := s.peers.Get(ctx, a.Args.Peer)
+	if err != nil {
+		return "", errors.New("office liên kết không còn (đã gỡ ghép nối?)")
+	}
+	sent := false
+	if id != "" { // "" (a new chat) is never one handed work to
+		var prior storage.Action
+		if prior, sent = peer.PriorSend(ctx, s.store, conversationID, p.ID, id); sent && a.Args.Project == "" {
+			a.Args.Project = prior.Args.Project // the chat's project, as handed over
 		}
-		p, rp, err := peer.Resolve(ctx, s.store, s.peers, a.ProjectID, a.Args.Project)
-		return peer.Link{Peer: p, Project: rp}, err == nil
 	}
-	return s.peers.LinkOf(ctx, a.ProjectID, a.Target)
+	reach := peer.Reach(ctx, s.store, s.peers, a.ProjectID, office)
+	i := slices.IndexFunc(reach, func(l peer.Link) bool { return l.Peer.ID == p.ID && l.Project.ID == a.Args.Project })
+	switch {
+	case i >= 0:
+		return reach[i].Label(), nil
+	case sent, office && id != "":
+		return p.Name, nil
+	}
+	return "", fmt.Errorf("project %q ở office %s chưa liên kết với project này", a.Args.Project, p.Name)
 }
 
 // checkRun checks a run_automation proposal (Target = its id).
