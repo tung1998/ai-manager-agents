@@ -1212,7 +1212,10 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	e.wfKeepSession(turn, conv.ID, res.SessionID, string(p.Kind))
 	if res.Context.Tokens > 0 && !handoff {
-		mem.ContextTokens, mem.ContextWindow = res.Context.Tokens, res.Context.Window
+		mem.ContextTokens = res.Context.Tokens
+		if res.Context.Window > 0 { // a turn cut short (no result event) says no window: keep the last one
+			mem.ContextWindow = res.Context.Window
+		}
 		if agent.ID == conv.AgentID { // the chat shows its default agent's context
 			_ = e.store.Chat().SetConversationContext(context.Background(), conv.ID, mem.ContextTokens, mem.ContextWindow)
 		}
