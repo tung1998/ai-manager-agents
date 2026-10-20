@@ -196,11 +196,10 @@
 <!-- 2 -->
 <section id="install">
   <h2><span class="num">2</span>Cài đặt &amp; chạy lần đầu</h2>
-  <p class="intro">Cần Go ≥ 1.27, Node 22, pnpm và ít nhất một tài khoản AI.</p>
+  <p class="intro">Cần git và ít nhất một tài khoản AI. Go ≥ 1.27, Node 22 và pnpm được <code>scripts/install.sh</code> tự kiểm và cài nếu thiếu (vào <code>~/.local</code>, không cần sudo). Chạy trên macOS và Linux; Windows thì chạy <code>powershell -ExecutionPolicy Bypass -File scripts\install.ps1</code>: tự cài WSL2 + Ubuntu nếu thiếu (lần đầu cần quyền admin, có thể phải khởi động lại rồi chạy lại) và build trong Ubuntu.</p>
   <div class="callout tip"><strong>Kiểu AI 🤖</strong>Văn phòng do AI vận hành thì để AI tự cài. Clone repo, chạy <code>claude</code> (hoặc <code>codex</code>) trong thư mục rồi nhắn <i>"chạy project này giúp mình"</i>. AI build mọi thứ, bật office và đưa bạn đường link. Nếu nó hỏi gì đó, đó là yêu cầu duyệt đầu tiên của văn phòng.</div>
   <p>Hoặc làm thủ công:</p>
-<pre><code>make build                        # → bin/office
-make ui-install &amp;&amp; make ui-build  # → dashboard/.output
+<pre><code>scripts/install.sh                # kiểm + cài Go/Node/pnpm nếu thiếu, build server và dashboard
 ./bin/office run                  # API ở :8787, dashboard ở http://localhost:2704</code></pre>
   <ol class="steps">
     <li>Mở <code>http://localhost:2704</code> (hoặc địa chỉ server) và đăng nhập bằng <b><code>admin</code> / <code>admin</code></b>.</li>

@@ -195,11 +195,10 @@
 <!-- 2 -->
 <section id="install">
   <h2><span class="num">2</span>Install &amp; first run</h2>
-  <p class="intro">You need Go ≥ 1.27, Node 22, pnpm, and at least one AI account.</p>
+  <p class="intro">You need git and at least one AI account. <code>scripts/install.sh</code> checks for Go ≥ 1.27, Node 22 and pnpm and installs whatever is missing (into <code>~/.local</code>, no sudo). Runs on macOS and Linux; on Windows run <code>powershell -ExecutionPolicy Bypass -File scripts\install.ps1</code>: it installs WSL2 + Ubuntu when missing (the first run needs administrator and maybe a restart, then run it again) and builds inside Ubuntu.</p>
   <div class="callout tip"><strong>The AI way 🤖</strong>It's an office run by AI, so let an AI set it up. Clone the repo, run <code>claude</code> (or <code>codex</code>) in the folder and say <i>"run this project"</i>. It builds everything, starts the office and hands you the link. If it asks you something, that's your first approval request.</div>
   <p>Or by hand:</p>
-<pre><code>make build                        # → bin/office
-make ui-install &amp;&amp; make ui-build  # → dashboard/.output
+<pre><code>scripts/install.sh                # checks/installs Go, Node, pnpm; builds the server and the dashboard
 ./bin/office run                  # API on :8787, dashboard on http://localhost:2704</code></pre>
   <ol class="steps">
     <li>Open <code>http://localhost:2704</code> (or the server's address) and sign in with <b><code>admin</code> / <code>admin</code></b>.</li>

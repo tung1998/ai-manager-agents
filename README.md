@@ -62,7 +62,7 @@ So you don't have to wait for a feature on a roadmap. The office bends to how *y
 
 ## Quick start
 
-Requirements: **Go ≥ 1.27**, **Node 22**, **pnpm**, and at least one AI account (Claude Code / Codex CLI logged in, or an API key).
+Requirements: **git** and at least one AI account (Claude Code / Codex CLI logged in, or an API key). `scripts/install.sh` checks for Go ≥ 1.27, Node 22 and pnpm and installs whatever is missing (into `~/.local`, no sudo). Runs on macOS and Linux; on Windows run `powershell -ExecutionPolicy Bypass -File scripts\install.ps1` (add `-Run` to start it): it installs WSL2 + Ubuntu when missing (the first run needs an administrator PowerShell and maybe a restart, then run it again), clones the repo into Ubuntu and runs `install.sh` there.
 
 ### The AI way 🤖
 
@@ -83,10 +83,11 @@ Grab a coffee. If it asks you something, that's the office's first approval requ
 
 ```bash
 git clone <this repo> agent-office && cd agent-office
-make build                                        # → bin/office
-make ui-install && make ui-build                  # → dashboard/.output
+scripts/install.sh                                # checks/installs Go, Node, pnpm; builds bin/office and the dashboard
 ./bin/office run                                  # API :8787 + dashboard http://localhost:2704
 ```
+
+In one go: `scripts/install.sh --run`. The script adds the tools it installed to `~/.zshrc` / `~/.bashrc`; open a new terminal to use `go`, `node`, `pnpm`. Already have the tools? Build by hand: `make build && make ui-install && make ui-build`.
 
 Open **http://localhost:2704** and sign in with **`admin` / `admin`**. The office asks for your own email and password right away, and the default account can do nothing else until you do. (`office init` asks for the admin email and password up front; press Enter to keep `admin` / `admin`.)
 

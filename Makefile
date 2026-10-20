@@ -1,4 +1,8 @@
-.PHONY: build test start dev-api dev-ui ui-install ui-build ui-start up
+.PHONY: setup build test start dev-api dev-ui ui-install ui-build ui-start up
+
+# installs Go / Node 22 / pnpm into ~/.local when missing, then builds
+setup:
+	scripts/install.sh
 
 build:
 	go build -o bin/office ./cmd/office

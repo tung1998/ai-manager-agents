@@ -62,7 +62,7 @@ Bạn không phải chờ tính năng trên lộ trình của ai cả. Văn phò
 
 ## Bắt đầu nhanh
 
-Cần: **Go ≥ 1.27**, **Node 22**, **pnpm**, và ít nhất một tài khoản AI (Claude Code / Codex CLI đã đăng nhập, hoặc một API key).
+Cần: **git** và ít nhất một tài khoản AI (Claude Code / Codex CLI đã đăng nhập, hoặc một API key). Go ≥ 1.27, Node 22 và pnpm thì `scripts/install.sh` tự kiểm và cài nếu thiếu (vào `~/.local`, không cần sudo). Chạy trên macOS và Linux; Windows thì chạy `powershell -ExecutionPolicy Bypass -File scripts\install.ps1` (thêm `-Run` để bật luôn): script tự cài WSL2 + Ubuntu nếu thiếu (lần đầu cần PowerShell quyền admin, có thể phải khởi động lại rồi chạy lại), chép repo vào Ubuntu và chạy `install.sh` trong đó.
 
 ### Kiểu AI 🤖
 
@@ -83,10 +83,11 @@ claude            # hoặc: codex
 
 ```bash
 git clone <repo này> agent-office && cd agent-office
-make build                                        # → bin/office
-make ui-install && make ui-build                  # → dashboard/.output
+scripts/install.sh                                # kiểm + cài Go/Node/pnpm nếu thiếu, build bin/office và dashboard
 ./bin/office run                                  # API :8787 + dashboard http://localhost:2704
 ```
+
+Gộp một lệnh: `scripts/install.sh --run`. Script tự thêm đường dẫn tool vừa cài vào `~/.zshrc` / `~/.bashrc`; mở terminal mới để dùng `go`, `node`, `pnpm`. Đã có sẵn tool thì vẫn build tay được: `make build && make ui-install && make ui-build`.
 
 Mở **http://localhost:2704** và đăng nhập bằng **`admin` / `admin`**. Office bắt bạn đặt email và mật khẩu riêng ngay; trước khi đặt, tài khoản mặc định không làm được gì khác. (`office init` hỏi email và mật khẩu admin từ đầu; bấm Enter để giữ `admin` / `admin`.)
 
