@@ -402,6 +402,10 @@ func TestCheckSendPeerProject(t *testing.T) {
 	if err := svc.checkSend(ctx, sc, a); err != nil || a.Args.Peer != "peer_b" || a.TargetID != "cnv_9" {
 		t.Fatalf("its chat by link: %v %+v", err, a)
 	}
+	a = &storage.Action{ProjectID: p1.ID, Target: "https://b.example/projects/rep_shop?tab=chat", Args: storage.ActionArgs{Message: "x"}}
+	if err := svc.checkSend(ctx, sc, a); err != nil || a.Args.Peer != "peer_b" || a.TargetID != "" {
+		t.Fatalf("its project by link (a new chat): %v %+v", err, a)
+	}
 	a = &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "x", Project: "office-b/other"}}
 	if err := svc.checkSend(ctx, sc, a); err == nil {
 		t.Fatal("a project of the office not linked was accepted")

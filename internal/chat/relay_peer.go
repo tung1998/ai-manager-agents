@@ -70,11 +70,11 @@ func (e *Engine) relayPeer(ctx context.Context, a storage.Action) (string, strin
 func (e *Engine) Receive(ctx context.Context, p peer.Peer, m peer.Message) (peer.Reply, error) {
 	text := strings.TrimSpace(m.Text)
 	switch {
-	case !strings.HasPrefix(p.As, "human:"):
-		return peer.Reply{}, errors.New("ghép nối không có người đứng tên")
+	case !e.activePerson(ctx, p.As):
+		return peer.Reply{}, errors.New("người đứng tên ghép nối không còn hoạt động ở office này")
 	case text == "" || m.From.Chat == "":
 		return peer.Reply{}, errors.New("thiếu nội dung hoặc chat gửi")
-	case m.From.Hops > maxRelayHops:
+	case m.From.Hops < 0 || m.From.Hops > maxRelayHops:
 		return peer.Reply{}, fmt.Errorf("đã quá %d lượt qua lại, cần người xem", maxRelayHops)
 	}
 	var conv storage.Conversation
@@ -91,9 +91,9 @@ func (e *Engine) Receive(ctx context.Context, p peer.Peer, m peer.Message) (peer
 		}
 	} else {
 		c, err := e.store.Chat().GetConversation(ctx, m.Chat)
-		from, sent := e.peerChat(ctx, m.Chat, p.ID)
-		// a chat it opened (in a project still shared), or one that handed it work
-		if err != nil || c.Cleaned != "" || !(sent || from && slices.Contains(p.Shared, c.ProjectID)) {
+		_, sent := e.peerChat(ctx, m.Chat, p.ID)
+		// one it may read, or one that handed it work (its answer comes back)
+		if err != nil || c.Cleaned != "" || !(sent || e.PeerChat(ctx, c, p)) {
 			return peer.Reply{}, errors.New("không có chat này giữa hai office")
 		}
 		conv = c
@@ -104,6 +104,24 @@ func (e *Engine) Receive(ctx context.Context, p peer.Peer, m peer.Message) (peer
 	raw, _ := json.Marshal(info)
 	e.deliver(conv.ID, p.As, text, string(raw), func(err error) { e.note(conv, "Không nhận được tin từ office "+p.Name+": "+err.Error()) })
 	return peer.Reply{Chat: conv.ID, Title: conv.Title, Project: conv.ProjectID}, nil
+}
+
+// PeerChat: p may read c (read_link, search_history): a chat it opened or
+// sent to here, in a project still shared with it. A chat of this office
+// that handed it work is its person's own: p only answers into it.
+func (e *Engine) PeerChat(ctx context.Context, c storage.Conversation, p peer.Peer) bool {
+	from, _ := e.peerChat(ctx, c.ID, p.ID)
+	return from && slices.Contains(p.Shared, c.ProjectID)
+}
+
+// activePerson: as (human:<email>) is an account here, not disabled.
+func (e *Engine) activePerson(ctx context.Context, as string) bool {
+	email, ok := strings.CutPrefix(as, "human:")
+	if !ok {
+		return false
+	}
+	u, err := e.store.Users().GetByEmail(ctx, email)
+	return err == nil && !u.Disabled
 }
 
 // peerChat: the chat got a message from office peerID (from), or sent it one (sent).

@@ -157,6 +157,7 @@ func serveCmd() *cobra.Command {
 			// a card approved while an earlier one waited runs in its turn, as approved (audited)
 			chatEngine.SetQueueRunner(chatDecider{store: a.store, chat: chatEngine, acts: acts}.RunQueued)
 			office := officetools.New(a.store, procs, acts)
+			office.SetPeers(peers) // read_link/search_history in other offices
 			mcp := mcpserver.New(office, version)
 			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")
 			monitors := monitor.New(a.store, procs, chatEngine)

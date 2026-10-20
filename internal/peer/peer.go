@@ -240,9 +240,7 @@ func (s *Service) SharedProjects(ctx context.Context, p Peer) []RemoteProject {
 
 // SetRemote keeps the projects the other office now lets this one reach.
 func (s *Service) SetRemote(ctx context.Context, id string, projects []RemoteProject) error {
-	if projects == nil {
-		projects = []RemoteProject{}
-	}
+	projects = cleanRemote(projects)
 	return s.update(ctx, func(list []Peer) ([]Peer, error) {
 		for i := range list {
 			if list[i].ID == id {
@@ -252,6 +250,18 @@ func (s *Service) SetRemote(ctx context.Context, id string, projects []RemotePro
 		}
 		return nil, storage.ErrNotFound
 	})
+}
+
+// cleanRemote keeps what the other office says of its projects short (it
+// goes into prompts and links).
+func cleanRemote(projects []RemoteProject) []RemoteProject {
+	out := []RemoteProject{}
+	for _, r := range projects[:min(len(projects), 200)] {
+		if r.ID = strings.TrimSpace(r.ID); r.ID != "" && !strings.ContainsAny(r.ID, "/?#& ") {
+			out = append(out, RemoteProject{ID: r.ID, Name: oneLine(cmp.Or(r.Name, r.ID), 80), Description: oneLine(r.Description, 300)})
+		}
+	}
+	return out
 }
 
 // Refresh asks the other office which projects it lets this one reach.
@@ -340,14 +350,30 @@ func (s *Service) Join(ctx context.Context, as, code, name, selfURL string) (Pee
 		return Peer{}, err
 	}
 	p.Name = oneLine(cmp.Or(out.Name, c.N, their), 80)
-	p.Remote = out.Projects
-	if p.Remote == nil {
-		p.Remote = []RemoteProject{}
+	p.Remote = cleanRemote(out.Projects)
+	err = s.update(ctx, func(list []Peer) ([]Peer, error) { return upsert(list, &p), nil })
+	return p, err
+}
+
+// upsert adds p; pairing again with the same office replaces it, under its
+// id (projects linking to it keep working).
+func upsert(list []Peer, p *Peer) []Peer {
+	if i := slices.IndexFunc(list, func(x Peer) bool { return x.URL == p.URL }); i >= 0 {
+		p.ID = list[i].ID
+		list = slices.Delete(list, i, i+1)
 	}
-	return p, s.update(ctx, func(list []Peer) ([]Peer, error) {
-		// pairing again with the same office replaces it
-		return append(slices.DeleteFunc(list, func(x Peer) bool { return x.URL == their }), p), nil
-	})
+	return append(list, *p)
+}
+
+// loopback: an office address on this machine.
+func loopback(u string) bool {
+	x, err := url.Parse(u)
+	if err != nil {
+		return false
+	}
+	h := strings.ToLower(x.Hostname())
+	ip, err := netip.ParseAddr(h)
+	return h == "localhost" || err == nil && ip.IsLoopback()
 }
 
 // Accept answers a joining office's pairing (an invite this office made).
@@ -364,27 +390,31 @@ func (s *Service) Accept(ctx context.Context, body []byte) ([]byte, error) {
 		return nil, ErrDenied
 	}
 	inv := list[i]
+	their, err := CleanURL(req.URL)
+	// a joining office on this machine only when this one is reached locally
+	// too: else its address could point back at a service here (SSRF)
+	if err == nil && loopback(their) && !loopback(inv.URL) {
+		err = errors.New("địa chỉ office là máy này: chỉ được khi office mời cũng ở máy này")
+	}
+	if err == nil && (!strings.HasPrefix(req.Key, "ofp_") || strings.TrimSpace(req.Name) == "") {
+		err = ErrDenied
+	}
+	if err != nil { // the invite stays for a corrected try
+		s.mu.Unlock()
+		return nil, err
+	}
 	list = slices.Delete(list, i, i+1) // used once
-	err := s.st.Settings().Set(ctx, invitesKey, list)
+	err = s.st.Settings().Set(ctx, invitesKey, list)
 	s.mu.Unlock()
 	if err != nil {
 		return nil, err
-	}
-	their, err := CleanURL(req.URL)
-	if err != nil {
-		return nil, err
-	}
-	if !strings.HasPrefix(req.Key, "ofp_") || strings.TrimSpace(req.Name) == "" {
-		return nil, ErrDenied
 	}
 	key := NewKey()
 	p := Peer{ID: ids.New("peer"), Name: oneLine(req.Name, 80), URL: their, SelfURL: inv.URL, InKeyHash: Hash(key), Shared: inv.Shared, Remote: []RemoteProject{}, As: inv.As, CreatedAt: s.now().UTC()}
 	if p.OutKeyEnc, err = s.box.Seal(req.Key); err != nil {
 		return nil, err
 	}
-	if err := s.update(ctx, func(list []Peer) ([]Peer, error) {
-		return append(slices.DeleteFunc(list, func(x Peer) bool { return x.URL == their }), p), nil
-	}); err != nil {
+	if err := s.update(ctx, func(list []Peer) ([]Peer, error) { return upsert(list, &p), nil }); err != nil {
 		return nil, err
 	}
 	return json.Marshal(pairReply{Key: key, Name: inv.Name, Projects: s.SharedProjects(ctx, p)})
@@ -430,6 +460,68 @@ func (s *Service) Send(ctx context.Context, id string, m Message) (Reply, error)
 	var out Reply
 	err = s.call(ctx, p, http.MethodPost, "/api/peer/relay", m, &out)
 	return out, err
+}
+
+// Search is a search_history in the other office: its shared project, in
+// the chats between the two offices.
+type Search struct {
+	Query   string `json:"query"`
+	Days    int    `json:"days,omitempty"`
+	Author  string `json:"author,omitempty"`
+	Project string `json:"project"`
+}
+
+// Hit is a message a Search found there.
+type Hit struct {
+	Chat      string    `json:"chat"`
+	Message   string    `json:"message"`
+	Project   string    `json:"project"`
+	Title     string    `json:"title,omitempty"`
+	Author    string    `json:"author,omitempty"`
+	Snippet   string    `json:"snippet"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// SearchChats searches the paired office id's chats with this one.
+func (s *Service) SearchChats(ctx context.Context, id string, q Search) ([]Hit, error) {
+	p, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, errors.New("office liên kết không còn (đã gỡ ghép nối?)")
+	}
+	var out struct {
+		Hits []Hit `json:"hits"`
+	}
+	err = s.call(ctx, p, http.MethodPost, "/api/peer/search", q, &out)
+	return out.Hits, err
+}
+
+// ReadChat reads a chat between the two offices in the paired office id
+// (around message, when given), as read_link shows it.
+func (s *Service) ReadChat(ctx context.Context, id, chat, message string) (string, error) {
+	p, err := s.Get(ctx, id)
+	if err != nil {
+		return "", errors.New("office liên kết không còn (đã gỡ ghép nối?)")
+	}
+	var out struct {
+		Text string `json:"text"`
+	}
+	path := "/api/peer/chats/" + url.PathEscape(chat)
+	if message != "" {
+		path += "?m=" + url.QueryEscape(message)
+	}
+	err = s.call(ctx, p, http.MethodGet, path, nil, &out)
+	return out.Text, err
+}
+
+// LinkOf finds, among the projects in other offices projectID links to, the
+// one a dashboard link of the other office points into.
+func (s *Service) LinkOf(ctx context.Context, projectID, link string) (Link, bool) {
+	for _, l := range s.LinksOf(ctx, projectID) {
+		if strings.HasPrefix(link, l.Peer.URL+"/projects/"+l.Project.ID+"?") {
+			return l, true
+		}
+	}
+	return Link{}, false
 }
 
 // call sends a request to p with the key this office has for it.

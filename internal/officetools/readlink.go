@@ -19,6 +19,19 @@ func (t *Toolbox) readLink(ctx context.Context, sc Scope, link string) (string, 
 	if err != nil {
 		return "", errors.New("liên kết không hợp lệ")
 	}
+	if u.Host != "" && t.peers != nil { // a chat in a linked project of another office (ADR-167)
+		if l, ok := t.peers.LinkOf(ctx, sc.ProjectID, strings.TrimSpace(link)); ok {
+			c := u.Query().Get("c")
+			if c == "" {
+				return "", errors.New("ở office khác chỉ đọc được liên kết chat (c=…)")
+			}
+			text, err := t.peers.ReadChat(ctx, l.Peer.ID, c, u.Query().Get("m"))
+			if err != nil {
+				return "", err
+			}
+			return "In office " + l.Peer.Name + ", project " + l.Project.Name + ":\n" + text, nil
+		}
+	}
 	projectID, ok := strings.CutPrefix(strings.TrimSuffix(u.Path, "/"), "/projects/")
 	if !ok || projectID == "" || strings.Contains(projectID, "/") {
 		return "", errors.New("đây không phải liên kết chat hay Việc của office")
@@ -39,6 +52,12 @@ func (t *Toolbox) readLink(ctx context.Context, sc Scope, link string) (string, 
 		return t.readTask(ctx, projectID, q.Get("task"))
 	}
 	return "", errors.New("liên kết không trỏ tới cuộc chat (c=…) hay Việc (task=…) nào")
+}
+
+// ReadChat shows a chat as read_link does (another office reading a chat
+// between the two offices, ADR-167).
+func (t *Toolbox) ReadChat(ctx context.Context, projectID, convID, messageID string) (string, error) {
+	return t.readChat(ctx, projectID, convID, messageID)
 }
 
 func (t *Toolbox) readChat(ctx context.Context, projectID, convID, messageID string) (string, error) {

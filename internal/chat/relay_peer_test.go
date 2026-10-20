@@ -47,6 +47,17 @@ func TestReceiveFromPeer(t *testing.T) {
 	fp := &fakePeers{p: peer.Peer{ID: "peer_a", Name: "office-a", URL: "https://a.example", SelfURL: "https://b.example",
 		Shared: []string{f.project.ID}, As: "human:b@x"}}
 	f.engine.SetPeers(fp)
+	if _, err := f.st.Users().Create(ctx, storage.User{Email: "b@x", Role: storage.RoleMember}); err != nil {
+		t.Fatal(err)
+	}
+	gone := fp.p
+	gone.As = "human:gone@x"
+	if _, err := f.engine.Receive(ctx, gone, peer.Message{Project: f.project.ID, Text: "x", From: peer.Origin{Chat: "cnv_a", Hops: 1}}); err == nil {
+		t.Fatal("a pairing whose person has no account here was taken")
+	}
+	if _, err := f.engine.Receive(ctx, fp.p, peer.Message{Project: f.project.ID, Text: "x", From: peer.Origin{Chat: "cnv_a", Hops: -100}}); err == nil {
+		t.Fatal("negative hops went past the cap")
+	}
 	from := peer.Origin{Chat: "cnv_a", Title: "mockup", Agent: "Lead", Project: "mockup", ProjectID: "rep_a", Hops: 1}
 
 	if _, err := f.engine.Receive(ctx, fp.p, peer.Message{Project: "rep_other", Text: "x", From: from}); err == nil {
@@ -87,6 +98,10 @@ func TestReceiveFromPeer(t *testing.T) {
 	}
 	if rl := chat.RelayOf(msgs[0]); rl == nil || rl.URL != "https://a.example/projects/rep_a?tab=chat&c=cnv_a" || rl.ProjectID != "" || rl.Project != "office-a/mockup" {
 		t.Fatalf("relay = %+v", rl)
+	}
+	c, _ := f.st.Chat().GetConversation(ctx, r.Chat)
+	if !f.engine.PeerChat(ctx, c, fp.p) || f.engine.PeerChat(ctx, stranger, fp.p) {
+		t.Fatal("the office reads the chat it opened, not another")
 	}
 	// it goes on in that chat: it is now between the two offices
 	if _, err := f.engine.Receive(ctx, fp.p, peer.Message{Chat: r.Chat, Text: "thêm nút", From: from}); err != nil {

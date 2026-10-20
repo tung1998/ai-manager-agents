@@ -741,6 +741,9 @@ func (s *Service) checkSend(ctx context.Context, sc Scope, a *storage.Action) er
 	if l, ok := s.peerLink(ctx, a); ok { // a linked project in another office (ADR-167): it checks the chat
 		a.Args.Peer, a.Args.Project = l.Peer.ID, l.Project.ID
 		id := chatRef(a.Target)
+		if strings.Contains(id, "/") { // a link to the project, not one of its chats: a new chat
+			id = ""
+		}
 		a.Target, a.TargetID = l.Label()+" · chat mới", ""
 		if id != "" {
 			a.Target, a.TargetID = l.Label()+" · "+id, id
@@ -805,12 +808,7 @@ func (s *Service) peerLink(ctx context.Context, a *storage.Action) (peer.Link, b
 		p, rp, err := peer.Resolve(ctx, s.store, s.peers, a.ProjectID, a.Args.Project)
 		return peer.Link{Peer: p, Project: rp}, err == nil
 	}
-	for _, l := range peer.Linked(ctx, s.store, s.peers, a.ProjectID) {
-		if strings.HasPrefix(a.Target, l.Peer.URL+"/projects/"+l.Project.ID+"?") {
-			return l, true
-		}
-	}
-	return peer.Link{}, false
+	return s.peers.LinkOf(ctx, a.ProjectID, a.Target)
 }
 
 // checkRun checks a run_automation proposal (Target = its id).

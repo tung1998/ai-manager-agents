@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -105,6 +106,14 @@ func TestPairAndSend(t *testing.T) {
 	if _, err := a.svc.Join(ctx, "human:a@x", code, "office-a", a.srv.URL); err == nil {
 		t.Fatal("an invite works only once")
 	}
+	// paired again (a new invite): the same office keeps its id, links hold
+	code2, _, _ := b.svc.Invite(ctx, "human:b@x", "office-b", b.srv.URL, []string{shop.ID})
+	if again, err := a.svc.Join(ctx, "human:a@x", code2, "office-a", a.srv.URL); err != nil || again.ID != pa.ID {
+		t.Fatalf("pair again: %v %s != %s", err, again.ID, pa.ID)
+	}
+	if l, _ := a.svc.List(ctx); len(l) != 1 {
+		t.Fatalf("A has %d peers", len(l))
+	}
 	bl, _ := b.svc.List(ctx)
 	if len(bl) != 1 || bl[0].Name != "office-a" || bl[0].As != "human:b@x" || bl[0].Shared[0] != shop.ID {
 		t.Fatalf("B sees A as %+v", bl)
@@ -165,6 +174,36 @@ func TestInviteExpires(t *testing.T) {
 	}
 	if _, err := a.svc.Join(ctx, "human:a@x", "ofi_garbage", "a", a.srv.URL); err == nil {
 		t.Fatal("a bad code was accepted")
+	}
+}
+
+// An invite from an office reached over the network never pairs with one
+// claiming to be on this machine (its reports would call local services),
+// and a refused try leaves the invite for a corrected one.
+func TestAcceptLoopbackGuard(t *testing.T) {
+	ctx := context.Background()
+	b := newOffice(t)
+	code, _, _ := b.svc.Invite(ctx, "human:b@x", "b", "https://b.example", nil)
+	raw, _ := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(code, "ofi_"))
+	var c struct{ I, S string }
+	json.Unmarshal(raw, &c)
+	body := func(u string) []byte {
+		out, _ := json.Marshal(pairRequest{Invite: c.I, Secret: c.S, Name: "a", URL: u, Key: NewKey()})
+		return out
+	}
+	if _, err := b.svc.Accept(ctx, body("http://127.0.0.1:8787")); err == nil {
+		t.Fatal("a loopback office was paired with a remote invite")
+	}
+	if _, err := b.svc.Accept(ctx, body("https://a.example")); err != nil {
+		t.Fatalf("the invite was burned by the refused try: %v", err)
+	}
+}
+
+// What the other office says of its projects is kept short and link-safe.
+func TestCleanRemote(t *testing.T) {
+	got := cleanRemote([]RemoteProject{{ID: "rep_1", Name: strings.Repeat("x", 200), Description: "a\nb"}, {ID: "../x?y"}, {ID: " "}})
+	if len(got) != 1 || len([]rune(got[0].Name)) > 81 || got[0].Description != "a b" {
+		t.Fatalf("cleanRemote = %+v", got)
 	}
 }
 

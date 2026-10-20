@@ -2,11 +2,15 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/peer"
+	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/team"
 )
@@ -69,6 +73,42 @@ func TestPeerPairing(t *testing.T) {
 	}
 	if _, err := a.peers.Send(ctx, pa, peer.Message{Project: private.ID, Text: "x", From: from}); err == nil {
 		t.Fatal("a project not shared was reached")
+	}
+
+	// A reads and searches that chat (read_link, search_history); not B's others
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if msgs, _ := b.st.Chat().ListMessages(ctx, r.Chat); len(msgs) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the message never reached B's chat")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if text, err := a.peers.ReadChat(ctx, pa, r.Chat, ""); err != nil || !strings.Contains(text, "làm trang shop") {
+		t.Fatalf("read: %q %v", text, err)
+	}
+	other, _ := b.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: shop.ID, Title: "riêng"})
+	b.st.Chat().AddMessage(ctx, storage.Message{ConversationID: other.ID, Role: "user", Content: "trang shop bí mật"})
+	if _, err := a.peers.ReadChat(ctx, pa, other.ID, ""); err == nil {
+		t.Fatal("a chat not between the offices was read")
+	}
+	hits, err := a.peers.SearchChats(ctx, pa, peer.Search{Query: "shop", Project: shop.ID})
+	if err != nil || len(hits) != 1 || hits[0].Chat != r.Chat {
+		t.Fatalf("search: %+v %v", hits, err)
+	}
+	if _, err := a.peers.SearchChats(ctx, pa, peer.Search{Query: "shop", Project: private.ID}); err == nil {
+		t.Fatal("a project not shared was searched")
+	}
+	// through the agents' tools, by the names agents see
+	sc := officetools.Scope{ProjectID: mine.ID, Level: perm.Operate}
+	if out, isErr := a.office.Call(ctx, sc, "search_history", json.RawMessage(`{"query":"shop","project":"office-b/shop"}`)); isErr || !strings.Contains(out, b.srv.URL+"/projects/"+shop.ID) {
+		t.Fatalf("search_history: %v %s", isErr, out)
+	}
+	link := b.srv.URL + "/projects/" + shop.ID + "?tab=chat&c=" + r.Chat
+	if out, isErr := a.office.Call(ctx, sc, "read_link", json.RawMessage(`{"url":"`+link+`"}`)); isErr || !strings.Contains(out, "làm trang shop") {
+		t.Fatalf("read_link: %v %s", isErr, out)
 	}
 
 	// no key, a wrong one, a used invite

@@ -1,11 +1,13 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +33,8 @@ func (s *server) peerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/peer/relay", s.peerCall(s.peerRelay))
 	mux.HandleFunc("GET /api/peer/projects", s.peerCall(s.peerProjects))
 	mux.HandleFunc("PUT /api/peer/projects", s.peerCall(s.peerSetProjects))
+	mux.HandleFunc("GET /api/peer/chats/{id}", s.peerCall(s.peerReadChat))
+	mux.HandleFunc("POST /api/peer/search", s.peerCall(s.peerSearch))
 }
 
 type peerDTO struct {
@@ -240,4 +244,62 @@ func (s *server) peerSetProjects(w http.ResponseWriter, r *http.Request, p peer.
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// peerReadChat: the other office reads a chat between the two (read_link).
+func (s *server) peerReadChat(w http.ResponseWriter, r *http.Request, p peer.Peer) {
+	if s.cfg.Chat == nil || s.cfg.Office == nil {
+		writeError(w, http.StatusServiceUnavailable, "chat không chạy")
+		return
+	}
+	c, err := s.cfg.Store.Chat().GetConversation(r.Context(), r.PathValue("id"))
+	if err != nil || !s.cfg.Chat.PeerChat(r.Context(), c, p) {
+		writeError(w, http.StatusNotFound, "không có chat này giữa hai office")
+		return
+	}
+	text, err := s.cfg.Office.ReadChat(r.Context(), c.ProjectID, c.ID, r.URL.Query().Get("m"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"text": text})
+}
+
+// peerSearch: the other office searches a project shared with it, only in
+// the chats between the two (search_history).
+func (s *server) peerSearch(w http.ResponseWriter, r *http.Request, p peer.Peer) {
+	var q peer.Search
+	if err := json.NewDecoder(r.Body).Decode(&q); err != nil || strings.TrimSpace(q.Query) == "" {
+		writeError(w, http.StatusBadRequest, "thiếu từ khóa")
+		return
+	}
+	if s.cfg.Chat == nil || !slices.Contains(p.Shared, q.Project) {
+		writeError(w, http.StatusForbidden, "project này không mở cho office của bạn")
+		return
+	}
+	days := q.Days
+	if days <= 0 {
+		days = 30
+	}
+	found, err := s.cfg.Store.Chat().SearchMessages(r.Context(), q.Query, storage.SearchFilter{ProjectIDs: []string{q.Project},
+		Since: time.Now().UTC().AddDate(0, 0, -min(days, 365)), Author: q.Author, Limit: 200})
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	hits, ok := []peer.Hit{}, map[string]bool{}
+	for _, h := range found {
+		if len(hits) == 10 {
+			break
+		}
+		if _, seen := ok[h.ConversationID]; !seen {
+			c, err := s.cfg.Store.Chat().GetConversation(r.Context(), h.ConversationID)
+			ok[h.ConversationID] = err == nil && s.cfg.Chat.PeerChat(r.Context(), c, p)
+		}
+		if ok[h.ConversationID] {
+			hits = append(hits, peer.Hit{Chat: h.ConversationID, Message: h.MessageID, Project: h.ProjectID, Title: h.Title,
+				Author: cmp.Or(h.Author, h.Role), Snippet: h.Snippet, CreatedAt: h.CreatedAt})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"hits": hits})
 }

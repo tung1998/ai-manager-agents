@@ -116,6 +116,8 @@ Base `/api`. Auth bằng cookie phiên `office_session` sau khi đăng nhập t�
 | POST | `/api/peer/pair` | mã mời | Office kia ghép nối (ADR-167) |
 | POST | `/api/peer/relay` | khóa `ofp_` | Tin vào project được chia sẻ hoặc chat đã qua lại → `{chat, title, project}` |
 | GET/PUT | `/api/peer/projects` | khóa `ofp_` | Project chia sẻ cho office đó / office đó báo project nó chia sẻ |
+| GET | `/api/peer/chats/:id` | khóa `ofp_` | Đọc chat qua lại giữa hai office (`?m=` quanh một tin) → `{text}` |
+| POST | `/api/peer/search` | khóa `ofp_` | `{query, days, author, project}` trong chat qua lại giữa hai office → `{hits}` |
 | POST | `/api/projects/:id/setup/scan` | admin | Quét tĩnh, trả summary |
 | POST | `/api/projects/:id/setup/propose` | admin | `{goal?}` → đề xuất AI; `412 no_provider` khi chưa có kết nối |
 | POST | `/api/projects/:id/setup/build` | admin | `{template_key, changes}` → template + problems (xem trước) |
