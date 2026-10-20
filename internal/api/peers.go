@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/peer"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/transfer"
 )
 
 // Other offices (ADR-167): admins pair this office with another and pick the
@@ -34,6 +36,7 @@ func (s *server) peerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/peer/projects", s.peerCall(s.peerProjects))
 	mux.HandleFunc("PUT /api/peer/projects", s.peerCall(s.peerSetProjects))
 	mux.HandleFunc("GET /api/peer/chats/{id}", s.peerCall(s.peerReadChat))
+	mux.HandleFunc("GET /api/peer/projects/{id}/pack", s.peerCall(s.peerPack))
 	mux.HandleFunc("POST /api/peer/search", s.peerCall(s.peerSearch))
 }
 
@@ -229,6 +232,33 @@ func (s *server) peerRelay(w http.ResponseWriter, r *http.Request, p peer.Peer) 
 
 func (s *server) peerProjects(w http.ResponseWriter, r *http.Request, p peer.Peer) {
 	writeJSON(w, http.StatusOK, map[string]any{"projects": s.cfg.Peers.SharedProjects(r.Context(), p)})
+}
+
+// peerPack: the other office takes a pack (.zip) of a project shared with
+// it (ADR-170): config and notes as chosen, chats only those between the two.
+func (s *server) peerPack(w http.ResponseWriter, r *http.Request, p peer.Peer) {
+	id := r.PathValue("id")
+	if !slices.Contains(p.Shared, id) {
+		writeError(w, http.StatusForbidden, "project này không mở cho office của bạn")
+		return
+	}
+	if s.cfg.Transfer == nil {
+		writeError(w, http.StatusServiceUnavailable, "không xuất project được ở đây")
+		return
+	}
+	keep := func(c storage.Conversation) bool { return s.cfg.Chat != nil && s.cfg.Chat.PeerChat(r.Context(), c, p) }
+	pack, err := s.cfg.Transfer.ExportPack(r.Context(), id, strings.Split(r.URL.Query().Get("include"), ","), keep)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	var buf bytes.Buffer
+	if err := transfer.WriteZip(&buf, pack); err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	_, _ = w.Write(buf.Bytes())
 }
 
 func (s *server) peerSetProjects(w http.ResponseWriter, r *http.Request, p peer.Peer) {

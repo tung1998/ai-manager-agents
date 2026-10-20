@@ -85,6 +85,7 @@ type Service struct {
 	providers *provider.Service
 	team      *team.Service
 	lib       workflow.Library
+	cloneRoot string // where a new project's folder goes (ADR-170)
 }
 
 // New builds a Service.
@@ -132,34 +133,9 @@ func (s *Service) Export(ctx context.Context) (Bundle, error) {
 		return b, err
 	}
 	for _, r := range repos {
-		p := ProjectSpec{Name: r.Name, Path: r.Path, GitRemote: r.GitRemote, Description: r.Description}
-		agents, err := s.store.Agents().List(ctx, r.ID)
+		p, err := s.projectSpec(ctx, r, names)
 		if err != nil {
 			return b, err
-		}
-		if len(agents) > 0 {
-			snap := portable(team.Export(r, agents), names)
-			p.Agents = &snap
-		}
-		keyOf := map[string]string{}
-		for _, a := range agents {
-			keyOf[a.ID] = a.Key
-		}
-		wfs, err := s.store.Workflows().List(ctx, r.ID)
-		if err != nil {
-			return b, err
-		}
-		for _, w := range wfs {
-			pw := ProjectWorkflow{Key: w.Key, From: w.SourceKey, Source: w.Source, Enabled: w.Enabled}
-			for role, id := range w.Bindings {
-				if k := keyOf[id]; k != "" {
-					if pw.Roles == nil {
-						pw.Roles = map[string]string{}
-					}
-					pw.Roles[role] = k
-				}
-			}
-			p.Workflows = append(p.Workflows, pw)
 		}
 		b.Projects = append(b.Projects, p)
 	}
@@ -170,6 +146,53 @@ func (s *Service) Export(ctx context.Context) (Bundle, error) {
 		return b.Projects[i].Path < b.Projects[j].Path
 	})
 	return b, nil
+}
+
+// projectSpec is r, its agents (connections by name) and its workflows.
+func (s *Service) projectSpec(ctx context.Context, r storage.Repo, names map[string]string) (ProjectSpec, error) {
+	p := ProjectSpec{Name: r.Name, Path: r.Path, GitRemote: r.GitRemote, Description: r.Description}
+	agents, err := s.store.Agents().List(ctx, r.ID)
+	if err != nil {
+		return p, err
+	}
+	if len(agents) > 0 {
+		snap := portable(team.Export(r, agents), names)
+		p.Agents = &snap
+	}
+	keyOf := map[string]string{}
+	for _, a := range agents {
+		keyOf[a.ID] = a.Key
+	}
+	wfs, err := s.store.Workflows().List(ctx, r.ID)
+	if err != nil {
+		return p, err
+	}
+	for _, w := range wfs {
+		pw := ProjectWorkflow{Key: w.Key, From: w.SourceKey, Source: w.Source, Enabled: w.Enabled}
+		for role, id := range w.Bindings {
+			if k := keyOf[id]; k != "" {
+				if pw.Roles == nil {
+					pw.Roles = map[string]string{}
+				}
+				pw.Roles[role] = k
+			}
+		}
+		p.Workflows = append(p.Workflows, pw)
+	}
+	return p, nil
+}
+
+// connectionNames maps this office's connection ids to their names.
+func (s *Service) connectionNames(ctx context.Context) (map[string]string, error) {
+	provs, err := s.store.Providers().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	for _, p := range provs {
+		names[p.ID] = p.Name
+	}
+	return names, nil
 }
 
 // portable swaps connection ids for names.

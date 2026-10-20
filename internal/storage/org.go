@@ -822,6 +822,21 @@ type ActionArgs struct {
 	// send_message to a linked project in another office (ADR-167): the
 	// paired office's id; Project is then its project's id there
 	Peer string `json:"peer,omitempty"`
+	// create_project / import_project: the project to make (ADR-170)
+	NewProject *NewProject `json:"new_project,omitempty"`
+}
+
+// NewProject is a project the office assistant proposes to make (ADR-170):
+// cloned from URL, at an existing Path, or a new empty repo in Dir; Pack, a
+// project pack (.zip) to import into it, Include what of it.
+type NewProject struct {
+	Name        string   `json:"name,omitempty"`
+	Description string   `json:"description,omitempty"`
+	URL         string   `json:"url,omitempty"`
+	Path        string   `json:"path,omitempty"`
+	Dir         string   `json:"dir,omitempty"`
+	Pack        string   `json:"pack,omitempty"`
+	Include     []string `json:"include,omitempty"`
 }
 
 // MCPCallArgs is a tool call waiting for a person.

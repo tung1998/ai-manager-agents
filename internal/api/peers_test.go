@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +141,32 @@ func TestPeerPairing(t *testing.T) {
 	answer := officetools.Scope{ProjectID: free.ID, Office: true, AnswerOnly: true, Level: perm.Read, ConversationID: "cnv_x"}
 	if out, isErr := a.office.CallOther(ctx, answer, "send", json.RawMessage(`{"office":"office-b","project":"shop","text":"x","reason":"y"}`)); !isErr || out != officetools.OtherAnswerOnly {
 		t.Fatalf("send while answering only: %v %s", isErr, out)
+	}
+
+	// the assistant copies shop here as a card (ADR-170); a project's agent cannot
+	if a.office.HasOther(ctx, sc, "import") {
+		t.Fatal("a project's agent got import")
+	}
+	aconv, _ := a.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: free.ID})
+	asstChat := asst
+	asstChat.ConversationID = aconv.ID
+	imp, isErr := a.office.CallOther(ctx, asstChat, "import", json.RawMessage(`{"office":"office-b","project":"shop","include":["config","chats","memory"],"path":"`+t.TempDir()+`","reason":"chép về"}`))
+	if isErr || !strings.Contains(imp, "approval card") {
+		t.Fatalf("import: %v %s", isErr, imp)
+	}
+	cards, _ := a.st.Actions().List(ctx, aconv.ID, "", "")
+	if len(cards) != 1 || cards[0].Kind != "import_project" || cards[0].Args.NewProject == nil || cards[0].Args.NewProject.Name != "shop" {
+		t.Fatalf("cards: %+v", cards)
+	}
+	done, err := a.acts.Decide(ctx, cards[0].ID, true, "admin@x.io")
+	if err != nil || done.Status != "done" {
+		t.Fatalf("approve import: %+v %v", done, err)
+	}
+	if list, _ := a.st.Repos().List(ctx); !slices.ContainsFunc(list, func(r storage.Repo) bool { return r.Name == "shop" }) {
+		t.Fatal("no shop project here after the import")
+	}
+	if out, isErr := a.office.CallOther(ctx, answer, "import", json.RawMessage(`{"office":"office-b","project":"shop","reason":"x"}`)); !isErr || !strings.Contains(out, "Chỉ trả lời") {
+		t.Fatalf("import while answering only: %v %s", isErr, out)
 	}
 
 	// a chat of another project B shares is not read through a link naming shop

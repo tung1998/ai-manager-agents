@@ -155,6 +155,8 @@ export default {
   'action.kind.mcp_call': 'Gọi tool MCP',
   'action.kind.send_message': 'Gửi tin sang chat khác',
   'action.kind.workflow_gate': 'Duyệt cổng quy trình',
+  'action.kind.create_project': 'Tạo project',
+  'action.kind.import_project': 'Nhập project',
   'action.kind.config_change': 'Đổi cài đặt',
   'action.op.create': 'Tạo mới',
   'action.op.update': 'Cập nhật',

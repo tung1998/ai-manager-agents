@@ -126,7 +126,7 @@ const (
 )
 
 // otherInstructions introduce the MCP other_office (ADR-169).
-const otherInstructions = "Các office khác đã ghép nối: xem bằng offices, giao việc bằng send, đọc chat bằng read_chat, tìm bằng search. Chỉ gửi những gì người dùng đồng ý giao."
+const otherInstructions = "Các office khác đã ghép nối: xem bằng offices, giao việc bằng send, đọc chat bằng read_chat, tìm bằng search; trợ lý office chép project sang đây bằng import. Chỉ gửi những gì người dùng đồng ý giao."
 
 const instructions = "Thông tin vận hành của project (tiến trình build/dev/test, docker compose, giám sát). Thao tác chỉ được đề xuất qua propose_action để người dùng duyệt."
 

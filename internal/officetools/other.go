@@ -13,6 +13,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/peer"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/transfer"
 )
 
 // OtherServer is the MCP server of other offices (ADR-169): agents see its
@@ -20,7 +21,7 @@ import (
 const OtherServer = "other_office"
 
 // OtherHint points the old ways into another office to the MCP other_office.
-const OtherHint = "office khác: dùng mcp__" + OtherServer + "__* (offices, send, read_chat, search)"
+const OtherHint = "office khác: dùng mcp__" + OtherServer + "__* (offices, send, read_chat, search, import)"
 
 // OtherAnswerOnly is what send says while the office assistant only answers.
 const OtherAnswerOnly = "Trợ lý office đang ở chế độ \"Chỉ trả lời\" nên không giao việc sang office khác được. Nhờ người dùng chuyển sang \"Hỗ trợ quản lý office\" (Trợ lý office → Cài đặt) rồi gửi lại; trong lúc đó vẫn dùng được offices, read_chat, search."
@@ -68,6 +69,14 @@ func (t *Toolbox) OtherTools(ctx context.Context, sc Scope) []Tool {
 				"text":   str("Message text, clear enough for the agent there to act without asking back"),
 				"reason": str("Why it needs sending")}, "text", "reason")})
 	}
+	if linked && sc.Office && sc.ConversationID != "" && t.transfer != nil { // the office assistant (ADR-170)
+		list = append(list, Tool{Name: "import", Description: "PROPOSE copying a project of another office here (the person approves on a card): its pack (config: agents, permissions, workflows; memory: agents' notes; chats: only those between the two offices) into a new project that clones its git remote (see offices), else url/path/a new empty repo. Code goes by git only.",
+			Schema: obj(map[string]any{"office": office, "project": project,
+				"include": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": transfer.Includes}, "description": "What to take (default config)"},
+				"name":    str("Project name here (default: the same)"), "url": str("Git URL to clone instead (optional)"),
+				"path": str("Existing folder here instead of cloning (optional)"), "dir": str("Folder name (optional)"),
+				"reason": str("Why")}, "office", "project", "reason")})
+	}
 	return list
 }
 
@@ -93,8 +102,13 @@ func (t *Toolbox) CallOther(ctx context.Context, sc Scope, name string, raw json
 	if name == "send" && sc.AnswerOnly {
 		return OtherAnswerOnly, true
 	}
+	if name == "import" && sc.AnswerOnly {
+		return answerOnlyProjects, true
+	}
 	var in struct {
 		Office, Project, Chat, Message, Query, Author, Text, Reason string
+		Name, URL, Path, Dir                                        string
+		Include                                                     []string
 		Days                                                        int
 	}
 	if len(raw) > 0 && string(raw) != "null" {
@@ -119,6 +133,19 @@ func (t *Toolbox) CallOther(ctx context.Context, sc Scope, name string, raw json
 		out, err = t.readOther(ctx, sc, links, in.Office, in.Project, in.Chat, in.Message)
 	case "send":
 		out, err = t.sendOther(ctx, sc, links, in.Office, in.Project, in.Chat, in.Text, in.Reason)
+	case "import":
+		var l peer.Link
+		if l, err = peer.Find(links, in.Office, in.Project); err != nil {
+			break
+		}
+		var data []byte
+		if data, err = t.peers.FetchPack(ctx, l.Peer.ID, l.Project.ID, transfer.CleanIncludes(in.Include), transfer.MaxPack); err != nil {
+			break
+		}
+		var file string
+		if file, err = t.savePack(ctx, data); err == nil {
+			out, err = t.proposeProject(ctx, sc, "import_project", storage.NewProject{Name: in.Name, URL: in.URL, Path: in.Path, Dir: in.Dir, Pack: file, Include: in.Include}, in.Reason)
+		}
 	}
 	if err != nil {
 		return err.Error(), true

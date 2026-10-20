@@ -526,6 +526,48 @@ func (s *Service) ReadChat(ctx context.Context, id, project, chat, message strin
 	return out.Text, out.Project, err
 }
 
+// FetchPack asks office id for a pack (.zip, ADR-170) of its project, with
+// include; at most max bytes.
+func (s *Service) FetchPack(ctx context.Context, id, project string, include []string, max int64) ([]byte, error) {
+	p, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, errors.New("office liên kết không còn (đã gỡ ghép nối?)")
+	}
+	key, err := s.box.Open(p.OutKeyEnc)
+	if err != nil {
+		return nil, err
+	}
+	q := url.Values{"include": {strings.Join(include, ",")}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL+"/api/peer/projects/"+url.PathEscape(project)+"/pack?"+q.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	res, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("không gọi được office bên kia: %w", err)
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(res.Body, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode == http.StatusNotFound && !strings.Contains(string(raw), "error") {
+		return nil, errors.New("office bên kia chưa có xuất project (cần cập nhật office đó)")
+	}
+	if res.StatusCode/100 != 2 {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		return nil, fmt.Errorf("office bên kia từ chối (%d): %s", res.StatusCode, cmp.Or(e.Error, http.StatusText(res.StatusCode)))
+	}
+	if int64(len(raw)) > max {
+		return nil, errors.New("gói project quá lớn")
+	}
+	return raw, nil
+}
+
 // LinkOf finds, among the projects in other offices projectID links to, the
 // one a dashboard link of the other office points into.
 func (s *Service) LinkOf(ctx context.Context, projectID, link string) (Link, bool) {

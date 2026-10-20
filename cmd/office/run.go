@@ -158,6 +158,13 @@ func serveCmd() *cobra.Command {
 			chatEngine.SetQueueRunner(chatDecider{store: a.store, chat: chatEngine, acts: acts}.RunQueued)
 			office := officetools.New(a.store, procs, acts)
 			office.SetPeers(peers) // read_link/search_history in other offices
+			// the office assistant creates, exports and imports projects (ADR-170)
+			transfers := transfer.New(a.store, a.providers, a.team, a.workflows.Lib)
+			if h.ProjectRoot != "" {
+				transfers.SetCloneRoot(filepath.Dir(h.ProjectRoot)) // as the dashboard clones
+			}
+			acts.SetProjects(transfers)
+			office.SetProjects(transfers, h.Dir)
 			mcp := mcpserver.New(office, version)
 			chatEngine.SetOffice(office, mcp, "http://"+loopback(addr)+"/mcp")
 			monitors := monitor.New(a.store, procs, chatEngine)
@@ -258,7 +265,7 @@ func serveCmd() *cobra.Command {
 				Store: st, Auth: a.auth, AllowedOrigins: origins,
 				SecureCookies: secureCookies, TrustedProxies: proxies, Logger: log, Version: version,
 				Providers: a.providers, Team: a.team, Setup: setup.New(a.store, a.providers, a.team),
-				Transfer:   transfer.New(a.store, a.providers, a.team, a.workflows.Lib),
+				Transfer:   transfers,
 				Usage:      a.usage,
 				CLITools:   cliTools,
 				Chat:       chatEngine,

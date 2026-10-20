@@ -156,6 +156,8 @@ const en: Record<keyof typeof vi, string> = {
   'action.kind.mcp_call': 'Call an MCP tool',
   'action.kind.send_message': 'Send to another chat',
   'action.kind.workflow_gate': 'Approve a workflow gate',
+  'action.kind.create_project': 'Create a project',
+  'action.kind.import_project': 'Import a project',
   'action.kind.config_change': 'Change a setting',
   'action.op.create': 'Create',
   'action.op.update': 'Update',

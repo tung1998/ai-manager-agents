@@ -45,7 +45,19 @@ var Kinds = map[string]string{
 	"mcp_call":          "Gọi tool MCP",
 	"send_message":      "Gửi tin sang chat khác",
 	"workflow_gate":     "Duyệt cổng quy trình",
+	"create_project":    "Tạo project",
+	"import_project":    "Nhập project",
 }
+
+// Projects makes the projects the office assistant proposes (ADR-170).
+type Projects interface {
+	// CheckNewProject checks np (and fills it from its pack) before a person decides.
+	CheckNewProject(ctx context.Context, np *storage.NewProject) error
+	CreateProject(ctx context.Context, np storage.NewProject) (storage.Repo, error)
+}
+
+// SetProjects lets the office assistant propose new projects.
+func (s *Service) SetProjects(p Projects) { s.projects = p }
 
 // Sender sends a message to another chat in the name of the person whose
 // run proposed it (the chat engine, send_to_chat).
@@ -138,15 +150,16 @@ type Scope struct {
 
 // Service proposes and decides actions.
 type Service struct {
-	store  storage.Store
-	ops    *ops.Manager
-	config ConfigApplier
-	runner Runner
-	memory Memory
-	direct AutoApprover
-	mcp    MCPCaller
-	sender Sender
-	peers  *peer.Service // other offices' linked projects (ADR-167; nil = none)
+	store    storage.Store
+	ops      *ops.Manager
+	config   ConfigApplier
+	runner   Runner
+	memory   Memory
+	direct   AutoApprover
+	mcp      MCPCaller
+	sender   Sender
+	peers    *peer.Service // other offices' linked projects (ADR-167; nil = none)
+	projects Projects
 }
 
 // SetPeers lets send_message reach linked projects in other offices.
@@ -207,6 +220,21 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 	} else if kind == "workflow_gate" { // a workflow waits on a person: approving runs nothing
 		if sc.ConversationID == "" || a.Target == "" || a.Reason == "" {
 			return a, errors.New("cổng quy trình cần cuộc chat, tên cổng và điều cần duyệt")
+		}
+	} else if kind == "create_project" || kind == "import_project" { // only the office assistant (ADR-170)
+		if !sc.Office || s.projects == nil || a.Args.NewProject == nil {
+			return a, errors.New("chỉ trợ lý office tạo hay nhập project")
+		}
+		if (kind == "import_project") != (a.Args.NewProject.Pack != "") {
+			return a, errors.New("nhập project cần gói project (pack); tạo project thì không")
+		}
+		if err := s.projects.CheckNewProject(ctx, a.Args.NewProject); err != nil {
+			return a, err
+		}
+		np := a.Args.NewProject
+		a.Target = strings.TrimSpace(np.Name)
+		if from := firstNonEmpty(np.URL, np.Path); from != "" {
+			a.Target = strings.TrimSpace(a.Target + " ← " + from)
 		}
 	} else if kind == "send_message" { // Target: the chat it goes to, Args.Message: what it says
 		if err := s.checkSend(ctx, sc, &a); err != nil {
@@ -358,6 +386,8 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 		return false // the gateway already let through what the agent may call itself
 	case "workflow_gate":
 		return false // the point of the gate: a person decides
+	case "create_project", "import_project":
+		return false // a new folder and project on the machine: a person decides
 	case "send_message": // never on and on: what a relayed message started asks a person
 		if s.sender == nil {
 			return false
@@ -678,6 +708,13 @@ func (s *Service) run(ctx context.Context, a storage.Action) error {
 			return errors.New("không chạy tự động hóa được ở đây")
 		}
 		_, err := s.runner.RunAutomation(ctx, a.TargetID)
+		return err
+	}
+	if a.Kind == "create_project" || a.Kind == "import_project" {
+		if s.projects == nil || a.Args.NewProject == nil {
+			return errors.New("không tạo project được ở đây")
+		}
+		_, err := s.projects.CreateProject(ctx, *a.Args.NewProject)
 		return err
 	}
 	if a.Kind == "config_change" {

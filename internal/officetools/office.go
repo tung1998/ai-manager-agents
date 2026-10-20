@@ -16,7 +16,7 @@ import (
 // project tools take a "project" (id or name) and these are added.
 func (t *Toolbox) officeTools() []Tool {
 	project := map[string]any{"type": "string", "description": "Project: id or name (see projects)"}
-	return []Tool{
+	return append([]Tool{
 		{Name: "projects", Description: "Office's projects: id, name, description, folder. Call it first to find which project the work belongs to.", Schema: obj(map[string]any{}), ReadOnly: true},
 		{Name: "jobs_query", Description: "Recent runs (chat, automation, script): status, cost, time. Filter by project and status.",
 			Schema: obj(map[string]any{"project": project, "status": map[string]any{"type": "string", "enum": []string{"running", "pending", "done", "failed", "cancelled"}},
@@ -27,7 +27,7 @@ func (t *Toolbox) officeTools() []Tool {
 			Schema: obj(map[string]any{"project": project, "message": map[string]any{"type": "string", "description": "Message for the project's team lead"}}, "project", "message"), ReadOnly: true},
 		{Name: "run_automation", Description: "PROPOSE running an automation now (see list resource=automation): the person approves on a card.",
 			Schema: obj(map[string]any{"project": project, "id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"}}, "project", "id")},
-	}
+	}, t.projectTools()...)
 }
 
 // findProject is a project by id or name (case does not matter), never the
@@ -57,6 +57,9 @@ func (t *Toolbox) findProject(ctx context.Context, ref string) (storage.Repo, er
 
 // officeCall runs the assistant's own tools; ok=false: not one of them.
 func (t *Toolbox) officeCall(ctx context.Context, sc Scope, name string, raw json.RawMessage) (string, bool, bool) {
+	if out, isErr, ok := t.projectCall(ctx, sc, name, raw); ok {
+		return out, isErr, ok
+	}
 	var in struct {
 		Project string `json:"project"`
 		Status  string `json:"status"`

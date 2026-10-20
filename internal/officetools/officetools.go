@@ -20,6 +20,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/ops"
 	"bitbucket.org/senprints/agent-office/internal/peer"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/transfer"
 )
 
 // Tool is one callable tool.
@@ -49,6 +50,9 @@ type Toolbox struct {
 	wf Workflows
 	// peers: linked projects in other offices (ADR-167; nil = none)
 	peers *peer.Service
+	// transfer and home: create, export and import projects (ADR-170; nil = none)
+	transfer *transfer.Service
+	home     string
 }
 
 // SetPeers gives the MCP other_office (ADR-169) the paired offices.
@@ -356,7 +360,7 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 // proposes: a tool that proposes a change or runs something (none for an
 // assistant that only answers).
 func proposes(name string) bool {
-	return strings.HasPrefix(name, "propose") || name == "run_automation" || name == "send_to_chat" || name == "run_workflow"
+	return strings.HasPrefix(name, "propose") || name == "export_project" || name == "run_automation" || name == "send_to_chat" || name == "run_workflow"
 }
 
 // Has reports whether name is one of the tools.
