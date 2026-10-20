@@ -45,6 +45,7 @@ type RemoteProject struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Repo        string `json:"repo,omitempty"` // its git remote, with no credentials
 }
 
 // Peer is another office this one is paired with.
@@ -232,7 +233,7 @@ func (s *Service) SharedProjects(ctx context.Context, p Peer) []RemoteProject {
 	out := []RemoteProject{}
 	for _, id := range p.Shared {
 		if r, err := s.st.Repos().Get(ctx, id); err == nil {
-			out = append(out, RemoteProject{ID: r.ID, Name: r.Name, Description: oneLine(r.Description, 300)})
+			out = append(out, RemoteProject{ID: r.ID, Name: r.Name, Description: oneLine(r.Description, 300), Repo: PublicRemote(r.GitRemote)})
 		}
 	}
 	return out
@@ -258,7 +259,7 @@ func cleanRemote(projects []RemoteProject) []RemoteProject {
 	out := []RemoteProject{}
 	for _, r := range projects[:min(len(projects), 200)] {
 		if r.ID = strings.TrimSpace(r.ID); r.ID != "" && !strings.ContainsAny(r.ID, "/?#& ") {
-			out = append(out, RemoteProject{ID: r.ID, Name: oneLine(cmp.Or(r.Name, r.ID), 80), Description: oneLine(r.Description, 300)})
+			out = append(out, RemoteProject{ID: r.ID, Name: oneLine(cmp.Or(r.Name, r.ID), 80), Description: oneLine(r.Description, 300), Repo: PublicRemote(r.Repo)})
 		}
 	}
 	return out
@@ -695,6 +696,34 @@ func randomHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// PublicRemote is a git remote fit to show another office: a URL with no
+// user, password or query, or scp-like user@host:path; "" otherwise.
+func PublicRemote(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 300 || strings.ContainsAny(s, " \t\n\r") {
+		return ""
+	}
+	if strings.Contains(s, "://") {
+		u, err := url.Parse(s)
+		if err != nil || u.Host == "" || !slices.Contains([]string{"https", "http", "ssh", "git"}, u.Scheme) {
+			return ""
+		}
+		if u.Scheme == "ssh" && u.User != nil {
+			u.User = url.User(u.User.Username()) // ssh://git@host: the user is no secret
+		} else {
+			u.User = nil
+		}
+		u.RawQuery, u.Fragment = "", ""
+		return u.String()
+	}
+	// scp-like: [user@]host:path, never a local path
+	host, path, ok := strings.Cut(s, ":")
+	if !ok || path == "" || strings.HasPrefix(s, "/") || strings.ContainsAny(host, "/\\") || strings.Count(s, "@") > 1 || strings.ContainsAny(path, "@\\") {
+		return ""
+	}
+	return s
 }
 
 func oneLine(s string, max int) string {

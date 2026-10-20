@@ -207,6 +207,29 @@ func TestCleanRemote(t *testing.T) {
 	}
 }
 
+// A project's git remote reaches the other office with no credentials.
+func TestPublicRemote(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://github.com/acme/shop.git":                  "https://github.com/acme/shop.git",
+		"https://x-access-token:ghp_abc@github.com/a/b.git": "https://github.com/a/b.git",
+		"https://user@bitbucket.org/a/b.git?token=1":        "https://bitbucket.org/a/b.git",
+		"ssh://git:pw@host:22/a/b.git":                      "ssh://git@host:22/a/b.git",
+		"git@github.com:acme/shop.git":                      "git@github.com:acme/shop.git",
+		"user:secret@host:a/b.git":                          "",
+		"/Users/me/shop":                                    "",
+		"file:///Users/me/shop":                             "",
+		`C:\repos\shop`:                                     "",
+		"":                                                  "",
+	} {
+		if got := PublicRemote(in); got != want {
+			t.Errorf("PublicRemote(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := cleanRemote([]RemoteProject{{ID: "rep_1", Repo: "https://u:p@h.example/a.git"}}); got[0].Repo != "https://h.example/a.git" {
+		t.Fatalf("cleanRemote kept %q", got[0].Repo)
+	}
+}
+
 func TestCleanURL(t *testing.T) {
 	ok := map[string]string{
 		"https://office.example.com/": "https://office.example.com",

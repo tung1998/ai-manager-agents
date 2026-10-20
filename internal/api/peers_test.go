@@ -21,7 +21,7 @@ import (
 func TestPeerPairing(t *testing.T) {
 	ctx := context.Background()
 	a, b := setup(t), setup(t)
-	shop, _ := b.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	shop, _ := b.st.Repos().Create(ctx, storage.Repo{Name: "shop", GitRemote: "https://bot:ghp_x@git.example/acme/shop.git", Path: t.TempDir()})
 	private, _ := b.st.Repos().Create(ctx, storage.Repo{Name: "private", Path: t.TempDir()})
 	team.NewService(b.st, nil).AddFromLibrary(ctx, shop.ID, team.StarterAgent)
 	cb, ca := b.client(t), a.client(t)
@@ -103,8 +103,9 @@ func TestPeerPairing(t *testing.T) {
 	}
 	// through the MCP other_office (ADR-169), by the names agents see
 	sc := officetools.Scope{ProjectID: mine.ID, Level: perm.Operate}
-	if out, isErr := a.office.CallOther(ctx, sc, "offices", nil); isErr || !strings.Contains(out, "office-b") || !strings.Contains(out, "shop") {
-		t.Fatalf("offices: %v %s", isErr, out)
+	if out, isErr := a.office.CallOther(ctx, sc, "offices", nil); isErr || !strings.Contains(out, "office-b") || !strings.Contains(out, "shop") ||
+		!strings.Contains(out, "git: https://git.example/acme/shop.git") || strings.Contains(out, "ghp_x") {
+		t.Fatalf("offices (with the git remote, no credentials): %v %s", isErr, out)
 	}
 	if out, isErr := a.office.CallOther(ctx, sc, "search", json.RawMessage(`{"office":"OFFICE-B","project":"shop","query":"shop"}`)); isErr || !strings.Contains(out, b.srv.URL+"/projects/"+shop.ID) {
 		t.Fatalf("search: %v %s", isErr, out)
@@ -132,8 +133,13 @@ func TestPeerPairing(t *testing.T) {
 	if out, isErr := a.office.CallOther(ctx, asst, "offices", nil); isErr || !strings.Contains(out, "shop") {
 		t.Fatalf("assistant offices: %v %s", isErr, out)
 	}
-	if !a.office.HasOther(ctx, asst, "send") || a.office.HasOther(ctx, officetools.Scope{ProjectID: free.ID, Office: true, AnswerOnly: true, Level: perm.Operate, ConversationID: "cnv_x"}, "send") {
-		t.Fatal("send: the assistant gets it, one that only answers does not")
+	if !a.office.HasOther(ctx, asst, "send") {
+		t.Fatal("send: the assistant gets it")
+	}
+	// one that only answers sees send, which says how to turn it on and sends nothing
+	answer := officetools.Scope{ProjectID: free.ID, Office: true, AnswerOnly: true, Level: perm.Read, ConversationID: "cnv_x"}
+	if out, isErr := a.office.CallOther(ctx, answer, "send", json.RawMessage(`{"office":"office-b","project":"shop","text":"x","reason":"y"}`)); !isErr || out != officetools.OtherAnswerOnly {
+		t.Fatalf("send while answering only: %v %s", isErr, out)
 	}
 
 	// a chat of another project B shares is not read through a link naming shop
