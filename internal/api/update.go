@@ -102,6 +102,7 @@ func (s *server) busyWork() map[string]int {
 func (s *server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Test   bool `json:"test"`
+		Pull   bool `json:"pull"` // bring in the remote's new commits first
 		Force  bool `json:"force"`
 		Resume bool `json:"resume"` // start the running processes again after the restart
 	}
@@ -116,7 +117,7 @@ func (s *server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.Ops != nil {
 		s.cfg.Ops.ResumeAfterRestart(in.Resume)
 	}
-	if err := s.cfg.Updater.Start(selfupdate.Options{Test: in.Test}); err != nil {
+	if err := s.cfg.Updater.Start(selfupdate.Options{Test: in.Test, Pull: in.Pull}); err != nil {
 		if errors.Is(err, selfupdate.ErrBusy) {
 			writeError(w, http.StatusConflict, err.Error())
 			return
@@ -124,7 +125,7 @@ func (s *server) startUpdate(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	s.auditAction(r, "system.update", "", map[string]any{"test": in.Test, "force": in.Force, "resume": in.Resume})
+	s.auditAction(r, "system.update", "", map[string]any{"test": in.Test, "pull": in.Pull, "force": in.Force, "resume": in.Resume})
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 

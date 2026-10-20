@@ -112,6 +112,7 @@ type State struct {
 // Options of an update.
 type Options struct {
 	Test bool // run go test before swapping
+	Pull bool // first bring in the source's branch on the remote (fast-forward only)
 }
 
 // Updater runs one update at a time.
@@ -203,6 +204,23 @@ func (u *Updater) run(o Options) {
 		SaveResult(u.home, Result{State: "failed", Message: step + ": " + err.Error(), At: now})
 	}
 	root := u.src.Root
+	// the remote's new commits first: the build below stamps what it pulled
+	if o.Pull {
+		up := u.src.Upstream(context.Background())
+		if up == "" {
+			fail("Kéo mã mới", errors.New("không thấy nhánh main hay master trên origin"))
+			return
+		}
+		for _, st := range []step{
+			{name: "Kéo mã mới", dir: root, env: gitEnv, argv: []string{"git", "fetch", "origin"}},
+			{name: "Kéo mã mới", dir: root, env: gitEnv, argv: []string{"git", "merge", "--ff-only", up}},
+		} {
+			if !u.step(st) {
+				fail(st.name, errors.New("không kéo được từ "+up+" (xem log)"))
+				return
+			}
+		}
+	}
 	newBin := filepath.Join(root, "bin", "office.new")
 	build := []string{"go", "build", "-o", newBin}
 	// stamp the source fingerprint so the update page can tell what changed
@@ -244,6 +262,17 @@ func (u *Updater) run(o Options) {
 	if u.restart != nil {
 		time.AfterFunc(500*time.Millisecond, u.restart) // let the UI read the last lines
 	}
+}
+
+// step runs one step with its output in the log; false when it failed (logged).
+func (u *Updater) step(st step) bool {
+	u.set(func(s *State) { s.Step = st.name })
+	u.add("sys", fmt.Sprintf("▶ %s: %s", st.name, strings.Join(st.argv, " ")))
+	if err := u.exec(st.dir, st.env, st.argv); err != nil {
+		u.add("sys", "✗ "+err.Error())
+		return false
+	}
+	return true
 }
 
 func (u *Updater) exec(dir string, env, argv []string) error {

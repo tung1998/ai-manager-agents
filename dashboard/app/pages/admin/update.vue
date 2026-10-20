@@ -15,6 +15,7 @@ const toast = useToast()
 const { t, when } = useLang()
 const { data, refresh } = await useLiveFetch<Status>('/api/system/update')
 const runTests = ref(true)
+const pull = ref(true) // the remote's new commits first (when there are)
 const resumeProcs = ref(true) // the running processes start again after the restart
 const starting = ref(false)
 const restarting = ref(false)
@@ -44,7 +45,7 @@ onBeforeUnmount(() => { clearInterval(poll); clearInterval(restartPoll) })
 async function start(force = false) {
   starting.value = true
   try {
-    await $fetch('/api/system/update', { method: 'POST', body: { test: runTests.value, force, resume: resumeProcs.value } })
+    await $fetch('/api/system/update', { method: 'POST', body: { test: runTests.value, pull: pull.value && !!changes.value?.remote?.behind, force, resume: resumeProcs.value } })
     showLog.value = true
     streamKey.value++
     await refresh()
@@ -80,7 +81,9 @@ function waitForRestart() {
 
 // does the source differ from the running build? (git, so only on open and
 // on "check again"; null until known or when it cannot be told)
-interface Changes { changed: boolean, head: string, commits: { hash: string, subject: string, at: string }[], more: boolean, uncommitted: number, unknown?: boolean }
+interface Commit { hash: string, subject: string, at: string }
+// remote: the source's branch on origin (main/master): commits not pulled yet
+interface Changes { changed: boolean, head: string, commits: Commit[], more: boolean, uncommitted: number, unknown?: boolean, remote?: { branch: string, behind: number, ahead: number, commits: Commit[], more: boolean, error?: string } }
 const changes = ref<Changes | null>(null)
 const changesError = ref('')
 const checkingChanges = ref(false)
@@ -168,8 +171,29 @@ const lastMeta = computed(() => ({
               <p v-if="changes.uncommitted" class="mt-2 text-xs text-(--ui-warning)">{{ t('admin.updateUncommitted', { n: changes.uncommitted }) }}</p>
               <p v-if="changes.unknown" class="mt-2 text-xs text-(--ui-text-muted)">{{ t('admin.updateUnknownRevision') }}</p>
             </template>
+            <template v-if="changes?.remote">
+              <template v-if="changes.remote.behind">
+                <p class="mt-3 flex items-center gap-1.5 text-xs font-medium">
+                  <UIcon name="i-lucide-cloud-download" class="size-3.5 text-primary" />
+                  {{ t('admin.updateRemoteBehind', { n: changes.remote.behind, branch: changes.remote.branch }) }}
+                </p>
+                <ul class="mt-1 space-y-1">
+                  <li v-for="c in changes.remote.commits" :key="c.hash" class="flex items-baseline gap-2 text-xs">
+                    <code class="shrink-0 text-(--ui-text-muted)">{{ c.hash }}</code>
+                    <span class="min-w-0 truncate">{{ c.subject }}</span>
+                    <span class="ms-auto shrink-0 text-(--ui-text-dimmed)">{{ when(c.at) }}</span>
+                  </li>
+                  <li v-if="changes.remote.more" class="text-xs text-(--ui-text-dimmed)">{{ t('admin.updateMoreCommits') }}</li>
+                </ul>
+              </template>
+              <p v-else-if="!changes.remote.error" class="mt-2 text-xs text-(--ui-text-muted)">
+                {{ t('admin.updateRemoteSame', { branch: changes.remote.branch }) }}<template v-if="changes.remote.ahead"> · {{ t('admin.updateRemoteAhead', { n: changes.remote.ahead }) }}</template>
+              </p>
+              <p v-if="changes.remote.error" class="mt-2 text-xs text-(--ui-text-muted)">{{ changes.remote.error }}</p>
+            </template>
           </div>
           <template v-if="!upToDate">
+            <UCheckbox v-if="changes?.remote?.behind" v-model="pull" :label="t('admin.updatePull', { branch: changes.remote.branch })" :disabled="running" />
             <UCheckbox v-model="runTests" :label="t('admin.updateRunTests')" :disabled="running" />
             <UCheckbox v-if="data.busy.tasks" v-model="resumeProcs" :label="t('admin.updateResumeProcs', { n: data.busy.tasks })" :disabled="running" />
             <p v-if="data.busy.chats || data.busy.tasks" class="text-sm text-(--ui-warning)">

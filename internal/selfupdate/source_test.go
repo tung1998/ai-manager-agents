@@ -84,3 +84,41 @@ func TestChanges(t *testing.T) {
 		t.Fatalf("edited source must be changed: %+v", c)
 	}
 }
+
+// The branch on origin (master here) is fetched and compared: its new
+// commits count as a change; commits only here are kept, not a change.
+func TestRemote(t *testing.T) {
+	ctx := context.Background()
+	up := newRepo(t)
+	run(t, up, "branch", "-M", "master")
+	dir := t.TempDir()
+	run(t, dir, "clone", "-q", up, ".")
+	src := Source{Root: dir}
+	if r := (Source{Root: up}).Remote(ctx); r != nil {
+		t.Fatalf("no origin: %+v", r)
+	}
+
+	old := Fingerprint
+	defer func() { Fingerprint = old }()
+	Fingerprint = fp(t, dir)
+	c, err := src.Changes(ctx, "")
+	if err != nil || c.Changed || c.Remote == nil || c.Remote.Branch != "origin/master" || c.Remote.Behind != 0 || c.Remote.Error != "" {
+		t.Fatalf("in step: %+v %+v %v", c, c.Remote, err)
+	}
+
+	write(t, filepath.Join(up, "c.go"), "package a\n")
+	run(t, up, "add", ".")
+	run(t, up, "commit", "-qm", "on master")
+	c, _ = src.Changes(ctx, "")
+	if !c.Changed || c.Remote.Behind != 1 || c.Remote.Commits[0].Subject != "on master" {
+		t.Fatalf("behind: %+v %+v", c, c.Remote)
+	}
+
+	run(t, dir, "merge", "-q", "--ff-only", "origin/master")
+	write(t, filepath.Join(dir, "d.go"), "package a\n")
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-qm", "local")
+	if r := src.Remote(ctx); r.Behind != 0 || r.Ahead != 1 {
+		t.Fatalf("ahead: %+v", r)
+	}
+}
