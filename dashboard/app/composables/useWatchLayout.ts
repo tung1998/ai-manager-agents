@@ -37,16 +37,16 @@ function fromTree(root: OldNode | null): WatchItem[] {
   }
   return items
 }
-interface Saved { active: string, boards: WatchBoard[] }
+// v: 2 once chat boxes left the old 4×6 default (moved once, not on each load)
+interface Saved { active: string, boards: WatchBoard[], v?: number }
+const VERSION = 2
 
-function upgrade(b: WatchBoard & { root?: OldNode | null }): WatchBoard {
+function upgrade(b: WatchBoard & { root?: OldNode | null }, v: number): WatchBoard {
   if (Array.isArray(b.items)) {
-    // The original chat default was 4×6. Keep intentional custom sizes, but
-    // migrate untouched defaults so existing boards benefit from the denser 3×5 layout.
-    return {
-      ...b,
-      items: b.items.map(i => i.widget === 'chat' && i.w === 4 && i.h === 6 ? { ...i, w: 3, h: 5 } : i)
-    }
+    // boards saved before v2 had chats at the old 4×6 default: once to 3×5
+    // (after that a 4×6 chat is the person's choice and stays)
+    if (v >= VERSION) return b
+    return { ...b, items: compact(b.items.map(i => i.widget === 'chat' && i.w === 4 && i.h === 6 ? { ...i, w: 3, h: 5 } : i)) }
   }
   const { root, ...rest } = b
   return { ...rest, items: fromTree(root ?? null) }
@@ -76,7 +76,7 @@ export function useWatchLayout() {
       return null
     }
     const apply = (s: Saved | null) => {
-      boards.value = (s?.boards ?? []).map(upgrade)
+      boards.value = (s?.boards ?? []).map(b => upgrade(b, s?.v ?? 1))
       activeId.value = s?.active ?? ''
       if (!boards.value.length) boards.value = [blank()]
       if (!boards.value.some(b => b.id === activeId.value)) activeId.value = boards.value[0]!.id
@@ -103,7 +103,7 @@ export function useWatchLayout() {
     saveNow = async () => {
       if (!ready) return
       clearTimeout(timer)
-      const next = JSON.stringify({ active: activeId.value, boards: boards.value })
+      const next = JSON.stringify({ active: activeId.value, boards: boards.value, v: VERSION })
       saved = next
       pending = next
       await save(JSON.parse(next) as Saved)
@@ -122,7 +122,7 @@ export function useWatchLayout() {
       const local = s ? null : fromBrowser()
       const before = s ? JSON.stringify(s) : ''
       apply(s ?? local)
-      saved = JSON.stringify({ active: activeId.value, boards: boards.value })
+      saved = JSON.stringify({ active: activeId.value, boards: boards.value, v: VERSION })
       ready = true
       if (local || (before && before !== saved)) void save(JSON.parse(saved) as Saved)
     }
@@ -138,7 +138,7 @@ export function useWatchLayout() {
       }, { immediate: true })
       watch([boards, activeId], ([list, active]) => {
         if (!ready) return
-        const next = JSON.stringify({ active, boards: list })
+        const next = JSON.stringify({ active, boards: list, v: VERSION })
         if (next === saved) return
         saved = next
         pending = next
