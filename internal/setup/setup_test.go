@@ -63,7 +63,7 @@ func env(t *testing.T, answer string) (*setup.Assistant, storage.Store, *provide
 
 func TestProposeAndAccept(t *testing.T) {
 	a, st, _, _ := env(t, aiAnswer)
-	a.Toolbox = func() setup.Toolbox {
+	a.Toolbox = func(string) setup.Toolbox {
 		return setup.Toolbox{Workflows: []setup.Tool{{Name: "fix-tests"}, {Name: "review-pr"}}}
 	}
 	ctx := context.Background()

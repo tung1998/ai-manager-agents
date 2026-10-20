@@ -123,7 +123,7 @@ async function runNow(a: Automation) {
     <div class="max-w-5xl space-y-3">
     <div class="flex items-center justify-between gap-2">
       <p class="text-sm text-(--ui-text-muted)">{{ list.length ? '' : t('auto.empty') }}</p>
-      <UButton v-if="isAdmin" icon="i-lucide-plus" size="sm" :label="t('auto.new')" to="/automations/templates" />
+      <UButton v-if="isAdmin" icon="i-lucide-plus" size="sm" :label="t('auto.new')" :to="`/projects/${projectId}/automations/new`" />
     </div>
 
     <UCard v-if="list.length" :ui="{ body: 'p-0 sm:p-0' }">

@@ -93,8 +93,9 @@ type Assistant struct {
 	store     storage.Store
 	providers *provider.Service
 	team      *team.Service
-	// Toolbox lists the workflows, skills and MCP the setup may pick (nil: none).
-	Toolbox func() Toolbox
+	// Toolbox lists the workflows, skills and MCP the setup may pick (nil:
+	// none); hint is the project's scan and goal, to pick from big catalogs.
+	Toolbox func(hint string) Toolbox
 }
 
 // New builds an Assistant.
@@ -131,7 +132,7 @@ func (a *Assistant) Propose(ctx context.Context, projectID, projectName, project
 	policy := perm.LoadPolicy(ctx, a.store, projectID)
 	var box Toolbox
 	if a.Toolbox != nil {
-		box = a.Toolbox()
+		box = a.Toolbox(projectText + "\n" + goal)
 	}
 	box.Agents, box.Automations = agents, automations
 	out, err := a.providers.Call(ctx, p, llm.Request{

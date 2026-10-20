@@ -19,11 +19,11 @@ import (
 )
 
 // setupToolbox is what the setup may pick beyond the agent library: the
-// workflow library, the office library's own skills (not those of a catalog
-// imported with a "source", thousands of them would flood the prompt), and
-// MCP servers from the catalog and the library.
-func setupToolbox(a *automation.Service, wf *workflow.Service) func() setup.Toolbox {
-	return func() setup.Toolbox {
+// workflow library, the office library's own skills plus those of imported
+// catalogs (a "source", thousands of them) that match the project, and MCP
+// servers from the catalog and the library.
+func setupToolbox(a *automation.Service, wf *workflow.Service) func(hint string) setup.Toolbox {
+	return func(hint string) setup.Toolbox {
 		box := setup.Toolbox{Workflows: []setup.Tool{}, Skills: []setup.Tool{}, MCP: []setup.Tool{}}
 		if wf != nil {
 			if list, err := wf.Lib.List(); err == nil {
@@ -35,12 +35,16 @@ func setupToolbox(a *automation.Service, wf *workflow.Service) func() setup.Tool
 			}
 		}
 		if list, err := a.Library.List("skill"); err == nil {
+			var catalog []setup.Candidate
 			for _, it := range list {
+				t := setup.Tool{Name: it.Name, Description: it.Description}
 				if it.Source != "" {
+					catalog = append(catalog, setup.Candidate{Tool: t, Keys: append([]string{it.Category, it.Area}, it.Tags...)})
 					continue
 				}
-				box.Skills = append(box.Skills, setup.Tool{Name: it.Name, Description: it.Description})
+				box.Skills = append(box.Skills, t)
 			}
+			box.Skills = append(box.Skills, setup.Rank(hint, catalog)...)
 		}
 		for _, t := range setupTemplates(a) {
 			box.MCP = append(box.MCP, setup.Tool{Name: t.Name, Description: t.Description, Needs: templateNeeds(t)})
