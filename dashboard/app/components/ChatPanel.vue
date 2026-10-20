@@ -19,7 +19,7 @@ interface Message {
   cost_usd?: number
   // sent by an agent from another chat (send_to_chat, a linked project's
   // report back): who, from which project and chat; a report's text folded
-  relay?: { agent: string, project: string, project_id: string, conversation_id: string, title: string, report: boolean }
+  relay?: { agent: string, project: string, project_id: string, conversation_id: string, title: string, report: boolean, url?: string }
 }
 interface Queued { id: string, text: string, attachments: Attachment[], created_at: string }
 interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', effort?: string, cleaned?: string, context_tokens?: number, context_window?: number, tags?: string[], queued?: Queued[] }
@@ -1066,7 +1066,10 @@ onBeforeUnmount(() => {
               <span class="font-medium text-(--ui-text)">{{ m.relay.agent }}</span>
               <span v-if="m.relay.project">· {{ m.relay.project }}</span>
               <span>· {{ t('chat.relayFrom') }}</span>
-              <NuxtLink v-if="m.relay.project_id" :to="`/projects/${m.relay.project_id}?tab=chat&c=${m.relay.conversation_id}`" class="max-w-60 truncate text-primary hover:underline" :title="m.relay.title">
+              <a v-if="m.relay.url" :href="m.relay.url" target="_blank" rel="noopener" class="max-w-60 truncate text-primary hover:underline" :title="m.relay.title">
+                {{ m.relay.title || t('chat.relayUntitled') }}
+              </a>
+              <NuxtLink v-else-if="m.relay.project_id" :to="`/projects/${m.relay.project_id}?tab=chat&c=${m.relay.conversation_id}`" class="max-w-60 truncate text-primary hover:underline" :title="m.relay.title">
                 {{ m.relay.title || t('chat.relayUntitled') }}
               </NuxtLink>
               <span v-else class="max-w-60 truncate">{{ m.relay.title || t('chat.relayUntitled') }}</span>

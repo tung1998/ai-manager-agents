@@ -30,6 +30,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
+	"bitbucket.org/senprints/agent-office/internal/peer"
 	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
 	"bitbucket.org/senprints/agent-office/internal/setup"
@@ -92,6 +93,8 @@ type Config struct {
 	Channels ChannelReloader      // restarts a Telegram/Discord bot after its settings change (nil = off)
 	// Workflows: the library and the projects' workflows (spec 2026-10-07-workflows-design; nil = off)
 	Workflows *workflow.Service
+	// Peers: other offices paired with this one (ADR-167; nil = off)
+	Peers *peer.Service
 }
 
 // SystemInfo tells the dashboard how this office is installed.
@@ -207,6 +210,9 @@ func New(cfg Config) http.Handler {
 	}
 	if cfg.Store != nil {
 		s.workflowRoutes(mux)
+	}
+	if cfg.Peers != nil {
+		s.peerRoutes(mux)
 	}
 
 	return gzipJSON(s.securityHeaders(s.csrf(mux)))

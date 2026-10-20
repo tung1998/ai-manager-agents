@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/ops"
+	"bitbucket.org/senprints/agent-office/internal/peer"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
@@ -371,5 +372,46 @@ func TestAutoRunsWhileAProposalWaits(t *testing.T) {
 	sc := Scope{ProjectID: proj.ID, ConversationID: conv.ID, RunRef: "r1", Agent: "a", Level: perm.Check, Access: at(perm.Check)}
 	if a, _ := svc.Propose(ctx, sc, "run_process", "test", "kiểm tra"); a.Status != "done" {
 		t.Fatalf("a check runs on its own: %s", a.Status)
+	}
+}
+
+// A linked project in another office (ADR-167) is named <office>/<project>
+// or by a link to one of its chats; the send carries the office, and runs on
+// its own only with chat.cross.
+func TestCheckSendPeerProject(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	p1, _ := st.Repos().Create(ctx, storage.Repo{Name: "mockup", Path: t.TempDir()})
+	st.Settings().Set(ctx, "peers", []peer.Peer{{ID: "peer_b", Name: "office-b", URL: "https://b.example",
+		Remote: []peer.RemoteProject{{ID: "rep_shop", Name: "shop"}, {ID: "rep_other", Name: "other"}}}})
+	perm.SavePolicyIf(ctx, st, p1.ID, "", perm.Policy{LinkedProjects: []string{"peer:peer_b/rep_shop"}})
+	own, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: p1.ID})
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: p1.ID, Kind: "chat_turn", Origin: "user", Status: "done", CreatedBy: "human:u1", ConversationID: own.ID})
+	svc := New(st, nil)
+	svc.SetSender(fakeSender{})
+	svc.SetPeers(peer.New(st, nil))
+	sc := Scope{ProjectID: p1.ID, ConversationID: own.ID, JobID: job.ID}
+
+	a := &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "làm trang shop", Project: "office-b/shop"}}
+	if err := svc.checkSend(ctx, sc, a); err != nil || a.Args.Peer != "peer_b" || a.Args.Project != "rep_shop" || a.TargetID != "" {
+		t.Fatalf("new chat there: %v %+v", err, a)
+	}
+	a = &storage.Action{ProjectID: p1.ID, Target: "https://b.example/projects/rep_shop?tab=chat&c=cnv_9", Args: storage.ActionArgs{Message: "tiếp"}}
+	if err := svc.checkSend(ctx, sc, a); err != nil || a.Args.Peer != "peer_b" || a.TargetID != "cnv_9" {
+		t.Fatalf("its chat by link: %v %+v", err, a)
+	}
+	a = &storage.Action{ProjectID: p1.ID, Args: storage.ActionArgs{Message: "x", Project: "office-b/other"}}
+	if err := svc.checkSend(ctx, sc, a); err == nil {
+		t.Fatal("a project of the office not linked was accepted")
+	}
+	a = &storage.Action{ProjectID: p1.ID, Target: "https://b.example/projects/rep_other?tab=chat&c=cnv_1", Args: storage.ActionArgs{Message: "x"}}
+	if err := svc.checkSend(ctx, sc, a); err == nil {
+		t.Fatal("a chat of a project not linked was accepted")
+	}
+	cross := storage.Action{Kind: "send_message", ProjectID: p1.ID, Args: storage.ActionArgs{Project: "rep_shop", Peer: "peer_b"}}
+	if svc.autoAllowed(ctx, cross, perm.Access{Caps: []string{perm.CapChatSend}}) || !svc.autoAllowed(ctx, cross, perm.Access{Caps: []string{perm.CapChatCross}}) {
+		t.Fatal("another office's project runs on its own only with chat.cross")
 	}
 }

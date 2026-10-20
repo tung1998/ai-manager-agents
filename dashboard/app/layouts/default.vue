@@ -156,6 +156,7 @@ const items = computed<NavigationMenuItem[][]>(() => {
         { label: t('nav.admin'), type: 'label' },
         { label: t('nav.users'), icon: 'i-lucide-users', to: '/admin/users' },
         { label: t('nav.audit'), icon: 'i-lucide-scroll-text', to: '/admin/audit' },
+        { label: t('nav.peers'), icon: 'i-lucide-building-2', to: '/admin/peers' },
         { label: t('nav.transfer'), icon: 'i-lucide-archive-restore', to: '/admin/transfer' },
         { label: t('nav.data'), icon: 'i-lucide-database', to: '/admin/data' },
         { label: t('nav.update'), icon: 'i-lucide-package', to: '/admin/update' }

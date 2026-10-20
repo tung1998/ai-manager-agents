@@ -230,6 +230,7 @@ type Engine struct {
 	assistant   func(ctx context.Context) string
 	wf          wfState         // workflows running in chats
 	acts        actionsProposer // the workflows' gates propose through it
+	peers       Peers           // linked projects in other offices (ADR-167; nil = none)
 
 	// testStepPanic: a step id runSteps' per-step goroutine panics on
 	// instead of running, for a regression test to force that path

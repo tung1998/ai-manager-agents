@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"bitbucket.org/senprints/agent-office/internal/peer"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
@@ -53,7 +54,24 @@ func (s *server) getPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pol := perm.LoadPolicy(r.Context(), s.cfg.Store, p.ID)
-	writeJSON(w, http.StatusOK, map[string]any{"policy": pol, "levels": perm.All, "packs": perm.ProjectPacks(p.Path, pol.Packs), "safe": pol.Safe, "version": policyVersion(pol)})
+	writeJSON(w, http.StatusOK, map[string]any{"policy": pol, "levels": perm.All, "packs": perm.ProjectPacks(p.Path, pol.Packs), "safe": pol.Safe, "version": policyVersion(pol),
+		"offices": s.officeProjects(r)})
+}
+
+// officeProjects are the projects other offices open to this one, to link
+// to (ADR-167): their ref and "<office>/<project>".
+func (s *server) officeProjects(r *http.Request) []map[string]string {
+	out := []map[string]string{}
+	if s.cfg.Peers == nil {
+		return out
+	}
+	list, _ := s.cfg.Peers.List(r.Context())
+	for _, p := range list {
+		for _, rp := range p.Remote {
+			out = append(out, map[string]string{"value": peer.RefPrefix + p.ID + "/" + rp.ID, "label": p.Name + "/" + rp.Name, "description": rp.Description})
+		}
+	}
+	return out
 }
 
 func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +125,16 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		if id == projectID || slices.Contains(linked, id) {
 			continue
 		}
-		if _, err := s.cfg.Store.Repos().Get(r.Context(), id); err != nil {
+		if peerID, _, ok := peer.SplitRef(id); ok { // in another office (ADR-167): a paired one
+			if s.cfg.Peers == nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("không có office liên kết cho %q", id))
+				return
+			}
+			if _, err := s.cfg.Peers.Get(r.Context(), peerID); err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("không có office liên kết cho %q", id))
+				return
+			}
+		} else if _, err := s.cfg.Store.Repos().Get(r.Context(), id); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("không có project %q để liên kết", id))
 			return
 		}

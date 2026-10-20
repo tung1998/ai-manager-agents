@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/actor"
+	"bitbucket.org/senprints/agent-office/internal/peer"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/prompts"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -36,6 +37,10 @@ type relayInfo struct {
 	// Name: the sending chat's project, whichever (Project is only set for
 	// another project's: it marks a chain between linked projects)
 	Name string `json:"relayed_from_project_name,omitempty"`
+	// Peer: the message came from another office (ADR-167): its id here and
+	// its address (ConversationID and ProjectID are that office's)
+	Peer    string `json:"relayed_from_peer,omitempty"`
+	PeerURL string `json:"relayed_from_peer_url,omitempty"`
 }
 
 // Relay says where a message an agent sent into this chat came from
@@ -47,7 +52,8 @@ type Relay struct {
 	ProjectID      string `json:"project_id"`
 	ConversationID string `json:"conversation_id"`
 	Title          string `json:"title"`
-	Report         bool   `json:"report"` // a linked project's report back: its text shown folded
+	Report         bool   `json:"report"`        // a linked project's report back: its text shown folded
+	URL            string `json:"url,omitempty"` // its chat in another office (ADR-167)
 }
 
 // RelayOf is where m was relayed from, or nil when a person wrote it.
@@ -56,14 +62,18 @@ func RelayOf(m storage.Message) *Relay {
 	if m.Role != "user" || m.Context == "" || json.Unmarshal([]byte(m.Context), &info) != nil || info.ConversationID == "" {
 		return nil
 	}
-	return &Relay{Agent: info.Agent, Project: cmp.Or(info.Name, info.Project), ProjectID: info.ProjectID,
+	r := &Relay{Agent: info.Agent, Project: cmp.Or(info.Name, info.Project), ProjectID: info.ProjectID,
 		ConversationID: info.ConversationID, Title: info.Title, Report: info.Report}
+	if info.PeerURL != "" { // another office's chat: a link there, none here
+		r.URL, r.ProjectID = peer.ChatLink(info.PeerURL, info.ProjectID, info.ConversationID), ""
+	}
+	return r
 }
 
 // fillRelay completes what an older relayed message did not keep (its
 // project), from the chat it came from.
 func (e *Engine) fillRelay(ctx context.Context, r *Relay, names map[string]string) {
-	if r == nil || (r.ProjectID != "" && r.Project != "") {
+	if r == nil || r.URL != "" || (r.ProjectID != "" && r.Project != "") {
 		return
 	}
 	c, err := e.store.Chat().GetConversation(ctx, r.ConversationID)
@@ -112,6 +122,9 @@ func (e *Engine) Relay(ctx context.Context, a storage.Action) (string, string, e
 	as := job.CreatedBy
 	if !strings.HasPrefix(as, "human:") {
 		return "", "", errors.New("chỉ gửi thay được khi lượt chat do một người gửi (không phải bot hay tự động hóa)")
+	}
+	if a.Args.Peer != "" {
+		return e.relayPeer(ctx, a)
 	}
 	var target storage.Conversation
 	if a.TargetID == "" && a.Args.Project != "" { // a new chat in a linked project, opened by the person
@@ -211,6 +224,10 @@ func (e *Engine) reportBack(conv storage.Conversation, project storage.Repo, age
 	if !ok || origin.Project == "" || origin.Report || !strings.HasPrefix(as, "human:") {
 		return
 	}
+	if origin.Peer != "" {
+		e.reportPeer(conv, project, agent, reply, origin)
+		return
+	}
 	src, err := e.store.Chat().GetConversation(ctx, origin.ConversationID)
 	if err != nil || src.Cleaned != "" {
 		return
@@ -223,13 +240,21 @@ func (e *Engine) reportBack(conv storage.Conversation, project storage.Repo, age
 	raw, _ := json.Marshal(info)
 	text := prompts.Render("chat/linked-report", map[string]any{"Project": project.Name, "Agent": agent.Name,
 		"Link": "/projects/" + conv.ProjectID + "?tab=chat&c=" + conv.ID, "Reply": truncate(reply, 8000)})
-	safeGo("report back", func() {
-		for try := 0; try < 120; try++ { // the chat answering now: after its answer (up to 10 minutes)
-			_, _, err := e.SendWithContext(actor.With(ctx, as), src.ID, text, string(raw), nil)
+	e.deliver(src.ID, as, text, string(raw), func(err error) { e.note(conv, "Không báo lại được chat gốc: "+err.Error()) })
+}
+
+// deliver sends text into a chat as the person as, in the background: a
+// chat answering now gets it after its answer (up to 10 minutes); failed
+// tells what went wrong (a chat whose agent is off just keeps it).
+func (e *Engine) deliver(conversationID, as, text, context_ string, failed func(error)) {
+	safeGo("relay deliver", func() {
+		ctx := actor.With(context.Background(), as)
+		for try := 0; try < 120; try++ {
+			_, _, err := e.SendWithContext(ctx, conversationID, text, context_, nil)
 			var off *OffError
 			if errors.As(err, &off) || (!errors.Is(err, ErrBusy) && !errors.Is(err, ErrAgentBusy)) {
-				if err != nil && !errors.As(err, &off) {
-					e.note(conv, "Không báo lại được chat gốc: "+err.Error())
+				if err != nil && !errors.As(err, &off) && failed != nil {
+					failed(err)
 				}
 				return
 			}
@@ -255,16 +280,26 @@ func (e *Engine) linkedBrief(ctx context.Context, projectID, conversationID stri
 			items = append(items, item{p.Name, truncate(oneLine(p.Description), 200)})
 		}
 	}
+	remote := 0
+	if e.peers != nil { // in other offices (ADR-167): named <office>/<project>
+		for _, l := range e.peers.LinksOf(ctx, projectID) {
+			items = append(items, item{l.Label(), truncate(oneLine(l.Project.Description), 200)})
+			remote++
+		}
+	}
 	if len(items) == 0 {
 		return ""
 	}
-	type open struct{ Project, Title, Link string }
-	var chats []open // the work already handed over from this chat: carried on there
+	var chats []linkedOpen // the work already handed over from this chat: carried on there
 	for _, c := range e.linkedChats(ctx, conversationID) {
-		chats = append(chats, open{c.project, cmp.Or(c.conv.Title, "(chưa có tiêu đề)"), "/projects/" + c.conv.ProjectID + "?tab=chat&c=" + c.conv.ID}) // i18n-ignore
+		chats = append(chats, linkedOpen{c.project, cmp.Or(c.conv.Title, "(chưa có tiêu đề)"), "/projects/" + c.conv.ProjectID + "?tab=chat&c=" + c.conv.ID}) // i18n-ignore
 	}
-	return "\n" + prompts.Render("chat/linked", map[string]any{"Projects": items, "Chats": chats}) + "\n"
+	chats = append(chats, e.peerChats(ctx, conversationID)...)
+	return "\n" + prompts.Render("chat/linked", map[string]any{"Projects": items, "Chats": chats, "Remote": remote > 0}) + "\n"
 }
+
+// linkedOpen is a chat of a linked project this chat handed work to.
+type linkedOpen struct{ Project, Title, Link string }
 
 type linkedChat struct {
 	conv    storage.Conversation

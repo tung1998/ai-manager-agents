@@ -9,10 +9,16 @@ const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
 
-const { data, refresh, error: loadError } = await useLiveFetch<{ policy: Policy, packs: CommandPack[], safe: string[] }>(() => `/api/projects/${props.projectId}/policy`)
+const { data, refresh, error: loadError } = await useLiveFetch<{ policy: Policy, packs: CommandPack[], safe: string[], offices?: { value: string, label: string }[] }>(() => `/api/projects/${props.projectId}/policy`)
 const safe = computed(() => new Set(data.value?.safe ?? []))
 const { data: projData } = useLiveFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
-const projectItems = computed(() => (projData.value?.projects ?? []).filter(p => p.id !== props.projectId).map(p => ({ label: p.name, value: p.id })))
+// this office's projects, then those other offices open to it (ADR-167)
+type LinkItem = { label: string, value?: string, type?: 'label', icon?: string }
+const projectItems = computed<LinkItem[][]>(() => {
+  const own: LinkItem[] = (projData.value?.projects ?? []).filter(p => p.id !== props.projectId).map(p => ({ label: p.name, value: p.id }))
+  const offices = data.value?.offices ?? []
+  return offices.length ? [own, [{ type: 'label', label: t('policy.linkedOffice') }, ...offices.map(o => ({ label: o.label, value: o.value, icon: 'i-lucide-building-2' }))]] : [own]
+})
 
 const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '', quickCheck: true, quickChecks: '', linked: [] as string[] })
 const editedFrom = ref('') // the policy as the form was filled

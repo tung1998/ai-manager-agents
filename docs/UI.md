@@ -30,6 +30,7 @@ Dự án thật (`dashboard/app/pages/`) là projects-based, không phải sơ �
 | `/admin/users` (admin) | Người dùng | Danh sách tài khoản, tạo, đặt lại mật khẩu, gắn Discord/Telegram ID (tin gửi bot từ ID đó hiện tên tài khoản; chỉ nhận diện, không cấp quyền), bật/tắt (tắt thu hồi session) | |
 | `/admin/audit` (admin) | Nhật ký thao tác | Lịch sử thay đổi cấu hình/quyền toàn máy | |
 | `/admin/transfer` (admin) | Chuyển máy | Export/import toàn bộ cấu hình (backup sang máy khác) | |
+| `/admin/peers` (admin) | Office khác | Ghép nối với office khác bằng mã mời dùng một lần; chọn project bên kia được dùng, xem project bên kia mở cho mình (ADR-167) |
 | `/admin/update` (admin) | Cập nhật office | Build lại từ mã nguồn, xem log trực tiếp, tự quay về bản cũ nếu lỗi | Cập nhật, kiểm tra có bản mới |
 | `/login` | Đăng nhập | | |
 
@@ -106,6 +107,15 @@ Base `/api`. Auth bằng cookie phiên `office_session` sau khi đăng nhập t�
 | GET | `/api/transfer/export` | admin | Tải bundle config |
 | POST | `/api/transfer/import` | admin | `{bundle, dry_run}` → danh sách thay đổi |
 | POST | `/api/transfer/backup` | admin | Tạo backup trên máy chạy office |
+| GET | `/api/peers` | admin | Office đã ghép nối (không có khóa) + `self_name` |
+| POST | `/api/peers/invite` | admin | `{name, url, shared}` → `{code, expires_at}` (mã hiện một lần) |
+| POST | `/api/peers/join` | admin | `{code, name, url}`: ghép nối với office đã mời |
+| PUT | `/api/peers/:id/shared` | admin | `{shared}`: project office kia được dùng (báo cho bên kia) |
+| POST | `/api/peers/:id/refresh` | admin | Hỏi lại project bên kia mở cho mình |
+| DELETE | `/api/peers/:id` | admin | Gỡ ghép nối |
+| POST | `/api/peer/pair` | mã mời | Office kia ghép nối (ADR-167) |
+| POST | `/api/peer/relay` | khóa `ofp_` | Tin vào project được chia sẻ hoặc chat đã qua lại → `{chat, title, project}` |
+| GET/PUT | `/api/peer/projects` | khóa `ofp_` | Project chia sẻ cho office đó / office đó báo project nó chia sẻ |
 | POST | `/api/projects/:id/setup/scan` | admin | Quét tĩnh, trả summary |
 | POST | `/api/projects/:id/setup/propose` | admin | `{goal?}` → đề xuất AI; `412 no_provider` khi chưa có kết nối |
 | POST | `/api/projects/:id/setup/build` | admin | `{template_key, changes}` → template + problems (xem trước) |

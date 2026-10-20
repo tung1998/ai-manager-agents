@@ -45,6 +45,7 @@ const vi = {
   'nav.audit': 'Audit log',
   'nav.transfer': 'Sao lưu & đồng bộ',
   'nav.data': 'Quản lý dữ liệu',
+'nav.peers': 'Office khác',
   'nav.update': 'Cập nhật office',
   'nav.chat': 'Chat',
   'nav.tasks': 'Việc',

@@ -18,6 +18,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/monitor"
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/ops"
+	"bitbucket.org/senprints/agent-office/internal/peer"
 	"bitbucket.org/senprints/agent-office/internal/selfupdate"
 	"bitbucket.org/senprints/agent-office/internal/storage/sqlite"
 	"bitbucket.org/senprints/agent-office/internal/trigger"
@@ -147,7 +148,11 @@ func serveCmd() *cobra.Command {
 			// agents' long-term notes (ADR-068); too long, a fast model compacts them
 			mem := memory.New(a.store, compactNotes(a.store, chatEngine))
 			acts.SetMemory(mem)
-			acts.SetSender(chatEngine)  // send_to_chat: an agent writes to another chat in its person's name
+			acts.SetSender(chatEngine) // send_to_chat: an agent writes to another chat in its person's name
+			// linked projects in other offices (ADR-167)
+			peers := peer.New(a.store, a.providers.Box())
+			acts.SetPeers(peers)
+			chatEngine.SetPeers(peers)
 			chatEngine.SetActions(acts) // a workflow's gates: approval cards and check commands
 			// a card approved while an earlier one waited runs in its turn, as approved (audited)
 			chatEngine.SetQueueRunner(chatDecider{store: a.store, chat: chatEngine, acts: acts}.RunQueued)
@@ -261,6 +266,7 @@ func serveCmd() *cobra.Command {
 				Trigger:    runner,
 				Automation: newAutomation(a, h),
 				Workflows:  a.workflows,
+				Peers:      peers,
 				Ops:        procs,
 				Monitors:   monitors,
 				MCP:        mcp,

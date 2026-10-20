@@ -819,6 +819,9 @@ type ActionArgs struct {
 	// send_message to a linked project: its id; with no target chat, a new
 	// chat is opened there
 	Project string `json:"project,omitempty"`
+	// send_message to a linked project in another office (ADR-167): the
+	// paired office's id; Project is then its project's id there
+	Peer string `json:"peer,omitempty"`
 }
 
 // MCPCallArgs is a tool call waiting for a person.
