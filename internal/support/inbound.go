@@ -569,3 +569,57 @@ func cut(s string, n int) string {
 	}
 	return string([]rune(s)[:n]) + "…"
 }
+
+// Answer sends a person's own reply on a ticket (to its latest customer
+// message); a draft still waiting is out of date then.
+func (s *Service) Answer(ctx context.Context, projectID, ticketID, text, by string) error {
+	repo := s.store.Support()
+	t, err := repo.Ticket(ctx, ticketID)
+	if err != nil || t.ProjectID != projectID {
+		return storage.ErrNotFound
+	}
+	if text = strings.TrimSpace(text); text == "" {
+		return invalid("câu trả lời trống")
+	}
+	evs, err := repo.Events(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	last := ""
+	for _, e := range evs {
+		if e.Kind == "customer_msg" {
+			last = e.ID
+		}
+	}
+	if err := supersede(ctx, repo, t.ID); err != nil {
+		return err
+	}
+	s.send(ctx, t, storage.SupportEvent{ReplyTo: last}, text, by)
+	return nil
+}
+
+// SetStatus moves a ticket (resolved, closed, open…).
+func (s *Service) SetStatus(ctx context.Context, projectID, ticketID, status string) error {
+	switch status {
+	case StatusOpen, StatusWaitingCustomer, StatusResolved, StatusClosed:
+	default:
+		return invalid("trạng thái %q không đặt tay được", status)
+	}
+	repo := s.store.Support()
+	t, err := repo.Ticket(ctx, ticketID)
+	if err != nil || t.ProjectID != projectID {
+		return storage.ErrNotFound
+	}
+	t.Status = status
+	if status == StatusResolved || status == StatusClosed {
+		now := time.Now().UTC()
+		t.ResolvedAt = &now
+	} else {
+		t.ResolvedAt = nil
+	}
+	if err := repo.UpdateTicket(ctx, t); err != nil {
+		return err
+	}
+	s.notify(t.ID)
+	return nil
+}

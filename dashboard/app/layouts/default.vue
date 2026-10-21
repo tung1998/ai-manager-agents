@@ -71,10 +71,13 @@ onMounted(() => {
 // pages below a project (/projects/:id/<child>/…) belong to one of its sections
 const childSection: Record<string, string> = { agents: 'agents', automations: 'automations', workflows: 'workflows' }
 
-// Vận hành: hidden with the ops feature off
+// Vận hành: hidden with the ops feature off; Khách hàng only with the support pack on
 function hasOps(id: string) {
   const p = projectList.value.find(x => x.id === id)
   return hasFeature(p, 'ops')
+}
+function hasSupport(id: string) {
+  return hasFeature(projectList.value.find(x => x.id === id), 'support')
 }
 
 function projectSections(id: string): NavigationMenuItem[] {
@@ -84,6 +87,7 @@ function projectSections(id: string): NavigationMenuItem[] {
   return withParent(parent, [
     { label: t('nav.chat'), icon: 'i-lucide-messages-square', to: to('chat'), exactQuery: 'partial' },
     // Việc has no tab (ADR-056): the team works through the chat; a task's page stays for its links
+    ...(hasSupport(id) ? [{ label: t('nav.support'), icon: 'i-lucide-headset', to: to('support'), exactQuery: 'partial' as const }] : []),
     { label: t('nav.automations'), icon: 'i-lucide-alarm-clock', to: to('automations'), exactQuery: 'partial' },
     ...(hasOps(id) ? [{ label: t('nav.ops'), icon: 'i-lucide-activity', to: to('ops'), exactQuery: 'partial' as const }] : []),
     { label: t('project.sectionModel'), icon: 'i-lucide-users', to: to('agents'), exactQuery: 'partial' },

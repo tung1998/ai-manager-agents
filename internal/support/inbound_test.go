@@ -166,6 +166,18 @@ func TestApproveBeforeSending(t *testing.T) {
 	if code, _ := e.do(t, "POST", "/api/projects/"+e.project+"/support/drafts/"+draft+"/approve", "", nil); code != 400 {
 		t.Fatalf("approved twice = %d", code)
 	}
+	// a person answers by hand, then closes the ticket
+	tid := body["ticket_id"].(string)
+	if code, _ := e.do(t, "POST", "/api/projects/"+e.project+"/support/tickets/"+tid+"/reply", "", map[string]any{"text": "Đã gửi mã vận đơn."}); code != 204 {
+		t.Fatalf("reply = %d", code)
+	}
+	if code, _ := e.do(t, "PATCH", "/api/projects/"+e.project+"/support/tickets/"+tid, "", map[string]any{"status": "resolved"}); code != 204 {
+		t.Fatalf("resolve = %d", code)
+	}
+	_, tk = e.do(t, "GET", "/hooks/support/"+sid+"/tickets/"+tid, tok, nil)
+	if tk["status"] != StatusResolved || len(tk["messages"].([]any)) != 3 {
+		t.Fatalf("after reply and resolve = %v", tk)
+	}
 }
 
 func TestRateLimitAndBadInput(t *testing.T) {

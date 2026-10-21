@@ -163,6 +163,8 @@ func (s *Service) adminRoutes(mux *http.ServeMux, auth, admin func(http.HandlerF
 	mux.Handle("POST /api/projects/{id}/support/sources/{sid}/token", admin(s.gate(s.rotateToken)))
 	mux.Handle("GET /api/projects/{id}/support/tickets", auth(s.gate(s.listTickets)))
 	mux.Handle("GET /api/projects/{id}/support/tickets/{tid}", auth(s.gate(s.getTicket)))
+	mux.Handle("POST /api/projects/{id}/support/tickets/{tid}/reply", admin(s.gate(s.reply)))
+	mux.Handle("PATCH /api/projects/{id}/support/tickets/{tid}", admin(s.gate(s.patchTicket)))
 	mux.Handle("POST /api/projects/{id}/support/drafts/{eid}/approve", admin(s.gate(s.approve)))
 	mux.Handle("POST /api/projects/{id}/support/drafts/{eid}/reject", admin(s.gate(s.reject)))
 }
@@ -358,4 +360,34 @@ func (s *Service) gate(h http.HandlerFunc) http.HandlerFunc {
 
 func (s *Service) status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"on": true})
+}
+
+func (s *Service) reply(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Text string `json:"text"`
+	}
+	if json.NewDecoder(r.Body).Decode(&in) != nil {
+		writeError(w, http.StatusBadRequest, "dữ liệu không hợp lệ")
+		return
+	}
+	if err := s.Answer(r.Context(), r.PathValue("id"), r.PathValue("tid"), in.Text, Who(r)); err != nil {
+		requestError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Service) patchTicket(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Status string `json:"status"`
+	}
+	if json.NewDecoder(r.Body).Decode(&in) != nil {
+		writeError(w, http.StatusBadRequest, "dữ liệu không hợp lệ")
+		return
+	}
+	if err := s.SetStatus(r.Context(), r.PathValue("id"), r.PathValue("tid"), in.Status); err != nil {
+		requestError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -12,6 +12,7 @@ export function useFabVisible() {
     if (p === '/workflows/edit') return true // the library's editor has its own chat // the assistant's own page; the watch screen is all chats
     if (inProject.value) {
       if (p === `/projects/${projectId.value}` && (!route.query.tab || route.query.tab === 'chat' || route.query.tab === 'tasks')) return true // the Chat tab itself; Tasks has its own talk
+      if (p === `/projects/${projectId.value}` && route.query.tab === 'support' && (!route.query.view || route.query.view === 'inbox')) return true // the Inbox has its own reply box
       if (p.includes('/bots/') || p.endsWith('/skills/edit')) return true // a page with its own chat
       if (p.endsWith('/automations/new') || p.endsWith('/edit')) return true // the builder has its own chat
       return false
