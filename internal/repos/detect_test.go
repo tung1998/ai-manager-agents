@@ -29,3 +29,20 @@ func TestDetect(t *testing.T) {
 		t.Fatal("missing dir must fail")
 	}
 }
+
+// A remote added after the project was registered is read from the folder.
+func TestRemoteAddedLater(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core]\n\tbare = false\n"), 0o644)
+	if got := repos.Remote(dir, "git@github.com:acme/kept.git"); got != "git@github.com:acme/kept.git" {
+		t.Fatalf("no origin: got %q, want the kept one", got)
+	}
+	os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core]\n\tbare = false\n[remote \"origin\"]\n\turl = https://github.com/acme/web-help.git\n"), 0o644)
+	if got := repos.Remote(dir, ""); got != "https://github.com/acme/web-help.git" {
+		t.Fatalf("origin added later: got %q", got)
+	}
+	if got := repos.Remote("", "https://github.com/acme/x.git"); got != "https://github.com/acme/x.git" {
+		t.Fatalf("no folder: got %q", got)
+	}
+}

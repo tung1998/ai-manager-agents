@@ -27,6 +27,7 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/ids"
 	"bitbucket.org/senprints/agent-office/internal/perm"
+	"bitbucket.org/senprints/agent-office/internal/repos"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
@@ -233,7 +234,7 @@ func (s *Service) SharedProjects(ctx context.Context, p Peer) []RemoteProject {
 	out := []RemoteProject{}
 	for _, id := range p.Shared {
 		if r, err := s.st.Repos().Get(ctx, id); err == nil {
-			out = append(out, RemoteProject{ID: r.ID, Name: r.Name, Description: oneLine(r.Description, 300), Repo: PublicRemote(r.GitRemote)})
+			out = append(out, RemoteProject{ID: r.ID, Name: r.Name, Description: oneLine(r.Description, 300), Repo: PublicRemote(repos.Remote(r.Path, r.GitRemote))})
 		}
 	}
 	return out

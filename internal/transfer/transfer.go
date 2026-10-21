@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/provider"
+	"bitbucket.org/senprints/agent-office/internal/repos"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 	"bitbucket.org/senprints/agent-office/internal/team"
 	"bitbucket.org/senprints/agent-office/internal/workflow"
@@ -150,7 +151,7 @@ func (s *Service) Export(ctx context.Context) (Bundle, error) {
 
 // projectSpec is r, its agents (connections by name) and its workflows.
 func (s *Service) projectSpec(ctx context.Context, r storage.Repo, names map[string]string) (ProjectSpec, error) {
-	p := ProjectSpec{Name: r.Name, Path: r.Path, GitRemote: r.GitRemote, Description: r.Description}
+	p := ProjectSpec{Name: r.Name, Path: r.Path, GitRemote: repos.Remote(r.Path, r.GitRemote), Description: r.Description}
 	agents, err := s.store.Agents().List(ctx, r.ID)
 	if err != nil {
 		return p, err

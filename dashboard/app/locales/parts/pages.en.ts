@@ -154,6 +154,7 @@ const en: Record<keyof typeof vi, string> = {
   'project.sectionInfo': 'Info',
   'project.infoFolder': 'Folder',
   'project.infoRemote': 'Git remote',
+  'project.remoteHint': 'Used when the folder has no origin',
   'project.infoDescription': 'Description',
   'project.sectionModel': 'Agents',
   'project.sectionPerm': 'Permissions',

@@ -153,6 +153,7 @@ export default {
   'project.sectionInfo': 'Thông tin',
   'project.infoFolder': 'Thư mục',
   'project.infoRemote': 'Git remote',
+  'project.remoteHint': 'Dùng khi thư mục chưa có origin',
   'project.infoDescription': 'Mô tả',
   'project.sectionModel': 'Agents',
   'project.sectionPerm': 'Quyền',

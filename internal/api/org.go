@@ -4,6 +4,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/audit"
 	"bitbucket.org/senprints/agent-office/internal/burn"
+	"bitbucket.org/senprints/agent-office/internal/peer"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"context"
 	"errors"
@@ -902,7 +903,7 @@ type repoDTO struct {
 }
 
 func (s *server) repoDTO(r *http.Request, x storage.Repo, withAgents bool) (repoDTO, error) {
-	d := repoDTO{ID: x.ID, Name: x.Name, Path: x.Path, GitRemote: x.GitRemote, Description: x.Description,
+	d := repoDTO{ID: x.ID, Name: x.Name, Path: x.Path, GitRemote: repos.Remote(x.Path, x.GitRemote), Description: x.Description,
 		Scope: "machine", Exists: true, CreatedAt: x.CreatedAt}
 	if x.Path != "" {
 		_, statErr := os.Stat(x.Path)
@@ -1161,6 +1162,7 @@ func (s *server) updateRepo(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name        *string `json:"name"`
 		Description *string `json:"description"`
+		GitRemote   *string `json:"git_remote"` // kept for when the folder has no origin
 	}
 	if !decode(w, r, &in) {
 		return
@@ -1177,7 +1179,14 @@ func (s *server) updateRepo(w http.ResponseWriter, r *http.Request) {
 	if in.Description != nil {
 		x.Description = *in.Description
 	}
-	if err := s.cfg.Store.Repos().UpdateInfo(r.Context(), x.ID, x.Name, x.Description); err != nil {
+	if in.GitRemote != nil {
+		v := strings.TrimSpace(*in.GitRemote)
+		if x.GitRemote = peer.PublicRemote(v); v != "" && x.GitRemote == "" {
+			writeError(w, http.StatusBadRequest, "Git remote không hợp lệ (https://…, ssh://… hoặc git@host:path, không kèm mật khẩu)")
+			return
+		}
+	}
+	if err := s.cfg.Store.Repos().UpdateInfoRemote(r.Context(), x.ID, x.Name, x.Description, x.GitRemote); err != nil {
 		s.writeDomainError(w, r, err)
 		return
 	}

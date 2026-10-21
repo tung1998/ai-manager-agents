@@ -41,9 +41,9 @@ watch(id, v => touch(v), { immediate: true })
 
 // ---- edit project ----
 const editOpen = ref(false)
-const form = reactive({ name: '', description: '' })
+const form = reactive({ name: '', description: '', git_remote: '' })
 function openEdit() {
-  Object.assign(form, { name: project.value!.name, description: project.value!.description })
+  Object.assign(form, { name: project.value!.name, description: project.value!.description, git_remote: project.value!.git_remote })
   editOpen.value = true
 }
 const saving = ref(false)
@@ -104,10 +104,8 @@ async function removeRepo() {
                 <span class="text-(--ui-text-muted)">{{ t('project.infoFolder') }}</span>
                 <span v-if="project.scope === 'folder'" class="min-w-0 break-all font-mono text-xs">{{ project.path }}</span>
                 <span v-else>{{ t('project.machineHelper') }}</span>
-                <template v-if="project.git_remote">
-                  <span class="text-(--ui-text-muted)">{{ t('project.infoRemote') }}</span>
-                  <span class="min-w-0 break-all font-mono text-xs">{{ project.git_remote }}</span>
-                </template>
+                <span class="text-(--ui-text-muted)">{{ t('project.infoRemote') }}</span>
+                <span class="min-w-0 break-all font-mono text-xs">{{ project.git_remote || '—' }}</span>
                 <span class="text-(--ui-text-muted)">{{ t('project.infoDescription') }}</span>
                 <p class="whitespace-pre-line text-(--ui-text-toned)">{{ project.description || '—' }}</p>
               </div>
@@ -151,6 +149,7 @@ async function removeRepo() {
         <form id="project-edit" class="space-y-4" @submit.prevent="saveRepo">
           <UFormField :label="t('projects.name')"><UInput v-model="form.name" class="w-full" /></UFormField>
           <UFormField :label="t('project.description')"><UTextarea v-model="form.description" :rows="3" class="w-full" /></UFormField>
+          <UFormField :label="t('project.infoRemote')" :hint="t('project.remoteHint')"><UInput v-model="form.git_remote" placeholder="https://github.com/org/repo.git" class="w-full font-mono" /></UFormField>
         </form>
       </template>
       <template #footer>

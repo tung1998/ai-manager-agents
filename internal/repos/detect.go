@@ -86,6 +86,18 @@ func fromGoMod(dir string) string {
 
 var remoteRe = regexp.MustCompile(`(?m)^\[remote "origin"\][^\[]*?url\s*=\s*(\S+)`)
 
+// Remote is a project's git remote as it is now: origin in the folder (it
+// may have been added after the project was), else the one kept (a folder
+// with no origin, or none at all).
+func Remote(dir, kept string) string {
+	if dir != "" {
+		if r := gitRemote(dir); r != "" {
+			return r
+		}
+	}
+	return kept
+}
+
 // gitRemote reads origin from .git/config and strips any credentials in it.
 func gitRemote(dir string) string {
 	raw, err := os.ReadFile(filepath.Join(dir, ".git", "config"))

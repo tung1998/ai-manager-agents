@@ -123,7 +123,12 @@ func (t *Toolbox) CallOther(ctx context.Context, sc Scope, name string, raw json
 	)
 	switch name {
 	case "offices":
-		out = otherOffices(links)
+		// ask each office again: what it said at pairing may be old (a git
+		// remote added since); the kept list answers when it is unreachable
+		for _, p := range peer.Offices(links) {
+			_, _ = t.peers.Refresh(ctx, p.ID)
+		}
+		out = otherOffices(t.otherLinks(ctx, sc))
 	case "search":
 		var l peer.Link
 		if l, err = peer.Find(links, in.Office, in.Project); err == nil {
