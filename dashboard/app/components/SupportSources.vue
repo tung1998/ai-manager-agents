@@ -100,6 +100,21 @@ const rows = computed(() => {
   }
   return [{ label: 'URL', text: url }, { label: 'Token', text: v.token }, { label: 'curl', text: `curl -X POST ${url} -H 'Authorization: Bearer ${v.token}' -H 'Content-Type: application/json' \\\n  -d '{"external_id":"review-1","thread":"order-77","text":"Wrong size delivered","customer":{"name":"An","email":"an@example.com"},"wait":60}'` }]
 })
+// no automation answers yet: make one from the template, with the default agent
+const making = ref(false)
+async function makeAnswerer() {
+  making.value = true
+  try {
+    const r = await $fetch<{ automation: Automation }>(`/api/projects/${props.projectId}/automations`, { method: 'POST', body: {
+      name: t('sup.replyAutoName'), source: 'webhook', action: 'chat', enabled: true, prompt: supportReplyPrompt, config: { auth: 'bearer' },
+      limits: { max_parallel: 2, max_minutes: 5, max_runs_per_hour: 120 } } })
+    form.automation_id = r.automation.id
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    making.value = false
+  }
+}
 async function copy(text: string) {
   if (await copyText(text)) toast.add({ title: t('auto.copied'), color: 'success' })
 }
@@ -166,7 +181,10 @@ const where = (s: SupportSource) => {
             <UInput v-model="form.secret" type="password" autocomplete="new-password" class="w-full" />
           </UFormField>
           <UFormField :label="t('sup.automation')" :hint="t('sup.automationHint')" required>
-            <USelect v-model="form.automation_id" :items="answerers.map(a => ({ label: a.name, value: a.id }))" class="w-full" :placeholder="t('sup.noAutomation')" />
+            <div class="flex gap-2">
+              <USelect v-model="form.automation_id" :items="answerers.map(a => ({ label: a.name, value: a.id }))" class="min-w-0 flex-1" :placeholder="t('sup.noAutomation')" />
+              <UButton v-if="!answerers.length" size="sm" color="neutral" variant="outline" icon="i-lucide-sparkles" :label="t('sup.makeAnswerer')" :loading="making" @click="makeAnswerer" />
+            </div>
           </UFormField>
           <div class="grid gap-3 sm:grid-cols-2">
             <UFormField :label="t('sup.modeLabel')"><USelect v-model="form.mode" :items="modes" class="w-full" /></UFormField>

@@ -115,6 +115,8 @@ const en: Record<keyof typeof vi, string> = {
   'sup.sendFailed': 'not delivered',
   'coll.sync': 'Sync files/links',
   'coll.synced': '{n} playbooks updated',
+  'sup.replyAutoName': 'Customer reply',
+  'sup.makeAnswerer': 'Make one',
   'coll.none': 'The project has no data collection yet.',
   'coll.search': 'Search…',
   'coll.count': '{n} records',

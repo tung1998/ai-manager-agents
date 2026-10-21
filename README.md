@@ -29,7 +29,7 @@ AI coding tools are great one chat at a time. Real work is more than that: sever
 |---|---|---|
 | **Code** (priority) | features, bug fixes, PR review, run & monitor dev/build/containers, Burn | used daily on several repos |
 | Planning | roadmaps, weekly plans, splitting work | through chat and memory |
-| Customer conversations | read and draft replies | Discord/Telegram bots; more via Connectors |
+| Customer care | the **Customers** pack: tickets from an API, web forms, bots, Crisp; the AI looks up playbooks and replies (at once or after approval), hands off to a person, SLA, hooks, report | on per project |
 | Content | posts, blogs, docs | through chat; publishing via Connectors (planned) |
 | Automation | cron, webhooks, chat messages trigger agents or scripts | used daily |
 
@@ -46,7 +46,7 @@ AI coding tools are great one chat at a time. Real work is more than that: sever
 | 🔌 **One MCP gateway** · the office holds MCP servers (HTTP, stdio, OAuth login) and forwards them to every AI with per-tool permissions and a call log | ![MCP](docs/guide/images/15-mcp.png) |
 | 💸 **Costs & limits** · every AI call logged with real or estimated cost, daily budgets per office/project/automation, fallback connections when one fails | ![Costs](docs/guide/images/27-stats.png) |
 
-More: **linked projects** (an agent hands work to another project's agent in a chat there, hears back on its own, and you approve the other side's cards from your chat), a notification bell and browser notifications with Approve / Skip buttons, long-term agent memory, office assistant across projects, **Watch** dashboards (a grid of 20 widgets: chats, consoles, figures, charts, approvals…), change log of who did what and who approved it, Files tab with an editor, users & roles, personal API tokens, export/import config, backup, self-update from source, light/dark, English/Vietnamese.
+More: **data collections** (structured data kept in the office; agents read and write it with `data_*` tools, scripts with `office data`), **linked projects** (an agent hands work to another project's agent in a chat there, hears back on its own, and you approve the other side's cards from your chat), a notification bell and browser notifications with Approve / Skip buttons, long-term agent memory, office assistant across projects, **Watch** dashboards (a grid of 20 widgets: chats, consoles, figures, charts, approvals…), change log of who did what and who approved it, Files tab with an editor, users & roles, personal API tokens, export/import config, backup, self-update from source, light/dark, English/Vietnamese.
 
 ## An office that upgrades itself
 

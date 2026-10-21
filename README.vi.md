@@ -29,7 +29,7 @@ Công cụ AI viết code rất giỏi, nhưng mỗi lần chỉ một cuộc ch
 |---|---|---|
 | **Code** (ưu tiên) | tính năng, sửa lỗi, review PR, chạy và giám sát dev/build/container, Burn | dùng hằng ngày trên nhiều repo |
 | Lên kế hoạch | lộ trình, kế hoạch tuần, chia việc | qua chat và trí nhớ |
-| Trao đổi khách hàng | đọc và soạn câu trả lời | bot Discord/Telegram; thêm kênh qua Connector |
+| Chăm sóc khách hàng | gói **Khách hàng**: ticket từ API, form web, bot, Crisp; AI tra phương án rồi trả lời (gửi luôn hoặc người duyệt), chuyển người, SLA, hook, báo cáo | bật theo project |
 | Nội dung | bài đăng, blog, tài liệu | qua chat; đăng bài qua Connector (sắp có) |
 | Tự động hóa | lịch, webhook, tin nhắn chat kích hoạt agent hoặc script | dùng hằng ngày |
 
@@ -46,7 +46,7 @@ Công cụ AI viết code rất giỏi, nhưng mỗi lần chỉ một cuộc ch
 | 🔌 **Cổng MCP chung** · office giữ các MCP (HTTP, stdio, đăng nhập OAuth) và chuyển tiếp cho mọi AI, có quyền theo từng tool và nhật ký gọi | ![MCP](docs/guide/images/vi/15-mcp.png) |
 | 💸 **Chi phí & giới hạn** · mọi lượt gọi AI được ghi lại kèm chi phí thật hoặc ước tính, ngân sách theo ngày cho office/project/tự động hóa, kết nối dự phòng khi một kết nối lỗi | ![Chi phí](docs/guide/images/vi/27-stats.png) |
 
-Ngoài ra: trí nhớ dài hạn của agent, trợ lý office dùng chung mọi project, màn **Theo dõi** nhiều khung, nhật ký ai làm gì và ai duyệt, tab Files có trình sửa, tài khoản và vai trò, token cá nhân, xuất/nhập cấu hình, sao lưu, tự cập nhật từ mã nguồn, sáng/tối, tiếng Việt/tiếng Anh.
+Ngoài ra: **bảng dữ liệu** (lưu dữ liệu có cấu trúc trong office, agent đọc/ghi bằng tool `data_*`, script bằng `office data`), trí nhớ dài hạn của agent, trợ lý office dùng chung mọi project, màn **Theo dõi** nhiều khung, nhật ký ai làm gì và ai duyệt, tab Files có trình sửa, tài khoản và vai trò, token cá nhân, xuất/nhập cấu hình, sao lưu, tự cập nhật từ mã nguồn, sáng/tối, tiếng Việt/tiếng Anh.
 
 ## Văn phòng tự nâng cấp chính nó
 

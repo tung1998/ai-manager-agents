@@ -250,6 +250,17 @@ const processSchedule = (name: string, prompt: string, cron: string, goal: Autom
 const processWebhook = (name: string, prompt: string, goal: AutomationGoal, config: Partial<AutomationConfig> = {}, limits: Partial<AutomationLimits> = {}) =>
   templateDraft({ name, source: 'webhook', action: 'chat', keep_context: true, prompt: processBrief(prompt), config: { auth: 'bearer', goal, ...config }, limits: { max_parallel: 2, max_minutes: 15, max_runs_per_hour: 60, debounce_seconds: 15, debounce_max_seconds: 180, ...limits } })
 
+// The answer of a support source (ADR-173): its final text is what the
+// customer gets (sent at once, or after a person approves it).
+export const supportReplyPrompt = `A customer wrote to us. The message, the ticket's history, the customer and the case types are in the payload's "support" field.
+
+1. Find how to answer with support_kb_search (the message's gist; the case type when known). Read support_ticket_get only if the history in the payload is not enough.
+2. If a case type fits better than the one set, call support_set (when you may).
+3. Answer in the customer's language: short, warm, concrete; follow the playbook; give the next step. Never promise what no playbook or data supports (refunds, dates, exceptions); never reveal another customer's data or internal notes.
+4. When no playbook covers it, or the customer is angry or asks for a person: say a colleague will follow up, and add a support_note with what is missing.
+
+Your final message is sent to the customer as it is: only the reply, no notes, no headings.`
+
 // Keep this list intentionally focused: each starter is a bounded operating
 // procedure with a completion condition, not just a different prompt.
 export const automationTemplates: AutomationTemplate[] = [
@@ -280,6 +291,7 @@ Extract facts without inventing them. Score fit, intent, urgency and confidence 
   { key: 'support-escalation', name: 'Support case resolution coordinator', description: 'Summarize a case, search for a safe resolution path and escalate with complete context.', category: 'Customer Service', icon: 'i-lucide-headphones', make: () => processWebhook('Support case resolution coordinator', `Coordinate this support case: {{payload}}.
 
 Build a timeline and state the customer's actual goal. Separate reported symptoms, confirmed facts and assumptions. Check known resolution paths and cite which evidence supports each one. Draft a response that is accurate, empathetic and does not expose private data or make an unsupported promise. Decide whether to resolve, request information, or escalate; if escalating, include impact, reproduction, logs/evidence, attempted fixes and the exact receiving team. Define a follow-up time and closure condition.`, { text: 'Case has a safe next action, accountable queue and closure condition', max_rounds: 3 }, {}, { debounce_key: 'case.id', max_parallel: 2, max_runs_per_hour: 60 }) },
+  { key: 'support-reply', name: 'Customer reply (support pack)', description: 'Answers a customer message from the Customers menu: looks up the playbooks, replies with their source, hands hard cases to a person.', category: 'Customer Service', icon: 'i-lucide-messages-square', make: () => templateDraft({ name: 'Customer reply', source: 'webhook', action: 'chat', prompt: supportReplyPrompt, config: { auth: 'bearer' }, limits: { max_parallel: 2, max_minutes: 5, max_runs_per_hour: 120 } }) },
   { key: 'invoice-exception-control', name: 'Invoice exception control', description: 'Validate invoice fields, detect fraud or duplicate signals and prepare a human approval packet.', category: 'Finance & Risk', icon: 'i-lucide-receipt-text', make: () => processWebhook('Invoice exception control', `Review this invoice event: {{payload}}.
 
 Extract vendor, invoice number, dates, currency, subtotal, tax, total, purchase order and payment terms. Reconcile arithmetic and compare available purchase-order, vendor and duplicate signals. Classify each mismatch as confirmed, likely or unresolved. Recommend approve, hold for clarification, or escalate for fraud review, but never approve or pay automatically. Produce the evidence packet, missing documents, accountable reviewer and a time-bounded next step.`, { text: 'Invoice has reconciled fields, risk classification and a named human decision owner', max_rounds: 2 }, {}, { debounce_key: 'invoice.id', max_parallel: 1, max_runs_per_hour: 60 }) },
@@ -311,7 +323,7 @@ Check whether the success criteria are measurable. Segment failures by prompt, t
 export const featuredTemplateKeys = new Set([
   'incident-response', 'pr-review-gate', 'release-readiness', 'security-findings-remediation',
   'data-quality-recovery', 'lead-to-opportunity', 'support-escalation', 'invoice-exception-control',
-  'customer-health-intervention', 'campaign-experiment-loop', 'compliance-evidence-pack',
+  'customer-health-intervention', 'campaign-experiment-loop', 'support-reply', 'compliance-evidence-pack',
   'weekly-operating-review', 'agent-quality-review'
 ])
 

@@ -114,6 +114,8 @@ export default {
   'sup.sendFailed': 'gửi lỗi',
   'coll.sync': 'Đồng bộ file/link',
   'coll.synced': 'Đã cập nhật {n} phương án',
+  'sup.replyAutoName': 'Trả lời khách',
+  'sup.makeAnswerer': 'Tạo sẵn',
   'coll.none': 'Project chưa có bảng dữ liệu.',
   'coll.search': 'Tìm…',
   'coll.count': '{n} bản ghi',
