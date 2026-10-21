@@ -44,8 +44,10 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/auth"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/clitools"
+	"bitbucket.org/senprints/agent-office/internal/collections"
 	"bitbucket.org/senprints/agent-office/internal/setup"
 	"bitbucket.org/senprints/agent-office/internal/storage"
+	"bitbucket.org/senprints/agent-office/internal/support"
 	"bitbucket.org/senprints/agent-office/internal/transfer"
 )
 
@@ -193,6 +195,14 @@ func serveCmd() *cobra.Command {
 				}
 				return &channels.Telegram{Token: token}, nil
 			})
+			// the support pack (ADR-171): its points do nothing where it is off
+			supportPack := support.New(a.store)
+			supportPack.SetRunner(runner)
+			runner.AddOnDone(supportPack.Done) // a customer message's answer
+			support.Who = api.Actor
+			bots.SetTap(supportPack)
+			office.AddProvider(supportPack)
+			office.AddProvider(collections.NewTools(collections.New(a.store))) // data_* (ADR-172)
 			runner.SetOnReply(bots.Reply)
 			runner.SetOnProgress(bots.Progress)
 			acts.SetAutoApprover(bots.DirectApprover) // a chat in direct mode: approved in the turn, the agent goes on
@@ -262,6 +272,7 @@ func serveCmd() *cobra.Command {
 			chatEngine.SetGateway(gatewayFor(a.store, gateway))
 			handler := api.New(api.Config{
 				Office: office, Channels: bots, Memory: mem, Events: liveBus,
+				Packs: []api.PackRoutes{supportPack},
 				Store: st, Auth: a.auth, AllowedOrigins: origins,
 				SecureCookies: secureCookies, TrustedProxies: proxies, Logger: log, Version: version,
 				Providers: a.providers, Team: a.team, Setup: setup.New(a.store, a.providers, a.team),

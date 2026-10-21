@@ -9,13 +9,14 @@ const toast = useToast()
 const { isAdmin } = useAuth()
 
 interface Config { packs: Record<string, boolean> | null, off: string[] | null }
-interface State { config: Config, on: string[], off: Record<string, 'project' | 'no_folder'>, packs: { id: string, features: string[] }[] }
+interface State { config: Config, on: string[], off: Record<string, 'project' | 'no_folder'>, packs: { id: string, features: string[], default_off?: boolean }[] }
 const { data, error, refresh } = useLiveFetch<State>(() => `/api/projects/${props.projectId}/features`, { lazy: true })
 
-const packIcon: Record<string, string> = { develop: 'i-lucide-code-xml' }
-const featureIcon: Record<string, string> = { git: 'i-lucide-git-branch', ops: 'i-lucide-square-terminal' }
+const packIcon: Record<string, string> = { develop: 'i-lucide-code-xml', support: 'i-lucide-headset' }
+const featureIcon: Record<string, string> = { git: 'i-lucide-git-branch', ops: 'i-lucide-square-terminal', support: 'i-lucide-inbox' }
 
-const packOn = (id: string) => data.value?.config.packs?.[id] !== false
+// a pack not set is on, but one off by default (support)
+const packOn = (id: string) => data.value?.config.packs?.[id] ?? !data.value?.packs.find(p => p.id === id)?.default_off
 const featureOn = (f: string) => !!data.value?.on.includes(f)
 const noFolder = (f: string) => data.value?.off[f] === 'no_folder'
 

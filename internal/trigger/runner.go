@@ -62,6 +62,7 @@ type Runner struct {
 	onReply    OnReply
 	onProgress OnProgress
 	onNotify   OnNotify
+	onDone     []OnDone
 	quests     GiveQuests // a script's @@quest lines to the Burn (ADR-132); nil = none
 }
 
@@ -82,6 +83,14 @@ func (r *Runner) SetOnProgress(fn OnProgress) { r.onProgress = fn }
 type OnNotify func(ctx context.Context, channelID, chatID, text, convID string)
 
 func (r *Runner) SetOnNotify(fn OnNotify) { r.onNotify = fn }
+
+// OnDone hears that a job ended (not put back as busy): j as stored then,
+// the agent's final answer ("" when none) and its error. A feature pack that
+// queued the job reads its answer here (support, ADR-171).
+type OnDone func(ctx context.Context, j storage.Job, answer string, err error)
+
+// AddOnDone adds fn to what hears jobs end.
+func (r *Runner) AddOnDone(fn OnDone) { r.onDone = append(r.onDone, fn) }
 
 // New builds a Runner.
 func New(store storage.Store, exec Executor) *Runner {
@@ -373,11 +382,22 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 			}
 		}
 	}
+	doneText, doneErr := "", error(nil) // what the run answered, for OnDone
 	defer func() {
-		if cur, err := r.store.Jobs().Get(ctx, j.ID); err == nil && cur.Status == "pending" {
+		cur, gerr := r.store.Jobs().Get(ctx, j.ID)
+		if gerr == nil && cur.Status == "pending" {
 			return // put back (busy): it runs again later
 		}
 		answer("", ErrNoAnswer, true)
+		if gerr != nil {
+			cur = j
+		}
+		if cur.ConversationID == "" {
+			cur.ConversationID = notifyConv
+		}
+		for _, fn := range r.onDone {
+			fn(context.WithoutCancel(ctx), cur, doneText, doneErr)
+		}
 	}()
 	a, err := r.store.Automations().Get(ctx, j.OriginID)
 	if err != nil {
@@ -516,6 +536,7 @@ func (r *Runner) execute(ctx context.Context, j storage.Job) {
 		text = strings.TrimSpace(text + "\n\n" + g.summary())
 	}
 	notifyConv = got
+	doneText, doneErr = text, err
 	if a.KeepContext && !fromChannel && got != "" && got != a.Config.ConversationID {
 		keptConv = got
 	}

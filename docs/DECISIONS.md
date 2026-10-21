@@ -2503,3 +2503,35 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - **Tool `other_office.import`** (chỉ trợ lý office): lấy gói project bên kia qua `GET /api/peer/projects/{id}/pack?include=` (chỉ project đã chia sẻ; chat chỉ gồm chat giữa hai office như `read_chat`), rồi đề xuất nhập như trên. Office bên kia phải có bản này.
   - Tạo và nhập là action `create_project`/`import_project`, luôn cần người duyệt; chỉ trợ lý office đề xuất được (`Propose` kiểm `Scope.Office`). Nhập: clone git remote của gói (hoặc url/path/repo trống), tạo project, `config` thay agent và workflow, `chats` thêm chat mới, `memory` thêm ghi nhớ chưa có. Lỗi giữa chừng thì xóa project và thư mục vừa tạo.
   - Đồng bộ lại (sync) chưa làm: nhập lại `memory` không nhân đôi, `chats` thì có.
+
+## ADR-171: Gói Chăm sóc khách hàng (`support`) và điểm cắm của gói
+- **Bối cảnh (20/10):** thiết kế ở `docs/research/support-pack.md`; ba agent (trải nghiệm, kiến trúc, cài đặt) và quy trình review 2 bên cùng kết luận "duyệt kèm sửa".
+- **Quyết định:**
+  - Gói `support` (một tính năng `support`) **mặc định tắt**: `Pack.DefaultOff`; project chưa đặt thì không có gói, các gói cũ giữ "thiếu key = bật". `features.Has(nil, f)` và `hasFeature` ở dashboard coi tính năng của gói mặc định tắt là tắt.
+  - Khác ADR-161 (chỉ ẩn giao diện): gói `support` chặn cả dữ liệu, công cụ và tin bot của nó khi tắt.
+  - Code ở `internal/support`; lõi không import gói, chỉ có điểm cắm rỗng mặc định: `channels.Manager.SetTap` (gọi sau danh sách được phép và lệnh của bot, trước chọn quy tắc), `officetools.Toolbox.AddProvider` (tool chỉ liệt kê ở project bật gói, không cho trợ lý office), `api.Config.Packs` (route của gói, trả 404 khi tắt). Test: gói tắt thì tin bot về quy tắc cũ, API 404, không thêm tool.
+  - Theo review: bảng ticket/sự kiện có khóa chống trùng ở DB (`UNIQUE(source_id, external_id)`), tạo ticket + sự kiện trong một transaction, gửi đi qua outbox (chỉ ghi `sent` khi gửi được, lỗi thì `send_failed`); cổng nhận kiểm token, giới hạn kích thước và tốc độ theo nguồn trước khi xếp việc; việc của gói chạy như nguồn không tin cậy (như webhook); thẻ duyệt gắn với một bản nháp cố định, người trả lời hoặc khách nhắn mới thì bản nháp chờ bị hủy; khách đòi gặp người luôn dừng bot; bí mật nguồn dùng secrets box có sẵn.
+  - Thứ tự: khung (xong) → ticket + nguồn (bot, Crisp, form, API) + gửi đi cơ bản → Hộp thư tối thiểu → phương án + nháp + duyệt → `auto` → hook + nguồn tự động hóa → khách hàng, SLA, báo cáo. Email cho form làm sau hook.
+- **Bảng dữ liệu làm cùng (ADR-172)**, theo quyết định của người dùng, dù cả ba review đề nghị hoãn: `customers`, `playbooks` của gói là collection; ticket, sự kiện, nguồn, hook là bảng `support_*`.
+
+## ADR-172: Bảng dữ liệu (collections)
+- **Bối cảnh (20/10):** gói tính năng cần lưu dữ liệu có cấu trúc (khách hàng, phương án phản hồi) trong DB của office để agent tra nhanh, không phải ghi file, không phải viết bảng và code cho mỗi gói.
+- **Quyết định:**
+  - Lõi `internal/collections`, migration `00095_collections.sql`: `collections` (schema các trường, `pack` đã khai báo nó), `records` (dữ liệu JSON), `record_history` (sau mỗi lần tạo/sửa, trước khi xóa, ai làm), `records_fts` (tìm không dấu như `messages`).
+  - Kiểu trường: text, number, bool, date, enum, tags, ref (bản ghi của collection khác cùng project), conversation, url, file; cờ required, unique, indexed. Trường `indexed`/`unique` có expression index; `unique` là index UNIQUE riêng cho collection, nên trùng bị DB chặn. Đặt unique lên trường đã có giá trị trùng thì bị từ chối, schema giữ nguyên.
+  - Upsert: có id thì sửa bản ghi đó; không thì khớp theo giá trị trường unique; không khớp thì tạo mới. Chỉ các trường gửi lên đổi, null là bỏ trường. Giới hạn: 50 trường, 64 KB một bản ghi, 50.000 bản ghi một project.
+  - Agent: tool `data_collections`, `data_query`, `data_get` (kèm bản ghi `ref` và 5 thay đổi gần nhất) cho mọi quyền; `data_upsert` từ quyền Đề xuất. Chỉ có khi project có collection. Xóa bản ghi là việc của người (API/dashboard).
+  - API: `GET|POST /api/projects/{id}/collections`, `PATCH /api/collections/{id}`, `GET|POST .../collections/{key}/records`, `GET|DELETE .../records/{rid}`, `GET .../records/{rid}/history`; script dùng token cá nhân. Agent đề xuất schema bằng `propose_change` loại `collection`.
+  - Gói khai báo collection của mình (`support.Collections`); bật gói thì tạo cái project chưa có, collection cùng key do project tự tạo thì giữ nguyên. Tắt gói không xóa dữ liệu.
+- **Chưa làm:** lệnh CLI `office data`, trang Dữ liệu trên dashboard (làm cùng Hộp thư), tool xóa cho agent qua thẻ duyệt.
+
+## ADR-173: API vào/ra của gói Chăm sóc khách hàng
+- **Bối cảnh (20/10):** người dùng muốn một API: gửi vào lời khách (ví dụ một review phàn nàn), office chạy quy trình tìm đối sách, trả câu trả lời về cho bên gọi.
+- **Quyết định:**
+  - **Nguồn** (`support_sources`, migration `00096_support.sql`) loại `api` hoặc `form`: tên, **tự động hóa trả lời** (hành động chat hoặc quy trình, cùng project), chế độ `auto` (gửi luôn) hoặc `approve` (người duyệt, mặc định), số tin mỗi phút (mặc định 30). Token tạo một lần, chỉ lưu hash; đổi token được.
+  - **Vào:** `POST /hooks/support/{nguồn}` (token qua `Authorization: Bearer`, `X-Office-Token` hoặc `?token=`), JSON `{external_id, thread, customer{name,email,phone,ref}, subject, text, meta, wait}`. Sai token, nguồn tắt, project chưa bật gói: 404. Tin tối đa 16 KB, body 64 KB; quá số tin mỗi phút: 429, kiểm trước khi lưu.
+  - Một tin = một dòng `customer_msg` của ticket. `external_id` trùng (DB chặn bằng index UNIQUE) thì không nhận lần hai, trả lại kết quả của tin cũ. `thread` nối tin vào ticket đang mở của nó; tin mới của khách đánh dấu nháp đang chờ là `superseded`. Khách được tìm/tạo trong collection `customers` (theo email, mã, điện thoại).
+  - **Trả lời:** xếp việc cho tự động hóa của nguồn qua `trigger.Runner` với trigger `webhook` (nguồn ngoài, không bao giờ full access; dùng chung giới hạn lượt, trần chi phí). Payload `support`: ticket, khách, tin, 20 dòng lịch sử, meta; prompt của tự động hóa là hướng dẫn (ví dụ "tra playbooks rồi soạn câu trả lời"), hành động `workflow` thì chạy quy trình. `trigger.Runner.AddOnDone` cho gói nhận câu trả lời cuối: `auto` thì ghi `sent`, `approve` thì ghi nháp `pending` (ticket `waiting_approval`); lỗi hay không có câu trả lời thì nháp `failed`, ticket về `open` cho người.
+  - **Ra:** `wait` (tối đa 120 giây) thì trả luôn `{status: answered, reply{text}}`; không thì 202 kèm `poll`: `GET /hooks/support/{nguồn}/messages/{tin}?wait=`. `GET /hooks/support/{nguồn}/tickets/{ticket}` cho cuộc trao đổi như khách thấy (không có nháp, ghi chú).
+  - Dashboard/admin: `/api/projects/{id}/support/sources` (tạo, sửa, đổi token), `/support/tickets`, `/support/drafts/{id}/approve|reject` (duyệt được kèm sửa; bản AI gốc giữ trong meta). Mọi route 404 khi gói tắt.
+- **Chưa làm:** gửi đi cho Crisp/bot/email (outbox), hook ra ngoài khi có sự kiện, form `application/x-www-form-urlencoded`, giao diện Hộp thư.

@@ -53,6 +53,30 @@ type Toolbox struct {
 	// transfer and home: create, export and import projects (ADR-170; nil = none)
 	transfer *transfer.Service
 	home     string
+	// providers: feature packs' tools (support, ADR-171)
+	providers []Provider
+}
+
+// Provider is a feature pack's tools (support, ADR-171): Tools lists none
+// for a project without the pack on, so with it off nothing changes.
+type Provider interface {
+	Tools(sc Scope) []Tool
+	Call(ctx context.Context, sc Scope, name string, raw json.RawMessage) (string, bool)
+}
+
+// AddProvider adds a feature pack's tools.
+func (t *Toolbox) AddProvider(p Provider) { t.providers = append(t.providers, p) }
+
+// provider: the pack whose tool name is, for sc.
+func (t *Toolbox) provider(sc Scope, name string) Provider {
+	for _, p := range t.providers {
+		for _, x := range p.Tools(sc) {
+			if x.Name == name {
+				return p
+			}
+		}
+	}
+	return nil
 }
 
 // SetPeers gives the MCP other_office (ADR-169) the paired offices.
@@ -347,6 +371,15 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 		}
 		out = append(out, x)
 	}
+	if !sc.Office {
+		for _, p := range t.providers {
+			for _, x := range p.Tools(sc) {
+				if !sc.AnswerOnly || !proposes(x.Name) {
+					out = append(out, x)
+				}
+			}
+		}
+	}
 	if sc.Office { // the office assistant (ADR-046)
 		for _, x := range t.officeTools() {
 			if !sc.AnswerOnly || !proposes(x.Name) {
@@ -375,6 +408,9 @@ func (t *Toolbox) Has(sc Scope, name string) bool {
 
 // Call runs a tool for a project and returns text (and whether it failed).
 func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawMessage) (string, bool) {
+	if p := t.provider(sc, name); p != nil && !sc.Office {
+		return p.Call(ctx, sc, name, raw)
+	}
 	projectID := sc.ProjectID
 	var in struct {
 		Project  string          `json:"project"`

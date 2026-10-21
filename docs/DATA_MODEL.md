@@ -369,6 +369,14 @@ Việc của phiên: `title`, `kind` (`unfinished` | `upgrade` | `bug` | `idea`;
 
 Tin nhắn viết trong lúc chat đang trả lời: `conversation_id` (xóa theo chat), `author`, `text`, `attachments` (JSON tham chiếu file), `context` (trang đang mở), `options` (JSON `mode`, `edit_mode`, `agent_id`, `effort` áp khi gửi), `created_at`. Chat rảnh thì office gửi cả hàng thành một tin rồi xóa.
 
+### `collections` / `records` / `record_history` (ADR-172)
+
+`collections`: một bảng dữ liệu của project: `project_id`, `key` (unique trong project), `name`, `description`, `pack` (gói đã khai báo; rỗng: project tự tạo), `fields` (JSON: `name`, `label`, `type`, `options`, `ref`, `required`, `unique`, `indexed`).
+
+`records`: `collection_id`, `project_id`, `data` (JSON theo schema), `text` (các trường chữ, cho `records_fts` tìm không dấu), `created_by`, `updated_by`. Trường `indexed`/`unique` có expression index `json_extract(data, '$.<field>')`; `unique` là index UNIQUE riêng từng collection.
+
+`record_history`: mỗi thay đổi một dòng: `record_id`, `op` (`create` | `update` | `delete`), `data` (sau khi tạo/sửa, trước khi xóa), `by`, `at`. Chỉ thêm.
+
 ## Khác biệt SQLite / Postgres
 
 | Điểm | SQLite | Postgres |

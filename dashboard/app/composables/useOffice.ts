@@ -195,10 +195,12 @@ export interface Project {
 }
 
 // the features of the packs (internal/features): a typo in a gate fails typecheck
-export type FeatureId = 'git' | 'ops'
-// hasFeature: a feature of the project's packs is on (unknown: on)
+export type FeatureId = 'git' | 'ops' | 'support'
+// features of a pack off by default (support, ADR-171): unknown = off
+const defaultOff: FeatureId[] = ['support']
+// hasFeature: a feature of the project's packs is on (unknown: on, but a pack off by default)
 export function hasFeature(p: Pick<Project, 'features'> | undefined, f: FeatureId): boolean {
-  return !p?.features || p.features.includes(f)
+  return p?.features ? p.features.includes(f) : !defaultOff.includes(f)
 }
 
 // Getter-backed records re-evaluate the translation at every access.

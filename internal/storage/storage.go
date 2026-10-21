@@ -141,6 +141,10 @@ type Store interface {
 	// (spec 2026-10-07-workflows-design).
 	Workflows() WorkflowRepo
 	WorkflowRuns() WorkflowRunRepo
+	// Collections are a project's structured data (ADR-172).
+	Collections() CollectionRepo
+	// Support is the support pack's sources, tickets and history (ADR-171).
+	Support() SupportRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error

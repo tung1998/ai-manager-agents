@@ -91,10 +91,18 @@ type Config struct {
 	System   SystemInfo
 	Office   *officetools.Toolbox // agents' tools: describe/list/get/propose_change use the config registry
 	Channels ChannelReloader      // restarts a Telegram/Discord bot after its settings change (nil = off)
+	// Packs: feature packs with routes of their own (support, ADR-171); each
+	// answers 404 for a project without it on.
+	Packs []PackRoutes
 	// Workflows: the library and the projects' workflows (spec 2026-10-07-workflows-design; nil = off)
 	Workflows *workflow.Service
 	// Peers: other offices paired with this one (ADR-167; nil = off)
 	Peers *peer.Service
+}
+
+// PackRoutes is a feature pack adding its API (core does not import packs).
+type PackRoutes interface {
+	Routes(mux *http.ServeMux, auth, admin func(http.HandlerFunc) http.Handler)
 }
 
 // SystemInfo tells the dashboard how this office is installed.
@@ -228,6 +236,15 @@ const (
 )
 
 func userFrom(r *http.Request) storage.User { return r.Context().Value(ctxUser).(storage.User) }
+
+// Actor names the signed-in person of r ("human:<email>"), for a feature
+// pack's routes behind auth ("" outside them).
+func Actor(r *http.Request) string {
+	if u, ok := r.Context().Value(ctxUser).(storage.User); ok {
+		return "human:" + u.Email
+	}
+	return ""
+}
 func sessionFrom(r *http.Request) storage.Session {
 	return r.Context().Value(ctxSession).(storage.Session)
 }

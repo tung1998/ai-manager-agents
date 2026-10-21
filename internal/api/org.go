@@ -152,6 +152,10 @@ func (s *server) orgRoutes(mux *http.ServeMux) {
 		s.monitorRoutes(mux, auth, admin)
 	}
 	s.featureRoutes(mux, auth, admin)
+	s.collectionRoutes(mux, auth, admin)
+	for _, p := range s.cfg.Packs {
+		p.Routes(mux, auth, admin)
+	}
 	mux.Handle("GET /api/permission-levels", auth(s.permissionLevels))
 	mux.Handle("GET /api/projects/{id}/policy", auth(s.getPolicy))
 	mux.Handle("PUT /api/projects/{id}/policy", admin(s.putPolicy))

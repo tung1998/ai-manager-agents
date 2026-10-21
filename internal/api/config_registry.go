@@ -88,6 +88,21 @@ func cfgKinds() []cfgKind {
 			create: &cfgRoute{"POST", func(s *server) http.HandlerFunc { return s.createAgent }, byProject},
 			update: &cfgRoute{"PATCH", func(s *server) http.HandlerFunc { return s.updateAgent }, byID},
 			del:    &cfgRoute{"DELETE", func(s *server) http.HandlerFunc { return s.deleteAgent }, byID}},
+		{name: "collection", title: "Bảng dữ liệu (collection)", input: collectionInput{}, merge: true,
+			get: func(s *server, ctx context.Context, id, _ string) (any, string, error) {
+				c, err := s.cfg.Store.Collections().ByID(ctx, id)
+				return collectionInput{Key: c.Key, Name: c.Name, Description: c.Description, Fields: c.Fields}, c.ProjectID, err
+			},
+			list: func(s *server, ctx context.Context, projectID string) ([]map[string]any, error) {
+				list, err := s.cfg.Store.Collections().List(ctx, projectID)
+				out := []map[string]any{}
+				for _, c := range list {
+					out = append(out, map[string]any{"id": c.ID, "key": c.Key, "name": c.Name, "pack": c.Pack, "fields": len(c.Fields)})
+				}
+				return out, err
+			},
+			create: &cfgRoute{"POST", func(s *server) http.HandlerFunc { return s.createCollection }, byProject},
+			update: &cfgRoute{"PATCH", func(s *server) http.HandlerFunc { return s.updateCollection }, byID}},
 		{name: "monitor", title: "Giám sát", input: monitorInput{},
 			get: func(s *server, ctx context.Context, id, _ string) (any, string, error) {
 				m, err := s.cfg.Store.Monitors().Get(ctx, id)

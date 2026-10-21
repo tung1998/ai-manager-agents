@@ -65,7 +65,19 @@ type Manager struct {
 	// ProgressAfter: a run longer than this shows its steps in a status message
 	ProgressAfter time.Duration
 	decider       Decider // decides proposals from the chat (nil = only on the dashboard)
+	tap           Tap     // a feature pack taking messages before the rules (nil = none)
 }
+
+// Tap lets a feature pack take a bot's messages before its rules (support,
+// ADR-171). Take reports whether it took in; it leaves to the rules (false)
+// whatever is not its own, so with the pack off nothing changes. It is called
+// after the allow list and the bot's commands, and must not block.
+type Tap interface {
+	Take(ctx context.Context, ch storage.Channel, in Incoming) bool
+}
+
+// SetTap puts t before the rules.
+func (m *Manager) SetTap(t Tap) { m.tap = t }
 
 type waiter struct {
 	key     string
@@ -321,6 +333,9 @@ func (m *Manager) handle(ctx context.Context, channelID string, ad Adapter, in I
 			say(m.stopKeep(ctx, ch, in.ChatID))
 		}
 		return
+	}
+	if m.tap != nil && m.tap.Take(actx, ch, in) {
+		return // a feature pack's message (support): its own flow answers
 	}
 	var rule storage.Automation
 	var ok bool
