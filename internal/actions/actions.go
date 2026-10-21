@@ -47,6 +47,7 @@ var Kinds = map[string]string{
 	"workflow_gate":     "Duyệt cổng quy trình",
 	"create_project":    "Tạo project",
 	"import_project":    "Nhập project",
+	"data_delete":       "Xóa bản ghi dữ liệu",
 }
 
 // Projects makes the projects the office assistant proposes (ADR-170).
@@ -240,6 +241,20 @@ func (s *Service) Propose(ctx context.Context, sc Scope, kind, target, reason st
 		if err := s.checkSend(ctx, sc, &a); err != nil {
 			return a, err
 		}
+	} else if kind == "data_delete" { // a person always decides; the record's history keeps it
+		r := a.Args.Record
+		if r == nil || r.Collection == "" || r.ID == "" {
+			return a, errors.New("cần collection và id của bản ghi")
+		}
+		c, err := s.store.Collections().Get(ctx, sc.ProjectID, r.Collection)
+		if err != nil {
+			return a, fmt.Errorf("không có collection %q", r.Collection)
+		}
+		x, err := s.store.Collections().Record(ctx, c.ID, r.ID)
+		if err != nil {
+			return a, fmt.Errorf("không có bản ghi %q trong %q", r.ID, r.Collection)
+		}
+		a.Target, a.TargetID = recordLabel(c, x), x.ID
 	} else if kind == "run_automation" { // costs tokens: a person always decides
 		if s.runner == nil {
 			return a, errors.New("không giao việc được ở đây")
@@ -388,6 +403,8 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 		return false // the point of the gate: a person decides
 	case "create_project", "import_project":
 		return false // a new folder and project on the machine: a person decides
+	case "data_delete":
+		return false // a person decides
 	case "send_message": // never on and on: what a relayed message started asks a person
 		if s.sender == nil {
 			return false
@@ -717,6 +734,17 @@ func (s *Service) run(ctx context.Context, a storage.Action) error {
 		_, err := s.projects.CreateProject(ctx, *a.Args.NewProject)
 		return err
 	}
+	if a.Kind == "data_delete" {
+		c, err := s.store.Collections().Get(ctx, a.ProjectID, a.Args.Record.Collection)
+		if err != nil {
+			return err
+		}
+		x, err := s.store.Collections().Record(ctx, c.ID, a.Args.Record.ID)
+		if err != nil {
+			return err
+		}
+		return s.store.Collections().Delete(ctx, x, "agent:"+a.ProposedBy)
+	}
 	if a.Kind == "config_change" {
 		if s.config == nil {
 			return errors.New("không đổi được cài đặt ở đây")
@@ -920,4 +948,17 @@ func (s *Service) unmerged(ctx context.Context, conversationID string) bool {
 		}
 	}
 	return false
+}
+
+// recordLabel: a record as a card shows it (its collection, its first text field).
+func recordLabel(c storage.Collection, x storage.Record) string {
+	for _, f := range c.Fields {
+		if v, ok := x.Data[f.Name].(string); ok && v != "" {
+			if r := []rune(v); len(r) > 60 {
+				v = string(r[:60]) + "…"
+			}
+			return c.Name + ": " + v
+		}
+	}
+	return c.Name + ": " + x.ID
 }

@@ -13,7 +13,7 @@ import (
 func TestTools(t *testing.T) {
 	ctx := context.Background()
 	s, p := setup(t)
-	tools := NewTools(s)
+	tools := NewTools(s, nil)
 	read, write := officetools.Scope{ProjectID: p, Level: "read"}, officetools.Scope{ProjectID: p, Level: "propose", Agent: "cskh"}
 	if tools.Tools(read) != nil {
 		t.Fatal("no collection: no tools")

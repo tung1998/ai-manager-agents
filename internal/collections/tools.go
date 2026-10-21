@@ -8,15 +8,24 @@ import (
 
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/perm"
+	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
 // Tools are the agents' data_* tools (an officetools.Provider): only in a
 // project with a collection. Reading is for every agent; writing needs
-// "propose" or more. Deleting is the person's, on the dashboard.
-type Tools struct{ s *Service }
+// "propose" or more; deleting is an approval card a person decides.
+type Tools struct {
+	s       *Service
+	propose Proposer
+}
 
-// NewTools gives s's tools to agents.
-func NewTools(s *Service) Tools { return Tools{s} }
+// Proposer proposes an action for a person to approve (actions.Service).
+type Proposer interface {
+	Propose(ctx context.Context, sc officetools.Scope, kind, target, reason string, args ...storage.ActionArgs) (storage.Action, error)
+}
+
+// NewTools gives s's tools to agents; p proposes deletes (nil: none).
+func NewTools(s *Service, p Proposer) Tools { return Tools{s, p} }
 
 func obj(props map[string]any, required ...string) map[string]any {
 	o := map[string]any{"type": "object", "properties": props}
@@ -57,6 +66,11 @@ func (t Tools) Tools(sc officetools.Scope) []officetools.Tool {
 			Description: "Write a record: with id, patch that record; else the record a unique field's value matches is patched, or a new one made. Only the fields given change; null takes a field out. Every change is kept in its history.",
 			Schema: obj(map[string]any{"collection": collectionProp, "id": str("Record id to patch (optional)"),
 				"data": map[string]any{"type": "object", "description": "Field values by name"}}, "collection", "data")})
+		if t.propose != nil {
+			out = append(out, officetools.Tool{Name: "data_delete",
+				Description: "PROPOSE deleting a record: a person approves the card (the record's history keeps it).",
+				Schema:      obj(map[string]any{"collection": collectionProp, "id": str("Record id"), "reason": str("Why")}, "collection", "id")})
+		}
 	}
 	return out
 }
@@ -132,6 +146,19 @@ func (t Tools) Call(ctx context.Context, sc officetools.Scope, name string, raw 
 			h = h[:5]
 		}
 		return toJSON(map[string]any{"record": x, "refs": refs, "history": h}), false
+	case "data_delete":
+		if !perm.AtLeast(sc.Level, perm.Propose) || t.propose == nil {
+			return "Quyền hiện tại không xóa được dữ liệu.", true
+		}
+		var d struct {
+			Reason string `json:"reason"`
+		}
+		_ = json.Unmarshal(raw, &d)
+		a, err := t.propose.Propose(ctx, sc, "data_delete", "", d.Reason, storage.ActionArgs{Record: &storage.RecordRef{Collection: in.Collection, ID: in.ID}})
+		if err != nil {
+			return fail(err)
+		}
+		return "Đã đề xuất xóa (" + a.Target + "), chờ người duyệt.", false
 	case "data_upsert":
 		if !perm.AtLeast(sc.Level, perm.Propose) {
 			return "Quyền hiện tại chỉ đọc dữ liệu.", true

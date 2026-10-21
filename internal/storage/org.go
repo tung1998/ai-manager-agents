@@ -824,6 +824,14 @@ type ActionArgs struct {
 	Peer string `json:"peer,omitempty"`
 	// create_project / import_project: the project to make (ADR-170)
 	NewProject *NewProject `json:"new_project,omitempty"`
+	// data_delete: the record of a collection to delete (ADR-172)
+	Record *RecordRef `json:"record,omitempty"`
+}
+
+// RecordRef names a record of a project's collection.
+type RecordRef struct {
+	Collection string `json:"collection"`
+	ID         string `json:"id"`
 }
 
 // NewProject is a project the office assistant proposes to make (ADR-170):

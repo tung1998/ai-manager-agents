@@ -12,12 +12,12 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/collections"
 
 	"bitbucket.org/senprints/agent-office/internal/channels"
 	"bitbucket.org/senprints/agent-office/internal/features"
-	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
@@ -30,11 +30,19 @@ type Service struct {
 	limit       limiter
 	mu          sync.Mutex
 	watchers    map[string]chan struct{} // ticket id → closed at its next change
+
+	box       Box
+	botSend   func(ctx context.Context, channelID, chatID, text string) error
+	client    *http.Client
+	kick      chan struct{} // something to deliver now
+	deliverMu sync.Mutex
+	lastSweep time.Time
+	lastSync  time.Time
 }
 
 // New builds the pack.
 func New(store storage.Store) *Service {
-	return &Service{store: store, collections: collections.New(store)}
+	return &Service{store: store, collections: collections.New(store), client: &http.Client{Timeout: 15 * time.Second}, kick: make(chan struct{}, 1)}
 }
 
 // On reports whether a project has the pack on (its collections made the
@@ -71,13 +79,30 @@ var Collections = []storage.Collection{
 		{Name: "content", Label: "Nội dung", Type: storage.FieldText},
 		{Name: "case_type", Label: "Loại case", Type: storage.FieldText, Indexed: true},
 		{Name: "enabled", Label: "Đang dùng", Type: storage.FieldBool},
+		{Name: "synced_hash", Label: "Đồng bộ", Type: storage.FieldText},
 	}},
 }
 
-// ensure makes the pack's collections a project does not have yet.
+// ensure makes the pack's collections a project does not have yet, and
+// adds to the pack's own the fields a newer pack has.
 func (s *Service) ensure(ctx context.Context, projectID string) error {
 	for _, c := range Collections {
-		if _, err := s.store.Collections().Get(ctx, projectID, c.Key); err == nil {
+		if old, err := s.store.Collections().Get(ctx, projectID, c.Key); err == nil {
+			if old.Pack != "support" {
+				continue // the project's own collection of that key
+			}
+			fields, added := old.Fields, false
+			for _, f := range c.Fields {
+				if !hasField(fields, f.Name) {
+					fields, added = append(fields, f), true
+				}
+			}
+			if added {
+				old.Fields = fields
+				if _, err := s.collections.Define(ctx, projectID, old); err != nil {
+					return err
+				}
+			}
 			continue
 		} else if !errors.Is(err, storage.ErrNotFound) {
 			return err
@@ -89,26 +114,44 @@ func (s *Service) ensure(ctx context.Context, projectID string) error {
 	return nil
 }
 
-// Take is the bot Tap: a message of a channel the pack has as a source, in a
-// project with the pack on. Anything else goes to the rules as before.
+// Take is the bot Tap: a message of a bot a support source (kind bot) of a
+// project with the pack on listens to becomes a customer message; anything
+// else goes to the rules as before.
 func (s *Service) Take(ctx context.Context, ch storage.Channel, in channels.Incoming) bool {
-	if !s.On(ctx, ch.ProjectID) {
+	if in.Text == "" || !s.On(ctx, ch.ProjectID) {
 		return false
 	}
-	return false // no sources yet
-}
-
-// Tools lists the pack's agent tools (none where the pack is off).
-func (s *Service) Tools(sc officetools.Scope) []officetools.Tool {
-	if !s.On(context.Background(), sc.ProjectID) {
-		return nil
+	list, err := s.store.Support().Sources(ctx, ch.ProjectID)
+	if err != nil {
+		return false
 	}
-	return nil
+	for _, src := range list {
+		if src.Kind != "bot" || !src.Enabled || str(src.Config["channel_id"]) != ch.ID {
+			continue
+		}
+		msgID := in.MessageID
+		if msgID != "" {
+			msgID = ch.Kind + ":" + in.ChatID + ":" + msgID
+		}
+		inb := Inbound{ExternalID: msgID, Thread: in.ChatID, Text: in.Text,
+			Customer: Contact{Name: firstNonEmpty(in.FullName, in.UserName), Ref: ch.Kind + ":" + in.UserID}}
+		go func() { // the bot's chat is held meanwhile: answer it after
+			if _, err := s.Receive(context.WithoutCancel(ctx), src, inb); err != nil {
+				slog.Warn("support: bot message", "source", src.ID, "err", err)
+			}
+		}()
+		return true
+	}
+	return false
 }
 
-// Call runs one of the pack's tools.
-func (s *Service) Call(ctx context.Context, sc officetools.Scope, name string, raw json.RawMessage) (string, bool) {
-	return "Không có công cụ " + name + ".", true
+func hasField(fields []storage.Field, name string) bool {
+	for _, f := range fields {
+		if f.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Routes adds the pack's API: /api/projects/{id}/support/... for the

@@ -530,5 +530,11 @@ func text(c storage.Collection, data map[string]any) string {
 			}
 		}
 	}
-	return strings.Join(parts, "\n")
+	out := strings.Join(parts, "\n")
+	if strings.ContainsAny(out, "đĐ") { // search ignores accents, but đ is a letter of its own: "doi" finds "đổi" too
+		out += "\n" + dd.Replace(out)
+	}
+	return out
 }
+
+var dd = strings.NewReplacer("đ", "d", "Đ", "D")

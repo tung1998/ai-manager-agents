@@ -10,6 +10,7 @@ const base = computed(() => `/api/projects/${props.projectId}/support`)
 const { data: shown } = useLiveFetch<{ ticket: SupportTicket, events: SupportEvent[], customer?: DataRecord }>(() => `${base.value}/tickets/${props.ticketId}`, { lazy: true })
 // what a person reads: the messages and answers; drafts no longer waiting fold away
 const lines = computed(() => (shown.value?.events ?? []).filter(e => e.kind !== 'ai_draft' || e.state === 'pending' || e.state === 'failed'))
+const statusText = (e: SupportEvent) => e.body === 'sla_breached' ? t('sup.slaBreached') : t('sup.escalated')
 
 const edits = reactive<Record<string, string>>({})
 const busy = ref(false)
@@ -52,6 +53,8 @@ const who = (e: SupportEvent) => e.kind === 'customer_msg' ? (e.actor.replace(/^
     <div class="flex flex-wrap items-center gap-2 border-b border-(--ui-border) p-2">
       <UButton class="md:hidden" size="xs" color="neutral" variant="ghost" icon="i-lucide-arrow-left" :aria-label="t('sup.back')" @click="emit('back')" />
       <p class="min-w-0 flex-1 truncate text-sm font-medium">{{ shown?.ticket.subject }}</p>
+      <UBadge v-if="shown?.ticket.case_type" color="neutral" variant="outline" :label="shown.ticket.case_type" />
+      <UBadge v-if="shown?.ticket.sla_breached" color="error" variant="subtle" icon="i-lucide-alarm-clock-off" :label="t('sup.slaBreached')" />
       <UBadge v-if="shown" :color="ticketColor[shown.ticket.status]" variant="subtle" :label="t(`sup.st.${shown.ticket.status}` as 'sup.st.new')" />
       <UButton v-if="isAdmin && shown && !['resolved', 'closed'].includes(shown.ticket.status)" size="xs" color="neutral" variant="outline" icon="i-lucide-check" :label="t('sup.resolve')" :loading="busy" @click="setStatus('resolved')" />
       <UButton v-else-if="isAdmin && shown" size="xs" color="neutral" variant="outline" icon="i-lucide-rotate-ccw" :label="t('sup.reopen')" :loading="busy" @click="setStatus('open')" />
@@ -65,9 +68,18 @@ const who = (e: SupportEvent) => e.kind === 'customer_msg' ? (e.actor.replace(/^
         <span v-if="Array.isArray(shown.customer.data.tags) && shown.customer.data.tags.length">{{ fieldText(shown.customer.data.tags) }}</span>
       </div>
       <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        <div v-for="e in lines" :key="e.id" class="flex" :class="e.kind === 'customer_msg' ? 'justify-start' : 'justify-end'">
+        <div v-for="e in lines" :key="e.id" class="flex" :class="e.kind === 'customer_msg' ? 'justify-start' : e.kind === 'status' ? 'justify-center' : 'justify-end'">
+          <!-- what happened: handed to a person, SLA passed -->
+          <p v-if="e.kind === 'status'" class="flex items-center gap-1.5 text-xs text-(--ui-text-muted)">
+            <UIcon :name="e.body === 'sla_breached' ? 'i-lucide-alarm-clock-off' : 'i-lucide-user-round'" class="size-3.5" />{{ statusText(e) }} · {{ when(e.created_at) }}
+          </p>
+          <!-- an internal note: the customer never sees it -->
+          <div v-else-if="e.kind === 'note'" class="max-w-xl rounded-lg border border-dashed border-(--ui-border) px-3 py-2">
+            <p class="whitespace-pre-wrap text-sm text-(--ui-text-toned)">{{ e.body }}</p>
+            <p class="mt-1 text-[11px] text-(--ui-text-dimmed)">{{ t('sup.note') }} · {{ who(e) }} · {{ when(e.created_at) }}</p>
+          </div>
           <!-- an AI answer waiting for a person -->
-          <div v-if="e.kind === 'ai_draft' && e.state === 'pending'" class="w-full max-w-xl space-y-2 rounded-lg border border-(--ui-warning)/40 bg-(--ui-warning)/5 p-3">
+          <div v-else-if="e.kind === 'ai_draft' && e.state === 'pending'" class="w-full max-w-xl space-y-2 rounded-lg border border-(--ui-warning)/40 bg-(--ui-warning)/5 p-3">
             <p class="flex items-center gap-1.5 text-xs font-medium text-(--ui-warning)"><UIcon name="i-lucide-sparkles" class="size-3.5" />{{ t('sup.draft') }}</p>
             <UTextarea v-if="isAdmin" :model-value="edits[e.id] ?? e.body" autoresize :rows="3" class="w-full" @update:model-value="v => edits[e.id] = String(v)" />
             <p v-else class="whitespace-pre-wrap text-sm">{{ e.body }}</p>
@@ -83,6 +95,8 @@ const who = (e: SupportEvent) => e.kind === 'customer_msg' ? (e.actor.replace(/^
             <p class="whitespace-pre-wrap text-sm">{{ e.body }}</p>
             <p class="mt-1 text-[11px] text-(--ui-text-dimmed)">
               {{ who(e) }} · {{ when(e.created_at) }}<span v-if="e.meta?.edited"> · {{ t('sup.edited') }}</span>
+              <span v-if="e.state === 'queued'"> · {{ t('sup.sending') }}</span>
+              <span v-else-if="e.state === 'failed'" class="text-(--ui-error)"> · {{ t('sup.sendFailed') }}: {{ e.meta?.error }}</span>
             </p>
           </div>
         </div>

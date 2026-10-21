@@ -177,9 +177,11 @@ func (s *Service) Receive(ctx context.Context, src storage.SupportSource, in Inb
 		return Result{}, err
 	}
 	customerID := s.customer(ctx, src.ProjectID, in.Customer)
+	st := s.LoadSettings(ctx, src.ProjectID)
 	var (
-		t   storage.SupportTicket
-		msg storage.SupportEvent
+		t       storage.SupportTicket
+		msg     storage.SupportEvent
+		created bool
 	)
 	err = s.store.InTx(ctx, func(tx storage.Store) error {
 		repo := tx.Support()
@@ -189,10 +191,16 @@ func (s *Service) Receive(ctx context.Context, src storage.SupportSource, in Inb
 		}
 		if in.Thread == "" || errors.Is(err, storage.ErrNotFound) {
 			subject := firstNonEmpty(strings.TrimSpace(in.Subject), cut(in.Text, 80))
-			if t, err = repo.CreateTicket(ctx, storage.SupportTicket{ProjectID: src.ProjectID, SourceID: src.ID, ExternalThread: in.Thread,
-				CustomerID: customerID, Subject: subject, Status: StatusNew}); err != nil {
+			t = storage.SupportTicket{ProjectID: src.ProjectID, SourceID: src.ID, ExternalThread: in.Thread,
+				CustomerID: customerID, Subject: subject, Status: StatusNew, CaseType: classify(st, in.Text)}
+			if m := st.sla(t.CaseType); m > 0 {
+				due := time.Now().UTC().Add(time.Duration(m) * time.Minute)
+				t.SLADueAt = &due
+			}
+			if t, err = repo.CreateTicket(ctx, t); err != nil {
 				return err
 			}
+			created = true
 		} else if err != nil {
 			return err
 		} else {
@@ -201,6 +209,9 @@ func (s *Service) Receive(ctx context.Context, src storage.SupportSource, in Inb
 			}
 			if t.CustomerID == "" {
 				t.CustomerID = customerID
+			}
+			if t.CaseType == "" {
+				t.CaseType = classify(st, in.Text)
 			}
 			if err := repo.UpdateTicket(ctx, t); err != nil {
 				return err
@@ -229,7 +240,16 @@ func (s *Service) Receive(ctx context.Context, src storage.SupportSource, in Inb
 		return Result{}, err
 	}
 	s.notify(t.ID)
-	payload, _ := json.Marshal(map[string]any{"support": s.payload(ctx, src, t, msg)})
+	if created {
+		s.fire(ctx, t, "ticket.created", nil)
+	}
+	s.fire(ctx, t, "ticket.message", map[string]any{"message": map[string]any{"id": msg.ID, "text": msg.Body}})
+	// a customer asking for a person, or a case people answer: no AI answer
+	if contains(t.Tags, "human") || has(in.Text, st.HumanWords) || st.mode(t, src) == "human" {
+		s.escalate(ctx, t, msg, "human")
+		return s.result(ctx, msg), nil
+	}
+	payload, _ := json.Marshal(map[string]any{"support": s.payload(ctx, src, t, msg, st)})
 	j, _, err := s.runner.Enqueue(ctx, a, "webhook", string(payload), "support:"+msg.ID, "") // an outside sender: never trusted
 	if err != nil {
 		s.fail(ctx, t, msg, "chưa xếp được việc trả lời: "+err.Error())
@@ -241,6 +261,20 @@ func (s *Service) Receive(ctx context.Context, src storage.SupportSource, in Inb
 	}
 	s.runner.StartReady(context.WithoutCancel(ctx), time.Now().UTC())
 	return Result{TicketID: t.ID, EventID: msg.ID, JobID: j.ID, Status: statusQueue}, nil
+}
+
+// escalate hands a ticket to a person: no AI answer on it from now on.
+func (s *Service) escalate(ctx context.Context, t storage.SupportTicket, msg storage.SupportEvent, reason string) {
+	repo := s.store.Support()
+	if !contains(t.Tags, "human") {
+		t.Tags = append(t.Tags, "human")
+	}
+	t.Status = StatusOpen
+	_ = repo.UpdateTicket(ctx, t)
+	_, _ = repo.AddEvent(ctx, storage.SupportEvent{TicketID: t.ID, SourceID: t.SourceID, Kind: "status", Body: "escalated", Actor: "office",
+		ReplyTo: msg.ID, State: "human", Meta: map[string]any{"reason": reason}})
+	s.fire(ctx, t, "ticket.escalated", map[string]any{"reason": reason, "message": map[string]any{"id": msg.ID, "text": msg.Body}})
+	s.notify(t.ID)
 }
 
 // answerer: the source's automation, if it can answer.
@@ -315,7 +349,7 @@ func (s *Service) customer(ctx context.Context, projectID string, c Contact) str
 
 // payload is what the automation reads: the ticket, who, the message, the
 // ticket's history before it.
-func (s *Service) payload(ctx context.Context, src storage.SupportSource, t storage.SupportTicket, msg storage.SupportEvent) map[string]any {
+func (s *Service) payload(ctx context.Context, src storage.SupportSource, t storage.SupportTicket, msg storage.SupportEvent, st Settings) map[string]any {
 	var history []map[string]any
 	if evs, err := s.store.Support().Events(ctx, t.ID); err == nil {
 		for _, e := range evs {
@@ -329,7 +363,15 @@ func (s *Service) payload(ctx context.Context, src storage.SupportSource, t stor
 		history = history[len(history)-historyLen:]
 	}
 	out := map[string]any{"ticket_id": t.ID, "subject": t.Subject, "source": src.Name, "channel": src.Kind, "message": msg.Body,
-		"history": history, "meta": msg.Meta}
+		"history": history, "meta": msg.Meta, "case_type": t.CaseType,
+		"tools": "support_kb_search finds the playbooks; support_set sets the case type; your final answer is the reply to the customer"}
+	if len(st.Cases) > 0 {
+		var cases []map[string]any
+		for _, c := range st.Cases {
+			cases = append(cases, map[string]any{"key": c.Key, "name": c.Name, "when": c.Description})
+		}
+		out["case_types"] = cases
+	}
 	if t.CustomerID != "" {
 		if x, _, err := s.collections.Get(ctx, src.ProjectID, "customers", t.CustomerID); err == nil {
 			out["customer"] = map[string]any{"id": x.ID, "data": x.Data}
@@ -366,7 +408,16 @@ func (s *Service) Done(ctx context.Context, j storage.Job, answer string, runErr
 		_, _ = repo.AddEvent(ctx, draft)
 		return
 	}
-	if src.Mode == "auto" {
+	st := s.LoadSettings(ctx, t.ProjectID)
+	if t, err = repo.Ticket(ctx, t.ID); err != nil { // the agent may have set its case meanwhile
+		return
+	}
+	if contains(t.Tags, "human") { // a person took it meanwhile
+		draft.State = DraftSuperseded
+		_, _ = repo.AddEvent(ctx, draft)
+		return
+	}
+	if st.mode(t, src) == "auto" {
 		draft.State = DraftApproved
 		if draft, err = repo.AddEvent(ctx, draft); err != nil {
 			return
@@ -374,11 +425,12 @@ func (s *Service) Done(ctx context.Context, j storage.Job, answer string, runErr
 		s.send(ctx, t, draft, answer, "agent")
 		return
 	}
-	if _, err := repo.AddEvent(ctx, draft); err != nil {
+	if draft, err = repo.AddEvent(ctx, draft); err != nil {
 		return
 	}
 	t.Status = StatusWaitingApproval
 	_ = repo.UpdateTicket(ctx, t)
+	s.fire(ctx, t, "ticket.awaiting_approval", map[string]any{"draft": map[string]any{"id": draft.ID, "text": draft.Body}})
 	s.notify(t.ID)
 }
 
@@ -405,18 +457,33 @@ func (s *Service) stale(ctx context.Context, ticketID string, msg storage.Suppor
 	return false
 }
 
-// send records the reply going to the customer. The API source's caller
-// reads it (the response, or polling); other sources deliver it (later).
+// send records the reply going to the customer: the API's caller reads it
+// (the response, or polling); a bot, Crisp or email gets it through the
+// outbox. Hooks hear ticket.replied.
 func (s *Service) send(ctx context.Context, t storage.SupportTicket, draft storage.SupportEvent, text, by string) {
 	repo := s.store.Support()
-	_, _ = repo.AddEvent(ctx, storage.SupportEvent{TicketID: t.ID, SourceID: t.SourceID, Kind: "sent", Body: text, Actor: by,
-		ReplyTo: draft.ReplyTo, ConversationID: draft.ConversationID, State: "sent", Meta: map[string]any{"draft": draft.ID}})
+	state := "sent"
+	src, err := repo.Source(ctx, t.SourceID)
+	if err == nil && way(src) != "" {
+		state = "queued"
+	}
+	e, err := repo.AddEvent(ctx, storage.SupportEvent{TicketID: t.ID, SourceID: t.SourceID, Kind: "sent", Body: text, Actor: by,
+		ReplyTo: draft.ReplyTo, ConversationID: draft.ConversationID, State: state, Meta: map[string]any{"draft": draft.ID}})
+	if err != nil {
+		return
+	}
+	if state == "queued" {
+		if _, err := repo.AddOut(ctx, storage.SupportOut{ProjectID: t.ProjectID, Kind: "reply", RefID: e.ID, TicketID: t.ID}); err == nil {
+			s.wake()
+		}
+	}
 	now := time.Now().UTC()
 	if t.FirstResponseAt == nil {
 		t.FirstResponseAt = &now
 	}
 	t.Status = StatusWaitingCustomer
 	_ = repo.UpdateTicket(ctx, t)
+	s.fire(ctx, t, "ticket.replied", map[string]any{"reply": map[string]any{"id": e.ID, "text": text, "by": by}})
 	s.notify(t.ID)
 }
 
@@ -427,6 +494,7 @@ func (s *Service) fail(ctx context.Context, t storage.SupportTicket, msg storage
 		JobID: msg.JobID, ReplyTo: msg.ID, State: DraftFailed})
 	t.Status = StatusOpen
 	_ = repo.UpdateTicket(ctx, t)
+	s.fire(ctx, t, "ticket.escalated", map[string]any{"reason": "no_answer", "error": why})
 	s.notify(t.ID)
 }
 
@@ -502,6 +570,8 @@ func (s *Service) result(ctx context.Context, msg storage.SupportEvent) Result {
 			r.Status = "failed"
 		case e.Kind == "ai_draft" && e.State == DraftSuperseded && r.Status == statusQueue:
 			r.Status = "superseded"
+		case e.Kind == "status" && e.State == "human":
+			r.Status = "human"
 		}
 	}
 	return r
@@ -619,6 +689,10 @@ func (s *Service) SetStatus(ctx context.Context, projectID, ticketID, status str
 	}
 	if err := repo.UpdateTicket(ctx, t); err != nil {
 		return err
+	}
+	s.fire(ctx, t, "ticket.status_changed", map[string]any{"status": status})
+	if status == StatusResolved || status == StatusClosed {
+		s.fire(ctx, t, "ticket.closed", map[string]any{"status": status})
 	}
 	s.notify(t.ID)
 	return nil

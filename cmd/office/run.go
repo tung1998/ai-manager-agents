@@ -198,11 +198,16 @@ func serveCmd() *cobra.Command {
 			// the support pack (ADR-171): its points do nothing where it is off
 			supportPack := support.New(a.store)
 			supportPack.SetRunner(runner)
+			supportPack.SetBox(a.providers.Box()) // Crisp keys, SMTP passwords, hook secrets
+			supportPack.SetBotSender(func(ctx context.Context, channelID, chatID, text string) error {
+				return bots.NotifyConversation(ctx, channelID, chatID, text, "")
+			})
+			go supportPack.Run(ctx)            // replies and hooks out, SLAs, playbooks
 			runner.AddOnDone(supportPack.Done) // a customer message's answer
 			support.Who = api.Actor
 			bots.SetTap(supportPack)
 			office.AddProvider(supportPack)
-			office.AddProvider(collections.NewTools(collections.New(a.store))) // data_* (ADR-172)
+			office.AddProvider(collections.NewTools(collections.New(a.store), acts)) // data_* (ADR-172); a delete is a card
 			runner.SetOnReply(bots.Reply)
 			runner.SetOnProgress(bots.Progress)
 			acts.SetAutoApprover(bots.DirectApprover) // a chat in direct mode: approved in the turn, the agent goes on

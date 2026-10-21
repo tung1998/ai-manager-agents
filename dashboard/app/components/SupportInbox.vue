@@ -36,6 +36,9 @@ const selected = computed({
             <p class="truncate text-sm font-medium">{{ x.subject || x.id }}</p>
             <div class="mt-0.5 flex items-center gap-2 text-xs text-(--ui-text-muted)">
               <UBadge :color="ticketColor[x.status]" variant="subtle" size="sm" :label="t(`sup.st.${x.status}` as 'sup.st.new')" />
+              <UBadge v-if="x.case_type" color="neutral" variant="outline" size="sm" :label="x.case_type" />
+              <UIcon v-if="x.tags?.includes('human')" name="i-lucide-user-round" class="size-3.5" :aria-label="t('sup.human')" />
+              <UIcon v-if="x.sla_breached" name="i-lucide-alarm-clock-off" class="size-3.5 text-(--ui-error)" :aria-label="t('sup.slaBreached')" />
               <span class="ms-auto">{{ when(x.updated_at) }}</span>
             </div>
           </button>

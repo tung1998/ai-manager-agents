@@ -192,3 +192,7 @@ curl -X POST "$OFFICE/hooks/support/$SOURCE" -H "Authorization: Bearer $TOKEN" -
 ```
 
 `mode: approve` thì trả `waiting_approval`; người duyệt (kèm sửa) rồi bên gọi lấy câu trả lời qua `poll`.
+
+## 10. Hoàn thiện (ADR-174, 21/10)
+
+Đã làm hết lộ trình §4: nguồn bot/Crisp/form (+ email), outbox có thử lại, hook ký HMAC hoặc chạy tự động hóa, loại case + chế độ + từ đòi gặp người, SLA, báo cáo, tool agent (`support_kb_search`, `support_ticket_get|list`, `support_note`, `support_set`), đồng bộ phương án từ file/link, `office data` CLI, `data_delete` qua thẻ duyệt. Giao diện: Hộp thư, Nguồn, Dữ liệu, Báo cáo, Cài đặt.

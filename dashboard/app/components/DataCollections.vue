@@ -67,6 +67,20 @@ async function remove() {
     toast.add({ title: apiError(e), color: 'error' })
   }
 }
+// playbooks from files and links: their text read again (also hourly)
+const isPlaybooks = computed(() => key.value === 'playbooks' && coll.value?.pack === 'support')
+const syncing = ref(false)
+async function sync() {
+  syncing.value = true
+  try {
+    const r = await $fetch<{ updated: number }>(`/api/projects/${props.projectId}/support/playbooks/sync`, { method: 'POST' })
+    toast.add({ title: t('coll.synced', { n: r.updated }), color: 'success' })
+  } catch (e) {
+    toast.add({ title: apiError(e), color: 'error' })
+  } finally {
+    syncing.value = false
+  }
+}
 const long = (f: CollectionField) => f.type === 'text' && ['content', 'notes', 'body', 'description'].includes(f.name)
 </script>
 
@@ -79,7 +93,8 @@ const long = (f: CollectionField) => f.type === 'text' && ['content', 'notes', '
         <USelect v-model="key" :items="(colls?.collections ?? []).map(c => ({ label: c.name, value: c.key }))" size="sm" class="w-48" />
         <UInput v-model="search" icon="i-lucide-search" size="sm" :placeholder="t('coll.search')" class="w-56" />
         <span class="text-xs text-(--ui-text-muted)">{{ t('coll.count', { n: recs?.total ?? 0 }) }}</span>
-        <UButton v-if="isAdmin && coll" size="sm" icon="i-lucide-plus" :label="t('coll.add')" class="ms-auto" @click="openForm()" />
+        <UButton v-if="isAdmin && isPlaybooks" size="sm" color="neutral" variant="outline" icon="i-lucide-refresh-cw" :label="t('coll.sync')" :loading="syncing" class="ms-auto" @click="sync" />
+        <UButton v-if="isAdmin && coll" size="sm" icon="i-lucide-plus" :label="t('coll.add')" :class="isPlaybooks ? '' : 'ms-auto'" @click="openForm()" />
       </div>
       <p v-if="coll?.description" class="text-xs text-(--ui-text-muted)">{{ coll.description }}</p>
       <div class="overflow-x-auto rounded-lg border border-(--ui-border)">
