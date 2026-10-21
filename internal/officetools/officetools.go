@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,8 +41,12 @@ type Toolbox struct {
 	actions *actions.Service
 	// delegate hands a task to another agent of the chat (ADR-044), set by the chat engine
 	delegate func(ctx context.Context, sc Scope, agent, task string) (string, error)
-	sendFile func(ctx context.Context, sc Scope, path, caption string) (string, error)
-	burn     func(ctx context.Context, sc Scope, name string, in BurnInput) (string, error)
+	// askExpert asks an expert of a linked project (ADR-177); hasExperts:
+	// the project has one to ask (set by the chat engine)
+	askExpert  func(ctx context.Context, sc Scope, expert, question string) (string, error)
+	hasExperts func(ctx context.Context, projectID string) bool
+	sendFile   func(ctx context.Context, sc Scope, path, caption string) (string, error)
+	burn       func(ctx context.Context, sc Scope, name string, in BurnInput) (string, error)
 	// config reads settings for describe/list/get (the API's registry, ADR-045)
 	config ConfigReader
 	// assistant is the office assistant's own project (hidden from the list)
@@ -114,6 +119,15 @@ func (t *Toolbox) SetConfig(c ConfigReader) { t.config = c }
 func (t *Toolbox) SetDelegate(fn func(ctx context.Context, sc Scope, agent, task string) (string, error)) {
 	t.delegate = fn
 }
+
+// SetAskExpert turns on the ask_expert tool.
+func (t *Toolbox) SetAskExpert(fn func(ctx context.Context, sc Scope, expert, question string) (string, error), has func(ctx context.Context, projectID string) bool) {
+	t.askExpert, t.hasExperts = fn, has
+}
+
+// ConsultTools are the only office tools an expert answering a question
+// has (ADR-177): it reads what its project knows, changes nothing.
+var ConsultTools = []string{"recall", "data_collections", "data_query", "data_get"}
 
 // BurnInput is what the burn_* tools take.
 type BurnInput struct{ Title, Kind, Detail, Item, Summary, Reason, What, Scanned, Map, Priority, Lessons, Coverage string }
@@ -302,6 +316,13 @@ func (t *Toolbox) Tools() []Tool {
 				"task":  map[string]any{"type": "string", "description": "The work to do, clear enough to do without asking back"},
 			}, "agent", "task")})
 	}
+	if t.askExpert != nil {
+		list = append(list, Tool{Name: "ask_expert", Description: "Ask an expert: an agent a linked project lends (see the Experts section), in this office or another. It answers from its own project's knowledge (code, notes, data); it sees NOTHING of this chat, code or files, so the question must stand on its own: the situation, the data it needs, what was agreed. Never send secrets. Its answer comes back to this chat and you are called again: end your turn after asking.",
+			Schema: obj(map[string]any{
+				"expert":   map[string]any{"type": "string", "description": "The expert as the Experts section names it (project/agent or office/project/agent)"},
+				"question": map[string]any{"type": "string", "description": "The self-contained question, with the context needed"},
+			}, "expert", "question")})
+	}
 	if t.wf != nil {
 		str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
 		list = append(list, Tool{Name: "run_workflow", Description: "Run one of the project's workflows in this chat yourself, as the person would by writing \"#key input\": it starts when your turn ends and its result comes back to this chat. Use it when a listed workflow fits the request; write the input the workflow needs.",
@@ -334,7 +355,25 @@ func (t *Toolbox) Tools() []Tool {
 // "propose"; below it run_command runs only its safe commands).
 func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 	var out []Tool
+	if sc.Consult { // an expert: its project's knowledge, nothing else
+		for _, x := range t.Tools() {
+			if slices.Contains(ConsultTools, x.Name) {
+				out = append(out, x)
+			}
+		}
+		for _, p := range t.providers {
+			for _, x := range p.Tools(sc) {
+				if slices.Contains(ConsultTools, x.Name) {
+					out = append(out, x)
+				}
+			}
+		}
+		return out
+	}
 	for _, x := range t.Tools() {
+		if x.Name == "ask_expert" && (sc.ConversationID == "" || sc.TaskID != "" || sc.Office || t.hasExperts == nil || !t.hasExperts(context.Background(), sc.ProjectID)) {
+			continue
+		}
 		if (x.Name == "propose_action" || x.Name == "propose_automation" || x.Name == "send_to_chat") && !perm.AtLeast(sc.Level, perm.Propose) {
 			continue
 		}
@@ -354,12 +393,12 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 		if sc.Office && x.Name == "delegate" {
 			continue // the assistant hands work to a project's chat instead
 		}
-		if t.wf != nil && (x.Name == "delegate" || x.Name == "run_workflow" || strings.HasPrefix(x.Name, "workflow_")) {
+		if t.wf != nil && (x.Name == "delegate" || x.Name == "ask_expert" || x.Name == "run_workflow" || strings.HasPrefix(x.Name, "workflow_")) {
 			coord, inRun := t.wf.WorkflowScope(sc)
 			if x.Name == "run_workflow" && (inRun || sc.ConversationID == "" || sc.Office || !perm.AtLeast(sc.Level, perm.Propose)) {
 				continue // a chat's own turn, by an agent that may run things
 			}
-			if x.Name == "delegate" && inRun {
+			if (x.Name == "delegate" || x.Name == "ask_expert") && inRun {
 				continue // a workflow gives work through its own tools
 			}
 			if strings.HasPrefix(x.Name, "workflow_") && !coord {
@@ -413,6 +452,8 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 	}
 	projectID := sc.ProjectID
 	var in struct {
+		Expert   string          `json:"expert"`
+		Question string          `json:"question"`
 		Project  string          `json:"project"`
 		Goal     string          `json:"goal"`
 		Days     int             `json:"days"`
@@ -572,6 +613,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		var w struct{ Key, Input string }
 		_ = json.Unmarshal(raw, &w)
 		out, err = t.wf.StartWorkflow(ctx, sc, w.Key, w.Input)
+	case "ask_expert":
+		if t.askExpert == nil {
+			return "Không có chuyên gia để hỏi ở đây", true
+		}
+		out, err = t.askExpert(ctx, sc, in.Expert, in.Question)
 	case "delegate":
 		if t.delegate == nil {
 			return "Không có công cụ giao việc ở đây", true

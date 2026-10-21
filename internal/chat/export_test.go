@@ -4,3 +4,11 @@ package chat
 // instead of running the step with this id — forces that path
 // deterministically to check a step panic doesn't hang the run.
 func (e *Engine) SetTestStepPanic(stepID string) { e.testStepPanic = stepID }
+
+// TestTurn (tests only): a turn in progress, as an agent's tool call names
+// it (Scope.RunRef), for the person actor.
+func (e *Engine) TestTurn(id, conversationID, actor, agentID, agentName string) {
+	e.mu.Lock()
+	e.turns[id] = &Turn{ID: id, ConversationID: conversationID, actor: actor, agentID: agentID, agentName: agentName, wake: make(chan struct{})}
+	e.mu.Unlock()
+}

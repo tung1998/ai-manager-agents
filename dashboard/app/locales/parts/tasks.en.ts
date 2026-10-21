@@ -89,6 +89,8 @@ const en: Record<keyof typeof vi, string> = {
   'chat.unqueue': 'Drop the queued message',
   'chat.relaySent': 'Sent by agent',
   'chat.relayReport': 'Report from agent',
+  'chat.expert': 'Expert',
+  'chat.expertFromOffice': 'From office {office}',
   'chat.relayFrom': 'from chat',
   'chat.relayUntitled': 'untitled chat',
   'chat.reportShow': 'Content',

@@ -88,6 +88,8 @@ export default {
   'chat.unqueue': 'Bỏ tin chờ gửi',
   'chat.relaySent': 'Gửi bởi agent',
   'chat.relayReport': 'Báo lại từ agent',
+  'chat.expert': 'Chuyên gia',
+  'chat.expertFromOffice': 'Từ office {office}',
   'chat.relayFrom': 'từ chat',
   'chat.relayUntitled': 'chat chưa đặt tên',
   'chat.reportShow': 'Nội dung',

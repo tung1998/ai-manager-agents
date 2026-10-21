@@ -405,7 +405,7 @@ func (s *server) unqueue(w http.ResponseWriter, r *http.Request) {
 // plainMessageDTO is a message just stored (no tools or diffs yet).
 func plainMessageDTO(m storage.Message) chat.MessageDTO {
 	return chat.MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Attachments: m.Attachments, Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt,
-		Tools: []storage.ToolCall{}, Patches: []chat.PatchDTO{}, Relay: chat.RelayOf(m)}
+		Tools: []storage.ToolCall{}, Patches: []chat.PatchDTO{}, Relay: chat.RelayOf(m), Consult: chat.ConsultOf(m)}
 }
 
 // streamTurn sends a turn's events as Server-Sent Events, replaying from

@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/ids"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/repos"
@@ -47,6 +48,18 @@ type RemoteProject struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Repo        string `json:"repo,omitempty"` // its git remote, with no credentials
+	// Assistant: the other office's assistant, run as administrator there
+	// (it gave this office Admin): only this office's assistant reaches it
+	Assistant bool `json:"assistant,omitempty"`
+	// Experts: its agents this office may ask (ask_expert, ADR-177)
+	Experts []RemoteExpert `json:"experts,omitempty"`
+}
+
+// RemoteExpert is an agent of another office's project lent as an expert.
+type RemoteExpert struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Role string `json:"role,omitempty"`
 }
 
 // Peer is another office this one is paired with.
@@ -61,6 +74,9 @@ type Peer struct {
 	Shared []string `json:"shared"`
 	// Remote: its projects this office may reach (as it last told)
 	Remote []RemoteProject `json:"remote"`
+	// Admin: it may hand work to this office's assistant, which runs it as
+	// administrator on this machine (full access), whatever assistant.mode is
+	Admin bool `json:"admin,omitempty"`
 	// As: the person (human:<email>) who paired; what the other office sends
 	// runs in their name here
 	As         string     `json:"as"`
@@ -203,6 +219,31 @@ func (s *Service) SetShared(ctx context.Context, id string, shared []string) err
 	}); err != nil {
 		return err
 	}
+	s.tell(ctx, id)
+	return nil
+}
+
+// SetAdmin lets the office id run this office's assistant as administrator
+// on this machine (on), or stops it at once (off), and tells it.
+func (s *Service) SetAdmin(ctx context.Context, id string, on bool) error {
+	if err := s.update(ctx, func(list []Peer) ([]Peer, error) {
+		for i := range list {
+			if list[i].ID == id {
+				list[i].Admin = on
+				return list, nil
+			}
+		}
+		return nil, storage.ErrNotFound
+	}); err != nil {
+		return err
+	}
+	s.tell(ctx, id)
+	return nil
+}
+
+// tell gives the office id the projects it may now reach (best effort: it
+// can also ask with Refresh).
+func (s *Service) tell(ctx context.Context, id string) {
 	if p, err := s.Get(ctx, id); err == nil {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -210,7 +251,18 @@ func (s *Service) SetShared(ctx context.Context, id string, shared []string) err
 			_ = s.call(ctx, p, http.MethodPut, "/api/peer/projects", map[string]any{"projects": s.SharedProjects(ctx, p)}, nil)
 		}()
 	}
-	return nil
+}
+
+// Opens: p may open and read chats in projectID here (the assistant only as
+// administrator, assistantID "" = none set up).
+func (p Peer) Opens(projectID, assistantID string) bool {
+	if projectID == "" {
+		return false
+	}
+	if projectID == assistantID {
+		return p.Admin
+	}
+	return slices.Contains(p.Shared, projectID)
 }
 
 // projects keeps the ids of existing projects, once each.
@@ -231,14 +283,32 @@ func (s *Service) projects(ctx context.Context, ids []string) ([]string, error) 
 
 // SharedProjects are this office's projects p may reach, as it sees them.
 func (s *Service) SharedProjects(ctx context.Context, p Peer) []RemoteProject {
-	out := []RemoteProject{}
+	out, aid := []RemoteProject{}, assistant.ID(ctx, s.st)
 	for _, id := range p.Shared {
-		if r, err := s.st.Repos().Get(ctx, id); err == nil {
-			out = append(out, RemoteProject{ID: r.ID, Name: r.Name, Description: oneLine(r.Description, 300), Repo: PublicRemote(repos.Remote(r.Path, r.GitRemote))})
+		if r, err := s.st.Repos().Get(ctx, id); err == nil && id != aid {
+			out = append(out, RemoteProject{ID: r.ID, Name: r.Name, Description: oneLine(r.Description, 300), Repo: PublicRemote(repos.Remote(r.Path, r.GitRemote)),
+				Experts: s.experts(ctx, r)})
+		}
+	}
+	if p.Admin && aid != "" {
+		out = append(out, RemoteProject{ID: aid, Name: AssistantName, Description: "Trợ lý office của máy này, chạy toàn quyền (administrator) trên máy", Assistant: true})
+	}
+	return out
+}
+
+// experts are the agents project r lends as experts (Policy.Experts).
+func (s *Service) experts(ctx context.Context, r storage.Repo) []RemoteExpert {
+	var out []RemoteExpert
+	for _, id := range perm.LoadPolicy(ctx, s.st, r.ID).ExpertIDs(r.DefaultAgentID) {
+		if a, err := s.st.Agents().Get(ctx, id); err == nil && a.ProjectID == r.ID && !a.Disabled {
+			out = append(out, RemoteExpert{ID: a.ID, Name: a.Name, Role: oneLine(a.Role, 200)})
 		}
 	}
 	return out
 }
+
+// AssistantName is how an office's assistant shows in the other office.
+const AssistantName = "Trợ lý office"
 
 // SetRemote keeps the projects the other office now lets this one reach.
 func (s *Service) SetRemote(ctx context.Context, id string, projects []RemoteProject) error {
@@ -260,7 +330,23 @@ func cleanRemote(projects []RemoteProject) []RemoteProject {
 	out := []RemoteProject{}
 	for _, r := range projects[:min(len(projects), 200)] {
 		if r.ID = strings.TrimSpace(r.ID); r.ID != "" && !strings.ContainsAny(r.ID, "/?#& ") {
-			out = append(out, RemoteProject{ID: r.ID, Name: oneLine(cmp.Or(r.Name, r.ID), 80), Description: oneLine(r.Description, 300), Repo: PublicRemote(r.Repo)})
+			out = append(out, RemoteProject{ID: r.ID, Name: oneLine(cmp.Or(r.Name, r.ID), 80), Description: oneLine(r.Description, 300), Repo: PublicRemote(r.Repo), Assistant: r.Assistant,
+				Experts: cleanExperts(r.Experts, r.Assistant)})
+		}
+	}
+	return out
+}
+
+// cleanExperts keeps what the other office says of its experts short; its
+// assistant lends none.
+func cleanExperts(list []RemoteExpert, assistant bool) []RemoteExpert {
+	if assistant {
+		return nil
+	}
+	var out []RemoteExpert
+	for _, x := range list[:min(len(list), 20)] {
+		if x.ID = strings.TrimSpace(x.ID); x.ID != "" && !strings.ContainsAny(x.ID, "/?#& ") {
+			out = append(out, RemoteExpert{ID: x.ID, Name: oneLine(cmp.Or(x.Name, x.ID), 80), Role: oneLine(x.Role, 200)})
 		}
 	}
 	return out
@@ -699,7 +785,8 @@ func Linked(ctx context.Context, st storage.Store, s *Service, projectID string)
 		if err != nil {
 			continue
 		}
-		if i := slices.IndexFunc(p.Remote, func(r RemoteProject) bool { return r.ID == pid }); i >= 0 {
+		// the other office's assistant is its machine: never a project's link
+		if i := slices.IndexFunc(p.Remote, func(r RemoteProject) bool { return r.ID == pid && !r.Assistant }); i >= 0 {
 			out = append(out, Link{Ref: ref, Peer: p, Project: p.Remote[i]})
 		}
 	}

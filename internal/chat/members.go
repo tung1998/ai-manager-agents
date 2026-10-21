@@ -259,6 +259,10 @@ func (e *Engine) note(conv storage.Conversation, text string) {
 //     the chat is free (otherwise it sees the result on its next turn);
 //   - the next agent the person tagged answers.
 func (e *Engine) nextTurn(ctx context.Context, prev *Turn, conv storage.Conversation, project storage.Repo, agent storage.Agent, reply string) string {
+	if conv.Purpose == consultPurpose { // an expert answered: back to the chat that asked, nothing else
+		e.consultTurnDone(conv, reply, prev.err)
+		return ""
+	}
 	// a workflow's turn: the coordinator's asks start, a role's answer is
 	// counted (its coordinator is called back when its batch is done)
 	if e.wfAfter(prev, conv, project, reply) {

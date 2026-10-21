@@ -69,7 +69,8 @@ func policyVersion(p perm.Policy) string {
 		QuickCheck     bool
 		QuickChecks    string
 		LinkedProjects []string
-	}{p.Packs, p.DenyPaths, p.WorktreeLinks, p.QuickCheck, p.QuickChecks, p.LinkedProjects})
+		Experts        *[]string
+	}{p.Packs, p.DenyPaths, p.WorktreeLinks, p.QuickCheck, p.QuickChecks, p.LinkedProjects, p.Experts})
 }
 
 func workflowVersion(wf storage.Workflow) string {

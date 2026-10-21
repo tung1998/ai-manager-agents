@@ -2550,3 +2550,25 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - **Báo cáo** (`GET .../support/report?days=`): số ticket, theo trạng thái, theo case, đã trả lời, thời gian trả lời đầu trung bình, quá SLA, chuyển người; ai trả lời (AI gửi luôn, AI người duyệt, AI người sửa, người viết, AI không trả lời được); tin chưa có trả lời (gợi ý phương án còn thiếu).
   - **Giao diện**: menu Khách hàng thêm Báo cáo và Cài đặt (loại case, SLA, từ đòi gặp người, hook và nhật ký gửi); Nguồn chọn loại, bot, Crisp, email; Hộp thư hiện loại case, quá SLA, chuyển người, ghi chú nội bộ, trạng thái gửi.
 - **Không làm:** đọc PDF/DOCX, embedding, phân loại case bằng model riêng (agent đặt bằng `support_set`), Zalo/Facebook, ca trực nhiều người.
+
+## ADR-175: Quyền của trợ lý office nói một lần, theo chế độ
+- **Bối cảnh (21/10):** trợ lý ở chế độ admin nhiều lúc tự nhận "chỉ đọc". Agent của trợ lý được tạo với quyền Chỉ đọc (`internal/assistant/assistant.go`), nên prompt có cả "Your permission this turn: Chỉ đọc", "You only analyse and answer: no file edits…" lẫn "Permission: administrator" ở cuối; hướng dẫn của trợ lý còn ghi "you do not edit code", "every change goes through an approval card".
+- **Quyết định:**
+  - Với trợ lý, `systemPrompt` không nói quyền theo cấp của agent mà theo chế độ (ADR-059) qua `chat/assistant-power`: trả lời / quản lý / admin; bỏ khối "chỉ đọc" và khối diff. Khối administrator nói rõ nó thắng mọi dòng "chỉ đọc" phía trên. Hướng dẫn của trợ lý bỏ hai câu mâu thuẫn (cài đặt vẫn qua thẻ duyệt; code của project giao cho Chat của project).
+  - Chế độ admin chỉ là thật trên kết nối cho chạy cả máy (Claude Code, Gemini, Antigravity: `machineAccess`). Trên Codex hay API, lượt đó được nói và chạy như chế độ quản lý, không còn nói "administrator" mà không có công cụ để làm.
+
+## ADR-176: Office khác được quyền Administrator qua trợ lý office
+- **Bối cảnh (21/10):** người dùng quản lý nhiều máy, mỗi máy một office: một máy chủ cần nhắn việc cho trợ lý office của các máy con và để nó chạy toàn quyền trên máy đó, chỉ bằng một nút, không phải cài đặt từng thứ.
+- **Quyết định:**
+  - **Máy con cấp quyền:** trang Office khác có công tắc **Administrator** cho mỗi office đã ghép nối (`Peer.Admin`, `PUT /api/peers/{id}/admin`, chỉ admin, ghi audit `peer.admin`, bật phải xác nhận). Tắt hoặc gỡ ghép nối thì mất quyền ngay, kể cả lượt đang chờ.
+  - Khi bật, danh sách project chia sẻ gửi sang bên kia có thêm **"Trợ lý office"** (`RemoteProject.Assistant`). Office kia mở chat mới, gửi tiếp, đọc và tìm trong chat của trợ lý (`Peer.Opens`); không bật thì trợ lý vẫn ngoài tầm như trước, dù id của nó nằm trong `Shared`.
+  - Tin từ office đó vào chat của trợ lý chạy ở chế độ **admin** (ADR-059) dù `assistant.mode` đang là gì, đứng tên người đã ghép nối. Lúc chạy mới kiểm: office đó còn `Admin` và người ghép nối còn là admin ở đây. Vẫn chỉ toàn quyền trên kết nối cho chạy cả máy (ADR-175).
+  - **Máy chủ:** chỉ **trợ lý office** thấy trợ lý bên kia (MCP `other_office`, `offices` ghi rõ "[administrator …]"); project không liên kết tới nó được (bỏ khỏi Project liên kết, `Linked` bỏ qua). Giao việc vẫn là `send` → action `send_message` như ADR-169, câu trả lời tự báo lại.
+
+## ADR-177: Hỏi chuyên gia (mượn agent của project liên kết) và ghép nối office bằng địa chỉ
+- **Bối cảnh (21/10):** người dùng muốn mượn agent của project khác (cùng office hay office khác) làm chuyên gia tư vấn ngay trong chat, ví dụ project CSKH đã có cách trả lời khách; và thấy ghép nối bằng mã mời rườm rà. Thiết kế và các thay đổi sau review 2 bên: `docs/superpowers/specs/2026-10-21-ask-expert-design.md`.
+- **Quyết định:**
+  - Agent chat của project tự gọi tool **`ask_expert`** (MCP `office`) với chuyên gia của project liên kết (`Policy.LinkedProjects`, cục bộ hoặc `peer:`). Bên cho mượn chọn **Agent cho hỏi** (`Policy.Experts`; chưa chọn = agent mặc định) ở Quyền & lệnh → Project liên kết; danh sách project chia sẻ sang office kia kèm `experts`.
+  - Chuyên gia trả lời trong một chat ẩn (`Purpose = "consult"`) của project mình, luôn Chỉ đọc, chỉ có `recall` và `data_*`, chi phí tính vào project đó. Câu trả lời vào chat hỏi thành tin của chuyên gia (nhãn Chuyên gia), agent hỏi được gọi lại. Bảng `consults` giữ từng câu hỏi; hết 30 phút không trả lời thì báo lỗi.
+  - Giữa hai office: `/api/peer/consult`, `/api/peer/consult/answer` (office bản cũ từ chối). Không bao giờ hỏi trợ lý office.
+  - **Ghép nối bằng địa chỉ:** Office khác → Kết nối tới office (địa chỉ, chọn project chia sẻ). Bên kia thấy yêu cầu trên chuông và trang Office khác, so **mã so khớp**, bấm Chấp nhận. `/api/peer/request` (công khai, giới hạn), `/api/peer/request/answer` (xác thực bằng khóa bên hỏi cấp). Mã mời `ofi_` giữ nguyên.

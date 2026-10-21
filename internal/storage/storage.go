@@ -145,6 +145,8 @@ type Store interface {
 	Collections() CollectionRepo
 	// Support is the support pack's sources, tickets and history (ADR-171).
 	Support() SupportRepo
+	// Consults are questions to experts of linked projects (ADR-177).
+	Consults() ConsultRepo
 
 	// InTx runs fn in one transaction; the Store passed to fn is bound to it.
 	InTx(ctx context.Context, fn func(Store) error) error

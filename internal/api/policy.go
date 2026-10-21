@@ -54,8 +54,14 @@ func (s *server) getPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pol := perm.LoadPolicy(r.Context(), s.cfg.Store, p.ID)
+	agents := []map[string]string{} // whom it may lend as experts (ADR-177)
+	if list, err := s.cfg.Store.Agents().List(r.Context(), p.ID); err == nil {
+		for _, a := range list {
+			agents = append(agents, map[string]string{"value": a.ID, "label": a.Name})
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"policy": pol, "levels": perm.All, "packs": perm.ProjectPacks(p.Path, pol.Packs), "safe": pol.Safe, "version": policyVersion(pol),
-		"offices": s.officeProjects(r)})
+		"offices": s.officeProjects(r), "agents": agents, "default_agent": p.DefaultAgentID})
 }
 
 // officeProjects are the projects other offices open to this one, to link
@@ -68,6 +74,9 @@ func (s *server) officeProjects(r *http.Request) []map[string]string {
 	list, _ := s.cfg.Peers.List(r.Context())
 	for _, p := range list {
 		for _, rp := range p.Remote {
+			if rp.Assistant { // its machine: only the office assistant reaches it
+				continue
+			}
 			out = append(out, map[string]string{"value": peer.RefPrefix + p.ID + "/" + rp.ID, "label": p.Name + "/" + rp.Name, "description": rp.Description})
 		}
 	}
@@ -81,7 +90,7 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	// a body without quick_check/linked_projects (an older client) keeps what is set
 	old, raw := perm.LoadPolicyRaw(r.Context(), s.cfg.Store, r.PathValue("id"))
-	body.QuickCheck, body.QuickChecks, body.LinkedProjects = old.QuickCheck, old.QuickChecks, old.LinkedProjects
+	body.QuickCheck, body.QuickChecks, body.LinkedProjects, body.Experts = old.QuickCheck, old.QuickChecks, old.LinkedProjects, old.Experts
 	if !decode(w, r, &body) {
 		return
 	}
@@ -141,6 +150,19 @@ func (s *server) putPolicy(w http.ResponseWriter, r *http.Request) {
 		linked = append(linked, id)
 	}
 	in.LinkedProjects = linked
+	if in.Experts != nil { // the agents it lends (ADR-177): its own only
+		experts := []string{}
+		for _, id := range clean(*in.Experts) {
+			if a, err := s.cfg.Store.Agents().Get(r.Context(), id); err != nil || a.ProjectID != projectID {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("không có agent %q trong project", id))
+				return
+			}
+			if !slices.Contains(experts, id) {
+				experts = append(experts, id)
+			}
+		}
+		in.Experts = &experts
+	}
 	patterns := func(list []string) ([]string, error) {
 		out := []string{}
 		for _, x := range list {

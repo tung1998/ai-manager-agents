@@ -38,7 +38,7 @@ func (t *Toolbox) otherLinks(ctx context.Context, sc Scope) []peer.Link {
 // project of another office and its chat handed no work to one (then only
 // read_chat and send, on in those chats).
 func (t *Toolbox) OtherTools(ctx context.Context, sc Scope) []Tool {
-	if t.peers == nil {
+	if t.peers == nil || sc.Consult { // an expert reaches no other office
 		return nil
 	}
 	linked := len(t.otherLinks(ctx, sc)) > 0
@@ -166,6 +166,9 @@ func otherOffices(links []peer.Link) string {
 		for _, l := range links {
 			if l.Peer.ID == p.ID {
 				fmt.Fprintf(&b, "- %s (id %s)", l.Project.Name, l.Project.ID)
+				if l.Project.Assistant {
+					b.WriteString(" [administrator: that office's assistant, it runs what you send with full access to its machine]")
+				}
 				if d := strings.TrimSpace(l.Project.Description); d != "" {
 					b.WriteString(": " + strings.ReplaceAll(d, "\n", " "))
 				}

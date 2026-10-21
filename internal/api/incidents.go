@@ -23,7 +23,7 @@ import (
 // fix it: a monitor down, a process crashed, an automation office turned off,
 // a bot that lost its connection, tasks and runs that failed, a card waiting.
 type incident struct {
-	Kind        string    `json:"kind"`     // monitor | process | automation | bot | jobs | approval | patch | unread | stalled
+	Kind        string    `json:"kind"`     // monitor | process | automation | bot | jobs | approval | patch | unread | stalled | peer_request
 	Severity    string    `json:"severity"` // error | warning
 	ProjectID   string    `json:"project_id"`
 	ProjectName string    `json:"project_name"`
@@ -194,6 +194,16 @@ func (s *server) incidentsFor(ctx context.Context, u storage.User) ([]incident, 
 			}
 			out = append(out, incident{Kind: "unread", Severity: "info", ProjectID: c.ProjectID, ProjectName: name,
 				Title: c.Title, At: c.UpdatedAt, Link: link, ID: c.ID, Key: "unread:" + c.ID})
+		}
+	}
+	if u.Role == storage.RoleAdmin && s.cfg.Peers != nil { // another office asks to pair (ADR-177)
+		for _, rq := range s.cfg.Peers.Requests(ctx) {
+			var gone time.Time
+			if ok, _ := s.cfg.Store.Settings().Get(ctx, dismissKey("peer_request:"+rq.ID), &gone); ok {
+				continue
+			}
+			out = append(out, incident{Kind: "peer_request", Severity: "warning", Title: rq.Name, Detail: rq.URL + " · " + rq.Code,
+				At: rq.CreatedAt, Link: "/admin/peers", ID: rq.ID, Key: "peer_request:" + rq.ID})
 		}
 	}
 	for _, it := range s.limitIncidents(ctx) { // an AI connection close to its limit

@@ -63,7 +63,7 @@ func (s *server) chatChanged(c storage.Change) {
 	if c.Kind == "message" && c.Message != nil {
 		m := c.Message
 		d := chat.MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: m.Attachments, Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt,
-			Patches: []chat.PatchDTO{}, Actions: []chat.ActionDTO{}, Relay: chat.RelayOf(*m)}
+			Patches: []chat.PatchDTO{}, Actions: []chat.ActionDTO{}, Relay: chat.RelayOf(*m), Consult: chat.ConsultOf(*m)}
 		if d.Tools == nil {
 			d.Tools = []storage.ToolCall{}
 		}

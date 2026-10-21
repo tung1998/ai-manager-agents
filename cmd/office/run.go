@@ -242,6 +242,18 @@ func serveCmd() *cobra.Command {
 			})
 			burner.Start(ctx)
 			chatEngine.SendAllQueued(ctx) // messages that waited in chats when office stopped
+			// questions to experts nobody answered in time fail, said in their chat (ADR-177)
+			go func() {
+				for t := time.NewTicker(5 * time.Minute); ; {
+					chatEngine.SweepConsults(ctx)
+					select {
+					case <-ctx.Done():
+						t.Stop()
+						return
+					case <-t.C:
+					}
+				}
+			}()
 			bots.Start(ctx)
 			// data management: measuring, cleaning by hand and on its own (ADR-095)
 			cleaner := cleanup.New(a.store, chatEngine, trees, filepath.Join(h.Dir, "attachments"), h.DB())

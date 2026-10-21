@@ -116,6 +116,10 @@ type Policy struct {
 	// chat in, send to and read (send_to_chat, read_link, search_history).
 	// One way: the other project links back on its own.
 	LinkedProjects []string `json:"linked_projects"`
+	// Experts: ids of this project's agents the projects linking to it may
+	// ask as experts (ask_expert, ADR-177); nil = its default agent, empty =
+	// none.
+	Experts *[]string `json:"experts,omitempty"`
 
 	// Worked out when loaded, not stored:
 	Catalog []string `json:"-"` // every command of the project's packs
@@ -188,6 +192,18 @@ func LoadPolicyRaw(ctx context.Context, st storage.Store, projectID string) (Pol
 		}
 	}
 	return p, raw
+}
+
+// ExpertIDs are the agents a project lends as experts (Policy.Experts),
+// defaultAgent when it never chose.
+func (p Policy) ExpertIDs(defaultAgent string) []string {
+	if p.Experts == nil {
+		if defaultAgent == "" {
+			return nil
+		}
+		return []string{defaultAgent}
+	}
+	return *p.Experts
 }
 
 // SavePolicy stores a project's policy.

@@ -2,14 +2,14 @@
 // What a project offers its agents and what none of them may do: the
 // commands it has (each agent picks from them in its own
 // permissions), files no agent may change.
-interface Policy { packs: CommandPack[], deny_paths: string[], worktree_links: string[], quick_check?: boolean, quick_checks?: string, linked_projects?: string[] }
+interface Policy { packs: CommandPack[], deny_paths: string[], worktree_links: string[], quick_check?: boolean, quick_checks?: string, linked_projects?: string[], experts?: string[] | null }
 
 const props = defineProps<{ projectId: string }>()
 const toast = useToast()
 const { isAdmin } = useAuth()
 const { t } = useLang()
 
-const { data, refresh, error: loadError } = await useLiveFetch<{ policy: Policy, packs: CommandPack[], safe: string[], offices?: { value: string, label: string }[] }>(() => `/api/projects/${props.projectId}/policy`)
+const { data, refresh, error: loadError } = await useLiveFetch<{ policy: Policy, packs: CommandPack[], safe: string[], offices?: { value: string, label: string }[], agents?: { value: string, label: string }[], default_agent?: string }>(() => `/api/projects/${props.projectId}/policy`)
 const safe = computed(() => new Set(data.value?.safe ?? []))
 const { data: projData } = useLiveFetch<{ projects: Project[] }>('/api/projects', { lazy: true })
 // this office's projects, then those other offices open to it (ADR-167)
@@ -20,7 +20,12 @@ const projectItems = computed<LinkItem[][]>(() => {
   return offices.length ? [own, [{ type: 'label', label: t('policy.linkedOffice') }, ...offices.map(o => ({ label: o.label, value: o.value, icon: 'i-lucide-building-2' }))]] : [own]
 })
 
-const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '', quickCheck: true, quickChecks: '', linked: [] as string[] })
+const form = reactive({ packs: [] as CommandPack[], deny: [] as string[], links: '', quickCheck: true, quickChecks: '', linked: [] as string[], experts: null as string[] | null })
+// the agents projects linking here may ask (ADR-177): never chosen = its default agent
+const experts = computed<string[]>({
+  get: () => form.experts ?? (data.value?.default_agent ? [data.value.default_agent] : []),
+  set: (v) => { form.experts = v },
+})
 const editedFrom = ref('') // the policy as the form was filled
 const saveError = useSaveError()
 const { stale, reset: resync } = useDraft(data, form, (d) => { // never over what is being edited
@@ -31,6 +36,7 @@ const { stale, reset: resync } = useDraft(data, form, (d) => { // never over wha
   form.quickCheck = d.policy.quick_check ?? true
   form.quickChecks = d.policy.quick_checks ?? ''
   form.linked = [...(d.policy.linked_projects ?? [])]
+  form.experts = d.policy.experts ? [...d.policy.experts] : null
 })
 
 const newDeny = ref('')
@@ -46,7 +52,7 @@ async function save() {
   try {
     await $fetch(`/api/projects/${props.projectId}/policy`, {
       method: 'PUT',
-      body: { version: editedFrom.value, packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean), quick_check: form.quickCheck, quick_checks: form.quickChecks, linked_projects: form.linked }
+      body: { version: editedFrom.value, packs: form.packs.filter(p => p.label.trim()), deny_paths: form.deny, worktree_links: form.links.split('\n').map(s => s.trim()).filter(Boolean), quick_check: form.quickCheck, quick_checks: form.quickChecks, linked_projects: form.linked, experts: form.experts }
     })
     toast.add({ title: t('policy.saved'), color: 'success' })
     await refresh()
@@ -163,6 +169,13 @@ function removePack(p: CommandPack) {
           <InfoTip :text="t('policy.linkedHelp')" icon-class="size-3.5 text-(--ui-text-dimmed)" />
         </p>
         <USelectMenu v-model="form.linked" :items="projectItems" value-key="value" multiple size="sm" :disabled="!isAdmin" :placeholder="t('policy.linkedPlaceholder')" class="w-full sm:w-72" />
+      </div>
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <p class="flex items-center gap-1.5 text-sm font-medium">
+          {{ t('policy.experts') }}
+          <InfoTip :text="t('policy.expertsHelp')" icon-class="size-3.5 text-(--ui-text-dimmed)" />
+        </p>
+        <USelectMenu v-model="experts" :items="data?.agents ?? []" value-key="value" multiple size="sm" :disabled="!isAdmin || !data" :placeholder="t('policy.expertsNone')" class="w-full sm:w-72" />
       </div>
     </UCard>
 

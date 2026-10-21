@@ -74,7 +74,8 @@ type MessageDTO struct {
 	Patches     []PatchDTO           `json:"patches"`
 	Actions     []ActionDTO          `json:"actions"`
 	CostUSD     *float64             `json:"cost_usd,omitempty"`
-	Relay       *Relay               `json:"relay,omitempty"` // sent by an agent from another chat: who, from which project and chat
+	Relay       *Relay               `json:"relay,omitempty"`   // sent by an agent from another chat: who, from which project and chat
+	Consult     *Consult             `json:"consult,omitempty"` // an expert's answer to a question asked here (ADR-177)
 }
 
 // PatchDTO is a proposed change.
@@ -257,6 +258,7 @@ func (e *Engine) SetOffice(tools *officetools.Toolbox, mcp *mcpserver.Server, mc
 	e.office, e.mcp, e.mcpURL = tools, mcp, mcpURL
 	if tools != nil {
 		tools.SetDelegate(e.Delegate)
+		tools.SetAskExpert(e.AskExpert, func(ctx context.Context, projectID string) bool { return len(e.Experts(ctx, projectID)) > 0 })
 		tools.SetWorkflow(e)
 	}
 }
@@ -282,6 +284,14 @@ func (e *Engine) isAdminEmail(ctx context.Context, email string) bool {
 	}
 	u, err := e.store.Users().GetByEmail(ctx, email)
 	return err == nil && u.Role == storage.RoleAdmin && !u.Disabled
+}
+
+// assistantID is the office assistant's project ("" = none).
+func (e *Engine) assistantID(ctx context.Context) string {
+	if e.assistant == nil {
+		return ""
+	}
+	return e.assistant(ctx)
 }
 
 func (e *Engine) isAssistant(ctx context.Context, projectID string) bool {
@@ -349,7 +359,7 @@ func (e *Engine) officeAccess(ctx context.Context, sc officetools.Scope) (*Offic
 	}
 	token, revoke := e.mcp.Grant(sc, 30*time.Minute)
 	oa := &OfficeAccess{MCPURL: e.mcpURL, Token: token, Scope: sc, Tools: e.office, Other: len(e.office.OtherTools(ctx, sc)) > 0}
-	if e.gateway != nil {
+	if e.gateway != nil && !sc.Consult { // an expert: its project's knowledge only (ADR-177)
 		oa.Gateway, oa.GatewayTools = e.gateway(ctx, sc)
 	}
 	return oa, revoke
@@ -786,6 +796,9 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 	if c := sessionCap(ctx); c > 0 {
 		base = WithSessionCap(base, c)
 	}
+	if id := peerFromOf(ctx); id != "" {
+		base = withPeerFrom(base, id)
+	}
 	turnID := fmt.Sprintf("%s-%d", conv.ID, time.Now().UnixNano())
 	base = proctrack.With(base, proctrack.Info{Kind: "agent", TurnID: turnID, ConversationID: conv.ID, ProjectID: conv.ProjectID, Label: agent.Name})
 	limit := turnTimeout(ctx) // none, or an automation's own (ADR-082)
@@ -985,14 +998,28 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	if c := ceilingOf(ctx); c != "" && perm.AtLeast(mode, c) { // capped for this message's sender (ADR-081)
 		mode = c
 	}
+	consult := conv.Purpose == consultPurpose // an expert answering a question (ADR-177): reads, never more
+	if consult {
+		mode = perm.Read
+	}
 	acc := perm.Resolve(agent, mode, policy)
+	if consult { // no capabilities, no commands: it reads and answers
+		acc = perm.Access{Level: perm.Read}
+	}
 	level := acc.Level
 	// the office assistant's rights, for the person asking (ADR-059); worked
 	// out here (not later) because full access below must never apply while
 	// it only answers.
 	power := ""
-	if e.isAssistant(ctx, project.ID) {
+	if e.isAssistant(ctx, project.ID) && !consult {
 		power = assistant.Powers(assistant.Mode(ctx, e.store), e.isAdmin(ctx, turn.actor))
+		if peerFromOf(ctx) != "" { // another office's message (ADR-176)
+			if e.peerAdmin(ctx) { // given Admin here: its one switch, whatever the mode
+				power = assistant.ModeAdmin
+			} else if power == assistant.ModeAdmin { // else never the machine, even in the pairing admin's name
+				power = assistant.ModeManage
+			}
+		}
 	}
 	// job.FullAccess/FullAccessBy/ExtraDirs (ADR-074 security fix): computed
 	// once, when the job started, from who/what triggered it — never
@@ -1026,12 +1053,15 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 			agentFull, agentFullBy, agentExtraDirs = job.FullAccess, job.FullAccessBy, job.ExtraDirs
 		}
 	}
+	if consult { // whatever its agent may do elsewhere
+		agentFull, agentFullBy, agentExtraDirs = false, "", nil
+	}
 	tree := e.chatTree(ctx, conv, agent)
 	if t := treeOf(ctx); t != "" { // a Burn item's own worktree
 		tree = t
 	}
 	// every way this run gets full access (below): it writes, so it gets its worktree
-	runFull := agentFull || power == assistant.ModeAdmin || (power == "" && fullAccess(ctx))
+	runFull := !consult && (agentFull || power == assistant.ModeAdmin || (power == "" && fullAccess(ctx)))
 	pl, err := e.placeFor(ctx, project, policy, acc, tree, true, conv.EditMode, runFull)
 	if err != nil {
 		fail(err)
@@ -1075,8 +1105,8 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	req := RunRequest{
 		WorkDir: pl.dir, Prompt: text,
-		System: systemPrompt(project, agent, e.office != nil, promptKeywords(ctx, e.store, project.ID, policy), acc, pl, LoadLanguage(ctx, e.store)), History: hist, Attachments: files,
-		Write: pl.write, DenyPaths: policy.DenyPaths, ExtraDirs: agentExtraDirs, UserMCP: acc.Can(perm.CapUserMCP), QuickCheck: policy.QuickCheck, QuickChecks: policy.QuickChecks,
+		System: systemPrompt(project, agent, e.office != nil, promptKeywords(ctx, e.store, project.ID, policy), acc, pl, LoadLanguage(ctx, e.store), power), History: hist, Attachments: files,
+		Write: pl.write, DenyPaths: policy.DenyPaths, ExtraDirs: agentExtraDirs, UserMCP: acc.Can(perm.CapUserMCP) && !consult, QuickCheck: policy.QuickCheck, QuickChecks: policy.QuickChecks,
 		Effort: cmp.Or(conv.Effort, agent.Effort), // the chat's own choice, else its agent's
 	}
 	if agentFull {
@@ -1116,7 +1146,10 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		if !e.isAssistant(ctx, project.ID) {
 			req.System += e.workflowsBrief(ctx, conv, level)      // what it may run itself (run_workflow)
 			req.System += e.linkedBrief(ctx, project.ID, conv.ID) // where it may hand work (send_to_chat)
+			req.System += e.expertsBrief(ctx, project.ID)         // whom it may ask (ask_expert, ADR-177)
 		}
+	case consult:
+		req.System += "\n\n" + prompts.Text("chat/consult")
 	}
 	if clash != "" {
 		req.System += "\n\n" + prompts.Render("chat/conflicts", map[string]any{"Files": clash})
@@ -1133,7 +1166,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		req.FullAccess = true
 		req.System += "\n\n" + prompts.Render("chat/administrator", map[string]any{"Via": "assistant"})
 	}
-	if fullAccess(ctx) && power == "" { // a bot's chat in administrator mode (ADR-071)
+	if fullAccess(ctx) && power == "" && !consult { // a bot's chat in administrator mode (ADR-071)
 		req.FullAccess = true
 		req.System += "\n\n" + prompts.Render("chat/administrator", map[string]any{"Via": "bot"})
 	}
@@ -1144,7 +1177,7 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		// a bot's chats are not this: they run with their agent's own rights, as chosen
 		req.NoTools, req.UserMCP, req.Write, req.FullAccess = true, false, false, false
 	} else {
-		office, revoke := e.officeAccess(ctx, officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Office: e.isAssistant(ctx, project.ID), AnswerOnly: power == assistant.ModeAnswer, Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
+		office, revoke := e.officeAccess(ctx, officetools.Scope{ProjectID: project.ID, ConversationID: conv.ID, TaskID: conv.TaskID, RunRef: turn.ID, JobID: turn.JobID, Office: e.isAssistant(ctx, project.ID) && !consult, AnswerOnly: power == assistant.ModeAnswer, Consult: consult, Agent: agent.Name, Level: level, Access: acc, Dir: treeDir(pl)})
 		defer revoke()
 		req.Office = office
 	}
@@ -1161,12 +1194,25 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		runID  string
 		cost   *float64
 	)
+	// the assistant as administrator runs so only on a connection that gives
+	// it the machine; on another (Codex's sandbox, an API) it is told it
+	// manages, never that it is administrator with no way to act on it
+	adminSystem, manageSystem := req.System, req.System
+	if power == assistant.ModeAdmin {
+		manageSystem = strings.Replace(manageSystem, prompts.Render("chat/assistant-power", map[string]any{"Power": assistant.ModeAdmin}),
+			prompts.Render("chat/assistant-power", map[string]any{"Power": assistant.ModeManage}), 1)
+		manageSystem = strings.Replace(manageSystem, "\n\n"+prompts.Render("chat/administrator", map[string]any{"Via": "assistant"}), "", 1)
+	}
 	// its connections top to bottom (its own, then its fallbacks) until one answers
 	for i, c := range cands {
 		p, model = c.Provider, c.Model
 		key, kerr := e.providers.APIKey(p)
 		if kerr == nil {
 			req.Provider, req.APIKey, req.Bin, req.Model = p, key, e.providers.CLIBin(p), model
+			if power == assistant.ModeAdmin {
+				req.FullAccess = machineAccess(p.Kind)
+				req.System = map[bool]string{true: adminSystem, false: manageSystem}[req.FullAccess]
+			}
 			req.Prompt, req.SessionID = prompt, ""
 			if s, rt := e.wfSession(turn, conv.ID); s != "" && rt == string(p.Kind) {
 				req.SessionID = s // a workflow's role goes on in its own session
@@ -1401,7 +1447,12 @@ func HistoryFor(msgs []storage.Message, self string) []HistoryItem {
 // on: the prompt keywords (promptKeywords): lines about git, operations or
 // build/test are there only for a project that has them; the tools stay for
 // when the person asks.
-func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool, on map[string]bool, acc perm.Access, pl place, lang Language) string {
+//
+// power: the office assistant's rights for this person (ADR-059; "" for any
+// other agent). Its own agent is read only, so its rights are said once, by
+// power, never as that level (a "read only" line beside "administrator" left
+// the model unsure which one holds).
+func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool, on map[string]bool, acc perm.Access, pl place, lang Language, power string) string {
 	level := acc.Level
 	var b strings.Builder
 	b.WriteString(prompts.Render("chat/intro", map[string]any{"Name": agent.Name, "Role": agent.Role}) + "\n\n")
@@ -1423,6 +1474,10 @@ func systemPrompt(project storage.Repo, agent storage.Agent, officeTools bool, o
 	b.WriteString(lang.Rule())
 	if officeTools {
 		b.WriteString(prompts.Render("chat/office-tools", map[string]any{"On": on}) + "\n")
+	}
+	if power != "" {
+		b.WriteString(prompts.Render("chat/assistant-power", map[string]any{"Power": power}) + "\n")
+		return b.String()
 	}
 	fmt.Fprintf(&b, "- Your permission this turn: %s (%s).\n", perm.Label(level), perm.All[perm.Rank(level)].Description)
 	auto := acc.Can(perm.CapApply)
@@ -1488,7 +1543,7 @@ func (e *Engine) Invoke(ctx context.Context, project storage.Repo, agent storage
 	}
 	req := RunRequest{WorkDir: pl.dir, Prompt: prompt, Effort: agent.Effort,
 		Attachments: files, Write: pl.write, DenyPaths: policy.DenyPaths, UserMCP: acc.Can(perm.CapUserMCP), QuickCheck: policy.QuickCheck, QuickChecks: policy.QuickChecks}
-	req.System = systemPrompt(project, agent, e.office != nil, promptKeywords(ctx, e.store, project.ID, policy), acc, pl, LoadLanguage(ctx, e.store))
+	req.System = systemPrompt(project, agent, e.office != nil, promptKeywords(ctx, e.store, project.ID, policy), acc, pl, LoadLanguage(ctx, e.store), "")
 	if noTools(ctx) { // untrusted text (a channel's scope filter): a plain answer
 		req.NoTools, req.UserMCP, req.Write, req.Effort = true, false, false, "" // a YES/NO needs no deep thought
 	} else {
@@ -1590,7 +1645,7 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 	out := make([]MessageDTO, 0, len(msgs))
 	names := map[string]string{} // project names, for older relayed messages
 	for _, m := range msgs {
-		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID], Relay: RelayOf(m)}
+		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID], Relay: RelayOf(m), Consult: ConsultOf(m)}
 		e.fillRelay(ctx, d.Relay, names)
 		if d.Patches == nil {
 			d.Patches = []PatchDTO{}
@@ -1890,4 +1945,10 @@ func (e *Engine) ProposeTree(ctx context.Context, conversationID, dir, tree stri
 		_, err = e.store.Chat().AddPatch(ctx, pt)
 	}
 	return err
+}
+
+// machineAccess: the runtime gives a run every tool on the machine when
+// asked (FullAccess); Codex and API runs never do.
+func machineAccess(k storage.ProviderKind) bool {
+	return k == storage.ProviderClaudeCLI || k == storage.ProviderGeminiCLI || k == storage.ProviderAntigravityCLI
 }

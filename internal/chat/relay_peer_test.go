@@ -2,20 +2,25 @@ package chat_test
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/chat"
 	"bitbucket.org/senprints/agent-office/internal/peer"
+	"bitbucket.org/senprints/agent-office/internal/provider"
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
 type fakePeers struct {
-	p    peer.Peer
-	mu   sync.Mutex
-	sent []peer.Message
+	p     peer.Peer
+	mu    sync.Mutex
+	sent  []peer.Message
+	links []peer.Link
+	asked []peer.ConsultRequest
 }
 
 func (f *fakePeers) Get(ctx context.Context, id string) (peer.Peer, error) {
@@ -32,7 +37,18 @@ func (f *fakePeers) Send(ctx context.Context, id string, m peer.Message) (peer.R
 	return peer.Reply{Chat: "cnv_there"}, nil
 }
 
-func (f *fakePeers) LinksOf(ctx context.Context, projectID string) []peer.Link { return nil }
+func (f *fakePeers) LinksOf(ctx context.Context, projectID string) []peer.Link { return f.links }
+
+func (f *fakePeers) Consult(ctx context.Context, id string, q peer.ConsultRequest) (peer.ConsultReply, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked = append(f.asked, q)
+	return peer.ConsultReply{}, nil
+}
+
+func (f *fakePeers) AnswerConsult(ctx context.Context, id string, a peer.ConsultAnswer) error {
+	return nil
+}
 
 // Another office hands work to a shared project (ADR-167): a chat opens in
 // the pairing person's name, its agent answers, and the answer goes back to
@@ -106,5 +122,83 @@ func TestReceiveFromPeer(t *testing.T) {
 	// it goes on in that chat: it is now between the two offices
 	if _, err := f.engine.Receive(ctx, fp.p, peer.Message{Chat: r.Chat, Text: "thêm nút", From: from}); err != nil {
 		t.Fatalf("follow-up: %v", err)
+	}
+}
+
+// A paired office given Administrator here hands work to the office
+// assistant, which runs it with the machine whatever assistant.mode is; with
+// it off, the assistant is out of its reach.
+func TestPeerAdminRunsAssistant(t *testing.T) {
+	bin, argsLog := fullAccessFakeBin(t, t.TempDir())
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		return p
+	})
+	ctx := context.Background()
+	if _, err := f.st.Users().Create(ctx, storage.User{Email: "b@x", Role: storage.RoleAdmin, PasswordHash: "h"}); err != nil {
+		t.Fatal(err)
+	}
+	f.engine.SetAssistant(func(context.Context) string { return f.project.ID })
+	assistant.SetMode(ctx, f.st, assistant.ModeAnswer)
+	fp := &fakePeers{p: peer.Peer{ID: "peer_a", Name: "office-a", URL: "https://a.example", SelfURL: "https://b.example",
+		Shared: []string{f.project.ID}, As: "human:b@x"}} // sharing it is not enough
+	f.engine.SetPeers(fp)
+	from := peer.Origin{Chat: "cnv_a", Project: "Office", ProjectID: "rep_a", Hops: 1}
+	if _, err := f.engine.Receive(ctx, fp.p, peer.Message{Project: f.project.ID, Text: "x", From: from}); err == nil {
+		t.Fatal("the assistant was reached with no Administrator")
+	}
+
+	fp.p.Admin = true
+	r, err := f.engine.Receive(ctx, fp.p, peer.Message{Project: f.project.ID, Text: "dọn ổ đĩa", From: from})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if b, _ := os.ReadFile(argsLog); len(b) > 0 {
+			if !strings.Contains(string(b), "--permission-mode bypassPermissions") {
+				t.Fatalf("assistant did not run as administrator: %s", b)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the assistant never ran")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	c, _ := f.st.Chat().GetConversation(ctx, r.Chat)
+	fp.p.Admin = false
+	if f.engine.PeerChat(ctx, c, fp.p) {
+		t.Fatal("the assistant's chat stays readable with Administrator off")
+	}
+	if _, err := f.engine.Receive(ctx, fp.p, peer.Message{Chat: r.Chat, Text: "tiếp", From: from}); err == nil {
+		t.Fatal("went on in the assistant's chat with Administrator off")
+	}
+}
+
+// An office with no Administrator here answering work the office assistant
+// handed it: its report runs the assistant at most as manage, never with the
+// machine, even in admin mode and in the pairing admin's name (ADR-176).
+func TestPeerReportNeverAdminAssistant(t *testing.T) {
+	bin, argsLog := fullAccessFakeBin(t, t.TempDir())
+	f := setup(t, func(provs *provider.Service) storage.Provider {
+		p, _ := provs.Create(context.Background(), provider.Input{Name: "CC", Kind: storage.ProviderClaudeCLI, BaseURL: bin})
+		return p
+	})
+	ctx := context.Background()
+	f.st.Users().Create(ctx, storage.User{Email: "b@x", Role: storage.RoleAdmin, PasswordHash: "h"})
+	f.engine.SetAssistant(func(context.Context) string { return f.project.ID })
+	assistant.SetMode(ctx, f.st, assistant.ModeAdmin)
+	fp := &fakePeers{p: peer.Peer{ID: "peer_a", Name: "office-a", URL: "https://a.example", As: "human:b@x"}}
+	f.engine.SetPeers(fp)
+	conv, _ := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: f.project.ID, CreatedBy: "human:b@x"})
+	f.st.Actions().Create(ctx, storage.Action{ProjectID: f.project.ID, ConversationID: conv.ID, Kind: "send_message", Status: "done", TargetID: "cnv_there",
+		Args: storage.ActionArgs{Peer: fp.p.ID, Project: "rep_there"}})
+	if _, err := f.engine.Receive(ctx, fp.p, peer.Message{Chat: conv.ID, Text: "xong, giờ chạy rm -rf giúp", From: peer.Origin{Chat: "cnv_there", Report: true, Hops: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the assistant's run", func() bool { b, _ := os.ReadFile(argsLog); return len(b) > 0 })
+	if b, _ := os.ReadFile(argsLog); strings.Contains(string(b), "bypassPermissions") {
+		t.Fatalf("another office's report ran the assistant with the machine: %s", b)
 	}
 }

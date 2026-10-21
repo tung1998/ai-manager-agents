@@ -20,6 +20,8 @@ interface Message {
   // sent by an agent from another chat (send_to_chat, a linked project's
   // report back): who, from which project and chat; a report's text folded
   relay?: { agent: string, project: string, project_id: string, conversation_id: string, title: string, report: boolean, url?: string }
+  // an expert's answer to a question an agent here asked (ADR-177)
+  consult?: { agent: string, project: string, office?: string, link?: string }
 }
 interface Queued { id: string, text: string, attachments: Attachment[], created_at: string }
 interface Conversation { id: string, project_id?: string, agent_id: string, agent_name: string, title: string, updated_at: string, source?: Source, purpose?: string, external_url?: string, active_turn?: string, mode?: PermLevel, edit_mode?: 'worktree' | 'direct', effort?: string, cleaned?: string, context_tokens?: number, context_window?: number, tags?: string[], queued?: Queued[] }
@@ -1106,6 +1108,10 @@ onBeforeUnmount(() => {
               </UDropdownMenu>
               <AgentAvatar v-else :agent="{ name: m.author }" size="xs" />
               <span class="font-medium">{{ m.author }}</span>
+              <UBadge v-if="m.consult" color="info" variant="subtle" size="sm" icon="i-lucide-graduation-cap" :title="m.consult.office ? t('chat.expertFromOffice', { office: m.consult.office }) : undefined">
+                <NuxtLink v-if="m.consult.link" :to="m.consult.link" class="hover:underline">{{ t('chat.expert') }}</NuxtLink>
+                <template v-else>{{ t('chat.expert') }}</template>
+              </UBadge>
               <span>{{ when(m.created_at) }}</span>
               <span v-if="m.cost_usd">· ${{ m.cost_usd.toFixed(3) }}</span>
               <UDropdownMenu :items="messageMenu(m)" :content="{ align: 'start' }">

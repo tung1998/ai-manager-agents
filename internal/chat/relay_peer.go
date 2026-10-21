@@ -25,6 +25,9 @@ type Peers interface {
 	Send(ctx context.Context, id string, m peer.Message) (peer.Reply, error)
 	// LinksOf: the projects in other offices a project links to
 	LinksOf(ctx context.Context, projectID string) []peer.Link
+	// Consult asks an expert there; AnswerConsult answers its question (ADR-177)
+	Consult(ctx context.Context, id string, q peer.ConsultRequest) (peer.ConsultReply, error)
+	AnswerConsult(ctx context.Context, id string, a peer.ConsultAnswer) error
 }
 
 // SetPeers turns on linked projects in other offices.
@@ -76,7 +79,7 @@ func (e *Engine) Receive(ctx context.Context, p peer.Peer, m peer.Message) (peer
 	}
 	var conv storage.Conversation
 	if m.Chat == "" { // a new chat: only in a project shared with it
-		if m.From.Report || !slices.Contains(p.Shared, m.Project) || e.isAssistant(ctx, m.Project) {
+		if m.From.Report || !p.Opens(m.Project, e.assistantID(ctx)) {
 			return peer.Reply{}, errors.New("project này không mở cho office của bạn")
 		}
 		c, err := e.StartConversationFor(actor.With(ctx, p.As), m.Project, "")
@@ -100,7 +103,10 @@ func (e *Engine) Receive(ctx context.Context, p peer.Peer, m peer.Message) (peer
 	info := relayInfo{ConversationID: m.From.Chat, Title: m.From.Title, Agent: m.From.Agent, Project: name, Name: name,
 		ProjectID: m.From.ProjectID, Hops: m.From.Hops, Report: m.From.Report, Peer: p.ID, PeerURL: p.URL}
 	raw, _ := json.Marshal(info)
-	e.deliver(conv.ID, p.As, text, string(raw), func(err error) { e.note(conv, "Không nhận được tin từ office "+p.Name+": "+err.Error()) })
+	// what it starts knows it came from p: the office assistant runs it as
+	// administrator only while p has Admin here, never higher than manage else
+	as := withPeerFrom(actor.With(context.Background(), p.As), p.ID)
+	e.deliver(as, conv.ID, text, string(raw), func(err error) { e.note(conv, "Không nhận được tin từ office "+p.Name+": "+err.Error()) })
 	return peer.Reply{Chat: conv.ID, Title: conv.Title, Project: conv.ProjectID}, nil
 }
 
@@ -109,7 +115,27 @@ func (e *Engine) Receive(ctx context.Context, p peer.Peer, m peer.Message) (peer
 // that handed it work is its person's own: p only answers into it.
 func (e *Engine) PeerChat(ctx context.Context, c storage.Conversation, p peer.Peer) bool {
 	from, _ := e.peerChat(ctx, c.ID, p.ID)
-	return from && slices.Contains(p.Shared, c.ProjectID)
+	return from && p.Opens(c.ProjectID, e.assistantID(ctx))
+}
+
+type peerFromKey struct{}
+
+// withPeerFrom: the turn answers a message of the paired office peerID.
+func withPeerFrom(ctx context.Context, peerID string) context.Context {
+	return context.WithValue(ctx, peerFromKey{}, peerID)
+}
+
+func peerFromOf(ctx context.Context) string { v, _ := ctx.Value(peerFromKey{}).(string); return v }
+
+// peerAdmin: the turn's paired office still has Admin here, and the person
+// who paired is still an admin of this office (as for ADR-074).
+func (e *Engine) peerAdmin(ctx context.Context) bool {
+	id := peerFromOf(ctx)
+	if id == "" || e.peers == nil {
+		return false
+	}
+	p, err := e.peers.Get(ctx, id)
+	return err == nil && p.Admin && e.isAdmin(ctx, p.As)
 }
 
 // activePerson: as (human:<email>) is an account here, not disabled.

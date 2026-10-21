@@ -240,15 +240,14 @@ func (e *Engine) reportBack(conv storage.Conversation, project storage.Repo, age
 	raw, _ := json.Marshal(info)
 	text := prompts.Render("chat/linked-report", map[string]any{"Project": project.Name, "Agent": agent.Name,
 		"Link": "/projects/" + conv.ProjectID + "?tab=chat&c=" + conv.ID, "Reply": truncate(reply, 8000)})
-	e.deliver(src.ID, as, text, string(raw), func(err error) { e.note(conv, "Không báo lại được chat gốc: "+err.Error()) })
+	e.deliver(actor.With(context.Background(), as), src.ID, text, string(raw), func(err error) { e.note(conv, "Không báo lại được chat gốc: "+err.Error()) })
 }
 
 // deliver sends text into a chat as the person as, in the background: a
 // chat answering now gets it after its answer (up to 10 minutes); failed
 // tells what went wrong (a chat whose agent is off just keeps it).
-func (e *Engine) deliver(conversationID, as, text, context_ string, failed func(error)) {
+func (e *Engine) deliver(ctx context.Context, conversationID, text, context_ string, failed func(error)) {
 	safeGo("relay deliver", func() {
-		ctx := actor.With(context.Background(), as)
 		for try := 0; try < 120; try++ {
 			_, _, err := e.SendWithContext(ctx, conversationID, text, context_, nil)
 			var off *OffError

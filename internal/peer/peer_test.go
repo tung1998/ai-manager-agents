@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/assistant"
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -78,6 +79,23 @@ func newOffice(t *testing.T) *office {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{"projects": o.svc.SharedProjects(r.Context(), p)})
+	})
+	mux.HandleFunc("POST /api/peer/request", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if err := o.svc.TakeRequest(r.Context(), body, "127.0.0.1", true); err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
+	mux.HandleFunc("POST /api/peer/request/answer", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		out, err := o.svc.Answer(r.Context(), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), body)
+		if err != nil {
+			http.Error(w, `{"error":"denied"}`, http.StatusForbidden)
+			return
+		}
+		w.Write(out)
 	})
 	o.srv = httptest.NewServer(mux)
 	t.Cleanup(o.srv.Close)
@@ -248,5 +266,116 @@ func TestCleanURL(t *testing.T) {
 		if _, err := CleanURL(in); err == nil {
 			t.Errorf("CleanURL(%q) accepted", in)
 		}
+	}
+}
+
+// Administrator opens this office's assistant to a paired office: listed to
+// it as its assistant (never under a shared id), and never a project's link
+// on the other side.
+func TestAdminOpensAssistant(t *testing.T) {
+	o := newOffice(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	aid, err := assistant.Ensure(ctx, o.st, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Peer{ID: "peer_x", Name: "x", URL: "https://x.example", Shared: []string{aid}}
+	o.st.Settings().Set(ctx, peersKey, []Peer{p})
+	if got := o.svc.SharedProjects(ctx, p); len(got) != 0 || p.Opens(aid, aid) {
+		t.Fatalf("shared the assistant with no Administrator: %+v", got)
+	}
+	if err := o.svc.SetAdmin(ctx, p.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = o.svc.Get(ctx, p.ID)
+	got := o.svc.SharedProjects(ctx, p)
+	if len(got) != 1 || got[0].ID != aid || !got[0].Assistant || !p.Opens(aid, aid) || p.Opens("", aid) {
+		t.Fatalf("assistant with Administrator = %+v", got)
+	}
+	if r := cleanRemote(got); !r[0].Assistant {
+		t.Fatal("the other office lost the assistant mark")
+	}
+
+	// the other side: only the office assistant reaches it, not a project
+	p.Remote = got
+	o.st.Settings().Set(ctx, peersKey, []Peer{p})
+	proj, _ := o.st.Repos().Create(ctx, storage.Repo{Name: "web", Path: t.TempDir()})
+	pol := perm.LoadPolicy(ctx, o.st, proj.ID)
+	pol.LinkedProjects = []string{RefPrefix + p.ID + "/" + aid}
+	if err := perm.SavePolicy(ctx, o.st, proj.ID, pol); err != nil {
+		t.Fatal(err)
+	}
+	if l := Linked(ctx, o.st, o.svc, proj.ID); len(l) != 0 {
+		t.Fatalf("a project linked to the other office's assistant: %+v", l)
+	}
+	if l := Reach(ctx, o.st, o.svc, "", true); len(l) != 1 || !l[0].Project.Assistant {
+		t.Fatalf("the office assistant does not reach it: %+v", l)
+	}
+}
+
+// Pairing by address (ADR-177): B asks A, both show the same match code, A's
+// admin accepts; then each calls the other with the key it was given. An
+// answer with another key is refused.
+func TestConnectByAddress(t *testing.T) {
+	ctx := context.Background()
+	a, b := newOffice(t), newOffice(t)
+	shop, _ := a.st.Repos().Create(ctx, storage.Repo{Name: "shop", Path: t.TempDir()})
+	kb, _ := b.st.Repos().Create(ctx, storage.Repo{Name: "kb", Path: t.TempDir()})
+
+	o, err := b.svc.Connect(ctx, "human:b@x", a.srv.URL, "office-b", b.srv.URL, []string{kb.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqs := a.svc.Requests(ctx)
+	if len(reqs) != 1 || reqs[0].Code != o.Code || reqs[0].Name != "office-b" || reqs[0].URL != b.srv.URL {
+		t.Fatalf("A got %+v, B shows %s", reqs, o.Code)
+	}
+	if l, _ := a.svc.List(ctx); len(l) != 0 {
+		t.Fatal("paired before an admin accepted")
+	}
+	// an answer with a key B never gave: refused
+	if _, err := b.svc.Answer(ctx, NewKey(), []byte(`{"nonce":"`+o.ID+`","key":"`+NewKey()+`"}`)); err == nil {
+		t.Fatal("an answer with another key was taken")
+	}
+
+	pa, err := a.svc.AcceptRequest(ctx, "human:a@x", reqs[0].ID, "office-a", []string{shop.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pa.Name != "office-b" || len(pa.Remote) != 1 || pa.Remote[0].ID != kb.ID || pa.Admin {
+		t.Fatalf("A sees B as %+v", pa)
+	}
+	bl, _ := b.svc.List(ctx)
+	if len(bl) != 1 || bl[0].Name != "office-a" || len(bl[0].Remote) != 1 || bl[0].Remote[0].ID != shop.ID || bl[0].As != "human:b@x" {
+		t.Fatalf("B sees A as %+v", bl)
+	}
+	if len(a.svc.Requests(ctx)) != 0 || len(b.svc.OutgoingList(ctx)) != 0 {
+		t.Fatal("the request is still open")
+	}
+	// the keys work both ways
+	if _, err := a.svc.Send(ctx, pa.ID, Message{Project: kb.ID, Text: "hi", From: Origin{Chat: "c1", Hops: 1}}); err != nil || len(b.got) != 1 {
+		t.Fatalf("A to B: %v", err)
+	}
+	if _, err := b.svc.Send(ctx, bl[0].ID, Message{Project: shop.ID, Text: "hi", From: Origin{Chat: "c2", Hops: 1}}); err != nil || len(a.got) != 1 {
+		t.Fatalf("B to A: %v", err)
+	}
+
+	// a request turned down is gone; a bad one never kept
+	b.svc.Connect(ctx, "human:b@x", a.srv.URL, "office-b", b.srv.URL, nil)
+	r2 := a.svc.Requests(ctx)
+	if len(r2) != 1 || a.svc.DropRequest(ctx, r2[0].ID) != nil || len(a.svc.Requests(ctx)) != 0 {
+		t.Fatalf("drop: %+v", r2)
+	}
+	if err := a.svc.TakeRequest(ctx, []byte(`{"nonce":"short","key":"x"}`), "1.2.3.4", false); err == nil {
+		t.Fatal("a bad request was kept")
+	}
+	// an address on this machine, from elsewhere: whatever it says of "to" (SSRF)
+	ssrf := `{"nonce":"0123456789abcdef0123","name":"x","url":"http://127.0.0.1:6379","to":"http://localhost:8080","key":"` + NewKey() + `"}`
+	if err := a.svc.TakeRequest(ctx, []byte(ssrf), "203.0.113.9", false); err == nil {
+		t.Fatal("a request pointing at this machine was kept from a remote address")
+	}
+	if MatchCode("n", "a", "b", "k") == MatchCode("n", "a", "b", "k2") {
+		t.Fatal("the match code does not cover the key")
 	}
 }
