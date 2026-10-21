@@ -410,7 +410,7 @@ func (s *Service) autoAllowed(ctx context.Context, a storage.Action, acc perm.Ac
 		if s.sender == nil {
 			return false
 		}
-		if a.Args.Peer != "" || (a.Args.Project != "" && a.Args.Project != a.ProjectID) { // a linked project's chat (or another office's): within its chain's cap
+		if a.Args.Peer != "" || (a.Args.Project != "" && a.Args.Project != a.ProjectID) { // a linked project's chat (or another office's): another office's chain within its cap
 			return acc.Can(perm.CapChatCross) && !s.sender.RelayLimit(ctx, a.ConversationID)
 		}
 		return acc.Can(perm.CapChatSend) && !s.sender.Relayed(ctx, a.ConversationID)

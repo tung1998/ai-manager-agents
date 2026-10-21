@@ -175,3 +175,22 @@ func TestHistoryFillsOlderRelay(t *testing.T) {
 		t.Fatalf("relay = %+v", r)
 	}
 }
+
+// A chain between this office's projects has no cap; one with another office
+// stops at maxRelayHops for a person.
+func TestRelayLimitOnlyOtherOffice(t *testing.T) {
+	f := setup(t, func(provs *provider.Service) storage.Provider { return storage.Provider{} })
+	ctx := context.Background()
+	linked, _ := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: f.project.ID})
+	f.st.Chat().AddMessage(ctx, storage.Message{ConversationID: linked.ID, Role: "user", Content: "↩ Báo lại",
+		Context: `{"relayed_from":"cnv_x","relayed_from_project":"admin v3","relay_hops":20,"relay_report":true}`})
+	if f.engine.RelayLimit(ctx, linked.ID) {
+		t.Fatal("a chain between linked projects has no cap")
+	}
+	peered, _ := f.st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: f.project.ID})
+	f.st.Chat().AddMessage(ctx, storage.Message{ConversationID: peered.ID, Role: "user", Content: "↩ Báo lại",
+		Context: `{"relayed_from":"cnv_x","relayed_from_project":"admin v3","relayed_from_peer":"peer_1","relay_hops":20,"relay_report":true}`})
+	if !f.engine.RelayLimit(ctx, peered.ID) {
+		t.Fatal("another office's chain stops at its cap")
+	}
+}
