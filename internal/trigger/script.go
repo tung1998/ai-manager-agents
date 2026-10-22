@@ -85,6 +85,9 @@ func RunScript(ctx context.Context, dir string, s storage.AutomationScript, env 
 	cmd := exec.CommandContext(ctx, argv[0], append(argv[1:], file)...)
 	cmd.Dir = dir
 	cmd.Env = append(scriptEnv(os.Environ()), env...)
+	if exe, err := os.Executable(); err == nil { // `"$OFFICE_BIN" data …`: office is often not on PATH
+		cmd.Env = append(cmd.Env, "OFFICE_BIN="+exe)
+	}
 	cmd.Stdin = strings.NewReader(stdin)
 	out := &tail{n: maxOutput}
 	cmd.Stdout, cmd.Stderr = out, out

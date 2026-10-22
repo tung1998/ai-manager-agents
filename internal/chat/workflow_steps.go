@@ -332,7 +332,7 @@ func (e *Engine) runStep(ctx context.Context, own storage.Conversation, run *wfR
 		return r, err
 	case workflow.StepCode:
 		data, _ := json.Marshal(vars)
-		env := []string{"OFFICE_RUN=" + run.rec.ID}
+		env := []string{"OFFICE_RUN=" + run.rec.ID, "OFFICE_PROJECT=" + project.ID}
 		for k, v := range vars.Input {
 			env = append(env, "OFFICE_INPUT_"+strings.ToUpper(strings.ReplaceAll(k, "-", "_"))+"="+v)
 		}
