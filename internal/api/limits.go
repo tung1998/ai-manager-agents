@@ -32,7 +32,7 @@ func (s *server) providerLimits(w http.ResponseWriter, r *http.Request) {
 		if p.Kind == storage.ProviderCodexCLI {
 			// Codex keeps its quota in its session files: the newest one may
 			// be from the person's own use, newer than office's last run
-			if c := chat.CodexLatestLimits(llm.CodexHome()); c != nil && c.UpdatedAt.After(l.UpdatedAt) {
+			if c := chat.CodexLatestLimits(llm.CodexHomeIn(p.CLIEnv())); c != nil && c.UpdatedAt.After(l.UpdatedAt) {
 				l, ok, err = *c, true, nil
 			}
 		}

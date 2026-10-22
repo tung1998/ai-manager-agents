@@ -32,8 +32,8 @@ var (
 	// ErrIsDefault: deleting the default connection would leave every agent
 	// without ProviderID (and Default()) unable to resolve a model.
 	ErrIsDefault = errors.New("đây là kết nối mặc định, hãy chọn kết nối khác làm mặc định trước khi xóa")
-	// ErrNoAccounts: only Claude Code keeps a second account in a folder of its own.
-	ErrNoAccounts = errors.New("chỉ kết nối Claude Code đăng nhập được tài khoản riêng")
+	// ErrNoAccounts: the CLI cannot keep a second account in a folder of its own.
+	ErrNoAccounts = errors.New("chỉ kết nối Claude Code, Codex, Gemini CLI đăng nhập được tài khoản riêng")
 )
 
 // Service is the provider use-case layer.
@@ -47,8 +47,8 @@ type Service struct {
 	accounts   string // where connections with an account of their own keep it (ADR-178)
 }
 
-// SetAccountsDir sets the folder that holds the config folder of each Claude
-// Code connection signed in to an account of its own.
+// SetAccountsDir sets the folder that holds the config folder of each CLI
+// connection signed in to an account of its own.
 func (s *Service) SetAccountsDir(dir string) { s.accounts = dir }
 
 // SetBinResolver sets how CLI providers without an explicit path find their
@@ -97,8 +97,8 @@ type Input struct {
 	TierModels map[string]string
 	LimitCaps  map[string]int // nil keeps the current ones (ADR-136)
 	Enabled    *bool
-	// NewAccount: a Claude Code connection signed in to another account,
-	// in a config folder of its own (on create only, ADR-178)
+	// NewAccount: a CLI connection signed in to another account, in a
+	// config folder of its own (on create only, ADR-178)
 	NewAccount bool
 }
 
@@ -184,12 +184,12 @@ func (s *Service) Create(ctx context.Context, in Input) (storage.Provider, error
 	}
 	p.IsDefault = len(existing) == 0
 	if in.NewAccount {
-		if p.Kind != storage.ProviderClaudeCLI || s.accounts == "" {
+		if !p.Kind.OwnAccounts() || s.accounts == "" {
 			return p, ErrNoAccounts
 		}
 		p.ID = ids.New("prv")
 		p.CLIHome = filepath.Join(s.accounts, p.ID)
-		if err := clitools.PrepareHome(p.CLIHome); err != nil {
+		if err := clitools.PrepareHome(cliToolOf(p), p.CLIHome); err != nil {
 			return p, err
 		}
 	}
@@ -337,6 +337,10 @@ type TestResult struct {
 	NeedsLogin bool   `json:"needs_login,omitempty"`
 	CLITool    string `json:"cli_tool,omitempty"`
 }
+
+// CLITool names the CLI the dashboard can install and sign in for p
+// ("" for an API connection).
+func CLITool(p storage.Provider) string { return cliToolOf(p) }
 
 // cliToolOf names the CLI the dashboard can install and sign in for p.
 func cliToolOf(p storage.Provider) string {

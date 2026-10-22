@@ -55,15 +55,6 @@ func geminiMCP(req RunRequest) map[string]any {
 	return out
 }
 
-// geminiDir is the person's Gemini config folder (~/.gemini).
-func geminiDir() string {
-	home := os.Getenv("GEMINI_CLI_HOME")
-	if home == "" {
-		home, _ = os.UserHomeDir()
-	}
-	return filepath.Join(home, ".gemini")
-}
-
 // jsonComments strips // line comments, which Gemini allows in settings.json.
 var jsonComments = regexp.MustCompile(`(?m)^\s*//.*$`)
 
@@ -71,7 +62,7 @@ var jsonComments = regexp.MustCompile(`(?m)^\s*//.*$`)
 // person's plus office's MCP servers; everything else (sign-in, extensions,
 // GEMINI.md) links to the real ~/.gemini. Gemini only reads extra settings
 // from root-owned files or the workspace, and the workspace is the diff.
-func geminiHome(servers map[string]any, userMCP bool) (string, func(), error) {
+func geminiHome(real string, servers map[string]any, userMCP bool) (string, func(), error) {
 	tmp, err := os.MkdirTemp("", "office-gemini-")
 	if err != nil {
 		return "", nil, err
@@ -82,7 +73,6 @@ func geminiHome(servers map[string]any, userMCP bool) (string, func(), error) {
 		cleanup()
 		return "", nil, err
 	}
-	real := geminiDir()
 	// sessions and the project registry live here: link them even before
 	// Gemini's first run, or they would go with the throwaway home
 	for _, d := range []string{"tmp", "history"} {
@@ -197,12 +187,13 @@ func (geminiRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (
 		args = append(args, "--allowed-mcp-server-names", strings.Join(append(names, "office-none"), ","))
 	}
 	// the workdir is office's to trust; yolo would otherwise start a Docker sandbox
-	env := append(os.Environ(), "GEMINI_CLI_TRUST_WORKSPACE=true")
+	// the connection's own account first (ADR-178): the run's home below builds on it
+	env := append(append(os.Environ(), req.Provider.CLIEnv()...), "GEMINI_CLI_TRUST_WORKSPACE=true")
 	if mode == "yolo" {
 		env = append(env, "GEMINI_SANDBOX=false")
 	}
 	if len(servers) > 0 {
-		home, cleanup, err := geminiHome(servers, req.UserMCP)
+		home, cleanup, err := geminiHome(llm.GeminiDir(req.Provider.CLIEnv()), servers, req.UserMCP)
 		if err != nil {
 			return RunResult{}, fmt.Errorf("gemini: không tạo được cấu hình MCP: %w", err)
 		}

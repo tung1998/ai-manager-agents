@@ -450,7 +450,7 @@ func (s *server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	// an account of its own is signed out first: macOS keeps it in the
 	// Keychain, not in the folder the delete removes
 	if old.CLIHome != "" && s.cfg.CLITools != nil && !old.IsDefault {
-		if err := s.cfg.CLITools.LogoutIn(r.Context(), "claude", old.CLIHome); err != nil {
+		if err := s.cfg.CLITools.LogoutIn(r.Context(), provider.CLITool(old), old.CLIHome); err != nil {
 			slog.Warn("provider delete: không đăng xuất được tài khoản", "provider_id", id, "err", err)
 		}
 	}

@@ -234,7 +234,10 @@ func (c *claudeCLI) Complete(ctx context.Context, req Request) (Result, error) {
 
 // ---- Codex ----
 
-type codexCLI struct{ bin string }
+type codexCLI struct {
+	bin string
+	env []string // the connection's own account (ADR-178)
+}
 
 func (c *codexCLI) Check(ctx context.Context) (CheckResult, error) {
 	out, err := run(ctx, c.bin, "", "--version")
@@ -242,23 +245,24 @@ func (c *codexCLI) Check(ctx context.Context) (CheckResult, error) {
 		return CheckResult{}, err
 	}
 	v := strings.TrimSpace(out)
-	if st, _ := run(ctx, c.bin, "", "login", "status"); strings.Contains(strings.ToLower(st), "not logged in") {
+	home := CodexHomeIn(c.env)
+	if st, _ := runEnv(ctx, c.bin, "", c.env, "login", "status"); strings.Contains(strings.ToLower(st), "not logged in") {
 		return CheckResult{}, fmt.Errorf("%s · %w: hãy bấm Đăng nhập để ký lại phiên Codex", v, ErrNeedsLogin)
 	}
-	expired, detail := CodexSessionExpired(time.Now())
+	expired, detail := CodexSessionExpired(home, time.Now())
 	if !expired {
-		expired, detail = CodexRejected()
+		expired, detail = CodexRejected(home)
 	}
 	if expired {
 		return CheckResult{}, fmt.Errorf("%s · %w: %s, hãy bấm Đăng nhập để ký lại phiên Codex", v, ErrNeedsLogin, detail)
 	}
-	return CheckResult{Version: v, Models: codexModels(ctx, c.bin), Detail: v}, nil
+	return CheckResult{Version: v, Models: codexModels(ctx, c.bin, c.env), Detail: v}, nil
 }
 
 // codexModels lists the models Codex offers in its picker, best first
 // (`codex debug models` prints its catalog); nil when it cannot tell.
-func codexModels(ctx context.Context, bin string) []string {
-	out, err := run(ctx, bin, "", "debug", "models")
+func codexModels(ctx context.Context, bin string, env []string) []string {
+	out, err := runEnv(ctx, bin, "", env, "debug", "models")
 	if err != nil {
 		return nil
 	}
@@ -292,8 +296,8 @@ const codexStaleAfter = 30 * 24 * time.Hour
 // only checks the file exists, so a session idle for months still reads
 // "Logged in" while every request fails with "token could not be refreshed".
 // No file (credentials in the keyring) or an API key is not expired.
-func CodexSessionExpired(now time.Time) (bool, string) {
-	raw, err := os.ReadFile(filepath.Join(CodexHome(), "auth.json"))
+func CodexSessionExpired(home string, now time.Time) (bool, string) {
+	raw, err := os.ReadFile(filepath.Join(home, "auth.json"))
 	if err != nil {
 		return false, ""
 	}
@@ -318,19 +322,19 @@ func CodexSessionExpired(now time.Time) (bool, string) {
 // The token can still look valid (revoked by the server, e.g. a sign-in
 // elsewhere), so `codex login status` keeps saying "Logged in". A file, so
 // the mark outlives an office restart.
-func codexRejectedFile() string { return filepath.Join(CodexHome(), ".office-rejected") }
+func codexRejectedFile(home string) string { return filepath.Join(home, ".office-rejected") }
 
-// MarkCodexRejected records that the server refused the Codex session.
-func MarkCodexRejected() { _ = os.WriteFile(codexRejectedFile(), nil, 0o600) }
+// MarkCodexRejected records that the server refused the Codex session kept in home.
+func MarkCodexRejected(home string) { _ = os.WriteFile(codexRejectedFile(home), nil, 0o600) }
 
 // CodexRejected: a real call was refused and auth.json has not changed since
 // (a new sign-in rewrites it).
-func CodexRejected() (bool, string) {
-	mark, err := os.Stat(codexRejectedFile())
+func CodexRejected(home string) (bool, string) {
+	mark, err := os.Stat(codexRejectedFile(home))
 	if err != nil {
 		return false, ""
 	}
-	auth, err := os.Stat(filepath.Join(CodexHome(), "auth.json"))
+	auth, err := os.Stat(filepath.Join(home, "auth.json"))
 	if err != nil || auth.ModTime().After(mark.ModTime()) {
 		return false, ""
 	}
@@ -344,6 +348,25 @@ func CodexHome() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".codex")
+}
+
+// CodexHomeIn is Codex's folder for a run with env (the CODEX_HOME of a
+// connection with an account of its own, ADR-178), else the machine's.
+func CodexHomeIn(env []string) string {
+	if v := envValue(env, "CODEX_HOME"); v != "" {
+		return v
+	}
+	return CodexHome()
+}
+
+// envValue is the value env gives key (the last one, as exec does), "" if none.
+func envValue(env []string, key string) string {
+	for i := len(env) - 1; i >= 0; i-- {
+		if v, ok := strings.CutPrefix(env[i], key+"="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // jwtExpiry reads a JWT's exp claim without verifying it (zero if unreadable).
@@ -413,16 +436,16 @@ func (c *codexCLI) Complete(ctx context.Context, req Request) (Result, error) {
 		prompt = req.System + "\n\n" + req.Prompt
 	}
 	args = append(args, "-") // read the prompt from stdin
-	out, err := run(ctx, c.bin, prompt, args...)
+	out, err := runEnv(ctx, c.bin, prompt, c.env, args...)
 	if err != nil {
 		var ce *cliError
 		if errors.As(err, &ce) && codexAuthFailed.MatchString(ce.stderr) {
-			MarkCodexRejected()
+			MarkCodexRejected(CodexHomeIn(c.env))
 			return Result{}, fmt.Errorf("%w: phiên Codex đã hết hạn, hãy đăng nhập lại", ErrNeedsLogin)
 		}
 		if msg := codexFailure(out); msg != "" {
 			if codexAuthFailed.MatchString(msg) {
-				MarkCodexRejected()
+				MarkCodexRejected(CodexHomeIn(c.env))
 				return Result{}, fmt.Errorf("%w: phiên Codex đã hết hạn, hãy đăng nhập lại", ErrNeedsLogin)
 			}
 			return Result{}, fmt.Errorf("codex: %s", msg)
@@ -474,15 +497,18 @@ func (c *codexCLI) Complete(ctx context.Context, req Request) (Result, error) {
 
 // ---- Gemini ----
 
-type geminiCLI struct{ bin string }
+type geminiCLI struct {
+	bin string
+	env []string // the connection's own account (ADR-178)
+}
 
 // geminiAliases are Gemini CLI's model aliases: they follow its newest models.
 var geminiAliases = []string{"auto", "pro", "flash", "flash-lite"}
 
 // geminiModels: Gemini CLI cannot list models. Its aliases always work; with
 // an API key the account's real models come from the Gemini API.
-func geminiModels(ctx context.Context) []string {
-	return mergeModels(geminiAliases, geminiAPIModels(ctx, geminiAPIBase, geminiAPIKey()))
+func geminiModels(ctx context.Context, dir string) []string {
+	return mergeModels(geminiAliases, geminiAPIModels(ctx, geminiAPIBase, geminiAPIKey(dir)))
 }
 
 var geminiAPIBase = "https://generativelanguage.googleapis.com"
@@ -519,13 +545,13 @@ func geminiAPIModels(ctx context.Context, base, key string) []string {
 
 // geminiAPIKey is the key Gemini CLI would use: the environment, then
 // ~/.gemini/.env.
-func geminiAPIKey() string {
+func geminiAPIKey(dir string) string {
 	for _, k := range []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"} {
 		if v := os.Getenv(k); v != "" {
 			return v
 		}
 	}
-	env, _ := os.ReadFile(filepath.Join(geminiDir(), ".env"))
+	env, _ := os.ReadFile(filepath.Join(dir, ".env"))
 	if m := geminiEnvValue.FindSubmatch(env); m != nil {
 		return strings.Trim(string(m[3]), `"'`)
 	}
@@ -534,9 +560,14 @@ func geminiAPIKey() string {
 
 var geminiEnvValue = regexp.MustCompile(`(?m)^\s*(export\s+)?(GEMINI_API_KEY|GOOGLE_API_KEY)\s*=\s*(\S+)`)
 
-// geminiDir is Gemini CLI's config folder.
-func geminiDir() string {
-	home := os.Getenv("GEMINI_CLI_HOME")
+// GeminiDir is Gemini CLI's config folder for a run with env (the
+// GEMINI_CLI_HOME of a connection with an account of its own, ADR-178),
+// else the machine's.
+func GeminiDir(env []string) string {
+	home := envValue(env, "GEMINI_CLI_HOME")
+	if home == "" {
+		home = os.Getenv("GEMINI_CLI_HOME")
+	}
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
@@ -546,20 +577,19 @@ func geminiDir() string {
 // GeminiSignedIn reports whether Gemini CLI has credentials: a Google sign-in
 // cached in ~/.gemini, or an API key / Vertex / Code Assist setup in the
 // environment or ~/.gemini/.env.
-func GeminiSignedIn() bool {
-	ok, _ := GeminiAccount()
+func GeminiSignedIn(dir string) bool {
+	ok, _ := GeminiAccount(dir)
 	return ok
 }
 
 // GeminiAccount is GeminiSignedIn plus the Google account Gemini CLI signed
 // in with ("" for a key from the environment or an unknown account).
-func GeminiAccount() (bool, string) {
+func GeminiAccount(dir string) (bool, string) {
 	for _, k := range []string{"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA", "GOOGLE_CLOUD_ACCESS_TOKEN"} {
 		if os.Getenv(k) != "" {
 			return true, ""
 		}
 	}
-	dir := geminiDir()
 	if _, err := os.Stat(filepath.Join(dir, "oauth_creds.json")); err == nil {
 		var acc struct {
 			Active string `json:"active"`
@@ -580,10 +610,10 @@ func (c *geminiCLI) Check(ctx context.Context) (CheckResult, error) {
 		return CheckResult{}, err
 	}
 	v := strings.TrimSpace(out)
-	if !GeminiSignedIn() {
+	if !GeminiSignedIn(GeminiDir(c.env)) {
 		return CheckResult{}, fmt.Errorf("%s · %w: hãy bấm Đăng nhập (tài khoản Google) hoặc đặt GEMINI_API_KEY", v, ErrNeedsLogin)
 	}
-	return CheckResult{Version: v, Models: geminiModels(ctx), Detail: v}, nil
+	return CheckResult{Version: v, Models: geminiModels(ctx, GeminiDir(c.env)), Detail: v}, nil
 }
 
 func (c *geminiCLI) Complete(ctx context.Context, req Request) (Result, error) {
@@ -597,7 +627,7 @@ func (c *geminiCLI) Complete(ctx context.Context, req Request) (Result, error) {
 	if req.System != "" {
 		prompt = req.System + "\n\n" + req.Prompt
 	}
-	out, err := runEnv(ctx, c.bin, prompt, []string{"GEMINI_CLI_TRUST_WORKSPACE=true"}, args...)
+	out, err := runEnv(ctx, c.bin, prompt, append([]string{"GEMINI_CLI_TRUST_WORKSPACE=true"}, c.env...), args...)
 	var res struct {
 		Response string `json:"response"`
 		Error    *struct {
@@ -620,7 +650,7 @@ func (c *geminiCLI) Complete(ctx context.Context, req Request) (Result, error) {
 				return Result{}, fmt.Errorf("gemini: %s", msg)
 			}
 		}
-		if !GeminiSignedIn() {
+		if !GeminiSignedIn(GeminiDir(c.env)) {
 			return Result{}, fmt.Errorf("%w: Gemini CLI chưa đăng nhập", ErrNeedsLogin)
 		}
 		if res.Error != nil && res.Error.Message != "" {

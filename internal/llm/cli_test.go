@@ -73,7 +73,7 @@ func TestCodexSessionExpired(t *testing.T) {
 	}
 	for _, c := range cases {
 		write(c.auth)
-		if got, detail := CodexSessionExpired(now); got != c.want {
+		if got, detail := CodexSessionExpired(CodexHome(), now); got != c.want {
 			t.Errorf("%s: got %v (%s), want %v", c.name, got, detail, c.want)
 		}
 	}

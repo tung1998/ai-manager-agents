@@ -291,7 +291,7 @@ func TestCodexStatusRejectedSession(t *testing.T) {
 	_ = os.Chtimes(auth, past, past)
 	m, dir := testManager(t)
 	writeBin(t, dir, "codex", "#!/bin/sh\ncase \"$1 $2\" in \"--version \"*) echo codex-cli 1;; \"login status\") echo 'Logged in using ChatGPT';; esac\n")
-	llm.MarkCodexRejected()
+	llm.MarkCodexRejected(home)
 	if s, _ := m.Status(context.Background(), "codex"); s.Auth.LoggedIn {
 		t.Fatalf("a session the server refused must read signed out: %+v", s.Auth)
 	}

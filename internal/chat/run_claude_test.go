@@ -222,7 +222,7 @@ echo '{"type":"result","subtype":"success","result":"'"$CLAUDE_CONFIG_DIR"'","se
 	if err != nil || res.Text != home {
 		t.Fatalf("res = %+v, %v", res, err)
 	}
-	if claudeEnv(storage.Provider{Kind: storage.ProviderClaudeCLI}) != nil {
+	if cliEnv(storage.Provider{Kind: storage.ProviderClaudeCLI}) != nil {
 		t.Fatal("the machine's account must keep the office's environment")
 	}
 }

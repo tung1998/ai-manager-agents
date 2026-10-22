@@ -95,11 +95,13 @@ function openCreate() {
 }
 
 // another Claude account: a new connection, signed in right after it is made
-function openNewAccount() {
+// the CLIs that keep a second account in a folder of their own (ADR-178)
+const ownAccounts = (kind: string) => ['claude_cli', 'codex_cli', 'gemini_cli'].includes(kind)
+function openNewAccount(kind: string) {
   openCreate()
-  choose('claude_cli')
+  choose(kind)
   form.new_account = true
-  form.name = t('prov.newAccountName', { n: providers.value.filter(p => p.kind === 'claude_cli').length + 1 })
+  form.name = t('prov.newAccountName', { name: kindOf(kind)?.label ?? kind, n: providers.value.filter(p => p.kind === kind).length + 1 })
   accountOf.value = null
 }
 // the form was opened before the kinds arrived: pick the default again
@@ -148,7 +150,7 @@ async function save() {
     tier_models: Object.fromEntries(Object.entries(form.tier_models).filter(([, v]) => v)),
     // stop thresholds: only Claude Code reports its usage windows
     ...(form.kind === 'claude_cli' ? { limit_caps: Object.fromEntries(Object.entries(form.limit_caps).map(([k, v]) => [k, Math.min(100, Math.max(0, Math.round(Number(v) || 0)))])) } : {}),
-    ...(!editing.value && form.kind === 'claude_cli' && form.new_account ? { new_account: true } : {})
+    ...(!editing.value && ownAccounts(form.kind) && form.new_account ? { new_account: true } : {})
   }
   // Only send the key when typed: omitting it keeps the stored one.
   if (form.keyMode === 'paste' && form.api_key) body.api_key = form.api_key
@@ -287,7 +289,7 @@ function menu(p: Provider) {
     [
       { label: t('prov.sendTestPrompt'), icon: 'i-lucide-message-square', onSelect: () => openPromptTest(p) },
       ...(toolOf(p.kind) ? [{ label: t('prov.cliAccount'), icon: 'i-lucide-user-round-key', onSelect: () => { accountOf.value = p } }] : []),
-      ...(p.kind === 'claude_cli' ? [{ label: t('prov.newAccount'), icon: 'i-lucide-user-round-plus', onSelect: openNewAccount }] : []),
+      ...(ownAccounts(p.kind) ? [{ label: t('prov.newAccount'), icon: 'i-lucide-user-round-plus', onSelect: () => openNewAccount(p.kind) }] : []),
       { label: t('prov.edit'), icon: 'i-lucide-pencil', onSelect: () => openEdit(p) },
       { label: t('prov.setDefault'), icon: 'i-lucide-star', disabled: p.is_default || !!settingDefault.value, onSelect: () => setDefault(p) }
     ],
@@ -498,7 +500,7 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
 
           <CliSetup v-if="formCli" :key="formCli" :tool="formCli" @ready="(v: boolean) => cliReady = v" />
           <USwitch
-            v-if="!editing && form.kind === 'claude_cli'" v-model="form.new_account"
+            v-if="!editing && ownAccounts(form.kind)" v-model="form.new_account"
             :label="t('prov.newAccount')" :description="t('prov.newAccountHelp')"
           />
 
@@ -600,8 +602,8 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
             :provider="accountOf.own_account ? accountOf.id : undefined" @ready="onAccountReady"
           />
           <UButton
-            v-if="accountOf?.kind === 'claude_cli' && signingIn !== accountOf.id" icon="i-lucide-user-round-plus" size="xs"
-            color="neutral" variant="ghost" :label="t('prov.newAccount')" @click="openNewAccount"
+            v-if="accountOf && ownAccounts(accountOf.kind) && signingIn !== accountOf.id" icon="i-lucide-user-round-plus" size="xs"
+            color="neutral" variant="ghost" :label="t('prov.newAccount')" @click="openNewAccount(accountOf!.kind)"
           />
         </div>
       </template>

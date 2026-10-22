@@ -2583,3 +2583,10 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
 - **Lý do:** `CLAUDE_CONFIG_DIR` tách cả tài khoản lẫn Keychain (đã thử với Claude Code 2.1.307). Cách này dùng lại luồng đăng nhập có sẵn trên dashboard và không phải lưu token.
 - **Phương án đã loại:** token `claude setup-token` lưu trong kết nối (`CLAUDE_CODE_OAUTH_TOKEN`): token chỉ dùng để gọi model, `auth status` không cho biết là tài khoản nào, phải dán token bằng tay. Link toàn bộ `~/.claude`: sẽ lẫn bản sao `.claude.json` và policy của tài khoản chính.
 - **Giới hạn:** MCP server cấp user nằm trong `~/.claude.json`, gắn với tài khoản, nên kết nối tài khoản riêng không có.
+
+## ADR-179: Tài khoản riêng cho Codex và Gemini CLI
+- **Bối cảnh (22/10):** người dùng muốn ADR-178 áp dụng cho các CLI khác.
+- **Quyết định:**
+  - Kết nối **Codex** (`CODEX_HOME`) và **Gemini CLI** (`GEMINI_CLI_HOME`, cấu hình nằm ở `<thư mục>/.gemini`) cũng có công tắc/menu "Đăng nhập tài khoản khác": tạo kết nối mới có `cli_home` riêng. Biến môi trường tương ứng đi kèm mọi lệnh của kết nối đó: lượt chat, kiểm tra, trạng thái, đăng nhập/đăng xuất, đọc giới hạn của Codex, đánh dấu phiên bị từ chối.
+  - Mỗi CLI có danh sách dùng chung riêng (`clitools.Tool.share`). Codex link `config.toml`, `prompts`, `skills`, `rules`, `*.md`, không link `auth.json` và các file sqlite (state, phiên). Gemini link `extensions`, `commands`, `skills`, `tmp`, `history`, `projects.json`, `*.md`; `settings.json` thì **chép** một lần, vì cách đăng nhập được ghi vào đó. Không link `oauth_creds.json`, `google_accounts.json`.
+  - **Antigravity CLI không hỗ trợ:** đã thử các biến `GEMINI_CLI_HOME`, `ANTIGRAVITY_EXECUTABLE_DATA_DIR`, `ANTIGRAVITY_CONFIG_REL_DIR`, `AGY_ACCOUNT`, chỉ đổi `HOME` mới tách được tài khoản. Đổi `HOME` của một agent chạy lệnh thì git, npm, ssh config đi theo, nên chưa làm.

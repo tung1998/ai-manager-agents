@@ -206,7 +206,7 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = req.WorkDir
-	cmd.Env = claudeEnv(req.Provider)
+	cmd.Env = cliEnv(req.Provider)
 	cmd.Stdin = strings.NewReader(strings.ToValidUTF8(prompt, "�")) // a stray cut byte must not make the CLI refuse the whole turn
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -423,9 +423,9 @@ func claudeSignedIn(bin string, env []string) bool {
 	return st.LoggedIn
 }
 
-// claudeEnv runs a connection with an account of its own in its config folder
+// cliEnv runs a connection with an account of its own in its config folder
 // (ADR-178); nil keeps the office's environment.
-func claudeEnv(p storage.Provider) []string {
+func cliEnv(p storage.Provider) []string {
 	if env := p.CLIEnv(); env != nil {
 		return append(os.Environ(), env...)
 	}

@@ -106,10 +106,15 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = req.WorkDir
+	cmd.Env = cliEnv(req.Provider)
 	if req.Office != nil && !req.NoTools {
 		// the run's token reaches Codex through its environment, not argv
-		cmd.Env = append(os.Environ(), codexTokenEnv+"="+req.Office.Token)
+		if cmd.Env == nil {
+			cmd.Env = os.Environ()
+		}
+		cmd.Env = append(cmd.Env, codexTokenEnv+"="+req.Office.Token)
 	}
+	home := llm.CodexHomeIn(req.Provider.CLIEnv())
 	cmd.Stdin = strings.NewReader(strings.ToValidUTF8(prompt, "�")) // a stray cut byte must not make the CLI refuse the whole turn
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -180,14 +185,14 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	werr := cmd.Wait()
 	res.Usage.DurationMS = time.Since(start).Milliseconds()
 	res.Text = strings.TrimSpace(strings.Join(answer, "\n\n"))
-	res.Limits = codexLimits(llm.CodexHome(), res.SessionID, time.Now())
+	res.Limits = codexLimits(home, res.SessionID, time.Now())
 	if scanErr != nil {
 		return res, scanErr
 	}
 	if res.Text == "" {
 		if msg := llm.CodexFailure(strings.Join(failed, "\n")); msg != "" {
 			if llm.CodexAuthFailed(msg) || llm.CodexAuthFailed(stderr.String()) {
-				llm.MarkCodexRejected()
+				llm.MarkCodexRejected(home)
 				return res, fmt.Errorf("%w: phiên Codex bị từ chối (%s), hãy bấm Đăng nhập ở Kết nối AI để ký lại", llm.ErrNeedsLogin, truncate(msg, 200))
 			}
 			return res, fmt.Errorf("codex: %s", truncate(msg, 500))
@@ -199,7 +204,7 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 			msg = werr.Error()
 		}
 		if llm.CodexAuthFailed(msg) {
-			llm.MarkCodexRejected()
+			llm.MarkCodexRejected(home)
 			return res, fmt.Errorf("%w: phiên Codex bị từ chối (%s), hãy bấm Đăng nhập ở Kết nối AI để ký lại", llm.ErrNeedsLogin, truncate(msg, 200))
 		}
 		return res, fmt.Errorf("codex: %s", truncate(msg, 500))

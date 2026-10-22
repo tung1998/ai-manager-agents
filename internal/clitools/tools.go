@@ -45,17 +45,28 @@ type Tool struct {
 	methods     []Method
 	loginArgv   []string
 	logoutArgv  []string
-	logoutFiles func() []string
+	logoutFiles func(env []string) []string
 	status      func(ctx context.Context, bin string, env []string) Auth
 	// loginEnv / prepareLogin set up a sign-in that is no subcommand of its
 	// own; loginDone ends it once signed in (Gemini's sign-in opens its chat).
 	loginEnv     []string
 	loginTerm    term
-	prepareLogin func() error
+	prepareLogin func(env []string) error
 	loginDone    func(ctx context.Context, bin string, env []string) bool
 	// homeEnv names the variable that moves the tool's config and
-	// credentials to another folder: a second account (ADR-178)
+	// credentials to another folder: a second account (ADR-178); share is
+	// what that folder takes from the machine's
 	homeEnv string
+	share   shared
+}
+
+// shared is how a second account's folder shares the machine's setup
+// (ADR-178): links (with every *.md) and copies, never the credentials.
+type shared struct {
+	src    func() string // the machine's folder
+	sub    string        // where in the account's folder the tool looks ("" = the folder)
+	links  []string
+	copies []string // copied once: the account may change its own (Gemini's sign-in method)
 }
 
 // Auth is a tool's sign-in state.
@@ -83,6 +94,10 @@ var tools = []Tool{
 		LoginCmd: "claude auth login", loginArgv: []string{"claude", "auth", "login"},
 		LogoutCmd: "claude auth logout", logoutArgv: []string{"claude", "auth", "logout"},
 		homeEnv: "CLAUDE_CONFIG_DIR",
+		// the person's setup and the sessions (a turn resumes on another
+		// account), never the .claude.json backups or the organisation's
+		// policy and remote settings
+		share: shared{src: claudeDir, links: []string{"settings.json", "skills", "agents", "commands", "plugins", "hooks", "output-styles", "projects"}},
 		methods: []Method{
 			{ID: "native", Label: "Trình cài chính thức", Command: "curl -fsSL https://claude.ai/install.sh | bash", Requires: "curl", Recommended: true,
 				argv: []string{"/bin/sh", "-c", "curl -fsSL https://claude.ai/install.sh | bash"}},
@@ -97,6 +112,8 @@ var tools = []Tool{
 		ID: "codex", Name: "Codex", Bin: "codex", DocsURL: "https://github.com/openai/codex",
 		LoginCmd: "codex login --device-auth", loginArgv: []string{"codex", "login", "--device-auth"},
 		LogoutCmd: "codex logout", logoutArgv: []string{"codex", "logout"},
+		homeEnv: "CODEX_HOME",
+		share:   shared{src: llm.CodexHome, links: []string{"config.toml", "prompts", "skills", "rules"}},
 		methods: []Method{
 			// like Antigravity: a quarantined cask binary hangs on a Gatekeeper
 			// check when the office (no window) runs it
@@ -112,7 +129,12 @@ var tools = []Tool{
 		// Gemini signs in when it starts; NO_BROWSER prints the URL and asks for the code
 		LoginCmd: "gemini", loginArgv: []string{"gemini"},
 		// no logout subcommand (only /logout inside its chat): drop the Google credentials
-		LogoutCmd: "rm ~/.gemini/oauth_creds.json", logoutFiles: func() []string { return []string{filepath.Join(geminiDir(), "oauth_creds.json")} },
+		LogoutCmd: "rm ~/.gemini/oauth_creds.json", logoutFiles: func(env []string) []string { return []string{filepath.Join(llm.GeminiDir(env), "oauth_creds.json")} },
+		homeEnv: "GEMINI_CLI_HOME",
+		// sessions and the project registry too; settings.json is copied:
+		// it holds the sign-in method
+		share: shared{src: func() string { return llm.GeminiDir(nil) }, sub: ".gemini",
+			links: []string{"extensions", "commands", "skills", "tmp", "history", "projects.json"}, copies: []string{"settings.json"}},
 		loginEnv: []string{"NO_BROWSER=true", "GEMINI_CLI_TRUST_WORKSPACE=true"},
 		methods: []Method{
 			{ID: "npm", Label: "npm (cần Node 20+)", Command: "npm install -g @google/gemini-cli", Requires: "npm", Recommended: true,
@@ -122,7 +144,7 @@ var tools = []Tool{
 		},
 		status:       geminiStatus,
 		prepareLogin: geminiPrepareLogin,
-		loginDone:    func(context.Context, string, []string) bool { return llm.GeminiSignedIn() },
+		loginDone:    func(_ context.Context, _ string, env []string) bool { return llm.GeminiSignedIn(llm.GeminiDir(env)) },
 	},
 	{
 		// Antigravity CLI replaces Gemini CLI for Google accounts (AI Pro/Ultra
@@ -131,7 +153,7 @@ var tools = []Tool{
 		LoginCmd: "agy", loginArgv: []string{"agy"},
 		// no logout subcommand either
 		LogoutCmd: "rm ~/.gemini/antigravity-cli/antigravity-oauth-token",
-		logoutFiles: func() []string {
+		logoutFiles: func([]string) []string {
 			home, _ := os.UserHomeDir()
 			return []string{filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")}
 		},
@@ -163,7 +185,7 @@ func antigravityStatus(ctx context.Context, bin string, env []string) Auth {
 
 // geminiStatus: Gemini CLI has no status subcommand; read its credentials.
 func geminiStatus(ctx context.Context, bin string, env []string) Auth {
-	if ok, account := llm.GeminiAccount(); ok {
+	if ok, account := llm.GeminiAccount(llm.GeminiDir(env)); ok {
 		return Auth{LoggedIn: true, Account: account}
 	}
 	return Auth{Detail: "chưa đăng nhập Google hoặc chưa có GEMINI_API_KEY"}
@@ -172,8 +194,8 @@ func geminiStatus(ctx context.Context, bin string, env []string) Auth {
 // geminiPrepareLogin picks "Login with Google" in ~/.gemini/settings.json when
 // no sign-in method is chosen yet, so the CLI goes straight to the URL instead
 // of a menu the dashboard cannot drive.
-func geminiPrepareLogin() error {
-	dir := geminiDir()
+func geminiPrepareLogin(env []string) error {
+	dir := llm.GeminiDir(env)
 	path := filepath.Join(dir, "settings.json")
 	settings := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil {
@@ -204,13 +226,13 @@ func geminiPrepareLogin() error {
 	return os.WriteFile(path, raw, 0o600)
 }
 
-// geminiDir is Gemini CLI's settings and credentials folder.
-func geminiDir() string {
-	home := os.Getenv("GEMINI_CLI_HOME")
-	if home == "" {
-		home, _ = os.UserHomeDir()
+// claudeDir is the machine's Claude Code config folder.
+func claudeDir() string {
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		return d
 	}
-	return filepath.Join(home, ".gemini")
+	h, _ := os.UserHomeDir()
+	return filepath.Join(h, ".claude")
 }
 
 // claudeStatus reads `claude auth status --json`.
@@ -235,6 +257,7 @@ func claudeStatus(ctx context.Context, bin string, env []string) Auth {
 // codexStatus trusts `codex login status` when it answers; the credentials
 // file is only a fallback for versions without that subcommand.
 func codexStatus(ctx context.Context, bin string, env []string) Auth {
+	home := llm.CodexHomeIn(env)
 	out, err := runOut(ctx, env, bin, "login", "status")
 	text := strings.TrimSpace(out)
 	low := strings.ToLower(text)
@@ -243,25 +266,23 @@ func codexStatus(ctx context.Context, bin string, env []string) Auth {
 		return Auth{LoggedIn: false, Detail: text}
 	case err == nil && strings.Contains(low, "logged in"):
 		// the CLI only checks the file exists: an expired session reads "Logged in" too
-		if expired, detail := llm.CodexSessionExpired(time.Now()); expired {
+		if expired, detail := llm.CodexSessionExpired(home, time.Now()); expired {
 			return Auth{LoggedIn: false, Detail: detail}
 		}
 		// nor does it know the server refused the session in a real call
-		if rejected, detail := llm.CodexRejected(); rejected {
+		if rejected, detail := llm.CodexRejected(home); rejected {
 			return Auth{LoggedIn: false, Detail: detail}
 		}
 		return Auth{LoggedIn: true, Detail: text}
 	}
-	if home, herr := os.UserHomeDir(); herr == nil {
-		if _, serr := os.Stat(filepath.Join(home, ".codex", "auth.json")); serr == nil {
-			if expired, detail := llm.CodexSessionExpired(time.Now()); expired {
-				return Auth{LoggedIn: false, Detail: detail}
-			}
-			if rejected, detail := llm.CodexRejected(); rejected {
-				return Auth{LoggedIn: false, Detail: detail}
-			}
-			return Auth{LoggedIn: true, Detail: "đã có ~/.codex/auth.json"}
+	if _, serr := os.Stat(filepath.Join(home, "auth.json")); serr == nil {
+		if expired, detail := llm.CodexSessionExpired(home, time.Now()); expired {
+			return Auth{LoggedIn: false, Detail: detail}
 		}
+		if rejected, detail := llm.CodexRejected(home); rejected {
+			return Auth{LoggedIn: false, Detail: detail}
+		}
+		return Auth{LoggedIn: true, Detail: "đã có " + filepath.Join(home, "auth.json")}
 	}
 	return Auth{LoggedIn: false, Detail: text}
 }
@@ -484,17 +505,17 @@ func (m *Manager) LoginIn(id, home string) (*Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	if home != "" {
-		if err := PrepareHome(home); err != nil {
-			return nil, err
-		}
-	}
 	path := m.lookPath(t.Bin)
 	if path == "" {
 		return nil, ErrNotInstalled
 	}
+	if home != "" {
+		if err := PrepareHome(id, home); err != nil {
+			return nil, err
+		}
+	}
 	if t.prepareLogin != nil {
-		if err := t.prepareLogin(); err != nil {
+		if err := t.prepareLogin(append(m.Env(), vars...)); err != nil {
 			return nil, err
 		}
 	}
@@ -545,7 +566,7 @@ func (m *Manager) LogoutIn(ctx context.Context, id, home string) error {
 		return ErrBusy
 	}
 	if t.logoutFiles != nil {
-		for _, f := range t.logoutFiles() {
+		for _, f := range t.logoutFiles(append(m.Env(), vars...)) {
 			if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
@@ -631,27 +652,24 @@ func jobKey(id, home string) string {
 	return id + "@" + home
 }
 
-// sharedConfig is what a second account shares with the machine's ~/.claude
-// (with its *.md): the person's setup and the sessions (a turn resumes on
-// another account), never what belongs to an account (credentials, the
-// .claude.json backups, its organisation's policy and remote settings).
-var sharedConfig = []string{"settings.json", "skills", "agents", "commands", "plugins", "hooks", "output-styles", "projects"}
-
-// PrepareHome makes home a Claude Code config folder for a second account
-// (ADR-178): the machine's setup (sharedConfig) is linked in, so the account
+// PrepareHome makes home the config folder of a second account of tool
+// (ADR-178): the machine's setup (Tool.share) is linked in, so the account
 // differs and the setup does not. Run again, it links what is new.
-func PrepareHome(home string) error {
-	if err := os.MkdirAll(home, 0o700); err != nil {
+func PrepareHome(tool, home string) error {
+	t, ok := tools[0], false
+	for _, x := range tools {
+		if x.ID == tool {
+			t, ok = x, true
+		}
+	}
+	if !ok || t.homeEnv == "" {
+		return ErrNoHome
+	}
+	dir := filepath.Join(home, t.share.sub)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	src := os.Getenv("CLAUDE_CONFIG_DIR")
-	if src == "" {
-		h, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		src = filepath.Join(h, ".claude")
-	}
+	src := t.share.src()
 	entries, err := os.ReadDir(src)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -660,14 +678,21 @@ func PrepareHome(home string) error {
 		return err
 	}
 	for _, e := range entries {
-		if !slices.Contains(sharedConfig, e.Name()) && (e.IsDir() || !strings.HasSuffix(e.Name(), ".md")) {
+		name := e.Name()
+		link := slices.Contains(t.share.links, name) || (!e.IsDir() && strings.HasSuffix(name, ".md"))
+		if !link && !slices.Contains(t.share.copies, name) {
 			continue
 		}
-		dst := filepath.Join(home, e.Name())
+		dst := filepath.Join(dir, name)
 		if _, err := os.Lstat(dst); err == nil {
 			continue
 		}
-		if err := os.Symlink(filepath.Join(src, e.Name()), dst); err != nil {
+		if link {
+			err = os.Symlink(filepath.Join(src, name), dst)
+		} else if raw, rerr := os.ReadFile(filepath.Join(src, name)); rerr == nil {
+			err = os.WriteFile(dst, raw, 0o600)
+		}
+		if err != nil {
 			return err
 		}
 	}

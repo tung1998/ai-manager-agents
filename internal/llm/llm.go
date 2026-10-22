@@ -84,9 +84,9 @@ func New(p storage.Provider, apiKey string, opts Options) (Client, error) {
 	case storage.ProviderClaudeCLI:
 		return &claudeCLI{bin: orDefault(p.BaseURL, "claude"), env: p.CLIEnv()}, nil
 	case storage.ProviderCodexCLI:
-		return &codexCLI{bin: orDefault(p.BaseURL, "codex")}, nil
+		return &codexCLI{bin: orDefault(p.BaseURL, "codex"), env: p.CLIEnv()}, nil
 	case storage.ProviderGeminiCLI:
-		return &geminiCLI{bin: orDefault(p.BaseURL, "gemini")}, nil
+		return &geminiCLI{bin: orDefault(p.BaseURL, "gemini"), env: p.CLIEnv()}, nil
 	case storage.ProviderAntigravityCLI:
 		return &antigravityCLI{bin: orDefault(p.BaseURL, "agy")}, nil
 	}

@@ -254,8 +254,11 @@ func TestNewClaudeAccount(t *testing.T) {
 	}
 	accounts := t.TempDir()
 	svc.SetAccountsDir(accounts)
-	if _, err := svc.Create(ctx, provider.Input{Name: "Codex", Kind: storage.ProviderCodexCLI, NewAccount: true}); !errors.Is(err, provider.ErrNoAccounts) {
-		t.Fatalf("codex err = %v", err)
+	if _, err := svc.Create(ctx, provider.Input{Name: "Agy", Kind: storage.ProviderAntigravityCLI, NewAccount: true}); !errors.Is(err, provider.ErrNoAccounts) {
+		t.Fatalf("antigravity err = %v", err)
+	}
+	if c, err := svc.Create(ctx, provider.Input{Name: "Codex 2", Kind: storage.ProviderCodexCLI, NewAccount: true}); err != nil || len(c.CLIEnv()) != 1 || c.CLIEnv()[0] != "CODEX_HOME="+c.CLIHome {
+		t.Fatalf("codex = %+v, %v", c, err)
 	}
 	first, _ := svc.Create(ctx, provider.Input{Name: "Claude", Kind: storage.ProviderClaudeCLI})
 	two, err := svc.Create(ctx, provider.Input{Name: "Two", Kind: storage.ProviderClaudeCLI, NewAccount: true})
@@ -272,7 +275,7 @@ func TestNewClaudeAccount(t *testing.T) {
 	if _, err := svc.Create(ctx, provider.Input{Name: "Two (work)", Kind: storage.ProviderClaudeCLI, NewAccount: true}); !errors.Is(err, provider.ErrNameTaken) {
 		t.Fatalf("dup name err = %v", err)
 	}
-	if entries, _ := os.ReadDir(accounts); len(entries) != 1 {
+	if entries, _ := os.ReadDir(accounts); len(entries) != 2 {
 		t.Fatalf("a failed create left its folder: %v", entries)
 	}
 	if err := svc.Delete(ctx, two.ID); err != nil {

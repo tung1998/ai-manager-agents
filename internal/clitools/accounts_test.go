@@ -63,8 +63,8 @@ func TestSecondAccount(t *testing.T) {
 	if s, _ := m.StatusIn(ctx, "claude", home); s.Auth.LoggedIn {
 		t.Fatal("still signed in after logout")
 	}
-	if _, err := m.LoginIn("codex", home); err != ErrNoHome {
-		t.Fatalf("codex second account err = %v", err)
+	if _, err := m.LoginIn("antigravity", home); err != ErrNoHome {
+		t.Fatalf("antigravity second account err = %v", err)
 	}
 }
 
@@ -82,7 +82,7 @@ func TestPrepareHome(t *testing.T) {
 		}
 	}
 	home := filepath.Join(t.TempDir(), "prv_2")
-	if err := PrepareHome(home); err != nil {
+	if err := PrepareHome("claude", home); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"settings.json", "CLAUDE.md", "skills", "projects"} {
@@ -103,7 +103,7 @@ func TestPrepareHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(src, "RTK.md"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareHome(home); err != nil {
+	if err := PrepareHome("claude", home); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Readlink(filepath.Join(home, "RTK.md")); err != nil {
@@ -111,5 +111,60 @@ func TestPrepareHome(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(home, ".claude.json")); !strings.EqualFold(string(b), "own") {
 		t.Fatal("the account's own file was replaced")
+	}
+}
+
+// Codex and Gemini CLI: the setup is shared, the credentials are not.
+func TestPrepareHomeCodexGemini(t *testing.T) {
+	write := func(dir string, files ...string) {
+		for _, f := range files {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, f), []byte(f), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	codex := t.TempDir()
+	t.Setenv("CODEX_HOME", codex)
+	write(codex, "config.toml", "AGENTS.md", "auth.json", "state_5.sqlite")
+	home := filepath.Join(t.TempDir(), "prv_c")
+	if err := PrepareHome("codex", home); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"config.toml", "AGENTS.md"} {
+		if to, err := os.Readlink(filepath.Join(home, f)); err != nil || to != filepath.Join(codex, f) {
+			t.Fatalf("codex %s → %q, %v", f, to, err)
+		}
+	}
+	for _, f := range []string{"auth.json", "state_5.sqlite"} {
+		if _, err := os.Lstat(filepath.Join(home, f)); !os.IsNotExist(err) {
+			t.Fatalf("codex %s was shared", f)
+		}
+	}
+
+	gem := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", gem)
+	write(filepath.Join(gem, ".gemini"), "settings.json", "GEMINI.md", "oauth_creds.json", "google_accounts.json")
+	home = filepath.Join(t.TempDir(), "prv_g")
+	if err := PrepareHome("gemini", home); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".gemini")
+	if to, err := os.Readlink(filepath.Join(dir, "GEMINI.md")); err != nil || to != filepath.Join(gem, ".gemini", "GEMINI.md") {
+		t.Fatalf("GEMINI.md → %q, %v", to, err)
+	}
+	// a copy: signing in writes the method there, not in the machine's
+	if st, err := os.Lstat(filepath.Join(dir, "settings.json")); err != nil || st.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("settings.json = %v, %v", st, err)
+	}
+	for _, f := range []string{"oauth_creds.json", "google_accounts.json"} {
+		if _, err := os.Lstat(filepath.Join(dir, f)); !os.IsNotExist(err) {
+			t.Fatalf("gemini %s was shared", f)
+		}
+	}
+	if err := PrepareHome("antigravity", home); err != ErrNoHome {
+		t.Fatalf("antigravity err = %v", err)
 	}
 }
