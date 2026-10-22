@@ -813,7 +813,19 @@ func (s *Service) checkSend(ctx context.Context, sc Scope, a *storage.Action) er
 	if s.peers.IsOtherOffice(ctx, a.Target) {
 		return errors.New(otherHint)
 	}
-	if a.Args.Project != "" {
+	// reach: a project the chat may send into: a linked one, or any for the
+	// office assistant (ADR-046)
+	reach := func(ref string) (storage.Repo, error) {
+		if !sc.Office {
+			return perm.LinkedProject(ctx, s.store, a.ProjectID, ref)
+		}
+		p, err := s.store.Repos().Get(ctx, ref)
+		if err != nil {
+			return p, fmt.Errorf("không có project %q", ref)
+		}
+		return p, nil
+	}
+	if a.Args.Project != "" && !sc.Office {
 		if _, err := perm.LinkedProject(ctx, s.store, a.ProjectID, a.Args.Project); err != nil && s.peers != nil {
 			if _, _, perr := peer.Resolve(ctx, s.store, s.peers, a.ProjectID, a.Args.Project); perr == nil {
 				return errors.New(otherHint)
@@ -821,7 +833,7 @@ func (s *Service) checkSend(ctx context.Context, sc Scope, a *storage.Action) er
 		}
 	}
 	if a.Args.Project != "" { // a linked project's: id or name
-		p, err := perm.LinkedProject(ctx, s.store, a.ProjectID, a.Args.Project)
+		p, err := reach(a.Args.Project)
 		if err != nil {
 			return err
 		}
@@ -843,7 +855,7 @@ func (s *Service) checkSend(ctx context.Context, sc Scope, a *storage.Action) er
 	case a.Args.Project != "" && c.ProjectID != a.Args.Project:
 		return errors.New("cuộc chat đó không thuộc project đã ghi")
 	case c.ProjectID != a.ProjectID: // only a linked project's
-		p, err := perm.LinkedProject(ctx, s.store, a.ProjectID, c.ProjectID)
+		p, err := reach(c.ProjectID)
 		if err != nil {
 			return errors.New("không có cuộc chat này trong project hay project liên kết")
 		}

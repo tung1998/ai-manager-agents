@@ -408,6 +408,9 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 		if sc.AnswerOnly && proposes(x.Name) {
 			continue
 		}
+		if sc.Office {
+			x = withProject(x)
+		}
 		out = append(out, x)
 	}
 	if !sc.Office {
@@ -427,6 +430,30 @@ func (t *Toolbox) ToolsFor(sc Scope) []Tool {
 		}
 	}
 	return out
+}
+
+// ownTools are the assistant's own, not a project's: they take no project.
+var ownTools = []string{"remember", "recall", "read_link"}
+
+// withProject gives a project tool of the office assistant a "project"
+// argument (ADR-046): any project of the office, not only linked ones.
+func withProject(x Tool) Tool {
+	props, _ := x.Schema["properties"].(map[string]any)
+	if props == nil || slices.Contains(ownTools, x.Name) {
+		return x
+	}
+	schema := make(map[string]any, len(x.Schema))
+	for k, v := range x.Schema {
+		schema[k] = v
+	}
+	np := make(map[string]any, len(props)+1)
+	for k, v := range props {
+		np[k] = v
+	}
+	np["project"] = map[string]any{"type": "string", "description": "Project it is about: id or name (see projects); any project of the office"}
+	schema["properties"] = np
+	x.Schema = schema
+	return x
 }
 
 // proposes: a tool that proposes a change or runs something (none for an
@@ -511,7 +538,11 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 			if err != nil {
 				return err.Error(), true
 			}
-			projectID, sc.ProjectID = p.ID, p.ID
+			if name == "send_to_chat" { // sent from the assistant's chat, into that project
+				in.Project = p.ID
+			} else { // the assistant's own worktree is not that project's folder
+				projectID, sc.ProjectID, sc.Dir = p.ID, p.ID, ""
+			}
 		}
 	} else if in.Project != "" && in.Project != projectID && name != "send_to_chat" && name != "search_history" { // these two: a linked project
 		return "Bạn chỉ làm việc trong project của mình", true
@@ -645,8 +676,8 @@ func (t *Toolbox) Call(ctx context.Context, sc Scope, name string, raw json.RawM
 		}
 		var a storage.Action
 		project := in.Project
-		if sc.Office || project == sc.ProjectID {
-			project = "" // the assistant's project is the one named; its own is no link
+		if !sc.Office && project == sc.ProjectID {
+			project = "" // its own project is no link
 		}
 		if a, err = t.actions.Propose(ctx, sc, "send_message", in.Chat, in.Reason, storage.ActionArgs{Message: in.Text, Project: project}); err == nil {
 			switch a.Status {

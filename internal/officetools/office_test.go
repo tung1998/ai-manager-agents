@@ -211,3 +211,68 @@ func TestSearchHistory(t *testing.T) {
 		t.Fatalf("search = %v %s", isErr, out)
 	}
 }
+
+type officeSender struct{}
+
+func (officeSender) Relay(context.Context, storage.Action) (string, string, error) {
+	return "", "", nil
+}
+func (officeSender) Relayed(context.Context, string) bool    { return false }
+func (officeSender) RelayLimit(context.Context, string) bool { return false }
+
+type officeApplier struct{}
+
+func (officeApplier) CheckChange(context.Context, string, bool, *storage.ConfigChange) (string, error) {
+	return "agent", nil
+}
+func (officeApplier) ApplyChange(context.Context, storage.Action) (string, error) { return "", nil }
+
+// The assistant reaches every project, linked or not: its project tools take
+// "project", a change is proposed on that project, it reads that project's
+// chats and sends work into a new chat there.
+func TestOfficeReachesEveryProject(t *testing.T) {
+	ctx := context.Background()
+	st, _ := sqlite.Open(filepath.Join(t.TempDir(), "o.db"))
+	defer st.Close()
+	st.Migrate(ctx)
+	office, _ := st.Repos().Create(ctx, storage.Repo{Name: "Office"})
+	shop, _ := st.Repos().Create(ctx, storage.Repo{Name: "Storefront"})
+	acts := actions.New(st, nil)
+	acts.SetConfig(officeApplier{})
+	acts.SetSender(officeSender{})
+	box := New(st, nil, acts)
+	box.SetOffice(func(ctx context.Context) string { return office.ID })
+	box.SetConfig(fakeConfig{})
+	own, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: office.ID, CreatedBy: "human:a@x.io"})
+	job, _ := st.Jobs().Create(ctx, storage.Job{ProjectID: office.ID, Kind: "chat_turn", Origin: "user", Trigger: "ui", CreatedBy: "human:a@x.io", Status: "running", ConversationID: own.ID})
+	sc := Scope{ProjectID: office.ID, Office: true, Agent: "Trợ lý office", Level: "propose", ConversationID: own.ID, JobID: job.ID, Dir: "/tmp/assistant-tree"}
+	call := func(name string, args map[string]any) (string, bool) {
+		raw, _ := json.Marshal(args)
+		return box.Call(ctx, sc, name, raw)
+	}
+	for _, tl := range box.ToolsFor(sc) {
+		_, has := tl.Schema["properties"].(map[string]any)["project"]
+		if want := tl.Name != "recall" && tl.Name != "remember" && tl.Name != "read_link"; tl.Name != "projects" && tl.Name != "usage_summary" && has != want {
+			t.Errorf("%s: project argument = %v", tl.Name, has)
+		}
+	}
+	if out, isErr := call("propose_change", map[string]any{"project": "storefront", "resource": "agent", "op": "update", "id": "agt_x", "patch": map[string]any{"name": "y"}, "reason": "r"}); isErr {
+		t.Fatalf("propose_change = %s", out)
+	}
+	list, _ := st.Actions().List(ctx, own.ID, "", "")
+	if len(list) != 1 || list[0].ProjectID != shop.ID || list[0].Kind != "config_change" {
+		t.Fatalf("card = %+v", list)
+	}
+	other, _ := st.Chat().CreateConversation(ctx, storage.Conversation{ProjectID: shop.ID, Title: "đơn hàng"})
+	st.Chat().AddMessage(ctx, storage.Message{ConversationID: other.ID, Role: "user", Content: "lỗi thanh toán"})
+	if out, isErr := call("read_link", map[string]any{"url": "/projects/" + shop.ID + "?tab=chat&c=" + other.ID}); isErr || !strings.Contains(out, "lỗi thanh toán") {
+		t.Fatalf("read_link = %v %s", isErr, out)
+	}
+	if out, isErr := call("send_to_chat", map[string]any{"project": "Storefront", "text": "sửa lỗi thanh toán", "reason": "r"}); isErr {
+		t.Fatalf("send_to_chat = %s", out)
+	}
+	list, _ = st.Actions().List(ctx, own.ID, "", "")
+	if a := list[len(list)-1]; a.Kind != "send_message" || a.ProjectID != office.ID || a.Args.Project != shop.ID {
+		t.Fatalf("send = %+v", a)
+	}
+}
