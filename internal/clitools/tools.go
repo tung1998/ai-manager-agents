@@ -53,6 +53,9 @@ type Tool struct {
 	loginTerm    term
 	prepareLogin func() error
 	loginDone    func(ctx context.Context, bin string, env []string) bool
+	// homeEnv names the variable that moves the tool's config and
+	// credentials to another folder: a second account (ADR-178)
+	homeEnv string
 }
 
 // Auth is a tool's sign-in state.
@@ -79,6 +82,7 @@ var tools = []Tool{
 		ID: "claude", Name: "Claude Code", Bin: "claude", DocsURL: "https://code.claude.com/docs/en/setup",
 		LoginCmd: "claude auth login", loginArgv: []string{"claude", "auth", "login"},
 		LogoutCmd: "claude auth logout", logoutArgv: []string{"claude", "auth", "logout"},
+		homeEnv: "CLAUDE_CONFIG_DIR",
 		methods: []Method{
 			{ID: "native", Label: "Trình cài chính thức", Command: "curl -fsSL https://claude.ai/install.sh | bash", Requires: "curl", Recommended: true,
 				argv: []string{"/bin/sh", "-c", "curl -fsSL https://claude.ai/install.sh | bash"}},
@@ -394,10 +398,20 @@ func (m *Manager) List(ctx context.Context) []Status {
 
 // Status inspects one tool: installed, version, sign-in, install methods, last job.
 func (m *Manager) Status(ctx context.Context, id string) (Status, error) {
+	return m.StatusIn(ctx, id, "")
+}
+
+// StatusIn is Status for the account kept in home ("" = the machine's).
+func (m *Manager) StatusIn(ctx context.Context, id, home string) (Status, error) {
 	t, ok := m.find(id)
 	if !ok {
 		return Status{}, ErrUnknownTool
 	}
+	vars, err := homeVars(t, home)
+	if err != nil {
+		return Status{}, err
+	}
+	env := append(m.Env(), vars...)
 	s := Status{Tool: t, Methods: []Method{}}
 	for _, meth := range t.methods {
 		meth.Available = m.lookPath(meth.Requires) != ""
@@ -409,10 +423,10 @@ func (m *Manager) Status(ctx context.Context, id string) (Status, error) {
 		defer cancel()
 		v, _ := runOut(ctx, m.env, path, "--version")
 		s.Version = strings.TrimSpace(strings.SplitN(v, "\n", 2)[0])
-		s.Auth = t.status(ctx, path, m.env)
+		s.Auth = t.status(ctx, path, env)
 	}
 	m.mu.Lock()
-	if j := m.last[id]; j != nil {
+	if j := m.last[jobKey(id, home)]; j != nil {
 		snap := j.Snapshot()
 		s.Job = &snap
 	}
@@ -452,16 +466,28 @@ func (m *Manager) Install(id, method string) (*Job, error) {
 		}
 		// brew asks [y/n] before installing (the default since Homebrew 6, or
 		// HOMEBREW_ASK before); the install box cannot answer
-		return m.start(id, "install", meth.argv, 15*time.Minute, term{}, "HOMEBREW_NO_ASK=1", "HOMEBREW_ASK=")
+		return m.start(id, id, "install", meth.argv, 15*time.Minute, term{}, "HOMEBREW_NO_ASK=1", "HOMEBREW_ASK=")
 	}
 	return nil, ErrUnknownMethod
 }
 
 // Login starts the tool's sign-in flow.
-func (m *Manager) Login(id string) (*Job, error) {
+func (m *Manager) Login(id string) (*Job, error) { return m.LoginIn(id, "") }
+
+// LoginIn signs in the account kept in home ("" = the machine's).
+func (m *Manager) LoginIn(id, home string) (*Job, error) {
 	t, ok := m.find(id)
 	if !ok {
 		return nil, ErrUnknownTool
+	}
+	vars, err := homeVars(t, home)
+	if err != nil {
+		return nil, err
+	}
+	if home != "" {
+		if err := PrepareHome(home); err != nil {
+			return nil, err
+		}
 	}
 	path := m.lookPath(t.Bin)
 	if path == "" {
@@ -473,7 +499,7 @@ func (m *Manager) Login(id string) (*Job, error) {
 		}
 	}
 	argv := append([]string{path}, t.loginArgv[1:]...)
-	j, err := m.start(id, "login", argv, 15*time.Minute, t.loginTerm, t.loginEnv...)
+	j, err := m.start(jobKey(id, home), id, "login", argv, 15*time.Minute, t.loginTerm, append(vars, t.loginEnv...)...)
 	if err == nil && t.loginDone != nil {
 		go func() {
 			tick := time.NewTicker(2 * time.Second)
@@ -484,7 +510,7 @@ func (m *Manager) Login(id string) (*Job, error) {
 					return
 				case <-tick.C:
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-					done := t.loginDone(ctx, path, m.Env())
+					done := t.loginDone(ctx, path, append(m.Env(), vars...))
 					cancel()
 					if done {
 						j.finish()
@@ -500,13 +526,20 @@ func (m *Manager) Login(id string) (*Job, error) {
 // Logout signs the tool out: its logout subcommand, or removing its
 // credentials file. Signing in again after it starts from a clean slate
 // (Gemini's sign-in skips straight to its chat while credentials exist).
-func (m *Manager) Logout(ctx context.Context, id string) error {
+func (m *Manager) Logout(ctx context.Context, id string) error { return m.LogoutIn(ctx, id, "") }
+
+// LogoutIn signs out the account kept in home ("" = the machine's).
+func (m *Manager) LogoutIn(ctx context.Context, id, home string) error {
 	t, ok := m.find(id)
 	if !ok {
 		return ErrUnknownTool
 	}
+	vars, err := homeVars(t, home)
+	if err != nil {
+		return err
+	}
 	m.mu.Lock()
-	j := m.last[id]
+	j := m.last[jobKey(id, home)]
 	m.mu.Unlock()
 	if j != nil && j.Snapshot().State == "running" {
 		return ErrBusy
@@ -525,16 +558,18 @@ func (m *Manager) Logout(ctx context.Context, id string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if out, err := runOut(ctx, m.env, path, t.logoutArgv[1:]...); err != nil {
+	if out, err := runOut(ctx, append(m.Env(), vars...), path, t.logoutArgv[1:]...); err != nil {
 		return fmt.Errorf("%s: %v: %s", t.LogoutCmd, err, strings.TrimSpace(out))
 	}
 	return nil
 }
 
-func (m *Manager) start(tool, action string, argv []string, timeout time.Duration, tm term, env ...string) (*Job, error) {
+// start runs a job; key is what at most one job runs for at a time (the
+// tool, or the tool in one account's folder).
+func (m *Manager) start(key, tool, action string, argv []string, timeout time.Duration, tm term, env ...string) (*Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if j := m.last[tool]; j != nil && j.Snapshot().State == "running" {
+	if j := m.last[key]; j != nil && j.Snapshot().State == "running" {
 		return nil, ErrBusy
 	}
 	if p := m.lookPathLocked(argv[0]); p != "" {
@@ -544,7 +579,7 @@ func (m *Manager) start(tool, action string, argv []string, timeout time.Duratio
 	if err != nil {
 		return nil, err
 	}
-	m.jobs[j.ID], m.last[tool] = j, j
+	m.jobs[j.ID], m.last[key] = j, j
 	go m.expireJob(j)
 	return j, nil
 }
@@ -573,6 +608,70 @@ func (m *Manager) Job(id string) (*Job, bool) {
 	defer m.mu.Unlock()
 	j, ok := m.jobs[id]
 	return j, ok
+}
+
+// ErrNoHome: the tool cannot keep a second account in a folder of its own.
+var ErrNoHome = errors.New("công cụ này chưa hỗ trợ nhiều tài khoản")
+
+// homeVars is what the tool's environment adds for the account in home.
+func homeVars(t Tool, home string) ([]string, error) {
+	if home == "" {
+		return nil, nil
+	}
+	if t.homeEnv == "" {
+		return nil, ErrNoHome
+	}
+	return []string{t.homeEnv + "=" + home}, nil
+}
+
+func jobKey(id, home string) string {
+	if home == "" {
+		return id
+	}
+	return id + "@" + home
+}
+
+// sharedConfig is what a second account shares with the machine's ~/.claude
+// (with its *.md): the person's setup and the sessions (a turn resumes on
+// another account), never what belongs to an account (credentials, the
+// .claude.json backups, its organisation's policy and remote settings).
+var sharedConfig = []string{"settings.json", "skills", "agents", "commands", "plugins", "hooks", "output-styles", "projects"}
+
+// PrepareHome makes home a Claude Code config folder for a second account
+// (ADR-178): the machine's setup (sharedConfig) is linked in, so the account
+// differs and the setup does not. Run again, it links what is new.
+func PrepareHome(home string) error {
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return err
+	}
+	src := os.Getenv("CLAUDE_CONFIG_DIR")
+	if src == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		src = filepath.Join(h, ".claude")
+	}
+	entries, err := os.ReadDir(src)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !slices.Contains(sharedConfig, e.Name()) && (e.IsDir() || !strings.HasSuffix(e.Name(), ".md")) {
+			continue
+		}
+		dst := filepath.Join(home, e.Name())
+		if _, err := os.Lstat(dst); err == nil {
+			continue
+		}
+		if err := os.Symlink(filepath.Join(src, e.Name()), dst); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func runOut(ctx context.Context, env []string, bin string, args ...string) (string, error) {

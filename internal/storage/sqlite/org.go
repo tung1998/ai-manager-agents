@@ -52,7 +52,7 @@ func parseTimes(dst []*time.Time, src ...string) error {
 type providerRepo struct{ db dbtx }
 
 const providerCols = `id, name, kind, base_url, api_key_enc, api_key_env, api_key_hint, tier_models, models,
-	is_default, enabled, status, status_detail, checked_at, created_at, updated_at, preset, limit_caps`
+	is_default, enabled, status, status_detail, checked_at, created_at, updated_at, preset, limit_caps, cli_home`
 
 func scanProvider(row scanner) (storage.Provider, error) {
 	var (
@@ -64,7 +64,7 @@ func scanProvider(row scanner) (storage.Provider, error) {
 		created, updated    string
 	)
 	if err := row.Scan(&p.ID, &p.Name, &kind, &p.BaseURL, &p.APIKeyEnc, &p.APIKeyEnv, &p.APIKeyHint, &tiers, &models,
-		&isDefault, &enabled, &p.Status, &p.StatusDetail, &checked, &created, &updated, &p.Preset, &caps); err != nil {
+		&isDefault, &enabled, &p.Status, &p.StatusDetail, &checked, &created, &updated, &p.Preset, &caps, &p.CLIHome); err != nil {
 		return p, notFound(err)
 	}
 	p.Kind = storage.ProviderKind(kind)
@@ -103,9 +103,9 @@ func (r providerRepo) Create(ctx context.Context, p storage.Provider) (storage.P
 		p.Status = "unknown"
 	}
 	p.CreatedAt, p.UpdatedAt = now, now
-	_, err := r.db.ExecContext(ctx, `INSERT INTO providers (`+providerCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := r.db.ExecContext(ctx, `INSERT INTO providers (`+providerCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, p.Name, string(p.Kind), p.BaseURL, p.APIKeyEnc, p.APIKeyEnv, p.APIKeyHint, toJSON(p.TierModels), toJSON(p.Models),
-		boolInt(p.IsDefault), boolInt(p.Enabled), p.Status, p.StatusDetail, nil, fmtTime(now), fmtTime(now), p.Preset, capsJSON(p.LimitCaps))
+		boolInt(p.IsDefault), boolInt(p.Enabled), p.Status, p.StatusDetail, nil, fmtTime(now), fmtTime(now), p.Preset, capsJSON(p.LimitCaps), p.CLIHome)
 	if isUnique(err) {
 		return storage.Provider{}, storage.ErrConflict
 	}

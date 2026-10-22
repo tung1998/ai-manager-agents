@@ -242,3 +242,43 @@ func TestDeleteNonDefaultUnlinksAgent(t *testing.T) {
 		t.Fatalf("ResolveModel after unlink = %+v, %v", p, err)
 	}
 }
+
+// A connection signed in to another Claude account keeps it in a folder of
+// its own, which goes when the connection does (ADR-178).
+func TestNewClaudeAccount(t *testing.T) {
+	svc, st, _ := setup(t)
+	ctx := context.Background()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := svc.Create(ctx, provider.Input{Name: "Two", Kind: storage.ProviderClaudeCLI, NewAccount: true}); !errors.Is(err, provider.ErrNoAccounts) {
+		t.Fatalf("without an accounts folder err = %v", err)
+	}
+	accounts := t.TempDir()
+	svc.SetAccountsDir(accounts)
+	if _, err := svc.Create(ctx, provider.Input{Name: "Codex", Kind: storage.ProviderCodexCLI, NewAccount: true}); !errors.Is(err, provider.ErrNoAccounts) {
+		t.Fatalf("codex err = %v", err)
+	}
+	first, _ := svc.Create(ctx, provider.Input{Name: "Claude", Kind: storage.ProviderClaudeCLI})
+	two, err := svc.Create(ctx, provider.Input{Name: "Two", Kind: storage.ProviderClaudeCLI, NewAccount: true})
+	if err != nil || two.CLIHome != filepath.Join(accounts, two.ID) || first.CLIHome != "" {
+		t.Fatalf("two = %+v, %v", two, err)
+	}
+	if got, _ := st.Providers().Get(ctx, two.ID); got.CLIHome != two.CLIHome || len(got.CLIEnv()) != 1 || got.CLIEnv()[0] != "CLAUDE_CONFIG_DIR="+two.CLIHome {
+		t.Fatalf("stored = %+v", got)
+	}
+	// editing keeps the folder
+	if p, err := svc.Update(ctx, two.ID, provider.Input{Name: "Two (work)", Kind: storage.ProviderClaudeCLI}); err != nil || p.CLIHome != two.CLIHome {
+		t.Fatalf("after update = %+v, %v", p, err)
+	}
+	if _, err := svc.Create(ctx, provider.Input{Name: "Two (work)", Kind: storage.ProviderClaudeCLI, NewAccount: true}); !errors.Is(err, provider.ErrNameTaken) {
+		t.Fatalf("dup name err = %v", err)
+	}
+	if entries, _ := os.ReadDir(accounts); len(entries) != 1 {
+		t.Fatalf("a failed create left its folder: %v", entries)
+	}
+	if err := svc.Delete(ctx, two.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(two.CLIHome); !os.IsNotExist(err) {
+		t.Fatalf("folder after delete: %v", err)
+	}
+}

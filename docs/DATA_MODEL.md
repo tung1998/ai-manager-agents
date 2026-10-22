@@ -308,6 +308,7 @@ Index `(day, agent_id)`, `(incident_id)`. View `cost_daily` group theo `day, age
 | api_key_hint | text | 4 ký tự cuối |
 | tier_models | json | `{strong, balanced, fast}` |
 | limit_caps | json | `{five_hour, seven_day}` → % dừng nhận lượt mới (ADR-136) |
+| cli_home | text | Thư mục cấu hình (`CLAUDE_CONFIG_DIR`) của kết nối Claude Code đăng nhập tài khoản riêng; rỗng = tài khoản của máy (ADR-178) |
 | models | json | danh sách model lần kiểm tra cuối |
 | is_default, enabled | bool | |
 | status, status_detail, checked_at | text, text, ts | `unknown` \| `ok` \| `error` |

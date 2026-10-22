@@ -28,7 +28,8 @@ interface ToolStatus {
   job?: JobView
 }
 
-const props = defineProps<{ tool: 'claude' | 'codex' | 'gemini' | 'antigravity' }>()
+// provider: the connection whose account it is (one signed in to an account of its own, ADR-178)
+const props = defineProps<{ tool: 'claude' | 'codex' | 'gemini' | 'antigravity', provider?: string }>()
 const emit = defineEmits<{ ready: [boolean] }>()
 const toast = useToast()
 const { t } = useLang()
@@ -40,6 +41,7 @@ const method = ref('')
 const job = ref<JobView | null>(null)
 const code = ref('')
 const outputEl = ref<HTMLElement | null>(null)
+const query = computed(() => props.provider ? { provider: props.provider } : {})
 let timer: ReturnType<typeof setTimeout> | undefined
 
 const ready = computed(() => !!status.value?.installed && !!status.value?.auth.logged_in)
@@ -49,7 +51,7 @@ watch(disabled, (v) => { if (v) emit('ready', true) })
 async function load() {
   loadError.value = ''
   try {
-    status.value = await $fetch<ToolStatus>(`/api/cli-tools/${props.tool}`)
+    status.value = await $fetch<ToolStatus>(`/api/cli-tools/${props.tool}`, { query: query.value })
     const methods = status.value.methods
     if (!method.value) method.value = (methods.find(m => m.recommended && m.available) ?? methods.find(m => m.available))?.id ?? ''
     if (status.value.job?.state === 'running') follow(status.value.job)
@@ -88,7 +90,7 @@ function follow(j: JobView) {
 async function start(action: 'install' | 'login') {
   try {
     const body = action === 'install' ? { method: method.value } : {}
-    follow(await $fetch<JobView>(`/api/cli-tools/${props.tool}/${action}`, { method: 'POST', body }))
+    follow(await $fetch<JobView>(`/api/cli-tools/${props.tool}/${action}`, { method: 'POST', body, query: query.value }))
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })
   }
@@ -96,7 +98,7 @@ async function start(action: 'install' | 'login') {
 
 async function logout(): Promise<boolean> {
   try {
-    status.value = await $fetch<ToolStatus>(`/api/cli-tools/${props.tool}/logout`, { method: 'POST', body: {} })
+    status.value = await $fetch<ToolStatus>(`/api/cli-tools/${props.tool}/logout`, { method: 'POST', body: {}, query: query.value })
     return true
   } catch (e) {
     toast.add({ title: apiError(e), color: 'error' })

@@ -16,8 +16,27 @@ func (s *server) cliTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "tools": s.cfg.CLITools.List(r.Context())})
 }
 
+// cliHome is the config folder of the connection named by ?provider= (its
+// own account, ADR-178); "" is the machine's account.
+func (s *server) cliHome(r *http.Request) (string, error) {
+	id := r.URL.Query().Get("provider")
+	if id == "" {
+		return "", nil
+	}
+	p, err := s.cfg.Store.Providers().Get(r.Context(), id)
+	if err != nil {
+		return "", err
+	}
+	return p.CLIHome, nil
+}
+
 func (s *server) cliTool(w http.ResponseWriter, r *http.Request) {
-	st, err := s.cfg.CLITools.Status(r.Context(), r.PathValue("id"))
+	home, err := s.cliHome(r)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	st, err := s.cfg.CLITools.StatusIn(r.Context(), r.PathValue("id"), home)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -30,7 +49,8 @@ func (s *server) cliStarted(w http.ResponseWriter, r *http.Request, j *clitools.
 	case errors.Is(err, clitools.ErrBusy):
 		writeError(w, http.StatusConflict, err.Error())
 		return
-	case errors.Is(err, clitools.ErrUnknownTool), errors.Is(err, clitools.ErrUnknownMethod), errors.Is(err, clitools.ErrNotInstalled):
+	case errors.Is(err, clitools.ErrUnknownTool), errors.Is(err, clitools.ErrUnknownMethod), errors.Is(err, clitools.ErrNotInstalled),
+		errors.Is(err, clitools.ErrNoHome):
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	case err != nil:
@@ -54,25 +74,35 @@ func (s *server) cliInstall(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) cliLogin(w http.ResponseWriter, r *http.Request) {
-	j, err := s.cfg.CLITools.Login(r.PathValue("id"))
+	home, err := s.cliHome(r)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	j, err := s.cfg.CLITools.LoginIn(r.PathValue("id"), home)
 	s.cliStarted(w, r, j, err, "login")
 }
 
 func (s *server) cliLogout(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	switch err := s.cfg.CLITools.Logout(r.Context(), id); {
+	home, err := s.cliHome(r)
+	if err != nil {
+		s.writeDomainError(w, r, err)
+		return
+	}
+	switch err := s.cfg.CLITools.LogoutIn(r.Context(), id, home); {
 	case errors.Is(err, clitools.ErrBusy):
 		writeError(w, http.StatusConflict, err.Error())
 		return
-	case errors.Is(err, clitools.ErrUnknownTool), errors.Is(err, clitools.ErrNotInstalled):
+	case errors.Is(err, clitools.ErrUnknownTool), errors.Is(err, clitools.ErrNotInstalled), errors.Is(err, clitools.ErrNoHome):
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.auditAction(r, "cli.logout", id, nil)
-	st, _ := s.cfg.CLITools.Status(r.Context(), id)
+	s.auditAction(r, "cli.logout", id, map[string]any{"provider": r.URL.Query().Get("provider")})
+	st, _ := s.cfg.CLITools.StatusIn(r.Context(), id, home)
 	writeJSON(w, http.StatusOK, st)
 }
 

@@ -2572,3 +2572,14 @@ Sau khi đưa vào dùng, rà soát phát hiện bản đầu tính quyền *l�
   - Chuyên gia trả lời trong một chat ẩn (`Purpose = "consult"`) của project mình, luôn Chỉ đọc, chỉ có `recall` và `data_*`, chi phí tính vào project đó. Câu trả lời vào chat hỏi thành tin của chuyên gia (nhãn Chuyên gia), agent hỏi được gọi lại. Bảng `consults` giữ từng câu hỏi; hết 30 phút không trả lời thì báo lỗi.
   - Giữa hai office: `/api/peer/consult`, `/api/peer/consult/answer` (office bản cũ từ chối). Không bao giờ hỏi trợ lý office.
   - **Ghép nối bằng địa chỉ:** Office khác → Kết nối tới office (địa chỉ, chọn project chia sẻ). Bên kia thấy yêu cầu trên chuông và trang Office khác, so **mã so khớp**, bấm Chấp nhận. `/api/peer/request` (công khai, giới hạn), `/api/peer/request/answer` (xác thực bằng khóa bên hỏi cấp). Mã mời `ofi_` giữ nguyên.
+
+## ADR-178: Nhiều tài khoản Claude Code trên một máy
+- **Bối cảnh (22/10):** người dùng có nhiều subscription Claude và muốn office dùng song song trên cùng một máy. Trước đây mọi kết nối Claude Code dùng chung tài khoản của `~/.claude`: "Đăng nhập lại" thay tài khoản của tất cả.
+- **Quyết định:**
+  - Đăng nhập tài khoản Claude khác thì **tạo một kết nối Claude Code mới**: bật công tắc *Đăng nhập tài khoản Claude khác* trong form Thêm kết nối, hoặc chọn mục cùng tên ở menu ⋯ / hộp Tài khoản đăng nhập của kết nối Claude. Kết nối mới nhận thư mục `<office>/accounts/<provider id>` (`providers.cli_home`), mọi lệnh `claude` của nó chạy với `CLAUDE_CONFIG_DIR` đó (lượt chat, tóm gọn phiên, kiểm tra, đăng nhập/đăng xuất). Kết nối cũ (`cli_home` rỗng) giữ nguyên tài khoản của máy.
+  - Thư mục mới link sẵn phần cài đặt dùng chung với `~/.claude`: `settings.json`, `*.md`, `skills`, `agents`, `commands`, `plugins`, `hooks`, `output-styles` và `projects` (lượt chuyển sang tài khoản khác vẫn `--resume` được). Không link credentials, bản sao `.claude.json`, policy và remote settings của tổ chức. Mỗi lần đăng nhập thì link thêm những mục mới xuất hiện.
+  - Giới hạn 5 giờ/tuần và ngưỡng dừng (ADR-136) tự tách theo kết nối. Kết nối dự phòng của agent có thể là tài khoản khác.
+  - Xóa kết nối thì đăng xuất trước (macOS giữ credentials trong Keychain), sau đó xóa thư mục.
+- **Lý do:** `CLAUDE_CONFIG_DIR` tách cả tài khoản lẫn Keychain (đã thử với Claude Code 2.1.307). Cách này dùng lại luồng đăng nhập có sẵn trên dashboard và không phải lưu token.
+- **Phương án đã loại:** token `claude setup-token` lưu trong kết nối (`CLAUDE_CODE_OAUTH_TOKEN`): token chỉ dùng để gọi model, `auth status` không cho biết là tài khoản nào, phải dán token bằng tay. Link toàn bộ `~/.claude`: sẽ lẫn bản sao `.claude.json` và policy của tài khoản chính.
+- **Giới hạn:** MCP server cấp user nằm trong `~/.claude.json`, gắn với tài khoản, nên kết nối tài khoản riêng không có.

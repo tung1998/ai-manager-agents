@@ -36,6 +36,15 @@ func (k ProviderKind) IsCLI() bool {
 	return k == ProviderClaudeCLI || k == ProviderCodexCLI || k == ProviderGeminiCLI || k == ProviderAntigravityCLI
 }
 
+// CLIEnv is what a connection with an account of its own adds to the CLI's
+// environment (ADR-178); nil for the machine's account.
+func (p Provider) CLIEnv() []string {
+	if p.CLIHome == "" || p.Kind != ProviderClaudeCLI {
+		return nil
+	}
+	return []string{"CLAUDE_CONFIG_DIR=" + p.CLIHome}
+}
+
 // Model tiers let templates say "strong model" without naming a vendor model.
 const (
 	TierStrong   = "strong"
@@ -48,16 +57,19 @@ func ValidTier(t string) bool { return t == TierStrong || t == TierBalanced || t
 
 // Provider is an AI connection.
 type Provider struct {
-	ID           string
-	Name         string
-	Kind         ProviderKind
-	Preset       string // catalog entry it was made from ("" = by hand)
-	BaseURL      string
-	APIKeyEnc    string // encrypted; only internal/secrets decrypts it
-	APIKeyEnv    string
-	APIKeyHint   string
-	TierModels   map[string]string
-	LimitCaps    map[string]int // usage window (five_hour, seven_day) → stop at this percent; 0/missing = off (ADR-136)
+	ID         string
+	Name       string
+	Kind       ProviderKind
+	Preset     string // catalog entry it was made from ("" = by hand)
+	BaseURL    string
+	APIKeyEnc  string // encrypted; only internal/secrets decrypts it
+	APIKeyEnv  string
+	APIKeyHint string
+	TierModels map[string]string
+	LimitCaps  map[string]int // usage window (five_hour, seven_day) → stop at this percent; 0/missing = off (ADR-136)
+	// CLIHome: a Claude Code connection signed in to an account of its own
+	// keeps its config and credentials here ("" = the machine's ~/.claude, ADR-178)
+	CLIHome      string
 	Models       []string
 	IsDefault    bool
 	Enabled      bool

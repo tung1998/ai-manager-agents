@@ -206,6 +206,7 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = req.WorkDir
+	cmd.Env = claudeEnv(req.Provider)
 	cmd.Stdin = strings.NewReader(strings.ToValidUTF8(prompt, "�")) // a stray cut byte must not make the CLI refuse the whole turn
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -384,7 +385,7 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 	res.Usage.DurationMS = time.Since(start).Milliseconds()
 	// A signed-out CLI fails before any API call: say what to do instead of
 	// leaving the chat with the CLI's own wording.
-	if (resErr != nil || werr != nil) && ctx.Err() == nil && res.Usage.InputTokens == 0 && !claudeSignedIn(bin) {
+	if (resErr != nil || werr != nil) && ctx.Err() == nil && res.Usage.InputTokens == 0 && !claudeSignedIn(bin, cmd.Env) {
 		return res, errors.New("Claude Code trên máy chưa đăng nhập (hoặc phiên hết hạn). Vào Cài đặt → Nhà cung cấp, bấm Kiểm tra rồi Đăng nhập")
 	}
 	switch {
@@ -404,10 +405,12 @@ func (r claudeRunner) run(ctx context.Context, req RunRequest, emit func(Event),
 
 // claudeSignedIn reports whether the CLI has an account; a version too old for
 // `auth status` (no JSON answer) counts as signed in, so nothing regresses.
-func claudeSignedIn(bin string) bool {
+func claudeSignedIn(bin string, env []string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "auth", "status", "--json").Output()
+	cmd := exec.CommandContext(ctx, bin, "auth", "status", "--json")
+	cmd.Env = env
+	out, err := cmd.Output()
 	if err != nil && len(out) == 0 {
 		return true
 	}
@@ -418,6 +421,15 @@ func claudeSignedIn(bin string) bool {
 		return true
 	}
 	return st.LoggedIn
+}
+
+// claudeEnv runs a connection with an account of its own in its config folder
+// (ADR-178); nil keeps the office's environment.
+func claudeEnv(p storage.Provider) []string {
+	if env := p.CLIEnv(); env != nil {
+		return append(os.Environ(), env...)
+	}
+	return nil
 }
 
 // firstJSONObject pulls the JSON object out of output that may carry warnings.
@@ -567,7 +579,7 @@ func writeMCPConfig(o *OfficeAccess) (string, error) {
 // compactClaude has Claude Code compact a session (its /compact), as it does
 // itself when a chat fills up: the session goes on, shorter. It returns the
 // tokens the session holds after.
-func compactClaude(ctx context.Context, bin, dir, model, session string) (int, error) {
+func compactClaude(ctx context.Context, bin string, env []string, dir, model, session string) (int, error) {
 	if bin == "" {
 		bin = "claude"
 	}
@@ -580,6 +592,7 @@ func compactClaude(ctx context.Context, bin, dir, model, session string) (int, e
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
+	cmd.Env = env
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()

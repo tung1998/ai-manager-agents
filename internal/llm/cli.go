@@ -97,8 +97,8 @@ func clip(s string, n int) string {
 // claudeLoggedIn reads `claude auth status --json`. ok is false only when the
 // CLI answers and says it is signed out, so a version too old for the
 // subcommand never turns a working setup into a sign-in prompt.
-func claudeLoggedIn(ctx context.Context, bin string) (ok bool, account string) {
-	out, err := run(ctx, bin, "", "auth", "status", "--json")
+func claudeLoggedIn(ctx context.Context, bin string, env []string) (ok bool, account string) {
+	out, err := runEnv(ctx, bin, "", env, "auth", "status", "--json")
 	if err != nil && strings.TrimSpace(out) == "" {
 		return true, ""
 	}
@@ -119,7 +119,10 @@ func claudeLoggedIn(ctx context.Context, bin string) (ok bool, account string) {
 
 // ---- Claude Code ----
 
-type claudeCLI struct{ bin string }
+type claudeCLI struct {
+	bin string
+	env []string // the connection's own account (ADR-178)
+}
 
 func (c *claudeCLI) Check(ctx context.Context) (CheckResult, error) {
 	out, err := run(ctx, c.bin, "", "--version")
@@ -129,7 +132,7 @@ func (c *claudeCLI) Check(ctx context.Context) (CheckResult, error) {
 	v := strings.TrimSpace(out)
 	// The binary answering says nothing about the account: an expired session
 	// only shows up when a prompt is sent, which used to read as "connected".
-	if ok, account := claudeLoggedIn(ctx, c.bin); !ok {
+	if ok, account := claudeLoggedIn(ctx, c.bin, c.env); !ok {
 		return CheckResult{}, fmt.Errorf("%s · %w: hãy bấm Đăng nhập để ký lại phiên Claude Code%s", v, ErrNeedsLogin, orPrefix(" (tài khoản cũ: ", account, ")"))
 	}
 	return CheckResult{Version: v, Models: claudeModels(ctx, c.bin), Detail: v}, nil
@@ -197,11 +200,11 @@ func (c *claudeCLI) Complete(ctx context.Context, req Request) (Result, error) {
 		args = append(args, "--append-system-prompt", req.System)
 	}
 	// The prompt goes on stdin: argv is visible in ps and has a size limit.
-	out, err := run(ctx, c.bin, req.Prompt, args...)
+	out, err := runEnv(ctx, c.bin, req.Prompt, c.env, args...)
 	if err != nil {
 		// A signed-out CLI fails before any API call (zero tokens, no cost);
 		// say so, so the dashboard can offer to sign in.
-		if ok, _ := claudeLoggedIn(ctx, c.bin); !ok {
+		if ok, _ := claudeLoggedIn(ctx, c.bin, c.env); !ok {
 			return Result{}, fmt.Errorf("%w: phiên Claude Code đã hết hạn, hãy đăng nhập lại", ErrNeedsLogin)
 		}
 		return Result{}, err

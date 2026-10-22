@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bitbucket.org/senprints/agent-office/internal/storage"
 	"context"
 	"encoding/json"
 	"os"
@@ -203,5 +204,25 @@ func TestWindowOfHaiku(t *testing.T) {
 	}
 	if w := windowOf("claude-haiku-5-5", 1_000_000); w != 1_000_000 {
 		t.Fatalf("haiku 5.5: %d", w)
+	}
+}
+
+// A connection signed in to an account of its own runs in its config folder (ADR-178).
+func TestClaudeRunsInTheConnectionsAccount(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	script := `#!/bin/sh
+cat >/dev/null
+echo '{"type":"result","subtype":"success","result":"'"$CLAUDE_CONFIG_DIR"'","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}'
+`
+	os.WriteFile(bin, []byte(script), 0o755)
+	home := filepath.Join(dir, "prv_2")
+	p := storage.Provider{Kind: storage.ProviderClaudeCLI, CLIHome: home}
+	res, err := claudeRunner{}.Run(context.Background(), RunRequest{Provider: p, Bin: bin, WorkDir: dir, Prompt: "hi"}, func(Event) {})
+	if err != nil || res.Text != home {
+		t.Fatalf("res = %+v, %v", res, err)
+	}
+	if claudeEnv(storage.Provider{Kind: storage.ProviderClaudeCLI}) != nil {
+		t.Fatal("the machine's account must keep the office's environment")
 	}
 }

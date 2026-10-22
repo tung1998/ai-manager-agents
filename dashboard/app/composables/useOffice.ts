@@ -17,6 +17,7 @@ export interface Provider {
   status: 'unknown' | 'ok' | 'error'
   status_detail: string
   checked_at: string | null
+  own_account?: boolean // signed in to a Claude account of its own (ADR-178)
 }
 
 export interface ProviderKind {

@@ -1608,7 +1608,7 @@ func (e *Engine) compactIfFull(ctx context.Context, turn *Turn, mem *storage.Cha
 		}
 	}
 	turn.emit(Event{Type: "status", Text: fmt.Sprintf("%s: phiên đã dùng %dK/%dK token, đang tóm gọn…", agent.Name, mem.ContextTokens/1000, win/1000)})
-	post, err := compactClaude(ctx, e.providers.CLIBin(p), dir, using, mem.SessionID)
+	post, err := compactClaude(ctx, e.providers.CLIBin(p), claudeEnv(p), dir, using, mem.SessionID)
 	if err != nil {
 		mem.SessionID, mem.ContextTokens = "", 0 // a new session, the recent history in its prompt
 		return

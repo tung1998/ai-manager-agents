@@ -30,7 +30,8 @@ const editing = ref<Provider | null>(null)
 const form = reactive({
   name: '', kind: 'anthropic', preset: '', base_url: '', api_key: '', api_key_env: '', keyMode: 'paste' as 'paste' | 'env',
   tier_models: { strong: '', balanced: '', fast: '' } as Record<ModelTier, string>,
-  limit_caps: { five_hour: 0, seven_day: 0 } as Record<'five_hour' | 'seven_day', number>
+  limit_caps: { five_hour: 0, seven_day: 0 } as Record<'five_hour' | 'seven_day', number>,
+  new_account: false // another Claude account, in a connection of its own (ADR-178)
 })
 const formError = ref('')
 const saving = ref(false)
@@ -41,10 +42,14 @@ const commonKinds = computed(() => kinds.value.filter(k => k.common))
 const advancedOpen = ref(false)
 const toolOf = (kind: string) => ({ claude_cli: 'claude', codex_cli: 'codex', gemini_cli: 'gemini', antigravity_cli: 'antigravity' } as Record<string, 'claude' | 'codex' | 'gemini' | 'antigravity'>)[kind]
 const cliTool = computed(() => toolOf(form.kind))
+// the sign-in of a new account comes after the connection exists
+const formCli = computed(() => form.new_account ? undefined : cliTool.value)
 // the CLI account of a provider: sign in again / sign out
 const accountOf = ref<Provider | null>(null)
 const cliReady = ref(true)
-watch(cliTool, (v) => { if (!v) cliReady.value = true })
+watch(formCli, (v) => { if (!v) cliReady.value = true })
+// a connection just made for another account: test it once signed in
+const signingIn = ref('')
 const norm = (u: string) => u.trim().replace(/\/+$/, '')
 const urlChangedWithStoredKey = computed(() => !!editing.value?.has_api_key && form.keyMode === 'paste' && !form.api_key
   && norm(form.base_url) !== norm(editing.value.base_url))
@@ -64,6 +69,7 @@ function applyKindDefaults(k: string) {
   form.keyMode = info?.detected?.env_key ? 'env' : 'paste'
   form.tier_models = { strong: '', balanced: '', fast: '', ...info?.tier_models }
   form.limit_caps = { five_hour: 0, seven_day: 0 }
+  form.new_account = false
 }
 
 // choose a connection type: a kind, or a third-party preset (an OpenAI-compatible API)
@@ -86,6 +92,15 @@ function openCreate() {
   choose(preferred?.kind ?? 'claude_cli')
   formError.value = ''
   formOpen.value = true
+}
+
+// another Claude account: a new connection, signed in right after it is made
+function openNewAccount() {
+  openCreate()
+  choose('claude_cli')
+  form.new_account = true
+  form.name = t('prov.newAccountName', { n: providers.value.filter(p => p.kind === 'claude_cli').length + 1 })
+  accountOf.value = null
 }
 // the form was opened before the kinds arrived: pick the default again
 watch(kinds, () => { if (formOpen.value && !editing.value && !form.preset && !form.name) openCreate() })
@@ -132,7 +147,8 @@ async function save() {
     api_key_env: form.keyMode === 'env' ? form.api_key_env : '',
     tier_models: Object.fromEntries(Object.entries(form.tier_models).filter(([, v]) => v)),
     // stop thresholds: only Claude Code reports its usage windows
-    ...(form.kind === 'claude_cli' ? { limit_caps: Object.fromEntries(Object.entries(form.limit_caps).map(([k, v]) => [k, Math.min(100, Math.max(0, Math.round(Number(v) || 0)))])) } : {})
+    ...(form.kind === 'claude_cli' ? { limit_caps: Object.fromEntries(Object.entries(form.limit_caps).map(([k, v]) => [k, Math.min(100, Math.max(0, Math.round(Number(v) || 0)))])) } : {}),
+    ...(!editing.value && form.kind === 'claude_cli' && form.new_account ? { new_account: true } : {})
   }
   // Only send the key when typed: omitting it keeps the stored one.
   if (form.keyMode === 'paste' && form.api_key) body.api_key = form.api_key
@@ -143,6 +159,11 @@ async function save() {
       : await $fetch<{ provider: Provider }>('/api/providers', { method: 'POST', body })
     formOpen.value = false
     await refresh()
+    if (!editing.value && form.new_account) {
+      signingIn.value = res.provider.id
+      accountOf.value = res.provider
+      return
+    }
     toast.add({ title: editing.value ? t('prov.savedConnection') : t('prov.addedConnection'), description: t('prov.checkingConnection'), color: 'success' })
     await runTest(res.provider)
   } catch (e) {
@@ -206,6 +227,15 @@ function onCliReady(ok: boolean) {
   runTest(testTarget.value, testPrompt.value)
 }
 
+// the new account signed in: check the connection (models, status)
+function onAccountReady(ok: boolean) {
+  const p = accountOf.value
+  if (!ok || !p || signingIn.value !== p.id) return
+  signingIn.value = ''
+  accountOf.value = null
+  runTest(p)
+}
+
 const settingDefault = ref<string | null>(null)
 async function setDefault(p: Provider) {
   if (settingDefault.value) return
@@ -257,6 +287,7 @@ function menu(p: Provider) {
     [
       { label: t('prov.sendTestPrompt'), icon: 'i-lucide-message-square', onSelect: () => openPromptTest(p) },
       ...(toolOf(p.kind) ? [{ label: t('prov.cliAccount'), icon: 'i-lucide-user-round-key', onSelect: () => { accountOf.value = p } }] : []),
+      ...(p.kind === 'claude_cli' ? [{ label: t('prov.newAccount'), icon: 'i-lucide-user-round-plus', onSelect: openNewAccount }] : []),
       { label: t('prov.edit'), icon: 'i-lucide-pencil', onSelect: () => openEdit(p) },
       { label: t('prov.setDefault'), icon: 'i-lucide-star', disabled: p.is_default || !!settingDefault.value, onSelect: () => setDefault(p) }
     ],
@@ -341,6 +372,7 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
               </div>
               <p class="truncate text-xs text-(--ui-text-muted)">
                 {{ presetOf(p.preset)?.name ?? kindOf(p.kind)?.label ?? p.kind }}
+                <template v-if="p.own_account"> · {{ t('prov.ownAccount') }}</template>
                 <template v-if="p.api_key_env"> · {{ t('prov.keyFromEnvPrefix') }} <code>{{ p.api_key_env }}</code></template>
                 <template v-else-if="p.has_api_key"> · {{ t('prov.keyHintPrefix') }} <code>{{ p.api_key_hint }}</code></template>
               </p>
@@ -464,7 +496,11 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
             <span class="font-medium">{{ selectedPreset?.name ?? selectedKind?.label }}</span>
           </div>
 
-          <CliSetup v-if="cliTool" :key="cliTool" :tool="cliTool" @ready="(v: boolean) => cliReady = v" />
+          <CliSetup v-if="formCli" :key="formCli" :tool="formCli" @ready="(v: boolean) => cliReady = v" />
+          <USwitch
+            v-if="!editing && form.kind === 'claude_cli'" v-model="form.new_account"
+            :label="t('prov.newAccount')" :description="t('prov.newAccountHelp')"
+          />
 
           <UFormField :label="t('prov.displayName')" required>
             <UInput v-model="form.name" class="w-full" />
@@ -554,10 +590,20 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
 
     <UModal
       :open="!!accountOf" :title="t('prov.cliAccountTitle', { name: accountOf?.name ?? '' })"
-      @update:open="(v: boolean) => { if (!v) accountOf = null }"
+      :description="signingIn && signingIn === accountOf?.id ? t('prov.loginNewAccount') : undefined"
+      @update:open="(v: boolean) => { if (!v) { accountOf = null; signingIn = '' } }"
     >
       <template #body>
-        <CliSetup v-if="accountOf && toolOf(accountOf.kind)" :key="accountOf.id" :tool="toolOf(accountOf.kind)!" />
+        <div class="space-y-3">
+          <CliSetup
+            v-if="accountOf && toolOf(accountOf.kind)" :key="accountOf.id" :tool="toolOf(accountOf.kind)!"
+            :provider="accountOf.own_account ? accountOf.id : undefined" @ready="onAccountReady"
+          />
+          <UButton
+            v-if="accountOf?.kind === 'claude_cli' && signingIn !== accountOf.id" icon="i-lucide-user-round-plus" size="xs"
+            color="neutral" variant="ghost" :label="t('prov.newAccount')" @click="openNewAccount"
+          />
+        </div>
       </template>
     </UModal>
 
@@ -574,7 +620,7 @@ const statusText = (s: string) => (s === 'ok' ? t('prov.statusOk') : s === 'erro
           <UAlert v-if="testResult && !testResult.ok" color="error" variant="subtle" :description="testResult.detail" />
           <CliSetup
             v-if="testResult?.needs_login && testResult.cli_tool" :key="testResult.cli_tool"
-            :tool="testResult.cli_tool" @ready="onCliReady"
+            :tool="testResult.cli_tool" :provider="testTarget?.own_account ? testTarget.id : undefined" @ready="onCliReady"
           />
           <div v-if="testResult?.response" class="rounded-md bg-(--ui-bg-muted) p-3 text-sm">
             <p class="whitespace-pre-wrap">{{ testResult.response.text }}</p>

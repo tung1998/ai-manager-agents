@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -118,6 +119,7 @@ func openApp(ctx context.Context, h home.Home) (*app, error) {
 		cli = clitools.NewManagerWithPath(p)
 	}
 	provs.SetBinResolver(cli.LookPath)
+	provs.SetAccountsDir(filepath.Join(h.Dir, "accounts"))
 	return &app{home: h, store: st, auth: auth.NewService(st, auth.Options{}), providers: provs, team: team.NewService(st, wf), workflows: wf, usage: u, cli: cli}, nil
 }
 

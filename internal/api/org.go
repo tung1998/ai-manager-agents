@@ -8,6 +8,7 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/perm"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -226,7 +227,7 @@ func (s *server) writeDomainError(w http.ResponseWriter, r *http.Request, err er
 	case errors.Is(err, storage.ErrConflict), errors.Is(err, provider.ErrNameTaken), errors.Is(err, provider.ErrIsDefault):
 		writeError(w, http.StatusConflict, conflictMsg(err))
 	case errors.Is(err, provider.ErrInvalidKind), errors.Is(err, provider.ErrNeedsKey), errors.Is(err, provider.ErrBadTier), errors.Is(err, provider.ErrBadCap),
-		errors.Is(err, provider.ErrKeyRequiredForNewURL),
+		errors.Is(err, provider.ErrKeyRequiredForNewURL), errors.Is(err, provider.ErrNoAccounts),
 		errors.Is(err, errBadInput):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
@@ -272,12 +273,13 @@ type providerDTO struct {
 	Status       string            `json:"status"`
 	StatusDetail string            `json:"status_detail"`
 	CheckedAt    *time.Time        `json:"checked_at"`
+	OwnAccount   bool              `json:"own_account"` // signed in to an account of its own (ADR-178)
 }
 
 func toProviderDTO(p storage.Provider) providerDTO {
 	return providerDTO{ID: p.ID, Name: p.Name, Kind: string(p.Kind), Preset: p.Preset, BaseURL: p.BaseURL, HasAPIKey: p.APIKeyEnc != "",
 		APIKeyHint: p.APIKeyHint, APIKeyEnv: p.APIKeyEnv, TierModels: p.TierModels, LimitCaps: nonNilCaps(p.LimitCaps), Models: p.Models, IsDefault: p.IsDefault,
-		Enabled: p.Enabled, Status: p.Status, StatusDetail: p.StatusDetail, CheckedAt: p.CheckedAt}
+		Enabled: p.Enabled, Status: p.Status, StatusDetail: p.StatusDetail, CheckedAt: p.CheckedAt, OwnAccount: p.CLIHome != ""}
 }
 
 func nonNilCaps(c map[string]int) map[string]int {
@@ -383,11 +385,12 @@ type providerInput struct {
 	TierModels map[string]string `json:"tier_models"`
 	LimitCaps  map[string]int    `json:"limit_caps"`
 	Enabled    *bool             `json:"enabled"`
+	NewAccount bool              `json:"new_account"` // on create (ADR-178)
 }
 
 func (in providerInput) toInput() provider.Input {
 	return provider.Input{Name: in.Name, Kind: storage.ProviderKind(in.Kind), Preset: in.Preset, BaseURL: in.BaseURL, APIKey: in.APIKey,
-		APIKeyEnv: in.APIKeyEnv, TierModels: in.TierModels, LimitCaps: in.LimitCaps, Enabled: in.Enabled}
+		APIKeyEnv: in.APIKeyEnv, TierModels: in.TierModels, LimitCaps: in.LimitCaps, Enabled: in.Enabled, NewAccount: in.NewAccount}
 }
 
 func (s *server) listProviders(w http.ResponseWriter, r *http.Request) {
@@ -443,6 +446,13 @@ func (s *server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.writeDomainError(w, r, err)
 		return
+	}
+	// an account of its own is signed out first: macOS keeps it in the
+	// Keychain, not in the folder the delete removes
+	if old.CLIHome != "" && s.cfg.CLITools != nil && !old.IsDefault {
+		if err := s.cfg.CLITools.LogoutIn(r.Context(), "claude", old.CLIHome); err != nil {
+			slog.Warn("provider delete: không đăng xuất được tài khoản", "provider_id", id, "err", err)
+		}
 	}
 	if err := s.cfg.Providers.Delete(r.Context(), id); err != nil {
 		s.writeDomainError(w, r, err)

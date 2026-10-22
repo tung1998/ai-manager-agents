@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"bitbucket.org/senprints/agent-office/internal/clitools"
+	"bitbucket.org/senprints/agent-office/internal/ids"
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/secrets"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -29,6 +32,8 @@ var (
 	// ErrIsDefault: deleting the default connection would leave every agent
 	// without ProviderID (and Default()) unable to resolve a model.
 	ErrIsDefault = errors.New("đây là kết nối mặc định, hãy chọn kết nối khác làm mặc định trước khi xóa")
+	// ErrNoAccounts: only Claude Code keeps a second account in a folder of its own.
+	ErrNoAccounts = errors.New("chỉ kết nối Claude Code đăng nhập được tài khoản riêng")
 )
 
 // Service is the provider use-case layer.
@@ -39,7 +44,12 @@ type Service struct {
 	now        func() time.Time
 	usage      *usage.Service // nil: calls are not recorded or budgeted
 	resolveBin func(string) string
+	accounts   string // where connections with an account of their own keep it (ADR-178)
 }
+
+// SetAccountsDir sets the folder that holds the config folder of each Claude
+// Code connection signed in to an account of its own.
+func (s *Service) SetAccountsDir(dir string) { s.accounts = dir }
 
 // SetBinResolver sets how CLI providers without an explicit path find their
 // binary (the CLI manager's lookup). Without it, PATH is used.
@@ -87,6 +97,9 @@ type Input struct {
 	TierModels map[string]string
 	LimitCaps  map[string]int // nil keeps the current ones (ADR-136)
 	Enabled    *bool
+	// NewAccount: a Claude Code connection signed in to another account,
+	// in a config folder of its own (on create only, ADR-178)
+	NewAccount bool
 }
 
 // CapWindows are the usage windows a stop threshold can be set on.
@@ -170,7 +183,21 @@ func (s *Service) Create(ctx context.Context, in Input) (storage.Provider, error
 		return p, err
 	}
 	p.IsDefault = len(existing) == 0
+	if in.NewAccount {
+		if p.Kind != storage.ProviderClaudeCLI || s.accounts == "" {
+			return p, ErrNoAccounts
+		}
+		p.ID = ids.New("prv")
+		p.CLIHome = filepath.Join(s.accounts, p.ID)
+		if err := clitools.PrepareHome(p.CLIHome); err != nil {
+			return p, err
+		}
+	}
+	home := p.CLIHome
 	p, err = s.store.Providers().Create(ctx, p)
+	if err != nil && home != "" {
+		_ = os.RemoveAll(home)
+	}
 	if errors.Is(err, storage.ErrConflict) {
 		return p, ErrNameTaken
 	}
@@ -205,7 +232,16 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	if p.IsDefault {
 		return ErrIsDefault
 	}
-	return s.store.Providers().Delete(ctx, id)
+	if err := s.store.Providers().Delete(ctx, id); err != nil {
+		return err
+	}
+	// its own account's folder goes with it (only ever one made here)
+	if p.CLIHome != "" && s.accounts != "" && filepath.Dir(p.CLIHome) == filepath.Clean(s.accounts) {
+		if err := os.RemoveAll(p.CLIHome); err != nil {
+			slog.Warn("provider: không xóa được thư mục tài khoản", "dir", p.CLIHome, "err", err)
+		}
+	}
+	return nil
 }
 
 // AgentsUsing returns, across every project, the agents whose own ProviderID

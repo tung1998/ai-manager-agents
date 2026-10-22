@@ -82,7 +82,7 @@ func New(p storage.Provider, apiKey string, opts Options) (Client, error) {
 		}
 		return &openAI{base: p.BaseURL, key: apiKey, http: hc}, nil
 	case storage.ProviderClaudeCLI:
-		return &claudeCLI{bin: orDefault(p.BaseURL, "claude")}, nil
+		return &claudeCLI{bin: orDefault(p.BaseURL, "claude"), env: p.CLIEnv()}, nil
 	case storage.ProviderCodexCLI:
 		return &codexCLI{bin: orDefault(p.BaseURL, "codex")}, nil
 	case storage.ProviderGeminiCLI:
