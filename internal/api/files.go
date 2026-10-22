@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -29,8 +30,9 @@ import (
 // person loaded, so it never overwrites what an agent changed meanwhile.
 
 const (
-	maxEditBytes = 1 << 20 // larger files are shown as too large, not opened
-	maxDirItems  = 1000
+	maxEditBytes   = 1 << 20  // larger files are shown as too large, not opened
+	maxUploadBytes = 10 << 20 // one uploaded file (the body limit is 15 MB of base64)
+	maxDirItems    = 1000
 )
 
 func (s *server) fileRoutes(mux *http.ServeMux, admin func(http.HandlerFunc) http.Handler) {
@@ -38,6 +40,7 @@ func (s *server) fileRoutes(mux *http.ServeMux, admin func(http.HandlerFunc) htt
 	mux.Handle("GET /api/projects/{id}/file", admin(s.readFile))
 	mux.Handle("PUT /api/projects/{id}/file", admin(s.writeFile))
 	mux.Handle("GET /api/projects/{id}/file/diff", admin(s.fileDiff))
+	mux.Handle("POST /api/projects/{id}/file/upload", admin(s.uploadFile))
 }
 
 type fileFlags struct {
@@ -278,6 +281,77 @@ func (s *server) writeFile(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, audit.Change{Action: "file.write", ResourceID: t.rel, ProjectID: r.PathValue("id"),
 		Detail: map[string]any{"bytes": len(in.Content), "created": created, "secret": f.Secret, "protected": f.Protected}})
 	writeJSON(w, http.StatusOK, map[string]any{"path": t.rel, "sha": sha([]byte(in.Content))})
+}
+
+// uploadFile puts one uploaded file (any content, base64) into the project;
+// a folder upload is one call per file. An existing file is replaced only
+// with overwrite (409 otherwise), a secret or protected one only with confirm.
+func (s *server) uploadFile(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Path      string `json:"path"`
+		Data      string `json:"data"`
+		Overwrite bool   `json:"overwrite"`
+		Confirm   bool   `json:"confirm"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	t, ok := s.fileTarget(w, r, in.Path)
+	if !ok {
+		return
+	}
+	if t.rel == "" {
+		writeError(w, http.StatusBadRequest, "thiếu đường dẫn file")
+		return
+	}
+	data, err := base64.StdEncoding.DecodeString(in.Data)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "dữ liệu file không hợp lệ")
+		return
+	}
+	if len(data) > maxUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "file quá lớn (tối đa 10 MB)")
+		return
+	}
+	f := t.flags(t.rel, false, nil)
+	if (f.Secret || f.Protected) && !in.Confirm {
+		writeError(w, http.StatusPreconditionRequired, "file bí mật hoặc được bảo vệ: cần xác nhận trước khi ghi")
+		return
+	}
+	if _, err := (chat.Workspace{Root: t.root}).Resolve(path.Dir(t.rel)); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	mode := fs.FileMode(0o644)
+	st, err := os.Stat(t.full)
+	created := errors.Is(err, os.ErrNotExist)
+	switch {
+	case err == nil:
+		if st.IsDir() {
+			writeError(w, http.StatusConflict, "đã có thư mục cùng tên")
+			return
+		}
+		if !in.Overwrite {
+			writeError(w, http.StatusConflict, "file đã tồn tại")
+			return
+		}
+		mode = st.Mode().Perm()
+	case created:
+		if err := os.MkdirAll(filepath.Dir(t.full), 0o755); err != nil {
+			s.fileError(w, r, err)
+			return
+		}
+	default:
+		s.fileError(w, r, err)
+		return
+	}
+	if err := os.WriteFile(t.full, data, mode); err != nil {
+		s.fileError(w, r, err)
+		return
+	}
+	s.audit(r, audit.Change{Action: "file.upload", ResourceID: t.rel, ProjectID: r.PathValue("id"),
+		Detail: map[string]any{"bytes": len(data), "created": created, "secret": f.Secret, "protected": f.Protected}})
+	writeJSON(w, http.StatusOK, map[string]any{"path": t.rel, "sha": sha(data)})
 }
 
 // fileDiff is the file's uncommitted change against HEAD.

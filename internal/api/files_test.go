@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"encoding/base64"
 	"net/url"
 	"os"
 	"os/exec"
@@ -83,5 +84,37 @@ func TestFileEditor(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "out.txt")); err == nil {
 			t.Fatal("wrote outside the project")
 		}
+	}
+
+	// upload: any bytes, a new folder made, an existing file only with overwrite
+	up := func(p, data string, extra map[string]any) int {
+		b := map[string]any{"path": p, "data": base64.StdEncoding.EncodeToString([]byte(data))}
+		for k, v := range extra {
+			b[k] = v
+		}
+		resp, _ := do(t, admin, "POST", base+"/file/upload", b, nil)
+		return resp.StatusCode
+	}
+	if c := up("assets/img/x.bin", "\x00\x01", nil); c != 200 {
+		t.Fatalf("upload = %d", c)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "assets/img/x.bin")); string(b) != "\x00\x01" {
+		t.Fatalf("uploaded = %q", b)
+	}
+	if c := up("a.txt", "up", nil); c != 409 {
+		t.Fatalf("upload over existing = %d", c)
+	}
+	if c := up("a.txt", "up", map[string]any{"overwrite": true}); c != 200 {
+		t.Fatalf("upload overwrite = %d", c)
+	}
+	if c := up("sub/.env", "K=3", nil); c != 428 {
+		t.Fatalf("upload secret = %d", c)
+	}
+	if c := up(".git/hooks/x", "x", nil); c == 200 {
+		t.Fatal("uploaded into .git")
+	}
+	up("../up.txt", "x", nil) // cleaned to a path inside the project
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "up.txt")); err == nil {
+		t.Fatal("uploaded outside the project")
 	}
 }

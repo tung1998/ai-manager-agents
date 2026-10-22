@@ -105,6 +105,79 @@ function newFile() {
   diff.value = null
 }
 
+// ---- upload: files or a whole folder, one request per file, into a folder asked for ----
+const fileInput = ref<HTMLInputElement | null>(null)
+const folderInput = ref<HTMLInputElement | null>(null)
+const uploading = ref<{ done: number, total: number } | null>(null)
+const MAX_UPLOAD = 10 * 1024 * 1024
+
+function toBase64(f: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).split(',')[1] ?? '')
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(f)
+  })
+}
+
+async function onPicked(e: Event) {
+  const el = e.target as HTMLInputElement
+  // a folder keeps its own name and subfolders (webkitRelativePath); .git never goes up
+  const list = Array.from(el.files ?? [])
+    .map(f => ({ f, rel: f.webkitRelativePath || f.name }))
+    .filter(x => !x.rel.split('/').includes('.git'))
+  el.value = ''
+  if (!list.length) return
+  const cur = file.value?.path.includes('/') ? file.value.path.slice(0, file.value.path.lastIndexOf('/')) : ''
+  const dirAns = prompt(t('files.uploadPrompt', { n: list.length }), cur)
+  if (dirAns === null) return
+  const dir = dirAns.trim().replace(/^\/+|\/+$/g, '')
+  let overwrite: boolean | undefined // asked once per batch
+  let sensitive: boolean | undefined
+  let ok = 0
+  const failed: string[] = []
+  uploading.value = { done: 0, total: list.length }
+  for (const { f, rel } of list) {
+    const path = dir ? `${dir}/${rel}` : rel
+    try {
+      if (f.size > MAX_UPLOAD) {
+        failed.push(`${path}: ${t('files.uploadTooLarge')}`)
+        uploading.value.done++
+        continue
+      }
+      const data = await toBase64(f)
+      const send = () => $fetch(`${base.value}/file/upload`, { method: 'POST', body: { path, data, overwrite: !!overwrite, confirm: !!sensitive } })
+      for (;;) {
+        try {
+          await send()
+          ok++
+          break
+        } catch (err) {
+          const status = (err as { status?: number }).status
+          if (status === 409 && overwrite === undefined) {
+            overwrite = confirm(t('files.uploadOverwrite', { path }))
+            if (overwrite) continue
+          } else if (status === 428 && sensitive === undefined) {
+            sensitive = confirm(t('files.confirmSensitive', { path }))
+            if (sensitive) continue
+          }
+          throw err
+        }
+      }
+    } catch (err) {
+      failed.push(`${path}: ${apiError(err)}`)
+    }
+    uploading.value.done++
+  }
+  uploading.value = null
+  if (ok) toast.add({ title: t('files.uploaded', { n: ok }), color: 'success' })
+  if (failed.length) toast.add({ title: t('files.uploadFailed', { n: failed.length }), description: failed.slice(0, 5).join('\n'), color: 'error' })
+  // show where it went: the target folder and its parents open, reloaded
+  const parts = dir ? dir.split('/') : []
+  for (let i = 1; i <= parts.length; i++) expanded.value.add(parts.slice(0, i).join('/'))
+  reloadTree()
+}
+
 async function save(confirmed = false) {
   const f = file.value
   if (!f || saving.value) return
@@ -291,6 +364,11 @@ function badges(f: Flags) {
         <USwitch v-model="showHidden" size="xs" :label="t('files.showHidden')" class="flex-1" />
         <InfoTip :text="t('files.hiddenInfo')" icon-class="size-3.5 text-(--ui-text-muted)" />
         <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-file-plus" :aria-label="t('files.newFile')" :title="t('files.newFile')" @click="newFile" />
+        <UDropdownMenu :items="[{ label: t('files.uploadFiles'), icon: 'i-lucide-file-up', onSelect: () => fileInput?.click() }, { label: t('files.uploadFolder'), icon: 'i-lucide-folder-up', onSelect: () => folderInput?.click() }]">
+          <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-upload" :loading="!!uploading" :aria-label="t('files.upload')" :title="uploading ? t('files.uploading', uploading) : t('files.upload')" />
+        </UDropdownMenu>
+        <input ref="fileInput" type="file" multiple class="hidden" @change="onPicked">
+        <input ref="folderInput" type="file" webkitdirectory class="hidden" @change="onPicked">
         <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :aria-label="t('files.refresh')" :title="t('files.refresh')" @click="reloadTree" />
       </div>
       <div class="min-h-0 flex-1 overflow-auto py-1 text-sm">

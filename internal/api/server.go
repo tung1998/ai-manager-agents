@@ -289,7 +289,7 @@ func (s *server) csrf(next http.Handler) http.Handler {
 		if r.URL.Path == "/api/transfer/import" || strings.HasPrefix(r.URL.Path, "/api/automation/") || strings.HasPrefix(r.URL.Path, "/mcp/s/") {
 			limit = 8 << 20
 		}
-		if strings.HasSuffix(r.URL.Path, "/attachments") {
+		if strings.HasSuffix(r.URL.Path, "/attachments") || strings.HasSuffix(r.URL.Path, "/file/upload") {
 			limit = 15 << 20 // 10 MB file as base64
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
