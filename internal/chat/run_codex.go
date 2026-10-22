@@ -105,6 +105,7 @@ func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (R
 	}
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, bin, args...)
+	ownGroup(cmd)
 	cmd.Dir = req.WorkDir
 	cmd.Env = cliEnv(req.Provider)
 	if req.Office != nil && !req.NoTools {

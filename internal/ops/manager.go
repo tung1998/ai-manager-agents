@@ -1,12 +1,11 @@
 package ops
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -67,8 +66,10 @@ type proc struct {
 	stopReq   bool
 	done      chan struct{} // closed when the current run exits
 	log       *os.File
-	launching bool   // Start to launch: closes the window where 2 Start calls both pass the status check
-	gen       uint64 // bumped by Stop on every call: lets launch() detect a Stop that landed between cmd.Start() and the state lock
+	dir       string    // where the current run runs
+	tail      *follower // reads the current run's output
+	launching bool      // Start to launch: closes the window where 2 Start calls both pass the status check
+	gen       uint64    // bumped by Stop on every call: lets launch() detect a Stop that landed between cmd.Start() and the state lock
 }
 
 // afterStart is a test-only hook invoked right after cmd.Start() succeeds and
@@ -91,8 +92,10 @@ type Manager struct {
 	mu    sync.Mutex
 	procs map[string]*proc
 
-	resumeFile string      // running processes saved across a restart ("" = off)
-	resume     atomic.Bool // the coming restart should start them again
+	quit       chan struct{} // closed by Detach: office goes down, its processes run on
+	detached   atomic.Bool
+	detachOnce sync.Once
+	readers    sync.WaitGroup // the followers reading the runs' output
 
 	onChange atomic.Pointer[func()] // a process started, stopped or crashed
 }
@@ -112,7 +115,10 @@ func NewManager(store storage.Store, logDir string, env []string) *Manager {
 	if env == nil {
 		env = os.Environ()
 	}
-	return &Manager{store: store, logDir: logDir, env: env, procs: map[string]*proc{}}
+	if logDir == "" {
+		logDir = filepath.Join(os.TempDir(), "office-processes")
+	}
+	return &Manager{store: store, logDir: logDir, env: env, procs: map[string]*proc{}, quit: make(chan struct{})}
 }
 
 func (m *Manager) get(id string) *proc {
@@ -234,23 +240,41 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	return err
 }
 
+// runWrapper runs the command and leaves its exit code in a file: the run
+// outlives office, and the next office (not its parent) learns how it ended.
+const runWrapper = `/bin/sh -c "$1"; c=$?; echo $c > "$2"; exit $c`
+
+func (m *Manager) file(id, ext string) string { return filepath.Join(m.logDir, id+"."+ext) }
+
 func (m *Manager) launch(p *proc, dir string, startGen uint64) error {
-	cmd := exec.Command("/bin/sh", "-c", p.def.Command)
+	id := p.def.ID
+	_ = os.MkdirAll(m.logDir, 0o700)
+	_ = os.Remove(m.file(id, "exit"))
+	// its output goes to files, not pipes to office: it writes on while office restarts
+	open := func(ext string) (*os.File, error) {
+		return os.OpenFile(m.file(id, ext), os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0o600)
+	}
+	stdout, err := open("out")
+	if err != nil {
+		return err
+	}
+	defer stdout.Close()
+	stderr, err := open("err")
+	if err != nil {
+		return err
+	}
+	defer stderr.Close()
+	cmd := exec.Command("/bin/sh", "-c", runWrapper, "office-run", p.def.Command, m.file(id, "exit"))
 	cmd.Dir = dir
 	cmd.Env = append(append([]string(nil), m.env...), "FORCE_COLOR=0", "CI=")
 	for _, k := range slices.Sorted(maps.Keys(p.def.Env)) { // the last of a key wins: its own over the office's
 		cmd.Env = append(cmd.Env, k+"="+p.def.Env[k])
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // own group: stop kills children too
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-	logFile := m.openLog(p.def.ID)
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	// a session of its own: neither office's stop signal nor its terminal
+	// closing reach it; Stop still ends its children (the group)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	logFile := m.openLog(id)
 	if beforeStart != nil {
 		beforeStart()
 	}
@@ -264,10 +288,11 @@ func (m *Manager) launch(p *proc, dir string, startGen uint64) error {
 		afterStart()
 	}
 	now := time.Now().UTC()
+	f := m.newFollower(p, 0, 0)
 	p.mu.Lock()
 	restarts := p.state.Restarts
 	stoppedMeanwhile := p.gen != startGen
-	p.cmd, p.log, p.done = cmd, logFile, make(chan struct{})
+	p.cmd, p.log, p.done, p.dir, p.tail = cmd, logFile, make(chan struct{}), dir, f
 	if stoppedMeanwhile {
 		p.stopReq = true
 		p.state = State{Status: "stopping", PID: cmd.Process.Pid, StartedAt: &now, Restarts: restarts}
@@ -277,6 +302,7 @@ func (m *Manager) launch(p *proc, dir string, startGen uint64) error {
 	}
 	pid, done := cmd.Process.Pid, p.done
 	p.mu.Unlock()
+	m.saveRun(p)
 	m.changed()
 	p.add("sys", fmt.Sprintf("$ %s  (trong %s)", p.def.Command, dir))
 	if stoppedMeanwhile {
@@ -291,41 +317,135 @@ func (m *Manager) launch(p *proc, dir string, startGen uint64) error {
 			}
 		}()
 	}
+	ended := make(chan int, 1)
+	go func() { ended <- exitCode(cmd.Wait()) }()
+	m.follow(p, f, func() (int, bool) {
+		select {
+		case code := <-ended:
+			return code, true
+		default:
+			return 0, false
+		}
+	})
+	return nil
+}
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); pump(p, "out", stdout) }()
+func exitCode(err error) int {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	} else if err != nil {
+		return -1
+	}
+	return 0
+}
+
+// follower reads a run's output from its files as it is written.
+type follower struct {
+	p     *proc
+	files [2]*tailFile
+}
+
+type tailFile struct {
+	path, stream string
+	off          int64
+	part         []byte // a line not ended yet
+}
+
+func (m *Manager) newFollower(p *proc, outOff, errOff int64) *follower {
 	errStream := "err"
 	if strings.HasPrefix(p.def.ID, "compose:") {
 		errStream = "out" // docker compose writes its normal progress to stderr
 	}
-	go func() { defer wg.Done(); pump(p, errStream, stderr) }()
-	go func() {
-		wg.Wait()
-		err := cmd.Wait()
-		m.exited(p, dir, err)
-	}()
-	return nil
+	return &follower{p: p, files: [2]*tailFile{
+		{path: m.file(p.def.ID, "out"), stream: "out", off: outOff},
+		{path: m.file(p.def.ID, "err"), stream: errStream, off: errOff},
+	}}
 }
 
-func pump(p *proc, stream string, r io.Reader) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
-	for sc.Scan() {
-		p.add(stream, ansiRe.ReplaceAllString(sc.Text(), ""))
+// read adds the lines written since the last read.
+func (f *follower) read() {
+	for _, t := range f.files {
+		fh, err := os.Open(t.path)
+		if err != nil {
+			continue
+		}
+		if st, err := fh.Stat(); err == nil && st.Size() < t.off {
+			t.off, t.part = 0, nil // cut by its size limit
+		}
+		buf := make([]byte, 64<<10)
+		for {
+			n, err := fh.ReadAt(buf, t.off)
+			t.off += int64(n)
+			t.part = append(t.part, buf[:n]...)
+			for {
+				i := bytes.IndexByte(t.part, '\n')
+				if i < 0 {
+					break
+				}
+				f.p.add(t.stream, ansiRe.ReplaceAllString(string(t.part[:i]), ""))
+				t.part = t.part[i+1:]
+			}
+			if len(t.part) > 1<<20 { // a line too long: shown in pieces
+				f.p.add(t.stream, ansiRe.ReplaceAllString(string(t.part), ""))
+				t.part = nil
+			}
+			if n == 0 || err != nil {
+				break
+			}
+		}
+		fh.Close()
+		if t.off > maxLogBytes { // a long-running server: its file starts again (what was read is in the log)
+			if os.Truncate(t.path, 0) == nil {
+				t.off = 0
+			}
+		}
 	}
 }
 
-func (m *Manager) exited(p *proc, dir string, err error) {
-	code := 0
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		code = ee.ExitCode()
-	} else if err != nil {
-		code = -1
+// flush adds what is left of unfinished lines (the run ended).
+func (f *follower) flush() {
+	for _, t := range f.files {
+		if len(t.part) > 0 {
+			f.p.add(t.stream, ansiRe.ReplaceAllString(string(t.part), ""))
+			t.part = nil
+		}
+	}
+}
+
+// follow reads a run's output until ended says it is over (and how), then
+// ends it; office going down (Detach) stops reading, the run goes on.
+func (m *Manager) follow(p *proc, f *follower, ended func() (int, bool)) {
+	m.readers.Add(1)
+	go func() {
+		defer m.readers.Done()
+		t := time.NewTicker(200 * time.Millisecond)
+		defer t.Stop()
+		for {
+			code, over := ended()
+			f.read()
+			if over {
+				f.flush()
+				m.exited(p, code)
+				return
+			}
+			select {
+			case <-m.quit:
+				return
+			case <-t.C:
+			}
+		}
+	}()
+}
+
+func (m *Manager) exited(p *proc, code int) {
+	if m.detached.Load() { // office is going down: the next one learns how it ended
+		return
 	}
 	now := time.Now().UTC()
 	p.mu.Lock()
+	dir := p.dir
+	p.tail = nil
 	ran := now.Sub(*p.state.StartedAt)
 	p.state.PID, p.state.CPU, p.state.MemBytes = 0, 0, 0
 	p.state.FinishedAt, p.state.ExitCode = &now, &code
@@ -360,6 +480,8 @@ func (m *Manager) exited(p *proc, dir string, err error) {
 		p.log = nil
 	}
 	p.mu.Unlock()
+	_ = os.Remove(m.file(p.def.ID, "run"))
+	_ = os.Remove(m.file(p.def.ID, "exit"))
 	close(done)
 	if restart {
 		time.AfterFunc(delay, func() {
@@ -399,23 +521,31 @@ func (m *Manager) Stop(id string) error {
 		m.changed()
 		return nil
 	}
-	if p.state.Status != "running" || p.cmd == nil {
+	if p.state.Status != "running" || p.state.PID <= 0 {
 		p.mu.Unlock()
 		return nil
 	}
 	p.stopReq = true
 	p.state.Status = "stopping"
-	pid, done := p.cmd.Process.Pid, p.done
+	pid, done := p.state.PID, p.done
 	p.mu.Unlock()
 	m.changed()
 	_ = syscall.Kill(-pid, syscall.SIGTERM)
-	select {
-	case <-done:
-	case <-time.After(stopGrace):
-		_ = syscall.Kill(-pid, syscall.SIGKILL)
-		<-done
+	// the whole group, not only its shell: a child ignoring SIGTERM is killed
+	deadline := time.Now().Add(stopGrace)
+	for groupRuns(pid) && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
 	}
+	if groupRuns(pid) {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	}
+	<-done
 	return nil
+}
+
+func groupRuns(pgid int) bool {
+	err := syscall.Kill(-pgid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // Restart stops then starts.
@@ -434,63 +564,152 @@ func (m *Manager) Forget(id string) {
 	m.mu.Unlock()
 }
 
-// SetResumeFile sets where the processes running at a restart are saved.
-func (m *Manager) SetResumeFile(path string) { m.resumeFile = path }
+// runFile is a run kept on disk: the next office takes it over (Adopt).
+type runFile struct {
+	PID       int             `json:"pid"`
+	Dir       string          `json:"dir"`
+	Def       storage.Process `json:"def"`
+	StartedAt time.Time       `json:"started_at"`
+	Restarts  int             `json:"restarts"`
+	Out       int64           `json:"out"` // how much of its output office has read
+	Err       int64           `json:"err"`
+}
 
-// ResumeAfterRestart asks the coming restart to start again what runs now.
-func (m *Manager) ResumeAfterRestart(on bool) { m.resume.Store(on) }
-
-// SaveResume writes the running processes for the next start, when asked to.
-// Call it right before Shutdown on a restart.
-func (m *Manager) SaveResume() {
-	if m.resumeFile == "" || !m.resume.Load() {
-		return
+func (m *Manager) saveRun(p *proc) {
+	p.mu.Lock()
+	r := runFile{PID: p.state.PID, Dir: p.dir, Def: p.def, Restarts: p.state.Restarts}
+	if p.state.StartedAt != nil {
+		r.StartedAt = *p.state.StartedAt
 	}
-	ids := []string{}
-	for _, r := range m.Running() {
-		ids = append(ids, r.ID)
+	if p.tail != nil {
+		r.Out, r.Err = p.tail.files[0].off, p.tail.files[1].off
 	}
-	if raw, err := json.Marshal(ids); err == nil {
-		_ = os.WriteFile(m.resumeFile, raw, 0o600)
+	p.mu.Unlock()
+	if raw, err := json.Marshal(r); err == nil && r.PID > 0 {
+		_ = os.WriteFile(m.file(r.Def.ID, "run"), raw, 0o600)
 	}
 }
 
-// takeResume reads and removes the processes saved at the last restart.
-func (m *Manager) takeResume() map[string]bool {
-	out := map[string]bool{}
-	if m.resumeFile == "" {
-		return out
-	}
-	raw, err := os.ReadFile(m.resumeFile)
-	if err != nil {
-		return out
-	}
-	_ = os.Remove(m.resumeFile)
-	var ids []string
-	_ = json.Unmarshal(raw, &ids)
-	for _, id := range ids {
-		out[id] = true
-	}
-	return out
+// Detach lets the processes run on as office goes down: what was read of
+// their output is noted for the next office, which takes them over.
+func (m *Manager) Detach() {
+	m.detachOnce.Do(func() {
+		m.detached.Store(true)
+		close(m.quit)
+		m.readers.Wait()
+		m.mu.Lock()
+		procs := slices.Collect(maps.Values(m.procs))
+		m.mu.Unlock()
+		for _, p := range procs {
+			p.mu.Lock()
+			live := p.state.PID > 0 && p.tail != nil
+			if p.log != nil {
+				p.log.Close()
+				p.log = nil
+			}
+			p.mu.Unlock()
+			if live {
+				m.saveRun(p)
+			}
+		}
+	})
 }
 
-// Autostart starts processes marked to start with office, and those that
-// ran when office restarted with "start them again".
+// Adopt takes over the runs the last office left (Detach); those that ended
+// meanwhile end now, as they ended.
+func (m *Manager) Adopt() {
+	files, _ := filepath.Glob(filepath.Join(m.logDir, "*.run"))
+	for _, path := range files {
+		raw, err := os.ReadFile(path)
+		var r runFile
+		if err != nil || json.Unmarshal(raw, &r) != nil || r.PID <= 0 || r.Def.ID == "" {
+			_ = os.Remove(path)
+			continue
+		}
+		exitPath := m.file(r.Def.ID, "exit")
+		alive := ours(r.PID, exitPath)
+		p := m.get(r.Def.ID)
+		started := r.StartedAt
+		p.mu.Lock()
+		p.def, p.dir, p.done = r.Def, r.Dir, make(chan struct{})
+		p.state = State{Status: "running", PID: r.PID, StartedAt: &started, Restarts: r.Restarts}
+		f := m.newFollower(p, 0, 0)
+		p.tail = f
+		p.mu.Unlock()
+		f.replay(r.Out, r.Err) // what it wrote before, shown again (the log has it already)
+		p.mu.Lock()
+		p.log = m.openLog(r.Def.ID)
+		p.mu.Unlock()
+		p.add("sys", "office khởi động lại, tiến trình vẫn chạy")
+		m.follow(p, f, func() (int, bool) {
+			if alive && running(r.PID) {
+				return 0, false
+			}
+			alive = false // once gone, a new process with its pid is not it
+			raw, err := os.ReadFile(exitPath)
+			if err != nil {
+				return -1, true // killed: no code left
+			}
+			code, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+			if err != nil {
+				code = -1
+			}
+			return code, true
+		})
+	}
+	if len(files) > 0 {
+		m.changed()
+	}
+}
+
+// replay reads the output up to the offsets (before the log is open: it has them).
+func (f *follower) replay(outOff, errOff int64) {
+	for i, end := range []int64{outOff, errOff} {
+		t := f.files[i]
+		if raw, err := os.ReadFile(t.path); err == nil {
+			end = min(end, int64(len(raw)))
+			lines := strings.Split(string(raw[:end]), "\n")
+			for _, line := range lines[:len(lines)-1] {
+				f.p.add(t.stream, ansiRe.ReplaceAllString(line, ""))
+			}
+			t.off, t.part = end, []byte(lines[len(lines)-1]) // a line not ended yet goes on with what follows
+		}
+	}
+}
+
+func running(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// ours: pid still runs, and it is the run whose exit code goes to exitPath
+// (not another process that got its pid since).
+func ours(pid int, exitPath string) bool {
+	if !running(pid) {
+		return false
+	}
+	out, err := exec.Command("ps", "-ww", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
+	return err == nil && strings.Contains(string(out), exitPath)
+}
+
+// Autostart starts processes marked to start with office.
 func (m *Manager) Autostart(ctx context.Context) {
-	resume := m.takeResume()
 	list, err := m.store.Processes().List(ctx, "")
 	if err != nil {
 		return
 	}
 	for _, d := range list {
-		if d.Autostart || resume[d.ID] {
-			_ = m.Start(ctx, d.ID)
+		if d.Autostart {
+			_ = m.Start(ctx, d.ID) // one taken over already runs
 		}
 	}
 }
 
-// Shutdown stops everything (office is exiting).
+// Shutdown stops everything (tests; office itself detaches).
 func (m *Manager) Shutdown() {
+	if m.detached.Load() {
+		return
+	}
 	m.mu.Lock()
 	ids := make([]string, 0, len(m.procs))
 	for id := range m.procs {

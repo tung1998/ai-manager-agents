@@ -2,9 +2,12 @@ package ops
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -115,38 +118,74 @@ func TestProcessEnv(t *testing.T) {
 	}
 }
 
-func TestResumeAfterRestart(t *testing.T) {
+// Office going down leaves its processes running; the next office takes
+// them over with their output, and learns how those that ended meanwhile ended.
+func TestDetachAdopt(t *testing.T) {
 	m, st, proj := setup(t)
 	ctx := context.Background()
-	file := filepath.Join(t.TempDir(), "resume.json")
-	m.SetResumeFile(file)
-	def, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "dev", Kind: "service", Command: "sleep 60"})
-	_ = m.Start(ctx, def.ID)
-
-	m.SaveResume() // not asked: nothing saved
-	m.Shutdown()
-	m.Autostart(ctx)
-	if s := m.State(def.ID).Status; s != "stopped" {
-		t.Fatalf("started without being asked: %s", s)
+	logs := m.logDir
+	dev, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "dev", Kind: "service",
+		Command: `echo before; read _ < "$GO"; echo after; sleep 60`})
+	job, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "build", Kind: "job",
+		Command: `read _ < "$GO.job"; echo built; exit 4`})
+	fifo := filepath.Join(t.TempDir(), "go")
+	if err := exec.Command("mkfifo", fifo, fifo+".job").Run(); err != nil {
+		t.Fatal(err)
 	}
+	m.env = append(os.Environ(), "GO="+fifo)
+	_ = m.Start(ctx, dev.ID)
+	_ = m.Start(ctx, job.ID)
+	waitFor(t, "first output", func() bool { lines, _, _ := m.Since(dev.ID, 0); return len(lines) > 1 })
+	pid := m.State(dev.ID).PID
+	m.Detach()
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("stopped with the office: %v", err)
+	}
+	// both go on while no office runs
+	for _, f := range []string{fifo, fifo + ".job"} {
+		w, err := os.OpenFile(f, os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Write([]byte("go\n"))
+		w.Close()
+	}
+	time.Sleep(300 * time.Millisecond)
 
-	_ = m.Start(ctx, def.ID)
-	m.ResumeAfterRestart(true)
-	m.SaveResume()
-	m.Shutdown()
-	// the next office: a new manager on the same file
-	next := NewManager(st, t.TempDir(), nil)
+	next := NewManager(st, logs, nil)
 	t.Cleanup(next.Shutdown)
-	next.SetResumeFile(file)
-	next.Autostart(ctx)
-	if s := next.State(def.ID).Status; s != "running" {
-		t.Fatalf("not resumed: %s", s)
+	next.Adopt()
+	if s := next.State(dev.ID); s.Status != "running" || s.PID != pid {
+		t.Fatalf("not taken over: %+v", s)
 	}
-	next.Shutdown()
-	next.Autostart(ctx) // the file is used once
-	if s := next.State(def.ID).Status; s != "stopped" {
-		t.Fatalf("resumed twice: %s", s)
+	waitFor(t, "output kept and followed", func() bool {
+		out := next.Tail(dev.ID, 10)
+		return strings.Count(out, "before") == 1 && strings.Contains(out, "after")
+	})
+	waitFor(t, "ended meanwhile", func() bool { return next.State(job.ID).Status == "crashed" })
+	if s := next.State(job.ID); *s.ExitCode != 4 || !strings.Contains(next.Tail(job.ID, 10), "built") {
+		t.Fatalf("job: %+v %q", s, next.Tail(job.ID, 10))
 	}
+	_ = next.Stop(dev.ID)
+	if s := next.State(dev.ID).Status; s != "stopped" {
+		t.Fatalf("stop: %s", s)
+	}
+	if syscall.Kill(pid, 0) == nil {
+		t.Fatal("still running after stop")
+	}
+}
+
+// Stop ends the whole group, a child ignoring SIGTERM too.
+func TestStopEndsGroup(t *testing.T) {
+	m, st, proj := setup(t)
+	ctx := context.Background()
+	def, _ := st.Processes().Create(ctx, storage.Process{ProjectID: proj.ID, Name: "dev", Kind: "service",
+		Command: `trap '' TERM; sleep 60`})
+	_ = m.Start(ctx, def.ID)
+	pid := m.State(def.ID).PID
+	time.Sleep(300 * time.Millisecond)
+	_ = m.Stop(def.ID)
+	waitFor(t, "the child killed (and reaped)", func() bool { return !groupRuns(pid) })
 }
 
 // A status kept in memory is told as it changes (started, ended), so the

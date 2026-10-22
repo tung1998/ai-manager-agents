@@ -112,6 +112,8 @@ func (e *Engine) SendQueued(conversationID string) {
 	switch {
 	case errors.Is(err, ErrBusy) || errors.Is(err, ErrAgentBusy):
 		return // its next end sends them
+	case errors.Is(err, ErrStopping):
+		return // the next office sends them (SendAllQueued)
 	case err != nil && !errors.As(err, &off): // off: the message and the notice are in the chat
 		if conv, cerr := e.store.Chat().GetConversation(ctx, conversationID); cerr == nil {
 			e.note(conv, "Không gửi được tin nhắn chờ ("+err.Error()+"):\n\n"+text) // i18n-ignore

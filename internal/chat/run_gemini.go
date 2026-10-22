@@ -203,6 +203,7 @@ func (geminiRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (
 	}
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, bin, args...)
+	ownGroup(cmd)
 	cmd.Dir = req.WorkDir
 	cmd.Env = env
 	// stdin that is not a terminal makes Gemini headless without -p. A

@@ -5,6 +5,9 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/officetools"
 	"context"
 	"encoding/json"
+	"os/exec"
+	"syscall"
+	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
 	"bitbucket.org/senprints/agent-office/internal/storage"
@@ -142,4 +145,17 @@ func runnerFor(kind storage.ProviderKind) Runner {
 	default:
 		return openAIRunner{official: kind == storage.ProviderOpenAI}
 	}
+}
+
+// ownGroup runs an agent's CLI in a process group of its own: the signal
+// that stops office does not reach it, office ends it itself (Shutdown) so
+// the turn goes on after the restart; a cancel ends what it started too.
+func ownGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		pid := cmd.Process.Pid
+		time.AfterFunc(5*time.Second, func() { _ = syscall.Kill(-pid, syscall.SIGKILL) }) // what ignored it
+		return syscall.Kill(-pid, syscall.SIGTERM)
+	}
+	cmd.WaitDelay = 6 * time.Second // its pipes closed even if a child keeps them
 }

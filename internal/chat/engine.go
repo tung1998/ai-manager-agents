@@ -232,6 +232,7 @@ type Engine struct {
 	wf          wfState         // workflows running in chats
 	acts        actionsProposer // the workflows' gates propose through it
 	peers       Peers           // linked projects in other offices (ADR-167; nil = none)
+	stopping    atomic.Bool     // office is going down: answers cut off now go on after it (Shutdown)
 
 	// testStepPanic: a step id runSteps' per-step goroutine panics on
 	// instead of running, for a regression test to force that path
@@ -772,6 +773,10 @@ func (e *Engine) SendWithContext(ctx context.Context, conversationID, text, page
 		wfID = r.rec.ID
 	}
 	e.mu.Lock()
+	if e.stopping.Load() { // under e.mu: Shutdown, which takes the turns under it, never misses this one
+		e.mu.Unlock()
+		return nil, storage.Message{}, ErrStopping
+	}
 	if _, busy := e.active[conv.ID]; busy {
 		e.mu.Unlock()
 		return nil, storage.Message{}, ErrBusy
@@ -950,7 +955,7 @@ func (e *Engine) finish(t *Turn) {
 	}
 	e.mu.Unlock()
 	e.running(t.ConversationID)
-	if freed {
+	if freed && !e.stopping.Load() {
 		safeGo("SendQueued", func() { e.SendQueued(t.ConversationID) }) // what the person wrote meanwhile goes now
 	}
 	// keep the turn for late subscribers, then forget it
@@ -1033,7 +1038,9 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	// worked out now with the person chatting as the actor, and saved back.
 	agentFull, agentFullBy := false, ""
 	var agentExtraDirs []string
+	origin := ""
 	if job, jerr := e.store.Jobs().Get(ctx, turn.JobID); jerr == nil {
+		origin = job.Origin
 		if job.Origin == "user" {
 			agentFull, agentFullBy = perm.EffectiveFullAccess(perm.FullAccessInput{
 				Level: level, AnswerOnly: power == assistant.ModeAnswer, ActorTrusted: e.isAdmin(ctx, turn.actor),
@@ -1273,8 +1280,19 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 		}
 	}
 	_ = e.store.Chat().UpsertMember(context.Background(), mem)
+	// cut off by office going down (not an answer that ended meanwhile): a
+	// person's turn in a project chat keeps its job running, the next office
+	// goes on with it (ResumeInterrupted); the others end as stopped turns did
+	cut := e.stopping.Load() && runErr != nil && ctx.Err() != nil
+	if cut && origin == "user" && conv.Purpose == "" && conv.TaskID == "" && !turn.background &&
+		turn.wfRun == "" && turn.wfRole == "" && turn.wfStep == "" && !turn.wfWatch {
+		turn.emit(Event{Type: "error", Text: "Office đang khởi động lại, agent làm tiếp khi office lên lại"}) // its stream ends
+		return
+	}
 	if runErr != nil && strings.TrimSpace(res.Text) == "" {
-		if errors.Is(ctx.Err(), context.Canceled) {
+		if cut {
+			runErr = errors.New("office khởi động lại khi đang trả lời, hãy nhắn lại để làm tiếp")
+		} else if errors.Is(ctx.Err(), context.Canceled) {
 			runErr = errors.New("đã dừng")
 		}
 		fail(runErr)

@@ -1,0 +1,1 @@
+[[range .Agents]]@[[.]] [[end]][office] Office restarted while you were answering, so your answer was cut off. Go on with the unfinished work from where you stopped (check first what is already done, such as the files you changed); when done, report briefly.

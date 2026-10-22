@@ -199,6 +199,11 @@ func (e *Engine) startTurn(conv storage.Conversation, project storage.Repo, s tu
 		agentID: s.agent.ID, agentName: s.agent.Name, background: s.background, delegator: s.delegator,
 		wfRun: s.wfRun, wfRole: s.wfRole, wfVote: s.wfVote, wfWatch: s.wfWatch, wfStep: s.wfStep}
 	e.mu.Lock()
+	if e.stopping.Load() { // under e.mu, as in SendWithContext
+		e.mu.Unlock()
+		cancel()
+		return nil, ErrStopping.Error()
+	}
 	key := conv.ID + "/" + s.agent.ID
 	if _, working := e.bg[key]; working { // one session, one worktree: never twice at once
 		e.mu.Unlock()

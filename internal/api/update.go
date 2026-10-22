@@ -87,35 +87,29 @@ func (s *server) updateChanges(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
-// busyWork lists work an update restart would cut off.
+// busyWork lists work an update restart would cut off: answers being
+// written (they go on after it); project processes run on.
 func (s *server) busyWork() map[string]int {
-	b := map[string]int{"chats": 0, "tasks": 0}
+	b := map[string]int{"chats": 0}
 	if s.cfg.Chat != nil {
 		b["chats"] = s.cfg.Chat.ActiveTurns()
-	}
-	if s.cfg.Ops != nil {
-		b["tasks"] = len(s.cfg.Ops.Running())
 	}
 	return b
 }
 
 func (s *server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Test   bool `json:"test"`
-		Pull   bool `json:"pull"` // bring in the remote's new commits first
-		Force  bool `json:"force"`
-		Resume bool `json:"resume"` // start the running processes again after the restart
+		Test  bool `json:"test"`
+		Pull  bool `json:"pull"` // bring in the remote's new commits first
+		Force bool `json:"force"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	if b := s.busyWork(); !in.Force && (b["chats"] > 0 || b["tasks"] > 0) {
+	if b := s.busyWork(); !in.Force && b["chats"] > 0 {
 		writeJSON(w, http.StatusConflict, map[string]any{"code": "busy", "busy": b,
-			"error": fmt.Sprintf("Đang có %d lượt chat và %d tiến trình chạy; khởi động lại sẽ cắt ngang chúng", b["chats"], b["tasks"])})
+			"error": fmt.Sprintf("Đang có %d lượt chat trả lời; khởi động lại sẽ ngắt chúng, office lên lại thì chúng tự làm tiếp", b["chats"])})
 		return
-	}
-	if s.cfg.Ops != nil {
-		s.cfg.Ops.ResumeAfterRestart(in.Resume)
 	}
 	if err := s.cfg.Updater.Start(selfupdate.Options{Test: in.Test, Pull: in.Pull}); err != nil {
 		if errors.Is(err, selfupdate.ErrBusy) {
@@ -125,7 +119,7 @@ func (s *server) startUpdate(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	s.auditAction(r, "system.update", "", map[string]any{"test": in.Test, "pull": in.Pull, "force": in.Force, "resume": in.Resume})
+	s.auditAction(r, "system.update", "", map[string]any{"test": in.Test, "pull": in.Pull, "force": in.Force})
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 

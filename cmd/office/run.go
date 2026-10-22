@@ -57,6 +57,10 @@ const worktreeIdle = 3 * 24 * time.Hour
 
 // serveCmd is the API server. `office run` (the supervisor) starts it as a
 // child; it can also be run directly.
+// turnStopWait is how long office going down waits for the answers it ends
+// to save where they are (the supervisor kills it after 15s).
+const turnStopWait = 6 * time.Second
+
 func serveCmd() *cobra.Command {
 	var (
 		addr           string
@@ -109,7 +113,8 @@ func serveCmd() *cobra.Command {
 			if cliSetup {
 				cliTools = a.cli
 			}
-			// jobs cut off by the last shutdown do not run again (ADR-040)
+			// chat answers cut off by the last shutdown go on (below); other jobs do not run again (ADR-040)
+			interrupted, _ := a.store.Jobs().List(ctx, storage.JobFilter{Kind: "chat_turn", Status: "running", Limit: 200})
 			if n, err := a.store.Jobs().FailRunning(ctx, "restart", "office khởi động lại khi job đang chạy", time.Now().UTC()); err == nil && n > 0 {
 				fmt.Fprintf(cmd.ErrOrStderr(), "office: %d job đang chạy dở được đánh dấu lỗi (khởi động lại)\n", n)
 			}
@@ -139,11 +144,11 @@ func serveCmd() *cobra.Command {
 				}
 			}()
 			procs := ops.NewManager(a.store, filepath.Join(h.Dir, "logs"), a.cli.Env())
-			defer procs.Shutdown() // project processes stop with the office
+			defer procs.Detach() // project processes run on while office restarts
 			// a status lives in memory: told like a table write
 			procs.OnChange(func() { liveBus.Wrote("processes") })
 			go procs.RunSampler(ctx, 3*time.Second)
-			procs.SetResumeFile(filepath.Join(h.Dir, "resume-processes.json"))
+			procs.Adopt() // those the last office left running
 			procs.Autostart(ctx)
 			// agents read build/run/monitoring data through the office tools (MCP for Claude Code)
 			acts := actions.New(a.store, procs) // agents propose, people approve
@@ -241,7 +246,6 @@ func serveCmd() *cobra.Command {
 				return burner.AddQuests(ctx, projectID, list, start, who)
 			})
 			burner.Start(ctx)
-			chatEngine.SendAllQueued(ctx) // messages that waited in chats when office stopped
 			// questions to experts nobody answered in time fail, said in their chat (ADR-177)
 			go func() {
 				for t := time.NewTicker(5 * time.Minute); ; {
@@ -327,8 +331,18 @@ func serveCmd() *cobra.Command {
 			srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 			go sweepSessions(ctx, st, log)
 
+			ln, err := net.Listen("tcp", addr)
+			if err != nil {
+				return err
+			}
 			errCh := make(chan error, 1)
-			go func() { errCh <- srv.ListenAndServe() }()
+			go func() { errCh <- srv.Serve(ln) }()
+			// once it listens and the gateway is set (the turns reach their tools):
+			// answers cut off by the last shutdown go on, then what waited in chats
+			if n := chatEngine.ResumeInterrupted(ctx, interrupted); n > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "office: %d cuộc chat đang trả lời dở được làm tiếp (khởi động lại)\n", n)
+			}
+			chatEngine.SendAllQueued(ctx) // messages that waited in chats when office stopped
 			fmt.Fprintf(os.Stderr, "office %s · chế độ %s · dữ liệu %s · api http://%s\n", version, h.Mode, h.Dir, addr)
 
 			select {
@@ -338,15 +352,16 @@ func serveCmd() *cobra.Command {
 				}
 			case <-restart:
 				// swapped in a new build: stop cleanly and let the supervisor restart us
+				chatEngine.Shutdown(turnStopWait) // before the server: a turn must not see its tools fail
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				_ = srv.Shutdown(shutdownCtx)
 				cancel()
 				gateway.Close()
-				procs.SaveResume() // before they stop: "start them again" after the restart
-				procs.Shutdown()
+				procs.Detach()
 				a.Close()
 				os.Exit(selfupdate.RestartCode)
 			case <-ctx.Done():
+				chatEngine.Shutdown(turnStopWait)
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				return srv.Shutdown(shutdownCtx)
