@@ -5,7 +5,7 @@
 interface Flags { ignored: boolean, secret: boolean, protected: boolean }
 interface Entry extends Flags { name: string, path: string, dir: boolean, size: number }
 interface Listing { entries: Entry[], hidden: number, more: number }
-interface OpenFile { path: string, size: number, flags: Flags, sha?: string, content?: string, binary?: boolean, too_large?: boolean, isNew?: boolean, preview?: { kind: 'image' | 'pdf' | 'audio' | 'video', mime: string } }
+interface OpenFile { path: string, size: number, flags: Flags, sha?: string, content?: string, binary?: boolean, too_large?: boolean, isNew?: boolean, preview?: { kind: 'image' | 'pdf' | 'document' | 'audio' | 'video', mime: string } }
 
 // git: the project's git feature is on (feature packs): the branch menu shows
 const props = withDefaults(defineProps<{ projectId: string, git?: boolean }>(), { git: true })
@@ -422,6 +422,7 @@ function badges(f: Flags) {
         <div v-if="file.preview && previewVisible" class="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-(--ui-bg) p-3">
           <img v-if="file.preview.kind === 'image'" :src="previewUrl" :alt="file.path" class="max-h-full max-w-full object-contain">
           <iframe v-else-if="file.preview.kind === 'pdf'" :src="previewUrl" :title="file.path" sandbox="allow-scripts" class="h-full min-h-[60vh] w-full border-0" />
+          <iframe v-else-if="file.preview.kind === 'document'" :src="previewUrl" :title="file.path" sandbox class="h-full min-h-[60vh] w-full border-0" />
           <audio v-else-if="file.preview.kind === 'audio'" :src="previewUrl" controls class="w-full" />
           <video v-else :src="previewUrl" controls class="max-h-full max-w-full" />
         </div>

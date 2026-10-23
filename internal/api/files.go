@@ -193,7 +193,8 @@ func previewType(name string) (filePreview, bool) {
 		".png": {"image", "image/png"}, ".jpg": {"image", "image/jpeg"}, ".jpeg": {"image", "image/jpeg"},
 		".gif": {"image", "image/gif"}, ".webp": {"image", "image/webp"}, ".avif": {"image", "image/avif"},
 		".bmp": {"image", "image/bmp"}, ".ico": {"image", "image/x-icon"}, ".svg": {"image", "image/svg+xml"},
-		".pdf": {"pdf", "application/pdf"},
+		".pdf":  {"pdf", "application/pdf"},
+		".html": {"document", "text/html; charset=utf-8"}, ".htm": {"document", "text/html; charset=utf-8"},
 		".mp3": {"audio", "audio/mpeg"}, ".wav": {"audio", "audio/wav"}, ".ogg": {"audio", "audio/ogg"},
 		".oga": {"audio", "audio/ogg"}, ".m4a": {"audio", "audio/mp4"}, ".aac": {"audio", "audio/aac"},
 		".flac": {"audio", "audio/flac"}, ".opus": {"audio", "audio/ogg"},
@@ -276,7 +277,8 @@ func (s *server) previewFile(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", p.Mime)
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'")
+	h.Set("X-Frame-Options", "SAMEORIGIN")
+	h.Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; media-src 'self'; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'")
 	h.Set("Content-Disposition", "inline; filename*=UTF-8''"+url.PathEscape(filepath.Base(t.rel)))
 	h.Set("Cache-Control", "private, no-store")
 	http.ServeContent(w, r, "", st.ModTime(), f)

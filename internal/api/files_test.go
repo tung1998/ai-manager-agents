@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -150,12 +151,25 @@ func TestFilePreview(t *testing.T) {
 	if resp.StatusCode != http.StatusPartialContent || resp.Header.Get("Content-Type") != "image/png" || string(data) != string(image[:8]) || resp.Header.Get("Content-Security-Policy") == "" {
 		t.Fatalf("preview = %d %q %q", resp.StatusCode, resp.Header.Get("Content-Type"), data)
 	}
+	_, htmlMeta := do(t, admin, "GET", base+"/file?path=page.html", nil, nil)
+	if htmlMeta["preview"].(map[string]any)["kind"] != "document" {
+		t.Fatalf("HTML metadata = %v", htmlMeta)
+	}
 	resp, err = admin.Get(base + "/file/preview?path=page.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "text/html; charset=utf-8" || resp.Header.Get("X-Frame-Options") != "SAMEORIGIN" || !strings.Contains(resp.Header.Get("Content-Security-Policy"), "sandbox") || string(html) != "<script>alert(1)</script>" {
+		t.Fatalf("HTML preview = %d %q %q", resp.StatusCode, resp.Header.Get("Content-Type"), html)
+	}
+	resp, err = admin.Get(base + "/file/preview?path=page.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnsupportedMediaType {
-		t.Fatalf("HTML preview = %d", resp.StatusCode)
+		t.Fatalf("script preview = %d", resp.StatusCode)
 	}
 }
