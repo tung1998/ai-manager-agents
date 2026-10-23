@@ -447,6 +447,9 @@ type Message struct {
 	CreatedAt      time.Time
 	Context        string  // the page the person was on (sent to the agent as data)
 	Sender         *Sender // who wrote it from outside office (a bot's chat); nil = in office
+	// the connection and model of the run that wrote it (from runs, not stored here)
+	Provider string
+	Model    string
 }
 
 // Sender is the person who wrote to a bot (Discord, Telegram), as the

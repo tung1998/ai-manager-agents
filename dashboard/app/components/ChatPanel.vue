@@ -17,6 +17,9 @@ interface Message {
   patches: Patch[]
   actions?: ProposedAction[]
   cost_usd?: number
+  // the connection and model that wrote it
+  provider?: string
+  model?: string
   // sent by an agent from another chat (send_to_chat, a linked project's
   // report back): who, from which project and chat; a report's text folded
   relay?: { agent: string, project: string, project_id: string, conversation_id: string, title: string, report: boolean, url?: string }
@@ -1120,6 +1123,7 @@ onBeforeUnmount(() => {
                 </button>
               </UDropdownMenu>
             </div>
+            <div v-if="m.provider || m.model" class="-mt-1.5 truncate ps-8 text-[11px] text-(--ui-text-dimmed)">{{ [m.provider, m.model].filter(Boolean).join(' · ') }}</div>
             <details v-if="m.tools.length" class="text-xs text-(--ui-text-muted)">
               <summary class="cursor-pointer">{{ t('chat.toolsUsed', { n: m.tools.length }) }}</summary>
               <ul class="mt-1 space-y-0.5 ps-4">

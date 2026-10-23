@@ -316,8 +316,9 @@ func senderJSON(s *storage.Sender) string {
 }
 
 func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]storage.Message, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, conversation_id, role, content, tools, attachments, run_id, author, created_at, context, agent_id, sender
-		FROM messages WHERE conversation_id=? ORDER BY created_at, id`, conversationID)
+	rows, err := r.db.QueryContext(ctx, `SELECT m.id, m.conversation_id, m.role, m.content, m.tools, m.attachments, m.run_id, m.author, m.created_at, m.context, m.agent_id, m.sender,
+		COALESCE(r.provider_name, ''), COALESCE(r.model, '')
+		FROM messages m LEFT JOIN runs r ON r.id = m.run_id WHERE m.conversation_id=? ORDER BY m.created_at, m.id`, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +331,7 @@ func (r chatRepo) ListMessages(ctx context.Context, conversationID string) ([]st
 			sender               string
 			run                  sql.NullString
 		)
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &tools, &atts, &run, &m.Author, &created, &m.Context, &m.AgentID, &sender); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &tools, &atts, &run, &m.Author, &created, &m.Context, &m.AgentID, &sender, &m.Provider, &m.Model); err != nil {
 			return nil, err
 		}
 		m.RunID = run.String

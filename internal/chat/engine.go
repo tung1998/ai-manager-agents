@@ -74,8 +74,10 @@ type MessageDTO struct {
 	Patches     []PatchDTO           `json:"patches"`
 	Actions     []ActionDTO          `json:"actions"`
 	CostUSD     *float64             `json:"cost_usd,omitempty"`
-	Relay       *Relay               `json:"relay,omitempty"`   // sent by an agent from another chat: who, from which project and chat
-	Consult     *Consult             `json:"consult,omitempty"` // an expert's answer to a question asked here (ADR-177)
+	Relay       *Relay               `json:"relay,omitempty"`    // sent by an agent from another chat: who, from which project and chat
+	Consult     *Consult             `json:"consult,omitempty"`  // an expert's answer to a question asked here (ADR-177)
+	Provider    string               `json:"provider,omitempty"` // the connection that wrote it
+	Model       string               `json:"model,omitempty"`
 }
 
 // PatchDTO is a proposed change.
@@ -1300,12 +1302,13 @@ func (e *Engine) run(ctx context.Context, turn *Turn, conv storage.Conversation,
 	}
 	msg, err := e.store.Chat().AddMessage(context.Background(), storage.Message{
 		ConversationID: conv.ID, Role: "assistant", Content: res.Text, Tools: res.Tools, RunID: runID, Author: agent.Name, AgentID: agent.ID,
+		Provider: p.Name, Model: model,
 	})
 	if err != nil {
 		fail(err)
 		return
 	}
-	dto := MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Tools: msg.Tools, Attachments: []storage.Attachment{}, Author: msg.Author, CreatedAt: msg.CreatedAt, CostUSD: cost, Patches: []PatchDTO{}, Actions: []ActionDTO{}}
+	dto := MessageDTO{ID: msg.ID, Role: msg.Role, Content: msg.Content, Tools: msg.Tools, Attachments: []storage.Attachment{}, Author: msg.Author, CreatedAt: msg.CreatedAt, CostUSD: cost, Provider: msg.Provider, Model: msg.Model, Patches: []PatchDTO{}, Actions: []ActionDTO{}}
 	// operations the agent proposed during this run belong to its answer
 	seq := e.cardsBefore(context.Background(), conv.ID, msg.ID)
 	if acts, err := e.store.Actions().List(context.Background(), "", "", turn.ID); err == nil {
@@ -1663,7 +1666,7 @@ func (e *Engine) History(ctx context.Context, conversationID string) ([]MessageD
 	out := make([]MessageDTO, 0, len(msgs))
 	names := map[string]string{} // project names, for older relayed messages
 	for _, m := range msgs {
-		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID], Relay: RelayOf(m), Consult: ConsultOf(m)}
+		d := MessageDTO{ID: m.ID, Role: m.Role, Content: m.Content, Tools: m.Tools, Attachments: nonNilAtt(m.Attachments), Author: m.Author, Sender: m.Sender, CreatedAt: m.CreatedAt, Patches: byMsg[m.ID], Relay: RelayOf(m), Consult: ConsultOf(m), Provider: m.Provider, Model: m.Model}
 		e.fillRelay(ctx, d.Relay, names)
 		if d.Patches == nil {
 			d.Patches = []PatchDTO{}
