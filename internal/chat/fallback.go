@@ -113,17 +113,20 @@ func (e *Engine) overLimit(ctx context.Context, providerID string) bool {
 }
 
 func overNow(l Limits, now time.Time) bool {
-	if l.Status == "rejected" && len(l.Windows) == 0 {
-		// Rejected without window detail: no reset time to trust, so treat the
-		// rejection as valid for a short cooldown instead of ignoring it.
-		return l.UpdatedAt.Add(RejectedCooldown).After(now)
-	}
+	hasFullWindow := false
 	for _, w := range l.Windows {
-		if w.ResetsAt.After(now) && (l.Status == "rejected" || w.Utilization >= 1) {
+		if w.Utilization < 1 {
+			continue
+		}
+		hasFullWindow = true
+		if w.ResetsAt.After(now) {
 			return true
 		}
 	}
-	return false
+	// A rejected report with no full window has no reliable reset time.
+	// Once a reported full window resets, a still-open weekly window with
+	// spare capacity must not keep the connection behind its fallback.
+	return l.Status == "rejected" && !hasFullWindow && l.UpdatedAt.Add(RejectedCooldown).After(now)
 }
 
 // RejectedCooldown is how long a provider stays deprioritized/blocked after a

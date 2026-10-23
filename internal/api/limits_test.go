@@ -18,7 +18,10 @@ func TestProviderLimits(t *testing.T) {
 	pid := body["provider"].(map[string]any)["id"].(string)
 	reset := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
 	e.st.Settings().Set(context.Background(), chat.LimitsKey(pid), chat.Limits{Status: "allowed", UpdatedAt: time.Now().UTC(),
-		Windows: map[string]chat.LimitWindow{"five_hour": {Utilization: 0.19, ResetsAt: reset}}})
+		Windows: map[string]chat.LimitWindow{
+			"five_hour": {Utilization: 0.19, ResetsAt: reset},
+			"expired":   {Utilization: 1, ResetsAt: time.Now().Add(-time.Minute)},
+		}})
 	member := e.client(t)
 	login(t, e, member, "member@x.io", "member-password")
 	resp, body := do(t, member, "GET", e.srv.URL+"/api/providers/limits", nil, nil)
@@ -28,7 +31,7 @@ func TestProviderLimits(t *testing.T) {
 	}
 	l := list[0].(map[string]any)
 	w := l["windows"].(map[string]any)["five_hour"].(map[string]any)
-	if l["provider_id"] != pid || l["provider_name"] != "CC" || l["is_default"] != true || w["utilization"] != 0.19 {
+	if l["provider_id"] != pid || l["provider_name"] != "CC" || l["is_default"] != true || w["utilization"] != 0.19 || len(l["windows"].(map[string]any)) != 1 {
 		t.Fatalf("entry = %v", l)
 	}
 }

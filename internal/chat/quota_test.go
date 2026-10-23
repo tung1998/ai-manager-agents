@@ -24,3 +24,21 @@ func TestLimitsFromError(t *testing.T) {
 		t.Fatalf("already reported: %+v", l)
 	}
 }
+
+func TestRejectedFiveHourResetDoesNotWaitForWeeklyReset(t *testing.T) {
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	l := Limits{Status: "rejected", UpdatedAt: now.Add(-time.Hour), Windows: map[string]LimitWindow{
+		"five_hour": {Utilization: 1, ResetsAt: now.Add(time.Minute)},
+		"seven_day": {Utilization: 0.4, ResetsAt: now.Add(3 * 24 * time.Hour)},
+	}}
+	if !overNow(l, now) {
+		t.Fatal("five-hour limit has not reset yet")
+	}
+	if overNow(l, now.Add(2*time.Minute)) {
+		t.Fatal("weekly window with spare capacity kept the primary connection deprioritized")
+	}
+	l.Windows["seven_day"] = LimitWindow{Utilization: 1, ResetsAt: now.Add(3 * 24 * time.Hour)}
+	if !overNow(l, now.Add(2*time.Minute)) {
+		t.Fatal("full weekly window must still hold the connection")
+	}
+}

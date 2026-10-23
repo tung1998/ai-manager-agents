@@ -39,7 +39,19 @@ func (s *server) providerLimits(w http.ResponseWriter, r *http.Request) {
 		if err != nil || !ok || len(l.Windows) == 0 {
 			continue
 		}
-		out = append(out, dto{p.ID, p.Name, p.IsDefault, l.Status, l.Windows, l.UpdatedAt})
+		// A stored report cannot tell us the new utilization after a reset.
+		// Hide expired windows until the connection reports its new cycle.
+		active := make(map[string]chat.LimitWindow, len(l.Windows))
+		now := time.Now()
+		for name, window := range l.Windows {
+			if window.ResetsAt.After(now) {
+				active[name] = window
+			}
+		}
+		if len(active) == 0 {
+			continue
+		}
+		out = append(out, dto{p.ID, p.Name, p.IsDefault, l.Status, active, l.UpdatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"limits": out})
 }
