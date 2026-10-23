@@ -2,6 +2,8 @@ package api_test
 
 import (
 	"encoding/base64"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -116,5 +118,44 @@ func TestFileEditor(t *testing.T) {
 	up("../up.txt", "x", nil) // cleaned to a path inside the project
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "up.txt")); err == nil {
 		t.Fatal("uploaded outside the project")
+	}
+}
+
+func TestFilePreview(t *testing.T) {
+	dir := t.TempDir()
+	image := []byte("\x89PNG\r\n\x1a\npreview")
+	if err := os.WriteFile(filepath.Join(dir, "icon48.png"), image, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "page.html"), []byte("<script>alert(1)</script>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := setup(t)
+	admin := e.client(t)
+	login(t, e, admin, "admin@x.io", "admin-password")
+	_, body := do(t, admin, "POST", e.srv.URL+"/api/projects", map[string]any{"path": dir, "name": "preview"}, nil)
+	base := e.srv.URL + "/api/projects/" + body["project"].(map[string]any)["id"].(string)
+	_, meta := do(t, admin, "GET", base+"/file?path=icon48.png", nil, nil)
+	if meta["binary"] != true || meta["preview"].(map[string]any)["kind"] != "image" {
+		t.Fatalf("metadata = %v", meta)
+	}
+	req, _ := http.NewRequest("GET", base+"/file/preview?path=icon48.png", nil)
+	req.Header.Set("Range", "bytes=0-7")
+	resp, err := admin.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusPartialContent || resp.Header.Get("Content-Type") != "image/png" || string(data) != string(image[:8]) || resp.Header.Get("Content-Security-Policy") == "" {
+		t.Fatalf("preview = %d %q %q", resp.StatusCode, resp.Header.Get("Content-Type"), data)
+	}
+	resp, err = admin.Get(base + "/file/preview?path=page.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("HTML preview = %d", resp.StatusCode)
 	}
 }

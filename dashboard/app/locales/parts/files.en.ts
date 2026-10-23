@@ -21,6 +21,8 @@ const en: Record<keyof typeof vi, string> = {
   'files.uploadFailed': '{n} files failed to upload',
   'files.refresh': 'Reload',
   'files.save': 'Save',
+  'files.preview': 'Preview',
+  'files.edit': 'Edit',
   'files.revert': 'Discard changes',
   'files.saved': 'Saved {path}',
   'files.unsaved': 'Unsaved',

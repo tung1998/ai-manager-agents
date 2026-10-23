@@ -5,7 +5,7 @@
 interface Flags { ignored: boolean, secret: boolean, protected: boolean }
 interface Entry extends Flags { name: string, path: string, dir: boolean, size: number }
 interface Listing { entries: Entry[], hidden: number, more: number }
-interface OpenFile { path: string, size: number, flags: Flags, sha?: string, content?: string, binary?: boolean, too_large?: boolean, isNew?: boolean }
+interface OpenFile { path: string, size: number, flags: Flags, sha?: string, content?: string, binary?: boolean, too_large?: boolean, isNew?: boolean, preview?: { kind: 'image' | 'pdf' | 'audio' | 'video', mime: string } }
 
 // git: the project's git feature is on (feature packs): the branch menu shows
 const props = withDefaults(defineProps<{ projectId: string, git?: boolean }>(), { git: true })
@@ -70,6 +70,8 @@ const rows = computed(() => {
 const file = ref<OpenFile | null>(null)
 const draft = ref('')
 const saving = ref(false)
+const previewVisible = ref(false)
+const previewUrl = computed(() => file.value?.preview ? `${base.value}/file/preview?path=${encodeURIComponent(file.value.path)}` : '')
 const dirty = computed(() => !!file.value && file.value.content !== undefined && draft.value !== file.value.content)
 // after `file` exists: an immediate watcher runs during setup
 watch(() => props.projectId, () => { expanded.value = new Set(['']); file.value = null; reloadTree() }, { immediate: true })
@@ -87,6 +89,7 @@ async function openFile(path: string, force = false) {
     const f = await $fetch<OpenFile>(`${base.value}/file`, { query: { path } })
     if (openRequestPath !== path) return
     file.value = f
+    previewVisible.value = !!f.preview
     draft.value = f.content ?? ''
     diff.value = null
     if (showDiff.value) loadDiff()
@@ -101,6 +104,7 @@ function newFile() {
   const path = prompt(t('files.newPrompt'), dir)?.trim()
   if (!path || path.endsWith('/')) return
   file.value = { path, size: 0, flags: { ignored: false, secret: false, protected: false }, sha: '', content: '', isNew: true }
+  previewVisible.value = false
   draft.value = ''
   diff.value = null
 }
@@ -405,13 +409,23 @@ function badges(f: Flags) {
           <span class="min-w-0 flex-1 basis-40 truncate font-mono text-xs">{{ file.path }}</span>
           <UBadge v-for="b in badges(file.flags)" :key="b.label" :label="b.label" :color="b.color" variant="subtle" size="sm" />
           <UBadge v-if="dirty" :label="t('files.unsaved')" color="warning" variant="outline" size="sm" />
+          <template v-if="file.preview && file.content !== undefined">
+            <UButton size="xs" :color="previewVisible ? 'primary' : 'neutral'" :variant="previewVisible ? 'soft' : 'ghost'" :label="t('files.preview')" @click="previewVisible = true" />
+            <UButton size="xs" :color="!previewVisible ? 'primary' : 'neutral'" :variant="!previewVisible ? 'soft' : 'ghost'" :label="t('files.edit')" @click="previewVisible = false" />
+          </template>
           <template v-if="file.content !== undefined">
-            <USwitch v-model="showDiff" size="xs" :label="t('files.changes')" />
-            <UButton v-if="dirty" size="xs" color="neutral" variant="ghost" icon="i-lucide-undo-2" :label="t('files.revert')" @click="revert" />
-            <UButton size="xs" icon="i-lucide-save" :label="t('files.save')" :loading="saving" :disabled="!dirty && !file.isNew" @click="save()" />
+            <USwitch v-if="!previewVisible" v-model="showDiff" size="xs" :label="t('files.changes')" />
+            <UButton v-if="dirty && !previewVisible" size="xs" color="neutral" variant="ghost" icon="i-lucide-undo-2" :label="t('files.revert')" @click="revert" />
+            <UButton v-if="!previewVisible" size="xs" icon="i-lucide-save" :label="t('files.save')" :loading="saving" :disabled="!dirty && !file.isNew" @click="save()" />
           </template>
         </div>
-        <p v-if="file.binary" class="p-4 text-sm text-(--ui-text-muted)">{{ t('files.binary') }}</p>
+        <div v-if="file.preview && previewVisible" class="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-(--ui-bg) p-3">
+          <img v-if="file.preview.kind === 'image'" :src="previewUrl" :alt="file.path" class="max-h-full max-w-full object-contain">
+          <iframe v-else-if="file.preview.kind === 'pdf'" :src="previewUrl" :title="file.path" sandbox="allow-scripts" class="h-full min-h-[60vh] w-full border-0" />
+          <audio v-else-if="file.preview.kind === 'audio'" :src="previewUrl" controls class="w-full" />
+          <video v-else :src="previewUrl" controls class="max-h-full max-w-full" />
+        </div>
+        <p v-else-if="file.binary" class="p-4 text-sm text-(--ui-text-muted)">{{ t('files.binary') }}</p>
         <p v-else-if="file.too_large" class="p-4 text-sm text-(--ui-text-muted)">{{ t('files.tooLarge', { size: fmtSize(file.size) }) }}</p>
         <div v-else class="flex min-h-0 flex-1 flex-col">
           <div v-if="showDiff" class="max-h-[40%] shrink-0 overflow-auto border-b border-(--ui-border)">

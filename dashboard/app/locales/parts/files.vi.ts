@@ -20,6 +20,8 @@ export default {
   'files.uploadFailed': '{n} file không tải lên được',
   'files.refresh': 'Tải lại',
   'files.save': 'Lưu',
+  'files.preview': 'Xem trước',
+  'files.edit': 'Sửa',
   'files.revert': 'Bỏ thay đổi',
   'files.saved': 'Đã lưu {path}',
   'files.unsaved': 'Chưa lưu',

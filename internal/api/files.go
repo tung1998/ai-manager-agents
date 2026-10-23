@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -30,14 +31,16 @@ import (
 // person loaded, so it never overwrites what an agent changed meanwhile.
 
 const (
-	maxEditBytes   = 1 << 20  // larger files are shown as too large, not opened
-	maxUploadBytes = 10 << 20 // one uploaded file (the body limit is 15 MB of base64)
-	maxDirItems    = 1000
+	maxEditBytes    = 1 << 20  // larger files are shown as too large, not opened
+	maxUploadBytes  = 10 << 20 // one uploaded file (the body limit is 15 MB of base64)
+	maxDirItems     = 1000
+	maxPreviewBytes = 100 << 20
 )
 
 func (s *server) fileRoutes(mux *http.ServeMux, admin func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /api/projects/{id}/files", admin(s.listFiles))
 	mux.Handle("GET /api/projects/{id}/file", admin(s.readFile))
+	mux.Handle("GET /api/projects/{id}/file/preview", admin(s.previewFile))
 	mux.Handle("PUT /api/projects/{id}/file", admin(s.writeFile))
 	mux.Handle("GET /api/projects/{id}/file/diff", admin(s.fileDiff))
 	mux.Handle("POST /api/projects/{id}/file/upload", admin(s.uploadFile))
@@ -179,6 +182,28 @@ func isBinary(b []byte) bool {
 	return bytes.IndexByte(head, 0) >= 0 || !utf8.Valid(b)
 }
 
+type filePreview struct {
+	Kind string `json:"kind"`
+	Mime string `json:"mime"`
+}
+
+// Only formats the browser can display without executing project HTML or JS.
+func previewType(name string) (filePreview, bool) {
+	types := map[string]filePreview{
+		".png": {"image", "image/png"}, ".jpg": {"image", "image/jpeg"}, ".jpeg": {"image", "image/jpeg"},
+		".gif": {"image", "image/gif"}, ".webp": {"image", "image/webp"}, ".avif": {"image", "image/avif"},
+		".bmp": {"image", "image/bmp"}, ".ico": {"image", "image/x-icon"}, ".svg": {"image", "image/svg+xml"},
+		".pdf": {"pdf", "application/pdf"},
+		".mp3": {"audio", "audio/mpeg"}, ".wav": {"audio", "audio/wav"}, ".ogg": {"audio", "audio/ogg"},
+		".oga": {"audio", "audio/ogg"}, ".m4a": {"audio", "audio/mp4"}, ".aac": {"audio", "audio/aac"},
+		".flac": {"audio", "audio/flac"}, ".opus": {"audio", "audio/ogg"},
+		".mp4": {"video", "video/mp4"}, ".m4v": {"video", "video/mp4"}, ".webm": {"video", "video/webm"},
+		".ogv": {"video", "video/ogg"}, ".mov": {"video", "video/quicktime"},
+	}
+	p, ok := types[strings.ToLower(filepath.Ext(name))]
+	return p, ok
+}
+
 // readFile returns a text file's content and its sha (the version a save is based on).
 func (s *server) readFile(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.fileTarget(w, r, r.URL.Query().Get("path"))
@@ -195,6 +220,9 @@ func (s *server) readFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res := map[string]any{"path": t.rel, "size": st.Size(), "flags": t.flags(t.rel, false, gitops.Ignored(r.Context(), t.root, []string{t.rel}))}
+	if p, ok := previewType(t.rel); ok && st.Size() <= maxPreviewBytes {
+		res["preview"] = p
+	}
 	if st.Size() > maxEditBytes {
 		res["too_large"] = true
 		writeJSON(w, http.StatusOK, res)
@@ -212,6 +240,46 @@ func (s *server) readFile(w http.ResponseWriter, r *http.Request) {
 		res["content"] = string(b)
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// previewFile streams a bounded, allowlisted format to the browser. Content
+// is sandboxed because project files, including SVG and PDF, are untrusted.
+func (s *server) previewFile(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.fileTarget(w, r, r.URL.Query().Get("path"))
+	if !ok {
+		return
+	}
+	p, ok := previewType(t.rel)
+	if !ok {
+		writeError(w, http.StatusUnsupportedMediaType, "định dạng không hỗ trợ xem trước")
+		return
+	}
+	f, err := os.Open(t.full)
+	if err != nil {
+		s.fileError(w, r, err)
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		s.fileError(w, r, err)
+		return
+	}
+	if st.IsDir() {
+		writeError(w, http.StatusBadRequest, "đây là thư mục")
+		return
+	}
+	if st.Size() > maxPreviewBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "file quá lớn để xem trước")
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", p.Mime)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'")
+	h.Set("Content-Disposition", "inline; filename*=UTF-8''"+url.PathEscape(filepath.Base(t.rel)))
+	h.Set("Cache-Control", "private, no-store")
+	http.ServeContent(w, r, "", st.ModTime(), f)
 }
 
 // writeFile saves (or creates, with sha "") a text file. A sha that no longer
