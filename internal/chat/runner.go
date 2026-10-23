@@ -47,7 +47,7 @@ type RunRequest struct {
 	APIKey   string
 	Bin      string // CLI binary for CLI providers
 	// FullAccess: every tool and command on the machine, nothing asked (the
-	// office assistant as administrator, for an admin; Claude Code only)
+	// office assistant as administrator, for an admin)
 	FullAccess bool
 	Model      string
 	Effort     string // how hard it thinks (storage.Efforts; "" = the CLI's own): Claude Code and Codex, not API runs

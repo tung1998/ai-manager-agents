@@ -22,8 +22,8 @@ import (
 	"bitbucket.org/senprints/agent-office/internal/storage"
 )
 
-// codexRunner drives `codex exec` in a read-only sandbox and goes on in the
-// chat's session with `codex exec resume`, like the CLI itself.
+// codexRunner drives `codex exec` with the run's effective permissions and
+// goes on in the chat's session with `codex exec resume`, like the CLI itself.
 type codexRunner struct{}
 
 // codexTokenEnv carries the run's token to Codex's MCP client.
@@ -78,13 +78,22 @@ func (r codexRunner) Run(ctx context.Context, req RunRequest, emit func(Event)) 
 	return res, err
 }
 
+func codexSandbox(req RunRequest) string {
+	if req.NoTools {
+		return "read-only"
+	}
+	if req.FullAccess {
+		return "danger-full-access"
+	}
+	if req.Write {
+		return "workspace-write"
+	}
+	return "read-only"
+}
+
 func (codexRunner) run(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error) {
 	bin := firstNonEmpty(req.Bin, "codex")
-	sandbox := "read-only"
-	if req.Write {
-		sandbox = "workspace-write" // its worktree, or the project in direct mode
-	}
-	args := []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", sandbox, "--cd", req.WorkDir}
+	args := []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", codexSandbox(req), "--cd", req.WorkDir}
 	if req.Model != "" {
 		args = append(args, "-m", req.Model)
 	}

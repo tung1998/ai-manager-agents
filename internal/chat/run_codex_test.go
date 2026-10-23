@@ -5,11 +5,59 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"bitbucket.org/senprints/agent-office/internal/llm"
 )
+
+func TestCodexSandboxFollowsEffectivePermissions(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "codex")
+	argsFile := filepath.Join(dir, "args")
+	script := `#!/bin/sh
+printf '%s\n' "$@" > "$CODEX_TEST_ARGS"
+cat >/dev/null
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}'
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_TEST_ARGS", argsFile)
+	for _, tc := range []struct {
+		name    string
+		req     RunRequest
+		sandbox string
+	}{
+		{name: "read only", sandbox: "read-only"},
+		{name: "worktree write", req: RunRequest{Write: true}, sandbox: "workspace-write"},
+		{name: "administrator", req: RunRequest{FullAccess: true}, sandbox: "danger-full-access"},
+		{name: "administrator resume", req: RunRequest{Write: true, FullAccess: true, SessionID: "s1"}, sandbox: "danger-full-access"},
+		{name: "no tools", req: RunRequest{Write: true, FullAccess: true, NoTools: true}, sandbox: "read-only"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := tc.req
+			req.Bin, req.WorkDir, req.Prompt = bin, dir, "hi"
+			if _, err := (codexRunner{}).Run(context.Background(), req, func(Event) {}); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(argsFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := strings.Split(strings.TrimSpace(string(data)), "\n")
+			i := slices.Index(args, "--sandbox")
+			if i < 0 || i+1 == len(args) || args[i+1] != tc.sandbox {
+				t.Fatalf("args = %q, want sandbox %q", args, tc.sandbox)
+			}
+			if req.SessionID != "" && !slices.Contains(args, "resume") {
+				t.Fatalf("resume missing from args = %q", args)
+			}
+		})
+	}
+}
 
 // A JSON line over the scanner's 16MB cap must fail the run instead of
 // silently returning an empty "success" (the thread never finishes reading).
