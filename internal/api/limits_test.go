@@ -31,7 +31,7 @@ func TestProviderLimits(t *testing.T) {
 	}
 	l := list[0].(map[string]any)
 	w := l["windows"].(map[string]any)["five_hour"].(map[string]any)
-	if l["provider_id"] != pid || l["provider_name"] != "CC" || l["is_default"] != true || w["utilization"] != 0.19 || len(l["windows"].(map[string]any)) != 1 {
+	if l["provider_id"] != pid || l["provider_name"] != "CC" || l["is_default"] != true || w["utilization"] != 0.19 || l["windows"].(map[string]any)["expired"].(map[string]any)["utilization"] != 0.0 {
 		t.Fatalf("entry = %v", l)
 	}
 }
